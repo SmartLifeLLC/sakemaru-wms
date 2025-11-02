@@ -3,11 +3,18 @@
 namespace App\Filament\Pages;
 
 use App\Enums\EMenu;
+use App\Models\Sakemaru\DeliveryCourse;
+use App\Models\WmsPicker;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -159,11 +166,11 @@ class TestDataGenerator extends Page
                 ->modalHeading('Waveを生成')
                 ->modalDescription('Wave設定に基づいてピッキングタスクを生成します。')
                 ->form([
-                    \Filament\Forms\Components\DatePicker::make('date')
+                    DatePicker::make('date')
                         ->label('出荷日')
                         ->default(now())
                         ->required(),
-                    \Filament\Forms\Components\Toggle::make('reset')
+                    Toggle::make('reset')
                         ->label('既存データをリセット')
                         ->helperText('既存のWave、ピッキングタスク、予約データを削除してから生成します。')
                         ->default(true),
@@ -185,6 +192,138 @@ class TestDataGenerator extends Page
                             Notification::make()
                                 ->title('Waveを生成しました')
                                 ->body('Wave生成が完了しました。')
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('エラーが発生しました')
+                                ->body($output)
+                                ->danger()
+                                ->send();
+                        }
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
+            Action::make('generatePickerWave')
+                ->label('ピッカー別Wave生成')
+                ->icon('heroicon-o-user-group')
+                ->color('info')
+                ->requiresConfirmation()
+                ->modalHeading('ピッカー別Wave生成')
+                ->modalDescription('特定のピッカーに複数の配送コースのピッキングタスクを生成します。')
+                ->modalWidth('2xl')
+                ->form([
+                    Select::make('picker_id')
+                        ->label('ピッカー')
+                        ->options(WmsPicker::active()->get()->pluck('display_name', 'id'))
+                        ->required()
+                        ->searchable()
+                        ->reactive()
+                        ->afterStateUpdated(function (Set $set, ?int $state) {
+                            if ($state) {
+                                $picker = WmsPicker::find($state);
+                                if ($picker && $picker->default_warehouse_id) {
+                                    $set('warehouse_id', $picker->default_warehouse_id);
+                                }
+                            }
+                        }),
+
+                    Select::make('warehouse_id')
+                        ->label('倉庫')
+                        ->options(\App\Models\Sakemaru\Warehouse::pluck('name', 'id'))
+                        ->default(991)
+                        ->required()
+                        ->searchable()
+                        ->reactive(),
+
+                    Repeater::make('courses')
+                        ->label('配送コース別伝票枚数')
+                        ->schema([
+                            Select::make('course_code')
+                                ->label('配送コース')
+                                ->options(function (Get $get) {
+                                    $warehouseId = $get('../../warehouse_id');
+                                    if (!$warehouseId) {
+                                        return [];
+                                    }
+                                    return DeliveryCourse::where('warehouse_id', $warehouseId)
+                                        ->orderBy('code')
+                                        ->get()
+                                        ->mapWithKeys(fn($course) => [
+                                            $course->code => "[{$course->code}] {$course->name}"
+                                        ])
+                                        ->toArray();
+                                })
+                                ->required()
+                                ->searchable()
+                                ->distinct()
+                                ->disableOptionsWhenSelectedInSiblingRepeaterItems(),
+
+                            TextInput::make('count')
+                                ->label('伝票枚数')
+                                ->numeric()
+                                ->required()
+                                ->minValue(1)
+                                ->maxValue(20)
+                                ->default(3),
+                        ])
+                        ->columns(2)
+                        ->defaultItems(1)
+                        ->minItems(1)
+                        ->maxItems(10)
+                        ->addActionLabel('配送コースを追加')
+                        ->collapsible()
+                        ->itemLabel(function (array $state): ?string {
+                            if (isset($state['course_code'])) {
+                                $count = $state['count'] ?? 0;
+                                return "コース {$state['course_code']}: {$count}件";
+                            }
+                            return null;
+                        }),
+
+                    DatePicker::make('date')
+                        ->label('出荷日')
+                        ->default(now())
+                        ->required(),
+
+                    Toggle::make('reset')
+                        ->label('既存データをリセット')
+                        ->helperText('既存のWave、ピッキングタスク、予約データを削除してから生成します。')
+                        ->default(true),
+                ])
+                ->action(function (array $data): void {
+                    try {
+                        // Build Artisan command parameters
+                        $params = [
+                            'picker_id' => $data['picker_id'],
+                            '--warehouse-id' => $data['warehouse_id'],
+                            '--date' => $data['date'],
+                            '--courses' => array_map(
+                                fn($c) => "{$c['course_code']}:{$c['count']}",
+                                $data['courses']
+                            ),
+                        ];
+
+                        if ($data['reset']) {
+                            $params['--reset'] = true;
+                        }
+
+                        // Execute command
+                        $exitCode = Artisan::call('testdata:picker-wave', $params);
+
+                        $output = Artisan::output();
+
+                        if ($exitCode === 0) {
+                            $totalEarnings = array_sum(array_column($data['courses'], 'count'));
+                            Notification::make()
+                                ->title('ピッカー別Waveを生成しました')
+                                ->body("伝票{$totalEarnings}件、配送コース" . count($data['courses']) . "件のWaveを生成しました。")
                                 ->success()
                                 ->send();
                         } else {

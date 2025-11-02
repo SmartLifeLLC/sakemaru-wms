@@ -19,7 +19,7 @@
         </div>
 
         {{-- テストデータ生成カード --}}
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
             {{-- WMSマスタデータ生成 --}}
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                 <div class="flex items-center mb-4">
@@ -29,7 +29,7 @@
                     </h2>
                 </div>
                 <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                    WMS稼働に必要なマスタデータ（ピッキングエリア、ロケーション、在庫）を一括生成します。
+                    WMS稼働に必要なマスタデータ（ピッキングエリア、ロケーション、在庫、ピッカー）を一括生成します。
                 </p>
                 <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2 mb-4">
                     <li class="flex items-start">
@@ -43,6 +43,10 @@
                     <li class="flex items-start">
                         <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
                         <span>在庫データを複数ロット生成</span>
+                    </li>
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>テストピッカー3名を作成・タスク自動割当</span>
                     </li>
                 </ul>
                 <div class="text-sm text-gray-500 dark:text-gray-400">
@@ -109,6 +113,40 @@
                     <strong>コマンド:</strong> <code class="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">php artisan wms:generate-waves</code>
                 </div>
             </div>
+
+            {{-- ピッカー別Wave生成 --}}
+            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                <div class="flex items-center mb-4">
+                    <x-heroicon-o-user-group class="w-8 h-8 text-info-600 dark:text-info-400 mr-3" />
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                        ピッカー別Wave生成
+                    </h2>
+                </div>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    特定のピッカーに複数の配送コースのピッキングタスクを一括生成します。
+                </p>
+                <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2 mb-4">
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>ピッカー選択・タスク自動割当</span>
+                    </li>
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>配送コース別に伝票枚数指定</span>
+                    </li>
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>複数エリアの商品を含む伝票生成</span>
+                    </li>
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>伝票・Wave・タスク割当を一括実行</span>
+                    </li>
+                </ul>
+                <div class="text-sm text-gray-500 dark:text-gray-400">
+                    <strong>コマンド:</strong> <code class="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">php artisan testdata:picker-wave</code>
+                </div>
+            </div>
         </div>
 
         {{-- 使い方 --}}
@@ -116,20 +154,56 @@
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                 使い方
             </h2>
-            <ol class="list-decimal list-inside space-y-3 text-sm text-gray-600 dark:text-gray-400">
-                <li>
-                    <strong>WMSマスタ生成（最初に実行）:</strong> ヘッダーの「WMSマスタ生成」ボタンからピッキングエリア、ロケーション、在庫データを一括生成
-                </li>
-                <li>
-                    <strong>売上データ生成:</strong> 「売上データ生成」ボタンから件数と倉庫を指定してテストデータを作成
-                </li>
-                <li>
-                    <strong>Wave生成:</strong> 「Wave生成」ボタンから出荷日を指定してピッキングタスクを生成
-                </li>
-                <li>
-                    必要に応じて「既存データをリセット」オプションを使用して、既存のWaveとタスクをクリア
-                </li>
-            </ol>
+
+            <div class="space-y-6">
+                <div>
+                    <h3 class="text-md font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                        基本フロー
+                    </h3>
+                    <ol class="list-decimal list-inside space-y-3 text-sm text-gray-600 dark:text-gray-400">
+                        <li>
+                            <strong>WMSマスタ生成（最初に実行）:</strong> ヘッダーの「WMSマスタ生成」ボタンからピッキングエリア、ロケーション、在庫データを一括生成
+                        </li>
+                        <li>
+                            <strong>売上データ生成:</strong> 「売上データ生成」ボタンから件数と倉庫を指定してテストデータを作成
+                        </li>
+                        <li>
+                            <strong>Wave生成:</strong> 「Wave生成」ボタンから出荷日を指定してピッキングタスクを生成
+                        </li>
+                        <li>
+                            必要に応じて「既存データをリセット」オプションを使用して、既存のWaveとタスクをクリア
+                        </li>
+                    </ol>
+                </div>
+
+                <div>
+                    <h3 class="text-md font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                        ピッカー別Wave生成（推奨）
+                    </h3>
+                    <ol class="list-decimal list-inside space-y-3 text-sm text-gray-600 dark:text-gray-400">
+                        <li>
+                            <strong>WMSマスタ生成:</strong> 最初に「WMSマスタ生成」を実行してピッカー、在庫、ロケーションを作成
+                        </li>
+                        <li>
+                            <strong>ピッカー別Wave生成:</strong> 「ピッカー別Wave生成」ボタンをクリック
+                        </li>
+                        <li>
+                            <strong>ピッカー選択:</strong> テストしたいピッカーを選択（倉庫が自動設定されます）
+                        </li>
+                        <li>
+                            <strong>配送コース設定:</strong> 配送コースを選択し、各コースの伝票枚数を指定（複数コース追加可能）
+                        </li>
+                        <li>
+                            <strong>実行:</strong> 伝票生成→Wave生成→ピッカー割当が自動実行されます
+                        </li>
+                    </ol>
+                    <div class="mt-3 p-3 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-700 rounded">
+                        <p class="text-sm text-info-800 dark:text-info-200">
+                            <strong>💡 メリット:</strong> 同じピッカーに複数の配送コースのタスクを割り当て、異なるピッキングエリアの商品を含む実践的なテストデータを一括生成できます。
+                        </p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         {{-- 注意事項 --}}

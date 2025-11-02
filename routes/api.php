@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\PickingTaskController;
 use Illuminate\Support\Facades\Route;
 
 // All API routes require API key authentication
@@ -16,6 +17,10 @@ Route::middleware('api.key')->group(function () {
 
         // Master data endpoints will be added here
 
-        // Picking task endpoints will be added here
+        // Picking task endpoints
+        Route::get('/picking/tasks', [PickingTaskController::class, 'index']);
+        Route::post('/picking/tasks/{id}/start', [PickingTaskController::class, 'start']);
+        Route::post('/picking/tasks/{itemResultId}/update', [PickingTaskController::class, 'updateItemResult']);
+        Route::post('/picking/tasks/{id}/complete', [PickingTaskController::class, 'complete']);
     });
 });
