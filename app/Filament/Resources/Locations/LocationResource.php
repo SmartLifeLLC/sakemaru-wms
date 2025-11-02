@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Locations;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\Locations\Pages\CreateLocation;
 use App\Filament\Resources\Locations\Pages\EditLocation;
 use App\Filament\Resources\Locations\Pages\ListLocations;
@@ -20,15 +21,14 @@ class LocationResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedMapPin;
 
-    // Navigation settings
     public static function getNavigationGroup(): ?string
     {
-        return 'マスタ管理';
+        return EMenu::LOCATIONS->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return 'ロケーション';
+        return EMenu::LOCATIONS->label();
     }
 
     public static function getModelLabel(): string
@@ -43,7 +43,7 @@ class LocationResource extends Resource
 
     public static function getNavigationSort(): ?int
     {
-        return 20;
+        return EMenu::LOCATIONS->sort();
     }
 
     public static function form(Schema $schema): Schema

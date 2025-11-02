@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WaveSettings;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WaveSettings\Pages\CreateWaveSetting;
 use App\Filament\Resources\WaveSettings\Pages\EditWaveSetting;
 use App\Filament\Resources\WaveSettings\Pages\ListWaveSettings;
@@ -19,6 +20,21 @@ class WaveSettingResource extends Resource
     protected static ?string $model = WaveSetting::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenu::WAVE_SETTINGS->category()->label();
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return EMenu::WAVE_SETTINGS->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WAVE_SETTINGS->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {

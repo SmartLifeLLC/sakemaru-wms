@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Purchases;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\Purchases\Pages\CreatePurchase;
 use App\Filament\Resources\Purchases\Pages\EditPurchase;
 use App\Filament\Resources\Purchases\Pages\ListPurchases;
@@ -22,12 +23,12 @@ class PurchaseResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return '入荷';
+        return EMenu::PURCHASES->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return '予定';
+        return EMenu::PURCHASES->label();
     }
 
     public static function getModelLabel(): string
@@ -35,7 +36,12 @@ class PurchaseResource extends Resource
         return '入荷予定';
     }
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = null;
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::PURCHASES->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {

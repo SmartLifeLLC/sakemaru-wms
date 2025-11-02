@@ -125,11 +125,11 @@
     }
 
     .fi-page-main {
-        @apply py-0 my-0 -mt-2;
+        @apply py-0 my-0 -mt-1;
     }
     /* ページヘッダーの上下余白を削減 */
     .fi-page-header-main-ctn {
-        @apply py-0 my-0;
+        @apply py-0 my-0 mt-1 ;
         @apply gap-0;
 
     }
@@ -182,7 +182,7 @@
     }
 
     .fi-section-header {
-        @apply py-0 my-0;
+        @apply py-1 mt-1;
     }
 
     /* テーブルヘッダーのフォントサイズと余白を調整 */
@@ -191,12 +191,12 @@
     }
 
     .fi-ta-header {
-        @apply py-0 my-0;
+        @apply py-0 my-1;
     }
 
     /* ページ全体の上部余白を調整 */
     .fi-page {
-        @apply pt-0;
+        @apply pt-1;
     }
 
     /* テーブルとヘッダーの間隔を削減 */

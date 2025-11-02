@@ -2,11 +2,13 @@
 
 namespace App\Providers\Filament;
 
+use App\Enums\EMenuCategory;
 use Archilex\AdvancedTables\Plugin\AdvancedTablesPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationGroup;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -46,14 +48,13 @@ class AdminPanelProvider extends PanelProvider
                 AccountWidget::class,
                 FilamentInfoWidget::class,
             ])
-            ->navigationGroups([
-                '入荷',
-                '出荷',
-                '在庫',
-                '棚卸し',
-                '配送管理',
-                '管理',
-            ])
+            ->navigationGroups(
+                collect(EMenuCategory::cases())
+                    ->sortBy(fn(EMenuCategory $category) => $category->sort())
+                    ->map(fn(EMenuCategory $category) => NavigationGroup::make($category->label()))
+                    ->values()
+                    ->toArray()
+            )
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
@@ -68,7 +69,8 @@ class AdminPanelProvider extends PanelProvider
             ->plugins([
                 AdvancedTablesPlugin::make()
                     ->userViewsEnabled(false)
-//                    ->quickFiltersEnabled(false)
+                    ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
+                    ->resourceNavigationSort(1000)
 
 
                 ]

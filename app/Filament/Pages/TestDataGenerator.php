@@ -1,0 +1,207 @@
+<?php
+
+namespace App\Filament\Pages;
+
+use App\Enums\EMenu;
+use BackedEnum;
+use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Form;
+use Filament\Notifications\Notification;
+use Filament\Pages\Page;
+use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Facades\Artisan;
+
+class TestDataGenerator extends Page
+{
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBeaker;
+
+    protected string $view = 'filament.pages.test-data-generator';
+
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenu::TEST_DATA_GENERATOR->category()->label();
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return EMenu::TEST_DATA_GENERATOR->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::TEST_DATA_GENERATOR->sort();
+    }
+
+    public static function canAccess(): bool
+    {
+        // Only show in non-production environments
+        return app()->environment(['local', 'development', 'staging']);
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('generateWmsData')
+                ->label('WMSマスタ生成')
+                ->icon('heroicon-o-cube')
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading('WMSマスタデータを生成')
+                ->modalDescription('ピッキングエリア、ロケーション、在庫データを一括生成します。')
+                ->form([
+                    Select::make('warehouse_id')
+                        ->label('倉庫')
+                        ->options(\App\Models\Sakemaru\Warehouse::pluck('name', 'id'))
+                        ->default(991)
+                        ->required()
+                        ->searchable(),
+                    TextInput::make('item_count')
+                        ->label('商品数')
+                        ->helperText('在庫を生成する商品の数')
+                        ->numeric()
+                        ->default(30)
+                        ->required()
+                        ->minValue(5)
+                        ->maxValue(100),
+                ])
+                ->action(function (array $data): void {
+                    try {
+                        $exitCode = Artisan::call('testdata:wms', [
+                            '--warehouse-id' => $data['warehouse_id'],
+                            '--item-count' => $data['item_count'],
+                            '--all' => true,
+                        ]);
+
+                        $output = Artisan::output();
+
+                        if ($exitCode === 0) {
+                            Notification::make()
+                                ->title('WMSマスタデータを生成しました')
+                                ->body('ピッキングエリア、ロケーション、在庫データの生成が完了しました。')
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('エラーが発生しました')
+                                ->body($output)
+                                ->danger()
+                                ->send();
+                        }
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
+            Action::make('generateEarnings')
+                ->label('売上データ生成')
+                ->icon('heroicon-o-currency-yen')
+                ->color('success')
+                ->requiresConfirmation()
+                ->modalHeading('売上テストデータを生成')
+                ->modalDescription('BoozeCore APIを通じてテスト用の売上データを生成します。')
+                ->form([
+                    TextInput::make('count')
+                        ->label('生成件数')
+                        ->numeric()
+                        ->default(5)
+                        ->required()
+                        ->minValue(1)
+                        ->maxValue(50),
+                    Select::make('warehouse_id')
+                        ->label('倉庫')
+                        ->options(\App\Models\Sakemaru\Warehouse::pluck('name', 'id'))
+                        ->default(991)
+                        ->required()
+                        ->searchable(),
+                ])
+                ->action(function (array $data): void {
+                    try {
+                        $exitCode = Artisan::call('testdata:earnings', [
+                            '--count' => $data['count'],
+                            '--warehouse-id' => $data['warehouse_id'],
+                        ]);
+
+                        $output = Artisan::output();
+
+                        if ($exitCode === 0) {
+                            Notification::make()
+                                ->title('売上データを生成しました')
+                                ->body("{$data['count']}件のテストデータを生成しました。")
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('エラーが発生しました')
+                                ->body($output)
+                                ->danger()
+                                ->send();
+                        }
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
+            Action::make('generateWaves')
+                ->label('Wave生成')
+                ->icon('heroicon-o-queue-list')
+                ->color('primary')
+                ->requiresConfirmation()
+                ->modalHeading('Waveを生成')
+                ->modalDescription('Wave設定に基づいてピッキングタスクを生成します。')
+                ->form([
+                    \Filament\Forms\Components\DatePicker::make('date')
+                        ->label('出荷日')
+                        ->default(now())
+                        ->required(),
+                    \Filament\Forms\Components\Toggle::make('reset')
+                        ->label('既存データをリセット')
+                        ->helperText('既存のWave、ピッキングタスク、予約データを削除してから生成します。')
+                        ->default(true),
+                ])
+                ->action(function (array $data): void {
+                    try {
+                        $params = [
+                            '--date' => $data['date'],
+                        ];
+
+                        if ($data['reset']) {
+                            $params['--reset'] = true;
+                        }
+
+                        $exitCode = Artisan::call('wms:generate-waves', $params);
+                        $output = Artisan::output();
+
+                        if ($exitCode === 0) {
+                            Notification::make()
+                                ->title('Waveを生成しました')
+                                ->body('Wave生成が完了しました。')
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('エラーが発生しました')
+                                ->body($output)
+                                ->danger()
+                                ->send();
+                        }
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+        ];
+    }
+}

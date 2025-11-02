@@ -271,7 +271,7 @@ class GenerateWavesCommand extends Command
             ->leftJoin('wms_locations as wl', 'rs.location_id', '=', 'wl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
-            ->whereRaw('rs.available_quantity > COALESCE(wrs.wms_reserved_qty, 0) + COALESCE(wrs.wms_picking_qty, 0)')
+            ->whereRaw('rs.available_quantity > COALESCE(wrs.reserved_quantity, 0) + COALESCE(wrs.picking_quantity, 0)')
             // Filter by picking_unit_type: match order's quantity_type or 'BOTH'
             ->where(function ($query) use ($quantityType) {
                 $query->whereNull('wl.picking_unit_type') // Allow locations without wms_locations record
@@ -286,9 +286,9 @@ class GenerateWavesCommand extends Command
                 'rs.purchase_id',
                 'rs.price',
                 'rs.item_id',
-                DB::raw('COALESCE(wrs.wms_reserved_qty, 0) as reserved_qty'),
-                DB::raw('COALESCE(wrs.wms_picking_qty, 0) as picking_qty'),
-                DB::raw('rs.available_quantity - COALESCE(wrs.wms_reserved_qty, 0) - COALESCE(wrs.wms_picking_qty, 0) as available_for_wms'),
+                DB::raw('COALESCE(wrs.reserved_quantity, 0) as reserved_qty'),
+                DB::raw('COALESCE(wrs.picking_quantity, 0) as picking_qty'),
+                DB::raw('rs.available_quantity - COALESCE(wrs.reserved_quantity, 0) - COALESCE(wrs.picking_quantity, 0) as available_for_wms'),
                 DB::raw('COALESCE(wl.walking_order, 999999) as walking_order'), // NULL walking_order goes last
                 'wl.picking_unit_type'
             )
@@ -348,16 +348,16 @@ class GenerateWavesCommand extends Command
                         ->table('wms_real_stocks')
                         ->where('real_stock_id', $stock->real_stock_id)
                         ->update([
-                            'wms_reserved_qty' => DB::raw('wms_reserved_qty + ' . $allocQty),
+                            'reserved_quantity' => DB::raw('reserved_quantity + ' . $allocQty),
                             'updated_at' => now(),
                         ]);
                 } else {
                     // Create new record
                     DB::connection('sakemaru')->table('wms_real_stocks')->insert([
                         'real_stock_id' => $stock->real_stock_id,
-                        'wms_reserved_qty' => $allocQty,
-                        'wms_picking_qty' => 0,
-                        'wms_lock_version' => 0,
+                        'reserved_quantity' => $allocQty,
+                        'picking_quantity' => 0,
+                        'lock_version' => 0,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -474,7 +474,7 @@ class GenerateWavesCommand extends Command
                         ->table('wms_real_stocks')
                         ->where('real_stock_id', $reservation->real_stock_id)
                         ->update([
-                            'wms_reserved_qty' => DB::raw('GREATEST(wms_reserved_qty - ' . $reservation->qty_each . ', 0)'),
+                            'reserved_quantity' => DB::raw('GREATEST(reserved_quantity - ' . $reservation->qty_each . ', 0)'),
                             'updated_at' => now(),
                         ]);
                 }
@@ -493,8 +493,8 @@ class GenerateWavesCommand extends Command
             // 6. Clean up orphaned wms_real_stocks records (where reserved_qty = 0 and picking_qty = 0)
             $cleanedStocks = DB::connection('sakemaru')
                 ->table('wms_real_stocks')
-                ->where('wms_reserved_qty', 0)
-                ->where('wms_picking_qty', 0)
+                ->where('reserved_quantity', 0)
+                ->where('picking_quantity', 0)
                 ->delete();
 
             if ($cleanedStocks > 0) {

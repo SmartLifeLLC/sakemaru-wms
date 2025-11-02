@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RealStocks;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\RealStocks\Pages\CreateRealStock;
 use App\Filament\Resources\RealStocks\Pages\EditRealStock;
 use App\Filament\Resources\RealStocks\Pages\ListRealStocks;
@@ -22,12 +23,12 @@ class RealStockResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return '在庫';
+        return EMenu::REAL_STOCKS->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return '確認';
+        return EMenu::REAL_STOCKS->label();
     }
 
     public static function getModelLabel(): string
@@ -35,7 +36,10 @@ class RealStockResource extends Resource
         return '在庫';
     }
 
-    protected static ?int $navigationSort = 1;
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::REAL_STOCKS->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {

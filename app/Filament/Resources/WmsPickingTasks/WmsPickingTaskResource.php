@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickingTasks;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WmsPickingTasks\Pages\ExecuteWmsPickingTask;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingTasks;
 use App\Models\WmsPickingTask;
@@ -17,15 +18,26 @@ class WmsPickingTaskResource extends Resource
 
     protected static BackedEnum|string|null $navigationIcon = 'heroicon-o-clipboard-document-list';
 
-    protected static ?string $navigationLabel = 'ピッキング作業';
+    protected static ?string $navigationLabel = null;
 
     protected static ?string $modelLabel = 'ピッキングタスク';
 
     protected static ?string $pluralModelLabel = 'ピッキングタスク';
 
-    protected static BackedEnum|UnitEnum|string|null $navigationGroup = 'WMS作業';
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenu::PICKING_TASKS->category()->label();
+    }
 
-    protected static ?int $navigationSort = 10;
+    public static function getNavigationLabel(): string
+    {
+        return EMenu::PICKING_TASKS->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::PICKING_TASKS->sort();
+    }
 
     public static function getPages(): array
     {

@@ -1,0 +1,79 @@
+<?php
+
+namespace App\Console\Commands\TestData;
+
+use Database\Seeders\RealStockSeeder;
+use Database\Seeders\WmsLocationSeeder;
+use Database\Seeders\WmsPickingAreaSeeder;
+use Illuminate\Console\Command;
+
+class GenerateWmsTestDataCommand extends Command
+{
+    protected $signature = 'testdata:wms
+                            {--warehouse-id=991 : Warehouse ID}
+                            {--item-count=30 : Number of items to generate stock for}
+                            {--all : Generate all WMS test data (picking areas, locations, stocks)}
+                            {--picking-areas : Generate picking areas only}
+                            {--locations : Generate WMS locations only}
+                            {--stocks : Generate stock data only}';
+
+    protected $description = 'Generate WMS test data (picking areas, locations, stocks)';
+
+    public function handle()
+    {
+        $warehouseId = (int) $this->option('warehouse-id');
+        $itemCount = (int) $this->option('item-count');
+
+        $all = $this->option('all');
+        $pickingAreas = $this->option('picking-areas');
+        $locations = $this->option('locations');
+        $stocks = $this->option('stocks');
+
+        // If no specific option is set, generate all
+        if (!$all && !$pickingAreas && !$locations && !$stocks) {
+            $all = true;
+        }
+
+        $this->info('🏗️  Generating WMS test data...');
+        $this->newLine();
+
+        $exitCode = 0;
+
+        try {
+            // 1. Generate picking areas
+            if ($all || $pickingAreas) {
+                $this->info('📍 Generating picking areas...');
+                $seeder = new WmsPickingAreaSeeder();
+                $seeder->setCommand($this);
+                $seeder->run();
+                $this->newLine();
+            }
+
+            // 2. Generate stocks (also creates locations if needed)
+            if ($all || $stocks) {
+                $this->info('📦 Generating stock data...');
+                $seeder = new RealStockSeeder();
+                $seeder->setCommand($this);
+                $seeder->run();
+                $this->newLine();
+            }
+
+            // 3. Generate WMS location mappings
+            if ($all || $locations) {
+                $this->info('🗺️  Generating WMS location mappings...');
+                $seeder = new WmsLocationSeeder();
+                $seeder->setCommand($this);
+                $seeder->run();
+                $this->newLine();
+            }
+
+            $this->info('✅ WMS test data generation completed!');
+        } catch (\Exception $e) {
+            $this->error('❌ Error generating WMS test data: ' . $e->getMessage());
+            $this->error($e->getTraceAsString());
+            $exitCode = 1;
+        }
+
+        return $exitCode;
+    }
+}

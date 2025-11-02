@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Warehouses;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\Warehouses\Pages\CreateWarehouse;
 use App\Filament\Resources\Warehouses\Pages\EditWarehouse;
 use App\Filament\Resources\Warehouses\Pages\ListWarehouses;
@@ -20,15 +21,14 @@ class WarehouseResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingStorefront;
 
-    // Navigation settings
     public static function getNavigationGroup(): ?string
     {
-        return 'マスタ管理';
+        return EMenu::WAREHOUSES->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return '倉庫';
+        return EMenu::WAREHOUSES->label();
     }
 
     public static function getModelLabel(): string
@@ -43,7 +43,7 @@ class WarehouseResource extends Resource
 
     public static function getNavigationSort(): ?int
     {
-        return 15;
+        return EMenu::WAREHOUSES->sort();
     }
 
     public static function form(Schema $schema): Schema

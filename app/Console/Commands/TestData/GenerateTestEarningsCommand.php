@@ -21,6 +21,7 @@ class GenerateTestEarningsCommand extends Command
     private int $buyerId;
     private string $buyerCode;
     private string $warehouseCode;
+    private array $deliveryCourses = [];
     private array $testItems = [];
 
     public function handle()
@@ -74,7 +75,18 @@ class GenerateTestEarningsCommand extends Command
             ->first();
         $this->warehouseCode = $warehouse->code ?? (string) $this->warehouseId;
 
+        // Get delivery courses for this warehouse
+        $this->deliveryCourses = DB::connection('sakemaru')->table('delivery_courses')
+            ->where('warehouse_id', $this->warehouseId)
+            ->pluck('code')
+            ->toArray();
+
+        if (empty($this->deliveryCourses)) {
+            $this->warn("No delivery courses found for warehouse {$this->warehouseId}");
+        }
+
         $this->line("Using buyer: {$this->buyerId} (code: {$this->buyerCode}), warehouse: {$this->warehouseId} (code: {$this->warehouseCode})");
+        $this->line("Found " . count($this->deliveryCourses) . " delivery courses");
         $this->newLine();
     }
 
@@ -138,13 +150,18 @@ class GenerateTestEarningsCommand extends Command
                 ];
             }
 
+            // Get a random delivery course code
+            $deliveryCourseCode = !empty($this->deliveryCourses)
+                ? $this->deliveryCourses[array_rand($this->deliveryCourses)]
+                : null;
+
             $earnings[] = [
                 'process_date' => $processDate,
                 'delivered_date' => $shippingDate,
                 'account_date' => $shippingDate,
                 'buyer_code' => $this->buyerCode,
-                'warehouse_code' => 991,
-                'delivery_course_code' => '99100001',
+                'warehouse_code' => $this->warehouseCode,
+                'delivery_course_code' => $deliveryCourseCode,
                 'note' => "WMSテスト: {$scenario['name']}",
                 'is_delivered' => false,
                 'is_returned' => false,
