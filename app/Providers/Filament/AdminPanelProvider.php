@@ -9,6 +9,7 @@ use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Navigation\NavigationGroup;
+use Filament\Navigation\NavigationItem;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -55,6 +56,12 @@ class AdminPanelProvider extends PanelProvider
                     ->values()
                     ->toArray()
             )
+            ->navigationItems(
+                [NavigationItem::make('API Document')
+                    ->url('/api/documentation', shouldOpenInNewTab: true)
+                    ->icon('heroicon-o-link')->group(EMenuCategory::SETTINGS->label())
+                ]
+            )
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
@@ -67,10 +74,10 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             ->plugins([
-                AdvancedTablesPlugin::make()
-                    ->userViewsEnabled(false)
-                    ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
-                    ->resourceNavigationSort(1000)
+                    AdvancedTablesPlugin::make()
+                        ->userViewsEnabled(false)
+                        ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
+                        ->resourceNavigationSort(1000)
 
 
                 ]

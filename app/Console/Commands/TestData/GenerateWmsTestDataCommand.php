@@ -2,9 +2,11 @@
 
 namespace App\Console\Commands\TestData;
 
+use Database\Seeders\AssignPickersToTasksSeeder;
 use Database\Seeders\RealStockSeeder;
 use Database\Seeders\WmsLocationSeeder;
 use Database\Seeders\WmsPickingAreaSeeder;
+use Database\Seeders\WmsPickerSeeder;
 use Illuminate\Console\Command;
 
 class GenerateWmsTestDataCommand extends Command
@@ -12,12 +14,14 @@ class GenerateWmsTestDataCommand extends Command
     protected $signature = 'testdata:wms
                             {--warehouse-id=991 : Warehouse ID}
                             {--item-count=30 : Number of items to generate stock for}
-                            {--all : Generate all WMS test data (picking areas, locations, stocks)}
+                            {--all : Generate all WMS test data (picking areas, locations, stocks, pickers)}
                             {--picking-areas : Generate picking areas only}
                             {--locations : Generate WMS locations only}
-                            {--stocks : Generate stock data only}';
+                            {--stocks : Generate stock data only}
+                            {--pickers : Generate pickers only}
+                            {--assign-pickers : Assign pickers to existing tasks only}';
 
-    protected $description = 'Generate WMS test data (picking areas, locations, stocks)';
+    protected $description = 'Generate WMS test data (picking areas, locations, stocks, pickers)';
 
     public function handle()
     {
@@ -28,9 +32,11 @@ class GenerateWmsTestDataCommand extends Command
         $pickingAreas = $this->option('picking-areas');
         $locations = $this->option('locations');
         $stocks = $this->option('stocks');
+        $pickers = $this->option('pickers');
+        $assignPickers = $this->option('assign-pickers');
 
         // If no specific option is set, generate all
-        if (!$all && !$pickingAreas && !$locations && !$stocks) {
+        if (!$all && !$pickingAreas && !$locations && !$stocks && !$pickers && !$assignPickers) {
             $all = true;
         }
 
@@ -62,6 +68,24 @@ class GenerateWmsTestDataCommand extends Command
             if ($all || $locations) {
                 $this->info('🗺️  Generating WMS location mappings...');
                 $seeder = new WmsLocationSeeder();
+                $seeder->setCommand($this);
+                $seeder->run();
+                $this->newLine();
+            }
+
+            // 4. Generate WMS pickers
+            if ($all || $pickers) {
+                $this->info('👤 Generating WMS pickers...');
+                $seeder = new WmsPickerSeeder();
+                $seeder->setCommand($this);
+                $seeder->run();
+                $this->newLine();
+            }
+
+            // 5. Assign pickers to tasks (if tasks exist)
+            if ($all || $assignPickers) {
+                $this->info('📋 Assigning pickers to tasks...');
+                $seeder = new AssignPickersToTasksSeeder();
                 $seeder->setCommand($this);
                 $seeder->run();
                 $this->newLine();
