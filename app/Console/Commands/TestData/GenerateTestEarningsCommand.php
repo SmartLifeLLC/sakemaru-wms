@@ -12,7 +12,7 @@ class GenerateTestEarningsCommand extends Command
 {
     protected $signature = 'testdata:earnings
                             {--count=5 : Number of test earnings to generate}
-                            {--warehouse-id=991 : Warehouse ID}';
+                            {--warehouse-id= : Warehouse ID}';
 
     protected $description = 'Generate test earnings data via BoozeCore API';
 

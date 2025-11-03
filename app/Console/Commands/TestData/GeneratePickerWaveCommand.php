@@ -158,13 +158,28 @@ class GeneratePickerWaveCommand extends Command
         $client = DB::connection('sakemaru')->table('clients')->first();
         $this->clientId = $client->id;
 
-        // Get buyer
-        $buyer = DB::connection('sakemaru')->table('partners')
-            ->where('is_supplier', 0)
-            ->where('is_active', 1)
+        // Get buyer with specific criteria for earnings generation
+        $buyer = DB::connection('sakemaru')->table('buyers')
+            ->leftJoin('buyer_details', 'buyers.id', '=', 'buyer_details.buyer_id')
+            ->leftJoin('partners', 'buyers.partner_id', '=', 'partners.id')
+            ->where('partners.is_active', 1)
+            ->where('partners.is_supplier', 0)
+            ->where('buyer_details.is_active', 1)
+            ->whereNull('partners.end_of_trade_date')
+            ->where('buyer_details.can_register_earnings', 1)
+            ->where('buyer_details.is_allowed_duplicated_item', true)
+            ->where('buyer_details.is_allowed_case_quantity', true)
+            ->select('partners.code', 'partners.id')
+            ->inRandomOrder()
             ->first();
-        $this->buyerId = $buyer->id ?? 1;
-        $this->buyerCode = $buyer->code ?? '1';
+
+        if (!$buyer) {
+            $this->error('No eligible buyer found with the required criteria');
+            exit(1);
+        }
+
+        $this->buyerId = $buyer->id;
+        $this->buyerCode = $buyer->code;
 
         // Get warehouse
         $warehouse = DB::connection('sakemaru')->table('warehouses')
@@ -176,16 +191,21 @@ class GeneratePickerWaveCommand extends Command
     private function loadTestItems(): void
     {
         $this->testItems = Item::where('type', 'ALCOHOL')
-            ->where('id', '>', 111099)
+            ->where('is_active', true)
+            ->whereNull('end_of_sale_date')
+            ->where('is_ended', false)
             ->whereIn('id', function ($query) {
                 $query->select('item_id')
                     ->from('real_stocks')
                     ->where('warehouse_id', $this->warehouseId);
             })
+            ->inRandomOrder()
             ->limit(50)
             ->get()
             ->map(fn($item) => ['id' => $item->id, 'code' => $item->code, 'name' => $item->name])
             ->toArray();
+
+        $this->line("Loaded " . count($this->testItems) . " test items");
     }
 
     private function parseCourseCounts(array $courseParams): array
@@ -300,25 +320,39 @@ class GeneratePickerWaveCommand extends Command
             return;
         }
 
+        // Set wave setting times to ensure immediate processing
+        // picking_start_time must be before current time + 10 minutes
+        // Always use 00:00:00 as picking start time to ensure it's before any current time + 10 minutes
+        $pickingStartTime = '00:00:00';
+        $pickingDeadlineTime = '23:59:59';
+
         $existing = WaveSetting::where('warehouse_id', $this->warehouseId)
             ->where('delivery_course_id', $course->id)
             ->first();
 
         if ($existing) {
-            $this->line("  ✓ Wave setting exists for course {$courseCode}");
+            // Update existing wave setting times for test data generation
+            DB::connection('sakemaru')
+                ->table('wms_wave_settings')
+                ->where('id', $existing->id)
+                ->update([
+                    'picking_start_time' => $pickingStartTime,
+                    'picking_deadline_time' => $pickingDeadlineTime,
+                    'updated_at' => now(),
+                ]);
+            $this->line("  ✓ Updated wave setting for course {$courseCode} (picking: {$pickingStartTime} - {$pickingDeadlineTime})");
             return;
         }
 
-        // Create wave setting
+        // Create new wave setting
         WaveSetting::create([
             'warehouse_id' => $this->warehouseId,
             'delivery_course_id' => $course->id,
-            'picking_start_time' => '09:00:00',
-            'picking_end_time' => '17:00:00',
-            'is_active' => true,
+            'picking_start_time' => $pickingStartTime,
+            'picking_deadline_time' => $pickingDeadlineTime,
         ]);
 
-        $this->line("  ✓ Created wave setting for course {$courseCode}");
+        $this->line("  ✓ Created wave setting for course {$courseCode} (picking: {$pickingStartTime} - {$pickingDeadlineTime})");
     }
 
     private function assignTasksToPicker(string $shippingDate): int
