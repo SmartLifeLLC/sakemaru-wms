@@ -292,14 +292,28 @@ class GeneratePickerWaveCommand extends Command
             ];
         }
 
+        $requestData = ['earnings' => $earnings];
+
+        // Debug: Show request data if verbose mode
+        if ($this->output->isVerbose()) {
+            $this->newLine();
+            $this->line('Request data:');
+            $this->line(json_encode($requestData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            $this->newLine();
+        }
+
         // Call API
-        $response = SakemaruEarning::postData([
-            'earnings' => $earnings
-        ]);
+        $response = SakemaruEarning::postData($requestData);
 
         if (isset($response['success']) && $response['success']) {
             return ['success' => true];
         } else {
+            // Output request data on error for debugging
+            $this->newLine();
+            $this->error('API Request failed. Request data:');
+            $this->line(json_encode($requestData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            $this->newLine();
+
             return [
                 'success' => false,
                 'error' => $response['debug_message'] ?? $response['message'] ?? 'API request failed',
