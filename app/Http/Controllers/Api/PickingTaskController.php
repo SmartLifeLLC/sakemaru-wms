@@ -309,18 +309,18 @@ class PickingTaskController extends Controller
     }
 
     /**
-     * POST /api/picking/tasks/{item_result_id}/update
+     * POST /api/picking/tasks/{wms_picking_item_result_id}/update
      *
      * ピッキング実績登録
      *
      * @OA\Post(
-     *     path="/api/picking/tasks/{item_result_id}/update",
+     *     path="/api/picking/tasks/{wms_picking_item_result_id}/update",
      *     tags={"Picking Tasks"},
      *     summary="Update picking result",
      *     description="Update picked quantity for a specific item in the picking task",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *     @OA\Parameter(
-     *         name="item_result_id",
+     *         name="wms_picking_item_result_id",
      *         in="path",
      *         description="Picking Item Result ID",
      *         required=true,
