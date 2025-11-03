@@ -77,6 +77,7 @@ class ApiController extends Controller
         }
 
         $response = [
+            'is_success' => true,
             'code' => $code,
             'result' => $result,
         ];
@@ -133,6 +134,7 @@ class ApiController extends Controller
         }
 
         $response = [
+            'is_success' => false,
             'code' => $code,
             'result' => $result,
         ];

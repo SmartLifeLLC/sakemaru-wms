@@ -46,8 +46,12 @@ class PickingTaskController extends Controller
      *         response=200,
      *         description="Successful response",
      *         @OA\JsonContent(
-     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="is_success", type="boolean", example=true),
+     *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
+     *                 property="result",
+     *                 type="object",
+     *                 @OA\Property(
      *                 property="data",
      *                 type="array",
      *                 @OA\Items(
@@ -85,6 +89,7 @@ class PickingTaskController extends Controller
      *                             @OA\Property(property="slip_number", type="integer", example=1, description="Earning ID used as slip number")
      *                         )
      *                     )
+     *                 )
      *                 )
      *             )
      *         )
@@ -207,8 +212,11 @@ class PickingTaskController extends Controller
         $data = array_values($groupedData);
 
         return response()->json([
-            'success' => true,
-            'data' => $data,
+            'is_success' => true,
+            'code' => 'SUCCESS',
+            'result' => [
+                'data' => $data,
+            ],
         ]);
     }
 
@@ -234,6 +242,7 @@ class PickingTaskController extends Controller
      *         response=200,
      *         description="Task started successfully",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
      *                 property="result",
@@ -260,6 +269,7 @@ class PickingTaskController extends Controller
 
         if (!$task) {
             return response()->json([
+                'is_success' => false,
                 'code' => 'NOT_FOUND',
                 'result' => [
                     'data' => null,
@@ -271,6 +281,7 @@ class PickingTaskController extends Controller
         // Validate task can be started
         if (!in_array($task->status, ['PENDING', 'PICKING'])) {
             return response()->json([
+                'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
                 'result' => [
                     'data' => null,
@@ -290,6 +301,7 @@ class PickingTaskController extends Controller
         ]);
 
         $response = [
+            'is_success' => true,
             'code' => 'SUCCESS',
             'result' => [
                 'data' => [
@@ -338,6 +350,7 @@ class PickingTaskController extends Controller
      *         response=200,
      *         description="Picking result updated",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
      *                 property="result",
@@ -373,6 +386,7 @@ class PickingTaskController extends Controller
 
         if (!$itemResult) {
             return response()->json([
+                'is_success' => false,
                 'code' => 'NOT_FOUND',
                 'result' => [
                     'data' => null,
@@ -480,6 +494,7 @@ class PickingTaskController extends Controller
         }
 
         $response = [
+            'is_success' => true,
             'code' => 'SUCCESS',
             'result' => [
                 'data' => [
@@ -534,6 +549,7 @@ class PickingTaskController extends Controller
      *         response=200,
      *         description="Task completed",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
      *                 property="result",
@@ -560,6 +576,7 @@ class PickingTaskController extends Controller
 
         if (!$task) {
             return response()->json([
+                'is_success' => false,
                 'code' => 'NOT_FOUND',
                 'result' => [
                     'data' => null,
@@ -571,6 +588,7 @@ class PickingTaskController extends Controller
         // Check if task can be completed
         if (!in_array($task->status, ['PICKING', 'SHORTAGE', 'PENDING'])) {
             return response()->json([
+                'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
                 'result' => [
                     'data' => null,
@@ -614,6 +632,7 @@ class PickingTaskController extends Controller
         }
 
         $response = [
+            'is_success' => true,
             'code' => 'SUCCESS',
             'result' => [
                 'data' => [
