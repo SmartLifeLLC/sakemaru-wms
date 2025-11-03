@@ -61,13 +61,29 @@ class GenerateTestEarningsCommand extends Command
         $client = DB::connection('sakemaru')->table('clients')->first();
         $this->clientId = $client->id;
 
-        // Get buyer
-        $buyer = DB::connection('sakemaru')->table('partners')
-            ->where('is_supplier', 0)
-            ->where('is_active', 1)
+        // Get buyer with specific criteria for earnings generation
+        $buyer = DB::connection('sakemaru')->table('buyers')
+            ->leftJoin('buyer_details', 'buyers.id', '=', 'buyer_details.buyer_id')
+            ->leftJoin('partners', 'buyers.partner_id', '=', 'partners.id')
+            ->where('partners.is_active', 1)
+            ->where('partners.is_supplier', 0)
+            ->where('buyer_details.is_active', 1)
+            ->whereNull('partners.end_of_trade_date')
+            ->where('buyer_details.can_register_earnings', 1)
+            ->where('buyer_details.is_allowed_duplicated_item', true)
+            ->where('buyer_details.is_allowed_case_quantity', true)
+            ->select('partners.code', 'partners.id')
+            ->inRandomOrder()
             ->first();
-        $this->buyerId = $buyer->id ?? 1;
-        $this->buyerCode = $buyer->code ?? '1';
+
+        if (!$buyer) {
+            $this->error('No eligible buyer found with the required criteria');
+            exit(1);
+        }
+
+        $this->buyerId = $buyer->id;
+        $this->buyerCode = $buyer->code;
+
 
         // Get warehouse
         $warehouse = DB::connection('sakemaru')->table('warehouses')
@@ -93,12 +109,16 @@ class GenerateTestEarningsCommand extends Command
     private function loadTestItems(): void
     {
         $this->testItems = Item::where('type', 'ALCOHOL')
-            ->where('id', '>', 111099)
+
+            ->where('is_active',true)
+            ->whereNull('end_of_sale_date')
+            ->where('is_ended', false)
             ->whereIn('id', function ($query) {
                 $query->select('item_id')
                     ->from('real_stocks')
                     ->where('warehouse_id', $this->warehouseId);
             })
+            ->inRandomOrder()
             ->limit(30)
             ->get()
             ->map(fn($item) => ['id' => $item->id, 'code' => $item->code, 'name' => $item->name])
