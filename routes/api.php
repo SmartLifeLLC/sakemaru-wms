@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\PickingTaskController;
 use Illuminate\Support\Facades\Route;
 
@@ -15,7 +16,8 @@ Route::middleware('api.key')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 
-        // Master data endpoints will be added here
+        // Master data endpoints
+        Route::get('/master/warehouses', [MasterDataController::class, 'warehouses']);
 
         // Picking task endpoints
         Route::get('/picking/tasks', [PickingTaskController::class, 'index']);

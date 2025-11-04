@@ -152,6 +152,17 @@ class GeneratePickerWaveCommand extends Command
         return 0;
     }
 
+    private function getAdminUserId(): int
+    {
+        // Get first admin user from SAKEMARU database
+        $user = DB::connection('sakemaru')->table('users')
+            ->where('is_active', true)
+            ->orderBy('id', 'asc')
+            ->first();
+
+        return $user->id ?? 0;
+    }
+
     private function initializeData(): void
     {
         // Get client
@@ -292,14 +303,28 @@ class GeneratePickerWaveCommand extends Command
             ];
         }
 
+        $requestData = ['earnings' => $earnings];
+
+        // Debug: Show request data if verbose mode
+        if ($this->output->isVerbose()) {
+            $this->newLine();
+            $this->line('Request data:');
+            $this->line(json_encode($requestData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            $this->newLine();
+        }
+
         // Call API
-        $response = SakemaruEarning::postData([
-            'earnings' => $earnings
-        ]);
+        $response = SakemaruEarning::postData($requestData);
 
         if (isset($response['success']) && $response['success']) {
             return ['success' => true];
         } else {
+            // Output request data on error for debugging
+            $this->newLine();
+            $this->error('API Request failed. Request data:');
+            $this->line(json_encode($requestData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            $this->newLine();
+
             return [
                 'success' => false,
                 'error' => $response['debug_message'] ?? $response['message'] ?? 'API request failed',
@@ -330,6 +355,8 @@ class GeneratePickerWaveCommand extends Command
             ->where('delivery_course_id', $course->id)
             ->first();
 
+        $adminUserId = $this->getAdminUserId();
+
         if ($existing) {
             // Update existing wave setting times for test data generation
             DB::connection('sakemaru')
@@ -338,6 +365,7 @@ class GeneratePickerWaveCommand extends Command
                 ->update([
                     'picking_start_time' => $pickingStartTime,
                     'picking_deadline_time' => $pickingDeadlineTime,
+                    'last_updater_id' => $adminUserId,
                     'updated_at' => now(),
                 ]);
             $this->line("  ✓ Updated wave setting for course {$courseCode} (picking: {$pickingStartTime} - {$pickingDeadlineTime})");
@@ -350,6 +378,8 @@ class GeneratePickerWaveCommand extends Command
             'delivery_course_id' => $course->id,
             'picking_start_time' => $pickingStartTime,
             'picking_deadline_time' => $pickingDeadlineTime,
+            'creator_id' => $adminUserId,
+            'last_updater_id' => $adminUserId,
         ]);
 
         $this->line("  ✓ Created wave setting for course {$courseCode} (picking: {$pickingStartTime} - {$pickingDeadlineTime})");
