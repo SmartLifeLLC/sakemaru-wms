@@ -21,6 +21,10 @@ class PickingLogService
     ): void {
         $picker = $request->user();
 
+        // Get first earning_id from picking item results (for logging purposes)
+        // Note: Tasks may contain items from multiple earnings after specification change
+        $earningId = $task->pickingItemResults()->whereNotNull('earning_id')->value('earning_id');
+
         WmsPickingLog::create([
             'picker_id' => $picker->id,
             'picker_code' => $picker->code,
@@ -30,7 +34,7 @@ class PickingLogService
             'http_method' => $request->method(),
             'picking_task_id' => $task->id,
             'wave_id' => $task->wave_id,
-            'earning_id' => $task->earning_id,
+            'earning_id' => $earningId,
             'status_before' => $task->getOriginal('status'),
             'status_after' => $task->status,
             'request_data' => self::sanitizeRequestData($request),
@@ -69,6 +73,9 @@ class PickingLogService
             ->where('id', $itemResultAfter['item_id'])
             ->first();
 
+        // Get earning_id from the item result itself (now stored at item level)
+        $earningId = $itemResultAfter['earning_id'] ?? null;
+
         WmsPickingLog::create([
             'picker_id' => $picker->id,
             'picker_code' => $picker->code,
@@ -79,7 +86,7 @@ class PickingLogService
             'picking_task_id' => $task->id ?? null,
             'picking_item_result_id' => $itemResultId,
             'wave_id' => $task->wave_id ?? null,
-            'earning_id' => $task->earning_id ?? null,
+            'earning_id' => $earningId,
             'item_id' => $itemResultAfter['item_id'],
             'item_code' => $item->code ?? null,
             'item_name' => $item->name ?? null,
@@ -119,6 +126,10 @@ class PickingLogService
     ): void {
         $picker = $request->user();
 
+        // Get first earning_id from picking item results (for logging purposes)
+        // Note: Tasks may contain items from multiple earnings after specification change
+        $earningId = $task->pickingItemResults()->whereNotNull('earning_id')->value('earning_id');
+
         WmsPickingLog::create([
             'picker_id' => $picker->id,
             'picker_code' => $picker->code,
@@ -128,7 +139,7 @@ class PickingLogService
             'http_method' => $request->method(),
             'picking_task_id' => $task->id,
             'wave_id' => $task->wave_id,
-            'earning_id' => $task->earning_id,
+            'earning_id' => $earningId,
             'status_before' => $statusBefore,
             'status_after' => $task->status,
             'request_data' => self::sanitizeRequestData($request),

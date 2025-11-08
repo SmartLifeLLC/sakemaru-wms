@@ -63,41 +63,62 @@ class RealStockSeeder extends Seeder
 
         // Generate real stocks
         $createdCount = 0;
+        $wmsRealStockCount = 0;
         $selectedItems = $items->random(min($itemCount, $items->count()));
 
         foreach ($selectedItems as $item) {
-            // Create one stock record per item (unique constraint on client_id, warehouse_id, stock_allocation_id, item_id)
-            $location = $locations->random();
+            // Create multiple stock records per item in different locations
+            $stocksPerItem = rand(1, 3); // 1-3 locations per item
 
-            // Vary expiry dates (some null, some future dates)
-            $expirationDate = null;
-            if (rand(0, 100) > 30) { // 70% have expiry dates
-                $expirationDate = now()->addDays(rand(30, 365))->format('Y-m-d');
+            for ($s = 0; $s < $stocksPerItem; $s++) {
+                $location = $locations->random();
+
+                // Vary expiry dates (some null, some future dates)
+                $expirationDate = null;
+                if (rand(0, 100) > 30) { // 70% have expiry dates
+                    $expirationDate = now()->addDays(rand(30, 365))->format('Y-m-d');
+                }
+
+                // Vary quantities
+                $currentQuantity = rand(10, 200);
+                $availableQuantity = $currentQuantity; // Initially all available
+
+                $realStockId = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
+                    'client_id' => $warehouse->client_id ?? 1,
+                    'stock_allocation_id' => 1, // Default allocation
+                    'floor_id' => null,
+                    'warehouse_id' => $warehouseId,
+                    'location_id' => $location->id,
+                    'purchase_id' => null,
+                    'item_id' => $item->id,
+                    'item_management_type' => 'NORMAL',
+                    'expiration_date' => $expirationDate,
+                    'received_at' => now()->subDays(rand(1, 90)),
+                    'current_quantity' => $currentQuantity,
+                    'available_quantity' => $availableQuantity,
+                    'order_rank' => 'FIFO', // Required field
+                    'price' => rand(100, 5000),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Create corresponding wms_real_stocks record
+                DB::connection('sakemaru')->table('wms_real_stocks')->insert([
+                    'real_stock_id' => $realStockId,
+                    'reserved_quantity' => 0,
+                    'picking_quantity' => 0,
+                    'lock_version' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $createdCount++;
+                $wmsRealStockCount++;
             }
-
-            // Vary quantities
-            $currentQuantity = rand(10, 200);
-            $availableQuantity = $currentQuantity; // Initially all available
-
-            DB::connection('sakemaru')->table('real_stocks')->insert([
-                'client_id' => $warehouse->client_id ?? 1,
-                'stock_allocation_id' => 1, // Default allocation
-                'warehouse_id' => $warehouseId,
-                'location_id' => $location->id,
-                'item_id' => $item->id,
-                'expiration_date' => $expirationDate,
-                'current_quantity' => $currentQuantity,
-                'available_quantity' => $availableQuantity,
-                'order_rank' => 'FIFO', // Required field
-                'price' => rand(100, 5000),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            $createdCount++;
         }
 
         $this->command->info("Created {$createdCount} real_stock records for {$selectedItems->count()} items");
+        $this->command->info("Created {$wmsRealStockCount} wms_real_stocks records with lock_version initialized");
     }
 
     /**

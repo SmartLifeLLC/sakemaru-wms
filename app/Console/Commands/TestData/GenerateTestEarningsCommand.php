@@ -109,7 +109,6 @@ class GenerateTestEarningsCommand extends Command
     private function loadTestItems(): void
     {
         $this->testItems = Item::where('type', 'ALCOHOL')
-
             ->where('is_active',true)
             ->whereNull('end_of_sale_date')
             ->where('is_ended', false)
@@ -121,7 +120,12 @@ class GenerateTestEarningsCommand extends Command
             ->inRandomOrder()
             ->limit(30)
             ->get()
-            ->map(fn($item) => ['id' => $item->id, 'code' => $item->code, 'name' => $item->name])
+            ->map(fn($item) => [
+                'id' => $item->id,
+                'code' => $item->code,
+                'name' => $item->name,
+                'case_quantity' => $item->case_quantity ?? 1,
+            ])
             ->toArray();
 
         $this->line("Loaded " . count($this->testItems) . " test items");
@@ -133,11 +137,12 @@ class GenerateTestEarningsCommand extends Command
         $shippingDate = $processDate;
 
         $scenarios = [
-            ['name' => 'ケース注文（十分な在庫）', 'qty_type' => 'CASE', 'qty' => 2],
-            ['name' => 'バラ注文（十分な在庫）', 'qty_type' => 'PIECE', 'qty' => 15],
-            ['name' => 'ケース注文（欠品あり）', 'qty_type' => 'CASE', 'qty' => 200],
-            ['name' => 'バラ注文（欠品あり）', 'qty_type' => 'PIECE', 'qty' => 500],
-            ['name' => 'ケース・バラ混在注文', 'qty_type' => 'MIXED', 'qty' => 0],
+            ['name' => 'ケースのみ（在庫十分）', 'qty_type' => 'CASE', 'qty' => 2],
+            ['name' => 'バラのみ（在庫十分）', 'qty_type' => 'PIECE', 'qty' => 15],
+            ['name' => 'ケース・バラ混在（通常注文）', 'qty_type' => 'MIXED_CASE_PIECE', 'qty' => 0],
+            ['name' => 'ケースのみ（欠品発生）', 'qty_type' => 'CASE', 'qty' => 200],
+            ['name' => 'バラのみ（欠品発生）', 'qty_type' => 'PIECE', 'qty' => 500],
+            ['name' => 'ケース・バラ混在（欠品あり）', 'qty_type' => 'MIXED_CASE_PIECE_SHORTAGE', 'qty' => 0],
         ];
 
         $earnings = [];
@@ -145,18 +150,42 @@ class GenerateTestEarningsCommand extends Command
         for ($i = 0; $i < $count; $i++) {
             $scenario = $scenarios[$i % count($scenarios)];
 
-            // Add items to earning
-            $itemCount = $scenario['qty_type'] === 'MIXED' ? rand(3, 5) : rand(2, 3);
+            // Determine item count based on scenario
+            $itemCount = match($scenario['qty_type']) {
+                'MIXED_CASE_PIECE', 'MIXED_ALL', 'MIXED_CASE_PIECE_SHORTAGE' => rand(4, 6),
+                default => rand(2, 4),
+            };
+
             $selectedItems = collect($this->testItems)->random($itemCount);
 
             $details = [];
             foreach ($selectedItems as $index => $item) {
                 $qtyType = $scenario['qty_type'];
                 $qty = $scenario['qty'];
+                $caseQuantity = $item['case_quantity'];
 
-                if ($qtyType === 'MIXED') {
+                // Handle mixed scenarios
+                if ($qtyType === 'MIXED_CASE_PIECE') {
+                    // Alternate between CASE and PIECE
                     $qtyType = $index % 2 === 0 ? 'CASE' : 'PIECE';
-                    $qty = $qtyType === 'CASE' ? rand(1, 5) : rand(5, 20);
+                    $qty = $qtyType === 'CASE' ? rand(1, 3) : rand(10, 30);
+                } elseif ($qtyType === 'MIXED_CASE_PIECE_SHORTAGE') {
+                    // Mix with some shortage items
+                    $qtyType = $index % 2 === 0 ? 'CASE' : 'PIECE';
+                    if ($index < 2) {
+                        // First 2 items: normal quantity
+                        $qty = $qtyType === 'CASE' ? rand(1, 3) : rand(10, 30);
+                    } else {
+                        // Remaining items: shortage quantity
+                        $qty = $qtyType === 'CASE' ? rand(50, 100) : rand(200, 500);
+                    }
+                }
+
+                // Rule: Items with case_quantity = 1 can only be sold as PIECE
+                if ($caseQuantity == 1 && $qtyType === 'CASE') {
+                    $qtyType = 'PIECE';
+                    // Convert CASE quantity to PIECE quantity (already in PIECE terms)
+                    $qty = $qty; // Keep the quantity as is for PIECE
                 }
 
                 $details[] = [
@@ -166,7 +195,7 @@ class GenerateTestEarningsCommand extends Command
                     'order_quantity' => $qty,
                     'order_quantity_type' => $qtyType,
                     'price' => rand(100, 5000),
-                    'note' => "{$qtyType} {$qty}個",
+                    'note' => "{$qtyType} {$qty}個 (入数:{$caseQuantity})",
                 ];
             }
 

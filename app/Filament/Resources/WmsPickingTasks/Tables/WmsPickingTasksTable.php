@@ -63,13 +63,13 @@ class WmsPickingTasksTable
                     ->searchable()
                     ->sortable(),
 
-                TextColumn::make('earning.delivery_course.code')
+                TextColumn::make('deliveryCourse.code')
                     ->label('配送コースコード')
                     ->default('-')
                     ->searchable()
                     ->sortable(),
 
-                TextColumn::make('earning.delivery_course.name')
+                TextColumn::make('deliveryCourse.name')
                     ->label('配送コース名')
                     ->default('-')
                     ->searchable()
@@ -98,6 +98,12 @@ class WmsPickingTasksTable
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
                     ->relationship('warehouse', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                SelectFilter::make('delivery_course_id')
+                    ->label('配送コース')
+                    ->relationship('deliveryCourse', 'name')
                     ->searchable()
                     ->preload(),
 
@@ -243,11 +249,18 @@ class WmsPickingTasksTable
                                         'completed_at' => now(),
                                     ]);
 
-                                    // 伝票のピッキングステータスを更新
-                                    if ($task->earning) {
+                                    // このタスクに関連する全ての伝票のピッキングステータスを更新
+                                    // Note: earning_id is now stored in wms_picking_item_results
+                                    $earningIds = $task->pickingItemResults()
+                                        ->distinct('earning_id')
+                                        ->whereNotNull('earning_id')
+                                        ->pluck('earning_id')
+                                        ->toArray();
+
+                                    if (!empty($earningIds)) {
                                         DB::connection('sakemaru')
                                             ->table('earnings')
-                                            ->where('id', $task->earning_id)
+                                            ->whereIn('id', $earningIds)
                                             ->update([
                                                 'picking_status' => 'COMPLETED',
                                                 'updated_at' => now(),

@@ -50,6 +50,61 @@ class TestDataGenerator extends Page
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('generateWaveSettings')
+                ->label('Wave設定生成')
+                ->icon('heroicon-o-cog-6-tooth')
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalHeading('Wave設定を生成')
+                ->modalDescription('全倉庫・配送コース別に1時間単位のWave設定を生成します。')
+                ->form([
+                    Select::make('warehouse_id')
+                        ->label('倉庫')
+                        ->helperText('未選択の場合、全ての有効な倉庫に対して生成します。')
+                        ->options(\App\Models\Sakemaru\Warehouse::where('is_active', true)->pluck('name', 'id'))
+                        ->searchable(),
+                    Toggle::make('reset')
+                        ->label('既存設定をリセット')
+                        ->helperText('既存のWave設定を削除してから生成します。')
+                        ->default(false),
+                ])
+                ->action(function (array $data): void {
+                    try {
+                        $params = [];
+
+                        if (!empty($data['warehouse_id'])) {
+                            $params['--warehouse-id'] = $data['warehouse_id'];
+                        }
+
+                        if ($data['reset'] ?? false) {
+                            $params['--reset'] = true;
+                        }
+
+                        $exitCode = Artisan::call('testdata:wave-settings', $params);
+                        $output = Artisan::output();
+
+                        if ($exitCode === 0) {
+                            Notification::make()
+                                ->title('Wave設定を生成しました')
+                                ->body('1時間単位のWave設定の生成が完了しました。')
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('エラーが発生しました')
+                                ->body($output)
+                                ->danger()
+                                ->send();
+                        }
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
             Action::make('generateWmsData')
                 ->label('WMSマスタ生成')
                 ->icon('heroicon-o-cube')

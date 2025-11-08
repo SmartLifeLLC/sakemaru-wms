@@ -53,13 +53,13 @@ class WmsPickingLogsTable
                     })
                     ->searchable(),
 
-                TextColumn::make('pickingTask.earning.warehouse.name')
+                TextColumn::make('pickingTask.warehouse.name')
                     ->label('倉庫')
                     ->searchable()
                     ->sortable()
                     ->toggleable(),
 
-                TextColumn::make('pickingTask.earning.delivery_course.name')
+                TextColumn::make('pickingTask.deliveryCourse.name')
                     ->label('配送コース')
                     ->searchable()
                     ->toggleable(),
@@ -152,7 +152,7 @@ class WmsPickingLogsTable
                             return $query;
                         }
 
-                        return $query->whereHas('pickingTask.earning.warehouse', function (Builder $q) use ($data) {
+                        return $query->whereHas('pickingTask.warehouse', function (Builder $q) use ($data) {
                             $q->where('id', $data['value']);
                         });
                     })

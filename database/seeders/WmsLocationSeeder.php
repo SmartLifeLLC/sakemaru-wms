@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Enums\AvailableQuantityFlag;
 use App\Models\Sakemaru\Location;
 use App\Models\WmsLocation;
 use App\Models\WmsPickingArea;
@@ -64,12 +65,19 @@ class WmsLocationSeeder extends Seeder
                 $rack = $location->code2 ?? null;
                 $level = $location->code3 ?? null;
 
-                // Determine picking_unit_type based on area
-                $pickingUnitType = match($area->code) {
-                    'A' => 'CASE',
-                    'B' => 'PIECE',
-                    default => 'BOTH',
+                // Determine picking_unit_type and available_quantity_flags based on area
+                [$pickingUnitType, $availableFlags] = match($area->code) {
+                    'A' => ['CASE', AvailableQuantityFlag::CASE->value], // Only CASE
+                    'B' => ['PIECE', AvailableQuantityFlag::PIECE->value], // Only PIECE
+                    'C' => ['BOTH', AvailableQuantityFlag::CASE->value | AvailableQuantityFlag::PIECE->value], // CASE + PIECE
+                    default => ['BOTH', AvailableQuantityFlag::CASE->value | AvailableQuantityFlag::PIECE->value | AvailableQuantityFlag::CARTON->value], // All types
                 };
+
+                // Update location with available_quantity_flags
+                DB::connection('sakemaru')
+                    ->table('locations')
+                    ->where('id', $location->id)
+                    ->update(['available_quantity_flags' => $availableFlags]);
 
                 WmsLocation::create([
                     'location_id' => $location->id,

@@ -135,13 +135,13 @@ class PickingTaskController extends Controller
 
         // Build query for picking tasks
         $query = WmsPickingTask::with([
-            'earning',
-            'earning.delivery_course',
             'pickingArea',
+            'deliveryCourse',
             'pickingItemResults.item',
+            'pickingItemResults.earning',
         ])
             ->where('warehouse_id', $warehouseId)
-            ->whereIn('status', ['PENDING', 'PICKING', 'SHORTAGE']);
+            ->whereIn('status', ['PENDING', 'PICKING']);
 
         if ($pickerId) {
             $query->where('picker_id', $pickerId);
@@ -157,12 +157,13 @@ class PickingTaskController extends Controller
         $groupedData = [];
 
         foreach ($tasks as $task) {
-            if (!$task->earning || !$task->earning->delivery_course) {
+            // Get delivery course from task (tasks are grouped by delivery_course_id)
+            if (!$task->deliveryCourse) {
                 continue; // Skip tasks without delivery course
             }
 
-            $deliveryCourseCode = $task->earning->delivery_course->code;
-            $deliveryCourseName = $task->earning->delivery_course->name;
+            $deliveryCourseCode = $task->deliveryCourse->code;
+            $deliveryCourseName = $task->deliveryCourse->name;
             $pickingAreaCode = $task->pickingArea->code ?? 'UNKNOWN';
             $pickingAreaName = $task->pickingArea->name ?? 'Unknown Area';
 
@@ -203,7 +204,7 @@ class PickingTaskController extends Controller
                     'planned_qty' => $itemResult->planned_qty,
                     'picked_qty' => $itemResult->picked_qty ?? 0,
                     'walking_order' => $itemResult->walking_order,
-                    'slip_number' => $task->earning_id, // Use earning_id as slip number
+                    'slip_number' => $itemResult->earning_id, // Use earning_id from item result as slip number
                 ];
             }
         }
@@ -418,13 +419,13 @@ class PickingTaskController extends Controller
         // Calculate shortage
         $shortageQty = max(0, $itemResult->planned_qty - $pickedQty);
 
-        // Determine status
+        // Determine status based on new spec: PENDING, PICKING, COMPLETED
         if ($pickedQty >= $itemResult->planned_qty) {
             $status = 'COMPLETED';
         } elseif ($pickedQty > 0) {
             $status = 'PICKING';
         } else {
-            $status = 'SHORTAGE';
+            $status = 'PENDING'; // Changed from 'SHORTAGE' to 'PENDING'
         }
 
         // Update picking item result
@@ -586,7 +587,7 @@ class PickingTaskController extends Controller
         }
 
         // Check if task can be completed
-        if (!in_array($task->status, ['PICKING', 'SHORTAGE', 'PENDING'])) {
+        if (!in_array($task->status, ['PICKING', 'PENDING'])) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
@@ -603,13 +604,9 @@ class PickingTaskController extends Controller
         // Capture status before update
         $statusBefore = $task->status;
 
-        // Determine final status based on item results
-        $hasShortage = $task->pickingItemResults()
-            ->where('status', 'SHORTAGE')
-            ->orWhere('shortage_qty', '>', 0)
-            ->exists();
-
-        $finalStatus = $hasShortage ? 'SHORTAGE' : 'COMPLETED';
+        // Task is always marked as COMPLETED when complete action is called
+        // Shortage tracking is now done via has_shortage flag on item results
+        $finalStatus = 'COMPLETED';
 
         // Update task
         $task->update([

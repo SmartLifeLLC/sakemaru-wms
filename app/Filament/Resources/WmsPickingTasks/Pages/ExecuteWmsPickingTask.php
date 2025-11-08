@@ -33,7 +33,6 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     ->orderBy('item_id', 'asc');
             },
             'wave',
-            'earning',
             'trade',
             'pickingArea',
             'warehouse',
@@ -202,11 +201,17 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 'completed_at' => now(),
             ]);
 
-            // 伝票のピッキングステータスを更新
-            if ($this->record->earning) {
+            // このタスクに関連する全ての伝票のピッキングステータスを更新
+            $earningIds = $this->record->pickingItemResults()
+                ->distinct('earning_id')
+                ->whereNotNull('earning_id')
+                ->pluck('earning_id')
+                ->toArray();
+
+            if (!empty($earningIds)) {
                 DB::connection('sakemaru')
                     ->table('earnings')
-                    ->where('id', $this->record->earning_id)
+                    ->whereIn('id', $earningIds)
                     ->update([
                         'picking_status' => 'COMPLETED',
                         'updated_at' => now(),
@@ -246,11 +251,17 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 'completed_at' => now(),
             ]);
 
-            // 伝票のピッキングステータスを更新
-            if ($this->record->earning) {
+            // このタスクに関連する全ての伝票のピッキングステータスを更新
+            $earningIds = $this->record->pickingItemResults()
+                ->distinct('earning_id')
+                ->whereNotNull('earning_id')
+                ->pluck('earning_id')
+                ->toArray();
+
+            if (!empty($earningIds)) {
                 DB::connection('sakemaru')
                     ->table('earnings')
-                    ->where('id', $this->record->earning_id)
+                    ->whereIn('id', $earningIds)
                     ->update([
                         'picking_status' => 'COMPLETED',
                         'updated_at' => now(),
