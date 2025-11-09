@@ -1,7 +1,19 @@
 <?php
 
+use App\Http\Controllers\Api\FloorPlanController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return redirect('/admin');
+});
+
+// Floor plan API routes (accessible from admin panel without API key)
+Route::prefix('api')->middleware(['web'])->group(function () {
+    Route::get('/warehouses', [FloorPlanController::class, 'getWarehouses']);
+    Route::get('/warehouses/{warehouseId}/floors', [FloorPlanController::class, 'getFloors']);
+    Route::get('/floors/{floorId}/zones', [FloorPlanController::class, 'getZones']);
+    Route::post('/floors/{floorId}/zones', [FloorPlanController::class, 'saveZones']);
+    Route::get('/zones/{zoneId}/stocks', [FloorPlanController::class, 'getZoneStocks']);
+    Route::get('/floors/{floorId}/unpositioned-locations', [FloorPlanController::class, 'getUnpositionedLocations']);
+    Route::get('/floors/{floorId}/export-csv', [FloorPlanController::class, 'exportCSV']);
 });

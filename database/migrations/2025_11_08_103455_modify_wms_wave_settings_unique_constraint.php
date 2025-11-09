@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -17,13 +18,24 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::connection('sakemaru')->table('wms_wave_settings', function (Blueprint $table) {
-            // Drop old unique constraint
-            $table->dropUnique(['warehouse_id', 'delivery_course_id']);
+        // Check if the old unique constraint exists before dropping
+        $indexes = DB::connection('sakemaru')
+            ->select("SHOW INDEX FROM wms_wave_settings WHERE Key_name = 'wms_wave_settings_warehouse_id_delivery_course_id_unique'");
 
-            // Add new unique constraint including picking_start_time
-            // This allows multiple time slots for the same warehouse-course combination
-            $table->unique(['warehouse_id', 'delivery_course_id', 'picking_start_time'], 'wms_wave_settings_unique');
+        Schema::connection('sakemaru')->table('wms_wave_settings', function (Blueprint $table) use ($indexes) {
+            // Drop old unique constraint only if it exists
+            if (!empty($indexes)) {
+                $table->dropUnique(['warehouse_id', 'delivery_course_id']);
+            }
+
+            // Check if new unique constraint already exists
+            $newIndexes = DB::connection('sakemaru')
+                ->select("SHOW INDEX FROM wms_wave_settings WHERE Key_name = 'wms_wave_settings_unique'");
+
+            // Add new unique constraint including picking_start_time only if it doesn't exist
+            if (empty($newIndexes)) {
+                $table->unique(['warehouse_id', 'delivery_course_id', 'picking_start_time'], 'wms_wave_settings_unique');
+            }
         });
     }
 

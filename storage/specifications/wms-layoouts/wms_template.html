@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>倉庫フロアプラン（グリッド吸着＋しきい値＋CSV出力）</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Shift_JIS encoder for Excel-friendly CSV -->
+  <script src="https://cdn.jsdelivr.net/npm/encoding-japanese@2.0.0/encoding.min.js"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; padding: 20px; }
+    .main-container { display: flex; flex-direction: column; align-items: center; padding: 20px; }
+    .tabs { display: flex; border-bottom: 2px solid #e5e7eb; margin-bottom: 1rem; width: 100%; max-width: 1400px; }
+    .tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; font-weight: 600; color:#374151; }
+    .tab.active { background-color: #e0f2fe; border-bottom: 2px solid #0284c7; color:#0c4a6e; }
+    .toolbar { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1rem; }
+    .toolbar-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .toolbar button, .toolbar select, .toolbar input { padding: 8px 12px; border-radius: 8px; transition: background 0.2s; }
+    #save-btn { background:#bbf7d0; }
+    #load-btn { background:#fecaca; }
+    #delete-layout-btn { background:#f87171; }
+    #add-block-btn { background:#ddd6fe; }
+    #export-csv-btn { background:#d1fae5; }
+    .toolbar button:hover { filter: brightness(90%); }
+    .floor-plan-container { position: relative; width: 95vw; max-width: 1400px; min-height: 800px; border: 2px solid #e5e7eb; background-color: #fff; margin: 0 auto; overflow: auto; border-radius: 8px; }
+    .location { border: 1px solid #333; display: flex; align-items: center; justify-content: center; flex-direction: column; font-size: 12px; color: #1f2937; text-align: center; position: absolute; box-shadow: 0 2px 4px rgba(0,0,0,0.1); background-color: #f9fafb; width: 120px; height: 60px; border-radius: 6px; cursor: grab; user-select: none; overflow: hidden; padding: 2px; }
+    .location.selected { outline: 2px dashed #3b82f6; outline-offset: 2px; }
+    .loc-id { font-weight: 700; font-size: 13px; }
+    .loc-qty { font-size: 11px; opacity: 0.85; }
+    .resize-handle { position: absolute; width: 12px; height: 12px; right: 2px; bottom: 2px; background: #3b82f6; border-radius: 2px; cursor: se-resize; }
+    .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); justify-content:center; align-items:center; z-index:3000; }
+    .modal-content { background:#fff; padding:20px; border-radius:8px; width:360px; max-width:95%; }
+    #error-message { color:red; font-size: 12px; margin-top: 4px; display:none; }
+    .no-select { user-select: none; -webkit-user-select: none; -ms-user-select: none; }
+    .toolbar .small { padding:6px 8px; font-size:13px; }
+    .hint { font-size: 11px; color:#6b7280; }
+    .toast { position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 12px 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 9999; opacity: 0; transition: opacity 0.3s; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="main-container">
+    <h1 class="text-2xl font-bold mb-4">倉庫フロアプラン</h1>
+    <div class="tabs">
+      <div id="tab-floor1" class="tab active">1階</div>
+      <div id="tab-floor2" class="tab">2階</div>
+    </div>
+    <div class="toolbar">
+      <div class="toolbar-row">
+        <input type="text" id="layout-name" placeholder="レイアウト名" class="border p-2 rounded" />
+        <button id="save-btn">保存</button>
+        <select id="layout-select" class="border p-2 rounded"></select>
+        <button id="load-btn">復元</button>
+        <button id="delete-layout-btn">レイアウト削除</button>
+        <button id="add-block-btn">ブロック追加</button>
+        <button id="export-csv-btn" title="CSV出力">CSV出力</button>
+      </div>
+
+      <div class="toolbar-row">
+        <!-- Grid controls -->
+        <label class="small"><input type="checkbox" id="grid-toggle" checked> グリッド表示</label>
+        <label class="small">サイズ(グリッド): <input id="grid-size" type="number" value="20" min="4" style="width:70px;" class="border p-1 rounded" /></label>
+        <label class="small">吸着しきい値(px): <input id="grid-threshold" type="number" value="6" min="0" style="width:70px;" class="border p-1 rounded" /></label>
+
+        <!-- Block size controls -->
+        <span id="selected-indicator" class="small text-gray-600">選択: なし</span>
+        <label class="small">ブロックW(px): <input id="block-w" type="number" min="20" value="120" style="width:80px;" class="border p-1 rounded" disabled /></label>
+        <label class="small">H(px): <input id="block-h" type="number" min="20" value="60" style="width:80px;" class="border p-1 rounded" disabled /></label>
+        <button id="apply-block-size" class="small bg-blue-100" disabled>サイズ反映</button>
+      </div>
+    </div>
+
+    <div class="floor-plan-container no-select" id="floor-plan" tabindex="0"></div>
+  </div>
+
+  <div id="edit-modal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <h3 class="font-bold mb-2">ロケーション編集</h3>
+      <label class="block mb-1">ロケーションID:<input id="edit-id" type="text" class="border w-full"></label>
+      <div id="error-message">このロケーションIDは既に使用されています</div>
+      <div class="grid grid-cols-2 gap-2 mt-2">
+        <label>現在庫数:<input id="edit-current" type="number" inputmode="numeric" class="border w-full"></label>
+        <label>最大在庫数:<input id="edit-max" type="number" inputmode="numeric" class="border w-full"></label>
+        <label>引当可能数:<input id="edit-alloc" type="number" inputmode="numeric" class="border w-full"></label>
+        <label>フロア:
+          <select id="edit-floor" class="border w-full">
+            <option value="1F">1階</option>
+            <option value="2F">2階</option>
+          </select>
+        </label>
+      </div>
+      <div class="mt-2">
+        <label class="block">商品コード（カンマ区切り）<input id="edit-codes" type="text" class="border w-full"></label>
+        <label class="block mt-1">商品名（カンマ区切り）<input id="edit-names" type="text" class="border w-full"></label>
+        <div class="hint mt-1">例）コード: 490000000001,490000000002 ／ 名称: 醤油500ml,味噌1kg</div>
+      </div>
+      <div class="flex justify-between gap-2 mt-3">
+        <button id="edit-csv-export" class="bg-emerald-500 text-white px-3 py-1 rounded">CSV出力</button>
+        <div class="flex gap-2">
+          <button id="edit-save" class="bg-green-500 text-white px-3 py-1 rounded">保存</button>
+          <button id="edit-cancel" class="bg-gray-400 text-white px-3 py-1 rounded">キャンセル</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="delete-modal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <h3 class="font-bold mb-4">削除確認</h3>
+      <p id="delete-message" class="mb-4">このブロックを削除しますか？</p>
+      <div class="flex justify-end gap-2">
+        <button id="delete-confirm" class="bg-red-500 text-white px-3 py-1 rounded">削除</button>
+        <button id="delete-cancel" class="bg-gray-400 text-white px-3 py-1 rounded">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="delete-layout-modal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <h3 class="font-bold mb-4">削除確認</h3>
+      <p id="delete-layout-message" class="mb-4">このレイアウトを削除しますか？</p>
+      <div class="flex justify-end gap-2">
+        <button id="delete-layout-confirm" class="bg-red-500 text-white px-3 py-1 rounded">削除</button>
+        <button id="delete-layout-cancel" class="bg-gray-400 text-white px-3 py-1 rounded">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const floorPlan = document.getElementById('floor-plan');
+      const addBtn = document.getElementById('add-block-btn');
+      const saveBtn = document.getElementById('save-btn');
+      const loadBtn = document.getElementById('load-btn');
+      const deleteLayoutBtn = document.getElementById('delete-layout-btn');
+      const exportCsvBtn = document.getElementById('export-csv-btn');
+      const layoutSelect = document.getElementById('layout-select');
+      const tab1 = document.getElementById('tab-floor1');
+      const tab2 = document.getElementById('tab-floor2');
+
+      const gridToggle = document.getElementById('grid-toggle');
+      const gridSizeInput = document.getElementById('grid-size');
+      const gridThresholdInput = document.getElementById('grid-threshold');
+
+      // block size controls
+      const selectedIndicator = document.getElementById('selected-indicator');
+      const blockWInput = document.getElementById('block-w');
+      const blockHInput = document.getElementById('block-h');
+      const applyBlockSizeBtn = document.getElementById('apply-block-size');
+
+      let currentFloor = '1F';
+      let globalMeta = { newBlockCounter: 1 };
+
+      // Drag / resize state
+      let dragTarget = null;
+      let dragOffsetX = 0, dragOffsetY = 0;
+      let dragBlockOffsets = []; // relative positions of all selected blocks during drag
+      let resizeTarget = null;
+      let resizeStartX = 0, resizeStartY = 0, resizeStartW = 0, resizeStartH = 0;
+
+      // selection state
+      let selectedBlock = null;
+      let selectedBlocks = []; // multiple selection support
+
+      // copy/paste state
+      let copiedBlocks = []; // support multiple block copy/paste
+
+      // grid settings
+      let gridEnabled = gridToggle.checked;
+      let gridSize = Number(gridSizeInput.value) || 20;
+      let gridThreshold = Number(gridThresholdInput.value) || 6;
+
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+      function applyGridBackground() {
+        if (gridEnabled && gridSize > 4) {
+          floorPlan.style.backgroundImage =
+            `linear-gradient(to right, rgba(0,0,0,0.06) 1px, transparent 1px),
+             linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px)`;
+          floorPlan.style.backgroundSize = `${gridSize}px ${gridSize}px, ${gridSize}px ${gridSize}px`;
+        } else {
+          floorPlan.style.backgroundImage = 'none';
+        }
+      }
+
+      // Grid UI events
+      gridToggle.addEventListener('change', (e) => { gridEnabled = e.target.checked; applyGridBackground(); });
+      gridSizeInput.addEventListener('change', () => { const v = Number(gridSizeInput.value); if (!isNaN(v) && v >= 4) { gridSize = v; applyGridBackground(); } });
+      gridThresholdInput.addEventListener('change', () => { const v = Number(gridThresholdInput.value); if (!isNaN(v) && v >= 0) { gridThreshold = v; } });
+
+      function updateBlockDisplay(block) {
+        const current = Number(block.dataset.current) || 0;
+        const max = Number(block.dataset.max) || 0;
+        const rate = (max > 0) ? (current / max) : (current > 0 ? 1 : 0);
+        let bg = '#fef9c3';
+        if (max === 0) bg = '#f3f4f6';
+        else if (1 - rate >= 0.5) bg = '#bbf7d0';
+        else if (1 - rate < 0.2) bg = '#fecaca';
+        block.style.backgroundColor = bg;
+        block.querySelector('.loc-id')?.remove();
+        block.querySelector('.loc-qty')?.remove();
+        const idDiv = document.createElement('div'); idDiv.className = 'loc-id'; idDiv.textContent = block.dataset.id || '';
+        const qtyDiv = document.createElement('div'); qtyDiv.className = 'loc-qty';
+        const alloc = Number(block.dataset.alloc || 0);
+        qtyDiv.textContent = alloc > 0 ? `${current}/${max}  可:${alloc}` : `${current}/${max}`;
+        block.prepend(qtyDiv);
+        block.prepend(idDiv);
+      }
+
+      function createResizeHandle(block) {
+        const existing = block.querySelector('.resize-handle');
+        if (existing) return existing;
+        const handle = document.createElement('div');
+        handle.className = 'resize-handle';
+        block.appendChild(handle);
+        handle.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+          resizeTarget = block;
+          resizeStartX = e.clientX;
+          resizeStartY = e.clientY;
+          const rect = block.getBoundingClientRect();
+          resizeStartW = rect.width;
+          resizeStartH = rect.height;
+          setSelectedBlock(block);
+        });
+        return handle;
+      }
+
+      function attachBlockEvents(block) {
+        block.classList.add('location');
+        block.dataset.current = Number(block.dataset.current || 0);
+        block.dataset.max = Number(block.dataset.max || 0);
+        block.dataset.alloc = Number(block.dataset.alloc || 0);
+        block.dataset.codes = block.dataset.codes || '';
+        block.dataset.names = block.dataset.names || '';
+        block.dataset.id = String(block.dataset.id || generateUniqueId());
+        block.dataset.floor = block.dataset.floor || '1F';
+
+        if (!block.style.left) block.style.left = '20px';
+        if (!block.style.top) block.style.top = '20px';
+        if (!block.style.width) block.style.width = '120px';
+        if (!block.style.height) block.style.height = '60px';
+
+        if (!block.querySelector('.loc-id')) {
+          const idDiv = document.createElement('div'); idDiv.className = 'loc-id'; idDiv.textContent = block.dataset.id;
+          const qtyDiv = document.createElement('div'); qtyDiv.className = 'loc-qty';
+          const alloc = Number(block.dataset.alloc || 0);
+          qtyDiv.textContent = alloc > 0 ? `${block.dataset.current}/${block.dataset.max}  可:${alloc}` : `${block.dataset.current}/${block.dataset.max}`;
+          block.appendChild(qtyDiv);
+          block.appendChild(idDiv);
+        } else {
+          updateBlockDisplay(block);
+        }
+
+        block.addEventListener('dblclick', onBlockDblClick);
+        block.addEventListener('contextmenu', (e) => { e.preventDefault(); openDeleteModal(block); });
+        block.addEventListener('mousedown', (e) => {
+          if (e.target.classList.contains('resize-handle')) return;
+
+          // Check if shift key is pressed for multi-selection
+          if (e.shiftKey) {
+            // Shift+click: toggle selection, don't start dragging
+            setSelectedBlock(block, true);
+          } else {
+            // Normal click: start dragging
+            dragTarget = block;
+            const rect = block.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+            block.style.cursor = 'grabbing';
+            document.body.classList.add('no-select');
+
+            // If clicking on a block that's already selected and there are multiple selections,
+            // prepare to drag all selected blocks together
+            if (selectedBlocks.includes(block) && selectedBlocks.length > 1) {
+              // Record relative positions of all selected blocks
+              const dragTargetLeft = parseFloat(dragTarget.style.left);
+              const dragTargetTop = parseFloat(dragTarget.style.top);
+              dragBlockOffsets = selectedBlocks.map(b => ({
+                block: b,
+                offsetX: parseFloat(b.style.left) - dragTargetLeft,
+                offsetY: parseFloat(b.style.top) - dragTargetTop
+              }));
+              // Set cursor for all selected blocks
+              selectedBlocks.forEach(b => b.style.cursor = 'grabbing');
+            } else {
+              // Single block drag
+              setSelectedBlock(block, false);
+              dragBlockOffsets = [];
+            }
+          }
+        });
+        createResizeHandle(block);
+        updateBlockDisplay(block);
+      }
+
+      function setSelectedBlock(block, shiftKey = false) {
+        if (shiftKey) {
+          // Shift key: toggle selection
+          const index = selectedBlocks.indexOf(block);
+          if (index >= 0) {
+            // Already selected, deselect
+            selectedBlocks.splice(index, 1);
+            block.classList.remove('selected');
+          } else {
+            // Add to selection
+            selectedBlocks.push(block);
+            block.classList.add('selected');
+          }
+
+          // Update primary selected block to last in array
+          if (selectedBlocks.length > 0) {
+            selectedBlock = selectedBlocks[selectedBlocks.length - 1];
+            const count = selectedBlocks.length;
+            selectedIndicator.textContent = `選択: ${count}個 (${selectedBlock.dataset.id})`;
+            const w = parseFloat(getComputedStyle(selectedBlock).width) || 120;
+            const h = parseFloat(getComputedStyle(selectedBlock).height) || 60;
+            blockWInput.value = Math.round(w);
+            blockHInput.value = Math.round(h);
+            blockWInput.disabled = false;
+            blockHInput.disabled = false;
+            applyBlockSizeBtn.disabled = false;
+          } else {
+            selectedBlock = null;
+            selectedIndicator.textContent = '選択: なし';
+            blockWInput.disabled = true;
+            blockHInput.disabled = true;
+            applyBlockSizeBtn.disabled = true;
+          }
+        } else {
+          // Normal click: single selection
+          if (selectedBlock === block && selectedBlocks.length === 1) return;
+
+          // Clear all previous selections
+          selectedBlocks.forEach(b => b.classList.remove('selected'));
+          selectedBlocks = [];
+
+          selectedBlock = block;
+          if (selectedBlock) {
+            selectedBlock.classList.add('selected');
+            selectedBlocks.push(selectedBlock);
+            selectedIndicator.textContent = `選択: ${selectedBlock.dataset.id}`;
+            const w = parseFloat(getComputedStyle(selectedBlock).width) || 120;
+            const h = parseFloat(getComputedStyle(selectedBlock).height) || 60;
+            blockWInput.value = Math.round(w);
+            blockHInput.value = Math.round(h);
+            blockWInput.disabled = false;
+            blockHInput.disabled = false;
+            applyBlockSizeBtn.disabled = false;
+          } else {
+            selectedIndicator.textContent = '選択: なし';
+            blockWInput.disabled = true;
+            blockHInput.disabled = true;
+            applyBlockSizeBtn.disabled = true;
+          }
+        }
+      }
+
+      function clearSelection() {
+        selectedBlocks.forEach(b => b.classList.remove('selected'));
+        selectedBlocks = [];
+        selectedBlock = null;
+        selectedIndicator.textContent = '選択: なし';
+        blockWInput.disabled = true;
+        blockHInput.disabled = true;
+        applyBlockSizeBtn.disabled = true;
+      }
+
+      function onBlockDblClick(e) {
+        const block = e.currentTarget;
+        openEditModal(block);
+      }
+
+      function clientToContainerPos(clientX, clientY) {
+        const rect = floorPlan.getBoundingClientRect();
+        const scrollLeft = floorPlan.scrollLeft || 0;
+        const scrollTop = floorPlan.scrollTop || 0;
+        const x = clientX - rect.left + scrollLeft;
+        const y = clientY - rect.top + scrollTop;
+        return { x, y };
+      }
+
+      function snapWithThreshold(value) {
+        if (!gridEnabled || !gridSize || gridSize < 2) return value;
+        const nearest = Math.round(value / gridSize) * gridSize;
+        const dist = Math.abs(value - nearest);
+        return (dist <= gridThreshold) ? nearest : value;
+      }
+
+      document.addEventListener('mousemove', (e) => {
+        if (dragTarget) {
+          const pos = clientToContainerPos(e.clientX, e.clientY);
+          const leftRaw = pos.x - dragOffsetX;
+          const topRaw = pos.y - dragOffsetY;
+          const leftMaybeSnapped = snapWithThreshold(leftRaw);
+          const topMaybeSnapped = snapWithThreshold(topRaw);
+          const w = parseFloat(getComputedStyle(dragTarget).width);
+          const h = parseFloat(getComputedStyle(dragTarget).height);
+          const maxLeft = Math.max(0, floorPlan.scrollWidth - w);
+          const maxTop = Math.max(0, floorPlan.scrollHeight - h);
+          const newLeft = Math.max(0, Math.min(leftMaybeSnapped, maxLeft));
+          const newTop = Math.max(0, Math.min(topMaybeSnapped, maxTop));
+          dragTarget.style.left = newLeft + 'px';
+          dragTarget.style.top = newTop + 'px';
+
+          // If dragging multiple blocks, move them all together
+          if (dragBlockOffsets.length > 0) {
+            dragBlockOffsets.forEach(({ block, offsetX, offsetY }) => {
+              if (block !== dragTarget) {
+                const blockW = parseFloat(getComputedStyle(block).width);
+                const blockH = parseFloat(getComputedStyle(block).height);
+                const blockLeft = newLeft + offsetX;
+                const blockTop = newTop + offsetY;
+                const blockMaxLeft = Math.max(0, floorPlan.scrollWidth - blockW);
+                const blockMaxTop = Math.max(0, floorPlan.scrollHeight - blockH);
+                block.style.left = Math.max(0, Math.min(blockLeft, blockMaxLeft)) + 'px';
+                block.style.top = Math.max(0, Math.min(blockTop, blockMaxTop)) + 'px';
+              }
+            });
+          }
+        }
+        if (resizeTarget) {
+          const dx = e.clientX - resizeStartX;
+          const dy = e.clientY - resizeStartY;
+          let newW = resizeStartW + dx;
+          let newH = resizeStartH + dy;
+          newW = snapWithThreshold(newW);
+          newH = snapWithThreshold(newH);
+          newW = Math.max(40, Math.min(newW, 400));
+          newH = Math.max(24, Math.min(newH, 240));
+          resizeTarget.style.width = newW + 'px';
+          resizeTarget.style.height = newH + 'px';
+          if (selectedBlock === resizeTarget) { blockWInput.value = Math.round(newW); blockHInput.value = Math.round(newH); }
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (dragTarget) {
+          // Reset cursor for all blocks that were being dragged
+          if (dragBlockOffsets.length > 0) {
+            dragBlockOffsets.forEach(({ block }) => {
+              block.style.cursor = 'grab';
+            });
+            dragBlockOffsets = [];
+          } else {
+            dragTarget.style.cursor = 'grab';
+          }
+          dragTarget = null;
+          document.body.classList.remove('no-select');
+        }
+        resizeTarget = null;
+      });
+
+      function applyBlockSize() {
+        if (!selectedBlock) return;
+        let w = Number(blockWInput.value);
+        let h = Number(blockHInput.value);
+        if (isNaN(w) || isNaN(h)) return;
+        w = Math.max(40, Math.min(w, 400));
+        h = Math.max(24, Math.min(h, 240));
+        w = snapWithThreshold(w);
+        h = snapWithThreshold(h);
+        selectedBlock.style.width = w + 'px';
+        selectedBlock.style.height = h + 'px';
+      }
+      applyBlockSizeBtn.addEventListener('click', applyBlockSize);
+      blockWInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyBlockSize(); });
+      blockHInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyBlockSize(); });
+
+      function generateUniqueId() {
+        let id;
+        do {
+          id = `新規-${String(globalMeta.newBlockCounter).padStart(3, '0')}`;
+          globalMeta.newBlockCounter++;
+        } while (Array.from(floorPlan.querySelectorAll('.location')).some(b => b.dataset.id === id));
+        return id;
+      }
+
+      function addBlock() {
+        const block = document.createElement('div');
+        block.dataset.id = generateUniqueId();
+        block.dataset.current = 0;
+        block.dataset.max = 100;
+        block.dataset.alloc = 0;
+        block.dataset.codes = '';
+        block.dataset.names = '';
+        block.dataset.floor = currentFloor;
+        const left = Math.max(10, floorPlan.scrollLeft + 20);
+        const top = Math.max(10, floorPlan.scrollTop + 20);
+        block.style.left = snapWithThreshold(left) + 'px';
+        block.style.top = snapWithThreshold(top) + 'px';
+        block.style.width = '120px';
+        block.style.height = '60px';
+        attachBlockEvents(block);
+        floorPlan.appendChild(block);
+        block.style.display = block.dataset.floor === currentFloor ? 'flex' : 'none';
+        setSelectedBlock(block);
+      }
+      addBtn.addEventListener('click', addBlock);
+
+      function switchFloor(floor) {
+        currentFloor = floor;
+        tab1.classList.remove('active');
+        tab2.classList.remove('active');
+        if (floor === '1F') tab1.classList.add('active'); else tab2.classList.add('active');
+        Array.from(floorPlan.querySelectorAll('.location')).forEach(b => { b.style.display = (b.dataset.floor === floor) ? 'flex' : 'none'; });
+        clearSelection();
+      }
+      tab1.addEventListener('click', () => switchFloor('1F'));
+      tab2.addEventListener('click', () => switchFloor('2F'));
+      floorPlan.addEventListener('mousedown', (e) => { if (e.target === floorPlan) clearSelection(); });
+
+      // Copy/Paste/Delete functionality
+      document.addEventListener('keydown', (e) => {
+        // Ctrl+C or Cmd+C: Copy selected blocks
+        if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selectedBlocks.length > 0) {
+          e.preventDefault();
+
+          // Calculate relative positions of all selected blocks
+          // Use the first selected block as reference
+          const referenceBlock = selectedBlocks[0];
+          const refLeft = parseFloat(referenceBlock.style.left);
+          const refTop = parseFloat(referenceBlock.style.top);
+
+          copiedBlocks = selectedBlocks.map(block => ({
+            current: block.dataset.current,
+            max: block.dataset.max,
+            alloc: block.dataset.alloc,
+            codes: block.dataset.codes,
+            names: block.dataset.names,
+            floor: block.dataset.floor,
+            width: block.style.width,
+            height: block.style.height,
+            // Store relative position to reference block
+            offsetX: parseFloat(block.style.left) - refLeft,
+            offsetY: parseFloat(block.style.top) - refTop
+          }));
+
+          const count = copiedBlocks.length;
+          showToast(`${count}個のブロックをコピーしました`);
+        }
+
+        // Ctrl+V or Cmd+V: Paste copied blocks
+        if ((e.ctrlKey || e.metaKey) && e.key === 'v' && copiedBlocks.length > 0) {
+          e.preventDefault();
+
+          // Determine base position for pasting
+          let baseLeft, baseTop;
+          if (selectedBlock) {
+            // Paste relative to selected block
+            baseLeft = parseFloat(selectedBlock.style.left) + 20;
+            baseTop = parseFloat(selectedBlock.style.top) + 20;
+          } else {
+            // Paste at viewport position
+            baseLeft = Math.max(10, floorPlan.scrollLeft + 20);
+            baseTop = Math.max(10, floorPlan.scrollTop + 20);
+          }
+
+          const newBlocks = [];
+          copiedBlocks.forEach(copiedData => {
+            const block = document.createElement('div');
+            block.dataset.id = generateUniqueId();
+            block.dataset.current = copiedData.current;
+            block.dataset.max = copiedData.max;
+            block.dataset.alloc = copiedData.alloc;
+            block.dataset.codes = copiedData.codes;
+            block.dataset.names = copiedData.names;
+            block.dataset.floor = copiedData.floor;
+
+            // Apply base position plus relative offset
+            const left = baseLeft + copiedData.offsetX;
+            const top = baseTop + copiedData.offsetY;
+
+            block.style.left = snapWithThreshold(left) + 'px';
+            block.style.top = snapWithThreshold(top) + 'px';
+            block.style.width = copiedData.width;
+            block.style.height = copiedData.height;
+
+            attachBlockEvents(block);
+            floorPlan.appendChild(block);
+            block.style.display = block.dataset.floor === currentFloor ? 'flex' : 'none';
+            newBlocks.push(block);
+          });
+
+          // Select all newly pasted blocks
+          clearSelection();
+          newBlocks.forEach(block => {
+            selectedBlocks.push(block);
+            block.classList.add('selected');
+          });
+          if (newBlocks.length > 0) {
+            selectedBlock = newBlocks[newBlocks.length - 1];
+            selectedIndicator.textContent = `選択: ${newBlocks.length}個 (${selectedBlock.dataset.id})`;
+            const w = parseFloat(getComputedStyle(selectedBlock).width) || 120;
+            const h = parseFloat(getComputedStyle(selectedBlock).height) || 60;
+            blockWInput.value = Math.round(w);
+            blockHInput.value = Math.round(h);
+            blockWInput.disabled = false;
+            blockHInput.disabled = false;
+            applyBlockSizeBtn.disabled = false;
+          }
+
+          const count = newBlocks.length;
+          showToast(`${count}個のブロックを貼り付けました`);
+        }
+
+        // Delete or Backspace: Delete selected blocks
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBlocks.length > 0) {
+          e.preventDefault();
+          if (selectedBlocks.length === 1) {
+            openDeleteModal(selectedBlocks[0]);
+          } else {
+            const modal = document.getElementById('delete-modal');
+            const message = document.getElementById('delete-message');
+            const confirmBtn = document.getElementById('delete-confirm');
+            const cancelBtn = document.getElementById('delete-cancel');
+
+            const count = selectedBlocks.length;
+            message.textContent = `${count}個のブロックを削除しますか？`;
+            modal.style.display = 'flex';
+
+            const handleConfirm = () => {
+              selectedBlocks.forEach(b => b.remove());
+              clearSelection();
+              modal.style.display = 'none';
+              showToast(`${count}個のブロックを削除しました`);
+              confirmBtn.removeEventListener('click', handleConfirm);
+              cancelBtn.removeEventListener('click', handleCancel);
+            };
+
+            const handleCancel = () => {
+              modal.style.display = 'none';
+              confirmBtn.removeEventListener('click', handleConfirm);
+              cancelBtn.removeEventListener('click', handleCancel);
+            };
+
+            confirmBtn.addEventListener('click', handleConfirm);
+            cancelBtn.addEventListener('click', handleCancel);
+          }
+        }
+      });
+
+      function openEditModal(block) {
+        const modal = document.getElementById('edit-modal');
+        const idInput = document.getElementById('edit-id');
+        const currentInput = document.getElementById('edit-current');
+        const maxInput = document.getElementById('edit-max');
+        const allocInput = document.getElementById('edit-alloc');
+        const floorInput = document.getElementById('edit-floor');
+        const codesInput = document.getElementById('edit-codes');
+        const namesInput = document.getElementById('edit-names');
+        const errorMessage = document.getElementById('error-message');
+        const saveBtn = document.getElementById('edit-save');
+        const cancelBtn = document.getElementById('edit-cancel');
+        const csvExportBtn = document.getElementById('edit-csv-export');
+
+        idInput.value = block.dataset.id;
+        currentInput.value = Number(block.dataset.current);
+        maxInput.value = Number(block.dataset.max);
+        allocInput.value = Number(block.dataset.alloc || 0);
+        floorInput.value = block.dataset.floor;
+        codesInput.value = block.dataset.codes || '';
+        namesInput.value = block.dataset.names || '';
+        errorMessage.style.display = 'none';
+        modal.style.display = 'flex';
+
+        function close() { modal.style.display = 'none'; saveBtn.removeEventListener('click', onSave); cancelBtn.removeEventListener('click', onCancel); csvExportBtn.removeEventListener('click', onCsvExport); }
+        function onSave() {
+          const newId = idInput.value.trim();
+          const currentVal = Number(currentInput.value) || 0;
+          const maxVal = Number(maxInput.value) || 0;
+          const allocVal = Number(allocInput.value) || 0;
+          const floorVal = floorInput.value;
+          const codesVal = String(codesInput.value || '').trim();
+          const namesVal = String(namesInput.value || '').trim();
+          const duplicate = Array.from(floorPlan.querySelectorAll('.location')).some(b => b !== block && b.dataset.id === newId);
+          // FIX: 誤変数名の削除（"新Id" 参照を撤去）
+          if (!newId) { errorMessage.textContent = 'IDを入力してください'; errorMessage.style.display = 'block'; return; }
+          if (duplicate) { errorMessage.textContent = 'このロケーションIDは既に使用されています'; errorMessage.style.display = 'block'; return; }
+          errorMessage.style.display = 'none';
+          block.dataset.id = newId; block.dataset.current = currentVal; block.dataset.max = maxVal; block.dataset.floor = floorVal; block.dataset.alloc = allocVal; block.dataset.codes = codesVal; block.dataset.names = namesVal;
+          updateBlockDisplay(block);
+          block.style.display = (block.dataset.floor === currentFloor) ? 'flex' : 'none';
+          close();
+        }
+        function onCancel() { close(); }
+        function onCsvExport() {
+          const headers = ['ロケーションID','商品コード','商品名','現在庫数','引当可能数','最大在庫数','フロア'];
+          const rows = [headers.join(',')];
+          const b = {
+            id: block.dataset.id,
+            current: Number(block.dataset.current) || 0,
+            max: Number(block.dataset.max) || 0,
+            alloc: Number(block.dataset.alloc) || 0,
+            codes: block.dataset.codes || '',
+            names: block.dataset.names || '',
+            floor: block.dataset.floor || '1F'
+          };
+          const codes = (b.codes||'').split(',').map(s=>s.trim()).filter(Boolean);
+          const names = (b.names||'').split(',').map(s=>s.trim());
+          if (codes.length === 0 && (b.names||'').trim() === '') {
+            rows.push([
+              toCsvValue(b.id), toCsvValue(''), toCsvValue(''), toCsvValue(b.current), toCsvValue(b.alloc), toCsvValue(b.max), toCsvValue(b.floor)
+            ].join(','));
+          } else {
+            const len = Math.max(codes.length, names.length);
+            for (let i=0;i<len;i++) {
+              rows.push([
+                toCsvValue(b.id),
+                toCsvValue(codes[i]||''),
+                toCsvValue(names[i]||''),
+                toCsvValue(i===0? b.current : ''),
+                toCsvValue(i===0? b.alloc : ''),
+                toCsvValue(i===0? b.max : ''),
+                toCsvValue(i===0? b.floor : '')
+              ].join(','));
+            }
+          }
+          const ts = new Date();
+          const y = ts.getFullYear(); const m = String(ts.getMonth()+1).padStart(2,'0'); const d = String(ts.getDate()).padStart(2,'0');
+          const hh = String(ts.getHours()).padStart(2,'0'); const mm = String(ts.getMinutes()).padStart(2,'0');
+          const filename = `location_${b.id}_${y}${m}${d}_${hh}${mm}.csv`;
+          downloadText(filename, rows.join('\r\n'));
+        }
+        saveBtn.addEventListener('click', onSave);
+        cancelBtn.addEventListener('click', onCancel);
+        csvExportBtn.addEventListener('click', onCsvExport);
+      }
+
+      function openDeleteModal(block) {
+        const modal = document.getElementById('delete-modal');
+        const message = document.getElementById('delete-message');
+        const confirmBtn = document.getElementById('delete-confirm');
+        const cancelBtn = document.getElementById('delete-cancel');
+
+        // Check if multiple blocks are selected and this block is one of them
+        const blocksToDelete = selectedBlocks.includes(block) && selectedBlocks.length > 1
+          ? selectedBlocks
+          : [block];
+
+        if (blocksToDelete.length > 1) {
+          message.textContent = `${blocksToDelete.length}個のブロックを削除しますか？`;
+        } else {
+          message.textContent = 'このブロックを削除しますか？';
+        }
+
+        modal.style.display = 'flex';
+        function close() { modal.style.display = 'none'; confirmBtn.removeEventListener('click', onConfirm); cancelBtn.removeEventListener('click', onCancel); }
+        function onConfirm() {
+          blocksToDelete.forEach(b => b.remove());
+          clearSelection();
+          close();
+        }
+        function onCancel() { close(); }
+        confirmBtn.addEventListener('click', onConfirm);
+        cancelBtn.addEventListener('click', onCancel);
+      }
+
+      function collectAllBlocks() {
+        return Array.from(floorPlan.querySelectorAll('.location')).map(b => ({
+          id: b.dataset.id,
+          current: Number(b.dataset.current) || 0,
+          max: Number(b.dataset.max) || 0,
+          alloc: Number(b.dataset.alloc) || 0,
+          codes: b.dataset.codes || '',
+          names: b.dataset.names || '',
+          floor: b.dataset.floor || '1F',
+          left: b.style.left || '0px',
+          top: b.style.top || '0px',
+          width: b.style.width || getComputedStyle(b).width,
+          height: b.style.height || getComputedStyle(b).height
+        }));
+      }
+
+      // 旧/新フォーマット正規化
+      function normalizeParsedLayout(parsed) {
+        let blocks = [];
+        let meta = null;
+        if (Array.isArray(parsed)) {
+          blocks = parsed;
+        } else if (parsed && Array.isArray(parsed.blocks)) {
+          blocks = parsed.blocks;
+          if (parsed.meta && typeof parsed.meta.newBlockCounter === 'number') meta = parsed.meta;
+        }
+        // ブロックごとの新項目に既定値
+        blocks = blocks.map(d => ({
+          id: d.id,
+          current: Number(d.current) || 0,
+          max: Number(d.max) || 0,
+          alloc: Number(d.alloc) || 0,
+          codes: d.codes || '',
+          names: d.names || '',
+          floor: d.floor || '1F',
+          left: d.left, top: d.top, width: d.width, height: d.height
+        }));
+        return { blocks, meta };
+      }
+
+      function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => {
+          toast.classList.remove('show');
+          setTimeout(() => toast.remove(), 300);
+        }, 2000);
+      }
+
+      function saveLayout() {
+        const name = document.getElementById('layout-name').value.trim();
+        if (!name) { alert('レイアウト名を入力してください'); return; }
+        const blocks = collectAllBlocks();
+        const payload = { blocks, meta: globalMeta };
+        localStorage.setItem('layout-' + name, JSON.stringify(payload));
+        if (!Array.from(layoutSelect.options).some(o => o.value === name)) { const opt = document.createElement('option'); opt.value = name; opt.textContent = name; layoutSelect.appendChild(opt); }
+        showToast('保存しました。');
+      }
+
+      function loadLayout() {
+        const name = document.getElementById('layout-name').value.trim() || layoutSelect.value;
+        if (!name) { floorPlan.innerHTML = ''; clearSelection(); return; }
+        // レイアウト名入力欄に選択したレイアウト名を反映
+        document.getElementById('layout-name').value = name;
+        const SAMPLE = 'サンプル倉庫レイアウト';
+        const TEST = '＿TEST＿LAYOUT＿';
+        const key = 'layout-' + name;
+        let data = localStorage.getItem(key);
+        if (name === SAMPLE && !data) { floorPlan.innerHTML=''; seedDefaultLayout(); switchFloor(currentFloor); return; }
+        if (name === TEST && !data) { floorPlan.innerHTML=''; seedTestLayout(); switchFloor(currentFloor); return; }
+        if (!data) { alert('データがありません'); return; }
+        try {
+          const parsed = JSON.parse(data);
+          const { blocks, meta } = normalizeParsedLayout(parsed);
+          floorPlan.innerHTML = '';
+          if (meta && typeof meta.newBlockCounter === 'number') { globalMeta.newBlockCounter = meta.newBlockCounter; }
+          blocks.forEach(d => {
+            const block = document.createElement('div');
+            block.dataset.id = d.id; block.dataset.current = d.current; block.dataset.max = d.max; block.dataset.floor = d.floor; block.dataset.alloc = d.alloc; block.dataset.codes = d.codes; block.dataset.names = d.names;
+            block.style.left = d.left; block.style.top = d.top; block.style.width = d.width; block.style.height = d.height;
+            attachBlockEvents(block); floorPlan.appendChild(block);
+          });
+          switchFloor(currentFloor);
+        } catch (err) { console.error(err); alert('ロードに失敗しました'); }
+      }
+
+      function deleteLayout() {
+        const name = layoutSelect.value;
+        if (!name) { alert('削除するレイアウトを選択してください'); return; }
+
+        const modal = document.getElementById('delete-layout-modal');
+        const message = document.getElementById('delete-layout-message');
+        const confirmBtn = document.getElementById('delete-layout-confirm');
+        const cancelBtn = document.getElementById('delete-layout-cancel');
+
+        message.textContent = '本当に削除しますか？ レイアウト「' + name + '」は復元できません。';
+        modal.style.display = 'flex';
+
+        const handleConfirm = () => {
+          localStorage.removeItem('layout-' + name);
+          layoutSelect.querySelector('option[value="' + name + '"]')?.remove();
+          document.getElementById('layout-name').value = '';
+          modal.style.display = 'none';
+          showToast('削除しました。');
+          confirmBtn.removeEventListener('click', handleConfirm);
+          cancelBtn.removeEventListener('click', handleCancel);
+        };
+
+        const handleCancel = () => {
+          modal.style.display = 'none';
+          confirmBtn.removeEventListener('click', handleConfirm);
+          cancelBtn.removeEventListener('click', handleCancel);
+        };
+
+        confirmBtn.addEventListener('click', handleConfirm);
+        cancelBtn.addEventListener('click', handleCancel);
+      }
+
+      saveBtn.addEventListener('click', saveLayout);
+      loadBtn.addEventListener('click', loadLayout);
+      deleteLayoutBtn.addEventListener('click', deleteLayout);
+
+      // レイアウト選択が変更されたらレイアウト名入力欄も更新
+      layoutSelect.addEventListener('change', () => {
+        const selectedName = layoutSelect.value;
+        if (selectedName) {
+          document.getElementById('layout-name').value = selectedName.replace('（自動生成）', '');
+        } else {
+          document.getElementById('layout-name').value = '';
+        }
+      });
+
+      function populateLayoutSelect() {
+        layoutSelect.innerHTML = '<option value="">-- レイアウト選択 --</option>';
+        const SAMPLE = 'サンプル倉庫レイアウト';
+        const TEST = '＿TEST＿LAYOUT＿';
+        let hasSample = false;
+        let hasTest = false;
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('layout-')) {
+            const name = key.replace('layout-', '');
+            if (name === SAMPLE) hasSample = true;
+            if (name === TEST) hasTest = true;
+            const opt = document.createElement('option'); opt.value = name; opt.textContent = name; layoutSelect.appendChild(opt);
+          }
+        }
+        if (!hasSample) { const opt = document.createElement('option'); opt.value = SAMPLE; opt.textContent = SAMPLE + '（自動生成）'; layoutSelect.appendChild(opt); }
+        if (!hasTest) { const opt = document.createElement('option'); opt.value = TEST; opt.textContent = TEST + '（自動生成）'; layoutSelect.appendChild(opt); }
+      }
+      populateLayoutSelect();
+
+      applyGridBackground();
+      switchFloor('1F');
+
+      // --- CSV 出力 ---
+      function toCsvValue(v) {
+        const s = (v==null? '': String(v));
+        // 正規表現: カンマ/ダブルクォート/改行を含む場合は引用
+        if (/[",\n]/.test(s)) return '"' + s.replace(/\"/g,'""') + '"';
+        return s;
+      }
+      function normalizeCRLF(text) {
+        return String(text ?? '').replace(/\r?\n/g, '\r\n');
+      }
+      function downloadText(filename, text) {
+        // Export as Shift_JIS for Excel (Windows) compatibility.
+        // Fallback to UTF-8 BOM if the encoder is unavailable.
+        const s = normalizeCRLF(text);
+        let blob;
+        try {
+          if (window.Encoding && typeof Encoding.convert === 'function') {
+            const unicodeArray = Encoding.stringToCode(s);
+            const sjisArray = Encoding.convert(unicodeArray, 'SJIS', 'UNICODE');
+            const uint8 = new Uint8Array(sjisArray);
+            blob = new Blob([uint8], { type: 'text/csv; charset=shift_jis;' });
+          } else {
+            blob = new Blob(["\uFEFF" + s], { type: 'text/csv; charset=utf-8;' });
+          }
+        } catch (e) {
+          console.warn('Shift_JIS encode failed, falling back to UTF-8 BOM', e);
+          blob = new Blob(["\uFEFF" + s], { type: 'text/csv; charset=utf-8;' });
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      }
+      function exportCSV() {
+        const blocks = collectAllBlocks();
+        const headers = ['ロケーションID','商品コード','商品名','現在庫数','引当可能数','最大在庫数','フロア'];
+        const rows = [headers.join(',')];
+        blocks.forEach(b => {
+          const codes = (b.codes||'').split(',').map(s=>s.trim()).filter(Boolean);
+          const names = (b.names||'').split(',').map(s=>s.trim());
+          if (codes.length === 0 && (b.names||'').trim() === '') {
+            rows.push([
+              toCsvValue(b.id), toCsvValue(''), toCsvValue(''), toCsvValue(b.current), toCsvValue(b.alloc), toCsvValue(b.max), toCsvValue(b.floor)
+            ].join(','));
+          } else {
+            const len = Math.max(codes.length, names.length);
+            for (let i=0;i<len;i++) {
+              rows.push([
+                toCsvValue(b.id),
+                toCsvValue(codes[i]||''),
+                toCsvValue(names[i]||''),
+                toCsvValue(i===0? b.current : ''),
+                toCsvValue(i===0? b.alloc : ''),
+                toCsvValue(i===0? b.max : ''),
+                toCsvValue(i===0? b.floor : '')
+              ].join(','));
+            }
+          }
+        });
+        const ts = new Date();
+        const y = ts.getFullYear(); const m = String(ts.getMonth()+1).padStart(2,'0'); const d = String(ts.getDate()).padStart(2,'0');
+        const hh = String(ts.getHours()).padStart(2,'0'); const mm = String(ts.getMinutes()).padStart(2,'0');
+        const filename = `layout_export_${y}${m}${d}_${hh}${mm}.csv`;
+        downloadText(filename, rows.join('\r\n'));
+      }
+      exportCsvBtn.addEventListener('click', exportCSV);
+
+      // --- minimal self-tests (non-breaking) ---
+      try {
+        console.assert(typeof updateBlockDisplay === 'function', 'updateBlockDisplay should be a function');
+        console.assert(document.getElementById('grid-toggle'), 'grid-toggle exists');
+        console.assert(layoutSelect.options.length >= 1, 'layoutSelect has options');
+        // 正規化テスト（旧/新）
+        const legacy = [{ id:'X', current:1, max:2, floor:'1F', left:'0px', top:'0px', width:'10px', height:'10px' }];
+        const modern = { blocks: legacy, meta: { newBlockCounter: 99 } };
+        const n1 = normalizeParsedLayout(legacy); console.assert(Array.isArray(n1.blocks) && n1.blocks.length === 1, 'legacy -> blocks[1]');
+        const n2 = normalizeParsedLayout(modern); console.assert(Array.isArray(n2.blocks) && n2.blocks.length === 1, 'modern -> blocks[1]'); console.assert(n2.meta && n2.meta.newBlockCounter === 99, 'meta preserved');
+        // CSVテスト（値のエスケープ + 改行 + 正規表現）
+        console.assert(/[",\n]/.test('a\nb') === true && /[",\n]/.test('plain') === false, 'regex works');
+        console.assert(toCsvValue('a,b').startsWith('"') && toCsvValue('a"b').includes('""'), 'csv escape');
+        console.assert(toCsvValue('a\nb').startsWith('"') && toCsvValue('plain') === 'plain', 'csv newline & plain');
+        // CRLF 正規化
+        console.assert(normalizeCRLF('a\nb') === 'a\r\nb', 'LF -> CRLF');
+        console.assert(normalizeCRLF('a\r\nb') === 'a\r\nb', 'CRLF stay CRLF');
+        // 余計な未定義変数（新Idなど）が存在しないことを確認（typeofは未定義でも安全）
+        console.assert(typeof 新Id === 'undefined', 'no stray variable 新Id');
+        // Shift_JIS encoder presence (non-fatal)
+        console.assert(typeof Encoding !== 'undefined', 'Encoding.js loaded for SJIS');
+      } catch (e) { console.warn('self-tests skipped', e); }
+
+      /** ====== デフォルト倉庫レイアウト生成 ====== */
+      function addBlockAt({id, x, y, w=120, h=60, floor='1F', current=0, max=100, alloc=0, codes='', names=''}) {
+        const block = document.createElement('div');
+        block.dataset.id = id || generateUniqueId();
+        block.dataset.current = current; block.dataset.max = max; block.dataset.alloc = alloc; block.dataset.codes = codes; block.dataset.names = names; block.dataset.floor = floor;
+        block.style.left = (snapWithThreshold(x)) + 'px';
+        block.style.top = (snapWithThreshold(y)) + 'px';
+        block.style.width = w + 'px';
+        block.style.height = h + 'px';
+        attachBlockEvents(block);
+        floorPlan.appendChild(block);
+        block.style.display = (floor === currentFloor) ? 'flex' : 'none';
+        return block;
+      }
+
+      function seedTestLayout() {
+        const exists = floorPlan.querySelector('.location');
+        if (exists) return;
+        const G = gridSize;
+        const w = 120, h = 60;
+        // 1階のレイアウト（F1.pngに基づく）
+        // 左上グループ
+        addBlockAt({ id:'A-001', x: 40, y: 20, w: 180, h: 120, floor:'1F', current: 90, max: 100 });
+        addBlockAt({ id:'A-002', x: 240, y: 20, w: w, h: h, floor:'1F', current: 5, max: 100 });
+        addBlockAt({ id:'A-003', x: 240, y: 100, w: w, h: h, floor:'1F', current: 60, max: 100 });
+        addBlockAt({ id:'A-004', x: 380, y: 20, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'A-005', x: 380, y: 100, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        // 中央上グループ
+        addBlockAt({ id:'A-006', x: 640, y: 20, w: w, h: h, floor:'1F', current: 79, max: 130 });
+        addBlockAt({ id:'A-007', x: 640, y: 100, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-008', x: 780, y: 20, w: w, h: h, floor:'1F', current: 0, max: 150 });
+        addBlockAt({ id:'新規-009', x: 780, y: 100, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-010', x: 920, y: 20, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-011', x: 920, y: 100, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-012', x: 1060, y: 20, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-013', x: 1060, y: 100, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        // 右上
+        addBlockAt({ id:'新規-014', x: 1380, y: 20, w: w, h: 120, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-015', x: 1380, y: 160, w: w, h: 120, floor:'1F', current: 0, max: 100 });
+        // 左中グループ
+        addBlockAt({ id:'新規-016', x: 40, y: 260, w: w, h: h, floor:'1F', current: 30, max: 100 });
+        addBlockAt({ id:'新規-017', x: 40, y: 340, w: w, h: h, floor:'1F', current: 20, max: 100 });
+        addBlockAt({ id:'新規-018', x: 180, y: 260, w: w, h: h, floor:'1F', current: 90, max: 100 });
+        addBlockAt({ id:'新規-020', x: 180, y: 340, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-019', x: 320, y: 260, w: w, h: h, floor:'1F', current: 64, max: 100 });
+        addBlockAt({ id:'新規-021', x: 320, y: 340, w: w, h: h, floor:'1F', current: 88, max: 100 });
+        // 中央中グループ
+        addBlockAt({ id:'新規-026', x: 640, y: 260, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-027', x: 640, y: 340, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-028', x: 780, y: 260, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-029', x: 780, y: 340, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-030', x: 920, y: 260, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-031', x: 920, y: 340, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-032', x: 1060, y: 260, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-033', x: 1060, y: 340, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        // 右中
+        addBlockAt({ id:'新規-045', x: 1380, y: 320, w: w, h: 120, floor:'1F', current: 0, max: 100 });
+        // 左下グループ
+        addBlockAt({ id:'新規-023', x: 40, y: 480, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-034', x: 40, y: 560, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-024', x: 180, y: 480, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-035', x: 180, y: 560, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-025', x: 320, y: 480, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-036', x: 320, y: 560, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        // 中央下グループ
+        addBlockAt({ id:'新規-037', x: 640, y: 480, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-041', x: 640, y: 560, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-038', x: 780, y: 480, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-042', x: 780, y: 560, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-039', x: 920, y: 480, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-043', x: 920, y: 560, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-040', x: 1060, y: 480, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-044', x: 1060, y: 560, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        // 右下
+        addBlockAt({ id:'新規-046', x: 1380, y: 480, w: w, h: 120, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-061', x: 1380, y: 620, w: w, h: 120, floor:'1F', current: 0, max: 100 });
+        // 最下段左
+        addBlockAt({ id:'新規-047', x: 40, y: 680, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-050', x: 40, y: 760, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-048', x: 180, y: 680, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-051', x: 180, y: 760, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-049', x: 320, y: 680, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-052', x: 320, y: 760, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        // 最下段中央
+        addBlockAt({ id:'新規-053', x: 640, y: 680, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-057', x: 640, y: 760, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-054', x: 780, y: 680, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-058', x: 780, y: 760, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-055', x: 920, y: 680, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-059', x: 920, y: 760, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-056', x: 1060, y: 680, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-060', x: 1060, y: 760, w: w, h: h, floor:'1F', current: 0, max: 100 });
+        // 最下段右
+        addBlockAt({ id:'新規-062', x: 1380, y: 760, w: w, h: 120, floor:'1F', current: 0, max: 100 });
+
+        // 2階のレイアウト（F2.pngに基づく）
+        // 左上グループ
+        addBlockAt({ id:'新規-001', x: 20, y: 20, w: w, h: h, floor:'2F', current: 50, max: 100 });
+        addBlockAt({ id:'新規-002', x: 160, y: 20, w: w, h: h, floor:'2F', current: 30, max: 100 });
+        addBlockAt({ id:'新規-003', x: 20, y: 100, w: w, h: h, floor:'2F', current: 63, max: 100 });
+        addBlockAt({ id:'新規-004', x: 160, y: 100, w: w, h: h, floor:'2F', current: 99, max: 100 });
+        // 2列目左
+        addBlockAt({ id:'新規-071', x: 380, y: 20, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-072', x: 380, y: 100, w: w, h: h, floor:'2F', current: 55, max: 100 });
+        // 中央上グループ
+        addBlockAt({ id:'新規-079', x: 640, y: 20, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-080', x: 640, y: 100, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-081', x: 780, y: 20, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-082', x: 780, y: 100, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        // 右上
+        addBlockAt({ id:'新規-095', x: 1000, y: 20, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-096', x: 1000, y: 100, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-103', x: 1340, y: 20, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-104', x: 1340, y: 100, w: w, h: 120, floor:'2F', current: 0, max: 100 });
+
+        // 左中グループ
+        addBlockAt({ id:'新規-005', x: 20, y: 240, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-006', x: 160, y: 240, w: w, h: h, floor:'2F', current: 70, max: 100 });
+        addBlockAt({ id:'新規-007', x: 20, y: 320, w: w, h: h, floor:'2F', current: 80, max: 100 });
+        addBlockAt({ id:'新規-022', x: 160, y: 320, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        // 2列目中
+        addBlockAt({ id:'新規-073', x: 380, y: 240, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-074', x: 380, y: 320, w: w, h: h, floor:'2F', current: 43, max: 100 });
+        // 中央中グループ
+        addBlockAt({ id:'新規-083', x: 640, y: 240, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-084', x: 780, y: 240, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-085', x: 640, y: 320, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-086', x: 780, y: 320, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        // 右中
+        addBlockAt({ id:'新規-097', x: 1000, y: 240, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-098', x: 1000, y: 320, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-105', x: 1340, y: 240, w: w, h: 120, floor:'2F', current: 0, max: 100 });
+
+        // 左下グループ
+        addBlockAt({ id:'新規-063', x: 20, y: 440, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-064', x: 160, y: 440, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-065', x: 20, y: 520, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-066', x: 160, y: 520, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        // 2列目下
+        addBlockAt({ id:'新規-075', x: 380, y: 440, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-076', x: 380, y: 520, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        // 中央下グループ
+        addBlockAt({ id:'新規-087', x: 640, y: 440, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-088', x: 780, y: 440, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-089', x: 640, y: 520, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-090', x: 780, y: 520, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        // 右下
+        addBlockAt({ id:'新規-099', x: 1000, y: 440, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-100', x: 1000, y: 520, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-108', x: 1340, y: 460, w: w, h: 120, floor:'2F', current: 0, max: 100 });
+
+        // 最下段左
+        addBlockAt({ id:'新規-067', x: 20, y: 640, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-068', x: 160, y: 640, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-069', x: 20, y: 720, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-070', x: 160, y: 720, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        // 2列目最下段
+        addBlockAt({ id:'新規-077', x: 380, y: 640, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-078', x: 380, y: 720, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        // 中央最下段
+        addBlockAt({ id:'新規-091', x: 640, y: 640, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-092', x: 780, y: 640, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-093', x: 640, y: 720, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-094', x: 780, y: 720, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        // 右最下段
+        addBlockAt({ id:'新規-101', x: 1000, y: 640, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-102', x: 1000, y: 720, w: w, h: h, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-107', x: 1340, y: 600, w: w, h: 120, floor:'2F', current: 0, max: 100 });
+        addBlockAt({ id:'新規-106', x: 1340, y: 740, w: w, h: 120, floor:'2F', current: 0, max: 100 });
+
+        const name = '＿TEST＿LAYOUT＿'; const blocks = collectAllBlocks(); const payload = { blocks, meta: globalMeta }; localStorage.setItem('layout-' + name, JSON.stringify(payload)); if (!Array.from(layoutSelect.options).some(o => o.value === name)) { const opt = document.createElement('option'); opt.value = name; opt.textContent = name; layoutSelect.appendChild(opt); }
+      }
+
+      function seedDefaultLayout() {
+        const exists = floorPlan.querySelector('.location');
+        if (exists) return;
+        const G = gridSize; const aisle = 2*G;
+        addBlockAt({ id:'DOCK-01', x: G, y: G, w: 200, h: 60, floor:'1F', max: 0 });
+        addBlockAt({ id:'DOCK-02', x: G+220, y: G, w: 200, h: 60, floor:'1F', max: 0 });
+        addBlockAt({ id:'STG-01', x: G, y: G+80, w: 420, h: 80, floor:'1F', current: 10, max: 50 });
+        const startX = G; const startY = G + 80 + 80 + aisle; const rackW = 120, rackH = 60; const colGap = G, rowGap = G; const cols = ['A','B','C','D'];
+        cols.forEach((colName, ci) => { const x = startX + ci * (rackW + colGap); for (let r=1; r<=6; r++) { const y = startY + (r-1) * (rackH + rowGap); addBlockAt({ id:`${colName}-${String(r).padStart(2,'0')}`, x, y, w:rackW, h:rackH, floor:'1F', current: Math.floor(Math.random()*60), max: 100, alloc: Math.floor(Math.random()*40), codes:'49000000000'+r, names:`ダミー商品${r}` }); } });
+        addBlockAt({ id:'SHIP-01', x: startX + 4*(rackW+colGap) + aisle, y: startY, w: 200, h: 120, floor:'1F', current: 5, max: 50 });
+        addBlockAt({ id:'OFFICE', x: G, y: G, w: 240, h: 100, floor:'2F', max: 0 });
+        const mStartX = G, mStartY = G + 120 + aisle; for (let i=1;i<=3;i++) addBlockAt({ id:`M-${i}`, x: mStartX + (i-1)*(rackW+colGap), y: mStartY, w: rackW, h: rackH, floor:'2F', current: 20*i, max: 120, alloc: 10*i });
+        const name = 'サンプル倉庫レイアウト'; const blocks = collectAllBlocks(); const payload = { blocks, meta: globalMeta }; localStorage.setItem('layout-' + name, JSON.stringify(payload)); if (!Array.from(layoutSelect.options).some(o => o.value === name)) { const opt = document.createElement('option'); opt.value = name; opt.textContent = name; layoutSelect.appendChild(opt); }
+      }
+
+    });
+  </script>
+</body>
+</html>
