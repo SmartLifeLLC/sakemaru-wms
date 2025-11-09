@@ -29,11 +29,10 @@ class ExecuteWmsPickingTask extends Page implements HasForms
         $record->load([
             'pickingItemResults' => function ($query) {
                 $query->with(['item', 'location'])
-                    ->orderBy('walking_order', 'asc')
+                    // Removed: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
                     ->orderBy('item_id', 'asc');
             },
             'wave',
-            'earning',
             'trade',
             'pickingArea',
             'warehouse',
@@ -156,7 +155,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
             $this->record->load([
                 'pickingItemResults' => function ($query) {
                     $query->with(['item', 'location'])
-                        ->orderBy('walking_order', 'asc')
+                        // Removed: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
                         ->orderBy('item_id', 'asc');
                 }
             ]);
@@ -202,11 +201,17 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 'completed_at' => now(),
             ]);
 
-            // 伝票のピッキングステータスを更新
-            if ($this->record->earning) {
+            // このタスクに関連する全ての伝票のピッキングステータスを更新
+            $earningIds = $this->record->pickingItemResults()
+                ->distinct('earning_id')
+                ->whereNotNull('earning_id')
+                ->pluck('earning_id')
+                ->toArray();
+
+            if (!empty($earningIds)) {
                 DB::connection('sakemaru')
                     ->table('earnings')
-                    ->where('id', $this->record->earning_id)
+                    ->whereIn('id', $earningIds)
                     ->update([
                         'picking_status' => 'COMPLETED',
                         'updated_at' => now(),
@@ -246,11 +251,17 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 'completed_at' => now(),
             ]);
 
-            // 伝票のピッキングステータスを更新
-            if ($this->record->earning) {
+            // このタスクに関連する全ての伝票のピッキングステータスを更新
+            $earningIds = $this->record->pickingItemResults()
+                ->distinct('earning_id')
+                ->whereNotNull('earning_id')
+                ->pluck('earning_id')
+                ->toArray();
+
+            if (!empty($earningIds)) {
                 DB::connection('sakemaru')
                     ->table('earnings')
-                    ->where('id', $this->record->earning_id)
+                    ->whereIn('id', $earningIds)
                     ->update([
                         'picking_status' => 'COMPLETED',
                         'updated_at' => now(),

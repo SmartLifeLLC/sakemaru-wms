@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Models\Sakemaru\Earning;
+use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Trade;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Model;
@@ -19,7 +19,10 @@ class WmsPickingTask extends Model
         'wave_id',
         'wms_picking_area_id',
         'warehouse_id',
-        'earning_id',
+        'warehouse_code',
+        'delivery_course_id',
+        'delivery_course_code',
+        'shipment_date',
         'trade_id',
         'status',
         'task_type',
@@ -29,6 +32,7 @@ class WmsPickingTask extends Model
     ];
 
     protected $casts = [
+        'shipment_date' => 'date',
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
@@ -58,11 +62,11 @@ class WmsPickingTask extends Model
     }
 
     /**
-     * このタスクが属する出荷伝票
+     * このタスクが属する配送コース
      */
-    public function earning(): BelongsTo
+    public function deliveryCourse(): BelongsTo
     {
-        return $this->belongsTo(Earning::class, 'earning_id');
+        return $this->belongsTo(DeliveryCourse::class, 'delivery_course_id');
     }
 
     /**
@@ -111,14 +115,6 @@ class WmsPickingTask extends Model
     public function getWaveCodeAttribute(): string
     {
         return $this->wave->wave_code ?? "Wave {$this->wave_id}";
-    }
-
-    /**
-     * Get earning number
-     */
-    public function getEarningNumberAttribute(): string
-    {
-        return $this->earning->earning_no ?? "E{$this->earning_id}";
     }
 
     /**

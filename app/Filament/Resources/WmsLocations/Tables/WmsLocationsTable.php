@@ -61,11 +61,12 @@ class WmsLocationsTable
                     })
                     ->sortable(),
 
-                TextColumn::make('walking_order')
-                    ->label('動線順序')
-                    ->numeric()
-                    ->sortable()
-                    ->default('-'),
+                // Removed: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
+                // TextColumn::make('walking_order')
+                //     ->label('動線順序')
+                //     ->numeric()
+                //     ->sortable()
+                //     ->default('-'),
 
                 TextColumn::make('location_display')
                     ->label('倉庫構造')
@@ -99,7 +100,7 @@ class WmsLocationsTable
                         'BOTH' => '両方',
                     ]),
             ])
-            ->defaultSort('walking_order', 'asc')
+            ->defaultSort('location_id', 'asc') // Changed from walking_order to location_id
             ->recordActions([
                 EditAction::make(),
             ])

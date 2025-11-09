@@ -2,6 +2,7 @@
 
 namespace App\Models\Sakemaru;
 
+use App\Enums\AvailableQuantityFlag;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,11 +11,18 @@ class Location extends CustomModel
 {
     use HasFactory;
     protected $guarded = [];
-    protected $casts = [];
+    protected $casts = [
+        'available_quantity_flags' => 'integer',
+    ];
 
     public function warehouse() : belongsTo
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    public function floor() : BelongsTo
+    {
+        return $this->belongsTo(Floor::class);
     }
 
     public function wmsLocation()
@@ -68,5 +76,43 @@ class Location extends CustomModel
             'code3' => '0',
             'name' => 'デフォルト',
         ];
+    }
+
+    /**
+     * Check if location supports given quantity type
+     *
+     * @param AvailableQuantityFlag $flag
+     * @return bool
+     */
+    public function supports(AvailableQuantityFlag $flag): bool
+    {
+        return AvailableQuantityFlag::supports($this->available_quantity_flags ?? 8, $flag);
+    }
+
+    /**
+     * Set available quantity flags from array of AvailableQuantityFlag enums
+     *
+     * @param array<AvailableQuantityFlag> $flags
+     * @return void
+     */
+    public function setAvailableUnits(array $flags): void
+    {
+        $bitmask = AvailableQuantityFlag::toBitmask($flags);
+
+        if (!AvailableQuantityFlag::isValid($bitmask)) {
+            throw new \InvalidArgumentException('UNKNOWN flag cannot be combined with other flags');
+        }
+
+        $this->available_quantity_flags = $bitmask;
+    }
+
+    /**
+     * Get array of supported AvailableQuantityFlag enums
+     *
+     * @return array<AvailableQuantityFlag>
+     */
+    public function getAvailableUnits(): array
+    {
+        return AvailableQuantityFlag::fromBitmask($this->available_quantity_flags ?? 8);
     }
 }

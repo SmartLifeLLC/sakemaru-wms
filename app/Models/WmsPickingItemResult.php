@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
 use Illuminate\Database\Eloquent\Model;
@@ -15,11 +16,12 @@ class WmsPickingItemResult extends Model
 
     protected $fillable = [
         'picking_task_id',
+        'earning_id',
         'trade_item_id',
         'item_id',
         'real_stock_id',
         'location_id',
-        'walking_order',
+        // 'walking_order', // Removed: walking_order is no longer used
         'ordered_qty',
         'ordered_qty_type',
         'planned_qty',
@@ -33,7 +35,7 @@ class WmsPickingItemResult extends Model
     ];
 
     protected $casts = [
-        'walking_order' => 'integer',
+        // 'walking_order' => 'integer', // Removed: walking_order is no longer used
         'ordered_qty' => 'decimal:2',
         'planned_qty' => 'decimal:2',
         'picked_qty' => 'decimal:2',
@@ -47,6 +49,14 @@ class WmsPickingItemResult extends Model
     public function pickingTask(): BelongsTo
     {
         return $this->belongsTo(WmsPickingTask::class, 'picking_task_id');
+    }
+
+    /**
+     * このピッキング明細が属する売上伝票
+     */
+    public function earning(): BelongsTo
+    {
+        return $this->belongsTo(Earning::class, 'earning_id');
     }
 
     /**
@@ -67,11 +77,11 @@ class WmsPickingItemResult extends Model
 
     /**
      * スコープ：ピッキング順序でソート
+     * Note: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
      */
     public function scopeOrderedForPicking($query)
     {
-        return $query->orderBy('walking_order', 'asc')
-                     ->orderBy('item_id', 'asc');
+        return $query->orderBy('item_id', 'asc');
     }
 
     /**
@@ -111,15 +121,34 @@ class WmsPickingItemResult extends Model
      */
     public function isCompleted(): bool
     {
-        return in_array($this->status, ['COMPLETED', 'SHORTAGE']);
+        return $this->status === 'COMPLETED';
     }
 
     /**
-     * Check if item has shortage
+     * Check if item has any shortage (physical or soft)
+     * Note: has_shortage is a generated column, so this accessor reads from DB
      */
     public function hasShortage(): bool
     {
-        return $this->shortage_qty > 0;
+        return $this->has_shortage ?? false;
+    }
+
+    /**
+     * Check if item has physical shortage (warehouse discrepancy)
+     * True when: status == COMPLETED AND planned_qty > picked_qty
+     */
+    public function hasPhysicalShortage(): bool
+    {
+        return $this->has_physical_shortage ?? false;
+    }
+
+    /**
+     * Check if item has soft shortage (allocation shortage)
+     * True when: ordered_qty > planned_qty
+     */
+    public function hasSoftShortage(): bool
+    {
+        return $this->has_soft_shortage ?? false;
     }
 
     /**
