@@ -335,12 +335,13 @@ class TestDataGenerator extends Page
                             return \Illuminate\Support\Facades\DB::connection('sakemaru')
                                 ->table('locations')
                                 ->where('warehouse_id', $warehouseId)
+                                ->whereNotNull('code1')
+                                ->whereNotNull('code2')
                                 ->orderBy('code1')
                                 ->orderBy('code2')
-                                ->orderBy('code3')
                                 ->get()
                                 ->mapWithKeys(fn($loc) => [
-                                    $loc->id => "{$loc->code1}{$loc->code2}{$loc->code3} - {$loc->name}"
+                                    $loc->id => "{$loc->code1}{$loc->code2} - {$loc->name}"
                                 ])
                                 ->toArray();
                         })
@@ -456,12 +457,13 @@ class TestDataGenerator extends Page
                             return \Illuminate\Support\Facades\DB::connection('sakemaru')
                                 ->table('locations')
                                 ->where('warehouse_id', $warehouseId)
+                                ->whereNotNull('code1')
+                                ->whereNotNull('code2')
                                 ->orderBy('code1')
                                 ->orderBy('code2')
-                                ->orderBy('code3')
                                 ->get()
                                 ->mapWithKeys(fn($loc) => [
-                                    $loc->id => "{$loc->code1}{$loc->code2}{$loc->code3} - {$loc->name}"
+                                    $loc->id => "{$loc->code1}{$loc->code2} - {$loc->name}"
                                 ])
                                 ->toArray();
                         })

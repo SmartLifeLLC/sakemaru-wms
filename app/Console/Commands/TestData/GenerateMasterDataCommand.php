@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands\TestData;
 
+use App\Models\WmsLocationLevel;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -188,6 +189,7 @@ class GenerateMasterDataCommand extends Command
         ];
 
         $totalCreated = 0;
+        $totalLevelsCreated = 0;
 
         // Get the next available code2 number for each prefix in this warehouse
         foreach ($locationTypes as $type) {
@@ -200,7 +202,6 @@ class GenerateMasterDataCommand extends Command
                 ->table('locations')
                 ->where('warehouse_id', $this->warehouseId)
                 ->where('code1', $type['prefix'])
-                ->where('code3', '1')
                 ->max('code2');
 
             $startNumber = $maxCode2 ? (int)$maxCode2 + 1 : 1;
@@ -209,46 +210,50 @@ class GenerateMasterDataCommand extends Command
                 $code1 = $type['prefix'];
                 $code2 = str_pad($startNumber + $i, 3, '0', STR_PAD_LEFT); // 3-digit code2 (001-999)
 
-                // Create locations for each shelf level (code3: 1-3)
-                for ($shelfLevel = 1; $shelfLevel <= 3; $shelfLevel++) {
-                    $code3 = (string) $shelfLevel;
+                // Check if location already exists (unique constraint is on warehouse_id, code1, code2)
+                $existing = DB::connection('sakemaru')
+                    ->table('locations')
+                    ->where('warehouse_id', $this->warehouseId)
+                    ->where('code1', $code1)
+                    ->where('code2', $code2)
+                    ->whereNull('code3')
+                    ->first();
 
-                    // Check if location already exists (unique constraint is on warehouse_id, code1, code2, code3)
-                    $existing = DB::connection('sakemaru')
-                        ->table('locations')
-                        ->where('warehouse_id', $this->warehouseId)
-                        ->where('code1', $code1)
-                        ->where('code2', $code2)
-                        ->where('code3', $code3)
-                        ->exists();
-
-                    if ($existing) {
-                        $this->line("    Location {$code1}{$code2}{$code3} already exists, skipping");
-                        continue;
-                    }
-
-                    // Create location
-                    DB::connection('sakemaru')->table('locations')->insert([
-                        'client_id' => $this->clientId,
-                        'warehouse_id' => $this->warehouseId,
-                        'floor_id' => $floor->id,
-                        'code1' => $code1,
-                        'code2' => $code2,
-                        'code3' => $code3,
-                        'name' => "{$type['name']}エリア {$floor->name} {$code1}{$code2}{$code3}",
-                        'available_quantity_flags' => $type['flag'],
-                        'creator_id' => 0,
-                        'last_updater_id' => 0,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-
-                    $totalCreated++;
+                if ($existing) {
+                    $this->line("    Location {$code1}{$code2} already exists, skipping");
+                    continue;
                 }
+
+                // Create location with code3 = null
+                $locationId = DB::connection('sakemaru')->table('locations')->insertGetId([
+                    'client_id' => $this->clientId,
+                    'warehouse_id' => $this->warehouseId,
+                    'floor_id' => $floor->id,
+                    'code1' => $code1,
+                    'code2' => $code2,
+                    'code3' => null,
+                    'name' => "{$type['name']}エリア {$floor->name} {$code1}{$code2}",
+                    'available_quantity_flags' => $type['flag'],
+                    'creator_id' => 0,
+                    'last_updater_id' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Create ONE WMS level (level 1) for this location
+                WmsLocationLevel::create([
+                    'location_id' => $locationId,
+                    'level_number' => 1,
+                    'name' => "{$type['name']}エリア {$floor->name} {$code1}{$code2} 1段",
+                    'available_quantity_flags' => $type['flag'],
+                ]);
+
+                $totalCreated++;
+                $totalLevelsCreated++;
             }
         }
 
-        $this->line("  Created {$totalCreated} locations for floor {$floor->name}");
+        $this->line("  Created {$totalCreated} locations with {$totalLevelsCreated} WMS levels for floor {$floor->name}");
         return $totalCreated;
     }
 }
