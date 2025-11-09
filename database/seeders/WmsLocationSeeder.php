@@ -51,7 +51,7 @@ class WmsLocationSeeder extends Seeder
 
         // Assign locations to picking areas
         $createdCount = 0;
-        $walkingOrder = 1;
+        // $walkingOrder = 1; // Removed: walking_order is no longer used
 
         // Distribute locations among picking areas
         $locationsPerArea = ceil($locations->count() / $pickingAreas->count());
@@ -83,7 +83,7 @@ class WmsLocationSeeder extends Seeder
                     'location_id' => $location->id,
                     'wms_picking_area_id' => $area->id,
                     'picking_unit_type' => $pickingUnitType,
-                    'walking_order' => $walkingOrder++,
+                    // 'walking_order' => $walkingOrder++, // Removed: walking_order is no longer used
                     'aisle' => $aisle,
                     'rack' => $rack,
                     'level' => $level,

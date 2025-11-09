@@ -29,7 +29,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
         $record->load([
             'pickingItemResults' => function ($query) {
                 $query->with(['item', 'location'])
-                    ->orderBy('walking_order', 'asc')
+                    // Removed: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
                     ->orderBy('item_id', 'asc');
             },
             'wave',
@@ -155,7 +155,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
             $this->record->load([
                 'pickingItemResults' => function ($query) {
                     $query->with(['item', 'location'])
-                        ->orderBy('walking_order', 'asc')
+                        // Removed: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
                         ->orderBy('item_id', 'asc');
                 }
             ]);

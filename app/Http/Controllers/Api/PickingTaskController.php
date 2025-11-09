@@ -85,7 +85,6 @@ class PickingTaskController extends Controller
      *                             @OA\Property(property="planned_qty_type", type="string", example="CASE", description="Quantity type: CASE or PIECE"),
      *                             @OA\Property(property="planned_qty", type="string", example="2.00"),
      *                             @OA\Property(property="picked_qty", type="string", example="0.00"),
-     *                             @OA\Property(property="walking_order", type="integer", example=15, description="Optimized walking order for picking"),
      *                             @OA\Property(property="slip_number", type="integer", example=1, description="Earning ID used as slip number")
      *                         )
      *                     )
@@ -188,10 +187,10 @@ class PickingTaskController extends Controller
                 ];
             }
 
-            // Add item results to picking list, sorted by walking_order, item_id
+            // Add item results to picking list, sorted by item_id
+            // Note: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
             $itemResults = $task->pickingItemResults()
                 ->with('item')
-                ->orderBy('walking_order', 'asc')
                 ->orderBy('item_id', 'asc')
                 ->get();
 
@@ -203,7 +202,7 @@ class PickingTaskController extends Controller
                     'planned_qty_type' => $itemResult->planned_qty_type,
                     'planned_qty' => $itemResult->planned_qty,
                     'picked_qty' => $itemResult->picked_qty ?? 0,
-                    'walking_order' => $itemResult->walking_order,
+                    // 'walking_order' => $itemResult->walking_order, // Removed: walking_order is no longer used
                     'slip_number' => $itemResult->earning_id, // Use earning_id from item result as slip number
                 ];
             }

@@ -19,7 +19,7 @@
         </div>
 
         {{-- テストデータ生成カード --}}
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
             {{-- WMSマスタデータ生成 --}}
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                 <div class="flex items-center mb-4">
@@ -29,28 +29,62 @@
                     </h2>
                 </div>
                 <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                    WMS稼働に必要なマスタデータ（ピッキングエリア、ロケーション、在庫、ピッカー）を一括生成します。
+                    WMSに必要なマスタデータ（Floor、Location）を生成します。在庫データは生成しません。
                 </p>
                 <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2 mb-4">
                     <li class="flex items-start">
                         <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
-                        <span>ピッキングエリア（A-D）を作成</span>
+                        <span>フロア数とフロア名を指定可能</span>
                     </li>
                     <li class="flex items-start">
                         <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
-                        <span>ロケーション20箇所を自動作成</span>
+                        <span>ロケーション数（ケース/バラ/両方）を設定</span>
                     </li>
                     <li class="flex items-start">
                         <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
-                        <span>在庫データを複数ロット生成</span>
+                        <span>地下フロア（B1F, B2F...）も対応</span>
                     </li>
                     <li class="flex items-start">
                         <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
-                        <span>テストピッカー3名を作成・タスク自動割当</span>
+                        <span>フロアコード自動生成（倉庫コード + 001形式）</span>
                     </li>
                 </ul>
                 <div class="text-sm text-gray-500 dark:text-gray-400">
-                    <strong>コマンド:</strong> <code class="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">php artisan testdata:wms</code>
+                    <strong>コマンド:</strong> <code class="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">php artisan testdata:master</code>
+                </div>
+            </div>
+
+            {{-- 在庫データ生成 --}}
+            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                <div class="flex items-center mb-4">
+                    <x-heroicon-o-archive-box class="w-8 h-8 text-info-600 dark:text-info-400 mr-3" />
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                        在庫データ生成
+                    </h2>
+                </div>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    指定したロケーションに在庫データを生成します。
+                </p>
+                <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2 mb-4">
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>ロケーションを複数選択可能</span>
+                    </li>
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>商品数とロット数を指定</span>
+                    </li>
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>有効期限を自動設定（30-180日後）</span>
+                    </li>
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>数量ランダム生成（50-500個）</span>
+                    </li>
+                </ul>
+                <div class="text-sm text-gray-500 dark:text-gray-400">
+                    <strong>コマンド:</strong> <code class="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">php artisan testdata:stocks</code>
                 </div>
             </div>
 
@@ -72,7 +106,11 @@
                     </li>
                     <li class="flex items-start">
                         <x-heroicon-m-check-circle class="w-5 h-5 text-success-500 mr-2 flex-shrink-0 mt-0.5" />
-                        <span>在庫のある商品から自動選択</span>
+                        <span>配送コースを複数指定可能</span>
+                    </li>
+                    <li class="flex items-start">
+                        <x-heroicon-m-check-circle class="w-5 h-5 text-success-500 mr-2 flex-shrink-0 mt-0.5" />
+                        <span>特定ロケーションの在庫のみ使用可能</span>
                     </li>
                     <li class="flex items-start">
                         <x-heroicon-m-check-circle class="w-5 h-5 text-success-500 mr-2 flex-shrink-0 mt-0.5" />
@@ -162,13 +200,28 @@
                     </h3>
                     <ol class="list-decimal list-inside space-y-3 text-sm text-gray-600 dark:text-gray-400">
                         <li>
-                            <strong>WMSマスタ生成（最初に実行）:</strong> ヘッダーの「WMSマスタ生成」ボタンからピッキングエリア、ロケーション、在庫データを一括生成
+                            <strong>WMSマスタ生成（最初に実行）:</strong> ヘッダーの「WMSマスタ生成」ボタンからFloor、Locationのマスタデータを生成
+                            <ul class="list-disc list-inside ml-6 mt-1 space-y-1">
+                                <li>フロア数、フロア名を指定（1F, 2F, B1Fなど）</li>
+                                <li>各フロアのロケーション数（ケース/バラ/両方）を設定</li>
+                            </ul>
                         </li>
                         <li>
-                            <strong>売上データ生成:</strong> 「売上データ生成」ボタンから件数と倉庫を指定してテストデータを作成
+                            <strong>在庫データ生成:</strong> 「在庫データ生成」ボタンから在庫を作成
+                            <ul class="list-disc list-inside ml-6 mt-1 space-y-1">
+                                <li>在庫を配置するロケーションを選択</li>
+                                <li>商品数と商品あたりのロット数を指定</li>
+                            </ul>
                         </li>
                         <li>
-                            <strong>Wave生成:</strong> 「Wave生成」ボタンから出荷日を指定してピッキングタスクを生成
+                            <strong>売上データ生成:</strong> 「売上データ生成」ボタンから伝票データを作成
+                            <ul class="list-disc list-inside ml-6 mt-1 space-y-1">
+                                <li>配送コースを指定（複数選択可）</li>
+                                <li>特定ロケーションの在庫のみ使用する場合は指定</li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Wave生成:</strong> 「Wave生成」ボタンから出荷日を指定してピッキングタスクを生成（在庫引当実行）
                         </li>
                         <li>
                             必要に応じて「既存データをリセット」オプションを使用して、既存のWaveとタスクをクリア
@@ -182,7 +235,7 @@
                     </h3>
                     <ol class="list-decimal list-inside space-y-3 text-sm text-gray-600 dark:text-gray-400">
                         <li>
-                            <strong>WMSマスタ生成:</strong> 最初に「WMSマスタ生成」を実行してピッカー、在庫、ロケーションを作成
+                            <strong>WMSマスタ生成:</strong> 最初に「WMSマスタ生成」を実行してFloor、Locationを作成（在庫とピッカーは自動作成されます）
                         </li>
                         <li>
                             <strong>ピッカー別Wave生成:</strong> 「ピッカー別Wave生成」ボタンをクリック

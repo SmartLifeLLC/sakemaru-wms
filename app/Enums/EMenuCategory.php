@@ -10,6 +10,7 @@ enum EMenuCategory: string
     case MASTER = 'master';
     case STATISTICS = 'statistics';
     case SETTINGS = 'settings';
+    case LOGS = 'logs';
     case TEST_DATA = 'test_data';
 
     public function label(): string
@@ -21,6 +22,7 @@ enum EMenuCategory: string
             self::MASTER => 'マスタ管理',
             self::STATISTICS => '統計データ',
             self::SETTINGS => 'システム設定',
+            self::LOGS => 'ログ',
             self::TEST_DATA => 'テストデータ',
         };
     }
@@ -34,6 +36,7 @@ enum EMenuCategory: string
             self::MASTER => 'heroicon-o-document-text',
             self::STATISTICS => 'heroicon-o-chart-bar',
             self::SETTINGS => 'heroicon-o-cog-6-tooth',
+            self::LOGS => 'heroicon-o-document-magnifying-glass',
             self::TEST_DATA => 'heroicon-o-beaker',
         };
     }
@@ -46,7 +49,8 @@ enum EMenuCategory: string
             self::INVENTORY => 3,
             self::MASTER => 4,
             self::STATISTICS => 5,
-            self::SETTINGS => 6,
+            self::LOGS => 97,
+            self::SETTINGS => 98,
             self::TEST_DATA => 99, // Last
         };
     }

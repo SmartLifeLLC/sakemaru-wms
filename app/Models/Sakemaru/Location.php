@@ -20,6 +20,11 @@ class Location extends CustomModel
         return $this->belongsTo(Warehouse::class);
     }
 
+    public function floor() : BelongsTo
+    {
+        return $this->belongsTo(Floor::class);
+    }
+
     public function wmsLocation()
     {
         return $this->hasOne(\App\Models\WmsLocation::class, 'location_id', 'id');

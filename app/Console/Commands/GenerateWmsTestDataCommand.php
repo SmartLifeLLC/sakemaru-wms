@@ -165,7 +165,7 @@ class GenerateWmsTestDataCommand extends Command
                             'location_id' => $location->id,
                             'wms_picking_area_id' => $pickingArea->id,
                             'picking_unit_type' => $unitType,
-                            'walking_order' => $walkingOrder,
+                            // 'walking_order' => $walkingOrder, // Removed: walking_order is no longer used
                             'aisle' => $zone['prefix'],
                             'rack' => (string)$rack,
                             'level' => (string)$level,
@@ -178,10 +178,10 @@ class GenerateWmsTestDataCommand extends Command
                             'zone' => $zone['code'],
                             'picking_area' => $zone['name'],
                             'unit_type' => $unitType,
-                            'walking_order' => $walkingOrder,
+                            // 'walking_order' => $walkingOrder, // Removed: walking_order is no longer used
                         ];
 
-                        $walkingOrder += 100;
+                        // $walkingOrder += 100; // Removed: walking_order is no longer used
                     }
                 }
             }
@@ -337,7 +337,7 @@ class GenerateWmsTestDataCommand extends Command
         if (!empty($this->testLocations)) {
             $this->line("\n   Sample locations:");
             foreach (array_slice($this->testLocations, 0, 5) as $loc) {
-                $this->line("   - {$loc['code']} | {$loc['zone']} | {$loc['unit_type']} | Order: {$loc['walking_order']}");
+                $this->line("   - {$loc['code']} | {$loc['zone']} | {$loc['unit_type']}");
             }
         }
 

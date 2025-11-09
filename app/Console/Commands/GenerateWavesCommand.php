@@ -158,17 +158,17 @@ class GenerateWavesCommand extends Command
                         $reservationResult = [
                             'allocated_qty' => $result['allocated'],
                             'location_id' => $primaryReservation->location_id ?? null,
-                            'walking_order' => null, // Will be set below
+                            // 'walking_order' => null, // Removed: walking_order is no longer used
                         ];
 
-                        // Get walking_order from wms_locations
-                        if ($reservationResult['location_id']) {
-                            $wmsLocation = DB::connection('sakemaru')
-                                ->table('wms_locations')
-                                ->where('location_id', $reservationResult['location_id'])
-                                ->first();
-                            $reservationResult['walking_order'] = $wmsLocation->walking_order ?? null;
-                        }
+                        // Removed: walking_order retrieval from wms_locations is no longer needed
+                        // if ($reservationResult['location_id']) {
+                        //     $wmsLocation = DB::connection('sakemaru')
+                        //         ->table('wms_locations')
+                        //         ->where('location_id', $reservationResult['location_id'])
+                        //         ->first();
+                        //     $reservationResult['walking_order'] = $wmsLocation->walking_order ?? null;
+                        // }
 
                         $reservationResults[$tradeItem->id] = $reservationResult;
 
@@ -248,7 +248,7 @@ class GenerateWavesCommand extends Command
                                 'item_id' => $tradeItem->item_id,
                                 'real_stock_id' => null, // Will be set during actual picking
                                 'location_id' => $reservationResult['location_id'], // Primary picking location
-                                'walking_order' => $reservationResult['walking_order'], // For picking list sorting
+                                // 'walking_order' => $reservationResult['walking_order'], // Removed: walking_order is no longer used
                                 'ordered_qty' => $tradeItem->quantity, // Original order quantity
                                 'ordered_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // From trade_items.quantity_type
                                 'planned_qty' => $reservationResult['allocated_qty'], // Allocated quantity from reservations

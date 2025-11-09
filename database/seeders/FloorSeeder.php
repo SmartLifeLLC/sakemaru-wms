@@ -11,8 +11,8 @@ class FloorSeeder extends Seeder
      * Run the database seeds.
      *
      * Creates floors for all warehouses:
-     * - All warehouses: 1F
-     * - Warehouse 991: 1F and 2F
+     * - All warehouses: floor code = warehouse_code + 001 (e.g., 991 → 991001)
+     * - Warehouse 991: floor code = 991001 and 991002
      */
     public function run(): void
     {
@@ -35,53 +35,55 @@ class FloorSeeder extends Seeder
         $createdCount = 0;
 
         foreach ($warehouses as $warehouse) {
-            // Create 1F for all warehouses
+            // Create floor 1 for all warehouses (warehouse_code + 001)
+            $floor1Code = (int)($warehouse->code . '001');
             $exists1F = DB::connection('sakemaru')
                 ->table('floors')
                 ->where('warehouse_id', $warehouse->id)
-                ->where('code', '1F')
+                ->where('code', $floor1Code)
                 ->exists();
 
             if (!$exists1F) {
                 DB::connection('sakemaru')->table('floors')->insert([
+                    'client_id' => $warehouse->client_id ?? 1,
                     'warehouse_id' => $warehouse->id,
-                    'code' => '1F',
+                    'code' => $floor1Code,
                     'name' => '1階',
-                    'display_order' => 1,
                     'creator_id' => 0,
                     'last_updater_id' => 0,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
                 $createdCount++;
-                $this->command->line("  Created 1F for warehouse [{$warehouse->code}] {$warehouse->name}");
+                $this->command->line("  Created floor {$floor1Code} for warehouse [{$warehouse->code}] {$warehouse->name}");
             } else {
-                $this->command->line("  Skipped 1F for warehouse [{$warehouse->code}] {$warehouse->name} (already exists)");
+                $this->command->line("  Skipped floor {$floor1Code} for warehouse [{$warehouse->code}] {$warehouse->name} (already exists)");
             }
 
-            // Create 2F only for warehouse 991
+            // Create floor 2 only for warehouse 991 (warehouse_code + 002)
             if ($warehouse->id == 991) {
+                $floor2Code = (int)($warehouse->code . '002');
                 $exists2F = DB::connection('sakemaru')
                     ->table('floors')
                     ->where('warehouse_id', $warehouse->id)
-                    ->where('code', '2F')
+                    ->where('code', $floor2Code)
                     ->exists();
 
                 if (!$exists2F) {
                     DB::connection('sakemaru')->table('floors')->insert([
+                        'client_id' => $warehouse->client_id ?? 1,
                         'warehouse_id' => $warehouse->id,
-                        'code' => '2F',
+                        'code' => $floor2Code,
                         'name' => '2階',
-                        'display_order' => 2,
                         'creator_id' => 0,
                         'last_updater_id' => 0,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
                     $createdCount++;
-                    $this->command->line("  Created 2F for warehouse [{$warehouse->code}] {$warehouse->name}");
+                    $this->command->line("  Created floor {$floor2Code} for warehouse [{$warehouse->code}] {$warehouse->name}");
                 } else {
-                    $this->command->line("  Skipped 2F for warehouse [{$warehouse->code}] {$warehouse->name} (already exists)");
+                    $this->command->line("  Skipped floor {$floor2Code} for warehouse [{$warehouse->code}] {$warehouse->name} (already exists)");
                 }
             }
         }

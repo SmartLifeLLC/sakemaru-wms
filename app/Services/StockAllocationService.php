@@ -192,7 +192,7 @@ class StockAllocationService
                     'real_stock_id' => $stock->real_stock_id,
                     'item_id' => $itemId,
                     'expiry_date' => $stock->expiration_date,
-                    'received_at' => $stock->received_at,
+                    'received_at' => null,
                     'purchase_id' => $stock->purchase_id,
                     'unit_cost' => $stock->unit_cost,
                     'qty_each' => $takeQty,
@@ -300,13 +300,12 @@ class StockAllocationService
                 'rs.location_id',
                 'rs.purchase_id',
                 'rs.expiration_date',
-                'rs.received_at',
-                'rs.unit_cost',
+                'rs.price as unit_cost',
                 'rs.available_quantity',
                 'wrs.reserved_quantity',
                 'wrs.picking_quantity',
                 'wrs.lock_version',
-                DB::raw('COALESCE(wl.walking_order, 999999) as walking_order'),
+                // DB::raw('COALESCE(wl.walking_order, 999999) as walking_order'), // Removed: walking_order is no longer used
             ]);
 
         // Order by FEFO or FIFO
@@ -314,11 +313,12 @@ class StockAllocationService
             $query->orderByRaw('rs.expiration_date IS NULL') // NULL last
                 ->orderBy('rs.expiration_date', 'asc');
         } else {
-            $query->orderBy('rs.received_at', 'asc');
+            // FIFO: Order by creation date since received_at doesn't exist
+            $query->orderBy('rs.created_at', 'asc');
         }
 
-        $query->orderBy('walking_order', 'asc')
-            ->orderBy('rs.id', 'asc')
+        // Removed: walking_order sorting is no longer used. Sorting by location will be calculated based on x_pos, y_pos
+        $query->orderBy('rs.id', 'asc')
             ->limit($limit)
             ->offset($offset);
 

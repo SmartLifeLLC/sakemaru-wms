@@ -12,7 +12,9 @@ class GenerateTestEarningsCommand extends Command
 {
     protected $signature = 'testdata:earnings
                             {--count=5 : Number of test earnings to generate}
-                            {--warehouse-id= : Warehouse ID}';
+                            {--warehouse-id= : Warehouse ID}
+                            {--courses=* : Specific delivery course codes to use (leave empty for all)}
+                            {--locations=* : Specific location IDs to use for stock filtering (leave empty for all)}';
 
     protected $description = 'Generate test earnings data via BoozeCore API';
 
@@ -22,6 +24,8 @@ class GenerateTestEarningsCommand extends Command
     private string $buyerCode;
     private string $warehouseCode;
     private array $deliveryCourses = [];
+    private array $specifiedCourses = [];
+    private array $specifiedLocations = [];
     private array $testItems = [];
 
     public function handle()
@@ -30,7 +34,16 @@ class GenerateTestEarningsCommand extends Command
         $this->newLine();
 
         $this->warehouseId = (int) $this->option('warehouse-id');
+        if (!$this->warehouseId) {
+            $this->error('Warehouse ID is required. Use --warehouse-id option.');
+            return 1;
+        }
+
         $count = (int) $this->option('count');
+
+        // Get specified courses and locations
+        $this->specifiedCourses = $this->option('courses') ?: [];
+        $this->specifiedLocations = array_map('intval', $this->option('locations') ?: []);
 
         // Initialize client, buyer, and warehouse data
         $this->initializeData();
@@ -92,30 +105,45 @@ class GenerateTestEarningsCommand extends Command
         $this->warehouseCode = $warehouse->code ?? (string) $this->warehouseId;
 
         // Get delivery courses for this warehouse
-        $this->deliveryCourses = DB::connection('sakemaru')->table('delivery_courses')
-            ->where('warehouse_id', $this->warehouseId)
-            ->pluck('code')
-            ->toArray();
+        $query = DB::connection('sakemaru')->table('delivery_courses')
+            ->where('warehouse_id', $this->warehouseId);
+
+        // Filter by specified courses if provided
+        if (!empty($this->specifiedCourses)) {
+            $query->whereIn('code', $this->specifiedCourses);
+        }
+
+        $this->deliveryCourses = $query->pluck('code')->toArray();
 
         if (empty($this->deliveryCourses)) {
             $this->warn("No delivery courses found for warehouse {$this->warehouseId}");
         }
 
         $this->line("Using buyer: {$this->buyerId} (code: {$this->buyerCode}), warehouse: {$this->warehouseId} (code: {$this->warehouseCode})");
-        $this->line("Found " . count($this->deliveryCourses) . " delivery courses");
+        $this->line("Delivery courses: " . (!empty($this->specifiedCourses)
+            ? implode(', ', $this->specifiedCourses) . ' (specified)'
+            : count($this->deliveryCourses) . ' (all)'));
+        if (!empty($this->specifiedLocations)) {
+            $this->line("Stock locations filter: " . implode(', ', $this->specifiedLocations));
+        }
         $this->newLine();
     }
 
     private function loadTestItems(): void
     {
         $this->testItems = Item::where('type', 'ALCOHOL')
-            ->where('is_active',true)
+            ->where('is_active', true)
             ->whereNull('end_of_sale_date')
             ->where('is_ended', false)
             ->whereIn('id', function ($query) {
                 $query->select('item_id')
                     ->from('real_stocks')
                     ->where('warehouse_id', $this->warehouseId);
+
+                // Filter by specified locations if provided
+                if (!empty($this->specifiedLocations)) {
+                    $query->whereIn('location_id', $this->specifiedLocations);
+                }
             })
             ->inRandomOrder()
             ->limit(30)
@@ -128,7 +156,8 @@ class GenerateTestEarningsCommand extends Command
             ])
             ->toArray();
 
-        $this->line("Loaded " . count($this->testItems) . " test items");
+        $this->line("Loaded " . count($this->testItems) . " test items"
+            . (!empty($this->specifiedLocations) ? " (filtered by locations)" : ""));
     }
 
     private function generateEarnings(int $count): array
