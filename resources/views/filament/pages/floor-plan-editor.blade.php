@@ -59,6 +59,21 @@
                     </svg>
                 </button>
 
+                <button wire:click="exportLayout" title="レイアウト出力(JSON)"
+                    class="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                </button>
+
+                <button @click="$refs.importFile.click()" title="レイアウト取込(JSON)"
+                    class="p-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L9 8m4-4v12"></path>
+                    </svg>
+                </button>
+                <input type="file" x-ref="importFile" accept=".json" @change="handleImport($event)" class="hidden">
+
                 <button @click="exportCSV()" title="CSV出力"
                     class="p-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1171,6 +1186,36 @@
                 cancelFixedAreaEdit() {
                     this.showFixedAreaEditModal = false;
                     this.editingFixedArea = {};
+                },
+
+                async handleImport(event) {
+                    const file = event.target.files[0];
+                    if (!file) {
+                        return;
+                    }
+
+                    // Check file type
+                    if (!file.name.endsWith('.json')) {
+                        alert('JSONファイルを選択してください');
+                        event.target.value = '';
+                        return;
+                    }
+
+                    try {
+                        // Read file content
+                        const content = await file.text();
+                        const layout = JSON.parse(content);
+
+                        // Call Livewire method to import
+                        await this.$wire.importLayoutData(layout);
+
+                    } catch (error) {
+                        console.error('Import error:', error);
+                        alert('ファイルの読み込みに失敗しました: ' + error.message);
+                    }
+
+                    // Reset file input
+                    event.target.value = '';
                 }
             };
         }

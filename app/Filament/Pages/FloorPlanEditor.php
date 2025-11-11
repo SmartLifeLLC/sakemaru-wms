@@ -547,4 +547,184 @@ class FloorPlanEditor extends Page
             }
         }
     }
+
+    /**
+     * Export layout as JSON
+     */
+    public function exportLayout()
+    {
+        if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+            \Filament\Notifications\Notification::make()
+                ->title('倉庫とフロアを選択してください')
+                ->danger()
+                ->send();
+            return null;
+        }
+
+        $warehouse = Warehouse::find($this->selectedWarehouseId);
+        $floor = Floor::find($this->selectedFloorId);
+
+        if (!$warehouse || !$floor) {
+            return null;
+        }
+
+        // Get zones with codes instead of IDs
+        $zones = $this->zones->map(function ($zone) {
+            return [
+                'code1' => $zone['code1'],
+                'code2' => $zone['code2'],
+                'name' => $zone['name'],
+                'x1_pos' => $zone['x1_pos'],
+                'y1_pos' => $zone['y1_pos'],
+                'x2_pos' => $zone['x2_pos'],
+                'y2_pos' => $zone['y2_pos'],
+                'available_quantity_flags' => $zone['available_quantity_flags'],
+                'levels' => $zone['levels'],
+            ];
+        })->values()->toArray();
+
+        $layout = [
+            'warehouse_code' => $warehouse->code,
+            'warehouse_name' => $warehouse->name,
+            'floor_code' => $floor->code,
+            'floor_name' => $floor->name,
+            'canvas' => [
+                'width' => $this->canvasWidth,
+                'height' => $this->canvasHeight,
+            ],
+            'colors' => $this->colors,
+            'text_styles' => $this->textStyles,
+            'zones' => $zones,
+            'walls' => $this->walls,
+            'fixed_areas' => $this->fixedAreas,
+            'exported_at' => now()->toIso8601String(),
+        ];
+
+        $filename = sprintf(
+            'layout_%s_%s_%s.json',
+            $warehouse->code,
+            $floor->code,
+            now()->format('Ymd_His')
+        );
+
+        return response()->streamDownload(function () use ($layout) {
+            echo json_encode($layout, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        }, $filename, [
+            'Content-Type' => 'application/json',
+        ]);
+    }
+
+    /**
+     * Import layout from JSON data
+     */
+    public function importLayoutData($layout)
+    {
+        try {
+            if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+                \Filament\Notifications\Notification::make()
+                    ->title('倉庫とフロアを選択してください')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            $floor = Floor::find($this->selectedFloorId);
+            if (!$floor) {
+                throw new \Exception('フロアが見つかりません');
+            }
+
+            if (!is_array($layout)) {
+                throw new \Exception('無効なレイアウトデータです');
+            }
+
+            // Import canvas size
+            if (isset($layout['canvas'])) {
+                $this->canvasWidth = $layout['canvas']['width'] ?? 2000;
+                $this->canvasHeight = $layout['canvas']['height'] ?? 1500;
+            }
+
+            // Import colors and text styles
+            if (isset($layout['colors'])) {
+                $this->colors = $layout['colors'];
+            }
+            if (isset($layout['text_styles'])) {
+                $this->textStyles = $layout['text_styles'];
+            }
+
+            // Import walls and fixed areas
+            $this->walls = $layout['walls'] ?? [];
+            $this->fixedAreas = $layout['fixed_areas'] ?? [];
+
+            // Import zones (create or update locations)
+            if (isset($layout['zones'])) {
+                foreach ($layout['zones'] as $zoneData) {
+                    $location = Location::updateOrCreate(
+                        [
+                            'floor_id' => $this->selectedFloorId,
+                            'code1' => $zoneData['code1'],
+                            'code2' => $zoneData['code2'],
+                        ],
+                        [
+                            'client_id' => $floor->client_id,
+                            'warehouse_id' => $this->selectedWarehouseId,
+                            'code3' => null,
+                            'name' => $zoneData['name'],
+                            'x1_pos' => $zoneData['x1_pos'],
+                            'y1_pos' => $zoneData['y1_pos'],
+                            'x2_pos' => $zoneData['x2_pos'],
+                            'y2_pos' => $zoneData['y2_pos'],
+                            'available_quantity_flags' => $zoneData['available_quantity_flags'],
+                            'creator_id' => 0,
+                            'last_updater_id' => 0,
+                        ]
+                    );
+
+                    // Update or create levels
+                    $levels = $zoneData['levels'] ?? 1;
+                    for ($level = 1; $level <= $levels; $level++) {
+                        WmsLocationLevel::updateOrCreate(
+                            [
+                                'location_id' => $location->id,
+                                'level_number' => $level,
+                            ],
+                            [
+                                'name' => "{$zoneData['name']} {$level}段",
+                                'available_quantity_flags' => $zoneData['available_quantity_flags'],
+                            ]
+                        );
+                    }
+
+                    // Remove excess levels
+                    WmsLocationLevel::where('location_id', $location->id)
+                        ->where('level_number', '>', $levels)
+                        ->delete();
+                }
+            }
+
+            // Save layout to database
+            $this->saveLayout();
+
+            // Reload data
+            $zones = $this->zones->toArray();
+            $this->dispatch('layout-loaded',
+                zones: $zones,
+                walls: $this->walls,
+                fixedAreas: $this->fixedAreas,
+                canvasWidth: $this->canvasWidth,
+                canvasHeight: $this->canvasHeight
+            );
+
+            \Filament\Notifications\Notification::make()
+                ->title('レイアウトをインポートしました')
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('インポートに失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
 }
