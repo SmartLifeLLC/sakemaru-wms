@@ -370,6 +370,10 @@
                         class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md">
                         保存
                     </button>
+                    <button @click="deleteZone()"
+                        class="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md">
+                        削除
+                    </button>
                     <button @click="showEditModal = false"
                         class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
                         閉じる
@@ -1092,6 +1096,19 @@
                     }
                     this.zones = this.zones.filter(z => !this.selectedZones.includes(z.id));
                     this.selectedZones = [];
+                },
+
+                deleteZone() {
+                    if (confirm('この区画を削除しますか？')) {
+                        const index = this.zones.findIndex(z => z.id === this.editingZone.id);
+                        if (index !== -1) {
+                            this.zones.splice(index, 1);
+                        }
+                        this.showEditModal = false;
+                        this.editingZone = {};
+                        // Remove from selection
+                        this.selectedZones = this.selectedZones.filter(id => id !== this.editingZone.id);
+                    }
                 },
 
                 saveAllChanges() {
