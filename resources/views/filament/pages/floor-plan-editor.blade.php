@@ -1,140 +1,229 @@
 <x-filament-panels::page>
-    <div x-data="floorPlanEditor()" x-init="init()" class="space-y-4">
-        {{-- Toolbar --}}
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-            <div class="flex flex-col gap-4">
-                {{-- First Row: Layout Management --}}
-                <div class="flex flex-wrap gap-2 items-center">
-                    <select x-model="selectedWarehouseId" @change="loadWarehouses()"
-                        class="rounded-md border-gray-300 dark:border-gray-600 text-sm">
-                        <option value="">倉庫を選択</option>
-                        <template x-for="wh in warehouses" :key="wh.id">
-                            <option :value="wh.id" x-text="wh.name"></option>
-                        </template>
-                    </select>
+    <div x-data="floorPlanEditor()"
+         x-init="init()"
+         @wall-added.window="walls.push($event.detail.wall)"
+         @fixed-area-added.window="fixedAreas.push($event.detail.fixedArea)"
+         @layout-loaded.window="
+             zones = Array.isArray($event.detail.zones) ? $event.detail.zones : [];
+             walls = Array.isArray($event.detail.walls) ? $event.detail.walls : [];
+             fixedAreas = Array.isArray($event.detail.fixedAreas) ? $event.detail.fixedAreas : [];
+             zonePositions = {};
+             if ($event.detail.canvasWidth && $event.detail.canvasHeight) {
+                 $dispatch('canvas-size-updated', { width: $event.detail.canvasWidth, height: $event.detail.canvasHeight });
+             }
+         "
+         class="h-full flex flex-col">
+        {{-- Combined Toolbar and Canvas --}}
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow flex-1 flex flex-col" style="height: calc(100vh - 120px);">
+            {{-- Toolbar --}}
+            <div class="flex flex-wrap gap-2 items-center text-sm p-3 border-b border-gray-200 dark:border-gray-700">
+                <select wire:model.live="selectedWarehouseId"
+                    class="rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                    <option value="">倉庫を選択</option>
+                    @foreach($this->warehouses as $wh)
+                        <option value="{{ $wh->id }}">{{ $wh->name }}</option>
+                    @endforeach
+                </select>
 
-                    <select x-model="selectedFloorId" @change="switchFloor()"
-                        class="rounded-md border-gray-300 dark:border-gray-600 text-sm">
-                        <option value="">フロアを選択</option>
-                        <template x-for="floor in floors" :key="floor.id">
-                            <option :value="floor.id" x-text="floor.name"></option>
-                        </template>
-                    </select>
+                <select wire:model.live="selectedFloorId"
+                    class="rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                    <option value="">フロアを選択</option>
+                    @foreach($this->floors as $floor)
+                        <option value="{{ $floor->id }}">{{ $floor->name }}</option>
+                    @endforeach
+                </select>
 
-                    <button @click="saveLayout()"
-                        class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium">
-                        保存
-                    </button>
+                <button @click="saveAllChanges()"
+                    class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium">
+                    保存
+                </button>
 
-                    <button @click="addZone()"
-                        class="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-md text-sm font-medium">
-                        区画追加
-                    </button>
+                <button wire:click="addZone" title="区画追加"
+                    class="p-2 bg-purple-500 hover:bg-purple-600 text-white rounded-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                </button>
 
-                    <button @click="exportCSV()"
-                        class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md text-sm font-medium">
-                        CSV出力
-                    </button>
+                <button @click="$wire.addWall()" title="壁追加"
+                    class="p-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8"></path>
+                    </svg>
+                </button>
 
-                    <button @click="deleteSelected()" x-show="selectedZones.length > 0"
-                        class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm font-medium">
-                        選択削除
+                <button @click="$wire.addFixedArea()" title="固定領域追加"
+                    class="p-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </button>
+
+                <button @click="exportCSV()" title="CSV出力"
+                    class="p-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </button>
+
+                <button @click="deleteSelected()" x-show="selectedZones.length > 0"
+                    class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm font-medium">
+                    選択削除
+                </button>
+
+                <div class="border-l border-gray-300 dark:border-gray-600 h-6 mx-1"></div>
+
+                <label class="flex items-center gap-1.5">
+                    <input type="checkbox" x-model="gridEnabled" @change="updateGrid()"
+                        class="rounded border-gray-300">
+                    <span class="text-sm">GRID</span>
+                </label>
+
+                <label class="flex items-center gap-1">
+                    <span class="text-sm">Size:</span>
+                    <input type="number" x-model="gridSize" @change="updateGrid()" min="4"
+                        class="w-14 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
+                </label>
+
+                <label class="flex items-center gap-1">
+                    <span class="text-sm">閾値:</span>
+                    <input type="number" x-model="gridThreshold" min="0"
+                        class="w-14 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
+                </label>
+
+                <div class="border-l border-gray-300 dark:border-gray-600 h-6 mx-1"></div>
+
+                <div x-data="{
+                    tempWidth: {{ $canvasWidth }},
+                    tempHeight: {{ $canvasHeight }},
+                    async applySize() {
+                        await $wire.updateCanvasSize(this.tempWidth, this.tempHeight);
+                        // Wait for Livewire to update, then sync values
+                        await this.$nextTick();
+                        this.tempWidth = $wire.canvasWidth;
+                        this.tempHeight = $wire.canvasHeight;
+                    }
+                }"
+                @canvas-size-updated.window="
+                    tempWidth = $event.detail.width;
+                    tempHeight = $event.detail.height;
+                "
+                class="flex items-center gap-1">
+                    <label class="flex items-center gap-1">
+                        <span class="text-sm">幅:</span>
+                        <input type="number" x-model.number="tempWidth" min="500" max="10000" step="100"
+                            class="w-20 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
+                    </label>
+
+                    <label class="flex items-center gap-1">
+                        <span class="text-sm">高さ:</span>
+                        <input type="number" x-model.number="tempHeight" min="500" max="10000" step="100"
+                            class="w-20 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
+                    </label>
+
+                    <button @click="applySize()"
+                        class="px-2 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-md text-xs font-medium">
+                        適用
                     </button>
                 </div>
 
-                {{-- Second Row: Grid Controls --}}
-                <div class="flex flex-wrap gap-4 items-center text-sm">
-                    <label class="flex items-center gap-2">
-                        <input type="checkbox" x-model="gridEnabled" @change="updateGrid()"
-                            class="rounded border-gray-300">
-                        <span>グリッド表示</span>
-                    </label>
-
-                    <label class="flex items-center gap-2">
-                        <span>グリッドサイズ:</span>
-                        <input type="number" x-model="gridSize" @change="updateGrid()" min="4"
-                            class="w-20 rounded-md border-gray-300 text-sm">
-                        <span>px</span>
-                    </label>
-
-                    <label class="flex items-center gap-2">
-                        <span>吸着しきい値:</span>
-                        <input type="number" x-model="gridThreshold" min="0"
-                            class="w-20 rounded-md border-gray-300 text-sm">
-                        <span>px</span>
-                    </label>
-
-                    <span x-show="selectedZones.length > 0" class="text-gray-600 dark:text-gray-400">
-                        選択: <span x-text="selectedZones.length"></span>個
-                    </span>
-                </div>
+                <span x-show="selectedZones.length > 0" class="text-gray-600 dark:text-gray-400">
+                    選択: <span x-text="selectedZones.length"></span>個
+                </span>
             </div>
-        </div>
 
-        {{-- Floor Plan Canvas --}}
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            {{-- Floor Plan Canvas --}}
             <div @mousedown="handleCanvasMouseDown($event)"
                  @mousemove="handleCanvasMouseMove($event)"
                  @mouseup="handleCanvasMouseUp($event)"
                  @contextmenu.prevent
-                 class="relative border-2 border-gray-300 dark:border-gray-600 rounded-lg overflow-auto"
-                 style="min-height: 800px; max-height: 800px;"
+                 class="relative overflow-auto flex-1 bg-gray-50 dark:bg-gray-900"
                  :style="canvasStyle"
-                 id="floor-plan-canvas">
+                 id="floor-plan-canvas"
+                 style="min-height: 0;">
 
-                {{-- Zone Blocks --}}
+                {{-- Canvas Inner Container with minimum size from Livewire --}}
+                <div class="relative" style="min-width: {{ $canvasWidth }}px; min-height: {{ $canvasHeight }}px;">
+
+                {{-- Zone Blocks (Locations) --}}
                 <template x-for="zone in zones" :key="zone.id">
                     <div @mousedown.stop="handleZoneMouseDown($event, zone)"
                          @click="selectZone($event, zone)"
                          @dblclick="editZone(zone)"
-                         :style="{
-                             left: zone.x1_pos + 'px',
-                             top: zone.y1_pos + 'px',
-                             width: (zone.x2_pos - zone.x1_pos) + 'px',
-                             height: (zone.y2_pos - zone.y1_pos) + 'px',
-                             backgroundColor: getZoneColor(zone)
-                         }"
-                         :class="{
-                             'border-2 border-blue-500': selectedZones.includes(zone.id),
-                             'border border-gray-300 dark:border-gray-600': !selectedZones.includes(zone.id)
-                         }"
-                         class="absolute cursor-move flex flex-col items-center justify-center p-2 rounded shadow-sm select-none">
+                         :style="`
+                             position: absolute;
+                             left: ${zone.x1_pos}px;
+                             top: ${zone.y1_pos}px;
+                             width: ${zone.x2_pos - zone.x1_pos}px;
+                             height: ${zone.y2_pos - zone.y1_pos}px;
+                             background-color: {{ $colors['location']['rectangle'] ?? '#E0F2FE' }};
+                             border-color: {{ $colors['location']['border'] ?? '#D1D5DB' }};
+                             color: {{ $textStyles['location']['color'] ?? '#6B7280' }};
+                             font-size: {{ $textStyles['location']['size'] ?? 12 }}px;
+                         `"
+                         :class="selectedZones.includes(zone.id) ? 'border-2 border-blue-900' : 'border'"
+                         class="cursor-move flex flex-col items-center justify-center p-2 rounded shadow-sm select-none">
 
-                        <div class="text-xs text-gray-500 dark:text-gray-400" x-text="zone.code1 + zone.code2"></div>
+                        <div x-text="zone.code1 + zone.code2"></div>
 
                         {{-- Resize Handle --}}
                         <div @mousedown.stop="handleResizeMouseDown($event, zone)"
-                             class="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 hover:bg-blue-600 cursor-se-resize rounded-tl opacity-75 hover:opacity-100 transition-opacity">
+                             class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
                         </div>
                     </div>
                 </template>
-            </div>
-        </div>
 
-        {{-- Unpositioned Locations Area --}}
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-            <h3 class="text-sm font-semibold mb-2 flex items-center gap-2">
-                <span>未配置ロケーション</span>
-                <span class="text-xs text-gray-500 dark:text-gray-400" x-text="`(${unpositionedLocations.length}件)`"></span>
-            </h3>
-
-            <div x-show="unpositionedLocations.length === 0" class="text-xs text-gray-500 dark:text-gray-400 py-3 text-center">
-                すべてのロケーションが配置されています
-            </div>
-
-            <div x-show="unpositionedLocations.length > 0" class="overflow-x-auto" style="max-height: 120px;">
-                <div class="flex gap-2 pb-2">
-                    <template x-for="location in unpositionedLocations" :key="location.id">
-                        <div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded p-2 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors cursor-pointer flex-shrink-0"
-                             @click="placeLocationInCenter(location)"
-                             style="width: 100px;">
-                            <div class="font-semibold text-xs truncate" x-text="location.code1 + location.code2"></div>
-                            <div class="text-xs text-gray-600 dark:text-gray-400 truncate" x-text="location.name"></div>
-                            <div class="text-xs text-gray-500 mt-1">
-                                <span x-text="`在庫: ${location.stock_count || 0}`"></span>
-                            </div>
+                {{-- Walls --}}
+                <template x-for="wall in walls" :key="wall.id">
+                    <div @mousedown.stop="handleWallMouseDown($event, wall)"
+                         @click="selectWall($event, wall)"
+                         @dblclick.stop="editWall(wall)"
+                         :style="`
+                             position: absolute;
+                             left: ${wall.x1}px;
+                             top: ${wall.y1}px;
+                             width: ${wall.x2 - wall.x1}px;
+                             height: ${wall.y2 - wall.y1}px;
+                             background-color: {{ $colors['wall']['rectangle'] ?? '#9CA3AF' }};
+                             border-width: ${selectedWalls.includes(wall.id) ? '3px' : '1px'};
+                             border-style: solid;
+                             border-color: ${selectedWalls.includes(wall.id) ? '#374151' : '{{ $colors['wall']['border'] ?? '#6B7280' }}'};
+                             color: {{ $textStyles['wall']['color'] ?? '#FFFFFF' }};
+                             font-size: {{ $textStyles['wall']['size'] ?? 10 }}px;
+                         `"
+                         class="flex items-center justify-center rounded select-none cursor-move">
+                        <div x-text="wall.name"></div>
+                        <div @mousedown.stop="handleWallResizeMouseDown($event, wall)"
+                             class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
                         </div>
-                    </template>
+                    </div>
+                </template>
+
+                {{-- Fixed Areas --}}
+                <template x-for="area in fixedAreas" :key="area.id">
+                    <div @mousedown.stop="handleFixedAreaMouseDown($event, area)"
+                         @click="selectFixedArea($event, area)"
+                         @dblclick.stop="editFixedArea(area)"
+                         :style="`
+                             position: absolute;
+                             left: ${area.x1}px;
+                             top: ${area.y1}px;
+                             width: ${area.x2 - area.x1}px;
+                             height: ${area.y2 - area.y1}px;
+                             background-color: {{ $colors['fixed_area']['rectangle'] ?? '#FEF3C7' }};
+                             border-width: ${selectedFixedAreas.includes(area.id) ? '4px' : '2px'};
+                             border-style: solid;
+                             border-color: ${selectedFixedAreas.includes(area.id) ? '#B45309' : '{{ $colors['fixed_area']['border'] ?? '#F59E0B' }}'};
+                             color: {{ $textStyles['fixed_area']['color'] ?? '#92400E' }};
+                             font-size: {{ $textStyles['fixed_area']['size'] ?? 12 }}px;
+                         `"
+                         class="flex items-center justify-center rounded-lg select-none font-medium cursor-move">
+                        <div x-text="area.name"></div>
+                        <div @mousedown.stop="handleFixedAreaResizeMouseDown($event, area)"
+                             class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
+                        </div>
+                    </div>
+                </template>
                 </div>
             </div>
         </div>
@@ -273,6 +362,186 @@
                 </div>
             </div>
         </div>
+
+        {{-- Settings Modal --}}
+        <div x-data="{ showSettingsModal: false }" x-show="showSettingsModal" x-cloak
+             class="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50"
+             @click.self="showSettingsModal = false">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+                 @click.stop>
+                <h3 class="text-lg font-bold mb-6">レイアウト設定</h3>
+
+                {{-- Canvas Size --}}
+                <div class="mb-6">
+                    <h4 class="text-md font-semibold mb-3">キャンバスサイズ</h4>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">幅 (px)</label>
+                            <input type="number" wire:model.live="canvasWidth" min="1000" max="10000" step="100"
+                                class="w-full rounded-md border-gray-300 dark:border-gray-600">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">高さ (px)</label>
+                            <input type="number" wire:model.live="canvasHeight" min="1000" max="10000" step="100"
+                                class="w-full rounded-md border-gray-300 dark:border-gray-600">
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Location Colors --}}
+                <div class="mb-6">
+                    <h4 class="text-md font-semibold mb-3">ロケーション（区画）</h4>
+                    <div class="grid grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">境界線色</label>
+                            <input type="color" wire:model.live="colors.location.border"
+                                class="w-full h-10 rounded-md border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">背景色</label>
+                            <input type="color" wire:model.live="colors.location.rectangle"
+                                class="w-full h-10 rounded-md border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">文字色</label>
+                            <input type="color" wire:model.live="textStyles.location.color"
+                                class="w-full h-10 rounded-md border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">文字サイズ (px)</label>
+                            <input type="number" wire:model.live="textStyles.location.size" min="8" max="24"
+                                class="w-full rounded-md border-gray-300 dark:border-gray-600">
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Wall Colors --}}
+                <div class="mb-6">
+                    <h4 class="text-md font-semibold mb-3">壁・柱</h4>
+                    <div class="grid grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">境界線色</label>
+                            <input type="color" wire:model.live="colors.wall.border"
+                                class="w-full h-10 rounded-md border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">背景色</label>
+                            <input type="color" wire:model.live="colors.wall.rectangle"
+                                class="w-full h-10 rounded-md border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">文字色</label>
+                            <input type="color" wire:model.live="textStyles.wall.color"
+                                class="w-full h-10 rounded-md border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">文字サイズ (px)</label>
+                            <input type="number" wire:model.live="textStyles.wall.size" min="8" max="24"
+                                class="w-full rounded-md border-gray-300 dark:border-gray-600">
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Fixed Area Colors --}}
+                <div class="mb-6">
+                    <h4 class="text-md font-semibold mb-3">固定領域（エレベーター、荷下ろし場など）</h4>
+                    <div class="grid grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">境界線色</label>
+                            <input type="color" wire:model.live="colors.fixed_area.border"
+                                class="w-full h-10 rounded-md border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">背景色</label>
+                            <input type="color" wire:model.live="colors.fixed_area.rectangle"
+                                class="w-full h-10 rounded-md border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">文字色</label>
+                            <input type="color" wire:model.live="textStyles.fixed_area.color"
+                                class="w-full h-10 rounded-md border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-1">文字サイズ (px)</label>
+                            <input type="number" wire:model.live="textStyles.fixed_area.size" min="8" max="24"
+                                class="w-full rounded-md border-gray-300 dark:border-gray-600">
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Buttons --}}
+                <div class="flex gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button wire:click="saveLayout"
+                        class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md">
+                        設定を保存
+                    </button>
+                    <button @click="showSettingsModal = false"
+                        class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
+                        閉じる
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {{-- Wall Edit Modal --}}
+        <template x-if="showWallEditModal">
+        <div class="fixed inset-0 flex items-center justify-center z-50"
+             @click.self="cancelWallEdit()">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md"
+                 @click.stop>
+                <h3 class="text-lg font-bold mb-4">柱の名前を編集</h3>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">名前</label>
+                    <input type="text" x-model="editingWall.name"
+                        class="w-full rounded-md border-gray-300 dark:border-gray-600"
+                        @keydown.enter="saveWallEdit()"
+                        @keydown.escape="cancelWallEdit()">
+                </div>
+
+                <div class="flex gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button @click="saveWallEdit()"
+                        class="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md">
+                        保存
+                    </button>
+                    <button @click="cancelWallEdit()"
+                        class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
+                        キャンセル
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    {{-- Fixed Area Edit Modal --}}
+    <template x-if="showFixedAreaEditModal">
+        <div class="fixed inset-0 flex items-center justify-center z-50"
+             @click.self="cancelFixedAreaEdit()">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md"
+                 @click.stop>
+                <h3 class="text-lg font-bold mb-4">固定領域の名前を編集</h3>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">名前</label>
+                    <input type="text" x-model="editingFixedArea.name"
+                        class="w-full rounded-md border-gray-300 dark:border-gray-600"
+                        @keydown.enter="saveFixedAreaEdit()"
+                        @keydown.escape="cancelFixedAreaEdit()">
+                </div>
+
+                <div class="flex gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button @click="saveFixedAreaEdit()"
+                        class="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md">
+                        保存
+                    </button>
+                    <button @click="cancelFixedAreaEdit()"
+                        class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
+                        キャンセル
+                    </button>
+                </div>
+            </div>
+        </div>
+        </template>
     </div>
 
     @push('scripts')
@@ -282,22 +551,33 @@
                 warehouses: [],
                 floors: [],
                 zones: [],
-                unpositionedLocations: [],
+                walls: [],
+                fixedAreas: [],
+                zonePositions: {}, // Track zone position changes {zoneId: {x1, y1, x2, y2}}
                 selectedWarehouseId: '',
                 selectedFloorId: '',
                 gridEnabled: true,
                 gridSize: 20,
                 gridThreshold: 6,
                 selectedZones: [],
+                selectedWalls: [],
+                selectedFixedAreas: [],
                 dragState: null,
                 resizeState: null,
                 showEditModal: false,
                 editingZone: {},
                 selectedLevel: 1,
                 levelStocks: {},
+                showWallEditModal: false,
+                editingWall: {},
+                showFixedAreaEditModal: false,
+                editingFixedArea: {},
 
                 init() {
-                    this.loadWarehouses();
+                    // Request initial data from Livewire
+                    this.$nextTick(() => {
+                        this.$wire.loadInitialData();
+                    });
                 },
 
                 get canvasStyle() {
@@ -343,28 +623,68 @@
                 },
 
                 async switchFloor() {
-                    if (!this.selectedFloorId) return;
-
-                    try {
-                        const response = await fetch(`/api/floors/${this.selectedFloorId}/zones`);
-                        const data = await response.json();
-                        this.zones = data.data || [];
-                        this.selectedZones = [];
-
-                        // Load unpositioned locations
-                        await this.loadUnpositionedLocations();
-                    } catch (error) {
-                        console.error('Failed to load zones:', error);
-                    }
+                    // This method is no longer needed for loading zones
+                    // Livewire will dispatch 'layout-loaded' event automatically
+                    // when floor changes via wire:model.live
                 },
 
-                async loadUnpositionedLocations() {
+                async loadAndPlaceUnpositionedLocations() {
                     if (!this.selectedFloorId) return;
 
                     try {
                         const response = await fetch(`/api/floors/${this.selectedFloorId}/unpositioned-locations`);
                         const data = await response.json();
-                        this.unpositionedLocations = data.data || [];
+                        const unpositionedLocations = data.data || [];
+
+                        // Automatically place unpositioned locations at center
+                        const canvas = document.getElementById('floor-plan-canvas');
+                        const zoneWidth = 60;
+                        const zoneHeight = 40;
+
+                        // Calculate canvas center (use fixed center coordinates)
+                        const centerX = 400; // Fixed center X
+                        const centerY = 300; // Fixed center Y
+
+                        let offsetX = 0;
+                        let offsetY = 0;
+
+                        unpositionedLocations.forEach((location, index) => {
+                            // Arrange in a grid pattern around center
+                            const col = index % 5; // 5 columns
+                            const row = Math.floor(index / 5);
+
+                            const x = centerX + (col * (zoneWidth + 10)) + offsetX;
+                            const y = centerY + (row * (zoneHeight + 10)) + offsetY;
+
+                            const snappedX = this.snapToGrid(Math.max(0, x));
+                            const snappedY = this.snapToGrid(Math.max(0, y));
+
+                            // Check if zone with same code1+code2 exists
+                            const existingZone = this.zones.find(z =>
+                                z.code1 === location.code1 && z.code2 === location.code2
+                            );
+
+                            if (!existingZone) {
+                                // Create new zone at center
+                                const newZone = {
+                                    id: location.id,
+                                    floor_id: location.floor_id,
+                                    warehouse_id: location.warehouse_id,
+                                    code1: location.code1,
+                                    code2: location.code2,
+                                    name: location.name,
+                                    x1_pos: snappedX,
+                                    y1_pos: snappedY,
+                                    x2_pos: snappedX + zoneWidth,
+                                    y2_pos: snappedY + zoneHeight,
+                                    available_quantity_flags: location.available_quantity_flags,
+                                    levels: 1,
+                                    stock_count: location.stock_count || 0,
+                                    isNew: false
+                                };
+                                this.zones.push(newZone);
+                            }
+                        });
                     } catch (error) {
                         console.error('Failed to load unpositioned locations:', error);
                     }
@@ -434,9 +754,6 @@
 
                         console.log('Created new zone:', newZone);
                     }
-
-                    // Remove from unpositioned
-                    this.unpositionedLocations = this.unpositionedLocations.filter(l => l.id !== location.id);
                 },
 
                 updateGrid() {
@@ -482,6 +799,10 @@
                 },
 
                 selectZone(event, zone) {
+                    // Clear other selections
+                    this.selectedWalls = [];
+                    this.selectedFixedAreas = [];
+
                     if (event.ctrlKey || event.metaKey) {
                         const idx = this.selectedZones.indexOf(zone.id);
                         if (idx >= 0) {
@@ -491,6 +812,40 @@
                         }
                     } else {
                         this.selectedZones = [zone.id];
+                    }
+                },
+
+                selectWall(event, wall) {
+                    // Clear other selections
+                    this.selectedZones = [];
+                    this.selectedFixedAreas = [];
+
+                    if (event.ctrlKey || event.metaKey) {
+                        const idx = this.selectedWalls.indexOf(wall.id);
+                        if (idx >= 0) {
+                            this.selectedWalls.splice(idx, 1);
+                        } else {
+                            this.selectedWalls.push(wall.id);
+                        }
+                    } else {
+                        this.selectedWalls = [wall.id];
+                    }
+                },
+
+                selectFixedArea(event, area) {
+                    // Clear other selections
+                    this.selectedZones = [];
+                    this.selectedWalls = [];
+
+                    if (event.ctrlKey || event.metaKey) {
+                        const idx = this.selectedFixedAreas.indexOf(area.id);
+                        if (idx >= 0) {
+                            this.selectedFixedAreas.splice(idx, 1);
+                        } else {
+                            this.selectedFixedAreas.push(area.id);
+                        }
+                    } else {
+                        this.selectedFixedAreas = [area.id];
                     }
                 },
 
@@ -539,16 +894,10 @@
                 handleZoneMouseDown(event, zone) {
                     if (event.button !== 0) return;
 
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const canvas = document.getElementById('floor-plan-canvas');
-                    const canvasRect = canvas.getBoundingClientRect();
-
                     this.dragState = {
                         zone,
                         startX: event.clientX,
                         startY: event.clientY,
-                        offsetX: event.clientX - rect.left - canvasRect.left + canvas.scrollLeft,
-                        offsetY: event.clientY - rect.top - canvasRect.top + canvas.scrollTop,
                         originalX1: zone.x1_pos,
                         originalY1: zone.y1_pos,
                         originalX2: zone.x2_pos,
@@ -570,11 +919,60 @@
                     };
                 },
 
+                handleWallMouseDown(event, wall) {
+                    if (event.button !== 0) return;
+
+                    this.dragState = {
+                        wall,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        originalX1: wall.x1,
+                        originalY1: wall.y1,
+                        originalX2: wall.x2,
+                        originalY2: wall.y2
+                    };
+                },
+
+                handleFixedAreaMouseDown(event, area) {
+                    if (event.button !== 0) return;
+
+                    this.dragState = {
+                        fixedArea: area,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        originalX1: area.x1,
+                        originalY1: area.y1,
+                        originalX2: area.x2,
+                        originalY2: area.y2
+                    };
+                },
+
+                handleWallResizeMouseDown(event, wall) {
+                    if (event.button !== 0) return;
+
+                    this.resizeState = {
+                        wall,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        originalX2: wall.x2,
+                        originalY2: wall.y2
+                    };
+                },
+
+                handleFixedAreaResizeMouseDown(event, area) {
+                    if (event.button !== 0) return;
+
+                    this.resizeState = {
+                        fixedArea: area,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        originalX2: area.x2,
+                        originalY2: area.y2
+                    };
+                },
+
                 handleCanvasMouseMove(event) {
                     if (this.dragState) {
-                        const canvas = document.getElementById('floor-plan-canvas');
-                        const canvasRect = canvas.getBoundingClientRect();
-
                         const deltaX = event.clientX - this.dragState.startX;
                         const deltaY = event.clientY - this.dragState.startY;
 
@@ -583,10 +981,27 @@
                         const width = this.dragState.originalX2 - this.dragState.originalX1;
                         const height = this.dragState.originalY2 - this.dragState.originalY1;
 
-                        this.dragState.zone.x1_pos = Math.max(0, newX1);
-                        this.dragState.zone.y1_pos = Math.max(0, newY1);
-                        this.dragState.zone.x2_pos = this.dragState.zone.x1_pos + width;
-                        this.dragState.zone.y2_pos = this.dragState.zone.y1_pos + height;
+                        // Handle zone dragging
+                        if (this.dragState.zone) {
+                            this.dragState.zone.x1_pos = Math.max(0, newX1);
+                            this.dragState.zone.y1_pos = Math.max(0, newY1);
+                            this.dragState.zone.x2_pos = this.dragState.zone.x1_pos + width;
+                            this.dragState.zone.y2_pos = this.dragState.zone.y1_pos + height;
+                        }
+                        // Handle wall dragging
+                        else if (this.dragState.wall) {
+                            this.dragState.wall.x1 = Math.max(0, newX1);
+                            this.dragState.wall.y1 = Math.max(0, newY1);
+                            this.dragState.wall.x2 = this.dragState.wall.x1 + width;
+                            this.dragState.wall.y2 = this.dragState.wall.y1 + height;
+                        }
+                        // Handle fixed area dragging
+                        else if (this.dragState.fixedArea) {
+                            this.dragState.fixedArea.x1 = Math.max(0, newX1);
+                            this.dragState.fixedArea.y1 = Math.max(0, newY1);
+                            this.dragState.fixedArea.x2 = this.dragState.fixedArea.x1 + width;
+                            this.dragState.fixedArea.y2 = this.dragState.fixedArea.y1 + height;
+                        }
                     } else if (this.resizeState) {
                         const deltaX = event.clientX - this.resizeState.startX;
                         const deltaY = event.clientY - this.resizeState.startY;
@@ -594,12 +1009,48 @@
                         const newX2 = this.snapToGrid(this.resizeState.originalX2 + deltaX);
                         const newY2 = this.snapToGrid(this.resizeState.originalY2 + deltaY);
 
-                        this.resizeState.zone.x2_pos = Math.max(this.resizeState.zone.x1_pos + 20, newX2);
-                        this.resizeState.zone.y2_pos = Math.max(this.resizeState.zone.y1_pos + 20, newY2);
+                        // Handle zone resizing
+                        if (this.resizeState.zone) {
+                            this.resizeState.zone.x2_pos = Math.max(this.resizeState.zone.x1_pos + 20, newX2);
+                            this.resizeState.zone.y2_pos = Math.max(this.resizeState.zone.y1_pos + 20, newY2);
+                        }
+                        // Handle wall resizing
+                        else if (this.resizeState.wall) {
+                            this.resizeState.wall.x2 = Math.max(this.resizeState.wall.x1 + 20, newX2);
+                            this.resizeState.wall.y2 = Math.max(this.resizeState.wall.y1 + 20, newY2);
+                        }
+                        // Handle fixed area resizing
+                        else if (this.resizeState.fixedArea) {
+                            this.resizeState.fixedArea.x2 = Math.max(this.resizeState.fixedArea.x1 + 20, newX2);
+                            this.resizeState.fixedArea.y2 = Math.max(this.resizeState.fixedArea.y1 + 20, newY2);
+                        }
                     }
                 },
 
                 handleCanvasMouseUp(event) {
+                    // Track zone position changes for later save
+                    if (this.dragState && this.dragState.zone) {
+                        const zone = this.dragState.zone;
+                        this.zonePositions[zone.id] = {
+                            x1_pos: zone.x1_pos,
+                            y1_pos: zone.y1_pos,
+                            x2_pos: zone.x2_pos,
+                            y2_pos: zone.y2_pos
+                        };
+                    }
+
+                    if (this.resizeState && this.resizeState.zone) {
+                        const zone = this.resizeState.zone;
+                        this.zonePositions[zone.id] = {
+                            x1_pos: zone.x1_pos,
+                            y1_pos: zone.y1_pos,
+                            x2_pos: zone.x2_pos,
+                            y2_pos: zone.y2_pos
+                        };
+                    }
+
+                    // Just clear drag state - don't save immediately
+                    // Changes will be saved when user clicks "保存" button
                     this.dragState = null;
                     this.resizeState = null;
                 },
@@ -620,32 +1071,18 @@
                     this.selectedZones = [];
                 },
 
-                async saveLayout() {
-                    if (!this.selectedFloorId) {
-                        alert('フロアを選択してください');
-                        return;
-                    }
+                saveAllChanges() {
+                    // Send all changes to Livewire in a single call
+                    // Only send zones that have been moved/resized
+                    const changedZones = Object.keys(this.zonePositions).map(zoneId => ({
+                        id: parseInt(zoneId),
+                        ...this.zonePositions[zoneId]
+                    }));
 
-                    try {
-                        const response = await fetch(`/api/floors/${this.selectedFloorId}/zones`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
-                            },
-                            body: JSON.stringify({ zones: this.zones })
-                        });
+                    this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas);
 
-                        if (response.ok) {
-                            alert('保存しました');
-                            await this.switchFloor();
-                        } else {
-                            alert('保存に失敗しました');
-                        }
-                    } catch (error) {
-                        console.error('Failed to save layout:', error);
-                        alert('保存に失敗しました');
-                    }
+                    // Clear tracked changes after save
+                    this.zonePositions = {};
                 },
 
                 exportCSV() {
@@ -696,6 +1133,44 @@
                         case 4: return 'ボール';
                         default: return '無し';
                     }
+                },
+
+                editWall(wall) {
+                    this.editingWall = { ...wall };
+                    this.showWallEditModal = true;
+                },
+
+                editFixedArea(area) {
+                    this.editingFixedArea = { ...area };
+                    this.showFixedAreaEditModal = true;
+                },
+
+                saveWallEdit() {
+                    const index = this.walls.findIndex(w => w.id === this.editingWall.id);
+                    if (index !== -1) {
+                        this.walls[index].name = this.editingWall.name;
+                    }
+                    this.showWallEditModal = false;
+                    this.editingWall = {};
+                },
+
+                saveFixedAreaEdit() {
+                    const index = this.fixedAreas.findIndex(a => a.id === this.editingFixedArea.id);
+                    if (index !== -1) {
+                        this.fixedAreas[index].name = this.editingFixedArea.name;
+                    }
+                    this.showFixedAreaEditModal = false;
+                    this.editingFixedArea = {};
+                },
+
+                cancelWallEdit() {
+                    this.showWallEditModal = false;
+                    this.editingWall = {};
+                },
+
+                cancelFixedAreaEdit() {
+                    this.showFixedAreaEditModal = false;
+                    this.editingFixedArea = {};
                 }
             };
         }
