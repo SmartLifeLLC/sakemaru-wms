@@ -519,6 +519,10 @@
                         class="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md">
                         保存
                     </button>
+                    <button @click="deleteWall()"
+                        class="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md">
+                        削除
+                    </button>
                     <button @click="cancelWallEdit()"
                         class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
                         キャンセル
@@ -548,6 +552,10 @@
                     <button @click="saveFixedAreaEdit()"
                         class="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md">
                         保存
+                    </button>
+                    <button @click="deleteFixedArea()"
+                        class="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md">
+                        削除
                     </button>
                     <button @click="cancelFixedAreaEdit()"
                         class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
@@ -1176,6 +1184,32 @@
                     }
                     this.showFixedAreaEditModal = false;
                     this.editingFixedArea = {};
+                },
+
+                deleteWall() {
+                    if (confirm('この柱を削除しますか？')) {
+                        const index = this.walls.findIndex(w => w.id === this.editingWall.id);
+                        if (index !== -1) {
+                            this.walls.splice(index, 1);
+                        }
+                        this.showWallEditModal = false;
+                        this.editingWall = {};
+                        // Remove from selection
+                        this.selectedWalls = this.selectedWalls.filter(id => id !== this.editingWall.id);
+                    }
+                },
+
+                deleteFixedArea() {
+                    if (confirm('この固定領域を削除しますか？')) {
+                        const index = this.fixedAreas.findIndex(a => a.id === this.editingFixedArea.id);
+                        if (index !== -1) {
+                            this.fixedAreas.splice(index, 1);
+                        }
+                        this.showFixedAreaEditModal = false;
+                        this.editingFixedArea = {};
+                        // Remove from selection
+                        this.selectedFixedAreas = this.selectedFixedAreas.filter(id => id !== this.editingFixedArea.id);
+                    }
                 },
 
                 cancelWallEdit() {
