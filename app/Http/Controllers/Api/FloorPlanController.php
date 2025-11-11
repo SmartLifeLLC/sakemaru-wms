@@ -7,6 +7,8 @@ use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsLocationLevel;
+use App\Models\WmsWarehouseLayout;
+use App\Models\WmsFloorObject;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
