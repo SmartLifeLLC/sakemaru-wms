@@ -81,11 +81,6 @@
                     </svg>
                 </button>
 
-                <button @click="deleteSelected()" x-show="selectedZones.length > 0"
-                    class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm font-medium">
-                    選択削除
-                </button>
-
                 <div class="border-l border-gray-300 dark:border-gray-600 h-6 mx-1"></div>
 
                 <label class="flex items-center gap-1.5">
@@ -1088,14 +1083,6 @@
                     if (stockCount < 50) return '#fecaca';
                     if (stockCount < 100) return '#fef9c3';
                     return '#bbf7d0';
-                },
-
-                deleteSelected() {
-                    if (!confirm(`選択した${this.selectedZones.length}個の区画を削除しますか？`)) {
-                        return;
-                    }
-                    this.zones = this.zones.filter(z => !this.selectedZones.includes(z.id));
-                    this.selectedZones = [];
                 },
 
                 deleteZone() {
