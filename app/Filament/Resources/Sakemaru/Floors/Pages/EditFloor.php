@@ -27,15 +27,21 @@ class EditFloor extends EditRecord
                 $warehouse = Warehouse::find($data['warehouse_id']);
                 if ($warehouse) {
                     $data['client_id'] = $warehouse->client_id;
-                    return $data;
                 }
             }
 
             // warehouseが見つからない場合は最初のclientを使用
-            $firstClient = Client::first();
-            if ($firstClient) {
-                $data['client_id'] = $firstClient->id;
+            if (empty($data['client_id'])) {
+                $firstClient = Client::first();
+                if ($firstClient) {
+                    $data['client_id'] = $firstClient->id;
+                }
             }
+        }
+
+        // last_updater_idを設定（現在は0を使用）
+        if (!isset($data['last_updater_id']) || empty($data['last_updater_id'])) {
+            $data['last_updater_id'] = 0;
         }
 
         return $data;
