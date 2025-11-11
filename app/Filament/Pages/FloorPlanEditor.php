@@ -337,9 +337,6 @@ class FloorPlanEditor extends Page
      */
     public function addWall(): void
     {
-        // Save current layout before adding new wall
-        $this->saveLayout();
-
         $newId = count($this->walls) > 0 ? max(array_column($this->walls, 'id')) + 1 : 1;
 
         $newWall = [
@@ -361,9 +358,6 @@ class FloorPlanEditor extends Page
      */
     public function addFixedArea(): void
     {
-        // Save current layout before adding new fixed area
-        $this->saveLayout();
-
         $newId = count($this->fixedAreas) > 0 ? max(array_column($this->fixedAreas, 'id')) + 1 : 1;
 
         $newArea = [
@@ -408,9 +402,6 @@ class FloorPlanEditor extends Page
                 ->send();
             return;
         }
-
-        // Save current layout before adding new zone
-        $this->saveLayout();
 
         try {
             // Get floor to get client_id
