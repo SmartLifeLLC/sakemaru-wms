@@ -38,22 +38,26 @@ class PickingRouteController extends Controller
         $date = $request->input('date');
         $deliveryCourseId = $request->input('delivery_course_id');
 
-        // Get picking tasks for the specified criteria
+        // Get picking tasks for the specified criteria with picker information
         $pickingTasks = WmsPickingTask::where('warehouse_id', $warehouseId)
             ->whereDate('shipment_date', $date)
             ->where('delivery_course_id', $deliveryCourseId)
-            ->pluck('id');
+            ->with('picker:id,code,name')
+            ->get();
 
         if ($pickingTasks->isEmpty()) {
             return response()->json([
                 'success' => true,
                 'data' => [],
+                'task_info' => null,
                 'message' => 'No picking tasks found for the specified criteria',
             ]);
         }
 
+        $pickingTaskIds = $pickingTasks->pluck('id');
+
         // Get picking item results with location information
-        $pickingItems = WmsPickingItemResult::whereIn('picking_task_id', $pickingTasks)
+        $pickingItems = WmsPickingItemResult::whereIn('picking_task_id', $pickingTaskIds)
             ->whereNotNull('location_id')
             ->whereNotNull('walking_order')
             ->with([
@@ -90,9 +94,21 @@ class PickingRouteController extends Controller
             ];
         })->values();
 
+        // Aggregate task information
+        $firstTask = $pickingTasks->first();
+        $taskInfo = [
+            'status' => $firstTask->status,
+            'picker_id' => $firstTask->picker_id,
+            'picker_name' => $firstTask->picker ? "{$firstTask->picker->code} - {$firstTask->picker->name}" : null,
+            'started_at' => $firstTask->started_at?->format('Y-m-d H:i:s'),
+            'completed_at' => $firstTask->completed_at?->format('Y-m-d H:i:s'),
+            'task_count' => $pickingTasks->count(),
+        ];
+
         return response()->json([
             'success' => true,
             'data' => $data,
+            'task_info' => $taskInfo,
             'meta' => [
                 'total_items' => $data->count(),
                 'warehouse_id' => $warehouseId,

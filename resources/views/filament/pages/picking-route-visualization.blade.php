@@ -175,6 +175,40 @@
                     </div>
                 </div>
 
+                {{-- Picking Task Information --}}
+                <div x-show="taskInfo" class="bg-white dark:bg-gray-800 rounded-lg shadow p-3">
+                    <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">ピッキング情報</h3>
+
+                    <div class="space-y-2 text-xs">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">状態:</span>
+                            <span class="font-medium"
+                                  :class="{
+                                      'text-green-600': taskInfo?.status === 'COMPLETED',
+                                      'text-blue-600': taskInfo?.status === 'PICKING',
+                                      'text-yellow-600': taskInfo?.status === 'PENDING',
+                                      'text-gray-600': !taskInfo?.status
+                                  }"
+                                  x-text="getStatusLabel(taskInfo?.status)"></span>
+                        </div>
+
+                        <div x-show="taskInfo?.picker_name" class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">ピッカー:</span>
+                            <span class="font-medium" x-text="taskInfo?.picker_name || '-'"></span>
+                        </div>
+
+                        <div x-show="taskInfo?.started_at" class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">開始時刻:</span>
+                            <span class="font-medium" x-text="formatDateTime(taskInfo?.started_at)"></span>
+                        </div>
+
+                        <div x-show="taskInfo?.completed_at" class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">終了時刻:</span>
+                            <span class="font-medium" x-text="formatDateTime(taskInfo?.completed_at)"></span>
+                        </div>
+                    </div>
+                </div>
+
                 {{-- Picking Items List --}}
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex-1 overflow-hidden flex flex-col">
                     <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">ピッキングアイテム</h3>
@@ -218,6 +252,7 @@
                 walls: [],
                 fixedAreas: [],
                 pickingItems: [],
+                taskInfo: null,
                 showRouteLines: true,
                 showWalkingOrder: true,
                 routeLines: [],
@@ -248,6 +283,7 @@
 
                     if (!warehouseId || !floorId || !date || !deliveryCourseId) {
                         this.pickingItems = [];
+                        this.taskInfo = null;
                         this.routeLines = [];
                         return;
                     }
@@ -258,6 +294,7 @@
                         const data = await response.json();
 
                         this.pickingItems = data.data || [];
+                        this.taskInfo = data.task_info || null;
 
                         // Wait for next tick to ensure zones are loaded
                         await this.$nextTick();
@@ -266,6 +303,7 @@
                     } catch (error) {
                         console.error('Failed to load picking route:', error);
                         this.pickingItems = [];
+                        this.taskInfo = null;
                         this.routeLines = [];
                     }
                 },
@@ -390,6 +428,38 @@
 
                     // Highlight zones with picking items
                     return '#DBEAFE'; // Light blue
+                },
+
+                /**
+                 * Get status label in Japanese
+                 */
+                getStatusLabel(status) {
+                    const labels = {
+                        'PENDING': '待機中',
+                        'PICKING': 'ピッキング中',
+                        'COMPLETED': '完了',
+                    };
+                    return labels[status] || status || '-';
+                },
+
+                /**
+                 * Format datetime string
+                 */
+                formatDateTime(datetime) {
+                    if (!datetime) return '-';
+
+                    try {
+                        const date = new Date(datetime);
+                        return date.toLocaleString('ja-JP', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                        });
+                    } catch (error) {
+                        return datetime;
+                    }
                 }
             };
         }
