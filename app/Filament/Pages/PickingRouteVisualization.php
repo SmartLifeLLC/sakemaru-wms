@@ -84,6 +84,15 @@ class PickingRouteVisualization extends Page
             }
 
             $this->loadLayout();
+
+            // Set default delivery course if available
+            $firstCourse = $this->deliveryCourses()->first();
+            if ($firstCourse) {
+                $this->selectedDeliveryCourseId = $firstCourse['id'];
+
+                // Dispatch event to trigger route loading after component is mounted
+                $this->dispatch('delivery-course-changed', courseId: $this->selectedDeliveryCourseId);
+            }
         }
     }
 

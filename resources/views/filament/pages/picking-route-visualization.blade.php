@@ -195,6 +195,11 @@
                     // Request initial data from Livewire
                     this.$nextTick(() => {
                         this.$wire.loadInitialData();
+
+                        // Auto-load picking route if delivery course is already selected
+                        if (this.$wire.selectedDeliveryCourseId) {
+                            this.loadPickingRoute();
+                        }
                     });
                 },
 
