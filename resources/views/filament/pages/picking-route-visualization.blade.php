@@ -12,6 +12,8 @@
          "
          @delivery-course-changed.window="loadPickingRoute($event.detail.courseId)"
          @date-changed.window="loadPickingRoute()"
+         @walking-order-updated.window="loadPickingRoute()"
+         @reorder-failed.window="alert($event.detail.message)"
          class="h-full">
 
         {{-- Main Layout: Left (3/4) and Right (1/4) --}}
@@ -236,13 +238,28 @@
 
                         <template x-if="pickingItems.length > 0">
                             <div class="space-y-1.5">
-                                <template x-for="item in pickingItems" :key="item.id">
-                                    <div class="text-xs p-1.5 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
+                                <template x-for="(item, index) in pickingItems" :key="item.id">
+                                    <div :draggable="taskInfo?.status === 'PENDING'"
+                                         @dragstart="handleDragStart($event, index)"
+                                         @dragover.prevent="handleDragOver($event, index)"
+                                         @drop="handleDrop($event, index)"
+                                         @dragend="handleDragEnd($event)"
+                                         :class="{
+                                             'cursor-move': taskInfo?.status === 'PENDING',
+                                             'cursor-not-allowed opacity-60': taskInfo?.status !== 'PENDING',
+                                             'bg-blue-100 dark:bg-blue-900/30': dragOverIndex === index
+                                         }"
+                                         class="text-xs p-1.5 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 transition-colors">
                                         <div class="flex items-center gap-1.5 mb-0.5">
                                             <span class="font-mono font-semibold text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded text-xs"
                                                   x-text="item.walking_order"></span>
                                             <span class="text-gray-600 dark:text-gray-400 text-xs"
                                                   x-text="item.location_display"></span>
+                                            <template x-if="taskInfo?.status === 'PENDING'">
+                                                <svg class="w-3 h-3 text-gray-400 ml-auto" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"></path>
+                                                </svg>
+                                            </template>
                                         </div>
                                         <div class="text-gray-900 dark:text-gray-100 mb-0.5 text-xs leading-tight" x-text="item.item_name"></div>
                                         <div class="text-gray-600 dark:text-gray-400 text-xs">
@@ -271,6 +288,8 @@
                 showWalkingOrder: true,
                 routeLines: [],
                 filterExpanded: true,
+                draggedIndex: null,
+                dragOverIndex: null,
 
                 init() {
                     // Request initial data from Livewire
@@ -486,6 +505,66 @@
                         'PIECE': 'バラ',
                     };
                     return labels[qtyType] || qtyType || '';
+                },
+
+                /**
+                 * Handle drag start
+                 */
+                handleDragStart(event, index) {
+                    if (this.taskInfo?.status !== 'PENDING') {
+                        event.preventDefault();
+                        return;
+                    }
+                    this.draggedIndex = index;
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.target.style.opacity = '0.5';
+                },
+
+                /**
+                 * Handle drag over
+                 */
+                handleDragOver(event, index) {
+                    if (this.draggedIndex === null || this.taskInfo?.status !== 'PENDING') {
+                        return;
+                    }
+                    event.preventDefault();
+                    this.dragOverIndex = index;
+                },
+
+                /**
+                 * Handle drop
+                 */
+                handleDrop(event, dropIndex) {
+                    if (this.draggedIndex === null || this.taskInfo?.status !== 'PENDING') {
+                        return;
+                    }
+                    event.preventDefault();
+
+                    const dragIndex = this.draggedIndex;
+
+                    if (dragIndex !== dropIndex) {
+                        // Reorder array
+                        const items = [...this.pickingItems];
+                        const [draggedItem] = items.splice(dragIndex, 1);
+                        items.splice(dropIndex, 0, draggedItem);
+
+                        this.pickingItems = items;
+
+                        // Send new order to backend
+                        const itemIds = items.map(item => item.id);
+                        this.$wire.updateWalkingOrder(itemIds);
+                    }
+
+                    this.dragOverIndex = null;
+                },
+
+                /**
+                 * Handle drag end
+                 */
+                handleDragEnd(event) {
+                    event.target.style.opacity = '1';
+                    this.draggedIndex = null;
+                    this.dragOverIndex = null;
                 }
             };
         }

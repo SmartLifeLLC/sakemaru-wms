@@ -270,4 +270,45 @@ class PickingRouteVisualization extends Page
         $this->selectedDeliveryCourseId = null;
         $this->dispatch('date-changed', date: $this->selectedDate);
     }
+
+    /**
+     * Update walking order for picking items
+     */
+    public function updateWalkingOrder(array $itemIds): void
+    {
+        if (!$this->selectedWarehouseId || !$this->selectedFloorId || !$this->selectedDate || !$this->selectedDeliveryCourseId) {
+            return;
+        }
+
+        // Get picking tasks for this delivery course
+        $tasks = WmsPickingTask::where('warehouse_id', $this->selectedWarehouseId)
+            ->whereDate('shipment_date', $this->selectedDate)
+            ->where('delivery_course_id', $this->selectedDeliveryCourseId)
+            ->where('status', 'PENDING') // Only allow reordering for PENDING tasks
+            ->get();
+
+        if ($tasks->isEmpty()) {
+            $this->dispatch('reorder-failed', message: 'PENDINGステータスのタスクのみ並び替え可能です');
+            return;
+        }
+
+        $taskIds = $tasks->pluck('id')->toArray();
+
+        // Update walking_order for each item based on new position
+        \DB::connection('sakemaru')->transaction(function () use ($itemIds, $taskIds) {
+            foreach ($itemIds as $index => $itemId) {
+                \DB::connection('sakemaru')
+                    ->table('wms_picking_item_results')
+                    ->where('id', $itemId)
+                    ->whereIn('picking_task_id', $taskIds)
+                    ->update([
+                        'walking_order' => $index + 1,
+                        'updated_at' => now(),
+                    ]);
+            }
+        });
+
+        // Notify frontend to reload the route
+        $this->dispatch('walking-order-updated');
+    }
 }
