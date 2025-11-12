@@ -101,85 +101,14 @@
                 </div>
             </div>
 
-            {{-- Right Side: Toolbar and Picking Items (25%) --}}
+            {{-- Right Side: Picking Info and Items (25%) --}}
             <div class="w-1/4 flex flex-col gap-3">
-
-                {{-- Toolbar --}}
-                <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-3">
-                    <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2">フィルター</h3>
-
-                    {{-- Warehouse and Floor Selection (2:1 ratio) --}}
-                    <div class="flex gap-2">
-                        <div class="w-2/3">
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
-                            <select wire:model.live="selectedWarehouseId"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                                <option value="">選択してください</option>
-                                @foreach($this->warehouses as $wh)
-                                    <option value="{{ $wh->id }}">{{ $wh->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div class="w-1/3">
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
-                            <select wire:model.live="selectedFloorId"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                                <option value="">選択</option>
-                                @foreach($this->floors as $floor)
-                                    <option value="{{ $floor->id }}">{{ $floor->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                    </div>
-
-                    {{-- Delivery Course and Date Selection (2:1 ratio) --}}
-                    <div class="flex gap-2">
-                        <div class="w-2/3">
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">配送コース</label>
-                            <select wire:model.live="selectedDeliveryCourseId"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                                <option value="">選択してください</option>
-                                @foreach($this->deliveryCourses as $course)
-                                    <option value="{{ $course['id'] }}">{{ $course['code'] }} - {{ $course['name'] }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div class="w-1/3">
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">日付</label>
-                            <input type="date" wire:model.live="selectedDate"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                        </div>
-                    </div>
-
-                    {{-- Display Options (Single Line) --}}
-                    <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
-                        <h4 class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">表示オプション</h4>
-                        <div class="flex items-center gap-4">
-                            <label class="flex items-center gap-2">
-                                <input type="checkbox" x-model="showRouteLines"
-                                    class="rounded border-gray-300">
-                                <span class="text-sm">経路線表示</span>
-                            </label>
-                            <label class="flex items-center gap-2">
-                                <input type="checkbox" x-model="showWalkingOrder"
-                                    class="rounded border-gray-300">
-                                <span class="text-sm">順序番号表示</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    {{-- Picking Count --}}
-                    <div x-show="pickingItems.length > 0"
-                         class="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-sm text-center">
-                        ピッキング: <span class="font-semibold" x-text="pickingItems.length"></span>件
-                    </div>
-                </div>
 
                 {{-- Picking Task Information --}}
                 <div x-show="taskInfo" class="bg-white dark:bg-gray-800 rounded-lg shadow p-3">
-                    <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">ピッキング情報</h3>
+                    <h3 class="text-xs font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">ピッキング情報</h3>
 
-                    <div class="space-y-2 text-xs">
+                    <div class="space-y-1.5 text-xs">
                         <div class="flex justify-between">
                             <span class="text-gray-600 dark:text-gray-400">状態:</span>
                             <span class="font-medium"
@@ -198,12 +127,12 @@
                         </div>
 
                         <div x-show="taskInfo?.started_at" class="flex justify-between">
-                            <span class="text-gray-600 dark:text-gray-400">開始時刻:</span>
+                            <span class="text-gray-600 dark:text-gray-400">開始:</span>
                             <span class="font-medium" x-text="formatDateTime(taskInfo?.started_at)"></span>
                         </div>
 
                         <div x-show="taskInfo?.completed_at" class="flex justify-between">
-                            <span class="text-gray-600 dark:text-gray-400">終了時刻:</span>
+                            <span class="text-gray-600 dark:text-gray-400">終了:</span>
                             <span class="font-medium" x-text="formatDateTime(taskInfo?.completed_at)"></span>
                         </div>
                     </div>
@@ -211,28 +140,33 @@
 
                 {{-- Picking Items List --}}
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex-1 overflow-hidden flex flex-col">
-                    <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">ピッキングアイテム</h3>
+                    <h3 class="text-xs font-semibold border-b border-gray-200 dark:border-gray-700 pb-1.5 mb-2">
+                        <span>ピッキングアイテム</span>
+                        <span x-show="pickingItems.length > 0" class="text-gray-500 dark:text-gray-400 font-normal">
+                            (<span x-text="pickingItems.length"></span>件)
+                        </span>
+                    </h3>
 
                     <div class="overflow-y-auto flex-1">
                         <template x-if="pickingItems.length === 0">
-                            <p class="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-                                配送コースを選択してください
+                            <p class="text-xs text-gray-500 dark:text-gray-400 text-center py-4">
+                                データなし
                             </p>
                         </template>
 
                         <template x-if="pickingItems.length > 0">
-                            <div class="space-y-2">
+                            <div class="space-y-1.5">
                                 <template x-for="item in pickingItems" :key="item.id">
-                                    <div class="text-xs p-2 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
-                                        <div class="flex items-center gap-2 mb-1">
-                                            <span class="font-mono font-semibold text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded"
+                                    <div class="text-xs p-1.5 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
+                                        <div class="flex items-center gap-1.5 mb-0.5">
+                                            <span class="font-mono font-semibold text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded text-xs"
                                                   x-text="item.walking_order"></span>
-                                            <span class="text-gray-600 dark:text-gray-400"
+                                            <span class="text-gray-600 dark:text-gray-400 text-xs"
                                                   x-text="item.location_display"></span>
                                         </div>
-                                        <div class="text-gray-900 dark:text-gray-100 mb-1" x-text="item.item_name"></div>
-                                        <div class="text-gray-600 dark:text-gray-400">
-                                            数量: <span class="font-medium" x-text="`${Math.floor(item.planned_qty)} ${getQuantityTypeLabel(item.qty_type)}`"></span>
+                                        <div class="text-gray-900 dark:text-gray-100 mb-0.5 text-xs leading-tight" x-text="item.item_name"></div>
+                                        <div class="text-gray-600 dark:text-gray-400 text-xs">
+                                            <span class="font-medium" x-text="`${Math.floor(item.planned_qty)} ${getQuantityTypeLabel(item.qty_type)}`"></span>
                                         </div>
                                     </div>
                                 </template>
