@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\FloorPlanController;
+use App\Http\Controllers\Api\PickingRouteController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -16,4 +17,7 @@ Route::prefix('api')->middleware(['web'])->group(function () {
     Route::get('/zones/{zoneId}/stocks', [FloorPlanController::class, 'getZoneStocks']);
     Route::get('/floors/{floorId}/unpositioned-locations', [FloorPlanController::class, 'getUnpositionedLocations']);
     Route::get('/floors/{floorId}/export-csv', [FloorPlanController::class, 'exportCSV']);
+
+    // Picking route visualization API
+    Route::get('/picking-routes', [PickingRouteController::class, 'getPickingRoute']);
 });

@@ -145,30 +145,34 @@ class GenerateWavesCommand extends Command
                             'EARNING'
                         );
 
-                        // Get primary location from first reservation
+                        // Get primary location and real_stock from first reservation
+                        // Note: There may be multiple reservations if stock is split across locations
+                        // We use the first reservation as the primary picking location
                         $primaryReservation = DB::connection('sakemaru')
                             ->table('wms_reservations')
                             ->where('wave_id', $wave->id)
                             ->where('item_id', $tradeItem->item_id)
                             ->where('source_id', $earning->id)
                             ->whereNotNull('location_id')
+                            ->orderBy('qty_each', 'desc') // Order by quantity (largest first)
                             ->orderBy('id', 'asc')
                             ->first();
 
                         $reservationResult = [
                             'allocated_qty' => $result['allocated'],
+                            'real_stock_id' => $primaryReservation->real_stock_id ?? null,
                             'location_id' => $primaryReservation->location_id ?? null,
-                            // 'walking_order' => null, // Removed: walking_order is no longer used
+                            'walking_order' => null,
                         ];
 
-                        // Removed: walking_order retrieval from wms_locations is no longer needed
-                        // if ($reservationResult['location_id']) {
-                        //     $wmsLocation = DB::connection('sakemaru')
-                        //         ->table('wms_locations')
-                        //         ->where('location_id', $reservationResult['location_id'])
-                        //         ->first();
-                        //     $reservationResult['walking_order'] = $wmsLocation->walking_order ?? null;
-                        // }
+                        // Get walking_order from wms_locations for route optimization
+                        if ($reservationResult['location_id']) {
+                            $wmsLocation = DB::connection('sakemaru')
+                                ->table('wms_locations')
+                                ->where('location_id', $reservationResult['location_id'])
+                                ->first();
+                            $reservationResult['walking_order'] = $wmsLocation->walking_order ?? null;
+                        }
 
                         $reservationResults[$tradeItem->id] = $reservationResult;
 
@@ -246,9 +250,9 @@ class GenerateWavesCommand extends Command
                                 'earning_id' => $earning->id, // Added: earning_id now tracked at item level
                                 'trade_item_id' => $tradeItem->id,
                                 'item_id' => $tradeItem->item_id,
-                                'real_stock_id' => null, // Will be set during actual picking
-                                'location_id' => $reservationResult['location_id'], // Primary picking location
-                                // 'walking_order' => $reservationResult['walking_order'], // Removed: walking_order is no longer used
+                                'real_stock_id' => $reservationResult['real_stock_id'], // Primary real_stock from reservation
+                                'location_id' => $reservationResult['location_id'], // Primary picking location from reservation
+                                'walking_order' => $reservationResult['walking_order'], // Warehouse movement sequence for route optimization
                                 'ordered_qty' => $tradeItem->quantity, // Original order quantity
                                 'ordered_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // From trade_items.quantity_type
                                 'planned_qty' => $reservationResult['allocated_qty'], // Allocated quantity from reservations

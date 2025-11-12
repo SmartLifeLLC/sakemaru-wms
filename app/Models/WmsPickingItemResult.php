@@ -21,7 +21,7 @@ class WmsPickingItemResult extends Model
         'item_id',
         'real_stock_id',
         'location_id',
-        // 'walking_order', // Removed: walking_order is no longer used
+        'walking_order',
         'ordered_qty',
         'ordered_qty_type',
         'planned_qty',
@@ -35,7 +35,7 @@ class WmsPickingItemResult extends Model
     ];
 
     protected $casts = [
-        // 'walking_order' => 'integer', // Removed: walking_order is no longer used
+        'walking_order' => 'integer',
         'ordered_qty' => 'decimal:2',
         'planned_qty' => 'decimal:2',
         'picked_qty' => 'decimal:2',
@@ -77,11 +77,12 @@ class WmsPickingItemResult extends Model
 
     /**
      * スコープ：ピッキング順序でソート
-     * Note: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
+     * Sorts by walking_order (warehouse movement sequence)
      */
     public function scopeOrderedForPicking($query)
     {
-        return $query->orderBy('item_id', 'asc');
+        return $query->orderBy('walking_order', 'asc')
+                    ->orderBy('item_id', 'asc');
     }
 
     /**
