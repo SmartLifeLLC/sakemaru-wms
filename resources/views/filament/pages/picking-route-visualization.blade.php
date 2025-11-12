@@ -2,15 +2,11 @@
     <div x-data="pickingRouteViewer()"
          x-init="init()"
          @layout-loaded.window="
-             console.log('=== layout-loaded event received ===');
-             console.log('zones from event:', $event.detail.zones);
              zones = Array.isArray($event.detail.zones) ? $event.detail.zones : [];
              walls = Array.isArray($event.detail.walls) ? $event.detail.walls : [];
              fixedAreas = Array.isArray($event.detail.fixedAreas) ? $event.detail.fixedAreas : [];
-             console.log('zones array set to:', zones.length, 'items');
              // Recalculate route lines if picking items are already loaded
              if (pickingItems.length > 0) {
-                 console.log('Recalculating route lines after zones loaded');
                  calculateRouteLines();
              }
          "
@@ -226,16 +222,12 @@
                  * Load picking route data for selected delivery course
                  */
                 async loadPickingRoute(courseId) {
-                    console.log('=== loadPickingRoute START ===');
                     const warehouseId = this.$wire.selectedWarehouseId;
                     const floorId = this.$wire.selectedFloorId;
                     const date = this.$wire.selectedDate;
                     const deliveryCourseId = courseId || this.$wire.selectedDeliveryCourseId;
 
-                    console.log('Parameters:', { warehouseId, floorId, date, deliveryCourseId });
-
                     if (!warehouseId || !floorId || !date || !deliveryCourseId) {
-                        console.log('Missing parameters, clearing data');
                         this.pickingItems = [];
                         this.routeLines = [];
                         return;
@@ -243,20 +235,13 @@
 
                     try {
                         const url = `/api/picking-routes?warehouse_id=${warehouseId}&floor_id=${floorId}&date=${date}&delivery_course_id=${deliveryCourseId}`;
-                        console.log('Fetching:', url);
-
                         const response = await fetch(url);
                         const data = await response.json();
 
-                        console.log('API Response:', data);
-                        console.log('pickingItems count:', data.data ? data.data.length : 0);
-
                         this.pickingItems = data.data || [];
-                        console.log('Set pickingItems:', this.pickingItems);
 
                         // Wait for next tick to ensure zones are loaded
                         await this.$nextTick();
-                        console.log('After nextTick, zones.length:', this.zones.length);
 
                         this.calculateRouteLines();
                     } catch (error) {
@@ -264,51 +249,36 @@
                         this.pickingItems = [];
                         this.routeLines = [];
                     }
-
-                    console.log('=== loadPickingRoute END ===');
                 },
 
                 /**
                  * Calculate route lines between picking locations
                  */
                 calculateRouteLines() {
-                    console.log('=== calculateRouteLines START ===');
-                    console.log('showRouteLines:', this.showRouteLines);
-                    console.log('pickingItems.length:', this.pickingItems.length);
-                    console.log('zones.length:', this.zones.length);
-
                     this.routeLines = [];
 
                     if (!this.showRouteLines || this.pickingItems.length < 2) {
-                        console.log('Early return: showRouteLines =', this.showRouteLines, ', pickingItems.length =', this.pickingItems.length);
                         return;
                     }
 
                     if (this.zones.length === 0) {
-                        console.warn('Early return: zones array is empty');
                         return;
                     }
 
                     // Group by location and get center points
                     const locationCenters = {};
                     this.pickingItems.forEach(item => {
-                        console.log('Processing item:', item.walking_order, 'location_id:', item.location_id);
-
                         if (!item.location_id) return;
 
                         const zone = this.zones.find(z => z.id === item.location_id);
-                        console.log('Found zone for location', item.location_id, ':', zone ? 'YES' : 'NO');
 
                         if (zone && !locationCenters[item.location_id]) {
                             locationCenters[item.location_id] = {
                                 x: (zone.x1 + zone.x2) / 2,
                                 y: (zone.y1 + zone.y2) / 2
                             };
-                            console.log('  Added center for location', item.location_id, ':', locationCenters[item.location_id]);
                         }
                     });
-
-                    console.log('locationCenters:', locationCenters);
 
                     // Create lines between consecutive locations
                     let prevLocation = null;
@@ -321,26 +291,19 @@
 
                             // Skip if coordinates are undefined
                             if (!from || !to || from.x === undefined || to.x === undefined) {
-                                console.warn('Skipping route line due to undefined coordinates:', { from, to });
                                 return;
                             }
 
-                            const line = {
+                            this.routeLines.push({
                                 x1: from.x,
                                 y1: from.y,
                                 x2: to.x,
                                 y2: to.y
-                            };
-
-                            this.routeLines.push(line);
-                            console.log('Added route line:', line);
+                            });
                         }
 
                         prevLocation = item.location_id;
                     });
-
-                    console.log('Total routeLines created:', this.routeLines.length);
-                    console.log('=== calculateRouteLines END ===');
                 },
 
                 /**
