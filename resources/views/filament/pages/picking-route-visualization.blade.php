@@ -105,8 +105,22 @@
             <div class="w-1/4 flex flex-col gap-3">
 
                 {{-- Toolbar --}}
-                <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-3">
-                    <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2">フィルター</h3>
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow">
+                    {{-- Filter Header (Collapsible) --}}
+                    <div @click="filterExpanded = !filterExpanded"
+                         class="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 rounded-t-lg">
+                        <h3 class="text-sm font-semibold">フィルター</h3>
+                        <svg class="w-4 h-4 transition-transform duration-200"
+                             :class="{ 'rotate-180': filterExpanded }"
+                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+
+                    {{-- Filter Content --}}
+                    <div x-show="filterExpanded"
+                         x-collapse
+                         class="p-3 pt-0 flex flex-col gap-3 border-t border-gray-200 dark:border-gray-700">
 
                     {{-- Warehouse and Floor Selection (2:1 ratio) --}}
                     <div class="flex gap-2">
@@ -166,6 +180,7 @@
                                 <span class="text-sm">順序番号表示</span>
                             </label>
                         </div>
+                    </div>
                     </div>
                 </div>
 
@@ -255,6 +270,7 @@
                 showRouteLines: true,
                 showWalkingOrder: true,
                 routeLines: [],
+                filterExpanded: true,
 
                 init() {
                     // Request initial data from Livewire
