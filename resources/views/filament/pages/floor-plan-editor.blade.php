@@ -115,92 +115,101 @@
             <div class="w-1/4 bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-3 overflow-y-auto">
                 <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2">設定</h3>
 
+                {{-- Save Button (Full Width) --}}
+                <button @click="saveAllChanges()"
+                    class="w-full px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium">
+                    保存
+                </button>
+
                 {{-- Warehouse & Floor Selection --}}
                 <div>
                     <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
                     <select wire:model.live="selectedWarehouseId"
-                    class="rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                    <option value="">倉庫を選択</option>
-                    @foreach($this->warehouses as $wh)
-                        <option value="{{ $wh->id }}">{{ $wh->name }}</option>
-                    @endforeach
-                </select>
+                        class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                        <option value="">倉庫を選択</option>
+                        @foreach($this->warehouses as $wh)
+                            <option value="{{ $wh->id }}">{{ $wh->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
 
-                <select wire:model.live="selectedFloorId"
-                    class="rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                    <option value="">フロアを選択</option>
-                    @foreach($this->floors as $floor)
-                        <option value="{{ $floor->id }}">{{ $floor->name }}</option>
-                    @endforeach
-                </select>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
+                    <select wire:model.live="selectedFloorId"
+                        class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                        <option value="">フロアを選択</option>
+                        @foreach($this->floors as $floor)
+                            <option value="{{ $floor->id }}">{{ $floor->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
 
-                <button @click="saveAllChanges()"
-                    class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium">
-                    保存
-                </button>
+                {{-- Tool Icons (Horizontal) --}}
+                <div class="flex flex-wrap gap-2">
+                    <button @click="saveAllChanges(); $wire.addZone()" title="区画追加"
+                        class="p-2 bg-purple-500 hover:bg-purple-600 text-white rounded-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                    </button>
 
-                <button @click="saveAllChanges(); $wire.addZone()" title="区画追加"
-                    class="p-2 bg-purple-500 hover:bg-purple-600 text-white rounded-md">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                    </svg>
-                </button>
+                    <button @click="saveAllChanges(); $wire.addWall()" title="壁追加"
+                        class="p-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8"></path>
+                        </svg>
+                    </button>
 
-                <button @click="saveAllChanges(); $wire.addWall()" title="壁追加"
-                    class="p-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8"></path>
-                    </svg>
-                </button>
+                    <button @click="saveAllChanges(); $wire.addFixedArea()" title="固定領域追加"
+                        class="p-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </button>
 
-                <button @click="saveAllChanges(); $wire.addFixedArea()" title="固定領域追加"
-                    class="p-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-md">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                </button>
+                    <button wire:click="exportLayout" title="レイアウト出力(JSON)"
+                        class="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                    </button>
 
-                <button wire:click="exportLayout" title="レイアウト出力(JSON)"
-                    class="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                    </svg>
-                </button>
+                    <button @click="$refs.importFile.click()" title="レイアウト取込(JSON)"
+                        class="p-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L9 8m4-4v12"></path>
+                        </svg>
+                    </button>
 
-                <button @click="$refs.importFile.click()" title="レイアウト取込(JSON)"
-                    class="p-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-md">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L9 8m4-4v12"></path>
-                    </svg>
-                </button>
+                    <button @click="exportCSV()" title="CSV出力"
+                        class="p-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </button>
+                </div>
                 <input type="file" x-ref="importFile" accept=".json" @change="handleImport($event)" class="hidden">
 
-                <button @click="exportCSV()" title="CSV出力"
-                    class="p-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                </button>
+                <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
 
-                <div class="border-l border-gray-300 dark:border-gray-600 h-6 mx-1"></div>
-
-                <label class="flex items-center gap-1.5">
-                    <input type="checkbox" x-model="gridEnabled" @change="updateGrid()"
-                        class="rounded border-gray-300">
-                    <span class="text-sm">GRID</span>
-                </label>
-
-                <label class="flex items-center gap-1">
-                    <span class="text-sm">Size:</span>
-                    <input type="number" x-model="gridSize" @change="updateGrid()" min="4"
-                        class="w-14 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
-                </label>
-
-                <label class="flex items-center gap-1">
-                    <span class="text-sm">閾値:</span>
-                    <input type="number" x-model="gridThreshold" min="0"
-                        class="w-14 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
-                </label>
+                {{-- Grid Controls (Single Line) --}}
+                <div class="flex items-center gap-2 text-sm">
+                    <label class="flex items-center gap-1.5">
+                        <input type="checkbox" x-model="gridEnabled" @change="updateGrid()"
+                            class="rounded border-gray-300">
+                        <span>GRID</span>
+                    </label>
+                    <label class="flex items-center gap-1">
+                        <span>Size:</span>
+                        <input type="number" x-model="gridSize" @change="updateGrid()" min="4"
+                            class="w-12 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-1 py-0.5">
+                    </label>
+                    <label class="flex items-center gap-1">
+                        <span>閾値:</span>
+                        <input type="number" x-model="gridThreshold" min="0"
+                            class="w-12 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-1 py-0.5">
+                    </label>
+                </div>
 
                 <div class="border-l border-gray-300 dark:border-gray-600 h-6 mx-1"></div>
 
