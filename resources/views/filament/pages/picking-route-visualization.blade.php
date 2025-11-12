@@ -108,60 +108,58 @@
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-3">
                     <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2">フィルター</h3>
 
-                    {{-- Warehouse Selection --}}
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
-                        <select wire:model.live="selectedWarehouseId"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                            <option value="">選択してください</option>
-                            @foreach($this->warehouses as $wh)
-                                <option value="{{ $wh->id }}">{{ $wh->name }}</option>
-                            @endforeach
-                        </select>
+                    {{-- Warehouse and Floor Selection (2:1 ratio) --}}
+                    <div class="flex gap-2">
+                        <div class="w-2/3">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
+                            <select wire:model.live="selectedWarehouseId"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                                <option value="">選択してください</option>
+                                @foreach($this->warehouses as $wh)
+                                    <option value="{{ $wh->id }}">{{ $wh->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="w-1/3">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
+                            <select wire:model.live="selectedFloorId"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                                <option value="">選択</option>
+                                @foreach($this->floors as $floor)
+                                    <option value="{{ $floor->id }}">{{ $floor->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
                     </div>
 
-                    {{-- Floor Selection --}}
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
-                        <select wire:model.live="selectedFloorId"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                            <option value="">選択してください</option>
-                            @foreach($this->floors as $floor)
-                                <option value="{{ $floor->id }}">{{ $floor->name }}</option>
-                            @endforeach
-                        </select>
+                    {{-- Delivery Course and Date Selection (2:1 ratio) --}}
+                    <div class="flex gap-2">
+                        <div class="w-2/3">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">配送コース</label>
+                            <select wire:model.live="selectedDeliveryCourseId"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                                <option value="">選択してください</option>
+                                @foreach($this->deliveryCourses as $course)
+                                    <option value="{{ $course['id'] }}">{{ $course['code'] }} - {{ $course['name'] }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="w-1/3">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">日付</label>
+                            <input type="date" wire:model.live="selectedDate"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                        </div>
                     </div>
 
-                    {{-- Date Selection --}}
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">日付</label>
-                        <input type="date" wire:model.live="selectedDate"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                    </div>
-
-                    {{-- Delivery Course Selection --}}
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">配送コース</label>
-                        <select wire:model.live="selectedDeliveryCourseId"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                            <option value="">選択してください</option>
-                            @foreach($this->deliveryCourses as $course)
-                                <option value="{{ $course['id'] }}">{{ $course['code'] }} - {{ $course['name'] }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-
+                    {{-- Display Options (Single Line) --}}
                     <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
                         <h4 class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">表示オプション</h4>
-
-                        {{-- Display Options --}}
-                        <div class="flex flex-col gap-2">
+                        <div class="flex items-center gap-4">
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" x-model="showRouteLines"
                                     class="rounded border-gray-300">
                                 <span class="text-sm">経路線表示</span>
                             </label>
-
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" x-model="showWalkingOrder"
                                     class="rounded border-gray-300">
