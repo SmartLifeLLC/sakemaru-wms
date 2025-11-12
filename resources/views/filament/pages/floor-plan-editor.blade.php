@@ -12,12 +12,113 @@
                  $dispatch('canvas-size-updated', { width: $event.detail.canvasWidth, height: $event.detail.canvasHeight });
              }
          "
-         class="h-full flex flex-col">
-        {{-- Combined Toolbar and Canvas --}}
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow flex-1 flex flex-col" style="height: calc(100vh - 120px);">
-            {{-- Toolbar --}}
-            <div class="flex flex-wrap gap-2 items-center text-sm p-3 border-b border-gray-200 dark:border-gray-700">
-                <select wire:model.live="selectedWarehouseId"
+         class="h-full">
+
+        {{-- Main Layout: Left (3/4) and Right (1/4) --}}
+        <div class="flex gap-3" style="height: calc(100vh - 120px);">
+
+            {{-- Left Side: Floor Plan Canvas (75%) --}}
+            <div class="w-3/4 bg-white dark:bg-gray-800 rounded-lg shadow relative overflow-auto bg-gray-50 dark:bg-gray-900"
+                 @mousedown="handleCanvasMouseDown($event)"
+                 @mousemove="handleCanvasMouseMove($event)"
+                 @mouseup="handleCanvasMouseUp($event)"
+                 @contextmenu.prevent
+                 :style="canvasStyle"
+                 id="floor-plan-canvas">
+
+                {{-- Canvas Inner Container with minimum size from Livewire --}}
+                <div class="relative" style="min-width: {{ $canvasWidth }}px; min-height: {{ $canvasHeight }}px;">
+
+                {{-- Zone Blocks (Locations) --}}
+                <template x-for="zone in zones" :key="zone.id">
+                    <div @mousedown.stop="handleZoneMouseDown($event, zone)"
+                         @click="selectZone($event, zone)"
+                         @dblclick="editZone(zone)"
+                         :style="`
+                             position: absolute;
+                             left: ${zone.x1_pos}px;
+                             top: ${zone.y1_pos}px;
+                             width: ${zone.x2_pos - zone.x1_pos}px;
+                             height: ${zone.y2_pos - zone.y1_pos}px;
+                             background-color: {{ $colors['location']['rectangle'] ?? '#E0F2FE' }};
+                             border-color: {{ $colors['location']['border'] ?? '#D1D5DB' }};
+                             color: {{ $textStyles['location']['color'] ?? '#6B7280' }};
+                             font-size: {{ $textStyles['location']['size'] ?? 12 }}px;
+                         `"
+                         :class="selectedZones.includes(zone.id) ? 'border-2 border-blue-900' : 'border'"
+                         class="cursor-move flex flex-col items-center justify-center p-2 rounded shadow-sm select-none">
+
+                        <div x-text="zone.code1 + zone.code2"></div>
+
+                        {{-- Resize Handle --}}
+                        <div @mousedown.stop="handleResizeMouseDown($event, zone)"
+                             class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
+                        </div>
+                    </div>
+                </template>
+
+                {{-- Walls --}}
+                <template x-for="wall in walls" :key="wall.id">
+                    <div @mousedown.stop="handleWallMouseDown($event, wall)"
+                         @click="selectWall($event, wall)"
+                         @dblclick.stop="editWall(wall)"
+                         :style="`
+                             position: absolute;
+                             left: ${wall.x1}px;
+                             top: ${wall.y1}px;
+                             width: ${wall.x2 - wall.x1}px;
+                             height: ${wall.y2 - wall.y1}px;
+                             background-color: {{ $colors['wall']['rectangle'] ?? '#9CA3AF' }};
+                             border-width: ${selectedWalls.includes(wall.id) ? '3px' : '1px'};
+                             border-style: solid;
+                             border-color: ${selectedWalls.includes(wall.id) ? '#374151' : '{{ $colors['wall']['border'] ?? '#6B7280' }}'};
+                             color: {{ $textStyles['wall']['color'] ?? '#FFFFFF' }};
+                             font-size: {{ $textStyles['wall']['size'] ?? 10 }}px;
+                         `"
+                         class="flex items-center justify-center rounded select-none cursor-move">
+                        <div x-text="wall.name"></div>
+                        <div @mousedown.stop="handleWallResizeMouseDown($event, wall)"
+                             class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
+                        </div>
+                    </div>
+                </template>
+
+                {{-- Fixed Areas --}}
+                <template x-for="area in fixedAreas" :key="area.id">
+                    <div @mousedown.stop="handleFixedAreaMouseDown($event, area)"
+                         @click="selectFixedArea($event, area)"
+                         @dblclick.stop="editFixedArea(area)"
+                         :style="`
+                             position: absolute;
+                             left: ${area.x1}px;
+                             top: ${area.y1}px;
+                             width: ${area.x2 - area.x1}px;
+                             height: ${area.y2 - area.y1}px;
+                             background-color: {{ $colors['fixed_area']['rectangle'] ?? '#FEF3C7' }};
+                             border-width: ${selectedFixedAreas.includes(area.id) ? '4px' : '2px'};
+                             border-style: solid;
+                             border-color: ${selectedFixedAreas.includes(area.id) ? '#B45309' : '{{ $colors['fixed_area']['border'] ?? '#F59E0B' }}'};
+                             color: {{ $textStyles['fixed_area']['color'] ?? '#92400E' }};
+                             font-size: {{ $textStyles['fixed_area']['size'] ?? 12 }}px;
+                         `"
+                         class="flex items-center justify-center rounded-lg select-none font-medium cursor-move">
+                        <div x-text="area.name"></div>
+                        <div @mousedown.stop="handleFixedAreaResizeMouseDown($event, area)"
+                             class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
+                        </div>
+                    </div>
+                </template>
+                </div>
+            </div>
+
+            {{-- Right Side: Toolbar (25%) --}}
+            <div class="w-1/4 bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-3 overflow-y-auto">
+                <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2">設定</h3>
+
+                {{-- Warehouse & Floor Selection --}}
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
+                    <select wire:model.live="selectedWarehouseId"
                     class="rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
                     <option value="">倉庫を選択</option>
                     @foreach($this->warehouses as $wh)
@@ -137,104 +238,9 @@
                     </button>
                 </div>
 
-                <span x-show="selectedZones.length > 0" class="text-gray-600 dark:text-gray-400">
+                <span x-show="selectedZones.length > 0" class="text-gray-600 dark:text-gray-400 text-sm mt-2">
                     選択: <span x-text="selectedZones.length"></span>個
                 </span>
-            </div>
-
-            {{-- Floor Plan Canvas --}}
-            <div @mousedown="handleCanvasMouseDown($event)"
-                 @mousemove="handleCanvasMouseMove($event)"
-                 @mouseup="handleCanvasMouseUp($event)"
-                 @contextmenu.prevent
-                 class="relative overflow-auto flex-1 bg-gray-50 dark:bg-gray-900"
-                 :style="canvasStyle"
-                 id="floor-plan-canvas"
-                 style="min-height: 0;">
-
-                {{-- Canvas Inner Container with minimum size from Livewire --}}
-                <div class="relative" style="min-width: {{ $canvasWidth }}px; min-height: {{ $canvasHeight }}px;">
-
-                {{-- Zone Blocks (Locations) --}}
-                <template x-for="zone in zones" :key="zone.id">
-                    <div @mousedown.stop="handleZoneMouseDown($event, zone)"
-                         @click="selectZone($event, zone)"
-                         @dblclick="editZone(zone)"
-                         :style="`
-                             position: absolute;
-                             left: ${zone.x1_pos}px;
-                             top: ${zone.y1_pos}px;
-                             width: ${zone.x2_pos - zone.x1_pos}px;
-                             height: ${zone.y2_pos - zone.y1_pos}px;
-                             background-color: {{ $colors['location']['rectangle'] ?? '#E0F2FE' }};
-                             border-color: {{ $colors['location']['border'] ?? '#D1D5DB' }};
-                             color: {{ $textStyles['location']['color'] ?? '#6B7280' }};
-                             font-size: {{ $textStyles['location']['size'] ?? 12 }}px;
-                         `"
-                         :class="selectedZones.includes(zone.id) ? 'border-2 border-blue-900' : 'border'"
-                         class="cursor-move flex flex-col items-center justify-center p-2 rounded shadow-sm select-none">
-
-                        <div x-text="zone.code1 + zone.code2"></div>
-
-                        {{-- Resize Handle --}}
-                        <div @mousedown.stop="handleResizeMouseDown($event, zone)"
-                             class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
-                        </div>
-                    </div>
-                </template>
-
-                {{-- Walls --}}
-                <template x-for="wall in walls" :key="wall.id">
-                    <div @mousedown.stop="handleWallMouseDown($event, wall)"
-                         @click="selectWall($event, wall)"
-                         @dblclick.stop="editWall(wall)"
-                         :style="`
-                             position: absolute;
-                             left: ${wall.x1}px;
-                             top: ${wall.y1}px;
-                             width: ${wall.x2 - wall.x1}px;
-                             height: ${wall.y2 - wall.y1}px;
-                             background-color: {{ $colors['wall']['rectangle'] ?? '#9CA3AF' }};
-                             border-width: ${selectedWalls.includes(wall.id) ? '3px' : '1px'};
-                             border-style: solid;
-                             border-color: ${selectedWalls.includes(wall.id) ? '#374151' : '{{ $colors['wall']['border'] ?? '#6B7280' }}'};
-                             color: {{ $textStyles['wall']['color'] ?? '#FFFFFF' }};
-                             font-size: {{ $textStyles['wall']['size'] ?? 10 }}px;
-                         `"
-                         class="flex items-center justify-center rounded select-none cursor-move">
-                        <div x-text="wall.name"></div>
-                        <div @mousedown.stop="handleWallResizeMouseDown($event, wall)"
-                             class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
-                        </div>
-                    </div>
-                </template>
-
-                {{-- Fixed Areas --}}
-                <template x-for="area in fixedAreas" :key="area.id">
-                    <div @mousedown.stop="handleFixedAreaMouseDown($event, area)"
-                         @click="selectFixedArea($event, area)"
-                         @dblclick.stop="editFixedArea(area)"
-                         :style="`
-                             position: absolute;
-                             left: ${area.x1}px;
-                             top: ${area.y1}px;
-                             width: ${area.x2 - area.x1}px;
-                             height: ${area.y2 - area.y1}px;
-                             background-color: {{ $colors['fixed_area']['rectangle'] ?? '#FEF3C7' }};
-                             border-width: ${selectedFixedAreas.includes(area.id) ? '4px' : '2px'};
-                             border-style: solid;
-                             border-color: ${selectedFixedAreas.includes(area.id) ? '#B45309' : '{{ $colors['fixed_area']['border'] ?? '#F59E0B' }}'};
-                             color: {{ $textStyles['fixed_area']['color'] ?? '#92400E' }};
-                             font-size: {{ $textStyles['fixed_area']['size'] ?? 12 }}px;
-                         `"
-                         class="flex items-center justify-center rounded-lg select-none font-medium cursor-move">
-                        <div x-text="area.name"></div>
-                        <div @mousedown.stop="handleFixedAreaResizeMouseDown($event, area)"
-                             class="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize">
-                        </div>
-                    </div>
-                </template>
-                </div>
             </div>
         </div>
 
