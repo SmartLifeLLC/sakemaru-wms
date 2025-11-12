@@ -12,76 +12,15 @@
          "
          @delivery-course-changed.window="loadPickingRoute($event.detail.courseId)"
          @date-changed.window="loadPickingRoute()"
-         class="h-full flex flex-col">
+         class="h-full">
 
-        {{-- Combined Toolbar and Canvas --}}
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow flex-1 flex flex-col" style="height: calc(100vh - 120px);">
+        {{-- Main Layout: Left (3/4) and Right (1/4) --}}
+        <div class="flex gap-3" style="height: calc(100vh - 120px);">
 
-            {{-- Toolbar --}}
-            <div class="flex flex-wrap gap-2 items-center text-sm p-3 border-b border-gray-200 dark:border-gray-700">
-                {{-- Warehouse Selection --}}
-                <select wire:model.live="selectedWarehouseId"
-                    class="rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                    <option value="">倉庫を選択</option>
-                    @foreach($this->warehouses as $wh)
-                        <option value="{{ $wh->id }}">{{ $wh->name }}</option>
-                    @endforeach
-                </select>
-
-                {{-- Floor Selection --}}
-                <select wire:model.live="selectedFloorId"
-                    class="rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                    <option value="">フロアを選択</option>
-                    @foreach($this->floors as $floor)
-                        <option value="{{ $floor->id }}">{{ $floor->name }}</option>
-                    @endforeach
-                </select>
-
-                <div class="border-l border-gray-300 dark:border-gray-600 h-6 mx-1"></div>
-
-                {{-- Date Selection --}}
-                <label class="flex items-center gap-1">
-                    <span class="text-sm font-medium">日付:</span>
-                    <input type="date" wire:model.live="selectedDate"
-                        class="rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                </label>
-
-                {{-- Delivery Course Selection --}}
-                <select wire:model.live="selectedDeliveryCourseId"
-                    class="rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5 min-w-[200px]">
-                    <option value="">配送コースを選択</option>
-                    @foreach($this->deliveryCourses as $course)
-                        <option value="{{ $course['id'] }}">{{ $course['code'] }} - {{ $course['name'] }}</option>
-                    @endforeach
-                </select>
-
-                <div class="border-l border-gray-300 dark:border-gray-600 h-6 mx-1"></div>
-
-                {{-- Display Options --}}
-                <label class="flex items-center gap-1.5">
-                    <input type="checkbox" x-model="showRouteLines"
-                        class="rounded border-gray-300">
-                    <span class="text-sm">経路線表示</span>
-                </label>
-
-                <label class="flex items-center gap-1.5">
-                    <input type="checkbox" x-model="showWalkingOrder"
-                        class="rounded border-gray-300">
-                    <span class="text-sm">順序番号表示</span>
-                </label>
-
-                <div class="ml-auto flex items-center gap-2">
-                    <span x-show="pickingItems.length > 0" class="text-sm text-gray-600 dark:text-gray-400">
-                        ピッキング: <span x-text="pickingItems.length"></span>件
-                    </span>
-                </div>
-            </div>
-
-            {{-- Floor Plan Canvas (Read-only) --}}
-            <div class="relative overflow-auto flex-1 bg-gray-50 dark:bg-gray-900"
+            {{-- Left Side: Floor Plan Canvas (75%) --}}
+            <div class="w-3/4 bg-white dark:bg-gray-800 rounded-lg shadow relative overflow-auto bg-gray-50 dark:bg-gray-900"
                  :style="canvasStyle"
-                 id="picking-route-canvas"
-                 style="min-height: 0;">
+                 id="picking-route-canvas">
 
                 {{-- Canvas Inner Container --}}
                 <div class="relative" style="min-width: {{ $canvasWidth }}px; min-height: {{ $canvasHeight }}px;">
@@ -162,31 +101,113 @@
                 </div>
             </div>
 
-            {{-- Picking Items List --}}
-            <div class="border-t border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-900 max-h-48 overflow-y-auto">
-                <h3 class="text-sm font-semibold mb-2">ピッキングアイテム一覧</h3>
+            {{-- Right Side: Toolbar and Picking Items (25%) --}}
+            <div class="w-1/4 flex flex-col gap-3">
 
-                <template x-if="pickingItems.length === 0">
-                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                        配送コースを選択してください
-                    </p>
-                </template>
+                {{-- Toolbar --}}
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-3">
+                    <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2">フィルター</h3>
 
-                <template x-if="pickingItems.length > 0">
-                    <div class="space-y-1">
-                        <template x-for="item in pickingItems" :key="item.id">
-                            <div class="flex items-center gap-2 text-xs p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
-                                <span class="font-mono font-semibold text-blue-600 min-w-[30px]"
-                                      x-text="item.walking_order"></span>
-                                <span class="text-gray-600 dark:text-gray-400 min-w-[100px]"
-                                      x-text="item.location_display"></span>
-                                <span class="flex-1" x-text="item.item_name"></span>
-                                <span class="font-medium"
-                                      x-text="`${item.planned_qty} ${item.qty_type}`"></span>
+                    {{-- Warehouse Selection --}}
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
+                        <select wire:model.live="selectedWarehouseId"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                            <option value="">選択してください</option>
+                            @foreach($this->warehouses as $wh)
+                                <option value="{{ $wh->id }}">{{ $wh->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    {{-- Floor Selection --}}
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
+                        <select wire:model.live="selectedFloorId"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                            <option value="">選択してください</option>
+                            @foreach($this->floors as $floor)
+                                <option value="{{ $floor->id }}">{{ $floor->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    {{-- Date Selection --}}
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">日付</label>
+                        <input type="date" wire:model.live="selectedDate"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                    </div>
+
+                    {{-- Delivery Course Selection --}}
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">配送コース</label>
+                        <select wire:model.live="selectedDeliveryCourseId"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                            <option value="">選択してください</option>
+                            @foreach($this->deliveryCourses as $course)
+                                <option value="{{ $course['id'] }}">{{ $course['code'] }} - {{ $course['name'] }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
+                        <h4 class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">表示オプション</h4>
+
+                        {{-- Display Options --}}
+                        <div class="flex flex-col gap-2">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="showRouteLines"
+                                    class="rounded border-gray-300">
+                                <span class="text-sm">経路線表示</span>
+                            </label>
+
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="showWalkingOrder"
+                                    class="rounded border-gray-300">
+                                <span class="text-sm">順序番号表示</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    {{-- Picking Count --}}
+                    <div x-show="pickingItems.length > 0"
+                         class="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-sm text-center">
+                        ピッキング: <span class="font-semibold" x-text="pickingItems.length"></span>件
+                    </div>
+                </div>
+
+                {{-- Picking Items List --}}
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex-1 overflow-hidden flex flex-col">
+                    <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">ピッキングアイテム</h3>
+
+                    <div class="overflow-y-auto flex-1">
+                        <template x-if="pickingItems.length === 0">
+                            <p class="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
+                                配送コースを選択してください
+                            </p>
+                        </template>
+
+                        <template x-if="pickingItems.length > 0">
+                            <div class="space-y-2">
+                                <template x-for="item in pickingItems" :key="item.id">
+                                    <div class="text-xs p-2 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">
+                                        <div class="flex items-center gap-2 mb-1">
+                                            <span class="font-mono font-semibold text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded"
+                                                  x-text="item.walking_order"></span>
+                                            <span class="text-gray-600 dark:text-gray-400"
+                                                  x-text="item.location_display"></span>
+                                        </div>
+                                        <div class="text-gray-900 dark:text-gray-100 mb-1" x-text="item.item_name"></div>
+                                        <div class="text-gray-600 dark:text-gray-400">
+                                            数量: <span class="font-medium" x-text="`${item.planned_qty} ${item.qty_type}`"></span>
+                                        </div>
+                                    </div>
+                                </template>
                             </div>
                         </template>
                     </div>
-                </template>
+                </div>
             </div>
         </div>
     </div>
