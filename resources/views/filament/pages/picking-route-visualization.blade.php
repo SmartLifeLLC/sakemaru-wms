@@ -232,7 +232,7 @@
                                         </div>
                                         <div class="text-gray-900 dark:text-gray-100 mb-1" x-text="item.item_name"></div>
                                         <div class="text-gray-600 dark:text-gray-400">
-                                            数量: <span class="font-medium" x-text="`${item.planned_qty} ${getQuantityTypeLabel(item.qty_type)}`"></span>
+                                            数量: <span class="font-medium" x-text="`${Math.floor(item.planned_qty)} ${getQuantityTypeLabel(item.qty_type)}`"></span>
                                         </div>
                                     </div>
                                 </template>
