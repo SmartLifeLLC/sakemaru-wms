@@ -86,14 +86,7 @@ class GenerateWmsTestDataCommand extends Command
                 ->where('delivered_date', '>=', now()->format('Y-m-d'))
                 ->delete();
 
-            // Clean wms_real_stocks first
-            DB::connection('sakemaru')->table('wms_real_stocks')
-                ->whereIn('real_stock_id', function ($query) {
-                    $query->select('id')
-                        ->from('real_stocks')
-                        ->where('warehouse_id', $this->warehouseId);
-                })
-                ->delete();
+            // wms_real_stocks table has been removed - WMS columns are now in real_stocks
 
             // Clean real_stocks for test items
             DB::connection('sakemaru')->table('real_stocks')
@@ -247,7 +240,7 @@ class GenerateWmsTestDataCommand extends Command
 
                     // Each stock record gets unique stock_allocation_id to satisfy unique constraint
                     // real_stocks unique key: (client_id, warehouse_id, stock_allocation_id, item_id)
-                    $realStock = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
+                    DB::connection('sakemaru')->table('real_stocks')->insert([
                         'client_id' => $this->clientId,
                         'warehouse_id' => $this->warehouseId,
                         'stock_allocation_id' => $stockAllocationId++,
@@ -259,13 +252,6 @@ class GenerateWmsTestDataCommand extends Command
                         'purchase_id' => null,
                         'price' => rand(100, 5000),
                         'order_rank' => 'A',
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-
-                    // Create wms_real_stocks record
-                    DB::connection('sakemaru')->table('wms_real_stocks')->insert([
-                        'real_stock_id' => $realStock,
                         'wms_reserved_qty' => 0,
                         'wms_picking_qty' => 0,
                         'wms_lock_version' => 0,

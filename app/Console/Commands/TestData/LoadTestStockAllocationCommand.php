@@ -192,16 +192,9 @@ class LoadTestStockAllocationCommand extends Command
                     'available_quantity' => $currentQuantity,
                     'order_rank' => 'FIFO',
                     'price' => rand(100, 5000),
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                // Create corresponding wms_real_stocks
-                DB::connection('sakemaru')->table('wms_real_stocks')->insert([
-                    'real_stock_id' => $realStockId,
-                    'reserved_quantity' => 0,
-                    'picking_quantity' => 0,
-                    'lock_version' => 0,
+                    'wms_reserved_qty' => 0,
+                    'wms_picking_qty' => 0,
+                    'wms_lock_version' => 0,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -411,18 +404,12 @@ class LoadTestStockAllocationCommand extends Command
             ->whereIn('id', $this->testStockIds)
             ->delete();
 
-        $deletedWmsStocks = DB::connection('sakemaru')
-            ->table('wms_real_stocks')
-            ->whereIn('real_stock_id', $this->testStockIds)
-            ->delete();
-
         $deletedItems = DB::connection('sakemaru')
             ->table('items')
             ->whereIn('id', $this->testItemIds)
             ->delete();
 
         $this->line("Deleted {$deletedStocks} stock records");
-        $this->line("Deleted {$deletedWmsStocks} wms_real_stocks records");
         $this->line("Deleted {$deletedItems} test items");
     }
 }

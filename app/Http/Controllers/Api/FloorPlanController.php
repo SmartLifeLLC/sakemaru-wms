@@ -288,7 +288,6 @@ class FloorPlanController extends Controller
             // Get stock data for this location
             $stocks = DB::connection('sakemaru')
                 ->table('real_stocks as rs')
-                ->leftJoin('wms_real_stocks as wrs', 'rs.id', '=', 'wrs.real_stock_id')
                 ->leftJoin('items as i', 'rs.item_id', '=', 'i.id')
                 ->where('rs.location_id', $location->id)
                 ->select([
@@ -296,7 +295,7 @@ class FloorPlanController extends Controller
                     'i.code as item_code',
                     'i.name as item_name',
                     DB::raw('SUM(rs.current_quantity) as current_qty'),
-                    DB::raw('SUM(COALESCE(wrs.reserved_quantity, 0)) as reserved_qty'),
+                    DB::raw('SUM(rs.wms_reserved_qty) as reserved_qty'),
                     DB::raw('SUM(rs.available_quantity) as available_qty'),
                 ])
                 ->groupBy('rs.item_id', 'i.code', 'i.name')

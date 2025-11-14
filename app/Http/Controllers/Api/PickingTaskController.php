@@ -406,10 +406,10 @@ class PickingTaskController extends Controller
                 ->where('id', $itemResult->real_stock_id)
                 ->first();
 
-            $wmsStockBefore = DB::connection('sakemaru')
-                ->table('wms_real_stocks')
-                ->where('real_stock_id', $itemResult->real_stock_id)
-                ->first();
+            $wmsStockBefore = (object)[
+                'wms_reserved_qty' => $stockBefore->wms_reserved_qty ?? 0,
+                'wms_picking_qty' => $stockBefore->wms_picking_qty ?? 0,
+            ];
         }
 
         $pickedQty = $validated['picked_qty'];
@@ -441,7 +441,7 @@ class PickingTaskController extends Controller
                 'updated_at' => now(),
             ]);
 
-        // Update real_stocks: decrease current_quantity and available_quantity
+        // Update real_stocks: decrease current_quantity, available_quantity, wms_reserved_qty, and increase wms_picking_qty
         if ($pickedQty > 0 && $itemResult->real_stock_id) {
             DB::connection('sakemaru')
                 ->table('real_stocks')
@@ -449,25 +449,10 @@ class PickingTaskController extends Controller
                 ->update([
                     'current_quantity' => DB::raw("current_quantity - {$pickedQty}"),
                     'available_quantity' => DB::raw("available_quantity - {$pickedQty}"),
+                    'wms_reserved_qty' => DB::raw("GREATEST(wms_reserved_qty - {$pickedQty}, 0)"),
+                    'wms_picking_qty' => DB::raw("wms_picking_qty + {$pickedQty}"),
                     'updated_at' => now(),
                 ]);
-
-            // Update wms_real_stocks: decrease reserved_quantity, increase picking_quantity
-            $wmsRealStock = DB::connection('sakemaru')
-                ->table('wms_real_stocks')
-                ->where('real_stock_id', $itemResult->real_stock_id)
-                ->first();
-
-            if ($wmsRealStock) {
-                DB::connection('sakemaru')
-                    ->table('wms_real_stocks')
-                    ->where('real_stock_id', $itemResult->real_stock_id)
-                    ->update([
-                        'reserved_quantity' => DB::raw("GREATEST(reserved_quantity - {$pickedQty}, 0)"),
-                        'picking_quantity' => DB::raw("picking_quantity + {$pickedQty}"),
-                        'updated_at' => now(),
-                    ]);
-            }
         }
 
         // Capture state after update
@@ -613,15 +598,15 @@ class PickingTaskController extends Controller
             'completed_at' => now(),
         ]);
 
-        // Update wms_real_stocks: move from picking_quantity to 0 (picked items are now consumed)
+        // Update real_stocks: decrease wms_picking_qty (picked items are now consumed)
         $itemResults = $task->pickingItemResults;
         foreach ($itemResults as $itemResult) {
             if ($itemResult->real_stock_id && $itemResult->picked_qty > 0) {
                 DB::connection('sakemaru')
-                    ->table('wms_real_stocks')
-                    ->where('real_stock_id', $itemResult->real_stock_id)
+                    ->table('real_stocks')
+                    ->where('id', $itemResult->real_stock_id)
                     ->update([
-                        'picking_quantity' => DB::raw("GREATEST(picking_quantity - {$itemResult->picked_qty}, 0)"),
+                        'wms_picking_qty' => DB::raw("GREATEST(wms_picking_qty - {$itemResult->picked_qty}, 0)"),
                         'updated_at' => now(),
                     ]);
             }

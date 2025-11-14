@@ -10,20 +10,16 @@ class GenerateStocksCommand extends Command
 {
     protected $signature = 'testdata:stocks
                             {--warehouse-id= : Warehouse ID}
-                            {--locations=* : Location IDs to generate stock for}
-                            {--item-count=30 : Number of items to generate stock for}
-                            {--stocks-per-item=2 : Number of stock records per item}';
+                            {--floor-id= : Floor ID}';
 
-    protected $description = 'Generate stock data for specified locations';
+    protected $description = 'Generate stock data for all items evenly distributed across all locations in the specified floor';
 
     private int $warehouseId;
-    private array $locationIds;
-    private int $itemCount;
-    private int $stocksPerItem;
+    private int $floorId;
 
     public function handle()
     {
-        $this->info('📦 Generating stock data...');
+        $this->info('📦 Generating stock data for all items...');
         $this->newLine();
 
         // Get parameters
@@ -33,53 +29,54 @@ class GenerateStocksCommand extends Command
             return 1;
         }
 
-        $this->locationIds = array_map('intval', $this->option('locations') ?: []);
-        if (empty($this->locationIds)) {
-            $this->error('At least one location is required. Use --locations option.');
+        $this->floorId = (int) $this->option('floor-id');
+        if (!$this->floorId) {
+            $this->error('Floor ID is required. Use --floor-id option.');
             return 1;
         }
 
-        $this->itemCount = (int) $this->option('item-count');
-        $this->stocksPerItem = (int) $this->option('stocks-per-item');
-
         $this->line("Configuration:");
-        $this->line("  Warehouse: {$this->warehouseId}");
-        $this->line("  Locations: " . implode(', ', $this->locationIds));
-        $this->line("  Item count: {$this->itemCount}");
-        $this->line("  Stocks per item: {$this->stocksPerItem}");
+        $this->line("  Warehouse ID: {$this->warehouseId}");
+        $this->line("  Floor ID: {$this->floorId}");
         $this->newLine();
 
         try {
-            // Validate locations exist
+            // Get all locations for the specified floor
             $locations = DB::connection('sakemaru')
                 ->table('locations')
-                ->whereIn('id', $this->locationIds)
                 ->where('warehouse_id', $this->warehouseId)
+                ->where('floor_id', $this->floorId)
+                ->whereNotNull('code1')
+                ->whereNotNull('code2')
+                ->orderBy('code1')
+                ->orderBy('code2')
                 ->get();
 
-            if ($locations->count() !== count($this->locationIds)) {
-                $this->error('Some specified locations do not exist or do not belong to the warehouse');
+            if ($locations->isEmpty()) {
+                $this->error('No locations found for the specified warehouse and floor');
                 return 1;
             }
 
-            $this->line("Found {$locations->count()} valid locations");
+            $this->line("Found {$locations->count()} locations in the floor");
             $this->newLine();
 
-            // Get random items
-            $items = $this->getRandomItems();
+            // Get all active items
+            $items = $this->getAllActiveItems();
             if ($items->isEmpty()) {
                 $this->error('No active items found');
                 return 1;
             }
 
-            $this->line("Found {$items->count()} items to generate stock for");
+            $this->line("Found {$items->count()} active items");
             $this->newLine();
 
-            // Generate stocks
-            $createdCount = $this->generateStocks($items, $locations);
+            // Generate stocks evenly distributed across locations
+            $createdCount = $this->generateStocksEvenly($items, $locations);
 
             $this->newLine();
             $this->info("✅ Created {$createdCount} stock records");
+            $this->info("   Items: {$items->count()}");
+            $this->info("   Locations: {$locations->count()}");
             return 0;
         } catch (\Exception $e) {
             $this->error('❌ Error generating stocks: ' . $e->getMessage());
@@ -88,73 +85,87 @@ class GenerateStocksCommand extends Command
         }
     }
 
-    private function getRandomItems()
+    /**
+     * Get all active items (ALCOHOL type)
+     */
+    private function getAllActiveItems()
     {
         return Item::where('type', 'ALCOHOL')
             ->where('is_active', true)
             ->whereNull('end_of_sale_date')
             ->where('is_ended', false)
-            ->inRandomOrder()
-            ->limit($this->itemCount)
+            ->orderBy('code')
             ->get();
     }
 
-    private function generateStocks($items, $locations): int
+    /**
+     * Generate stocks evenly distributed across all locations
+     * Each item is assigned to locations in a round-robin fashion
+     */
+    private function generateStocksEvenly($items, $locations): int
     {
         $createdCount = 0;
+        $skippedCount = 0;
         $clientId = $locations->first()->client_id ?? 1;
 
+        $locationCount = $locations->count();
+        $locationIndex = 0;
+
+        // Progress bar
+        $progressBar = $this->output->createProgressBar($items->count());
+        $progressBar->start();
+
         foreach ($items as $item) {
-            // Randomly select locations for this item
-            $selectedLocations = $locations->random(min($this->stocksPerItem, $locations->count()));
+            // Select location in round-robin fashion for even distribution
+            $location = $locations[$locationIndex % $locationCount];
+            $locationIndex++;
 
-            foreach ($selectedLocations as $location) {
-                // Check if stock already exists
-                $existing = DB::connection('sakemaru')
-                    ->table('real_stocks')
-                    ->where('warehouse_id', $this->warehouseId)
-                    ->where('location_id', $location->id)
-                    ->where('item_id', $item->id)
-                    ->exists();
+            // Check if stock already exists
+            $existing = DB::connection('sakemaru')
+                ->table('real_stocks')
+                ->where('warehouse_id', $this->warehouseId)
+                ->where('location_id', $location->id)
+                ->where('item_id', $item->id)
+                ->exists();
 
-                if ($existing) {
-                    $this->line("  Stock for item {$item->code} at location {$location->code1}{$location->code2}{$location->code3} already exists, skipping");
-                    continue;
-                }
-
-                // Generate stock with expiration date (30-180 days from now)
-                $expirationDate = now()->addDays(rand(30, 180))->format('Y-m-d');
-                $currentQuantity = rand(50, 500);
-
-                $realStockId = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
-                    'client_id' => $clientId,
-                    'stock_allocation_id' => 1,
-                    'warehouse_id' => $this->warehouseId,
-                    'location_id' => $location->id,
-                    'item_id' => $item->id,
-                    'item_management_type' => 'STANDARD',
-                    'expiration_date' => $expirationDate,
-                    'current_quantity' => $currentQuantity,
-                    'available_quantity' => $currentQuantity,
-                    'order_rank' => 'FIFO',
-                    'price' => rand(100, 5000),
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                // Create corresponding wms_real_stocks record
-                DB::connection('sakemaru')->table('wms_real_stocks')->insert([
-                    'real_stock_id' => $realStockId,
-                    'reserved_quantity' => 0,
-                    'picking_quantity' => 0,
-                    'lock_version' => 0,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                $createdCount++;
-                $this->line("  Created stock: Item {$item->code} at location {$location->code1}{$location->code2}{$location->code3} (qty: {$currentQuantity})");
+            if ($existing) {
+                $skippedCount++;
+                $progressBar->advance();
+                continue;
             }
+
+            // Generate stock with expiration date (30-180 days from now)
+            $expirationDate = now()->addDays(rand(30, 180))->format('Y-m-d');
+            $currentQuantity = rand(50, 500);
+
+            DB::connection('sakemaru')->table('real_stocks')->insert([
+                'client_id' => $clientId,
+                'stock_allocation_id' => 1,
+                'warehouse_id' => $this->warehouseId,
+                'location_id' => $location->id,
+                'item_id' => $item->id,
+                'item_management_type' => 'STANDARD',
+                'expiration_date' => $expirationDate,
+                'current_quantity' => $currentQuantity,
+                'available_quantity' => $currentQuantity,
+                'order_rank' => 'FIFO',
+                'price' => rand(100, 5000),
+                'wms_reserved_qty' => 0,
+                'wms_picking_qty' => 0,
+                'wms_lock_version' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $createdCount++;
+            $progressBar->advance();
+        }
+
+        $progressBar->finish();
+        $this->newLine();
+
+        if ($skippedCount > 0) {
+            $this->line("Skipped {$skippedCount} existing stock records");
         }
 
         return $createdCount;

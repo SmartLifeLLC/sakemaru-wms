@@ -63,7 +63,6 @@ class RealStockSeeder extends Seeder
 
         // Generate real stocks
         $createdCount = 0;
-        $wmsRealStockCount = 0;
         $selectedItems = $items->random(min($itemCount, $items->count()));
 
         foreach ($selectedItems as $item) {
@@ -83,7 +82,7 @@ class RealStockSeeder extends Seeder
                 $currentQuantity = rand(10, 200);
                 $availableQuantity = $currentQuantity; // Initially all available
 
-                $realStockId = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
+                DB::connection('sakemaru')->table('real_stocks')->insert([
                     'client_id' => $warehouse->client_id ?? 1,
                     'stock_allocation_id' => 1, // Default allocation
                     'floor_id' => null,
@@ -98,27 +97,18 @@ class RealStockSeeder extends Seeder
                     'available_quantity' => $availableQuantity,
                     'order_rank' => 'FIFO', // Required field
                     'price' => rand(100, 5000),
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                // Create corresponding wms_real_stocks record
-                DB::connection('sakemaru')->table('wms_real_stocks')->insert([
-                    'real_stock_id' => $realStockId,
-                    'reserved_quantity' => 0,
-                    'picking_quantity' => 0,
-                    'lock_version' => 0,
+                    'wms_reserved_qty' => 0,
+                    'wms_picking_qty' => 0,
+                    'wms_lock_version' => 0,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
 
                 $createdCount++;
-                $wmsRealStockCount++;
             }
         }
 
-        $this->command->info("Created {$createdCount} real_stock records for {$selectedItems->count()} items");
-        $this->command->info("Created {$wmsRealStockCount} wms_real_stocks records with lock_version initialized");
+        $this->command->info("Created {$createdCount} real_stock records for {$selectedItems->count()} items with WMS columns initialized");
     }
 
     /**

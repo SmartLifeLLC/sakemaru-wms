@@ -137,50 +137,28 @@ class StockAllocationService
                     break;
                 }
 
-                $available = $stock->available_quantity - $stock->reserved_quantity - $stock->picking_quantity;
+                $available = $stock->available_quantity - $stock->wms_reserved_qty - $stock->wms_picking_qty;
                 if ($available <= 0) {
                     continue;
                 }
 
                 $takeQty = min($needQty - $totalAllocated, $available);
 
-                // Optimistic lock: Update real_stocks
+                // Optimistic lock: Update real_stocks with lock_version check
                 $updated = DB::connection('sakemaru')
                     ->table('real_stocks')
                     ->where('id', $stock->real_stock_id)
                     ->where('available_quantity', '>=', $takeQty)
+                    ->where('wms_lock_version', $stock->wms_lock_version)
                     ->update([
                         'available_quantity' => DB::raw('available_quantity - ' . $takeQty),
+                        'wms_reserved_qty' => DB::raw('wms_reserved_qty + ' . $takeQty),
+                        'wms_lock_version' => DB::raw('wms_lock_version + 1'),
                         'updated_at' => now(),
                     ]);
 
                 if ($updated === 0) {
-                    // Race condition - stock already taken
-                    $raceCount++;
-                    continue;
-                }
-
-                // Update wms_real_stocks with lock_version check
-                $wmsUpdated = DB::connection('sakemaru')
-                    ->table('wms_real_stocks')
-                    ->where('real_stock_id', $stock->real_stock_id)
-                    ->where('lock_version', $stock->lock_version)
-                    ->update([
-                        'reserved_quantity' => DB::raw('reserved_quantity + ' . $takeQty),
-                        'lock_version' => DB::raw('lock_version + 1'),
-                        'updated_at' => now(),
-                    ]);
-
-                if ($wmsUpdated === 0) {
-                    // Lock version mismatch - rollback real_stocks update
-                    DB::connection('sakemaru')
-                        ->table('real_stocks')
-                        ->where('id', $stock->real_stock_id)
-                        ->update([
-                            'available_quantity' => DB::raw('available_quantity + ' . $takeQty),
-                            'updated_at' => now(),
-                        ]);
-
+                    // Race condition or lock version mismatch
                     $raceCount++;
                     continue;
                 }
@@ -288,9 +266,7 @@ class StockAllocationService
     ): \Illuminate\Support\Collection {
         $query = DB::connection('sakemaru')
             ->table('real_stocks as rs')
-            ->join('wms_real_stocks as wrs', 'wrs.real_stock_id', '=', 'rs.id')
-            ->leftJoin('wms_locations as wl', 'wl.location_id', '=', 'rs.location_id')
-            ->leftJoin('locations as l', 'l.id', '=', 'rs.location_id')
+            ->join('locations as l', 'l.id', '=', 'rs.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
             ->where('rs.available_quantity', '>', 0)
@@ -302,10 +278,9 @@ class StockAllocationService
                 'rs.expiration_date',
                 'rs.price as unit_cost',
                 'rs.available_quantity',
-                'wrs.reserved_quantity',
-                'wrs.picking_quantity',
-                'wrs.lock_version',
-                // DB::raw('COALESCE(wl.walking_order, 999999) as walking_order'), // Removed: walking_order is no longer used
+                'rs.wms_reserved_qty',
+                'rs.wms_picking_qty',
+                'rs.wms_lock_version',
             ]);
 
         // Order by FEFO or FIFO

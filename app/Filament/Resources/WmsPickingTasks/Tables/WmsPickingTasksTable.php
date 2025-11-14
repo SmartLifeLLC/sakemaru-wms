@@ -22,6 +22,12 @@ class WmsPickingTasksTable
     {
         return $table
             ->columns([
+                TextColumn::make('id')
+                    ->label('タスクID')
+                    ->searchable()
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: false),
+
                 TextColumn::make('status')
                     ->label('ステータス')
                     ->badge()
@@ -41,8 +47,9 @@ class WmsPickingTasksTable
                     })
                     ->sortable(),
 
-                TextColumn::make('trade.serial_id')
-                    ->label('伝票番号')
+                TextColumn::make('floor.name')
+                    ->label('フロア')
+                    ->default('-')
                     ->searchable()
                     ->sortable(),
 

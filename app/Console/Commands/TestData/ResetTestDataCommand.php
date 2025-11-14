@@ -11,7 +11,7 @@ class ResetTestDataCommand extends Command
                             {--warehouse-id= : Warehouse ID to limit deletion scope}
                             {--waves : Delete waves, picking tasks, and reservations}
                             {--earnings : Delete earnings data}
-                            {--stocks : Delete stock data (real_stocks, wms_real_stocks)}
+                            {--stocks : Delete stock data (real_stocks)}
                             {--locations : Delete locations}
                             {--floors : Delete floors}
                             {--all : Delete all test data}';
@@ -180,25 +180,6 @@ class ResetTestDataCommand extends Command
     {
         $this->line('🗑️  Deleting stocks...');
         $count = 0;
-
-        // Get real_stock IDs to delete
-        $query = DB::connection('sakemaru')->table('real_stocks');
-        if ($this->warehouseId) {
-            $query->where('warehouse_id', $this->warehouseId);
-        }
-        $realStockIds = $query->pluck('id')->toArray();
-
-        if (empty($realStockIds)) {
-            $this->line("  No stocks to delete");
-            return 0;
-        }
-
-        // Delete wms_real_stocks first (foreign key to real_stocks)
-        $deleted = DB::connection('sakemaru')->table('wms_real_stocks')
-            ->whereIn('real_stock_id', $realStockIds)
-            ->delete();
-        $count += $deleted;
-        $this->line("  Deleted {$deleted} wms_real_stocks");
 
         // Delete real_stocks
         $query = DB::connection('sakemaru')->table('real_stocks');

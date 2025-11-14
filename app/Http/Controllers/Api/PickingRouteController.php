@@ -23,6 +23,7 @@ class PickingRouteController extends Controller
             'floor_id' => 'required|integer',
             'date' => 'required|date',
             'delivery_course_id' => 'required|integer',
+            'task_id' => 'nullable|integer',
         ]);
 
         if ($validator->fails()) {
@@ -37,19 +38,27 @@ class PickingRouteController extends Controller
         $floorId = $request->input('floor_id');
         $date = $request->input('date');
         $deliveryCourseId = $request->input('delivery_course_id');
+        $taskId = $request->input('task_id');
 
         // Get picking tasks for the specified criteria with picker information
-        $pickingTasks = WmsPickingTask::where('warehouse_id', $warehouseId)
+        $query = WmsPickingTask::where('warehouse_id', $warehouseId)
             ->whereDate('shipment_date', $date)
             ->where('delivery_course_id', $deliveryCourseId)
-            ->with('picker:id,code,name')
-            ->get();
+            ->with('picker:id,code,name');
+
+        // Filter by specific task if provided
+        if ($taskId) {
+            $query->where('id', $taskId);
+        }
+
+        $pickingTasks = $query->get();
 
         if ($pickingTasks->isEmpty()) {
             return response()->json([
                 'success' => true,
                 'data' => [],
                 'task_info' => null,
+                'tasks' => [],
                 'message' => 'No picking tasks found for the specified criteria',
             ]);
         }
@@ -87,6 +96,7 @@ class PickingRouteController extends Controller
             return [
                 'id' => $item->id,
                 'walking_order' => $walkingOrder,
+                'distance_from_previous' => $item->distance_from_previous,
                 'location_id' => $item->location_id,
                 'location_display' => $item->location_display,
                 'item_id' => $item->item_id,
@@ -100,6 +110,7 @@ class PickingRouteController extends Controller
         // Aggregate task information
         $firstTask = $pickingTasks->first();
         $taskInfo = [
+            'task_id' => $firstTask->id,
             'status' => $firstTask->status,
             'picker_id' => $firstTask->picker_id,
             'picker_name' => $firstTask->picker ? "{$firstTask->picker->code} - {$firstTask->picker->name}" : null,
@@ -108,10 +119,20 @@ class PickingRouteController extends Controller
             'task_count' => $pickingTasks->count(),
         ];
 
+        // List all tasks for dropdown selection
+        $tasks = $pickingTasks->map(function ($task) {
+            return [
+                'id' => $task->id,
+                'status' => $task->status,
+                'picker_name' => $task->picker ? "{$task->picker->code} - {$task->picker->name}" : null,
+            ];
+        });
+
         return response()->json([
             'success' => true,
             'data' => $data,
             'task_info' => $taskInfo,
+            'tasks' => $tasks,
             'meta' => [
                 'total_items' => $data->count(),
                 'warehouse_id' => $warehouseId,

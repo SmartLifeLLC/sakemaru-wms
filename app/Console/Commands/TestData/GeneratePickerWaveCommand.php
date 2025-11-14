@@ -497,23 +497,83 @@ class GeneratePickerWaveCommand extends Command
             return;
         }
 
-        // No stock found, generate it
+        // No stock found, generate it directly
         $this->warn("  ⚠ No stock found in specified locations, generating...");
 
-        $params = [
-            '--warehouse-id' => $this->warehouseId,
-            '--item-count' => 30,
-            '--stocks-per-item' => 2,
-            '--locations' => $this->specifiedLocations,
-        ];
+        // Get locations info
+        $locations = DB::connection('sakemaru')
+            ->table('locations')
+            ->whereIn('id', $this->specifiedLocations)
+            ->where('warehouse_id', $this->warehouseId)
+            ->get();
 
-        $exitCode = Artisan::call('testdata:stocks', $params);
-
-        if ($exitCode === 0) {
-            $this->info("  ✓ Stock generated successfully in specified locations");
-        } else {
-            $this->error("  ✗ Failed to generate stock");
-            $this->line(Artisan::output());
+        if ($locations->isEmpty()) {
+            $this->error("  ✗ No valid locations found");
+            return;
         }
+
+        // Get all active items
+        $items = Item::where('type', 'ALCOHOL')
+            ->where('is_active', true)
+            ->whereNull('end_of_sale_date')
+            ->where('is_ended', false)
+            ->orderBy('code')
+            ->limit(50) // Limit to 50 items for test data
+            ->get();
+
+        if ($items->isEmpty()) {
+            $this->error("  ✗ No active items found");
+            return;
+        }
+
+        $clientId = $locations->first()->client_id ?? 1;
+        $createdCount = 0;
+        $locationCount = $locations->count();
+        $locationIndex = 0;
+
+        // Distribute items evenly across specified locations
+        foreach ($items as $item) {
+            $location = $locations[$locationIndex % $locationCount];
+            $locationIndex++;
+
+            // Check if stock already exists
+            $existing = DB::connection('sakemaru')
+                ->table('real_stocks')
+                ->where('warehouse_id', $this->warehouseId)
+                ->where('location_id', $location->id)
+                ->where('item_id', $item->id)
+                ->exists();
+
+            if ($existing) {
+                continue;
+            }
+
+            // Generate stock
+            $expirationDate = now()->addDays(rand(30, 180))->format('Y-m-d');
+            $currentQuantity = rand(50, 500);
+
+            DB::connection('sakemaru')->table('real_stocks')->insert([
+                'client_id' => $clientId,
+                'stock_allocation_id' => 1,
+                'warehouse_id' => $this->warehouseId,
+                'location_id' => $location->id,
+                'item_id' => $item->id,
+                'item_management_type' => 'STANDARD',
+                'expiration_date' => $expirationDate,
+                'current_quantity' => $currentQuantity,
+                'available_quantity' => $currentQuantity,
+                'order_rank' => 'FIFO',
+                'price' => rand(100, 5000),
+                'wms_reserved_qty' => 0,
+                'wms_picking_qty' => 0,
+                'wms_lock_version' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $createdCount++;
+        }
+
+        $this->info("  ✓ Generated {$createdCount} stock records in specified locations");
     }
 }

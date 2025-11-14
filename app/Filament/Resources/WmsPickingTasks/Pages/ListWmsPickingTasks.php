@@ -29,7 +29,7 @@ class ListWmsPickingTasks extends ListRecords
     {
         return WmsPickingTasksTable::configure($table)
             ->modifyQueryUsing(fn (Builder $query) =>
-                $query->with(['trade', 'warehouse', 'deliveryCourse', 'picker'])
+                $query->with(['floor', 'warehouse', 'deliveryCourse', 'picker'])
                     ->withCount('pickingItemResults')
             );
     }

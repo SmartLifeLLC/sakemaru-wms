@@ -76,7 +76,7 @@ class TestDataGenerator extends Page
 
                     Toggle::make('delete_stocks')
                         ->label('在庫データを削除')
-                        ->helperText('real_stocks, wms_real_stocksを削除')
+                        ->helperText('real_stocksを削除')
                         ->default(false),
 
                     Toggle::make('delete_locations')
@@ -313,7 +313,7 @@ class TestDataGenerator extends Page
                 ->color('info')
                 ->requiresConfirmation()
                 ->modalHeading('在庫データを生成')
-                ->modalDescription('指定されたロケーションに在庫データを生成します。')
+                ->modalDescription('全商品に対して、指定された倉庫フロアの全ロケーションに均等に在庫データを生成します。')
                 ->modalWidth('xl')
                 ->form([
                     Select::make('warehouse_id')
@@ -324,66 +324,41 @@ class TestDataGenerator extends Page
                         ->searchable()
                         ->reactive(),
 
-                    Select::make('locations')
-                        ->label('ロケーション指定')
-                        ->helperText('在庫を生成するロケーションを選択（複数選択可）')
+                    Select::make('floor_id')
+                        ->label('フロア')
+                        ->helperText('選択したフロアの全ロケーションに在庫を均等に分布させます')
                         ->options(function (Get $get) {
                             $warehouseId = $get('warehouse_id');
                             if (!$warehouseId) {
                                 return [];
                             }
                             return \Illuminate\Support\Facades\DB::connection('sakemaru')
-                                ->table('locations')
+                                ->table('floors')
                                 ->where('warehouse_id', $warehouseId)
-                                ->whereNotNull('code1')
-                                ->whereNotNull('code2')
-                                ->orderBy('code1')
-                                ->orderBy('code2')
+                                ->orderBy('code')
                                 ->get()
-                                ->mapWithKeys(fn($loc) => [
-                                    $loc->id => "{$loc->code1}{$loc->code2} - {$loc->name}"
+                                ->mapWithKeys(fn($floor) => [
+                                    $floor->id => $floor->name
                                 ])
                                 ->toArray();
                         })
-                        ->multiple()
                         ->required()
                         ->searchable(),
-
-                    TextInput::make('item_count')
-                        ->label('商品数')
-                        ->helperText('在庫を生成する商品の数')
-                        ->numeric()
-                        ->default(30)
-                        ->required()
-                        ->minValue(5)
-                        ->maxValue(100),
-
-                    TextInput::make('stocks_per_item')
-                        ->label('商品あたりの在庫レコード数')
-                        ->helperText('各商品について複数ロケーションに在庫を分散')
-                        ->numeric()
-                        ->default(2)
-                        ->required()
-                        ->minValue(1)
-                        ->maxValue(10),
                 ])
                 ->action(function (array $data): void {
                     try {
                         $params = [
                             '--warehouse-id' => $data['warehouse_id'],
-                            '--item-count' => $data['item_count'],
-                            '--stocks-per-item' => $data['stocks_per_item'],
-                            '--locations' => $data['locations'],
+                            '--floor-id' => $data['floor_id'],
                         ];
 
                         $exitCode = Artisan::call('testdata:stocks', $params);
                         $output = Artisan::output();
 
                         if ($exitCode === 0) {
-                            $totalStocks = $data['item_count'] * $data['stocks_per_item'];
                             Notification::make()
                                 ->title('在庫データを生成しました')
-                                ->body("商品{$data['item_count']}種類、在庫レコード約{$totalStocks}件の生成が完了しました。")
+                                ->body('全商品に対して在庫データを均等に生成しました。')
                                 ->success()
                                 ->send();
                         } else {

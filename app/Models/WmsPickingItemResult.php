@@ -17,11 +17,13 @@ class WmsPickingItemResult extends Model
     protected $fillable = [
         'picking_task_id',
         'earning_id',
+        'trade_id',
         'trade_item_id',
         'item_id',
         'real_stock_id',
         'location_id',
         'walking_order',
+        'distance_from_previous',
         'ordered_qty',
         'ordered_qty_type',
         'planned_qty',
@@ -36,6 +38,7 @@ class WmsPickingItemResult extends Model
 
     protected $casts = [
         'walking_order' => 'integer',
+        'distance_from_previous' => 'integer',
         'ordered_qty' => 'decimal:2',
         'planned_qty' => 'decimal:2',
         'picked_qty' => 'decimal:2',
@@ -57,6 +60,14 @@ class WmsPickingItemResult extends Model
     public function earning(): BelongsTo
     {
         return $this->belongsTo(Earning::class, 'earning_id');
+    }
+
+    /**
+     * このピッキング明細が属する取引（売上伝票）
+     */
+    public function trade(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Sakemaru\Trade::class, 'trade_id');
     }
 
     /**
