@@ -25,9 +25,10 @@ class FrontPointCalculator
      * Returns the aisle-side center point of the location rectangle
      *
      * @param Location|array $location Location model or array with x1_pos, y1_pos, x2_pos, y2_pos
+     * @param Walkable|null $walkable Optional walkable area for snapping
      * @return array [x, y] coordinates
      */
-    public function computeFrontPoint($location): array
+    public function computeFrontPoint($location, ?Walkable $walkable = null): array
     {
         if ($location instanceof Location) {
             $x1 = $location->x1_pos;
@@ -56,7 +57,35 @@ class FrontPointCalculator
             $y = intdiv($y1 + $y2, 2);
         }
 
-        return [$x, $y];
+        $point = [$x, $y];
+
+        // Snap to walkable area if provided
+        if ($walkable !== null) {
+            $point = $this->snapToWalkable($point, $walkable);
+        }
+
+        return $point;
+    }
+
+    /**
+     * Snap a point to walkable area
+     *
+     * @param array $p Point [x, y]
+     * @param Walkable $walkable Walkable area
+     * @return array Snapped point [x, y]
+     */
+    private function snapToWalkable(array $p, Walkable $walkable): array
+    {
+        // If point is already inside walkable area, return it
+        if ($walkable->contains($p)) {
+            return $p;
+        }
+
+        // Find nearest point on boundary
+        $q = $walkable->nearestPointOnBoundary($p);
+
+        // Nudge slightly inside
+        return $walkable->nudgeInside($q, 2);
     }
 
     /**

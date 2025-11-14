@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Route;
 
 // Internal API routes (for Filament pages, no API key required)
 Route::get('/picking-routes', [PickingRouteController::class, 'getPickingRoute']);
+Route::get('/walkable-areas', [PickingRouteController::class, 'getWalkableAreas']);
 
 // All API routes require API key authentication
 Route::middleware('api.key')->group(function () {

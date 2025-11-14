@@ -402,15 +402,19 @@ class GenerateWavesCommand extends Command
             $deletedWaves = Wave::whereIn('id', $waveIds)->delete();
             $this->info("  ✓ Deleted {$deletedWaves} waves");
 
-            // 6. Clean up orphaned wms_real_stocks records (where reserved_qty = 0 and picking_qty = 0)
-            $cleanedStocks = DB::connection('sakemaru')
-                ->table('wms_real_stocks')
-                ->where('reserved_quantity', 0)
-                ->where('picking_quantity', 0)
-                ->delete();
+            // 6. Reset WMS columns in real_stocks (wms_real_stocks table no longer exists)
+            $updatedStocks = DB::connection('sakemaru')
+                ->table('real_stocks')
+                ->where('wms_reserved_qty', '>', 0)
+                ->orWhere('wms_picking_qty', '>', 0)
+                ->update([
+                    'wms_reserved_qty' => 0,
+                    'wms_picking_qty' => 0,
+                    'wms_lock_version' => 0,
+                ]);
 
-            if ($cleanedStocks > 0) {
-                $this->info("  ✓ Cleaned up {$cleanedStocks} orphaned wms_real_stocks records");
+            if ($updatedStocks > 0) {
+                $this->info("  ✓ Reset {$updatedStocks} real_stocks records");
             }
 
             // 7. Delete idempotency keys for wave reservations

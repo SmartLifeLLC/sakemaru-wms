@@ -423,27 +423,50 @@ class TestDataGenerator extends Page
 
                     Select::make('locations')
                         ->label('ロケーション指定（任意）')
-                        ->helperText('指定しない場合は全ロケーションの在庫から商品選択')
-                        ->options(function (Get $get) {
+                        ->helperText('指定しない場合は全ロケーションの在庫から商品選択。検索して選択してください。')
+                        ->multiple()
+                        ->searchable()
+                        ->getSearchResultsUsing(function (?string $search, Get $get) {
                             $warehouseId = $get('warehouse_id');
                             if (!$warehouseId) {
                                 return [];
                             }
-                            return \Illuminate\Support\Facades\DB::connection('sakemaru')
+
+                            $query = \Illuminate\Support\Facades\DB::connection('sakemaru')
                                 ->table('locations')
-                                ->where('warehouse_id', $warehouseId)
-                                ->whereNotNull('code1')
-                                ->whereNotNull('code2')
-                                ->orderBy('code1')
+                                ->where('warehouse_id', $warehouseId);
+
+                            if (!empty($search)) {
+                                $query->where(function ($q) use ($search) {
+                                    $q->where('code1', 'like', "%{$search}%")
+                                        ->orWhere('code2', 'like', "%{$search}%")
+                                        ->orWhere('name', 'like', "%{$search}%")
+                                        ->orWhere(\Illuminate\Support\Facades\DB::raw("CONCAT(code1, ' ', code2)"), 'like', "%{$search}%");
+                                });
+                            }
+
+                            return $query->orderBy('code1')
                                 ->orderBy('code2')
+                                ->limit(500)
                                 ->get()
                                 ->mapWithKeys(fn($loc) => [
-                                    $loc->id => "{$loc->code1}{$loc->code2} - {$loc->name}"
+                                    $loc->id => trim("{$loc->code1} {$loc->code2}") . " - {$loc->name}"
                                 ])
                                 ->toArray();
                         })
-                        ->multiple()
-                        ->searchable(),
+                        ->getOptionLabelsUsing(function (array $values): array {
+                            if (empty($values)) {
+                                return [];
+                            }
+                            return \Illuminate\Support\Facades\DB::connection('sakemaru')
+                                ->table('locations')
+                                ->whereIn('id', $values)
+                                ->get()
+                                ->mapWithKeys(fn($loc) => [
+                                    $loc->id => trim("{$loc->code1} {$loc->code2}") . " - {$loc->name}"
+                                ])
+                                ->toArray();
+                        }),
                 ])
                 ->action(function (array $data): void {
                     try {
@@ -579,27 +602,50 @@ class TestDataGenerator extends Page
 
                     Select::make('locations')
                         ->label('ロケーション指定（任意）')
-                        ->helperText('指定した場合、該当ロケーションの在庫商品のみで売上を生成します。在庫がない場合は自動生成されます。')
-                        ->options(function (Get $get) {
+                        ->helperText('指定した場合、該当ロケーションの在庫商品のみで売上を生成します。在庫がない場合は自動生成されます。検索して選択してください。')
+                        ->multiple()
+                        ->searchable()
+                        ->getSearchResultsUsing(function (?string $search, Get $get) {
                             $warehouseId = $get('warehouse_id');
                             if (!$warehouseId) {
                                 return [];
                             }
-                            return \Illuminate\Support\Facades\DB::connection('sakemaru')
+
+                            $query = \Illuminate\Support\Facades\DB::connection('sakemaru')
                                 ->table('locations')
-                                ->where('warehouse_id', $warehouseId)
-                                ->whereNotNull('code1')
-                                ->whereNotNull('code2')
-                                ->orderBy('code1')
+                                ->where('warehouse_id', $warehouseId);
+
+                            if (!empty($search)) {
+                                $query->where(function ($q) use ($search) {
+                                    $q->where('code1', 'like', "%{$search}%")
+                                        ->orWhere('code2', 'like', "%{$search}%")
+                                        ->orWhere('name', 'like', "%{$search}%")
+                                        ->orWhere(\Illuminate\Support\Facades\DB::raw("CONCAT(code1, ' ', code2)"), 'like', "%{$search}%");
+                                });
+                            }
+
+                            return $query->orderBy('code1')
                                 ->orderBy('code2')
+                                ->limit(500)
                                 ->get()
                                 ->mapWithKeys(fn($loc) => [
-                                    $loc->id => "{$loc->code1}{$loc->code2} - {$loc->name}"
+                                    $loc->id => trim("{$loc->code1} {$loc->code2}") . " - {$loc->name}"
                                 ])
                                 ->toArray();
                         })
-                        ->multiple()
-                        ->searchable(),
+                        ->getOptionLabelsUsing(function (array $values): array {
+                            if (empty($values)) {
+                                return [];
+                            }
+                            return \Illuminate\Support\Facades\DB::connection('sakemaru')
+                                ->table('locations')
+                                ->whereIn('id', $values)
+                                ->get()
+                                ->mapWithKeys(fn($loc) => [
+                                    $loc->id => trim("{$loc->code1} {$loc->code2}") . " - {$loc->name}"
+                                ])
+                                ->toArray();
+                        }),
 
                     Repeater::make('courses')
                         ->label('配送コース別伝票枚数')

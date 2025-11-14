@@ -88,6 +88,17 @@ class PickingRouteVisualization extends Page
             }
 
             $this->loadLayout();
+
+            // Auto-select first delivery course for today
+            $firstDeliveryCourse = WmsPickingTask::where('warehouse_id', $this->selectedWarehouseId)
+                ->whereDate('shipment_date', $this->selectedDate)
+                ->whereNotNull('delivery_course_id')
+                ->orderBy('delivery_course_id')
+                ->value('delivery_course_id');
+
+            if ($firstDeliveryCourse) {
+                $this->selectedDeliveryCourseId = $firstDeliveryCourse;
+            }
         }
     }
 
@@ -398,12 +409,12 @@ class PickingRouteVisualization extends Page
 
         // Optimize using PickRouteService
         $service = new \App\Services\Picking\PickRouteService();
-        $result = $service->updateWalkingOrder($itemIds, $task->warehouse_id, $floorId);
+        $result = $service->updateWalkingOrder($itemIds, $task->warehouse_id, $floorId, $taskId);
 
         if ($result['success']) {
             \Filament\Notifications\Notification::make()
                 ->title('経路再計算完了')
-                ->body("更新: {$result['updated']}件 / 総距離: {$result['total_distance']}px / ロケーション数: {$result['location_count']}")
+                ->body("更新: {$result['updated']}件 / 総距離: {$result['total_distance']}px / ロケーション数: {$result['location_count']} / 計算時間: {$result['calculation_time_ms']}ms")
                 ->success()
                 ->send();
 

@@ -19,7 +19,8 @@ class PickRouteService
 
     public function __construct()
     {
-        $this->frontPointCalculator = new FrontPointCalculator();
+        // Use smaller delta (5px) to allow paths closer to locations and prevent breaks
+        $this->frontPointCalculator = new FrontPointCalculator(5);
         $this->routeOptimizer = new RouteOptimizer();
     }
 
@@ -181,10 +182,12 @@ class PickRouteService
      * @param array $pickingItemIds Array of picking item result IDs
      * @param int $warehouseId Warehouse ID
      * @param int|null $floorId Floor ID
+     * @param int|null $pickingTaskId Picking task ID (optional, for logging)
      * @return array Update statistics
      */
-    public function updateWalkingOrder(array $pickingItemIds, int $warehouseId, ?int $floorId): array
+    public function updateWalkingOrder(array $pickingItemIds, int $warehouseId, ?int $floorId, ?int $pickingTaskId = null): array
     {
+        $startTime = microtime(true);
         // Load picking items with locations and item details for sorting
         $items = WmsPickingItemResult::with(['location', 'item:id,code'])
             ->whereIn('id', $pickingItemIds)
@@ -294,12 +297,35 @@ class PickRouteService
             $previousKey = $currentKey;
         }
 
+        // Calculate elapsed time
+        $elapsedTime = (microtime(true) - $startTime) * 1000; // Convert to milliseconds
+
+        // Save calculation log
+        \App\Models\WmsRouteCalculationLog::create([
+            'picking_task_id' => $pickingTaskId,
+            'warehouse_id' => $warehouseId,
+            'floor_id' => $floorId,
+            'algorithm' => 'astar',
+            'cell_size' => 25, // From buildRoute
+            'front_point_delta' => 5, // From constructor
+            'location_count' => $routeResult['location_count'],
+            'total_distance' => $routeResult['distance'],
+            'calculation_time_ms' => (int) $elapsedTime,
+            'location_order' => $routeResult['route'],
+            'metadata' => [
+                'layout_hash' => $routeResult['layout_hash'] ?? null,
+                'total_items' => $items->count(),
+                'updated_items' => $updated,
+            ],
+        ]);
+
         return [
             'success' => true,
             'updated' => $updated,
             'total_items' => $items->count(),
             'total_distance' => $routeResult['distance'],
             'location_count' => $routeResult['location_count'],
+            'calculation_time_ms' => (int) $elapsedTime,
         ];
     }
 }

@@ -27,6 +27,15 @@
                 {{-- Canvas Inner Container --}}
                 <div class="relative" style="min-width: {{ $canvasWidth }}px; min-height: {{ $canvasHeight }}px;">
 
+                    {{-- Walkable Area Visualization Layer --}}
+                    <canvas x-ref="walkableVisualizationCanvas"
+                            :width="{{ $canvasWidth }}"
+                            :height="{{ $canvasHeight }}"
+                            x-show="showWalkableAreas"
+                            class="absolute inset-0 pointer-events-none z-0"
+                            style="opacity: 0.3;">
+                    </canvas>
+
                     {{-- Zone Blocks (Locations) - Read-only --}}
                     <template x-for="zone in zones" :key="zone.id">
                         <div :style="`
@@ -215,6 +224,12 @@
                                     class="rounded border-gray-300">
                                 <span class="text-sm">順序番号表示</span>
                             </label>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="showWalkableAreas"
+                                       @change="renderWalkableAreas()"
+                                    class="rounded border-gray-300">
+                                <span class="text-sm">歩行領域表示</span>
+                            </label>
                         </div>
                     </div>
                     </div>
@@ -241,8 +256,8 @@
                     </div>
 
                     <div class="space-y-1.5 text-xs">
-                        {{-- Task Selection Dropdown (only show when multiple tasks exist) --}}
-                        <div x-show="availableTasks.length > 1" class="mb-2">
+                        {{-- Task Selection Dropdown (always visible) --}}
+                        <div x-show="availableTasks.length > 0" class="mb-2">
                             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">タスク選択</label>
                             <select x-model="selectedTaskId"
                                     @change="loadPickingRoute()"
@@ -400,6 +415,8 @@
                 selectedTaskId: '',
                 showRouteLines: true,
                 showWalkingOrder: true,
+                showWalkableAreas: false,
+                walkablePolygons: null,
                 routeLines: [],
                 routePaths: [], // A* calculated paths
                 filterExpanded: true,
@@ -407,11 +424,88 @@
                 dragOverIndex: null,
                 isRecalculating: false,
 
-                init() {
+                async init() {
                     // Request initial data from Livewire
-                    this.$nextTick(() => {
-                        this.$wire.loadInitialData();
-                    });
+                    await this.$nextTick();
+                    this.$wire.loadInitialData();
+                    await this.loadWalkableAreas();
+
+                    // Auto-load picking route if delivery course is selected
+                    if (this.$wire.selectedDeliveryCourseId) {
+                        await this.loadPickingRoute(this.$wire.selectedDeliveryCourseId);
+                    }
+                },
+
+                async loadWalkableAreas() {
+                    const warehouseId = this.$wire.selectedWarehouseId;
+                    const floorId = this.$wire.selectedFloorId;
+
+                    if (!warehouseId || !floorId) {
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch(`/api/walkable-areas?warehouse_id=${warehouseId}&floor_id=${floorId}`);
+                        const data = await response.json();
+
+                        if (data.success && data.data) {
+                            this.walkablePolygons = data.data.walkable_areas || [];
+                            if (this.showWalkableAreas) {
+                                this.renderWalkableAreas();
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to load walkable areas:', error);
+                    }
+                },
+
+                renderWalkableAreas() {
+                    const canvas = this.$refs.walkableVisualizationCanvas;
+                    if (!canvas || !this.walkablePolygons || this.walkablePolygons.length === 0) {
+                        return;
+                    }
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                    if (!this.showWalkableAreas) {
+                        return;
+                    }
+
+                    // Draw walkable polygons as semi-transparent green
+                    ctx.fillStyle = 'rgba(34, 197, 94, 0.3)'; // green-500 with transparency
+                    ctx.strokeStyle = 'rgba(34, 197, 94, 0.6)';
+                    ctx.lineWidth = 2;
+
+                    for (const polygon of this.walkablePolygons) {
+                        if (!polygon.outer || polygon.outer.length < 3) continue;
+
+                        // Draw outer boundary
+                        ctx.beginPath();
+                        ctx.moveTo(polygon.outer[0][0], polygon.outer[0][1]);
+                        for (let i = 1; i < polygon.outer.length; i++) {
+                            ctx.lineTo(polygon.outer[i][0], polygon.outer[i][1]);
+                        }
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.stroke();
+
+                        // Draw holes if any (as transparent)
+                        if (polygon.holes && polygon.holes.length > 0) {
+                            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'; // white to "erase"
+                            for (const hole of polygon.holes) {
+                                if (hole.length < 3) continue;
+                                ctx.beginPath();
+                                ctx.moveTo(hole[0][0], hole[0][1]);
+                                for (let i = 1; i < hole.length; i++) {
+                                    ctx.lineTo(hole[i][0], hole[i][1]);
+                                }
+                                ctx.closePath();
+                                ctx.fill();
+                            }
+                            ctx.fillStyle = 'rgba(34, 197, 94, 0.3)'; // restore fill color
+                        }
+                    }
                 },
 
                 /**
@@ -614,18 +708,49 @@
                  */
                 renderRouteSvg() {
                     let svg = '';
+
+                    // Get starting point for color determination
+                    const startPoint = this.routeLines.length > 0 && this.routeLines[0].path && this.routeLines[0].path.length > 0
+                        ? this.routeLines[0].path[0]
+                        : [0, 0];
+
                     this.routeLines.forEach(routeSegment => {
                         if (!routeSegment.path || routeSegment.path.length < 2) {
                             return;
                         }
 
+                        // Determine color based on horizontal direction from start point (ignore vertical)
+                        // Get the end point of this segment
+                        const endPoint = routeSegment.path[routeSegment.path.length - 1];
+                        const deltaX = endPoint[0] - startPoint[0];
+
+                        // Blue: going left (deltaX < 0)
+                        // Red: going right (deltaX >= 0)
+                        const isBlue = deltaX < 0;
+                        const color = isBlue ? '#3B82F6' : '#EF4444';
+
                         // Convert path points to polyline
                         const points = routeSegment.path.map(p => `${p[0]},${p[1]}`).join(' ');
 
                         // Draw polyline
-                        svg += `<polyline points="${points}" stroke="#3B82F6" stroke-width="2" fill="none" stroke-dasharray="5,5" stroke-linejoin="round" stroke-linecap="round" />`;
+                        svg += `<polyline points="${points}" stroke="${color}" stroke-width="2" fill="none" stroke-dasharray="5,5" stroke-linejoin="round" stroke-linecap="round" />`;
 
-                        // Arrow head at the end of the path
+                        // Draw arrows along the path (every few segments to show direction clearly)
+                        const arrowInterval = Math.max(1, Math.floor(routeSegment.path.length / 3));
+                        for (let i = arrowInterval; i < routeSegment.path.length; i += arrowInterval) {
+                            const p1 = routeSegment.path[i - 1];
+                            const p2 = routeSegment.path[i];
+
+                            const arrowPoints = this.getArrowPoints({
+                                x1: p1[0],
+                                y1: p1[1],
+                                x2: p2[0],
+                                y2: p2[1]
+                            });
+                            svg += `<polygon points="${arrowPoints}" fill="${color}" />`;
+                        }
+
+                        // Always draw arrow at the end
                         const lastPoint = routeSegment.path[routeSegment.path.length - 1];
                         const secondLastPoint = routeSegment.path[routeSegment.path.length - 2];
 
@@ -635,7 +760,7 @@
                             x2: lastPoint[0],
                             y2: lastPoint[1]
                         });
-                        svg += `<polygon points="${arrowPoints}" fill="#3B82F6" />`;
+                        svg += `<polygon points="${arrowPoints}" fill="${color}" />`;
                     });
                     return svg;
                 },

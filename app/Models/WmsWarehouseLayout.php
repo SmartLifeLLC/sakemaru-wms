@@ -23,6 +23,8 @@ class WmsWarehouseLayout extends Model
         'picking_start_y',
         'picking_end_x',
         'picking_end_y',
+        'walkable_areas',
+        'navmeta',
     ];
 
     protected $casts = [
@@ -38,6 +40,8 @@ class WmsWarehouseLayout extends Model
         'picking_start_y' => 'integer',
         'picking_end_x' => 'integer',
         'picking_end_y' => 'integer',
+        'walkable_areas' => 'array',
+        'navmeta' => 'array',
     ];
 
     /**

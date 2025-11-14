@@ -11,6 +11,10 @@
              if ($event.detail.canvasWidth && $event.detail.canvasHeight) {
                  $dispatch('canvas-size-updated', { width: $event.detail.canvasWidth, height: $event.detail.canvasHeight });
              }
+             // Reload walkable areas when layout changes
+             $nextTick(() => {
+                 initWalkableCanvas($event.detail.walkableAreas, $event.detail.navmeta);
+             });
          "
          class="h-full">
 
@@ -29,6 +33,19 @@
 
                 {{-- Canvas Inner Container with minimum size from Livewire --}}
                 <div class="relative" style="min-width: {{ $canvasWidth }}px; min-height: {{ $canvasHeight }}px;">
+
+                {{-- Walkable Area Canvas Layer --}}
+                <canvas x-ref="walkableCanvas"
+                        :width="{{ $canvasWidth }}"
+                        :height="{{ $canvasHeight }}"
+                        @mousedown="handleWalkableMouseDown($event)"
+                        @mousemove="handleWalkableMouseMove($event)"
+                        @mouseup="handleWalkableMouseUp($event)"
+                        @mouseleave="handleWalkableMouseUp($event)"
+                        class="absolute inset-0 pointer-events-auto"
+                        :class="walkablePaintMode ? 'z-[100] cursor-crosshair' : 'z-0 pointer-events-none'"
+                        style="opacity: 0.4;">
+                </canvas>
 
                 {{-- Zone Blocks (Locations) --}}
                 <template x-for="zone in zones" :key="zone.id">
@@ -157,7 +174,7 @@
                 <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2">設定</h3>
 
                 {{-- Save Button (Full Width) --}}
-                <button @click="saveAllChanges()"
+                <button @click="saveAllChangesWithWalkable()"
                     class="w-full px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium">
                     保存
                 </button>
@@ -208,6 +225,26 @@
                         </svg>
                     </button>
 
+                    {{-- Walkable Area Paint Button --}}
+                    <button @click="toggleWalkablePaintMode()"
+                            :title="walkablePaintMode === 'paint' ? '歩行領域ペイント中' : '歩行領域をペイント'"
+                            :class="walkablePaintMode === 'paint' ? 'bg-green-600 hover:bg-green-700 ring-2 ring-green-300' : 'bg-green-500 hover:bg-green-600'"
+                            class="p-2 text-white rounded-md relative">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+                        </svg>
+                    </button>
+
+                    {{-- Walkable Area Erase Button --}}
+                    <button @click="toggleWalkableEraseMode()"
+                            :title="walkablePaintMode === 'erase' ? '歩行領域消去中' : '歩行領域を消去'"
+                            :class="walkablePaintMode === 'erase' ? 'bg-orange-600 hover:bg-orange-700 ring-2 ring-orange-300' : 'bg-orange-500 hover:bg-orange-600'"
+                            class="p-2 text-white rounded-md relative">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+
                     {{-- Picking Start Point Button --}}
                     <button @click="togglePickingPoint('start')"
                             :title="hasPickingStartPoint() ? 'ピッキング開始地点を削除' : 'ピッキング開始地点を追加'"
@@ -254,6 +291,49 @@
                     </button>
                 </div>
                 <input type="file" x-ref="importFile" accept=".json" @change="handleImport($event)" class="hidden">
+
+                <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
+
+                {{-- Walkable Paint Controls --}}
+                <div x-show="walkablePaintMode" class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 space-y-2">
+                    <div class="text-xs font-semibold text-green-700 dark:text-green-300">
+                        <span x-show="walkablePaintMode === 'paint'">🖌️ ペイントモード</span>
+                        <span x-show="walkablePaintMode === 'erase'">🧹 消しゴムモード</span>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">セルサイズ</label>
+                        <div class="flex items-center gap-2">
+                            <input type="number" x-model.number="walkableCellSize" min="5" max="50" step="5"
+                                class="w-20 px-2 py-1 text-xs border rounded">
+                            <span class="text-xs text-gray-600">px</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">ブラシサイズ</label>
+                        <input type="range" x-model.number="walkableBrushSize" min="1" max="10" step="1"
+                            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        <div class="text-xs text-center mt-1" x-text="walkableBrushSize + ' cells'"></div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">エロージョン距離 (カート幅)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="number" x-model.number="walkableErosionDistance" min="0" max="50" step="5"
+                                class="w-20 px-2 py-1 text-xs border rounded">
+                            <span class="text-xs text-gray-600">px</span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">0=エロージョンなし、20=標準カート幅</div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button @click="resetWalkableAreas()"
+                            class="flex-1 px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-md text-xs">
+                            リセット
+                        </button>
+                        <button @click="walkablePaintMode = null"
+                            class="flex-1 px-3 py-1 bg-gray-500 hover:bg-gray-600 text-white rounded-md text-xs">
+                            終了
+                        </button>
+                    </div>
+                </div>
 
                 <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
 
@@ -675,12 +755,482 @@
                 showFixedAreaEditModal: false,
                 editingFixedArea: {},
                 pickingPointMode: null, // 'start' or 'end' when setting picking points
+                walkableDrawMode: false, // Rectangle drawing mode
+                walkableRectangles: [], // Array of walkable rectangles [{x1, y1, x2, y2}, ...]
+                walkableErosionDistance: 20, // Erosion distance in pixels (cart width)
+                isDrawingRectangle: false, // Track if currently drawing
+                rectangleStartPoint: null, // Starting point for rectangle [x, y]
+                currentRectangle: null, // Current rectangle being drawn
+                selectedRectangleIndex: null, // Index of selected rectangle for editing
+                walkableUndoStack: [], // Undo history (array of rectangle arrays)
+                walkableRedoStack: [], // Redo history
+                maxUndoSteps: 20 // Maximum undo steps to keep in memory
 
                 init() {
                     // Request initial data from Livewire
                     this.$nextTick(() => {
                         this.$wire.loadInitialData();
+                        this.loadWalkableRectangles();
                     });
+
+                    // Add keyboard event listener for undo/redo and delete
+                    document.addEventListener('keydown', (e) => {
+                        // Only handle when in draw mode
+                        if (this.walkableDrawMode && e.ctrlKey && e.key === 'z') {
+                            e.preventDefault();
+                            if (e.shiftKey) {
+                                // CTRL+SHIFT+Z for redo
+                                this.redoWalkable();
+                            } else {
+                                // CTRL+Z for undo
+                                this.undoWalkable();
+                            }
+                        }
+                        // Also support CTRL+Y for redo
+                        if (this.walkableDrawMode && e.ctrlKey && e.key === 'y') {
+                            e.preventDefault();
+                            this.redoWalkable();
+                        }
+                        // Delete selected rectangle with Delete or Backspace
+                        if (this.walkableDrawMode && (e.key === 'Delete' || e.key === 'Backspace')) {
+                            if (this.selectedRectangleIndex !== null) {
+                                e.preventDefault();
+                                this.deleteSelectedRectangle();
+                            }
+                        }
+                    });
+                },
+
+                initWalkableCanvas(walkableAreas = null, navmeta = null) {
+                    const canvas = this.$refs.walkableCanvas;
+                    if (!canvas) return;
+
+                    const ctx = canvas.getContext('2d');
+
+                    // Load existing walkable areas from parameter or Livewire
+                    const areas = walkableAreas || @js($walkableAreas);
+                    const meta = navmeta || @js($navmeta);
+
+                    // Use saved cell size and erosion distance if available
+                    if (meta && meta.cell_size) {
+                        this.walkableCellSize = meta.cell_size;
+                    }
+                    if (meta && meta.erosion_distance !== undefined) {
+                        this.walkableErosionDistance = meta.erosion_distance;
+                    }
+                    // Load grid size and threshold for A* pathfinding
+                    if (meta && meta.grid_size !== undefined) {
+                        this.gridSize = meta.grid_size;
+                    }
+                    if (meta && meta.grid_threshold !== undefined) {
+                        this.gridThreshold = meta.grid_threshold;
+                    }
+
+                    // Initialize bitmap based on canvas size and cell size
+                    const bitmapWidth = Math.ceil(canvas.width / this.walkableCellSize);
+                    const bitmapHeight = Math.ceil(canvas.height / this.walkableCellSize);
+
+                    this.walkableBitmap = Array(bitmapHeight).fill(null).map(() =>
+                        Array(bitmapWidth).fill(false)
+                    );
+
+                    // Load from original_bitmap if available (most accurate - exact pixel data)
+                    if (meta && meta.original_bitmap && Array.isArray(meta.original_bitmap)) {
+                        console.log('Loading from original bitmap (exact restoration)');
+                        this.loadWalkableAreasFromBitmap(meta.original_bitmap);
+                    }
+                    // Fall back to original_polygons if available
+                    else if (meta && meta.original_polygons && meta.original_polygons.length > 0 && meta.cell_size) {
+                        console.log('Loading from original polygons (before erosion)');
+                        this.loadWalkableAreasFromPolygons(meta.original_polygons, meta.cell_size);
+                    }
+                    // Fall back to eroded walkableAreas (least accurate)
+                    else if (areas && areas.length > 0 && meta && meta.cell_size) {
+                        console.log('Loading from eroded walkable areas');
+                        this.loadWalkableAreasFromPolygons(areas, meta.cell_size);
+                    }
+
+                    this.renderWalkableCanvas();
+                },
+
+                loadWalkableAreasFromBitmap(savedBitmap) {
+                    // Direct bitmap restoration - most accurate method
+                    const savedHeight = savedBitmap.length;
+                    const savedWidth = savedBitmap[0] ? savedBitmap[0].length : 0;
+
+                    const currentHeight = this.walkableBitmap.length;
+                    const currentWidth = this.walkableBitmap[0].length;
+
+                    // Copy the saved bitmap, handling size differences
+                    for (let y = 0; y < Math.min(savedHeight, currentHeight); y++) {
+                        for (let x = 0; x < Math.min(savedWidth, currentWidth); x++) {
+                            this.walkableBitmap[y][x] = savedBitmap[y][x];
+                        }
+                    }
+                },
+
+                loadWalkableAreasFromPolygons(polygons, cellSize) {
+                    // Convert polygons back to bitmap
+                    // This is a simplified rasterization - we check if cell centers are inside polygons
+                    const bitmapWidth = this.walkableBitmap[0].length;
+                    const bitmapHeight = this.walkableBitmap.length;
+
+                    for (let y = 0; y < bitmapHeight; y++) {
+                        for (let x = 0; x < bitmapWidth; x++) {
+                            const px = x * this.walkableCellSize + this.walkableCellSize / 2;
+                            const py = y * this.walkableCellSize + this.walkableCellSize / 2;
+
+                            // Check if point is in any polygon
+                            let isInside = false;
+                            for (const polygon of polygons) {
+                                if (this.pointInPolygon([px, py], polygon.outer)) {
+                                    // Check if in any hole
+                                    let inHole = false;
+                                    if (polygon.holes && polygon.holes.length > 0) {
+                                        for (const hole of polygon.holes) {
+                                            if (this.pointInPolygon([px, py], hole)) {
+                                                inHole = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (!inHole) {
+                                        isInside = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            this.walkableBitmap[y][x] = isInside;
+                        }
+                    }
+                },
+
+                pointInPolygon(point, polygon) {
+                    let inside = false;
+                    const x = point[0];
+                    const y = point[1];
+
+                    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                        const xi = polygon[i][0], yi = polygon[i][1];
+                        const xj = polygon[j][0], yj = polygon[j][1];
+
+                        const intersect = ((yi > y) !== (yj > y))
+                            && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                        if (intersect) inside = !inside;
+                    }
+
+                    return inside;
+                },
+
+                renderWalkableCanvas() {
+                    const canvas = this.$refs.walkableCanvas;
+                    if (!canvas || !this.walkableBitmap) return;
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                    // Draw walkable cells as semi-transparent green
+                    ctx.fillStyle = 'rgba(34, 197, 94, 0.3)'; // green-500 with transparency
+
+                    for (let y = 0; y < this.walkableBitmap.length; y++) {
+                        for (let x = 0; x < this.walkableBitmap[y].length; x++) {
+                            if (this.walkableBitmap[y][x]) {
+                                ctx.fillRect(
+                                    x * this.walkableCellSize,
+                                    y * this.walkableCellSize,
+                                    this.walkableCellSize,
+                                    this.walkableCellSize
+                                );
+                            }
+                        }
+                    }
+                },
+
+                toggleWalkablePaintMode() {
+                    if (this.walkablePaintMode === 'paint') {
+                        this.walkablePaintMode = null;
+                    } else {
+                        this.walkablePaintMode = 'paint';
+                    }
+                },
+
+                toggleWalkableEraseMode() {
+                    if (this.walkablePaintMode === 'erase') {
+                        this.walkablePaintMode = null;
+                    } else {
+                        this.walkablePaintMode = 'erase';
+                    }
+                },
+
+                handleWalkableMouseDown(event) {
+                    if (!this.walkablePaintMode) return;
+
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    // Save state to undo stack before starting new operation
+                    this.saveWalkableState();
+
+                    this.isWalkablePainting = true;
+
+                    const canvas = this.$refs.walkableCanvas;
+                    if (!canvas) return;
+
+                    const rect = canvas.getBoundingClientRect();
+                    const x = Math.floor((event.clientX - rect.left) / this.walkableCellSize);
+                    const y = Math.floor((event.clientY - rect.top) / this.walkableCellSize);
+
+                    // Store starting point
+                    this.walkablePaintStartPoint = [x, y];
+
+                    // Create a copy of the current bitmap for temporary drawing
+                    this.walkableTempBitmap = this.walkableBitmap.map(row => [...row]);
+
+                    // Paint the starting point
+                    this.paintWalkableBrush(x, y, this.walkablePaintMode === 'paint');
+                    this.renderWalkableCanvas();
+                },
+
+                handleWalkableMouseMove(event) {
+                    if (!this.walkablePaintMode || !this.isWalkablePainting || !this.walkablePaintStartPoint) return;
+
+                    const canvas = this.$refs.walkableCanvas;
+                    if (!canvas) return;
+
+                    const rect = canvas.getBoundingClientRect();
+                    const x = Math.floor((event.clientX - rect.left) / this.walkableCellSize);
+                    const y = Math.floor((event.clientY - rect.top) / this.walkableCellSize);
+
+                    // Restore from temp bitmap
+                    this.walkableBitmap = this.walkableTempBitmap.map(row => [...row]);
+
+                    // Draw line from start point to current point
+                    this.drawWalkableLine(
+                        this.walkablePaintStartPoint[0],
+                        this.walkablePaintStartPoint[1],
+                        x,
+                        y,
+                        this.walkablePaintMode === 'paint'
+                    );
+
+                    this.renderWalkableCanvas();
+                },
+
+                handleWalkableMouseUp(event) {
+                    if (!this.walkablePaintMode || !this.walkablePaintStartPoint) return;
+
+                    const canvas = this.$refs.walkableCanvas;
+                    if (canvas) {
+                        const rect = canvas.getBoundingClientRect();
+                        const x = Math.floor((event.clientX - rect.left) / this.walkableCellSize);
+                        const y = Math.floor((event.clientY - rect.top) / this.walkableCellSize);
+
+                        // Restore from temp bitmap
+                        this.walkableBitmap = this.walkableTempBitmap.map(row => [...row]);
+
+                        // Draw final line
+                        this.drawWalkableLine(
+                            this.walkablePaintStartPoint[0],
+                            this.walkablePaintStartPoint[1],
+                            x,
+                            y,
+                            this.walkablePaintMode === 'paint'
+                        );
+
+                        this.renderWalkableCanvas();
+                    }
+
+                    this.isWalkablePainting = false;
+                    this.walkablePaintStartPoint = null;
+                    this.walkableTempBitmap = null;
+                },
+
+                paintWalkableBrush(x, y, isPaint) {
+                    const brushRadius = Math.floor(this.walkableBrushSize / 2);
+
+                    // Paint with brush
+                    for (let dy = -brushRadius; dy <= brushRadius; dy++) {
+                        for (let dx = -brushRadius; dx <= brushRadius; dx++) {
+                            const px = x + dx;
+                            const py = y + dy;
+
+                            // Check bounds
+                            if (py >= 0 && py < this.walkableBitmap.length &&
+                                px >= 0 && px < this.walkableBitmap[0].length) {
+
+                                // Circular brush
+                                if (dx * dx + dy * dy <= brushRadius * brushRadius) {
+                                    // Convert bitmap coordinates to pixel coordinates
+                                    const pixelX = px * this.walkableCellSize + this.walkableCellSize / 2;
+                                    const pixelY = py * this.walkableCellSize + this.walkableCellSize / 2;
+
+                                    // Check if pixel is inside any location
+                                    if (!this.isPointInsideLocation(pixelX, pixelY)) {
+                                        this.walkableBitmap[py][px] = isPaint;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+
+                isPointInsideLocation(x, y) {
+                    // Check if point (x, y) is inside any location zone
+                    for (const zone of this.zones) {
+                        if (x >= zone.x1_pos && x <= zone.x2_pos &&
+                            y >= zone.y1_pos && y <= zone.y2_pos) {
+                            return true;
+                        }
+                    }
+
+                    // Check if point is inside any wall
+                    for (const wall of this.walls) {
+                        if (x >= wall.x1 && x <= wall.x2 &&
+                            y >= wall.y1 && y <= wall.y2) {
+                            return true;
+                        }
+                    }
+
+                    // Check if point is inside any fixed area
+                    for (const fixedArea of this.fixedAreas) {
+                        if (x >= fixedArea.x1 && x <= fixedArea.x2 &&
+                            y >= fixedArea.y1 && y <= fixedArea.y2) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                },
+
+                drawWalkableLine(x0, y0, x1, y1, isPaint) {
+                    // Bresenham's line algorithm
+                    const dx = Math.abs(x1 - x0);
+                    const dy = Math.abs(y1 - y0);
+                    const sx = x0 < x1 ? 1 : -1;
+                    const sy = y0 < y1 ? 1 : -1;
+                    let err = dx - dy;
+
+                    let x = x0;
+                    let y = y0;
+
+                    while (true) {
+                        // Paint brush at current position
+                        this.paintWalkableBrush(x, y, isPaint);
+
+                        if (x === x1 && y === y1) break;
+
+                        const e2 = 2 * err;
+                        if (e2 > -dy) {
+                            err -= dy;
+                            x += sx;
+                        }
+                        if (e2 < dx) {
+                            err += dx;
+                            y += sy;
+                        }
+                    }
+                },
+
+                resetWalkableAreas() {
+                    if (!confirm('歩行領域をすべてクリアしますか？')) {
+                        return;
+                    }
+
+                    // Save current state to undo stack before clearing
+                    this.saveWalkableState();
+
+                    const canvas = this.$refs.walkableCanvas;
+                    if (!canvas) return;
+
+                    // Clear all bitmap
+                    const bitmapWidth = Math.ceil(canvas.width / this.walkableCellSize);
+                    const bitmapHeight = Math.ceil(canvas.height / this.walkableCellSize);
+
+                    this.walkableBitmap = Array(bitmapHeight).fill(null).map(() =>
+                        Array(bitmapWidth).fill(false)
+                    );
+
+                    this.renderWalkableCanvas();
+
+                    // Show notification
+                    alert('歩行領域をリセットしました。保存ボタンをクリックして変更を保存してください。');
+                },
+
+                saveWalkableState() {
+                    if (!this.walkableBitmap) return;
+
+                    // Deep copy current bitmap
+                    const state = this.walkableBitmap.map(row => [...row]);
+
+                    // Add to undo stack
+                    this.walkableUndoStack.push(state);
+
+                    // Limit stack size
+                    if (this.walkableUndoStack.length > this.maxUndoSteps) {
+                        this.walkableUndoStack.shift(); // Remove oldest
+                    }
+
+                    // Clear redo stack on new operation
+                    this.walkableRedoStack = [];
+                },
+
+                undoWalkable() {
+                    if (this.walkableUndoStack.length === 0) {
+                        console.log('Undo stack is empty');
+                        return;
+                    }
+
+                    // Save current state to redo stack
+                    const currentState = this.walkableBitmap.map(row => [...row]);
+                    this.walkableRedoStack.push(currentState);
+
+                    // Restore previous state
+                    this.walkableBitmap = this.walkableUndoStack.pop();
+                    this.renderWalkableCanvas();
+
+                    console.log('Undo performed. Undo stack size:', this.walkableUndoStack.length);
+                },
+
+                redoWalkable() {
+                    if (this.walkableRedoStack.length === 0) {
+                        console.log('Redo stack is empty');
+                        return;
+                    }
+
+                    // Save current state to undo stack
+                    const currentState = this.walkableBitmap.map(row => [...row]);
+                    this.walkableUndoStack.push(currentState);
+
+                    // Limit undo stack size
+                    if (this.walkableUndoStack.length > this.maxUndoSteps) {
+                        this.walkableUndoStack.shift();
+                    }
+
+                    // Restore redo state
+                    this.walkableBitmap = this.walkableRedoStack.pop();
+                    this.renderWalkableCanvas();
+
+                    console.log('Redo performed. Redo stack size:', this.walkableRedoStack.length);
+                },
+
+                async saveWalkableAreas() {
+                    if (!this.walkableBitmap) {
+                        return;
+                    }
+
+                    try {
+                        // Call Livewire to save walkable bitmap with all parameters
+                        await this.$wire.saveWalkableBitmap(
+                            this.walkableBitmap,
+                            this.walkableCellSize,
+                            this.walkableErosionDistance,
+                            this.gridSize,
+                            this.gridThreshold
+                        );
+                    } catch (error) {
+                        console.error('Failed to save walkable areas:', error);
+                        alert('歩行領域の保存に失敗しました: ' + error.message);
+                    }
                 },
 
                 get canvasStyle() {
@@ -1203,6 +1753,16 @@
 
                     // Clear tracked changes after save
                     this.zonePositions = {};
+                },
+
+                async saveAllChangesWithWalkable() {
+                    // Save normal changes first
+                    this.saveAllChanges();
+
+                    // Save walkable areas if bitmap exists
+                    if (this.walkableBitmap) {
+                        await this.saveWalkableAreas();
+                    }
                 },
 
                 exportCSV() {

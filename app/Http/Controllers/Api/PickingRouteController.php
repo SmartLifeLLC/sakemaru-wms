@@ -135,6 +135,13 @@ class PickingRouteController extends Controller
         // Calculate route paths using A*
         $routePaths = $this->calculateRoutePaths($warehouseId, $floorId, $pickingItems);
 
+        // Debug: log the result
+        \Log::info('API route paths', [
+            'count' => count($routePaths),
+            'has_items' => $pickingItems->count() > 0,
+            'floor_id' => $floorId,
+        ]);
+
         return response()->json([
             'success' => true,
             'data' => $data,
@@ -189,36 +196,38 @@ class PickingRouteController extends Controller
         }
 
         if (empty($orderedLocationIds)) {
+            \Log::warning('Empty location IDs in calculateRoutePaths');
             return [];
         }
+
+        \Log::info('calculateRoutePaths starting', [
+            'location_ids' => $orderedLocationIds,
+            'start_point' => [$layout->picking_start_x ?? 0, $layout->picking_start_y ?? 0],
+        ]);
 
         // Load all locations
         $locations = Location::whereIn('id', $orderedLocationIds)->get()->keyBy('id');
 
-        // Load ALL locations on this floor for blocking
-        $allFloorLocations = Location::where('floor_id', $floorId)
-            ->whereNotNull('x1_pos')
-            ->whereNotNull('y1_pos')
-            ->whereNotNull('x2_pos')
-            ->whereNotNull('y2_pos')
-            ->get();
-
-        // Prepare blocked rectangles: walls + fixed_areas + all locations
+        // Prepare blocked rectangles: only walls + fixed_areas
+        // Do NOT block locations to allow paths to go near/through them
         $blockedRects = array_merge($layoutData['walls'], $layoutData['fixed_areas']);
 
-        // Add all locations as blocked rectangles
-        foreach ($allFloorLocations as $loc) {
-            $blockedRects[] = [
-                'x1' => $loc->x1_pos,
-                'y1' => $loc->y1_pos,
-                'x2' => $loc->x2_pos,
-                'y2' => $loc->y2_pos,
-            ];
+        // Create Walkable object from walkable_areas if available
+        $walkable = null;
+        if (!empty($layout->walkable_areas)) {
+            $walkable = new \App\Services\Picking\Walkable($layout->walkable_areas);
+            \Log::info('Using walkable_areas for pathfinding', [
+                'polygon_count' => count($layout->walkable_areas),
+            ]);
+        } else {
+            \Log::warning('No walkable_areas defined, using legacy blocking method');
         }
 
-        // Initialize A*
-        $aStar = new AStarGrid(25, $blockedRects, $layoutData['width'], $layoutData['height']);
-        $frontPointCalculator = new FrontPointCalculator();
+        // Initialize A* with walkable areas
+        // If walkable is null, it will fall back to using blockedRects only
+        $aStar = new AStarGrid(10, $blockedRects, $layoutData['width'], $layoutData['height'], $walkable);
+        // Use smaller delta (5px) to allow paths closer to locations and prevent breaks
+        $frontPointCalculator = new FrontPointCalculator(5);
 
         // Get start and end points
         $startPoint = [
@@ -308,5 +317,53 @@ class PickingRouteController extends Controller
         }
 
         return $paths;
+    }
+
+    /**
+     * Get walkable areas for visualization
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getWalkableAreas(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'warehouse_id' => 'required|integer',
+            'floor_id' => 'required|integer',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 400);
+        }
+
+        $warehouseId = $request->input('warehouse_id');
+        $floorId = $request->input('floor_id');
+
+        // Get layout from database
+        $layout = WmsWarehouseLayout::where('warehouse_id', $warehouseId)
+            ->where('floor_id', $floorId)
+            ->first();
+
+        if (!$layout || empty($layout->walkable_areas)) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'walkable_areas' => [],
+                    'navmeta' => null,
+                ],
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'walkable_areas' => $layout->walkable_areas,
+                'navmeta' => $layout->navmeta,
+            ],
+        ]);
     }
 }

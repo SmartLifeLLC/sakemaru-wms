@@ -12,23 +12,27 @@ class AStarGrid
     private array $blockedRects;
     private int $gridWidth;
     private int $gridHeight;
+    private ?Walkable $walkable;
 
     /**
      * @param int $cellSize Grid cell size in pixels (e.g., 25 or 50)
      * @param array $blockedRects Array of blocked rectangles [[x1,y1,x2,y2], ...]
      * @param int $canvasWidth Canvas width in pixels
      * @param int $canvasHeight Canvas height in pixels
+     * @param Walkable|null $walkable Optional walkable area (if null, uses blockedRects)
      */
     public function __construct(
         int $cellSize,
         array $blockedRects,
         int $canvasWidth,
-        int $canvasHeight
+        int $canvasHeight,
+        ?Walkable $walkable = null
     ) {
         $this->cellSize = $cellSize;
         $this->blockedRects = $blockedRects;
         $this->gridWidth = (int) ceil($canvasWidth / $cellSize);
         $this->gridHeight = (int) ceil($canvasHeight / $cellSize);
+        $this->walkable = $walkable;
     }
 
     /**
@@ -120,6 +124,17 @@ class AStarGrid
             return true;
         }
 
+        // If walkable area is defined, use it for blocking check
+        if ($this->walkable !== null) {
+            // Check if cell center is within walkable area
+            $cellCenterX = $cx * $this->cellSize + intdiv($this->cellSize, 2);
+            $cellCenterY = $cy * $this->cellSize + intdiv($this->cellSize, 2);
+
+            // Cell is blocked if center is NOT in walkable area
+            return !$this->walkable->contains([$cellCenterX, $cellCenterY]);
+        }
+
+        // Legacy behavior: check blocked rectangles
         // Convert cell to pixel rectangle
         $cellX1 = $cx * $this->cellSize;
         $cellY1 = $cy * $this->cellSize;
