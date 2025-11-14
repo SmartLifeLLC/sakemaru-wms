@@ -22,6 +22,7 @@
                  @mousedown="handleCanvasMouseDown($event)"
                  @mousemove="handleCanvasMouseMove($event)"
                  @mouseup="handleCanvasMouseUp($event)"
+                 @click="handleCanvasClick($event)"
                  @contextmenu.prevent
                  :style="canvasStyle"
                  id="floor-plan-canvas">
@@ -108,6 +109,46 @@
                         </div>
                     </div>
                 </template>
+
+                {{-- Picking Start Point --}}
+                <div x-data="{ startX: @entangle('pickingStartX'), startY: @entangle('pickingStartY') }"
+                     x-show="startX > 0 || startY > 0"
+                     @mousedown.stop="handlePickingPointMouseDown($event, 'start')"
+                     :style="{
+                         position: 'absolute',
+                         left: startX + 'px',
+                         top: startY + 'px',
+                         width: '40px',
+                         height: '40px',
+                         transform: 'translate(-20px, -20px)',
+                         zIndex: 9999
+                     }"
+                     class="flex items-center justify-center rounded-full bg-green-500 border-4 border-white shadow-xl cursor-move hover:bg-green-600 select-none">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <div class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs font-bold text-green-600 whitespace-nowrap bg-white px-2 py-0.5 rounded shadow-md border border-green-200">開始</div>
+                </div>
+
+                {{-- Picking End Point --}}
+                <div x-data="{ endX: @entangle('pickingEndX'), endY: @entangle('pickingEndY') }"
+                     x-show="endX > 0 || endY > 0"
+                     @mousedown.stop="handlePickingPointMouseDown($event, 'end')"
+                     :style="{
+                         position: 'absolute',
+                         left: endX + 'px',
+                         top: endY + 'px',
+                         width: '40px',
+                         height: '40px',
+                         transform: 'translate(-20px, -20px)',
+                         zIndex: 9999
+                     }"
+                     class="flex items-center justify-center rounded-full bg-red-500 border-4 border-white shadow-xl cursor-move hover:bg-red-600 select-none">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                    <div class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs font-bold text-red-600 whitespace-nowrap bg-white px-2 py-0.5 rounded shadow-md border border-red-200">終了</div>
+                </div>
                 </div>
             </div>
 
@@ -167,6 +208,30 @@
                         </svg>
                     </button>
 
+                    {{-- Picking Start Point Button --}}
+                    <button @click="togglePickingPoint('start')"
+                            :title="hasPickingStartPoint() ? 'ピッキング開始地点を削除' : 'ピッキング開始地点を追加'"
+                            :class="hasPickingStartPoint() ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600'"
+                            class="p-2 text-white rounded-md relative">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span x-show="!hasPickingStartPoint()" class="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-green-500 flex items-center justify-center text-green-600 text-xs font-bold">+</span>
+                        <span x-show="hasPickingStartPoint()" class="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-green-600 flex items-center justify-center text-red-600 text-xs font-bold">×</span>
+                    </button>
+
+                    {{-- Picking End Point Button --}}
+                    <button @click="togglePickingPoint('end')"
+                            :title="hasPickingEndPoint() ? 'ピッキング終了地点を削除' : 'ピッキング終了地点を追加'"
+                            :class="hasPickingEndPoint() ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600'"
+                            class="p-2 text-white rounded-md relative">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                        <span x-show="!hasPickingEndPoint()" class="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-red-500 flex items-center justify-center text-red-600 text-xs font-bold">+</span>
+                        <span x-show="hasPickingEndPoint()" class="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-red-600 flex items-center justify-center text-red-600 text-xs font-bold">×</span>
+                    </button>
+
                     <button wire:click="exportLayout" title="レイアウト出力(JSON)"
                         class="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -211,7 +276,7 @@
                     </label>
                 </div>
 
-                <div class="border-l border-gray-300 dark:border-gray-600 h-6 mx-1"></div>
+                <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
 
                 <div x-data="{
                     tempWidth: {{ $canvasWidth }},
@@ -609,6 +674,7 @@
                 editingWall: {},
                 showFixedAreaEditModal: false,
                 editingFixedArea: {},
+                pickingPointMode: null, // 'start' or 'end' when setting picking points
 
                 init() {
                     // Request initial data from Livewire
@@ -1009,6 +1075,12 @@
                 },
 
                 handleCanvasMouseMove(event) {
+                    // Handle picking point dragging
+                    if (this.dragState && this.dragState.type === 'picking-point') {
+                        this.handlePickingPointMouseMove(event);
+                        return;
+                    }
+
                     if (this.dragState) {
                         const deltaX = event.clientX - this.dragState.startX;
                         const deltaY = event.clientY - this.dragState.startY;
@@ -1065,6 +1137,12 @@
                 },
 
                 handleCanvasMouseUp(event) {
+                    // Handle picking point mouse up
+                    if (this.dragState && this.dragState.type === 'picking-point') {
+                        this.handlePickingPointMouseUp();
+                        return;
+                    }
+
                     // Track zone position changes for later save
                     if (this.dragState && this.dragState.zone) {
                         const zone = this.dragState.zone;
@@ -1269,6 +1347,125 @@
 
                     // Reset file input
                     event.target.value = '';
+                },
+
+                hasPickingStartPoint() {
+                    return this.$wire.pickingStartX > 0 || this.$wire.pickingStartY > 0;
+                },
+
+                hasPickingEndPoint() {
+                    return this.$wire.pickingEndX > 0 || this.$wire.pickingEndY > 0;
+                },
+
+                togglePickingPoint(type) {
+                    if (type === 'start') {
+                        if (this.hasPickingStartPoint()) {
+                            // Delete start point
+                            this.$wire.updatePickingStartPoint(0, 0);
+                        } else {
+                            // Add start point - enter placement mode
+                            this.pickingPointMode = 'start';
+                        }
+                    } else if (type === 'end') {
+                        if (this.hasPickingEndPoint()) {
+                            // Delete end point
+                            this.$wire.updatePickingEndPoint(0, 0);
+                        } else {
+                            // Add end point - enter placement mode
+                            this.pickingPointMode = 'end';
+                        }
+                    }
+                },
+
+                async handleCanvasClick(event) {
+                    if (!this.pickingPointMode) {
+                        return;
+                    }
+
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const x = Math.round(event.clientX - rect.left + event.currentTarget.scrollLeft);
+                    const y = Math.round(event.clientY - rect.top + event.currentTarget.scrollTop);
+
+                    if (this.pickingPointMode === 'start') {
+                        await this.$wire.updatePickingStartPoint(x, y);
+                    } else if (this.pickingPointMode === 'end') {
+                        await this.$wire.updatePickingEndPoint(x, y);
+                    }
+
+                    this.pickingPointMode = null;
+                },
+
+                handlePickingPointMouseDown(event, type) {
+                    event.preventDefault();
+
+                    const canvas = document.getElementById('floor-plan-canvas');
+                    const rect = canvas.getBoundingClientRect();
+
+                    this.dragState = {
+                        type: 'picking-point',
+                        pointType: type,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        initialX: type === 'start' ? this.$wire.pickingStartX : this.$wire.pickingEndX,
+                        initialY: type === 'start' ? this.$wire.pickingStartY : this.$wire.pickingEndY,
+                    };
+                },
+
+                handlePickingPointMouseMove(event) {
+                    if (!this.dragState || this.dragState.type !== 'picking-point') {
+                        return;
+                    }
+
+                    const dx = event.clientX - this.dragState.startX;
+                    const dy = event.clientY - this.dragState.startY;
+
+                    let newX = this.dragState.initialX + dx;
+                    let newY = this.dragState.initialY + dy;
+
+                    // Apply grid snapping if enabled
+                    if (this.gridEnabled && this.gridSize >= 4) {
+                        const threshold = this.gridThreshold || 6;
+                        const modX = newX % this.gridSize;
+                        const modY = newY % this.gridSize;
+
+                        if (Math.abs(modX) < threshold || Math.abs(modX - this.gridSize) < threshold) {
+                            newX = Math.round(newX / this.gridSize) * this.gridSize;
+                        }
+                        if (Math.abs(modY) < threshold || Math.abs(modY - this.gridSize) < threshold) {
+                            newY = Math.round(newY / this.gridSize) * this.gridSize;
+                        }
+                    }
+
+                    // Store the dragged position (will be saved on mouse up)
+                    newX = Math.max(0, Math.round(newX));
+                    newY = Math.max(0, Math.round(newY));
+
+                    this.dragState.currentX = newX;
+                    this.dragState.currentY = newY;
+
+                    // Update position via Livewire (for live preview)
+                    if (this.dragState.pointType === 'start') {
+                        this.$wire.set('pickingStartX', newX, false);
+                        this.$wire.set('pickingStartY', newY, false);
+                    } else {
+                        this.$wire.set('pickingEndX', newX, false);
+                        this.$wire.set('pickingEndY', newY, false);
+                    }
+                },
+
+                handlePickingPointMouseUp() {
+                    if (this.dragState && this.dragState.type === 'picking-point') {
+                        // Save the final position
+                        const finalX = this.dragState.currentX || this.dragState.initialX;
+                        const finalY = this.dragState.currentY || this.dragState.initialY;
+
+                        if (this.dragState.pointType === 'start') {
+                            this.$wire.updatePickingStartPoint(finalX, finalY);
+                        } else {
+                            this.$wire.updatePickingEndPoint(finalX, finalY);
+                        }
+                        this.dragState = null;
+                    }
                 }
             };
         }

@@ -32,6 +32,10 @@ class PickingRouteVisualization extends Page
     public array $textStyles = [];
     public array $walls = [];
     public array $fixedAreas = [];
+    public int $pickingStartX = 0;
+    public int $pickingStartY = 0;
+    public int $pickingEndX = 0;
+    public int $pickingEndY = 0;
 
     public static function getNavigationGroup(): ?string
     {
@@ -108,6 +112,10 @@ class PickingRouteVisualization extends Page
             $this->textStyles = $layout->text_styles ?? WmsWarehouseLayout::getDefaultTextStyles();
             $this->walls = $layout->walls ?? [];
             $this->fixedAreas = $layout->fixed_areas ?? [];
+            $this->pickingStartX = $layout->picking_start_x ?? 0;
+            $this->pickingStartY = $layout->picking_start_y ?? 0;
+            $this->pickingEndX = $layout->picking_end_x ?? 0;
+            $this->pickingEndY = $layout->picking_end_y ?? 0;
         } else {
             // Reset to defaults if no layout exists
             $this->canvasWidth = 2000;
@@ -116,6 +124,10 @@ class PickingRouteVisualization extends Page
             $this->textStyles = WmsWarehouseLayout::getDefaultTextStyles();
             $this->walls = [];
             $this->fixedAreas = [];
+            $this->pickingStartX = 0;
+            $this->pickingStartY = 0;
+            $this->pickingEndX = 0;
+            $this->pickingEndY = 0;
         }
     }
 
@@ -222,6 +234,32 @@ class PickingRouteVisualization extends Page
     }
 
     /**
+     * Get picking tasks for the selected criteria
+     */
+    #[Computed]
+    public function pickingTasks()
+    {
+        if (!$this->selectedWarehouseId || !$this->selectedFloorId || !$this->selectedDate || !$this->selectedDeliveryCourseId) {
+            return collect();
+        }
+
+        return WmsPickingTask::where('warehouse_id', $this->selectedWarehouseId)
+            ->where('floor_id', $this->selectedFloorId)
+            ->whereDate('shipment_date', $this->selectedDate)
+            ->where('delivery_course_id', $this->selectedDeliveryCourseId)
+            ->with('picker:id,code,name')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($task) {
+                return [
+                    'id' => $task->id,
+                    'status' => $task->status,
+                    'picker_name' => $task->picker ? "{$task->picker->code} - {$task->picker->name}" : null,
+                ];
+            });
+    }
+
+    /**
      * Called when warehouse changes
      */
     public function updatedSelectedWarehouseId(): void
@@ -310,5 +348,73 @@ class PickingRouteVisualization extends Page
 
         // Notify frontend to reload the route
         $this->dispatch('walking-order-updated');
+    }
+
+    /**
+     * Recalculate picking route using A* algorithm
+     */
+    public function recalculatePickingRoute(int $taskId): void
+    {
+        $task = WmsPickingTask::with('pickingItemResults')->find($taskId);
+
+        if (!$task) {
+            \Filament\Notifications\Notification::make()
+                ->title('タスクが見つかりません')
+                ->danger()
+                ->send();
+            return;
+        }
+
+        if ($task->status !== 'PENDING') {
+            \Filament\Notifications\Notification::make()
+                ->title('PENDINGステータスのタスクのみ再計算可能です')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        // Get floor ID from task itself
+        $floorId = $task->floor_id;
+
+        if (!$floorId) {
+            \Filament\Notifications\Notification::make()
+                ->title('フロア情報が見つかりません')
+                ->body('このタスクにはフロアIDが設定されていません')
+                ->danger()
+                ->send();
+            return;
+        }
+
+        // Get all picking item IDs
+        $itemIds = $task->pickingItemResults->pluck('id')->toArray();
+
+        if (empty($itemIds)) {
+            \Filament\Notifications\Notification::make()
+                ->title('ピッキングアイテムがありません')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        // Optimize using PickRouteService
+        $service = new \App\Services\Picking\PickRouteService();
+        $result = $service->updateWalkingOrder($itemIds, $task->warehouse_id, $floorId);
+
+        if ($result['success']) {
+            \Filament\Notifications\Notification::make()
+                ->title('経路再計算完了')
+                ->body("更新: {$result['updated']}件 / 総距離: {$result['total_distance']}px / ロケーション数: {$result['location_count']}")
+                ->success()
+                ->send();
+
+            // Notify frontend to reload
+            $this->dispatch('walking-order-updated');
+        } else {
+            \Filament\Notifications\Notification::make()
+                ->title('経路再計算失敗')
+                ->body($result['message'] ?? '不明なエラー')
+                ->danger()
+                ->send();
+        }
     }
 }

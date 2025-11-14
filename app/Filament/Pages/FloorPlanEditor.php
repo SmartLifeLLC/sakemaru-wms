@@ -30,6 +30,10 @@ class FloorPlanEditor extends Page
     public array $textStyles = [];
     public array $walls = [];
     public array $fixedAreas = [];
+    public int $pickingStartX = 0;
+    public int $pickingStartY = 0;
+    public int $pickingEndX = 0;
+    public int $pickingEndY = 0;
 
     public static function getNavigationGroup(): ?string
     {
@@ -213,6 +217,10 @@ class FloorPlanEditor extends Page
         $this->textStyles = $layout->text_styles ?? WmsWarehouseLayout::getDefaultTextStyles();
         $this->walls = $layout->walls ?? [];
         $this->fixedAreas = $layout->fixed_areas ?? [];
+        $this->pickingStartX = $layout->picking_start_x ?? 0;
+        $this->pickingStartY = $layout->picking_start_y ?? 0;
+        $this->pickingEndX = $layout->picking_end_x ?? 0;
+        $this->pickingEndY = $layout->picking_end_y ?? 0;
     }
 
     /**
@@ -226,6 +234,10 @@ class FloorPlanEditor extends Page
         $this->textStyles = WmsWarehouseLayout::getDefaultTextStyles();
         $this->walls = [];
         $this->fixedAreas = [];
+        $this->pickingStartX = 0;
+        $this->pickingStartY = 0;
+        $this->pickingEndX = 0;
+        $this->pickingEndY = 0;
     }
 
     /**
@@ -249,6 +261,10 @@ class FloorPlanEditor extends Page
                 'text_styles' => $this->textStyles,
                 'walls' => $this->walls,
                 'fixed_areas' => $this->fixedAreas,
+                'picking_start_x' => $this->pickingStartX,
+                'picking_start_y' => $this->pickingStartY,
+                'picking_end_x' => $this->pickingEndX,
+                'picking_end_y' => $this->pickingEndY,
             ]
         );
     }
@@ -283,6 +299,10 @@ class FloorPlanEditor extends Page
                 'text_styles' => $this->textStyles,
                 'walls' => $this->walls,
                 'fixed_areas' => $this->fixedAreas,
+                'picking_start_x' => $this->pickingStartX,
+                'picking_start_y' => $this->pickingStartY,
+                'picking_end_x' => $this->pickingEndX,
+                'picking_end_y' => $this->pickingEndY,
             ]
         );
 
@@ -755,5 +775,35 @@ class FloorPlanEditor extends Page
                 ->danger()
                 ->send();
         }
+    }
+
+    /**
+     * Update picking start point
+     */
+    public function updatePickingStartPoint($x, $y): void
+    {
+        $this->pickingStartX = (int) $x;
+        $this->pickingStartY = (int) $y;
+        $this->saveLayout();
+
+        \Filament\Notifications\Notification::make()
+            ->title('ピッキング開始地点を更新しました')
+            ->success()
+            ->send();
+    }
+
+    /**
+     * Update picking end point
+     */
+    public function updatePickingEndPoint($x, $y): void
+    {
+        $this->pickingEndX = (int) $x;
+        $this->pickingEndY = (int) $y;
+        $this->saveLayout();
+
+        \Filament\Notifications\Notification::make()
+            ->title('ピッキング終了地点を更新しました')
+            ->success()
+            ->send();
     }
 }

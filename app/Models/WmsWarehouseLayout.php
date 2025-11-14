@@ -19,6 +19,10 @@ class WmsWarehouseLayout extends Model
         'text_styles',
         'walls',
         'fixed_areas',
+        'picking_start_x',
+        'picking_start_y',
+        'picking_end_x',
+        'picking_end_y',
     ];
 
     protected $casts = [
@@ -30,6 +34,10 @@ class WmsWarehouseLayout extends Model
         'text_styles' => 'array',
         'walls' => 'array',
         'fixed_areas' => 'array',
+        'picking_start_x' => 'integer',
+        'picking_start_y' => 'integer',
+        'picking_end_x' => 'integer',
+        'picking_end_y' => 'integer',
     ];
 
     /**

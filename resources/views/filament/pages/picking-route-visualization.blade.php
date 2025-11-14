@@ -93,6 +93,40 @@
                         </div>
                     </template>
 
+                    {{-- Picking Start Point --}}
+                    @if($pickingStartX > 0 || $pickingStartY > 0)
+                    <div style="position: absolute;
+                                left: {{ $pickingStartX }}px;
+                                top: {{ $pickingStartY }}px;
+                                width: 40px;
+                                height: 40px;
+                                transform: translate(-20px, -20px);
+                                z-index: 9999;"
+                         class="flex items-center justify-center rounded-full bg-green-500 border-4 border-white shadow-xl select-none pointer-events-none">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <div class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs font-bold text-green-600 whitespace-nowrap bg-white px-2 py-0.5 rounded shadow-md border border-green-200">開始</div>
+                    </div>
+                    @endif
+
+                    {{-- Picking End Point --}}
+                    @if($pickingEndX > 0 || $pickingEndY > 0)
+                    <div style="position: absolute;
+                                left: {{ $pickingEndX }}px;
+                                top: {{ $pickingEndY }}px;
+                                width: 40px;
+                                height: 40px;
+                                transform: translate(-20px, -20px);
+                                z-index: 9999;"
+                         class="flex items-center justify-center rounded-full bg-red-500 border-4 border-white shadow-xl select-none pointer-events-none">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                        <div class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs font-bold text-red-600 whitespace-nowrap bg-white px-2 py-0.5 rounded shadow-md border border-red-200">終了</div>
+                    </div>
+                    @endif
+
                     {{-- Route Lines --}}
                     <template x-if="showRouteLines && routeLines.length > 0">
                         <div class="absolute inset-0 pointer-events-none">
@@ -188,9 +222,38 @@
 
                 {{-- Picking Task Information --}}
                 <div x-show="taskInfo" class="bg-white dark:bg-gray-800 rounded-lg shadow p-3">
-                    <h3 class="text-xs font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">ピッキング情報</h3>
+                    <div class="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">
+                        <h3 class="text-xs font-semibold">ピッキング情報</h3>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded font-mono"
+                                  x-text="'#' + (taskInfo?.task_id || '-')"></span>
+                            <button @click="recalculateRoute()"
+                                    x-show="taskInfo?.task_id && taskInfo?.status === 'PENDING'"
+                                    :disabled="isRecalculating"
+                                    class="text-xs bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                                    title="経路を再計算">
+                                <svg class="w-3 h-3" :class="{'animate-spin': isRecalculating}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                                <span x-text="isRecalculating ? '計算中...' : '再計算'"></span>
+                            </button>
+                        </div>
+                    </div>
 
                     <div class="space-y-1.5 text-xs">
+                        {{-- Task Selection Dropdown (only show when multiple tasks exist) --}}
+                        <div x-show="availableTasks.length > 1" class="mb-2">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">タスク選択</label>
+                            <select x-model="selectedTaskId"
+                                    @change="loadPickingRoute()"
+                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-xs px-2 py-1">
+                                <option value="">すべて表示</option>
+                                <template x-for="task in availableTasks" :key="task.id">
+                                    <option :value="task.id" x-text="`#${task.id} - ${task.picker_name || '未割当'} (${getStatusLabel(task.status)})`"></option>
+                                </template>
+                            </select>
+                        </div>
+
                         <div class="flex justify-between">
                             <span class="text-gray-600 dark:text-gray-400">状態:</span>
                             <span class="font-medium"
@@ -216,6 +279,51 @@
                         <div x-show="taskInfo?.completed_at" class="flex justify-between">
                             <span class="text-gray-600 dark:text-gray-400">終了:</span>
                             <span class="font-medium" x-text="formatDateTime(taskInfo?.completed_at)"></span>
+                        </div>
+
+                        <div x-show="taskInfo?.task_count > 1" class="flex justify-between">
+                            <span class="text-gray-600 dark:text-gray-400">タスク数:</span>
+                            <span class="font-medium" x-text="taskInfo?.task_count || 1"></span>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Route Optimization Explanation --}}
+                <div x-show="pickingItems.length > 0" class="bg-white dark:bg-gray-800 rounded-lg shadow p-3">
+                    <h3 class="text-xs font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">経路最適化について</h3>
+
+                    <div class="space-y-2 text-xs text-gray-600 dark:text-gray-400">
+                        <div class="flex items-start gap-1.5">
+                            <svg class="w-3 h-3 mt-0.5 text-blue-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+                            </svg>
+                            <p class="leading-relaxed">
+                                ピッキング順序は<span class="font-semibold text-gray-800 dark:text-gray-200">A*アルゴリズム</span>と<span class="font-semibold text-gray-800 dark:text-gray-200">最近挿入法＋2-opt法</span>により最適化されています。
+                            </p>
+                        </div>
+
+                        <div class="flex items-start gap-1.5">
+                            <svg class="w-3 h-3 mt-0.5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                            </svg>
+                            <p class="leading-relaxed">
+                                各ロケーションへの訪問順序は倉庫レイアウトを考慮し、<span class="font-semibold text-gray-800 dark:text-gray-200">総移動距離が最小</span>になるよう計算されます。
+                            </p>
+                        </div>
+
+                        <div class="flex items-start gap-1.5">
+                            <svg class="w-3 h-3 mt-0.5 text-purple-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z"/>
+                            </svg>
+                            <p class="leading-relaxed">
+                                同じロケーション内の商品は<span class="font-semibold text-gray-800 dark:text-gray-200">商品コード順</span>に並べられます。
+                            </p>
+                        </div>
+
+                        <div class="pt-2 border-t border-gray-200 dark:border-gray-700 mt-2">
+                            <p class="text-xs text-gray-500 dark:text-gray-500 italic">
+                                PENDINGステータスのタスクはドラッグ＆ドロップで順序を手動調整できます。
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -255,7 +363,11 @@
                                                   x-text="item.walking_order"></span>
                                             <span class="text-gray-600 dark:text-gray-400 text-xs"
                                                   x-text="item.location_display"></span>
-                                            <template x-if="taskInfo?.status === 'PENDING'">
+                                            <template x-if="item.distance_from_previous">
+                                                <span class="ml-auto text-xs font-mono text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-1 py-0.5 rounded"
+                                                      x-text="Math.round(item.distance_from_previous) + 'px'"></span>
+                                            </template>
+                                            <template x-if="taskInfo?.status === 'PENDING' && !item.distance_from_previous">
                                                 <svg class="w-3 h-3 text-gray-400 ml-auto" fill="currentColor" viewBox="0 0 20 20">
                                                     <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"></path>
                                                 </svg>
@@ -284,18 +396,43 @@
                 fixedAreas: [],
                 pickingItems: [],
                 taskInfo: null,
+                availableTasks: [],
+                selectedTaskId: '',
                 showRouteLines: true,
                 showWalkingOrder: true,
                 routeLines: [],
                 filterExpanded: true,
                 draggedIndex: null,
                 dragOverIndex: null,
+                isRecalculating: false,
 
                 init() {
                     // Request initial data from Livewire
                     this.$nextTick(() => {
                         this.$wire.loadInitialData();
                     });
+                },
+
+                /**
+                 * Recalculate route for current task
+                 */
+                async recalculateRoute() {
+                    if (!this.taskInfo?.task_id || this.isRecalculating) {
+                        return;
+                    }
+
+                    this.isRecalculating = true;
+
+                    try {
+                        await this.$wire.recalculatePickingRoute(this.taskInfo.task_id);
+                        // Reload the route after recalculation
+                        await this.loadPickingRoute();
+                    } catch (error) {
+                        console.error('Failed to recalculate route:', error);
+                        alert('経路再計算に失敗しました');
+                    } finally {
+                        this.isRecalculating = false;
+                    }
                 },
 
                 get canvasStyle() {
@@ -318,17 +455,30 @@
                     if (!warehouseId || !floorId || !date || !deliveryCourseId) {
                         this.pickingItems = [];
                         this.taskInfo = null;
+                        this.availableTasks = [];
                         this.routeLines = [];
                         return;
                     }
 
                     try {
-                        const url = `/api/picking-routes?warehouse_id=${warehouseId}&floor_id=${floorId}&date=${date}&delivery_course_id=${deliveryCourseId}`;
+                        let url = `/api/picking-routes?warehouse_id=${warehouseId}&floor_id=${floorId}&date=${date}&delivery_course_id=${deliveryCourseId}`;
+
+                        // Add task_id filter if specific task is selected
+                        if (this.selectedTaskId) {
+                            url += `&task_id=${this.selectedTaskId}`;
+                        }
+
                         const response = await fetch(url);
                         const data = await response.json();
 
                         this.pickingItems = data.data || [];
                         this.taskInfo = data.task_info || null;
+                        this.availableTasks = data.tasks || [];
+
+                        // Auto-select first task if only one exists
+                        if (this.availableTasks.length === 1 && !this.selectedTaskId) {
+                            this.selectedTaskId = this.availableTasks[0].id;
+                        }
 
                         // Wait for next tick to ensure zones are loaded
                         await this.$nextTick();
@@ -338,6 +488,7 @@
                         console.error('Failed to load picking route:', error);
                         this.pickingItems = [];
                         this.taskInfo = null;
+                        this.availableTasks = [];
                         this.routeLines = [];
                     }
                 },
@@ -348,13 +499,23 @@
                 calculateRouteLines() {
                     this.routeLines = [];
 
-                    if (!this.showRouteLines || this.pickingItems.length < 2) {
+                    if (!this.showRouteLines || this.pickingItems.length === 0) {
                         return;
                     }
 
                     if (this.zones.length === 0) {
                         return;
                     }
+
+                    // Get picking start and end points from Livewire
+                    const startPoint = {
+                        x: this.$wire.pickingStartX || 0,
+                        y: this.$wire.pickingStartY || 0
+                    };
+                    const endPoint = {
+                        x: this.$wire.pickingEndX || 0,
+                        y: this.$wire.pickingEndY || 0
+                    };
 
                     // Group by location and get center points
                     const locationCenters = {};
@@ -371,20 +532,45 @@
                         }
                     });
 
-                    // Create lines between consecutive locations
-                    let prevLocation = null;
+                    // Get ordered list of unique locations
+                    const orderedLocations = [];
+                    let prevLocationId = null;
                     this.pickingItems.forEach(item => {
-                        if (!item.location_id || !locationCenters[item.location_id]) return;
+                        if (item.location_id && item.location_id !== prevLocationId) {
+                            orderedLocations.push(item.location_id);
+                            prevLocationId = item.location_id;
+                        }
+                    });
 
-                        if (prevLocation && prevLocation !== item.location_id) {
-                            const from = locationCenters[prevLocation];
-                            const to = locationCenters[item.location_id];
+                    if (orderedLocations.length === 0) {
+                        return;
+                    }
 
-                            // Skip if coordinates are undefined
-                            if (!from || !to || from.x === undefined || to.x === undefined) {
-                                return;
-                            }
+                    // 1. Draw line from START point to first location (if start point is set)
+                    if (startPoint.x > 0 || startPoint.y > 0) {
+                        const firstLocationId = orderedLocations[0];
+                        const firstLocation = locationCenters[firstLocationId];
 
+                        if (firstLocation) {
+                            this.routeLines.push({
+                                x1: startPoint.x,
+                                y1: startPoint.y,
+                                x2: firstLocation.x,
+                                y2: firstLocation.y,
+                                isStartLine: true
+                            });
+                        }
+                    }
+
+                    // 2. Draw lines between consecutive locations
+                    for (let i = 0; i < orderedLocations.length - 1; i++) {
+                        const fromLocationId = orderedLocations[i];
+                        const toLocationId = orderedLocations[i + 1];
+
+                        const from = locationCenters[fromLocationId];
+                        const to = locationCenters[toLocationId];
+
+                        if (from && to) {
                             this.routeLines.push({
                                 x1: from.x,
                                 y1: from.y,
@@ -392,9 +578,24 @@
                                 y2: to.y
                             });
                         }
+                    }
 
-                        prevLocation = item.location_id;
-                    });
+                    // 3. Draw line from last location to END point (if end point is set and different from start)
+                    if ((endPoint.x > 0 || endPoint.y > 0) &&
+                        (endPoint.x !== startPoint.x || endPoint.y !== startPoint.y)) {
+                        const lastLocationId = orderedLocations[orderedLocations.length - 1];
+                        const lastLocation = locationCenters[lastLocationId];
+
+                        if (lastLocation) {
+                            this.routeLines.push({
+                                x1: lastLocation.x,
+                                y1: lastLocation.y,
+                                x2: endPoint.x,
+                                y2: endPoint.y,
+                                isEndLine: true
+                            });
+                        }
+                    }
                 },
 
                 /**
