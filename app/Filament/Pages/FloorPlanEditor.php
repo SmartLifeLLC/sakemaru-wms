@@ -414,15 +414,32 @@ class FloorPlanEditor extends Page
                 return;
             }
 
+            // Get warehouse name
+            $warehouse = Warehouse::find($this->selectedWarehouseId);
+            if (!$warehouse) {
+                \Filament\Notifications\Notification::make()
+                    ->title('倉庫が見つかりません')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            // Generate codes
+            $code1 = 'A';
+            $code2 = str_pad((string)(Location::where('floor_id', $this->selectedFloorId)->count() + 1), 3, '0', STR_PAD_LEFT);
+
+            // Create location name: "[倉庫名][フロア名-CODE1-CODE2]"
+            $locationName = "{$warehouse->name}{$floor->name}-{$code1}-{$code2}";
+
             // Create a new temporary location in the center of canvas
             $newLocation = Location::create([
                 'client_id' => $floor->client_id,
                 'warehouse_id' => $this->selectedWarehouseId,
                 'floor_id' => $this->selectedFloorId,
-                'code1' => 'A',
-                'code2' => str_pad((string)(Location::where('floor_id', $this->selectedFloorId)->count() + 1), 3, '0', STR_PAD_LEFT),
+                'code1' => $code1,
+                'code2' => $code2,
                 'code3' => null,
-                'name' => '新規区画',
+                'name' => $locationName,
                 'x1_pos' => 400,
                 'y1_pos' => 300,
                 'x2_pos' => 460,
@@ -436,7 +453,7 @@ class FloorPlanEditor extends Page
             WmsLocationLevel::create([
                 'location_id' => $newLocation->id,
                 'level_number' => 1,
-                'name' => '新規区画 1段',
+                'name' => "{$locationName} 1段",
                 'available_quantity_flags' => 3,
             ]);
 
@@ -657,7 +674,19 @@ class FloorPlanEditor extends Page
 
             // Import zones (create or update locations)
             if (isset($layout['zones'])) {
+                // Get warehouse name for generating location names
+                $warehouse = Warehouse::find($this->selectedWarehouseId);
+                $warehouseName = $warehouse ? $warehouse->name : '';
+                $floorName = $floor->name ?? '';
+
                 foreach ($layout['zones'] as $zoneData) {
+                    // Generate location name if not provided or if it's a temporary name
+                    $locationName = $zoneData['name'] ?? '';
+                    if (empty($locationName) || $locationName === '新規区画') {
+                        // Create location name: "[倉庫名][フロア名-CODE1-CODE2]"
+                        $locationName = "{$warehouseName}{$floorName}-{$zoneData['code1']}-{$zoneData['code2']}";
+                    }
+
                     $location = Location::updateOrCreate(
                         [
                             'floor_id' => $this->selectedFloorId,
@@ -668,7 +697,7 @@ class FloorPlanEditor extends Page
                             'client_id' => $floor->client_id,
                             'warehouse_id' => $this->selectedWarehouseId,
                             'code3' => null,
-                            'name' => $zoneData['name'],
+                            'name' => $locationName,
                             'x1_pos' => $zoneData['x1_pos'],
                             'y1_pos' => $zoneData['y1_pos'],
                             'x2_pos' => $zoneData['x2_pos'],
@@ -688,7 +717,7 @@ class FloorPlanEditor extends Page
                                 'level_number' => $level,
                             ],
                             [
-                                'name' => "{$zoneData['name']} {$level}段",
+                                'name' => "{$locationName} {$level}段",
                                 'available_quantity_flags' => $zoneData['available_quantity_flags'],
                             ]
                         );

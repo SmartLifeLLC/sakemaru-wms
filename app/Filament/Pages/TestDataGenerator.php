@@ -602,6 +602,30 @@ class TestDataGenerator extends Page
                         ->searchable()
                         ->reactive(),
 
+                    Select::make('locations')
+                        ->label('ロケーション指定（任意）')
+                        ->helperText('指定した場合、該当ロケーションの在庫商品のみで売上を生成します。在庫がない場合は自動生成されます。')
+                        ->options(function (Get $get) {
+                            $warehouseId = $get('warehouse_id');
+                            if (!$warehouseId) {
+                                return [];
+                            }
+                            return \Illuminate\Support\Facades\DB::connection('sakemaru')
+                                ->table('locations')
+                                ->where('warehouse_id', $warehouseId)
+                                ->whereNotNull('code1')
+                                ->whereNotNull('code2')
+                                ->orderBy('code1')
+                                ->orderBy('code2')
+                                ->get()
+                                ->mapWithKeys(fn($loc) => [
+                                    $loc->id => "{$loc->code1}{$loc->code2} - {$loc->name}"
+                                ])
+                                ->toArray();
+                        })
+                        ->multiple()
+                        ->searchable(),
+
                     Repeater::make('courses')
                         ->label('配送コース別伝票枚数')
                         ->schema([
@@ -669,6 +693,10 @@ class TestDataGenerator extends Page
                                 $data['courses']
                             ),
                         ];
+
+                        if (!empty($data['locations'])) {
+                            $params['--locations'] = $data['locations'];
+                        }
 
                         if ($data['reset']) {
                             $params['--reset'] = true;

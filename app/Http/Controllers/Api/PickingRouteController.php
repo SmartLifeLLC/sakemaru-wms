@@ -59,7 +59,6 @@ class PickingRouteController extends Controller
         // Get picking item results with location information
         $pickingItems = WmsPickingItemResult::whereIn('picking_task_id', $pickingTaskIds)
             ->whereNotNull('location_id')
-            ->whereNotNull('walking_order')
             ->with([
                 'location' => function ($query) use ($floorId) {
                     $query->where('floor_id', $floorId)
@@ -70,7 +69,7 @@ class PickingRouteController extends Controller
                 },
                 'item:id,code,name',
             ])
-            ->orderBy('walking_order', 'asc')
+            ->orderByRaw('walking_order IS NULL, walking_order ASC')
             ->orderBy('item_id', 'asc')
             ->get();
 
@@ -80,10 +79,14 @@ class PickingRouteController extends Controller
         });
 
         // Format the response
-        $data = $pickingItems->map(function ($item) {
+        $walkingOrderCounter = 1;
+        $data = $pickingItems->map(function ($item) use (&$walkingOrderCounter) {
+            // If walking_order is null, assign a sequential number
+            $walkingOrder = $item->walking_order ?? $walkingOrderCounter++;
+
             return [
                 'id' => $item->id,
-                'walking_order' => $item->walking_order,
+                'walking_order' => $walkingOrder,
                 'location_id' => $item->location_id,
                 'location_display' => $item->location_display,
                 'item_id' => $item->item_id,

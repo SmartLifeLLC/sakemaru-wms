@@ -114,7 +114,15 @@ class WmsPickingItemResult extends Model
         if (!$location) {
             return "-";
         }
-        return trim("{$location->code1} {$location->code2} {$location->code3}");
+
+        $locationCode = trim("{$location->code1} {$location->code2} {$location->code3}");
+
+        // Add location name if available
+        if (!empty($location->name)) {
+            return "{$locationCode} - {$location->name}";
+        }
+
+        return $locationCode;
     }
 
     /**

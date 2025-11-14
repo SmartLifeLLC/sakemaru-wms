@@ -18,6 +18,7 @@ class GeneratePickerWaveCommand extends Command
                             {picker_id : Picker ID}
                             {--warehouse-id= : Warehouse ID (defaults to picker\'s default warehouse)}
                             {--courses=* : Delivery course codes with counts (format: code:count)}
+                            {--locations=* : Specific location IDs to use for stock filtering and generation}
                             {--date= : Shipping date (YYYY-MM-DD), defaults to today}
                             {--reset : Reset wave data before generation}';
 
@@ -30,6 +31,7 @@ class GeneratePickerWaveCommand extends Command
     private int $buyerId;
     private string $buyerCode;
     private array $testItems = [];
+    private array $specifiedLocations = [];
 
     public function handle()
     {
@@ -55,13 +57,24 @@ class GeneratePickerWaveCommand extends Command
             return 1;
         }
 
+        // Get specified locations
+        $this->specifiedLocations = array_map('intval', $this->option('locations') ?: []);
+
         $this->line("Picker: [{$picker->code}] {$picker->name}");
         $this->line("Warehouse ID: {$this->warehouseId}");
         $this->line("Shipping Date: {$shippingDate}");
+        if (!empty($this->specifiedLocations)) {
+            $this->line("Locations: " . implode(', ', $this->specifiedLocations));
+        }
         $this->newLine();
 
         // Initialize data
         $this->initializeData();
+
+        // Ensure stock exists in specified locations
+        if (!empty($this->specifiedLocations)) {
+            $this->ensureStockInLocations();
+        }
 
         // Load test items
         $this->loadTestItems();
@@ -205,7 +218,7 @@ class GeneratePickerWaveCommand extends Command
         // AND include location type information to match with order types
         // This ensures stock allocation can succeed during wave generation
 
-        $items = DB::connection('sakemaru')
+        $query = DB::connection('sakemaru')
             ->table('items as i')
             ->join('real_stocks as rs', 'i.id', '=', 'rs.item_id')
             ->join('locations as l', 'rs.location_id', '=', 'l.id')
@@ -215,8 +228,14 @@ class GeneratePickerWaveCommand extends Command
             ->where('i.is_ended', false)
             ->where('rs.warehouse_id', $this->warehouseId)
             ->whereNotNull('rs.location_id')
-            ->where('rs.available_quantity', '>', 0)
-            ->select(
+            ->where('rs.available_quantity', '>', 0);
+
+        // Filter by specified locations if provided
+        if (!empty($this->specifiedLocations)) {
+            $query->whereIn('rs.location_id', $this->specifiedLocations);
+        }
+
+        $items = $query->select(
                 'i.id',
                 'i.code',
                 'i.name',
@@ -237,7 +256,10 @@ class GeneratePickerWaveCommand extends Command
             ];
         })->toArray();
 
-        $this->line("Loaded " . count($this->testItems) . " test items with location-based stock");
+        $locationInfo = !empty($this->specifiedLocations)
+            ? " (filtered by locations: " . implode(', ', $this->specifiedLocations) . ")"
+            : "";
+        $this->line("Loaded " . count($this->testItems) . " test items with location-based stock{$locationInfo}");
     }
 
     private function parseCourseCounts(array $courseParams): array
@@ -456,5 +478,42 @@ class GeneratePickerWaveCommand extends Command
             ]);
 
         return $updated;
+    }
+
+    private function ensureStockInLocations(): void
+    {
+        $this->info('📦 Checking stock in specified locations...');
+
+        // Check if stock exists in specified locations
+        $existingStockCount = DB::connection('sakemaru')
+            ->table('real_stocks')
+            ->whereIn('location_id', $this->specifiedLocations)
+            ->where('warehouse_id', $this->warehouseId)
+            ->where('available_quantity', '>', 0)
+            ->count();
+
+        if ($existingStockCount > 0) {
+            $this->line("  ✓ Found {$existingStockCount} existing stock records in specified locations");
+            return;
+        }
+
+        // No stock found, generate it
+        $this->warn("  ⚠ No stock found in specified locations, generating...");
+
+        $params = [
+            '--warehouse-id' => $this->warehouseId,
+            '--item-count' => 30,
+            '--stocks-per-item' => 2,
+            '--locations' => $this->specifiedLocations,
+        ];
+
+        $exitCode = Artisan::call('testdata:stocks', $params);
+
+        if ($exitCode === 0) {
+            $this->info("  ✓ Stock generated successfully in specified locations");
+        } else {
+            $this->error("  ✗ Failed to generate stock");
+            $this->line(Artisan::output());
+        }
     }
 }
