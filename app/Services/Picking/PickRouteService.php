@@ -31,16 +31,16 @@ class PickRouteService
      * @param int|null $floorId Floor ID
      * @param array $locationIds Array of location IDs to visit
      * @param array|null $startPoint Start point [x, y] (default: [100, 100])
-     * @param int $cellSize Grid cell size for A* (default: 25)
      * @return array Optimized route information
      */
     public function buildRoute(
         int $warehouseId,
         ?int $floorId,
         array $locationIds,
-        ?array $startPoint = null,
-        int $cellSize = 25
+        ?array $startPoint = null
     ): array {
+        // Fixed grid size for entire system
+        $cellSize = 10;
         // Load layout
         $layout = WmsWarehouseLayout::where('warehouse_id', $warehouseId)
             ->where('floor_id', $floorId)
@@ -109,8 +109,14 @@ class PickRouteService
             $blockedRects[] = $area;
         }
 
-        // Initialize A*
-        $aStar = new AStarGrid($cellSize, $blockedRects, $layoutData['width'], $layoutData['height']);
+        // Create Walkable object from walkable_areas if available
+        $walkable = null;
+        if (!empty($layout->walkable_areas)) {
+            $walkable = new \App\Services\Picking\Walkable($layout->walkable_areas);
+        }
+
+        // Initialize A* with walkable areas
+        $aStar = new AStarGrid($cellSize, $blockedRects, $layoutData['width'], $layoutData['height'], $walkable);
 
         // Initialize distance cache
         $distanceCache = new DistanceCacheService($aStar, $warehouseId, $floorId, $layoutHash);
@@ -234,7 +240,14 @@ class PickRouteService
         ];
 
         $blockedRects = array_merge($layoutData['walls'] ?? [], $layoutData['fixed_areas'] ?? []);
-        $aStar = new AStarGrid(25, $blockedRects, $layoutData['width'], $layoutData['height']);
+
+        // Create Walkable object from walkable_areas if available
+        $walkable = null;
+        if (!empty($layout->walkable_areas)) {
+            $walkable = new \App\Services\Picking\Walkable($layout->walkable_areas);
+        }
+
+        $aStar = new AStarGrid(10, $blockedRects, $layoutData['width'], $layoutData['height'], $walkable);
         $layoutHash = DistanceCacheService::layoutHash($layoutData);
         $distanceCache = new DistanceCacheService($aStar, $warehouseId, $floorId, $layoutHash);
 
@@ -306,7 +319,7 @@ class PickRouteService
             'warehouse_id' => $warehouseId,
             'floor_id' => $floorId,
             'algorithm' => 'astar',
-            'cell_size' => 25, // From buildRoute
+            'cell_size' => 10, // Fixed grid size for entire system
             'front_point_delta' => 5, // From constructor
             'location_count' => $routeResult['location_count'],
             'total_distance' => $routeResult['distance'],

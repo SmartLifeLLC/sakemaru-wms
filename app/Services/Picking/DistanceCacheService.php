@@ -90,9 +90,7 @@ class DistanceCacheService
 
         $result = $this->aStar->shortest($fromPoint, $toPoint);
 
-        // Cap distance at maximum INT value for MySQL
-        $maxInt = 2147483647; // MySQL INT max value
-        $distance = min($result['dist'], $maxInt);
+        $distance = $result['dist'];
 
         // Save to cache
         WmsLayoutDistanceCache::create([

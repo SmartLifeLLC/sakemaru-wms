@@ -828,12 +828,15 @@ class FloorPlanEditor extends Page
     /**
      * Save walkable area bitmap (convert to polygons and apply erosion)
      */
-    public function saveWalkableRectangles(
-        array $rectangles,
+    public function saveWalkableBitmap(
+        array $bitmap,
+        int $cellSize,
         int $erosionDistance = 20,
-        int $gridSize = 20,
+        int $gridSizeParam = 10, // Keep parameter but rename to avoid confusion
         int $gridThreshold = 6
     ): void {
+        // Fixed grid size for entire system
+        $gridSize = 10;
         if (!$this->selectedWarehouseId) {
             \Filament\Notifications\Notification::make()
                 ->title('倉庫を選択してください')
@@ -843,6 +846,18 @@ class FloorPlanEditor extends Page
         }
 
         try {
+            // Convert bitmap to rectangles (much more compact than bitmap)
+            $converter = new \App\Services\Picking\BitmapToRectangles();
+            $rectangles = $converter->convert($bitmap, $cellSize);
+
+            if (empty($rectangles)) {
+                \Filament\Notifications\Notification::make()
+                    ->title('歩行領域が定義されていません')
+                    ->warning()
+                    ->send();
+                return;
+            }
+
             // Convert rectangles to polygons for pathfinding
             $polygons = [];
             foreach ($rectangles as $rect) {
@@ -855,14 +870,6 @@ class FloorPlanEditor extends Page
                     ],
                     'holes' => [],
                 ];
-            }
-
-            if (empty($polygons)) {
-                \Filament\Notifications\Notification::make()
-                    ->title('歩行領域が定義されていません')
-                    ->warning()
-                    ->send();
-                return;
             }
 
             // Apply erosion to account for cart width (if erosion distance > 0)
@@ -886,12 +893,13 @@ class FloorPlanEditor extends Page
             // Save the eroded polygons for pathfinding (walkableAreas)
             $this->walkableAreas = $finalPolygons;
 
-            // Save metadata including the original rectangles for accurate restoration
+            // Save metadata including the original rectangles (compact representation)
             $this->navmeta = [
+                'cell_size' => $cellSize,
                 'erosion_distance' => $erosionDistance,
                 'grid_size' => $gridSize,
                 'grid_threshold' => $gridThreshold,
-                'original_rectangles' => $rectangles, // Store original rectangles
+                'original_rectangles' => $rectangles, // Store rectangles instead of bitmap
                 'generated_at' => now()->toIso8601String(),
             ];
 

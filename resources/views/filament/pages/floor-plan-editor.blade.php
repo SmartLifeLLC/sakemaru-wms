@@ -43,7 +43,7 @@
                         @mouseup="handleWalkableMouseUp($event)"
                         @mouseleave="handleWalkableMouseUp($event)"
                         class="absolute inset-0 pointer-events-auto"
-                        :class="walkablePaintMode ? 'z-[100] cursor-crosshair' : 'z-0 pointer-events-none'"
+                        :class="walkablePaintMode ? 'z-10 cursor-crosshair' : 'z-0 pointer-events-none'"
                         style="opacity: 0.4;">
                 </canvas>
 
@@ -303,10 +303,9 @@
                     <div>
                         <label class="block text-xs font-medium mb-1">セルサイズ</label>
                         <div class="flex items-center gap-2">
-                            <input type="number" x-model.number="walkableCellSize" min="5" max="50" step="5"
-                                class="w-20 px-2 py-1 text-xs border rounded">
-                            <span class="text-xs text-gray-600">px</span>
+                            <span class="text-sm font-medium">10px (固定)</span>
                         </div>
+                        <div class="text-xs text-gray-500">システム全体で10pxに固定</div>
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1">ブラシサイズ</label>
@@ -345,9 +344,7 @@
                         <span>GRID</span>
                     </label>
                     <label class="flex items-center gap-1">
-                        <span>Size:</span>
-                        <input type="number" x-model="gridSize" @change="updateGrid()" min="4"
-                            class="w-12 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-1 py-0.5">
+                        <span>Size: 10px (固定)</span>
                     </label>
                     <label class="flex items-center gap-1">
                         <span>閾値:</span>
@@ -392,8 +389,8 @@
                     </button>
                 </div>
 
-                <span x-show="selectedZones.length > 0" class="text-gray-600 dark:text-gray-400 text-sm mt-2">
-                    選択: <span x-text="selectedZones.length"></span>個
+                <span x-show="selectedZones && selectedZones.length > 0" x-cloak class="text-gray-600 dark:text-gray-400 text-sm mt-2">
+                    選択: <span x-text="selectedZones ? selectedZones.length : 0"></span>個
                 </span>
             </div>
         </div>
@@ -739,7 +736,7 @@
                 selectedWarehouseId: '',
                 selectedFloorId: '',
                 gridEnabled: true,
-                gridSize: 20,
+                gridSize: 10, // Fixed grid size for entire system
                 gridThreshold: 6,
                 selectedZones: [],
                 selectedWalls: [],
@@ -755,28 +752,29 @@
                 showFixedAreaEditModal: false,
                 editingFixedArea: {},
                 pickingPointMode: null, // 'start' or 'end' when setting picking points
-                walkableDrawMode: false, // Rectangle drawing mode
-                walkableRectangles: [], // Array of walkable rectangles [{x1, y1, x2, y2}, ...]
+                walkablePaintMode: null, // 'paint' or 'erase' when painting walkable areas
+                walkableBitmap: null, // 2D array for walkable area bitmap
+                walkableCellSize: 10, // Cell size in pixels for bitmap
+                walkableBrushSize: 3, // Brush size in cells
                 walkableErosionDistance: 20, // Erosion distance in pixels (cart width)
-                isDrawingRectangle: false, // Track if currently drawing
-                rectangleStartPoint: null, // Starting point for rectangle [x, y]
-                currentRectangle: null, // Current rectangle being drawn
-                selectedRectangleIndex: null, // Index of selected rectangle for editing
-                walkableUndoStack: [], // Undo history (array of rectangle arrays)
-                walkableRedoStack: [], // Redo history
-                maxUndoSteps: 20 // Maximum undo steps to keep in memory
+                isWalkablePainting: false, // Track if currently painting
+                walkablePaintStartPoint: null, // Starting point for line drawing [x, y]
+                walkableTempBitmap: null, // Temporary bitmap for preview while drawing line
+                walkableUndoStack: [], // Undo history (array of bitmaps)
+                walkableRedoStack: [], // Redo history (array of bitmaps)
+                maxUndoSteps: 20, // Maximum undo steps to keep in memory
 
                 init() {
                     // Request initial data from Livewire
                     this.$nextTick(() => {
                         this.$wire.loadInitialData();
-                        this.loadWalkableRectangles();
+                        this.initWalkableCanvas();
                     });
 
-                    // Add keyboard event listener for undo/redo and delete
+                    // Add keyboard event listener for undo/redo
                     document.addEventListener('keydown', (e) => {
-                        // Only handle when in draw mode
-                        if (this.walkableDrawMode && e.ctrlKey && e.key === 'z') {
+                        // Only handle undo/redo when in paint mode
+                        if (this.walkablePaintMode && e.ctrlKey && e.key === 'z') {
                             e.preventDefault();
                             if (e.shiftKey) {
                                 // CTRL+SHIFT+Z for redo
@@ -787,16 +785,9 @@
                             }
                         }
                         // Also support CTRL+Y for redo
-                        if (this.walkableDrawMode && e.ctrlKey && e.key === 'y') {
+                        if (this.walkablePaintMode && e.ctrlKey && e.key === 'y') {
                             e.preventDefault();
                             this.redoWalkable();
-                        }
-                        // Delete selected rectangle with Delete or Backspace
-                        if (this.walkableDrawMode && (e.key === 'Delete' || e.key === 'Backspace')) {
-                            if (this.selectedRectangleIndex !== null) {
-                                e.preventDefault();
-                                this.deleteSelectedRectangle();
-                            }
                         }
                     });
                 },
@@ -811,17 +802,13 @@
                     const areas = walkableAreas || @js($walkableAreas);
                     const meta = navmeta || @js($navmeta);
 
-                    // Use saved cell size and erosion distance if available
-                    if (meta && meta.cell_size) {
-                        this.walkableCellSize = meta.cell_size;
-                    }
+                    // Cell size is now fixed at 10px system-wide (not loaded from meta)
+                    // Load erosion distance if available
                     if (meta && meta.erosion_distance !== undefined) {
                         this.walkableErosionDistance = meta.erosion_distance;
                     }
-                    // Load grid size and threshold for A* pathfinding
-                    if (meta && meta.grid_size !== undefined) {
-                        this.gridSize = meta.grid_size;
-                    }
+                    // Grid size is now fixed at 10 system-wide (not loaded from meta)
+                    // Load threshold for A* pathfinding
                     if (meta && meta.grid_threshold !== undefined) {
                         this.gridThreshold = meta.grid_threshold;
                     }
@@ -834,27 +821,51 @@
                         Array(bitmapWidth).fill(false)
                     );
 
-                    // Load from original_bitmap if available (most accurate - exact pixel data)
-                    if (meta && meta.original_bitmap && Array.isArray(meta.original_bitmap)) {
-                        console.log('Loading from original bitmap (exact restoration)');
+                    // Load from original_rectangles if available (compact and fast)
+                    // Always use fixed cell size of 10px
+                    if (meta && meta.original_rectangles && Array.isArray(meta.original_rectangles)) {
+                        console.log('Loading from rectangles (fast method) with cell size 10px');
+                        this.loadWalkableAreasFromRectangles(meta.original_rectangles, 10);
+                    }
+                    // Fall back to original_bitmap if available (legacy support)
+                    else if (meta && meta.original_bitmap && Array.isArray(meta.original_bitmap)) {
+                        console.log('Loading from original bitmap (legacy)');
                         this.loadWalkableAreasFromBitmap(meta.original_bitmap);
                     }
                     // Fall back to original_polygons if available
-                    else if (meta && meta.original_polygons && meta.original_polygons.length > 0 && meta.cell_size) {
-                        console.log('Loading from original polygons (before erosion)');
-                        this.loadWalkableAreasFromPolygons(meta.original_polygons, meta.cell_size);
+                    else if (meta && meta.original_polygons && meta.original_polygons.length > 0) {
+                        console.log('Loading from original polygons (before erosion) with cell size 10px');
+                        this.loadWalkableAreasFromPolygons(meta.original_polygons, 10);
                     }
                     // Fall back to eroded walkableAreas (least accurate)
-                    else if (areas && areas.length > 0 && meta && meta.cell_size) {
-                        console.log('Loading from eroded walkable areas');
-                        this.loadWalkableAreasFromPolygons(areas, meta.cell_size);
+                    else if (areas && areas.length > 0) {
+                        console.log('Loading from eroded walkable areas with cell size 10px');
+                        this.loadWalkableAreasFromPolygons(areas, 10);
                     }
 
                     this.renderWalkableCanvas();
                 },
 
+                loadWalkableAreasFromRectangles(rectangles, cellSize) {
+                    // Convert rectangles back to bitmap (fast and accurate)
+                    for (const rect of rectangles) {
+                        // Convert pixel coordinates to cell coordinates
+                        const x1 = Math.floor(rect.x1 / cellSize);
+                        const y1 = Math.floor(rect.y1 / cellSize);
+                        const x2 = Math.floor(rect.x2 / cellSize);
+                        const y2 = Math.floor(rect.y2 / cellSize);
+
+                        // Fill cells
+                        for (let y = y1; y < y2 && y < this.walkableBitmap.length; y++) {
+                            for (let x = x1; x < x2 && x < this.walkableBitmap[0].length; x++) {
+                                this.walkableBitmap[y][x] = true;
+                            }
+                        }
+                    }
+                },
+
                 loadWalkableAreasFromBitmap(savedBitmap) {
-                    // Direct bitmap restoration - most accurate method
+                    // Direct bitmap restoration - for backward compatibility
                     const savedHeight = savedBitmap.length;
                     const savedWidth = savedBitmap[0] ? savedBitmap[0].length : 0;
 

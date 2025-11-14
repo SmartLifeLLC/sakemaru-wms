@@ -48,10 +48,40 @@ class AStarGrid
         $startCell = $this->pixelToCell($start);
         $goalCell = $this->pixelToCell($goal);
 
-        // Check if start or goal is blocked
-        if ($this->isBlockedCell($startCell[0], $startCell[1]) ||
-            $this->isBlockedCell($goalCell[0], $goalCell[1])) {
-            return ['dist' => PHP_INT_MAX, 'path' => []];
+        // If start is blocked, find nearest walkable cell
+        if ($this->isBlockedCell($startCell[0], $startCell[1])) {
+            $nearestCell = $this->findNearestWalkableCell($startCell);
+            if ($nearestCell) {
+                \Log::info('A* pathfinding: Start cell blocked, using nearest walkable cell', [
+                    'originalCell' => $startCell,
+                    'nearestCell' => $nearestCell,
+                ]);
+                $startCell = $nearestCell;
+            } else {
+                \Log::warning('A* pathfinding: Start is blocked and no walkable cell found', [
+                    'start' => $start,
+                    'startCell' => $startCell,
+                ]);
+                return ['dist' => 100000000, 'path' => []];
+            }
+        }
+
+        // If goal is blocked, find nearest walkable cell
+        if ($this->isBlockedCell($goalCell[0], $goalCell[1])) {
+            $nearestCell = $this->findNearestWalkableCell($goalCell);
+            if ($nearestCell) {
+                \Log::info('A* pathfinding: Goal cell blocked, using nearest walkable cell', [
+                    'originalCell' => $goalCell,
+                    'nearestCell' => $nearestCell,
+                ]);
+                $goalCell = $nearestCell;
+            } else {
+                \Log::warning('A* pathfinding: Goal is blocked and no walkable cell found', [
+                    'goal' => $goal,
+                    'goalCell' => $goalCell,
+                ]);
+                return ['dist' => 100000000, 'path' => []];
+            }
         }
 
         // A* implementation
@@ -110,8 +140,13 @@ class AStarGrid
             }
         }
 
-        // No path found
-        return ['dist' => PHP_INT_MAX, 'path' => []];
+        // No path found - return large but reasonable distance (100km in pixels)
+        \Log::warning('A* pathfinding: No path found', [
+            'start' => $start,
+            'goal' => $goal,
+            'cellSize' => $this->cellSize,
+        ]);
+        return ['dist' => 100000000, 'path' => []];
     }
 
     /**
@@ -222,6 +257,55 @@ class AStarGrid
             [$cell[0], $cell[1] + 1],     // Down
             [$cell[0], $cell[1] - 1],     // Up
         ];
+    }
+
+    /**
+     * Find nearest walkable cell using BFS (Breadth-First Search)
+     *
+     * @param array $blockedCell [cx, cy] - cell coordinates
+     * @return array|null [cx, cy] of nearest walkable cell, or null if none found within reasonable distance
+     */
+    private function findNearestWalkableCell(array $blockedCell): ?array
+    {
+        $maxRadius = 20; // Search up to 20 cells away (200px at cellSize=10)
+
+        // BFS to find nearest walkable cell
+        $queue = [$blockedCell];
+        $visited = [$this->cellKey($blockedCell) => true];
+
+        for ($radius = 1; $radius <= $maxRadius; $radius++) {
+            $nextQueue = [];
+
+            foreach ($queue as $cell) {
+                // Check all 4 neighbors
+                $neighbors = $this->getNeighbors($cell);
+
+                foreach ($neighbors as $neighbor) {
+                    $key = $this->cellKey($neighbor);
+
+                    if (isset($visited[$key])) {
+                        continue;
+                    }
+
+                    $visited[$key] = true;
+
+                    // If this cell is walkable, return it
+                    if (!$this->isBlockedCell($neighbor[0], $neighbor[1])) {
+                        return $neighbor;
+                    }
+
+                    $nextQueue[] = $neighbor;
+                }
+            }
+
+            $queue = $nextQueue;
+
+            if (empty($queue)) {
+                break;
+            }
+        }
+
+        return null; // No walkable cell found
     }
 
     /**

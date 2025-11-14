@@ -244,32 +244,37 @@ class PickingRouteController extends Controller
         $previousPoint = null;
 
         // 1. Path from START to first location
-        if ($startPoint[0] > 0 || $startPoint[1] > 0) {
-            $firstLocationId = $orderedLocationIds[0];
-            $firstLocation = $locations->get($firstLocationId);
+        // Always calculate START path if start point is defined (even if 0,0)
+        $firstLocationId = $orderedLocationIds[0];
+        $firstLocation = $locations->get($firstLocationId);
 
-            if ($firstLocation) {
-                $firstPoint = $frontPointCalculator->computeFrontPoint($firstLocation);
-                $result = $aStar->shortest($startPoint, $firstPoint);
+        if ($firstLocation) {
+            $firstPoint = $frontPointCalculator->computeFrontPoint($firstLocation);
+            $result = $aStar->shortest($startPoint, $firstPoint);
 
-                if (!empty($result['path'])) {
-                    $paths[] = [
-                        'from' => 'START',
-                        'to' => $firstLocationId,
-                        'path' => $result['path'],
-                        'distance' => $result['dist'],
-                    ];
-                }
-
-                $previousPoint = $firstPoint;
+            if (!empty($result['path'])) {
+                $paths[] = [
+                    'from' => 'START',
+                    'to' => $firstLocationId,
+                    'path' => $result['path'],
+                    'distance' => $result['dist'],
+                ];
+            } else {
+                // No path found - use straight line as fallback
+                \Log::warning('No path found from START to first location', [
+                    'start' => $startPoint,
+                    'first_location_id' => $firstLocationId,
+                    'first_point' => $firstPoint,
+                ]);
+                $paths[] = [
+                    'from' => 'START',
+                    'to' => $firstLocationId,
+                    'path' => [$startPoint, $firstPoint],
+                    'distance' => $result['dist'],
+                ];
             }
-        } else {
-            // No start point, use first location as starting point
-            $firstLocationId = $orderedLocationIds[0];
-            $firstLocation = $locations->get($firstLocationId);
-            if ($firstLocation) {
-                $previousPoint = $frontPointCalculator->computeFrontPoint($firstLocation);
-            }
+
+            $previousPoint = $firstPoint;
         }
 
         // 2. Paths between consecutive locations
@@ -293,6 +298,20 @@ class PickingRouteController extends Controller
                         'path' => $result['path'],
                         'distance' => $result['dist'],
                     ];
+                } else {
+                    // No path found - use straight line as fallback
+                    \Log::warning('No path found between locations', [
+                        'from_location_id' => $fromLocationId,
+                        'to_location_id' => $toLocationId,
+                        'from_point' => $fromPoint,
+                        'to_point' => $toPoint,
+                    ]);
+                    $paths[] = [
+                        'from' => $fromLocationId,
+                        'to' => $toLocationId,
+                        'path' => [$fromPoint, $toPoint],
+                        'distance' => $result['dist'],
+                    ];
                 }
 
                 $previousPoint = $toPoint;
@@ -311,6 +330,20 @@ class PickingRouteController extends Controller
                     'from' => $lastLocationId,
                     'to' => 'END',
                     'path' => $result['path'],
+                    'distance' => $result['dist'],
+                ];
+            } else {
+                // No path found - use straight line as fallback
+                \Log::warning('No path found from last location to END', [
+                    'last_location_id' => $orderedLocationIds[count($orderedLocationIds) - 1],
+                    'previous_point' => $previousPoint,
+                    'end_point' => $endPoint,
+                ]);
+                $lastLocationId = $orderedLocationIds[count($orderedLocationIds) - 1];
+                $paths[] = [
+                    'from' => $lastLocationId,
+                    'to' => 'END',
+                    'path' => [$previousPoint, $endPoint],
                     'distance' => $result['dist'],
                 ];
             }

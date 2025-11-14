@@ -5,12 +5,15 @@
              zones = Array.isArray($event.detail.zones) ? $event.detail.zones : [];
              walls = Array.isArray($event.detail.walls) ? $event.detail.walls : [];
              fixedAreas = Array.isArray($event.detail.fixedAreas) ? $event.detail.fixedAreas : [];
+             // Reload walkable areas when layout changes
+             loadWalkableAreas();
              // Recalculate route lines if picking items are already loaded
              if (pickingItems.length > 0) {
                  calculateRouteLines();
              }
          "
          @delivery-course-changed.window="loadPickingRoute($event.detail.courseId)"
+         @picking-task-changed.window="loadPickingRoute()"
          @date-changed.window="loadPickingRoute()"
          @walking-order-updated.window="loadPickingRoute()"
          @reorder-failed.window="alert($event.detail.message)"
@@ -31,9 +34,8 @@
                     <canvas x-ref="walkableVisualizationCanvas"
                             :width="{{ $canvasWidth }}"
                             :height="{{ $canvasHeight }}"
-                            x-show="showWalkableAreas"
                             class="absolute inset-0 pointer-events-none z-0"
-                            style="opacity: 0.3;">
+                            :style="showWalkableAreas ? 'opacity: 0.3;' : 'opacity: 0; pointer-events: none;'">
                     </canvas>
 
                     {{-- Zone Blocks (Locations) - Read-only --}}
@@ -56,9 +58,9 @@
 
                             {{-- Show walking order if enabled --}}
                             <template x-if="showWalkingOrder && getZoneWalkingOrders(zone.id).length > 0">
-                                <div class="mt-1 flex flex-wrap gap-1 justify-center">
+                                <div class="mt-1 flex flex-wrap gap-1 justify-center relative z-10">
                                     <template x-for="order in getZoneWalkingOrders(zone.id)" :key="order">
-                                        <span class="inline-block bg-blue-500 text-white text-xs px-1.5 py-0.5 rounded"
+                                        <span class="inline-block bg-blue-500 text-white text-xs px-1.5 py-0.5 rounded shadow-md"
                                               x-text="order"></span>
                                     </template>
                                 </div>
@@ -210,6 +212,24 @@
                         </div>
                     </div>
 
+                    {{-- Picking Task Selection --}}
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">ピッキングタスク</label>
+                        <select wire:model.live="selectedPickingTaskId"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                            <option value="">選択してください</option>
+                            @foreach($this->pickingTasks as $task)
+                                <option value="{{ $task['id'] }}">
+                                    タスク #{{ $task['id'] }}
+                                    @if($task['picker_name'])
+                                        - {{ $task['picker_name'] }}
+                                    @endif
+                                    ({{ $task['status'] }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
                     {{-- Display Options (Single Line) --}}
                     <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
                         <h4 class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">表示オプション</h4>
@@ -256,19 +276,6 @@
                     </div>
 
                     <div class="space-y-1.5 text-xs">
-                        {{-- Task Selection Dropdown (always visible) --}}
-                        <div x-show="availableTasks.length > 0" class="mb-2">
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">タスク選択</label>
-                            <select x-model="selectedTaskId"
-                                    @change="loadPickingRoute()"
-                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-xs px-2 py-1">
-                                <option value="">すべて表示</option>
-                                <template x-for="task in availableTasks" :key="task.id">
-                                    <option :value="task.id" x-text="`#${task.id} - ${task.picker_name || '未割当'} (${getStatusLabel(task.status)})`"></option>
-                                </template>
-                            </select>
-                        </div>
-
                         <div class="flex justify-between">
                             <span class="text-gray-600 dark:text-gray-400">状態:</span>
                             <span class="font-medium"
@@ -411,12 +418,11 @@
                 fixedAreas: [],
                 pickingItems: [],
                 taskInfo: null,
-                availableTasks: [],
-                selectedTaskId: '',
                 showRouteLines: true,
                 showWalkingOrder: true,
                 showWalkableAreas: false,
                 walkablePolygons: null,
+                walkableNavmeta: null,
                 routeLines: [],
                 routePaths: [], // A* calculated paths
                 filterExpanded: true,
@@ -430,8 +436,8 @@
                     this.$wire.loadInitialData();
                     await this.loadWalkableAreas();
 
-                    // Auto-load picking route if delivery course is selected
-                    if (this.$wire.selectedDeliveryCourseId) {
+                    // Auto-load picking route if delivery course and task are selected
+                    if (this.$wire.selectedDeliveryCourseId && this.$wire.selectedPickingTaskId) {
                         await this.loadPickingRoute(this.$wire.selectedDeliveryCourseId);
                     }
                 },
@@ -450,9 +456,13 @@
 
                         if (data.success && data.data) {
                             this.walkablePolygons = data.data.walkable_areas || [];
-                            if (this.showWalkableAreas) {
-                                this.renderWalkableAreas();
-                            }
+                            this.walkableNavmeta = data.data.navmeta || null;
+                            console.log('Loaded walkable areas:', {
+                                polygonCount: this.walkablePolygons.length,
+                                navmeta: this.walkableNavmeta
+                            });
+                            // Always render to initialize canvas, even if not shown
+                            this.renderWalkableAreas();
                         }
                     } catch (error) {
                         console.error('Failed to load walkable areas:', error);
@@ -461,7 +471,8 @@
 
                 renderWalkableAreas() {
                     const canvas = this.$refs.walkableVisualizationCanvas;
-                    if (!canvas || !this.walkablePolygons || this.walkablePolygons.length === 0) {
+                    if (!canvas) {
+                        console.warn('Walkable canvas not found');
                         return;
                     }
 
@@ -472,39 +483,34 @@
                         return;
                     }
 
-                    // Draw walkable polygons as semi-transparent green
+                    // Use original_rectangles to match floor-plan-editor display
+                    // Note: Route calculation uses eroded walkable_areas (20px smaller for cart width)
+                    const rectangles = this.walkableNavmeta?.original_rectangles;
+                    const cellSize = 10; // Fixed cell size
+
+                    if (!rectangles || rectangles.length === 0) {
+                        console.warn('No walkable rectangles to render');
+                        return;
+                    }
+
+                    console.log('Rendering walkable areas as bitmap:', {
+                        rectangleCount: rectangles.length,
+                        cellSize: cellSize,
+                        canvasSize: [canvas.width, canvas.height]
+                    });
+
+                    // Draw walkable bitmap cells (same as floor-plan-editor)
                     ctx.fillStyle = 'rgba(34, 197, 94, 0.3)'; // green-500 with transparency
-                    ctx.strokeStyle = 'rgba(34, 197, 94, 0.6)';
-                    ctx.lineWidth = 2;
 
-                    for (const polygon of this.walkablePolygons) {
-                        if (!polygon.outer || polygon.outer.length < 3) continue;
-
-                        // Draw outer boundary
-                        ctx.beginPath();
-                        ctx.moveTo(polygon.outer[0][0], polygon.outer[0][1]);
-                        for (let i = 1; i < polygon.outer.length; i++) {
-                            ctx.lineTo(polygon.outer[i][0], polygon.outer[i][1]);
-                        }
-                        ctx.closePath();
-                        ctx.fill();
-                        ctx.stroke();
-
-                        // Draw holes if any (as transparent)
-                        if (polygon.holes && polygon.holes.length > 0) {
-                            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'; // white to "erase"
-                            for (const hole of polygon.holes) {
-                                if (hole.length < 3) continue;
-                                ctx.beginPath();
-                                ctx.moveTo(hole[0][0], hole[0][1]);
-                                for (let i = 1; i < hole.length; i++) {
-                                    ctx.lineTo(hole[i][0], hole[i][1]);
-                                }
-                                ctx.closePath();
-                                ctx.fill();
-                            }
-                            ctx.fillStyle = 'rgba(34, 197, 94, 0.3)'; // restore fill color
-                        }
+                    // Convert rectangles to bitmap and draw
+                    for (const rect of rectangles) {
+                        // Each rectangle represents a block of cells
+                        ctx.fillRect(
+                            rect.x1,
+                            rect.y1,
+                            rect.x2 - rect.x1,
+                            rect.y2 - rect.y1
+                        );
                     }
                 },
 
@@ -532,9 +538,9 @@
 
                 get canvasStyle() {
                     return {
-                        backgroundImage: `linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
-                                        linear-gradient(to bottom, rgba(0,0,0,0.03) 1px, transparent 1px)`,
-                        backgroundSize: `20px 20px`
+                        backgroundImage: `linear-gradient(to right, rgba(0,0,0,0.06) 1px, transparent 1px),
+                                        linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px)`,
+                        backgroundSize: `10px 10px`
                     };
                 },
 
@@ -546,35 +552,24 @@
                     const floorId = this.$wire.selectedFloorId;
                     const date = this.$wire.selectedDate;
                     const deliveryCourseId = courseId || this.$wire.selectedDeliveryCourseId;
+                    const taskId = this.$wire.selectedPickingTaskId;
 
-                    if (!warehouseId || !floorId || !date || !deliveryCourseId) {
+                    if (!warehouseId || !floorId || !date || !deliveryCourseId || !taskId) {
                         this.pickingItems = [];
                         this.taskInfo = null;
-                        this.availableTasks = [];
                         this.routeLines = [];
                         return;
                     }
 
                     try {
-                        let url = `/api/picking-routes?warehouse_id=${warehouseId}&floor_id=${floorId}&date=${date}&delivery_course_id=${deliveryCourseId}`;
-
-                        // Add task_id filter if specific task is selected
-                        if (this.selectedTaskId) {
-                            url += `&task_id=${this.selectedTaskId}`;
-                        }
+                        let url = `/api/picking-routes?warehouse_id=${warehouseId}&floor_id=${floorId}&date=${date}&delivery_course_id=${deliveryCourseId}&task_id=${taskId}`;
 
                         const response = await fetch(url);
                         const data = await response.json();
 
                         this.pickingItems = data.data || [];
                         this.taskInfo = data.task_info || null;
-                        this.availableTasks = data.tasks || [];
                         this.routePaths = data.route_paths || [];
-
-                        // Auto-select first task if only one exists
-                        if (this.availableTasks.length === 1 && !this.selectedTaskId) {
-                            this.selectedTaskId = this.availableTasks[0].id;
-                        }
 
                         // Wait for next tick to ensure zones are loaded
                         await this.$nextTick();
@@ -584,7 +579,6 @@
                         console.error('Failed to load picking route:', error);
                         this.pickingItems = [];
                         this.taskInfo = null;
-                        this.availableTasks = [];
                         this.routeLines = [];
                     }
                 },

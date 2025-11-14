@@ -25,6 +25,7 @@ class PickingRouteVisualization extends Page
     public ?int $selectedWarehouseId = null;
     public ?int $selectedFloorId = null;
     public ?int $selectedDeliveryCourseId = null;
+    public ?int $selectedPickingTaskId = null;
     public ?string $selectedDate = null;
     public int $canvasWidth = 2000;
     public int $canvasHeight = 1500;
@@ -98,6 +99,18 @@ class PickingRouteVisualization extends Page
 
             if ($firstDeliveryCourse) {
                 $this->selectedDeliveryCourseId = $firstDeliveryCourse;
+
+                // Auto-select first picking task for the selected delivery course
+                $firstTask = WmsPickingTask::where('warehouse_id', $this->selectedWarehouseId)
+                    ->where('floor_id', $this->selectedFloorId)
+                    ->whereDate('shipment_date', $this->selectedDate)
+                    ->where('delivery_course_id', $firstDeliveryCourse)
+                    ->orderBy('id')
+                    ->first();
+
+                if ($firstTask) {
+                    $this->selectedPickingTaskId = $firstTask->id;
+                }
             }
         }
     }
@@ -307,6 +320,23 @@ class PickingRouteVisualization extends Page
      */
     public function updatedSelectedDeliveryCourseId(): void
     {
+        // Reset picking task selection
+        $this->selectedPickingTaskId = null;
+
+        if ($this->selectedDeliveryCourseId && $this->selectedWarehouseId && $this->selectedFloorId) {
+            // Auto-select first picking task for the selected delivery course
+            $firstTask = WmsPickingTask::where('warehouse_id', $this->selectedWarehouseId)
+                ->where('floor_id', $this->selectedFloorId)
+                ->whereDate('shipment_date', $this->selectedDate)
+                ->where('delivery_course_id', $this->selectedDeliveryCourseId)
+                ->orderBy('id')
+                ->first();
+
+            if ($firstTask) {
+                $this->selectedPickingTaskId = $firstTask->id;
+            }
+        }
+
         // Trigger route visualization update
         $this->dispatch('delivery-course-changed', courseId: $this->selectedDeliveryCourseId);
     }
@@ -317,7 +347,19 @@ class PickingRouteVisualization extends Page
     public function updatedSelectedDate(): void
     {
         $this->selectedDeliveryCourseId = null;
+        $this->selectedPickingTaskId = null;
         $this->dispatch('date-changed', date: $this->selectedDate);
+    }
+
+    /**
+     * Called when picking task changes
+     */
+    public function updatedSelectedPickingTaskId(): void
+    {
+        // Trigger route visualization update
+        if ($this->selectedPickingTaskId) {
+            $this->dispatch('picking-task-changed', taskId: $this->selectedPickingTaskId);
+        }
     }
 
     /**
