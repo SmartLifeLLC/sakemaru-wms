@@ -401,6 +401,7 @@
                 showRouteLines: true,
                 showWalkingOrder: true,
                 routeLines: [],
+                routePaths: [], // A* calculated paths
                 filterExpanded: true,
                 draggedIndex: null,
                 dragOverIndex: null,
@@ -474,6 +475,7 @@
                         this.pickingItems = data.data || [];
                         this.taskInfo = data.task_info || null;
                         this.availableTasks = data.tasks || [];
+                        this.routePaths = data.route_paths || [];
 
                         // Auto-select first task if only one exists
                         if (this.availableTasks.length === 1 && !this.selectedTaskId) {
@@ -495,6 +497,7 @@
 
                 /**
                  * Calculate route lines between picking locations
+                 * Uses A* calculated paths from API if available
                  */
                 calculateRouteLines() {
                     this.routeLines = [];
@@ -503,6 +506,18 @@
                         return;
                     }
 
+                    // Use A* calculated paths if available
+                    if (this.routePaths && this.routePaths.length > 0) {
+                        this.routeLines = this.routePaths.map(pathSegment => ({
+                            path: pathSegment.path,
+                            from: pathSegment.from,
+                            to: pathSegment.to,
+                            distance: pathSegment.distance
+                        }));
+                        return;
+                    }
+
+                    // Fallback: simple straight lines (for backward compatibility)
                     if (this.zones.length === 0) {
                         return;
                     }
@@ -546,23 +561,21 @@
                         return;
                     }
 
-                    // 1. Draw line from START point to first location (if start point is set)
+                    // 1. Line from START point to first location
                     if (startPoint.x > 0 || startPoint.y > 0) {
                         const firstLocationId = orderedLocations[0];
                         const firstLocation = locationCenters[firstLocationId];
 
                         if (firstLocation) {
                             this.routeLines.push({
-                                x1: startPoint.x,
-                                y1: startPoint.y,
-                                x2: firstLocation.x,
-                                y2: firstLocation.y,
-                                isStartLine: true
+                                path: [[startPoint.x, startPoint.y], [firstLocation.x, firstLocation.y]],
+                                from: 'START',
+                                to: firstLocationId
                             });
                         }
                     }
 
-                    // 2. Draw lines between consecutive locations
+                    // 2. Lines between consecutive locations
                     for (let i = 0; i < orderedLocations.length - 1; i++) {
                         const fromLocationId = orderedLocations[i];
                         const toLocationId = orderedLocations[i + 1];
@@ -572,15 +585,14 @@
 
                         if (from && to) {
                             this.routeLines.push({
-                                x1: from.x,
-                                y1: from.y,
-                                x2: to.x,
-                                y2: to.y
+                                path: [[from.x, from.y], [to.x, to.y]],
+                                from: fromLocationId,
+                                to: toLocationId
                             });
                         }
                     }
 
-                    // 3. Draw line from last location to END point (if end point is set and different from start)
+                    // 3. Line from last location to END point
                     if ((endPoint.x > 0 || endPoint.y > 0) &&
                         (endPoint.x !== startPoint.x || endPoint.y !== startPoint.y)) {
                         const lastLocationId = orderedLocations[orderedLocations.length - 1];
@@ -588,11 +600,9 @@
 
                         if (lastLocation) {
                             this.routeLines.push({
-                                x1: lastLocation.x,
-                                y1: lastLocation.y,
-                                x2: endPoint.x,
-                                y2: endPoint.y,
-                                isEndLine: true
+                                path: [[lastLocation.x, lastLocation.y], [endPoint.x, endPoint.y]],
+                                from: lastLocationId,
+                                to: 'END'
                             });
                         }
                     }
@@ -600,15 +610,31 @@
 
                 /**
                  * Render route SVG markup as HTML string
+                 * Draws polylines following A* calculated paths
                  */
                 renderRouteSvg() {
                     let svg = '';
-                    this.routeLines.forEach(route => {
-                        // Route line
-                        svg += `<line x1="${route.x1}" y1="${route.y1}" x2="${route.x2}" y2="${route.y2}" stroke="#3B82F6" stroke-width="2" stroke-dasharray="5,5" />`;
+                    this.routeLines.forEach(routeSegment => {
+                        if (!routeSegment.path || routeSegment.path.length < 2) {
+                            return;
+                        }
 
-                        // Arrow head
-                        const arrowPoints = this.getArrowPoints(route);
+                        // Convert path points to polyline
+                        const points = routeSegment.path.map(p => `${p[0]},${p[1]}`).join(' ');
+
+                        // Draw polyline
+                        svg += `<polyline points="${points}" stroke="#3B82F6" stroke-width="2" fill="none" stroke-dasharray="5,5" stroke-linejoin="round" stroke-linecap="round" />`;
+
+                        // Arrow head at the end of the path
+                        const lastPoint = routeSegment.path[routeSegment.path.length - 1];
+                        const secondLastPoint = routeSegment.path[routeSegment.path.length - 2];
+
+                        const arrowPoints = this.getArrowPoints({
+                            x1: secondLastPoint[0],
+                            y1: secondLastPoint[1],
+                            x2: lastPoint[0],
+                            y2: lastPoint[1]
+                        });
                         svg += `<polygon points="${arrowPoints}" fill="#3B82F6" />`;
                     });
                     return svg;
