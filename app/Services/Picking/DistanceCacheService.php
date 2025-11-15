@@ -19,7 +19,7 @@ class DistanceCacheService
     /**
      * Calculate layout hash from layout data
      *
-     * @param array $layoutData Layout data with width, height, walls, fixed_areas
+     * @param array $layoutData Layout data with width, height, walls, fixed_areas, picking_start_x, picking_start_y, picking_end_x, picking_end_y
      * @return string MD5 hash
      */
     public static function layoutHash(array $layoutData): string
@@ -30,6 +30,14 @@ class DistanceCacheService
             'height' => $layoutData['height'] ?? 0,
             'walls' => $layoutData['walls'] ?? [],
             'fixed_areas' => $layoutData['fixed_areas'] ?? [],
+            'picking_start_x' => $layoutData['picking_start_x'] ?? 0,
+            'picking_start_y' => $layoutData['picking_start_y'] ?? 0,
+            'picking_end_x' => $layoutData['picking_end_x'] ?? 0,
+            'picking_end_y' => $layoutData['picking_end_y'] ?? 0,
+            // Include walkable_areas hash if available (they can be large)
+            'walkable_areas_hash' => isset($layoutData['walkable_areas'])
+                ? md5(json_encode($layoutData['walkable_areas']))
+                : null,
         ];
 
         // Sort walls and fixed_areas to ensure consistent order

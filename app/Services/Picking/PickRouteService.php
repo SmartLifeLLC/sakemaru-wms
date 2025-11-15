@@ -64,7 +64,7 @@ class PickRouteService
             $layout->picking_end_y ?? $startPoint[1],
         ];
 
-        // Prepare layout data (including picking points for cache key)
+        // Prepare layout data (including picking points and walkable areas for cache key)
         $layoutData = [
             'width' => $layout->width,
             'height' => $layout->height,
@@ -74,6 +74,7 @@ class PickRouteService
             'picking_start_y' => $startPoint[1],
             'picking_end_x' => $endPoint[0],
             'picking_end_y' => $endPoint[1],
+            'walkable_areas' => $layout->walkable_areas ?? [],
         ];
 
         // Calculate layout hash
@@ -237,6 +238,7 @@ class PickRouteService
             'height' => $layout->height,
             'walls' => $layout->walls ?? [],
             'fixed_areas' => $layout->fixed_areas ?? [],
+            'walkable_areas' => $layout->walkable_areas ?? [],
         ];
 
         $blockedRects = array_merge($layoutData['walls'] ?? [], $layoutData['fixed_areas'] ?? []);

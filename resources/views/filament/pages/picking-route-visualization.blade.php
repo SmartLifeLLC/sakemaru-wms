@@ -703,31 +703,25 @@
                 renderRouteSvg() {
                     let svg = '';
 
-                    // Get starting point for color determination
-                    const startPoint = this.routeLines.length > 0 && this.routeLines[0].path && this.routeLines[0].path.length > 0
-                        ? this.routeLines[0].path[0]
-                        : [0, 0];
+                    if (this.routeLines.length === 0) {
+                        return svg;
+                    }
 
-                    this.routeLines.forEach(routeSegment => {
+                    // Use gradient color based on picking order (green -> blue -> red)
+                    this.routeLines.forEach((routeSegment, index) => {
                         if (!routeSegment.path || routeSegment.path.length < 2) {
                             return;
                         }
 
-                        // Determine color based on horizontal direction from start point (ignore vertical)
-                        // Get the end point of this segment
-                        const endPoint = routeSegment.path[routeSegment.path.length - 1];
-                        const deltaX = endPoint[0] - startPoint[0];
-
-                        // Blue: going left (deltaX < 0)
-                        // Red: going right (deltaX >= 0)
-                        const isBlue = deltaX < 0;
-                        const color = isBlue ? '#3B82F6' : '#EF4444';
+                        // Calculate color based on sequence (gradient from green to red)
+                        const ratio = this.routeLines.length > 1 ? index / (this.routeLines.length - 1) : 0;
+                        const color = this.getSequenceColor(ratio);
 
                         // Convert path points to polyline
                         const points = routeSegment.path.map(p => `${p[0]},${p[1]}`).join(' ');
 
-                        // Draw polyline
-                        svg += `<polyline points="${points}" stroke="${color}" stroke-width="2" fill="none" stroke-dasharray="5,5" stroke-linejoin="round" stroke-linecap="round" />`;
+                        // Draw polyline with thicker stroke for better visibility
+                        svg += `<polyline points="${points}" stroke="${color}" stroke-width="3" fill="none" stroke-linejoin="round" stroke-linecap="round" opacity="0.8" />`;
 
                         // Draw arrows along the path (every few segments to show direction clearly)
                         const arrowInterval = Math.max(1, Math.floor(routeSegment.path.length / 3));
@@ -741,7 +735,7 @@
                                 x2: p2[0],
                                 y2: p2[1]
                             });
-                            svg += `<polygon points="${arrowPoints}" fill="${color}" />`;
+                            svg += `<polygon points="${arrowPoints}" fill="${color}" opacity="0.9" />`;
                         }
 
                         // Always draw arrow at the end
@@ -754,9 +748,36 @@
                             x2: lastPoint[0],
                             y2: lastPoint[1]
                         });
-                        svg += `<polygon points="${arrowPoints}" fill="${color}" />`;
+                        svg += `<polygon points="${arrowPoints}" fill="${color}" opacity="0.9" />`;
+
+                        // Draw sequence number at the midpoint of the path
+                        const midIndex = Math.floor(routeSegment.path.length / 2);
+                        const midPoint = routeSegment.path[midIndex];
+                        svg += `<circle cx="${midPoint[0]}" cy="${midPoint[1]}" r="12" fill="white" stroke="${color}" stroke-width="2" />`;
+                        svg += `<text x="${midPoint[0]}" y="${midPoint[1]}" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="bold" fill="${color}">${index + 1}</text>`;
                     });
                     return svg;
+                },
+
+                /**
+                 * Get color based on sequence ratio (0.0 to 1.0)
+                 * Green (start) -> Yellow (middle) -> Red (end)
+                 */
+                getSequenceColor(ratio) {
+                    // Green -> Yellow -> Red gradient
+                    if (ratio < 0.5) {
+                        // Green to Yellow
+                        const r = Math.round(34 + (251 - 34) * (ratio * 2));
+                        const g = Math.round(197 - (197 - 191) * (ratio * 2));
+                        const b = 94;
+                        return `rgb(${r}, ${g}, ${b})`;
+                    } else {
+                        // Yellow to Red
+                        const r = 239;
+                        const g = Math.round(191 - (191 - 68) * ((ratio - 0.5) * 2));
+                        const b = Math.round(94 - 94 * ((ratio - 0.5) * 2));
+                        return `rgb(${r}, ${g}, ${b})`;
+                    }
                 },
 
                 /**
