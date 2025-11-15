@@ -2,9 +2,11 @@
 
 namespace App\Filament\Resources\Locations\Schemas;
 
+use App\Enums\TemperatureType;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
@@ -63,6 +65,27 @@ class LocationForm
                             ->columnSpan(1),
                     ])
                     ->columns(3)
+                    ->collapsible(),
+
+                Section::make('WMS設定')
+                    ->description('ピッキングタスクのグループ化に使用される属性')
+                    ->schema([
+                        Select::make('temperature_type')
+                            ->label('温度帯')
+                            ->options(TemperatureType::options())
+                            ->default(TemperatureType::NORMAL->value)
+                            ->helperText('保管温度帯を選択してください（常温/冷蔵/冷凍）')
+                            ->required()
+                            ->columnSpan(1),
+
+                        Toggle::make('is_restricted_area')
+                            ->label('制限エリア')
+                            ->helperText('ONにすると、制限エリアアクセス権限を持つピッカーのみがこのロケーションのタスクを担当できます')
+                            ->default(false)
+                            ->inline(false)
+                            ->columnSpan(1),
+                    ])
+                    ->columns(2)
                     ->collapsible(),
             ]);
     }

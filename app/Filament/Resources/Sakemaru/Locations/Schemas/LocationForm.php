@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Sakemaru\Locations\Schemas;
 
+use App\Enums\TemperatureType;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -57,6 +58,17 @@ class LocationForm
                     ->helperText('在庫引当時にこのフラグでフィルタリングされます')
                     ->required()
                     ->default(3),
+                Select::make('temperature_type')
+                    ->label('温度帯')
+                    ->options(TemperatureType::options())
+                    ->default(TemperatureType::NORMAL->value)
+                    ->helperText('保管温度帯を選択してください')
+                    ->required(),
+                Toggle::make('is_restricted_area')
+                    ->label('制限エリア')
+                    ->helperText('制限エリアの場合はONにしてください。特定の権限を持つピッカーのみアクセス可能になります。')
+                    ->default(false)
+                    ->inline(false),
             ]);
     }
 }

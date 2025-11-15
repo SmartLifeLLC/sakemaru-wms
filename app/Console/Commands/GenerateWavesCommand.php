@@ -193,17 +193,21 @@ class GenerateWavesCommand extends Command
                             continue;
                         }
 
-                        // Get picking area ID and floor ID from primary location
+                        // Get picking area ID, floor ID, temperature_type, and is_restricted_area from primary location
                         $pickingAreaId = null;
                         $floorId = null;
+                        $temperatureType = null;
+                        $isRestrictedArea = false;
 
                         if ($reservationResult['location_id']) {
-                            // Get floor_id from locations table
+                            // Get floor_id, temperature_type, is_restricted_area from locations table
                             $location = DB::connection('sakemaru')
                                 ->table('locations')
                                 ->where('id', $reservationResult['location_id'])
                                 ->first();
                             $floorId = $location->floor_id ?? null;
+                            $temperatureType = $location->temperature_type ?? null;
+                            $isRestrictedArea = $location->is_restricted_area ?? false;
 
                             // Get picking_area_id from wms_locations table
                             $wmsLocation = DB::connection('sakemaru')
@@ -222,12 +226,14 @@ class GenerateWavesCommand extends Command
                                 ->where('rs.warehouse_id', $setting->warehouse_id)
                                 ->where('rs.item_id', $tradeItem->item_id)
                                 ->whereNotNull('wl.wms_picking_area_id')
-                                ->select('wl.wms_picking_area_id', 'l.floor_id')
+                                ->select('wl.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
                                 ->first();
 
                             if ($itemLocation) {
                                 $pickingAreaId = $pickingAreaId ?? $itemLocation->wms_picking_area_id;
                                 $floorId = $floorId ?? $itemLocation->floor_id;
+                                $temperatureType = $temperatureType ?? $itemLocation->temperature_type;
+                                $isRestrictedArea = $isRestrictedArea ?? $itemLocation->is_restricted_area;
                             } else {
                                 // If still no picking area found, assign to first active picking area as default
                                 $defaultArea = DB::connection('sakemaru')
@@ -241,12 +247,17 @@ class GenerateWavesCommand extends Command
                             }
                         }
 
-                        // Group by (floor_id, picking_area_id)
-                        $groupKey = ($floorId ?? 'null') . '|' . ($pickingAreaId ?? 'null');
+                        // Group by (floor_id, picking_area_id, temperature_type, is_restricted_area)
+                        $groupKey = ($floorId ?? 'null') . '|' .
+                                    ($pickingAreaId ?? 'null') . '|' .
+                                    ($temperatureType ?? 'null') . '|' .
+                                    ($isRestrictedArea ? '1' : '0');
                         if (!isset($itemsByGroup[$groupKey])) {
                             $itemsByGroup[$groupKey] = [
                                 'floor_id' => $floorId,
                                 'picking_area_id' => $pickingAreaId,
+                                'temperature_type' => $temperatureType,
+                                'is_restricted_area' => $isRestrictedArea,
                                 'items' => [],
                             ];
                         }
@@ -280,6 +291,8 @@ class GenerateWavesCommand extends Command
                         'warehouse_id' => $setting->warehouse_id,
                         'warehouse_code' => $warehouse->code,
                         'floor_id' => $groupData['floor_id'], // Added: floor_id for grouping
+                        'temperature_type' => $groupData['temperature_type'], // Added: temperature type for grouping
+                        'is_restricted_area' => $groupData['is_restricted_area'], // Added: restricted area flag for grouping
                         'delivery_course_id' => $setting->delivery_course_id,
                         'delivery_course_code' => $course->code,
                         'shipment_date' => $shippingDate,
