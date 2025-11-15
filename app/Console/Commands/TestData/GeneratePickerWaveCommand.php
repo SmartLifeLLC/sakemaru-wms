@@ -18,6 +18,7 @@ class GeneratePickerWaveCommand extends Command
                             {picker_id : Picker ID}
                             {--warehouse-id= : Warehouse ID (defaults to picker\'s default warehouse)}
                             {--courses=* : Delivery course codes with counts (format: code:count)}
+                            {--locations=* : Specific location IDs to use for stock filtering and generation}
                             {--date= : Shipping date (YYYY-MM-DD), defaults to today}
                             {--reset : Reset wave data before generation}';
 
@@ -30,6 +31,7 @@ class GeneratePickerWaveCommand extends Command
     private int $buyerId;
     private string $buyerCode;
     private array $testItems = [];
+    private array $specifiedLocations = [];
 
     public function handle()
     {
@@ -55,13 +57,24 @@ class GeneratePickerWaveCommand extends Command
             return 1;
         }
 
+        // Get specified locations
+        $this->specifiedLocations = array_map('intval', $this->option('locations') ?: []);
+
         $this->line("Picker: [{$picker->code}] {$picker->name}");
         $this->line("Warehouse ID: {$this->warehouseId}");
         $this->line("Shipping Date: {$shippingDate}");
+        if (!empty($this->specifiedLocations)) {
+            $this->line("Locations: " . implode(', ', $this->specifiedLocations));
+        }
         $this->newLine();
 
         // Initialize data
         $this->initializeData();
+
+        // Ensure stock exists in specified locations
+        if (!empty($this->specifiedLocations)) {
+            $this->ensureStockInLocations();
+        }
 
         // Load test items
         $this->loadTestItems();
@@ -201,22 +214,52 @@ class GeneratePickerWaveCommand extends Command
 
     private function loadTestItems(): void
     {
-        $this->testItems = Item::where('type', 'ALCOHOL')
-            ->where('is_active', true)
-            ->whereNull('end_of_sale_date')
-            ->where('is_ended', false)
-            ->whereIn('id', function ($query) {
-                $query->select('item_id')
-                    ->from('real_stocks')
-                    ->where('warehouse_id', $this->warehouseId);
-            })
-            ->inRandomOrder()
-            ->limit(50)
-            ->get()
-            ->map(fn($item) => ['id' => $item->id, 'code' => $item->code, 'name' => $item->name])
-            ->toArray();
+        // IMPORTANT: Only select items that have stock in locations (not just warehouse)
+        // AND include location type information to match with order types
+        // This ensures stock allocation can succeed during wave generation
 
-        $this->line("Loaded " . count($this->testItems) . " test items");
+        $query = DB::connection('sakemaru')
+            ->table('items as i')
+            ->join('real_stocks as rs', 'i.id', '=', 'rs.item_id')
+            ->join('locations as l', 'rs.location_id', '=', 'l.id')
+            ->where('i.type', 'ALCOHOL')
+            ->where('i.is_active', true)
+            ->whereNull('i.end_of_sale_date')
+            ->where('i.is_ended', false)
+            ->where('rs.warehouse_id', $this->warehouseId)
+            ->whereNotNull('rs.location_id')
+            ->where('rs.available_quantity', '>', 0);
+
+        // Filter by specified locations if provided
+        if (!empty($this->specifiedLocations)) {
+            $query->whereIn('rs.location_id', $this->specifiedLocations);
+        }
+
+        $items = $query->select(
+                'i.id',
+                'i.code',
+                'i.name',
+                'l.available_quantity_flags',
+                DB::raw('SUM(rs.available_quantity) as total_available')
+            )
+            ->groupBy('i.id', 'i.code', 'i.name', 'l.available_quantity_flags')
+            ->get();
+
+        $this->testItems = $items->map(function ($item) {
+            return [
+                'id' => $item->id,
+                'code' => $item->code,
+                'name' => $item->name,
+                'supports_case' => ($item->available_quantity_flags & 1) > 0, // CASE対応
+                'supports_piece' => ($item->available_quantity_flags & 2) > 0, // PIECE対応
+                'total_available' => $item->total_available,
+            ];
+        })->toArray();
+
+        $locationInfo = !empty($this->specifiedLocations)
+            ? " (filtered by locations: " . implode(', ', $this->specifiedLocations) . ")"
+            : "";
+        $this->line("Loaded " . count($this->testItems) . " test items with location-based stock{$locationInfo}");
     }
 
     private function parseCourseCounts(array $courseParams): array
@@ -264,9 +307,28 @@ class GeneratePickerWaveCommand extends Command
         for ($i = 0; $i < $count; $i++) {
             $scenario = $scenarios[$i % count($scenarios)];
 
+            // Filter items based on scenario qty_type to ensure stock allocation succeeds
+            $availableItems = collect($this->testItems);
+
+            if ($scenario['qty_type'] === 'CASE') {
+                // For CASE orders, only select items with CASE support
+                $availableItems = $availableItems->filter(fn($item) => $item['supports_case']);
+            } elseif ($scenario['qty_type'] === 'PIECE') {
+                // For PIECE orders, only select items with PIECE support
+                $availableItems = $availableItems->filter(fn($item) => $item['supports_piece']);
+            }
+            // For MIXED, we'll handle filtering per item below
+
+            if ($availableItems->isEmpty()) {
+                // Skip this earning if no suitable items available
+                $this->warn("  No items available for {$scenario['name']}, skipping");
+                continue;
+            }
+
             // Add items to earning
             $itemCount = $scenario['qty_type'] === 'MIXED' ? rand(3, 5) : rand(2, 3);
-            $selectedItems = collect($this->testItems)->random($itemCount);
+            $itemCount = min($itemCount, $availableItems->count());
+            $selectedItems = $availableItems->random($itemCount);
 
             $details = [];
             foreach ($selectedItems as $index => $item) {
@@ -274,7 +336,15 @@ class GeneratePickerWaveCommand extends Command
                 $qty = $scenario['qty'];
 
                 if ($qtyType === 'MIXED') {
-                    $qtyType = $index % 2 === 0 ? 'CASE' : 'PIECE';
+                    // For MIXED orders, choose type based on what the item supports
+                    if ($item['supports_case'] && $item['supports_piece']) {
+                        // Both supported, alternate
+                        $qtyType = $index % 2 === 0 ? 'CASE' : 'PIECE';
+                    } elseif ($item['supports_case']) {
+                        $qtyType = 'CASE';
+                    } else {
+                        $qtyType = 'PIECE';
+                    }
                     $qty = $qtyType === 'CASE' ? rand(1, 5) : rand(5, 20);
                 }
 
@@ -408,5 +478,102 @@ class GeneratePickerWaveCommand extends Command
             ]);
 
         return $updated;
+    }
+
+    private function ensureStockInLocations(): void
+    {
+        $this->info('📦 Checking stock in specified locations...');
+
+        // Check if stock exists in specified locations
+        $existingStockCount = DB::connection('sakemaru')
+            ->table('real_stocks')
+            ->whereIn('location_id', $this->specifiedLocations)
+            ->where('warehouse_id', $this->warehouseId)
+            ->where('available_quantity', '>', 0)
+            ->count();
+
+        if ($existingStockCount > 0) {
+            $this->line("  ✓ Found {$existingStockCount} existing stock records in specified locations");
+            return;
+        }
+
+        // No stock found, generate it directly
+        $this->warn("  ⚠ No stock found in specified locations, generating...");
+
+        // Get locations info
+        $locations = DB::connection('sakemaru')
+            ->table('locations')
+            ->whereIn('id', $this->specifiedLocations)
+            ->where('warehouse_id', $this->warehouseId)
+            ->get();
+
+        if ($locations->isEmpty()) {
+            $this->error("  ✗ No valid locations found");
+            return;
+        }
+
+        // Get all active items
+        $items = Item::where('type', 'ALCOHOL')
+            ->where('is_active', true)
+            ->whereNull('end_of_sale_date')
+            ->where('is_ended', false)
+            ->orderBy('code')
+            ->limit(50) // Limit to 50 items for test data
+            ->get();
+
+        if ($items->isEmpty()) {
+            $this->error("  ✗ No active items found");
+            return;
+        }
+
+        $clientId = $locations->first()->client_id ?? 1;
+        $createdCount = 0;
+        $locationCount = $locations->count();
+        $locationIndex = 0;
+
+        // Distribute items evenly across specified locations
+        foreach ($items as $item) {
+            $location = $locations[$locationIndex % $locationCount];
+            $locationIndex++;
+
+            // Check if stock already exists
+            $existing = DB::connection('sakemaru')
+                ->table('real_stocks')
+                ->where('warehouse_id', $this->warehouseId)
+                ->where('location_id', $location->id)
+                ->where('item_id', $item->id)
+                ->exists();
+
+            if ($existing) {
+                continue;
+            }
+
+            // Generate stock
+            $expirationDate = now()->addDays(rand(30, 180))->format('Y-m-d');
+            $currentQuantity = rand(50, 500);
+
+            DB::connection('sakemaru')->table('real_stocks')->insert([
+                'client_id' => $clientId,
+                'stock_allocation_id' => 1,
+                'warehouse_id' => $this->warehouseId,
+                'location_id' => $location->id,
+                'item_id' => $item->id,
+                'item_management_type' => 'STANDARD',
+                'expiration_date' => $expirationDate,
+                'current_quantity' => $currentQuantity,
+                'available_quantity' => $currentQuantity,
+                'order_rank' => 'FIFO',
+                'price' => rand(100, 5000),
+                'wms_reserved_qty' => 0,
+                'wms_picking_qty' => 0,
+                'wms_lock_version' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $createdCount++;
+        }
+
+        $this->info("  ✓ Generated {$createdCount} stock records in specified locations");
     }
 }

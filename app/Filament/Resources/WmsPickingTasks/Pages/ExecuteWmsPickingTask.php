@@ -28,12 +28,12 @@ class ExecuteWmsPickingTask extends Page implements HasForms
     {
         $record->load([
             'pickingItemResults' => function ($query) {
-                $query->with(['item', 'location'])
-                    // Removed: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
+                $query->with(['item', 'location', 'trade.partner', 'trade.earning.buyer.current_detail.salesman'])
+                    ->orderBy('walking_order', 'asc')
                     ->orderBy('item_id', 'asc');
             },
             'wave',
-            'trade',
+            'floor',
             'pickingArea',
             'warehouse',
             'picker'
@@ -41,8 +41,13 @@ class ExecuteWmsPickingTask extends Page implements HasForms
         $this->record = $record;
         // 商品データを配列に変換
         $this->items = $this->record->pickingItemResults->map(function ($item) {
+            $trade = $item->trade;
             return [
                 'id' => $item->id,
+                'serial_id' => $trade->serial_id ?? 'N/A',
+                'client_code' => $trade->partner->code ?? '-',
+                'client_name' => $trade->partner->name ?? '-',
+                'sales_rep_name' => $trade->earning?->buyer?->current_detail?->salesman?->name ?? '-',
                 'item_name' => $item->item_name_with_code ?? "商品{$item->item_id}",
                 'location' => $item->location_display ?? '-',
                 'ordered_qty' => (int) $item->ordered_qty,
@@ -154,15 +159,20 @@ class ExecuteWmsPickingTask extends Page implements HasForms
             $this->record->refresh();
             $this->record->load([
                 'pickingItemResults' => function ($query) {
-                    $query->with(['item', 'location'])
-                        // Removed: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
+                    $query->with(['item', 'location', 'trade.partner', 'trade.earning.buyer.current_detail.salesman'])
+                        ->orderBy('walking_order', 'asc')
                         ->orderBy('item_id', 'asc');
                 }
             ]);
 
             $this->items = $this->record->pickingItemResults->map(function ($item) {
+                $trade = $item->trade;
                 return [
                     'id' => $item->id,
+                    'serial_id' => $trade->serial_id ?? 'N/A',
+                    'client_code' => $trade->partner->code ?? '-',
+                    'client_name' => $trade->partner->name ?? '-',
+                    'sales_rep_name' => $trade->earning?->buyer?->current_detail?->salesman?->name ?? '-',
                     'item_name' => $item->item_name_with_code ?? "商品{$item->item_id}",
                     'location' => $item->location_display ?? '-',
                     'ordered_qty' => (int) $item->ordered_qty,
@@ -281,8 +291,9 @@ class ExecuteWmsPickingTask extends Page implements HasForms
     public function getTitle(): string
     {
         $waveCode = $this->record->wave->wave_code ?? 'Wave';
-        $serialId = $this->record->trade->serial_id ?? 'N/A';
-        return "ピッキング実行: {$waveCode} - 伝票 {$serialId}";
+        $taskId = $this->record->id;
+        $floorName = $this->record->floor->name ?? 'フロア未設定';
+        return "ピッキング実行: {$waveCode} - タスク #{$taskId} ({$floorName})";
     }
 
     public static function canAccess(array $parameters = []): bool

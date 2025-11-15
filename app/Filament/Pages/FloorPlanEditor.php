@@ -30,6 +30,12 @@ class FloorPlanEditor extends Page
     public array $textStyles = [];
     public array $walls = [];
     public array $fixedAreas = [];
+    public int $pickingStartX = 0;
+    public int $pickingStartY = 0;
+    public int $pickingEndX = 0;
+    public int $pickingEndY = 0;
+    public ?array $walkableAreas = null;
+    public ?array $navmeta = null;
 
     public static function getNavigationGroup(): ?string
     {
@@ -94,7 +100,11 @@ class FloorPlanEditor extends Page
             $this->dispatch('layout-loaded',
                 zones: $zones,
                 walls: $this->walls,
-                fixedAreas: $this->fixedAreas
+                fixedAreas: $this->fixedAreas,
+                canvasWidth: $this->canvasWidth,
+                canvasHeight: $this->canvasHeight,
+                walkableAreas: $this->walkableAreas,
+                navmeta: $this->navmeta
             );
         }
     }
@@ -213,6 +223,12 @@ class FloorPlanEditor extends Page
         $this->textStyles = $layout->text_styles ?? WmsWarehouseLayout::getDefaultTextStyles();
         $this->walls = $layout->walls ?? [];
         $this->fixedAreas = $layout->fixed_areas ?? [];
+        $this->pickingStartX = $layout->picking_start_x ?? 0;
+        $this->pickingStartY = $layout->picking_start_y ?? 0;
+        $this->pickingEndX = $layout->picking_end_x ?? 0;
+        $this->pickingEndY = $layout->picking_end_y ?? 0;
+        $this->walkableAreas = $layout->walkable_areas ?? null;
+        $this->navmeta = $layout->navmeta ?? null;
     }
 
     /**
@@ -226,6 +242,12 @@ class FloorPlanEditor extends Page
         $this->textStyles = WmsWarehouseLayout::getDefaultTextStyles();
         $this->walls = [];
         $this->fixedAreas = [];
+        $this->pickingStartX = 0;
+        $this->pickingStartY = 0;
+        $this->pickingEndX = 0;
+        $this->pickingEndY = 0;
+        $this->walkableAreas = null;
+        $this->navmeta = null;
     }
 
     /**
@@ -249,6 +271,12 @@ class FloorPlanEditor extends Page
                 'text_styles' => $this->textStyles,
                 'walls' => $this->walls,
                 'fixed_areas' => $this->fixedAreas,
+                'picking_start_x' => $this->pickingStartX,
+                'picking_start_y' => $this->pickingStartY,
+                'picking_end_x' => $this->pickingEndX,
+                'picking_end_y' => $this->pickingEndY,
+                'walkable_areas' => $this->walkableAreas,
+                'navmeta' => $this->navmeta,
             ]
         );
     }
@@ -283,6 +311,12 @@ class FloorPlanEditor extends Page
                 'text_styles' => $this->textStyles,
                 'walls' => $this->walls,
                 'fixed_areas' => $this->fixedAreas,
+                'picking_start_x' => $this->pickingStartX,
+                'picking_start_y' => $this->pickingStartY,
+                'picking_end_x' => $this->pickingEndX,
+                'picking_end_y' => $this->pickingEndY,
+                'walkable_areas' => $this->walkableAreas,
+                'navmeta' => $this->navmeta,
             ]
         );
 
@@ -310,7 +344,9 @@ class FloorPlanEditor extends Page
             walls: $this->walls,
             fixedAreas: $this->fixedAreas,
             canvasWidth: $this->canvasWidth,
-            canvasHeight: $this->canvasHeight
+            canvasHeight: $this->canvasHeight,
+            walkableAreas: $this->walkableAreas,
+            navmeta: $this->navmeta
         );
     }
 
@@ -328,7 +364,9 @@ class FloorPlanEditor extends Page
             walls: $this->walls,
             fixedAreas: $this->fixedAreas,
             canvasWidth: $this->canvasWidth,
-            canvasHeight: $this->canvasHeight
+            canvasHeight: $this->canvasHeight,
+            walkableAreas: $this->walkableAreas,
+            navmeta: $this->navmeta
         );
     }
 
@@ -414,15 +452,32 @@ class FloorPlanEditor extends Page
                 return;
             }
 
+            // Get warehouse name
+            $warehouse = Warehouse::find($this->selectedWarehouseId);
+            if (!$warehouse) {
+                \Filament\Notifications\Notification::make()
+                    ->title('倉庫が見つかりません')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            // Generate codes
+            $code1 = 'A';
+            $code2 = str_pad((string)(Location::where('floor_id', $this->selectedFloorId)->count() + 1), 3, '0', STR_PAD_LEFT);
+
+            // Create location name: "[倉庫名][フロア名-CODE1-CODE2]"
+            $locationName = "{$warehouse->name}{$floor->name}-{$code1}-{$code2}";
+
             // Create a new temporary location in the center of canvas
             $newLocation = Location::create([
                 'client_id' => $floor->client_id,
                 'warehouse_id' => $this->selectedWarehouseId,
                 'floor_id' => $this->selectedFloorId,
-                'code1' => 'A',
-                'code2' => str_pad((string)(Location::where('floor_id', $this->selectedFloorId)->count() + 1), 3, '0', STR_PAD_LEFT),
+                'code1' => $code1,
+                'code2' => $code2,
                 'code3' => null,
-                'name' => '新規区画',
+                'name' => $locationName,
                 'x1_pos' => 400,
                 'y1_pos' => 300,
                 'x2_pos' => 460,
@@ -436,7 +491,7 @@ class FloorPlanEditor extends Page
             WmsLocationLevel::create([
                 'location_id' => $newLocation->id,
                 'level_number' => 1,
-                'name' => '新規区画 1段',
+                'name' => "{$locationName} 1段",
                 'available_quantity_flags' => 3,
             ]);
 
@@ -657,7 +712,19 @@ class FloorPlanEditor extends Page
 
             // Import zones (create or update locations)
             if (isset($layout['zones'])) {
+                // Get warehouse name for generating location names
+                $warehouse = Warehouse::find($this->selectedWarehouseId);
+                $warehouseName = $warehouse ? $warehouse->name : '';
+                $floorName = $floor->name ?? '';
+
                 foreach ($layout['zones'] as $zoneData) {
+                    // Generate location name if not provided or if it's a temporary name
+                    $locationName = $zoneData['name'] ?? '';
+                    if (empty($locationName) || $locationName === '新規区画') {
+                        // Create location name: "[倉庫名][フロア名-CODE1-CODE2]"
+                        $locationName = "{$warehouseName}{$floorName}-{$zoneData['code1']}-{$zoneData['code2']}";
+                    }
+
                     $location = Location::updateOrCreate(
                         [
                             'floor_id' => $this->selectedFloorId,
@@ -668,7 +735,7 @@ class FloorPlanEditor extends Page
                             'client_id' => $floor->client_id,
                             'warehouse_id' => $this->selectedWarehouseId,
                             'code3' => null,
-                            'name' => $zoneData['name'],
+                            'name' => $locationName,
                             'x1_pos' => $zoneData['x1_pos'],
                             'y1_pos' => $zoneData['y1_pos'],
                             'x2_pos' => $zoneData['x2_pos'],
@@ -688,7 +755,7 @@ class FloorPlanEditor extends Page
                                 'level_number' => $level,
                             ],
                             [
-                                'name' => "{$zoneData['name']} {$level}段",
+                                'name' => "{$locationName} {$level}段",
                                 'available_quantity_flags' => $zoneData['available_quantity_flags'],
                             ]
                         );
@@ -722,6 +789,140 @@ class FloorPlanEditor extends Page
         } catch (\Exception $e) {
             \Filament\Notifications\Notification::make()
                 ->title('インポートに失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    /**
+     * Update picking start point
+     */
+    public function updatePickingStartPoint($x, $y): void
+    {
+        $this->pickingStartX = (int) $x;
+        $this->pickingStartY = (int) $y;
+        $this->saveLayout();
+
+        \Filament\Notifications\Notification::make()
+            ->title('ピッキング開始地点を更新しました')
+            ->success()
+            ->send();
+    }
+
+    /**
+     * Update picking end point
+     */
+    public function updatePickingEndPoint($x, $y): void
+    {
+        $this->pickingEndX = (int) $x;
+        $this->pickingEndY = (int) $y;
+        $this->saveLayout();
+
+        \Filament\Notifications\Notification::make()
+            ->title('ピッキング終了地点を更新しました')
+            ->success()
+            ->send();
+    }
+
+    /**
+     * Save walkable area bitmap (convert to polygons and apply erosion)
+     */
+    public function saveWalkableBitmap(
+        array $bitmap,
+        int $cellSize,
+        int $erosionDistance = 20,
+        int $gridSizeParam = 10, // Keep parameter but rename to avoid confusion
+        int $gridThreshold = 6
+    ): void {
+        // Fixed grid size for entire system
+        $gridSize = 10;
+        if (!$this->selectedWarehouseId) {
+            \Filament\Notifications\Notification::make()
+                ->title('倉庫を選択してください')
+                ->danger()
+                ->send();
+            return;
+        }
+
+        try {
+            // Convert bitmap to rectangles (much more compact than bitmap)
+            $converter = new \App\Services\Picking\BitmapToRectangles();
+            $rectangles = $converter->convert($bitmap, $cellSize);
+
+            if (empty($rectangles)) {
+                \Filament\Notifications\Notification::make()
+                    ->title('歩行領域が定義されていません')
+                    ->warning()
+                    ->send();
+                return;
+            }
+
+            // Convert rectangles to polygons for pathfinding
+            $polygons = [];
+            foreach ($rectangles as $rect) {
+                $polygons[] = [
+                    'outer' => [
+                        [$rect['x1'], $rect['y1']],
+                        [$rect['x2'], $rect['y1']],
+                        [$rect['x2'], $rect['y2']],
+                        [$rect['x1'], $rect['y2']],
+                    ],
+                    'holes' => [],
+                ];
+            }
+
+            // Apply erosion to account for cart width (if erosion distance > 0)
+            $finalPolygons = $polygons;
+            if ($erosionDistance > 0) {
+                $erosion = new \App\Services\Picking\PolygonErosion();
+                $erodedPolygons = $erosion->erode($polygons, $erosionDistance);
+
+                if (empty($erodedPolygons)) {
+                    \Filament\Notifications\Notification::make()
+                        ->title('エロージョン後に有効な歩行領域が残りませんでした')
+                        ->body('エロージョン距離を小さくするか、歩行領域をもっと広く塗ってください。')
+                        ->warning()
+                        ->send();
+                    return;
+                }
+                $finalPolygons = $erodedPolygons;
+            }
+
+            // Update Livewire properties
+            // Save the eroded polygons for pathfinding (walkableAreas)
+            $this->walkableAreas = $finalPolygons;
+
+            // Save metadata including the original rectangles (compact representation)
+            $this->navmeta = [
+                'cell_size' => $cellSize,
+                'erosion_distance' => $erosionDistance,
+                'grid_size' => $gridSize,
+                'grid_threshold' => $gridThreshold,
+                'original_rectangles' => $rectangles, // Store rectangles instead of bitmap
+                'generated_at' => now()->toIso8601String(),
+            ];
+
+            // Save to database
+            $this->saveLayout();
+
+            $message = sprintf('%d個の長方形から%d個のポリゴンを生成しました', count($rectangles), count($finalPolygons));
+            if ($erosionDistance > 0) {
+                $message .= sprintf('（エロージョン: %dpx）', $erosionDistance);
+            } else {
+                $message .= '（エロージョンなし）';
+            }
+            $message .= sprintf('、Grid: %dpx、閾値: %d', $gridSize, $gridThreshold);
+
+            \Filament\Notifications\Notification::make()
+                ->title('歩行領域を保存しました')
+                ->body($message)
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('歩行領域の保存に失敗しました')
                 ->body($e->getMessage())
                 ->danger()
                 ->send();

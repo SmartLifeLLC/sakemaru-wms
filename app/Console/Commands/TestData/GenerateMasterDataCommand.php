@@ -183,13 +183,14 @@ class GenerateMasterDataCommand extends Command
     private function generateLocationsForFloor(object $floor, int $caseCount, int $pieceCount, int $bothCount): int
     {
         $locationTypes = [
-            ['prefix' => 'A', 'count' => $caseCount, 'flag' => 1, 'name' => 'ケース'],
-            ['prefix' => 'B', 'count' => $pieceCount, 'flag' => 2, 'name' => 'バラ'],
-            ['prefix' => 'D', 'count' => $bothCount, 'flag' => 3, 'name' => 'ケース+バラ'],
+            ['prefix' => 'A', 'count' => $caseCount, 'flag' => 1, 'name' => 'ケース', 'unit_type' => 'CASE'],
+            ['prefix' => 'B', 'count' => $pieceCount, 'flag' => 2, 'name' => 'バラ', 'unit_type' => 'PIECE'],
+            ['prefix' => 'D', 'count' => $bothCount, 'flag' => 3, 'name' => 'ケース+バラ', 'unit_type' => 'BOTH'],
         ];
 
         $totalCreated = 0;
         $totalLevelsCreated = 0;
+        $walkingOrder = 1; // Initialize walking order counter for this floor
 
         // Get the next available code2 number for each prefix in this warehouse
         foreach ($locationTypes as $type) {
@@ -236,6 +237,19 @@ class GenerateMasterDataCommand extends Command
                     'available_quantity_flags' => $type['flag'],
                     'creator_id' => 0,
                     'last_updater_id' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Create WMS location record with walking_order for route optimization
+                DB::connection('sakemaru')->table('wms_locations')->insert([
+                    'location_id' => $locationId,
+                    'wms_picking_area_id' => null, // Can be set later via floor plan editor
+                    'picking_unit_type' => $type['unit_type'],
+                    'walking_order' => $walkingOrder++, // Sequential order for now
+                    'aisle' => $code1, // Use code1 as aisle
+                    'rack' => $code2, // Use code2 as rack
+                    'level' => '1', // Default level
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);

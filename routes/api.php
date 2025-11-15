@@ -3,7 +3,12 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\PickingTaskController;
+use App\Http\Controllers\Api\PickingRouteController;
 use Illuminate\Support\Facades\Route;
+
+// Internal API routes (for Filament pages, no API key required)
+Route::get('/picking-routes', [PickingRouteController::class, 'getPickingRoute']);
+Route::get('/walkable-areas', [PickingRouteController::class, 'getWalkableAreas']);
 
 // All API routes require API key authentication
 Route::middleware('api.key')->group(function () {

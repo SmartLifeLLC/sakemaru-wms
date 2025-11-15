@@ -17,11 +17,13 @@ class WmsPickingItemResult extends Model
     protected $fillable = [
         'picking_task_id',
         'earning_id',
+        'trade_id',
         'trade_item_id',
         'item_id',
         'real_stock_id',
         'location_id',
-        // 'walking_order', // Removed: walking_order is no longer used
+        'walking_order',
+        'distance_from_previous',
         'ordered_qty',
         'ordered_qty_type',
         'planned_qty',
@@ -35,7 +37,8 @@ class WmsPickingItemResult extends Model
     ];
 
     protected $casts = [
-        // 'walking_order' => 'integer', // Removed: walking_order is no longer used
+        'walking_order' => 'integer',
+        'distance_from_previous' => 'integer',
         'ordered_qty' => 'decimal:2',
         'planned_qty' => 'decimal:2',
         'picked_qty' => 'decimal:2',
@@ -60,6 +63,14 @@ class WmsPickingItemResult extends Model
     }
 
     /**
+     * このピッキング明細が属する取引（売上伝票）
+     */
+    public function trade(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Sakemaru\Trade::class, 'trade_id');
+    }
+
+    /**
      * このピッキング明細の商品
      */
     public function item(): BelongsTo
@@ -77,11 +88,12 @@ class WmsPickingItemResult extends Model
 
     /**
      * スコープ：ピッキング順序でソート
-     * Note: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
+     * Sorts by walking_order (warehouse movement sequence)
      */
     public function scopeOrderedForPicking($query)
     {
-        return $query->orderBy('item_id', 'asc');
+        return $query->orderBy('walking_order', 'asc')
+                    ->orderBy('item_id', 'asc');
     }
 
     /**
@@ -113,7 +125,15 @@ class WmsPickingItemResult extends Model
         if (!$location) {
             return "-";
         }
-        return trim("{$location->code1} {$location->code2} {$location->code3}");
+
+        $locationCode = trim("{$location->code1} {$location->code2} {$location->code3}");
+
+        // Add location name if available
+        if (!empty($location->name)) {
+            return "{$locationCode} - {$location->name}";
+        }
+
+        return $locationCode;
     }
 
     /**

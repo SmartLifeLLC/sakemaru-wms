@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use App\Models\Sakemaru\DeliveryCourse;
-use App\Models\Sakemaru\Trade;
+use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,10 +20,10 @@ class WmsPickingTask extends Model
         'wms_picking_area_id',
         'warehouse_id',
         'warehouse_code',
+        'floor_id',
         'delivery_course_id',
         'delivery_course_code',
         'shipment_date',
-        'trade_id',
         'status',
         'task_type',
         'picker_id',
@@ -62,19 +62,19 @@ class WmsPickingTask extends Model
     }
 
     /**
+     * このタスクが属する倉庫フロア
+     */
+    public function floor(): BelongsTo
+    {
+        return $this->belongsTo(Floor::class, 'floor_id');
+    }
+
+    /**
      * このタスクが属する配送コース
      */
     public function deliveryCourse(): BelongsTo
     {
         return $this->belongsTo(DeliveryCourse::class, 'delivery_course_id');
-    }
-
-    /**
-     * このタスクが属する取引
-     */
-    public function trade(): BelongsTo
-    {
-        return $this->belongsTo(Trade::class, 'trade_id');
     }
 
     /**
