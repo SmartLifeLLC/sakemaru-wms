@@ -21,6 +21,8 @@ class WmsPickingTask extends Model
         'warehouse_id',
         'warehouse_code',
         'floor_id',
+        'temperature_type',
+        'is_restricted_area',
         'delivery_course_id',
         'delivery_course_code',
         'shipment_date',
@@ -35,6 +37,7 @@ class WmsPickingTask extends Model
         'shipment_date' => 'date',
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
+        'is_restricted_area' => 'boolean',
     ];
 
     /**

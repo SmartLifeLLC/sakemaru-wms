@@ -59,12 +59,12 @@
                              width: ${zone.x2_pos - zone.x1_pos}px;
                              height: ${zone.y2_pos - zone.y1_pos}px;
                              background-color: {{ $colors['location']['rectangle'] ?? '#E0F2FE' }};
-                             border-color: {{ $colors['location']['border'] ?? '#D1D5DB' }};
+                             border-color: ${zone.is_restricted_area ? '#EF4444' : (selectedZones.includes(zone.id) ? '#1E3A8A' : '{{ $colors['location']['border'] ?? '#D1D5DB' }}')};
+                             border-width: ${zone.is_restricted_area ? '2px' : (selectedZones.includes(zone.id) ? '2px' : '1px')};
                              color: {{ $textStyles['location']['color'] ?? '#6B7280' }};
                              font-size: {{ $textStyles['location']['size'] ?? 12 }}px;
                          `"
-                         :class="selectedZones.includes(zone.id) ? 'border-2 border-blue-900' : 'border'"
-                         class="cursor-move flex flex-col items-center justify-center p-2 rounded shadow-sm select-none">
+                         class="cursor-move flex flex-col items-center justify-center p-2 rounded shadow-sm select-none border-solid">
 
                         <div x-text="zone.code1 + zone.code2"></div>
 
@@ -397,7 +397,8 @@
 
         {{-- Detail Modal --}}
         <div x-show="showEditModal" x-cloak
-             class="fixed inset-0 flex items-center justify-center z-50"
+             class="fixed inset-0 flex items-center justify-center"
+             style="z-index: 10000;"
              @click.self="showEditModal = false">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
                  @click.stop>
@@ -408,30 +409,50 @@
                     <div>
                         <label class="block text-sm font-medium mb-1">通路 (code1)</label>
                         <input type="text" x-model="editingZone.code1" maxlength="10"
-                            class="w-full rounded-md border-gray-300 dark:border-gray-600">
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium mb-1">棚番号 (code2)</label>
                         <input type="text" x-model="editingZone.code2" maxlength="10"
-                            class="w-full rounded-md border-gray-300 dark:border-gray-600">
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                     </div>
 
                     <div class="col-span-2">
                         <label class="block text-sm font-medium mb-1">名称</label>
                         <input type="text" x-model="editingZone.name"
-                            class="w-full rounded-md border-gray-300 dark:border-gray-600">
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                     </div>
 
                     <div class="col-span-2">
                         <label class="block text-sm font-medium mb-1">引当可能単位</label>
                         <select x-model.number="editingZone.available_quantity_flags"
-                            class="w-full rounded-md border-gray-300 dark:border-gray-600">
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                             <option value="1">ケース</option>
                             <option value="2">バラ</option>
                             <option value="3">ケース+バラ</option>
                             <option value="4">ボール</option>
                         </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1">温度帯</label>
+                        <select x-model="editingZone.temperature_type"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            <option value="NORMAL">常温</option>
+                            <option value="CHILLED">冷蔵</option>
+                            <option value="FROZEN">冷凍</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium mb-1">制限エリア</label>
+                        <div class="flex items-center gap-2 h-10">
+                            <input type="checkbox"
+                                x-model="editingZone.is_restricted_area"
+                                class="rounded border border-gray-300 dark:border-gray-600 w-5 h-5">
+                            <span class="text-sm text-gray-600">制限エリアとして設定</span>
+                        </div>
                     </div>
                 </div>
 
@@ -1541,10 +1562,22 @@
                     }
                 },
 
-                saveEditedZone() {
+                async saveEditedZone() {
                     const idx = this.zones.findIndex(z => z.id === this.editingZone.id);
                     if (idx >= 0) {
+                        // Update local zones array
                         this.zones[idx] = { ...this.zones[idx], ...this.editingZone };
+
+                        // Update database via Livewire
+                        await this.$wire.updateLocation({
+                            id: this.editingZone.id,
+                            code1: this.editingZone.code1,
+                            code2: this.editingZone.code2,
+                            name: this.editingZone.name,
+                            available_quantity_flags: this.editingZone.available_quantity_flags,
+                            temperature_type: this.editingZone.temperature_type,
+                            is_restricted_area: this.editingZone.is_restricted_area
+                        });
                     }
                     this.showEditModal = false;
                 },

@@ -21,6 +21,7 @@ class WmsPicker extends Model
         'name',
         'password',
         'default_warehouse_id',
+        'can_access_restricted_area',
         'is_active',
     ];
 
@@ -30,6 +31,7 @@ class WmsPicker extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'can_access_restricted_area' => 'boolean',
     ];
 
     /**

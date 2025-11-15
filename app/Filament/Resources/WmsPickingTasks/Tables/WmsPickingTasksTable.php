@@ -173,6 +173,19 @@ class WmsPickingTasksTable
                     ->action(function (Collection $records, array $data) {
                         $pickerId = $data['picker_id'];
                         $picker = \App\Models\WmsPicker::find($pickerId);
+
+                        // Check for restricted area access permission
+                        $restrictedTasks = $records->filter(fn ($task) => $task->is_restricted_area);
+
+                        if ($restrictedTasks->isNotEmpty() && !$picker->can_access_restricted_area) {
+                            Notification::make()
+                                ->title('権限エラー')
+                                ->body("選択されたタスクには制限エリアが含まれています。{$picker->display_name}は制限エリアへのアクセス権限がありません。")
+                                ->danger()
+                                ->send();
+                            return;
+                        }
+
                         $count = 0;
 
                         DB::connection('sakemaru')->transaction(function () use ($records, $pickerId, &$count) {

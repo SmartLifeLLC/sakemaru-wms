@@ -3,6 +3,7 @@
 namespace App\Models\Sakemaru;
 
 use App\Enums\AvailableQuantityFlag;
+use App\Enums\TemperatureType;
 use App\Models\WmsLocationLevel;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -15,6 +16,8 @@ class Location extends CustomModel
     protected $guarded = [];
     protected $casts = [
         'available_quantity_flags' => 'integer',
+        'temperature_type' => TemperatureType::class,
+        'is_restricted_area' => 'boolean',
     ];
 
     public function warehouse() : belongsTo

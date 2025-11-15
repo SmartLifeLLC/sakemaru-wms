@@ -168,6 +168,8 @@ class FloorPlanEditor extends Page
                 'x2_pos' => (int) $location->x2_pos,
                 'y2_pos' => (int) $location->y2_pos,
                 'available_quantity_flags' => $location->available_quantity_flags,
+                'temperature_type' => $location->temperature_type?->value,
+                'is_restricted_area' => $location->is_restricted_area ?? false,
                 'levels' => $levelsCount,
             ];
         });
@@ -923,6 +925,45 @@ class FloorPlanEditor extends Page
         } catch (\Exception $e) {
             \Filament\Notifications\Notification::make()
                 ->title('歩行領域の保存に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    /**
+     * Update location details (temperature_type, is_restricted_area, etc.)
+     */
+    public function updateLocation(array $locationData): void
+    {
+        try {
+            $location = Location::find($locationData['id']);
+
+            if (!$location) {
+                \Filament\Notifications\Notification::make()
+                    ->title('ロケーションが見つかりません')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            $location->update([
+                'code1' => $locationData['code1'] ?? $location->code1,
+                'code2' => $locationData['code2'] ?? $location->code2,
+                'name' => $locationData['name'] ?? $location->name,
+                'available_quantity_flags' => $locationData['available_quantity_flags'] ?? $location->available_quantity_flags,
+                'temperature_type' => $locationData['temperature_type'] ?? $location->temperature_type,
+                'is_restricted_area' => $locationData['is_restricted_area'] ?? $location->is_restricted_area,
+            ]);
+
+            \Filament\Notifications\Notification::make()
+                ->title('ロケーション情報を更新しました')
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('ロケーション情報の更新に失敗しました')
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
