@@ -457,25 +457,48 @@ class GeneratePickerWaveCommand extends Command
 
     private function assignTasksToPicker(string $shippingDate): int
     {
-        // Get waves for this shipping date
-        $waves = Wave::where('shipping_date', $shippingDate)->get();
+        // Get waves for this shipping date and warehouse only (via wave_setting)
+        $waves = Wave::where('shipping_date', $shippingDate)
+            ->whereHas('waveSetting', function ($query) {
+                $query->where('warehouse_id', $this->warehouseId);
+            })
+            ->get();
 
         if ($waves->isEmpty()) {
-            $this->warn('  No waves found for this shipping date');
+            $this->warn('  No waves found for this shipping date and warehouse');
             return 0;
         }
 
         $waveIds = $waves->pluck('id')->toArray();
 
-        // Assign all tasks in these waves to the picker
-        $updated = DB::connection('sakemaru')
+        // Build query for tasks
+        $query = DB::connection('sakemaru')
             ->table('wms_picking_tasks')
             ->whereIn('wave_id', $waveIds)
-            ->whereNull('picker_id')
-            ->update([
-                'picker_id' => $this->pickerId,
-                'updated_at' => now(),
-            ]);
+            ->whereNull('picker_id');
+
+        // If locations were specified, only assign tasks with matching floor_id
+        if (!empty($this->specifiedLocations)) {
+            // Get floor_ids from specified locations
+            $floorIds = DB::connection('sakemaru')
+                ->table('locations')
+                ->whereIn('id', $this->specifiedLocations)
+                ->distinct()
+                ->pluck('floor_id')
+                ->filter() // Remove nulls
+                ->toArray();
+
+            if (!empty($floorIds)) {
+                $query->whereIn('floor_id', $floorIds);
+                $this->line("  Filtering tasks to floors: " . implode(', ', $floorIds));
+            }
+        }
+
+        // Assign tasks to the picker
+        $updated = $query->update([
+            'picker_id' => $this->pickerId,
+            'updated_at' => now(),
+        ]);
 
         return $updated;
     }

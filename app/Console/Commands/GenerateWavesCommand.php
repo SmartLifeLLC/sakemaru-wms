@@ -188,6 +188,11 @@ class GenerateWavesCommand extends Command
 
                         $reservationResults[$tradeItem->id] = $reservationResult;
 
+                        // Skip items with zero allocation (complete shortage)
+                        if ($result['allocated'] == 0) {
+                            continue;
+                        }
+
                         // Get picking area ID and floor ID from primary location
                         $pickingAreaId = null;
                         $floorId = null;
@@ -250,6 +255,25 @@ class GenerateWavesCommand extends Command
 
                 // Create one picking task per (floor_id, picking_area_id) group
                 foreach ($itemsByGroup as $groupData) {
+                    // Skip groups with no items (all items had zero allocation)
+                    if (empty($groupData['items'])) {
+                        continue;
+                    }
+
+                    // Filter items to only include those with successful reservations
+                    $validItems = [];
+                    foreach ($groupData['items'] as $tradeItem) {
+                        $reservationResult = $reservationResults[$tradeItem->id] ?? null;
+                        if ($reservationResult && $reservationResult['allocated_qty'] > 0) {
+                            $validItems[] = $tradeItem;
+                        }
+                    }
+
+                    // Skip if no valid items remain after filtering
+                    if (empty($validItems)) {
+                        continue;
+                    }
+
                     $pickingTaskId = DB::connection('sakemaru')->table('wms_picking_tasks')->insertGetId([
                         'wave_id' => $wave->id,
                         'wms_picking_area_id' => $groupData['picking_area_id'],
@@ -266,8 +290,8 @@ class GenerateWavesCommand extends Command
                         'updated_at' => now(),
                     ]);
 
-                    // Create picking item results for items in this group
-                    foreach ($groupData['items'] as $tradeItem) {
+                    // Create picking item results for valid items in this group
+                    foreach ($validItems as $tradeItem) {
                         $reservationResult = $reservationResults[$tradeItem->id];
                         $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
 

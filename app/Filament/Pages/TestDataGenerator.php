@@ -601,8 +601,9 @@ class TestDataGenerator extends Page
                         ->reactive(),
 
                     Select::make('locations')
-                        ->label('ロケーション指定（任意）')
-                        ->helperText('指定した場合、該当ロケーションの在庫商品のみで売上を生成します。在庫がない場合は自動生成されます。検索して選択してください。')
+                        ->label('ロケーション指定')
+                        ->helperText('該当ロケーションの在庫商品のみで売上を生成します。在庫がない場合は自動生成されます。検索して選択してください。')
+                        ->required()
                         ->multiple()
                         ->searchable()
                         ->getSearchResultsUsing(function (?string $search, Get $get) {
