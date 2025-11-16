@@ -18,6 +18,8 @@ class ListWmsShortages extends ListRecords
 
     protected static ?string $title = '';
 
+    protected string $view = 'filament.resources.wms-shortages.pages.list-wms-shortages';
+
     protected function getHeaderActions(): array
     {
         return [
