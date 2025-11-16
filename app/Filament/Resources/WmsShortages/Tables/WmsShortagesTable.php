@@ -29,6 +29,8 @@ class WmsShortagesTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([10, 25, 50, 100, 500, 1000])
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -173,26 +175,16 @@ class WmsShortagesTable
                     ->weight('bold')
                     ->alignment('center'),
 
-                TextColumn::make('transfer_case_qty')
+                TextColumn::make('allocations_case_qty')
                     ->label('移動出荷' . QuantityType::CASE->name())
-                    ->state(function ($record) {
-                        // allocationsからCASEの合計を計算
-                        return $record->allocations()
-                            ->where('assign_qty_type', 'CASE')
-                            ->sum('assign_qty_each');
-                    })
+                    ->state(fn ($record) => $record->allocations_case_qty ?? 0)
                     ->formatStateUsing(fn ($state) => $state > 0 ? (string)$state : '-')
                     ->color(fn ($state) => $state > 0 ? 'info' : 'gray')
                     ->alignment('center'),
 
-                TextColumn::make('transfer_piece_qty')
+                TextColumn::make('allocations_piece_qty')
                     ->label('移動出荷' . QuantityType::PIECE->name())
-                    ->state(function ($record) {
-                        // allocationsからPIECEの合計を計算
-                        return $record->allocations()
-                            ->where('assign_qty_type', 'PIECE')
-                            ->sum('assign_qty_each');
-                    })
+                    ->state(fn ($record) => $record->allocations_piece_qty ?? 0)
                     ->formatStateUsing(fn ($state) => $state > 0 ? (string)$state : '-')
                     ->color(fn ($state) => $state > 0 ? 'info' : 'gray')
                     ->alignment('center'),
@@ -200,7 +192,9 @@ class WmsShortagesTable
                 TextColumn::make('remaining_qty_case')
                     ->label('残欠品' . QuantityType::CASE->name())
                     ->state(function ($record) {
-                        $remaining = $record->remaining_qty_each;
+                        // Use eager loaded sum to calculate remaining
+                        $allocated = $record->allocations_total_qty ?? 0;
+                        $remaining = max(0, $record->shortage_qty_each - $allocated);
                         $display = $record->convertToCaseDisplay($remaining);
                         return $display['case'];
                     })
@@ -211,7 +205,9 @@ class WmsShortagesTable
                 TextColumn::make('remaining_qty_piece')
                     ->label('残欠品' . QuantityType::PIECE->name())
                     ->state(function ($record) {
-                        $remaining = $record->remaining_qty_each;
+                        // Use eager loaded sum to calculate remaining
+                        $allocated = $record->allocations_total_qty ?? 0;
+                        $remaining = max(0, $record->shortage_qty_each - $allocated);
                         $display = $record->convertToCaseDisplay($remaining);
                         return $display['piece'];
                     })
@@ -259,14 +255,14 @@ class WmsShortagesTable
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
                     ->relationship('warehouse', 'name')
-                    ->searchable()
-                    ->preload(),
+                    ->searchable(),
+                    // ->preload() // Disabled for performance - load on search
 
                 SelectFilter::make('delivery_course_id')
                     ->label('配送コース')
                     ->relationship('trade.earning.delivery_course', 'name')
                     ->searchable()
-                    ->preload()
+                    // ->preload() // Disabled for performance - load on search
                     ->query(function ($query, $data) {
                         if (!empty($data['value'])) {
                             $query->whereHas('trade.earning', function ($q) use ($data) {
@@ -279,7 +275,7 @@ class WmsShortagesTable
                     ->label('得意先')
                     ->relationship('trade.partner', 'name')
                     ->searchable()
-                    ->preload()
+                    // ->preload() // Disabled for performance - load on search
                     ->query(function ($query, $data) {
                         if (!empty($data['value'])) {
                             $query->whereHas('trade', function ($q) use ($data) {
@@ -312,7 +308,7 @@ class WmsShortagesTable
                     ->label('担当営業')
                     ->relationship('trade.earning.buyer.current_detail.salesman', 'name')
                     ->searchable()
-                    ->preload()
+                    // ->preload() // Disabled for performance - load on search
                     ->query(function ($query, $data) {
                         if (!empty($data['value'])) {
                             $query->whereHas('trade.earning.buyer.current_detail.salesman', function ($q) use ($data) {
@@ -329,10 +325,15 @@ class WmsShortagesTable
                     ->label('欠品処理')
                     ->icon('heroicon-o-truck')
                     ->color('warning')
-                    ->visible(fn (WmsShortage $record): bool =>
-                        in_array($record->status, ['OPEN', 'REALLOCATING']) &&
-                        $record->remaining_qty_each > 0
-                    )
+                    ->visible(function (WmsShortage $record): bool {
+                        if (!in_array($record->status, ['OPEN', 'REALLOCATING'])) {
+                            return false;
+                        }
+                        // Use eager loaded sum to check remaining qty
+                        $allocated = $record->allocations_total_qty ?? 0;
+                        $remaining = max(0, $record->shortage_qty_each - $allocated);
+                        return $remaining > 0;
+                    })
                     ->schema([
                         Section::make('元商品情報')
                             ->schema([
@@ -387,7 +388,9 @@ class WmsShortagesTable
                                             : "{$totalShortageDisplay['piece']}{$pieceLabel}";
 
                                         // 残欠品数
-                                        $remainingDisplay = $record->convertToCaseDisplay($record->remaining_qty_each);
+                                        $allocated = $record->allocations_total_qty ?? 0;
+                                        $remaining = max(0, $record->shortage_qty_each - $allocated);
+                                        $remainingDisplay = $record->convertToCaseDisplay($remaining);
                                         $remainingValue = $remainingDisplay['case'] > 0
                                             ? ($remainingDisplay['piece'] > 0
                                                 ? "{$remainingDisplay['case']}{$caseLabel} {$remainingDisplay['piece']}{$pieceLabel}"
@@ -660,7 +663,9 @@ class WmsShortagesTable
                                             : "{$totalShortageDisplay['piece']}{$pieceLabel}";
 
                                         // 残欠品数
-                                        $remainingDisplay = $record->convertToCaseDisplay($record->remaining_qty_each);
+                                        $allocated = $record->allocations_total_qty ?? 0;
+                                        $remaining = max(0, $record->shortage_qty_each - $allocated);
+                                        $remainingDisplay = $record->convertToCaseDisplay($remaining);
                                         $remainingValue = $remainingDisplay['case'] > 0
                                             ? ($remainingDisplay['piece'] > 0
                                                 ? "{$remainingDisplay['case']}{$caseLabel} {$remainingDisplay['piece']}{$pieceLabel}"

@@ -47,25 +47,26 @@ class WmsPickingTaskResource extends Resource
         ];
     }
 
-    public static function getNavigationBadge(): ?string
-    {
-        return static::getModel()::unassigned()->inProgress()->count() ?: null;
-    }
+    // Navigation badge disabled for performance
+    // public static function getNavigationBadge(): ?string
+    // {
+    //     return static::getModel()::unassigned()->inProgress()->count() ?: null;
+    // }
 
-    public static function getNavigationBadgeColor(): ?string
-    {
-        $count = static::getModel()::unassigned()->inProgress()->count();
+    // public static function getNavigationBadgeColor(): ?string
+    // {
+    //     $count = static::getModel()::unassigned()->inProgress()->count();
 
-        if ($count > 10) {
-            return 'danger';
-        } elseif ($count > 5) {
-            return 'warning';
-        } elseif ($count > 0) {
-            return 'success';
-        }
+    //     if ($count > 10) {
+    //         return 'danger';
+    //     } elseif ($count > 5) {
+    //         return 'warning';
+    //     } elseif ($count > 0) {
+    //         return 'success';
+    //     }
 
-        return null;
-    }
+    //     return null;
+    // }
 
     public static function getNavigationBadgeTooltip(): ?string
     {

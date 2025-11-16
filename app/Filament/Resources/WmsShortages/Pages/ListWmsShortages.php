@@ -44,8 +44,25 @@ class ListWmsShortages extends ListRecords
                     'trade.partner',
                     'trade.earning.delivery_course',
                     'trade.earning.buyer.current_detail.salesman',
-                    'allocations',
+                    'allocations.fromWarehouse',
+                    'updater',
+                    'confirmedUser',
                 ])
+                ->withSum([
+                    'allocations as allocations_total_qty' => function ($query) {
+                        $query->whereNotIn('status', ['CANCELLED']);
+                    }
+                ], 'assign_qty_each')
+                ->withSum([
+                    'allocations as allocations_case_qty' => function ($query) {
+                        $query->where('assign_qty_type', 'CASE');
+                    }
+                ], 'assign_qty_each')
+                ->withSum([
+                    'allocations as allocations_piece_qty' => function ($query) {
+                        $query->where('assign_qty_type', 'PIECE');
+                    }
+                ], 'assign_qty_each')
             )
             ->recordUrl(null);
     }

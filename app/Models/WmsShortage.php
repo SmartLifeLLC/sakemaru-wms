@@ -179,9 +179,15 @@ class WmsShortage extends Model
      */
     public function getRemainingQtyEachAttribute(): int
     {
-        $allocated = $this->allocations()
-            ->whereNotIn('status', [WmsShortageAllocation::STATUS_CANCELLED])
-            ->sum('assign_qty_each');
+        // withSumでロード済みの場合はそれを使用
+        // Check if the aggregate was loaded using withSum()
+        if (array_key_exists('allocations_total_qty', $this->attributes)) {
+            $allocated = $this->attributes['allocations_total_qty'] ?? 0;
+        } else {
+            $allocated = $this->allocations()
+                ->whereNotIn('status', [WmsShortageAllocation::STATUS_CANCELLED])
+                ->sum('assign_qty_each');
+        }
 
         return max(0, $this->shortage_qty_each - $allocated);
     }

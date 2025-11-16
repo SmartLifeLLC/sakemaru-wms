@@ -13,6 +13,8 @@ class Buyer extends CustomModel
 {
     use HasFactory;
 
+    protected bool $hasIsActiveColumn = false;
+
     protected $guarded = [];
     protected $casts = [];
 
