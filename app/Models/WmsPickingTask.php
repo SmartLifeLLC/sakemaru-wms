@@ -15,6 +15,11 @@ class WmsPickingTask extends Model
 
     protected $table = 'wms_picking_tasks';
 
+    // Status constants
+    public const STATUS_PENDING = 'PENDING';
+    public const STATUS_PICKING = 'PICKING';
+    public const STATUS_COMPLETED = 'COMPLETED';
+
     protected $fillable = [
         'wave_id',
         'wms_picking_area_id',

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsPickingTasks\Pages;
 
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsPickingTask;
+use App\Services\Shortage\PickingShortageDetector;
 use Filament\Actions\Action;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -144,15 +145,6 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     'status' => $shortageQty > 0 ? 'SHORTAGE' : 'COMPLETED',
                     'picked_at' => now(),
                 ]);
-
-                // 補正がない場合のみ成功メッセージを表示
-                if ($originalValue === $pickedQty) {
-                    Notification::make()
-                        ->title('更新しました')
-                        ->body("{$item->item_name_with_code} を更新しました")
-                        ->success()
-                        ->send();
-                }
             }
 
             // データを再読み込み
@@ -255,6 +247,26 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 return;
             }
 
+            // 欠品がある商品の欠品データを生成
+            $shortageItems = $this->record->pickingItemResults()
+                ->where('status', 'SHORTAGE')
+                ->get();
+
+            $shortageDetector = app(PickingShortageDetector::class);
+            $shortagesCreated = 0;
+
+            foreach ($shortageItems as $item) {
+                // 欠品検出・記録
+                $shortage = $shortageDetector->detectAndRecord(
+                    pickResult: $item,
+                    parentShortageId: null // 通常ピッキングでは親欠品なし
+                );
+
+                if ($shortage) {
+                    $shortagesCreated++;
+                }
+            }
+
             // タスクを完了
             $this->record->update([
                 'status' => 'COMPLETED',
@@ -278,9 +290,14 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     ]);
             }
 
+            $message = 'タスクが完了しました';
+            if ($shortagesCreated > 0) {
+                $message .= "（欠品{$shortagesCreated}件を記録しました）";
+            }
+
             Notification::make()
                 ->title('ピッキング完了')
-                ->body('タスクが完了しました')
+                ->body($message)
                 ->success()
                 ->send();
 

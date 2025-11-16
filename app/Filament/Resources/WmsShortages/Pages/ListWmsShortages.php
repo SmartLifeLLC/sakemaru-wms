@@ -1,0 +1,54 @@
+<?php
+
+namespace App\Filament\Resources\WmsShortages\Pages;
+
+use App\Filament\Resources\WmsShortages\WmsShortageResource;
+use Archilex\AdvancedTables\AdvancedTables;
+use Archilex\AdvancedTables\Components\PresetView;
+use Filament\Actions\CreateAction;
+use Filament\Resources\Pages\ListRecords;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+
+class ListWmsShortages extends ListRecords
+{
+    use AdvancedTables;
+
+    protected static string $resource = WmsShortageResource::class;
+
+    protected static ?string $title = '';
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            // CreateAction::make(), // 作成ボタンを削除
+        ];
+    }
+
+    public function getPresetViews(): array
+    {
+        return [
+            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'CONFIRMED'))->favorite()->label('処理完了')->default(),
+            'not_confirmed' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'CONFIRMED'))->favorite()->label('処理中'),
+        ];
+
+    }
+    public function table(Table $table): Table
+    {
+        return parent::table($table)
+            ->modifyQueryUsing(fn (Builder $query) => $query
+                ->with([
+                    'wave',
+                    'warehouse',
+                    'item',
+                    'trade.partner',
+                    'trade.earning.delivery_course',
+                    'trade.earning.buyer.current_detail.salesman',
+                    'allocations',
+                ])
+            )
+            ->recordUrl(null);
+    }
+
+
+}

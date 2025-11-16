@@ -31,6 +31,10 @@ class WmsPickingItemResult extends Model
         'picked_qty',
         'picked_qty_type',
         'shortage_qty',
+        'shortage_allocated_qty',
+        'shortage_allocated_qty_type',
+        'is_ready_to_shipment',
+        'shipment_ready_at',
         'status',
         'picker_id',
         'picked_at',
@@ -43,7 +47,10 @@ class WmsPickingItemResult extends Model
         'planned_qty' => 'decimal:2',
         'picked_qty' => 'decimal:2',
         'shortage_qty' => 'decimal:2',
+        'shortage_allocated_qty' => 'integer',
+        'is_ready_to_shipment' => 'boolean',
         'picked_at' => 'datetime',
+        'shipment_ready_at' => 'datetime',
     ];
 
     /**
@@ -68,6 +75,14 @@ class WmsPickingItemResult extends Model
     public function trade(): BelongsTo
     {
         return $this->belongsTo(\App\Models\Sakemaru\Trade::class, 'trade_id');
+    }
+
+    /**
+     * このピッキング明細が属する取引明細
+     */
+    public function tradeItem(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Sakemaru\TradeItem::class, 'trade_item_id');
     }
 
     /**
