@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsShortages\Pages;
 
+use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsShortages\WmsShortageResource;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
@@ -13,6 +14,10 @@ use Illuminate\Database\Eloquent\Builder;
 class ListWmsShortages extends ListRecords
 {
     use AdvancedTables;
+    use HasWmsUserViews {
+        HasWmsUserViews::getUserViews insteadof AdvancedTables;
+        HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
+    }
 
     protected static string $resource = WmsShortageResource::class;
 

@@ -75,11 +75,13 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->plugins([
                     AdvancedTablesPlugin::make()
-                        ->userViewsEnabled(false)
+                        ->userViewsEnabled(true)
                         ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
                         ->resourceNavigationSort(1000)
-
-
+                        ->userView(\App\Models\FilamentFilterSets\UserView::class)
+                        ->managedUserView(\App\Models\FilamentFilterSets\ManagedUserView::class)
+                        ->managedPresetView(\App\Models\FilamentFilterSets\ManagedPresetView::class)
+                        ->managedDefaultView(\App\Models\FilamentFilterSets\ManagedDefaultView::class)
                 ]
             )
             ->authMiddleware([

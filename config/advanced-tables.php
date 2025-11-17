@@ -56,7 +56,7 @@ return [
 
     'managed_default_views' => [
         'enabled' => true,
-        'managed_default_view' => Archilex\AdvancedTables\Models\ManagedDefaultView::class,
+        'managed_default_view' => App\Models\FilamentFilterSets\ManagedDefaultView::class,
         'set_icon' => 'heroicon-o-bolt',
         'remove_icon' => 'heroicon-o-bolt-slash',
     ],
@@ -68,7 +68,7 @@ return [
     */
 
     'managed_user_views' => [
-        'managed_user_view' => Archilex\AdvancedTables\Models\ManagedUserView::class,
+        'managed_user_view' => App\Models\FilamentFilterSets\ManagedUserView::class,
     ],
 
     /*
@@ -108,7 +108,7 @@ return [
         'new_preset_view_sort_position' => 'before',
         'preset_views_manageable' => true,
         'lock_icon' => null,
-        'managed_preset_view' => Archilex\AdvancedTables\Models\ManagedPresetView::class,
+        'managed_preset_view' => App\Models\FilamentFilterSets\ManagedPresetView::class,
         'legacy_dropdown' => false,
     ],
 
@@ -218,7 +218,7 @@ return [
     */
 
     'users' => [
-        'user' => App\Models\User::class,
+        'user' => App\Models\Sakemaru\User::class,
         'user_table' => 'users',
         'user_table_key_column' => 'id',
         'user_table_name_column' => 'name',
@@ -235,7 +235,7 @@ return [
         'enabled' => false,
         'global_user_views_manageable' => true,
         'new_global_user_view_sort_position' => 'before',
-        'user_view' => Archilex\AdvancedTables\Models\UserView::class,
+        'user_view' => App\Models\FilamentFilterSets\UserView::class,
     ],
 
     /*
