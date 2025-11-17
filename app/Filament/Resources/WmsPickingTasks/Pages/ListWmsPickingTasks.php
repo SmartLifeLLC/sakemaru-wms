@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickingTasks\Pages;
 
+use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsPickingTasks\Tables\WmsPickingTasksTable;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -13,6 +14,11 @@ use Illuminate\Database\Eloquent\Builder;
 class ListWmsPickingTasks extends ListRecords
 {
     use AdvancedTables;
+    use HasWmsUserViews {
+        HasWmsUserViews::getUserViews insteadof AdvancedTables;
+        HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
+    }
+
     protected static string $resource = WmsPickingTaskResource::class;
     protected static ?string $title = 'ピッキング作業一覧';
 
