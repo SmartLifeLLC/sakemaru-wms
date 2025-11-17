@@ -69,13 +69,14 @@ class WmsPickerResource extends Resource
         ];
     }
 
-    public static function getNavigationBadge(): ?string
-    {
-        return static::getModel()::active()->count() ?: null;
-    }
+    // Navigation badge disabled for performance
+    // public static function getNavigationBadge(): ?string
+    // {
+    //     return static::getModel()::active()->count() ?: null;
+    // }
 
-    public static function getNavigationBadgeColor(): ?string
-    {
-        return 'success';
-    }
+    // public static function getNavigationBadgeColor(): ?string
+    // {
+    //     return 'success';
+    // }
 }

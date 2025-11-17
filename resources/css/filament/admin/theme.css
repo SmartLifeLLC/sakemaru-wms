@@ -218,4 +218,13 @@
     .fi-page > .fi-page-content {
         @apply mt-0;
     }
+
+    /* テーブルの列間にボーダーを追加 */
+    .fi-ta-table > thead > tr {
+        @apply divide-x divide-gray-200 dark:divide-white/5;
+    }
+
+    .fi-ta-row {
+        @apply divide-x divide-gray-200 dark:divide-white/5;
+    }
 }

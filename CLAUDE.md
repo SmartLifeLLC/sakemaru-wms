@@ -2,6 +2,28 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 重要: 作業開始前の必読ドキュメント
+
+新しいタスクを開始する前に、以下のドキュメントを必ず確認してください:
+
+1. **Filament 4仕様**: `storage/specifications/filament4spec.md`
+   - Filament 4の重要な変更点とベストプラクティス
+   - テーブルクエリのカスタマイズ方法
+   - アクションの位置制御
+   - フォームコンポーネントの正しいインポートパス
+   - よくあるエラーと解決方法
+
+2. **WMS仕様**: `storage/specifications/2025-10-13-wms-specification.md`
+   - システム全体の要件定義
+   - データベース設計
+   - ビジネスロジック
+
+3. **欠品管理仕様**: `storage/specifications/wms-shortage-allocations/20251115-shorage-algorithm.md`
+   - 欠品検出と代理出荷のアルゴリズム
+   - データ構造と状態管理
+
+これらのドキュメントに記載されている情報を優先して使用し、古い実装パターンを避けてください。
+
 ## Project Overview
 
 Smart WMS (Warehouse Management System) - A Laravel 12 + Filament 4 admin panel application for warehouse management.
@@ -268,3 +290,34 @@ FROM real_stocks rs
 - Optimistic lock conflict detection via `wms_lock_version`
 - Idempotency of allocation operations
 - Exception handling: shortages, discrepancies, concurrent updates
+
+### Quantity Type Display Guidelines
+
+**IMPORTANT**: Always use `QuantityType` enum for displaying quantity types in the UI.
+
+**Terminology:**
+- `CASE` → "ケース" (NOT "CS")
+- `PIECE` → "バラ" (NOT "個")
+- `CARTON` → "ボール"
+
+**Usage:**
+```php
+use App\Enums\QuantityType;
+
+// Display quantity with proper label
+$caseLabel = QuantityType::CASE->name();  // "ケース"
+$pieceLabel = QuantityType::PIECE->name(); // "バラ"
+
+// Example: "12ケース 5バラ" instead of "12CS 5個"
+$display = "{$caseQty}{$caseLabel} {$pieceQty}{$pieceLabel}";
+```
+
+**Why:**
+- Consistency across the entire application
+- Easy to change terminology in one place
+- Type-safe with enum validation
+- Prevents hardcoded strings like "CS" or "個"
+
+**Related Enums:**
+- `EVolumeUnit`: For item volume units (ml, g, etc.)
+  - Use `EVolumeUnit::tryFrom($value)->name()` to get display label

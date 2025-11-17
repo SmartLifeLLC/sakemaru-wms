@@ -308,6 +308,13 @@ class GenerateWavesCommand extends Command
                         $reservationResult = $reservationResults[$tradeItem->id];
                         $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
 
+                        // quantity_typeは必須フィールド
+                        if (!$tradeItem->quantity_type) {
+                            throw new \RuntimeException(
+                                "quantity_type must be specified for trade_item ID {$tradeItem->id}"
+                            );
+                        }
+
                         DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
                             'picking_task_id' => $pickingTaskId,
                             'earning_id' => $earningId, // Added: earning_id now tracked at item level
@@ -318,11 +325,11 @@ class GenerateWavesCommand extends Command
                             'location_id' => $reservationResult['location_id'], // Primary picking location from reservation
                             'walking_order' => $reservationResult['walking_order'], // Warehouse movement sequence for route optimization
                             'ordered_qty' => $tradeItem->quantity, // Original order quantity
-                            'ordered_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // From trade_items.quantity_type
+                            'ordered_qty_type' => $tradeItem->quantity_type, // From trade_items.quantity_type (must be specified)
                             'planned_qty' => $reservationResult['allocated_qty'], // Allocated quantity from reservations
-                            'planned_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // Same as ordered (for now)
+                            'planned_qty_type' => $tradeItem->quantity_type, // Same as ordered (for now)
                             'picked_qty' => 0, // Will be set by picker during picking
-                            'picked_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // Will be set by picker
+                            'picked_qty_type' => $tradeItem->quantity_type, // Will be set by picker
                             'shortage_qty' => 0, // Will be set by picker during picking
                             'status' => 'PENDING', // Changed: PENDING is initial state (not PICKING)
                             'picker_id' => null,
@@ -435,11 +442,29 @@ class GenerateWavesCommand extends Command
                 ->delete();
             $this->info("  ✓ Deleted {$deletedReservations} reservations and restored real_stocks");
 
-            // 5. Delete waves
+            // 5. Delete shortage allocations (移動出荷)
+            $deletedShortageAllocations = DB::connection('sakemaru')
+                ->table('wms_shortage_allocations')
+                ->whereIn('shortage_id', function ($query) use ($waveIds) {
+                    $query->select('id')
+                        ->from('wms_shortages')
+                        ->whereIn('wave_id', $waveIds);
+                })
+                ->delete();
+            $this->info("  ✓ Deleted {$deletedShortageAllocations} shortage allocations");
+
+            // 6. Delete shortages
+            $deletedShortages = DB::connection('sakemaru')
+                ->table('wms_shortages')
+                ->whereIn('wave_id', $waveIds)
+                ->delete();
+            $this->info("  ✓ Deleted {$deletedShortages} shortages");
+
+            // 7. Delete waves
             $deletedWaves = Wave::whereIn('id', $waveIds)->delete();
             $this->info("  ✓ Deleted {$deletedWaves} waves");
 
-            // 6. Reset WMS columns in real_stocks (wms_real_stocks table no longer exists)
+            // 8. Reset WMS columns in real_stocks (wms_real_stocks table no longer exists)
             $updatedStocks = DB::connection('sakemaru')
                 ->table('real_stocks')
                 ->where('wms_reserved_qty', '>', 0)
@@ -454,7 +479,7 @@ class GenerateWavesCommand extends Command
                 $this->info("  ✓ Reset {$updatedStocks} real_stocks records");
             }
 
-            // 7. Delete idempotency keys for wave reservations
+            // 9. Delete idempotency keys for wave reservations
             $deletedKeys = DB::connection('sakemaru')
                 ->table('wms_idempotency_keys')
                 ->where('scope', 'wave_reservation')

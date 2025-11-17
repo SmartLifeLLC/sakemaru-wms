@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DataVerificationPurchase extends CustomModel
 {
+    protected bool $hasIsActiveColumn = false;
+
     protected $casts = [];
     protected $guarded = [];
     public function user():belongsTo
