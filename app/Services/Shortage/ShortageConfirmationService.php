@@ -36,8 +36,8 @@ class ShortageConfirmationService
                 return;
             }
 
-            // 2. 合計移動出荷数を計算
-            $totalAllocatedQty = $allocations->sum('assign_qty_each');
+            // 2. 合計移動出荷数を計算（受注単位ベース）
+            $totalAllocatedQty = $allocations->sum('assign_qty');
 
             // 3. 対応するピッキング結果を取得
             $pickResult = WmsPickingItemResult::where('trade_item_id', $shortage->trade_item_id)
@@ -62,10 +62,12 @@ class ShortageConfirmationService
 
             $pickResult->save();
 
-            // 6. 欠品レコードのステータスをCONFIRMEDに更新し、確定者と日時を記録
-            $shortage->status = WmsShortage::STATUS_CONFIRMED;
-            $shortage->confirmed_user_id = auth()->id();
+            // 6. 欠品レコードのステータスをSHORTAGEに更新し、承認者と日時を記録
+            $shortage->status = WmsShortage::STATUS_SHORTAGE;
+            $shortage->is_confirmed = true;
+            $shortage->confirmed_by = auth()->id();
             $shortage->confirmed_at = now();
+            $shortage->confirmed_user_id = auth()->id();  // 後方互換性のため
             $shortage->save();
 
             Log::info('Shortage confirmation completed', [

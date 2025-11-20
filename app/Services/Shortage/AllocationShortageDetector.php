@@ -20,8 +20,8 @@ class AllocationShortageDetector
      * @param int $itemId
      * @param int $tradeId
      * @param int $tradeItemId
-     * @param int $orderQtyEach 受注数量（PIECE換算済み）
-     * @param int $reservedQtyEach 引当数量（PIECE換算済み）
+     * @param int $orderQty 受注数量（受注単位ベース）
+     * @param int $reservedQty 引当数量（受注単位ベース）
      * @param string $qtyTypeAtOrder 受注単位 (CASE, PIECE, CARTON)
      * @param int $caseSizeSnap ケース入数のスナップショット
      * @param int|null $sourceReservationId 元引当レコードID（トレーサビリティ用）
@@ -33,16 +33,16 @@ class AllocationShortageDetector
         int $itemId,
         int $tradeId,
         int $tradeItemId,
-        int $orderQtyEach,
-        int $reservedQtyEach,
+        int $orderQty,
+        int $reservedQty,
         string $qtyTypeAtOrder,
         int $caseSizeSnap,
         ?int $sourceReservationId = null
     ): ?WmsShortage {
-        $remainingEach = $orderQtyEach - $reservedQtyEach;
+        $shortageQty = $orderQty - $reservedQty;
 
         // 欠品がない場合は何もしない
-        if ($remainingEach <= 0) {
+        if ($shortageQty <= 0) {
             return null;
         }
 
@@ -52,29 +52,30 @@ class AllocationShortageDetector
             $itemId,
             $tradeId,
             $tradeItemId,
-            $orderQtyEach,
-            $reservedQtyEach,
-            $remainingEach,
+            $orderQty,
+            $reservedQty,
+            $shortageQty,
             $qtyTypeAtOrder,
             $caseSizeSnap,
             $sourceReservationId
         ) {
-            // 欠品レコード作成
+            // 欠品レコード作成（受注単位ベース）
             $shortage = WmsShortage::create([
-                'type' => WmsShortage::TYPE_ALLOCATION,
                 'wave_id' => $waveId,
                 'warehouse_id' => $warehouseId,
                 'item_id' => $itemId,
                 'trade_id' => $tradeId,
                 'trade_item_id' => $tradeItemId,
-                'order_qty_each' => $orderQtyEach,
-                'planned_qty_each' => $reservedQtyEach,
-                'picked_qty_each' => 0,
-                'shortage_qty_each' => $remainingEach,
+                'order_qty' => $orderQty,
+                'planned_qty' => $reservedQty,
+                'picked_qty' => 0,
+                'shortage_qty' => $shortageQty,
+                'allocation_shortage_qty' => $shortageQty,
+                'picking_shortage_qty' => 0,
                 'qty_type_at_order' => $qtyTypeAtOrder,
                 'case_size_snap' => $caseSizeSnap,
                 'source_reservation_id' => $sourceReservationId,
-                'status' => WmsShortage::STATUS_OPEN,
+                'status' => WmsShortage::STATUS_BEFORE,
                 'reason_code' => WmsShortage::REASON_NO_STOCK,
             ]);
 
@@ -84,9 +85,9 @@ class AllocationShortageDetector
                 'warehouse_id' => $warehouseId,
                 'item_id' => $itemId,
                 'trade_item_id' => $tradeItemId,
-                'order_qty_each' => $orderQtyEach,
-                'reserved_qty_each' => $reservedQtyEach,
-                'shortage_qty_each' => $remainingEach,
+                'order_qty' => $orderQty,
+                'reserved_qty' => $reservedQty,
+                'shortage_qty' => $shortageQty,
             ]);
 
             return $shortage;

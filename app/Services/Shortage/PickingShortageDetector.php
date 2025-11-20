@@ -24,10 +24,11 @@ class PickingShortageDetector
         WmsPickingItemResult $pickResult,
         ?int $parentShortageId = null
     ): ?WmsShortage {
-        $shortEach = max(0, $pickResult->planned_qty - $pickResult->picked_qty);
+        // 欠品数量を計算（受注単位ベース）
+        $shortageQty = max(0, $pickResult->planned_qty - $pickResult->picked_qty);
 
         // 欠品がない場合は何もしない
-        if ($shortEach <= 0) {
+        if ($shortageQty <= 0) {
             return null;
         }
 
@@ -42,7 +43,7 @@ class PickingShortageDetector
         return DB::connection('sakemaru')->transaction(function () use (
             $pickResult,
             $task,
-            $shortEach,
+            $shortageQty,
             $parentShortageId
         ) {
             // picking_item_resultから受注単位とケース入数を取得
@@ -62,14 +63,14 @@ class PickingShortageDetector
                     'warehouse_id' => $task->warehouse_id,
                     'item_id' => $pickResult->item_id,
                     'trade_item_id' => $pickResult->trade_item_id,
-                    'status' => WmsShortage::STATUS_OPEN,
+                    'status' => WmsShortage::STATUS_BEFORE,
                 ],
                 [
                     'trade_id' => $pickResult->trade_id,
-                    'order_qty_each' => $pickResult->planned_qty,
-                    'planned_qty_each' => $pickResult->planned_qty,
-                    'picked_qty_each' => 0,
-                    'shortage_qty_each' => 0,
+                    'order_qty' => $pickResult->planned_qty,
+                    'planned_qty' => $pickResult->planned_qty,
+                    'picked_qty' => 0,
+                    'shortage_qty' => 0,
                     'allocation_shortage_qty' => 0,
                     'picking_shortage_qty' => 0,
                     'qty_type_at_order' => $qtyType,
@@ -80,16 +81,16 @@ class PickingShortageDetector
                 ]
             );
 
-            // 欠品数量を加算
+            // 欠品数量を加算（受注単位ベース）
             if (!$shortage->wasRecentlyCreated) {
-                $shortage->increment('shortage_qty_each', $shortEach);
-                $shortage->increment('picking_shortage_qty', $shortEach);
-                $shortage->picked_qty_each = $pickResult->picked_qty;
+                $shortage->increment('shortage_qty', $shortageQty);
+                $shortage->increment('picking_shortage_qty', $shortageQty);
+                $shortage->picked_qty = $pickResult->picked_qty;
                 $shortage->save();
             } else {
-                $shortage->shortage_qty_each = $shortEach;
-                $shortage->picking_shortage_qty = $shortEach;
-                $shortage->picked_qty_each = $pickResult->picked_qty;
+                $shortage->shortage_qty = $shortageQty;
+                $shortage->picking_shortage_qty = $shortageQty;
+                $shortage->picked_qty = $pickResult->picked_qty;
                 $shortage->save();
             }
 
@@ -102,7 +103,8 @@ class PickingShortageDetector
                 'trade_item_id' => $pickResult->trade_item_id,
                 'planned_qty' => $pickResult->planned_qty,
                 'picked_qty' => $pickResult->picked_qty,
-                'shortage_qty_each' => $shortEach,
+                'shortage_qty' => $shortageQty,
+                'qty_type' => $qtyType,
                 'parent_shortage_id' => $parentShortageId,
             ]);
 

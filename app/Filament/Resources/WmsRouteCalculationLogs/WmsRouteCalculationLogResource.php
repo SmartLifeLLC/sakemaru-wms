@@ -29,7 +29,7 @@ class WmsRouteCalculationLogResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return \App\Enums\EMenuCategory::OUTBOUND->label();
+        return \App\Enums\EMenuCategory::LOGS->label();
     }
 
     public static function getNavigationSort(): ?int

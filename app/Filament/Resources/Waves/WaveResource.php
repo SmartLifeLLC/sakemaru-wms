@@ -19,6 +19,8 @@ class WaveResource extends Resource
 {
     protected static ?string $model = Wave::class;
 
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
     public static function getNavigationGroup(): ?string

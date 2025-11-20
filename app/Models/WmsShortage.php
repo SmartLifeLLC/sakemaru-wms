@@ -20,42 +20,48 @@ class WmsShortage extends Model
         'item_id',
         'trade_id',
         'trade_item_id',
-        'order_qty_each',
-        'planned_qty_each',
-        'picked_qty_each',
-        'shortage_qty_each',
+        'order_qty',
+        'planned_qty',
+        'picked_qty',
+        'shortage_qty',
         'allocation_shortage_qty',
         'picking_shortage_qty',
         'qty_type_at_order',
         'case_size_snap',
+        'is_confirmed',
+        'confirmed_by',
+        'confirmed_at',
         'source_reservation_id',
         'source_pick_result_id',
         'parent_shortage_id',
         'status',
         'confirmed_user_id',
-        'confirmed_at',
         'updater_id',
         'reason_code',
         'note',
     ];
 
     protected $casts = [
-        'order_qty_each' => 'integer',
-        'planned_qty_each' => 'integer',
-        'picked_qty_each' => 'integer',
-        'shortage_qty_each' => 'integer',
+        'order_qty' => 'integer',
+        'planned_qty' => 'integer',
+        'picked_qty' => 'integer',
+        'shortage_qty' => 'integer',
         'allocation_shortage_qty' => 'integer',
         'picking_shortage_qty' => 'integer',
         'case_size_snap' => 'integer',
+        'is_confirmed' => 'boolean',
         'confirmed_at' => 'datetime',
     ];
 
     // Status constants
-    public const STATUS_OPEN = 'OPEN';
+    public const STATUS_BEFORE = 'BEFORE';
     public const STATUS_REALLOCATING = 'REALLOCATING';
-    public const STATUS_FULFILLED = 'FULFILLED';
-    public const STATUS_CONFIRMED = 'CONFIRMED';
-    public const STATUS_CANCELLED = 'CANCELLED';
+    public const STATUS_SHORTAGE = 'SHORTAGE';
+    public const STATUS_PARTIAL_SHORTAGE = 'PARTIAL_SHORTAGE';
+
+    // Deprecated status constants (for backward compatibility)
+    public const STATUS_OPEN = 'BEFORE';  // Alias for BEFORE
+    public const STATUS_CONFIRMED = 'SHORTAGE';  // Alias for SHORTAGE
 
     // Reason code constants
     public const REASON_NONE = 'NONE';
@@ -105,6 +111,11 @@ class WmsShortage extends Model
         return $this->hasMany(WmsShortageAllocation::class, 'shortage_id');
     }
 
+    public function confirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'confirmed_by');
+    }
+
     public function confirmedUser(): BelongsTo
     {
         return $this->belongsTo(\App\Models\User::class, 'confirmed_user_id');
@@ -116,14 +127,29 @@ class WmsShortage extends Model
     }
 
     // Scopes
+    public function scopeBefore($query)
+    {
+        return $query->where('status', self::STATUS_BEFORE);
+    }
+
     public function scopeOpen($query)
     {
-        return $query->where('status', self::STATUS_OPEN);
+        return $query->where('status', self::STATUS_BEFORE);  // Alias for backward compatibility
     }
 
     public function scopeReallocating($query)
     {
         return $query->where('status', self::STATUS_REALLOCATING);
+    }
+
+    public function scopeShortage($query)
+    {
+        return $query->where('status', self::STATUS_SHORTAGE);
+    }
+
+    public function scopePartialShortage($query)
+    {
+        return $query->where('status', self::STATUS_PARTIAL_SHORTAGE);
     }
 
     public function scopeHasAllocationShortage($query)
@@ -157,9 +183,14 @@ class WmsShortage extends Model
         return $this->picking_shortage_qty > 0;
     }
 
+    public function isBefore(): bool
+    {
+        return $this->status === self::STATUS_BEFORE;
+    }
+
     public function isOpen(): bool
     {
-        return $this->status === self::STATUS_OPEN;
+        return $this->status === self::STATUS_BEFORE;  // Alias for backward compatibility
     }
 
     public function isReallocating(): bool
@@ -167,17 +198,24 @@ class WmsShortage extends Model
         return $this->status === self::STATUS_REALLOCATING;
     }
 
-    public function isFulfilled(): bool
+    public function isShortage(): bool
     {
-        return $this->status === self::STATUS_FULFILLED;
+        return $this->status === self::STATUS_SHORTAGE;
+    }
+
+    public function isPartialShortage(): bool
+    {
+        return $this->status === self::STATUS_PARTIAL_SHORTAGE;
     }
 
     /**
      * 欠品の残量を計算
      * 移動出荷で充足した分を差し引く
      * キャンセル以外の全ての移動出荷を差し引く
+     *
+     * @return int 受注単位ベースの残欠品数
      */
-    public function getRemainingQtyEachAttribute(): int
+    public function getRemainingQtyAttribute(): int
     {
         // withSumでロード済みの場合はそれを使用
         // Check if the aggregate was loaded using withSum()
@@ -186,25 +224,10 @@ class WmsShortage extends Model
         } else {
             $allocated = $this->allocations()
                 ->whereNotIn('status', [WmsShortageAllocation::STATUS_CANCELLED])
-                ->sum('assign_qty_each');
+                ->sum('assign_qty');
         }
 
-        return max(0, $this->shortage_qty_each - $allocated);
-    }
-
-    /**
-     * PIECE数量をCASE表示用に変換
-     */
-    public function convertToCaseDisplay(int $qtyEach): array
-    {
-        if ($this->case_size_snap <= 1) {
-            return ['case' => 0, 'piece' => $qtyEach];
-        }
-
-        return [
-            'case' => intdiv($qtyEach, $this->case_size_snap),
-            'piece' => $qtyEach % $this->case_size_snap,
-        ];
+        return max(0, $this->shortage_qty - $allocated);
     }
 
     /**
@@ -213,5 +236,30 @@ class WmsShortage extends Model
     public function isCaseOrder(): bool
     {
         return $this->qty_type_at_order === self::QTY_TYPE_CASE;
+    }
+
+    /**
+     * PIECE受注かどうか
+     */
+    public function isPieceOrder(): bool
+    {
+        return $this->qty_type_at_order === self::QTY_TYPE_PIECE;
+    }
+
+    /**
+     * 数量を表示用フォーマットに変換
+     * 受注単位に応じて適切な表示を返す
+     *
+     * @param int $qty 数量（受注単位ベース）
+     * @return string フォーマットされた文字列（例: "2ケース", "15バラ"）
+     */
+    public function formatQuantity(int $qty): string
+    {
+        if ($qty <= 0) {
+            return '-';
+        }
+
+        $unitLabel = \App\Enums\QuantityType::tryFrom($this->qty_type_at_order)?->name() ?? $this->qty_type_at_order;
+        return "{$qty}{$unitLabel}";
     }
 }

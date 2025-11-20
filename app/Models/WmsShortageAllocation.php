@@ -14,14 +14,14 @@ class WmsShortageAllocation extends Model
     protected $fillable = [
         'shortage_id',
         'from_warehouse_id',
-        'assign_qty_each',
+        'assign_qty',
         'assign_qty_type',
         'status',
         'created_by',
     ];
 
     protected $casts = [
-        'assign_qty_each' => 'integer',
+        'assign_qty' => 'integer',
     ];
 
     // Status constants

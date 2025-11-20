@@ -40,20 +40,14 @@ class WmsShortageAllocationsTable
                     ->searchable()
                     ->limit(30),
 
-                TextColumn::make('assign_qty_each')
+                TextColumn::make('assign_qty')
                     ->label('移動出荷数量')
                     ->formatStateUsing(function ($record) {
                         $shortage = $record->shortage;
                         if (!$shortage) {
-                            return "{$record->assign_qty_each}個";
+                            return "{$record->assign_qty}";
                         }
-                        $display = $shortage->convertToCaseDisplay($record->assign_qty_each);
-                        if ($display['case'] > 0) {
-                            return $display['piece'] > 0
-                                ? "{$display['case']}CS {$display['piece']}個"
-                                : "{$display['case']}CS";
-                        }
-                        return "{$display['piece']}個";
+                        return $shortage->formatQuantity($record->assign_qty);
                     })
                     ->sortable(),
 

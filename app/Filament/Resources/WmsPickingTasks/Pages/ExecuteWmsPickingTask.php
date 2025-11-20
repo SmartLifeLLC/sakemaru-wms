@@ -27,6 +27,14 @@ class ExecuteWmsPickingTask extends Page implements HasForms
 
     public function mount(WmsPickingTask $record): void
     {
+        // ステータスがPENDINGまたはSHORTAGEの場合、PICKINGに変更
+        if (in_array($record->status, ['PENDING', 'SHORTAGE'])) {
+            $record->update([
+                'status' => 'PICKING',
+                'started_at' => $record->started_at ?? now(),
+            ]);
+        }
+
         $record->load([
             'pickingItemResults' => function ($query) {
                 $query->with(['item', 'location', 'trade.partner', 'trade.earning.buyer.current_detail.salesman'])
@@ -267,9 +275,16 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 }
             }
 
-            // タスクを完了
+            // 欠品がある場合はステータスをSHORTAGE、ない場合はCOMPLETED
+            $hasShortage = $this->record->pickingItemResults()
+                ->where('has_shortage', true)
+                ->exists();
+
+            $taskStatus = $hasShortage ? 'SHORTAGE' : 'COMPLETED';
+
+            // タスクを完了または欠品状態に
             $this->record->update([
-                'status' => 'COMPLETED',
+                'status' => $taskStatus,
                 'completed_at' => now(),
             ]);
 

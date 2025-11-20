@@ -38,14 +38,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // Remove quantity types from wms_picking_item_results
-        Schema::connection('sakemaru')->table('wms_picking_item_results', function (Blueprint $table) {
-            $table->dropColumn(['ordered_qty_type', 'planned_qty_type', 'picked_qty_type']);
-        });
 
-        // Remove quantity type from wms_reservations
-        Schema::connection('sakemaru')->table('wms_reservations', function (Blueprint $table) {
-            $table->dropColumn('qty_type');
-        });
     }
 };

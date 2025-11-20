@@ -18,7 +18,7 @@ class ProxyShipmentService
      *
      * @param WmsShortage $shortage
      * @param int $fromWarehouseId 移動出荷倉庫
-     * @param int $assignQty 移動出荷数量
+     * @param int $assignQty 移動出荷数量（受注単位ベース）
      * @param string $assignQtyType 移動出荷単位 (CASE, PIECE, CARTON)
      * @param int $createdBy 作成者
      * @return WmsShortageAllocation
@@ -31,39 +31,32 @@ class ProxyShipmentService
         string $assignQtyType,
         int $createdBy
     ): WmsShortageAllocation {
-        // CASE受注の場合、PIECE/CARTON指定を拒否
-        if ($shortage->isCaseOrder() && $assignQtyType !== WmsShortage::QTY_TYPE_CASE) {
-            throw new \Exception('CASE受注に対してバラ/カートン指定はできません');
+        // 受注単位と移動出荷単位が一致しているか確認
+        if ($assignQtyType !== $shortage->qty_type_at_order) {
+            throw new \Exception('移動出荷単位は受注単位と一致させてください');
         }
 
-        // PIECE換算
-        $assignQtyEach = QuantityConverter::convertToEach(
-            $assignQty,
-            $assignQtyType,
-            $shortage->case_size_snap
-        );
-
         // 欠品数を超える指定は警告
-        if ($assignQtyEach > $shortage->remaining_qty_each) {
+        if ($assignQty > $shortage->remaining_qty) {
             Log::warning('Proxy shipment quantity exceeds shortage', [
                 'shortage_id' => $shortage->id,
-                'remaining_qty_each' => $shortage->remaining_qty_each,
-                'assign_qty_each' => $assignQtyEach,
+                'remaining_qty' => $shortage->remaining_qty,
+                'assign_qty' => $assignQty,
             ]);
         }
 
         return DB::connection('sakemaru')->transaction(function () use (
             $shortage,
             $fromWarehouseId,
-            $assignQtyEach,
+            $assignQty,
             $assignQtyType,
             $createdBy
         ) {
-            // 移動出荷指示レコード作成
+            // 移動出荷指示レコード作成（受注単位ベース）
             $allocation = WmsShortageAllocation::create([
                 'shortage_id' => $shortage->id,
                 'from_warehouse_id' => $fromWarehouseId,
-                'assign_qty_each' => $assignQtyEach,
+                'assign_qty' => $assignQty,
                 'assign_qty_type' => $assignQtyType,
                 'status' => WmsShortageAllocation::STATUS_PENDING,
                 'created_by' => $createdBy,
@@ -79,7 +72,7 @@ class ProxyShipmentService
                 'allocation_id' => $allocation->id,
                 'shortage_id' => $shortage->id,
                 'from_warehouse_id' => $fromWarehouseId,
-                'assign_qty_each' => $assignQtyEach,
+                'assign_qty' => $assignQty,
                 'assign_qty_type' => $assignQtyType,
             ]);
 
@@ -100,7 +93,7 @@ class ProxyShipmentService
                 'status' => WmsShortageAllocation::STATUS_CANCELLED,
             ]);
 
-            // 他の移動出荷がなければ、欠品ステータスを OPEN に戻す
+            // 他の移動出荷がなければ、欠品ステータスを BEFORE に戻す
             $shortage = $allocation->shortage;
             $activeAllocations = $shortage->allocations()
                 ->whereNotIn('status', [
@@ -111,7 +104,7 @@ class ProxyShipmentService
 
             if ($activeAllocations === 0) {
                 $shortage->update([
-                    'status' => WmsShortage::STATUS_OPEN,
+                    'status' => WmsShortage::STATUS_BEFORE,
                 ]);
             }
 
@@ -132,13 +125,18 @@ class ProxyShipmentService
     {
         $totalPicked = $shortage->allocations()
             ->where('status', WmsShortageAllocation::STATUS_FULFILLED)
-            ->sum('assign_qty_each');
+            ->sum('assign_qty');
 
-        $remaining = $shortage->shortage_qty_each - $totalPicked;
+        $remaining = $shortage->shortage_qty - $totalPicked;
 
-        $newStatus = $remaining <= 0
-            ? WmsShortage::STATUS_FULFILLED
-            : WmsShortage::STATUS_OPEN;
+        // 完全に充足されたら欠品確定、残りがあれば部分欠品
+        if ($remaining <= 0) {
+            $newStatus = WmsShortage::STATUS_SHORTAGE;
+        } elseif ($totalPicked > 0) {
+            $newStatus = WmsShortage::STATUS_PARTIAL_SHORTAGE;
+        } else {
+            $newStatus = WmsShortage::STATUS_BEFORE;
+        }
 
         if ($shortage->status !== $newStatus) {
             $shortage->update(['status' => $newStatus]);

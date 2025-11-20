@@ -13,6 +13,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Location extends CustomModel
 {
     use HasFactory;
+
+    /**
+     * Disable is_active filter as locations table doesn't have this column
+     */
+    protected bool $hasIsActiveColumn = false;
+
     protected $guarded = [];
     protected $casts = [
         'available_quantity_flags' => 'integer',
