@@ -288,8 +288,16 @@ class WmsShortagesTable
                     ->schema([
                         Section::make()
                             ->schema([
+                                Hidden::make('allocated_qty_for_table')
+                                    ->default(fn (WmsShortage $record) => $record->allocations_total_qty ?? 0)
+                                    ->live(),
+
+                                Hidden::make('remaining_qty_for_table')
+                                    ->default(fn (WmsShortage $record) => $record->remaining_qty)
+                                    ->live(),
+
                                 \Filament\Schemas\Components\View::make('filament.components.shortage-info-table')
-                                    ->viewData(function (WmsShortage $record) {
+                                    ->viewData(function (WmsShortage $record, $get) {
                                         $caseLabel = QuantityType::CASE->name();
                                         $pieceLabel = QuantityType::PIECE->name();
 
@@ -321,16 +329,15 @@ class WmsShortagesTable
                                             ? (string)$record->shortage_qty
                                             : '-';
 
-                                        // 移動出荷数（数字のみ）
-                                        $allocatedQtyValue = ($record->allocations_total_qty ?? 0) > 0
-                                            ? (string)($record->allocations_total_qty ?? 0)
+                                        // 移動出荷数（リアルタイム計算）
+                                        $allocatedQtyFromForm = $get('allocated_qty_for_table') ?? ($record->allocations_total_qty ?? 0);
+                                        $allocatedQtyValue = $allocatedQtyFromForm > 0
+                                            ? (string)$allocatedQtyFromForm
                                             : '-';
 
-                                        // 残欠品数（数字のみ）
-                                        $remainingQty = $record->remaining_qty;
-                                        $remainingValue = $remainingQty > 0
-                                            ? (string)$remainingQty
-                                            : '-';
+                                        // 残欠品数（リアルタイム計算、0以下も表示）
+                                        $remainingQtyFromForm = $get('remaining_qty_for_table') ?? $record->remaining_qty;
+                                        $remainingValue = (string)$remainingQtyFromForm;
 
                                         return [
                                             'data' => [
@@ -403,46 +410,9 @@ class WmsShortagesTable
                             ])
                             ->compact(),
 
-                        Section::make()
-                            ->schema([
-                                TextInput::make('allocated_display')
-                                    ->label('移動出荷数（リアルタイム計算）')
-                                    ->disabled()
-                                    ->dehydrated(false)
-                                    ->default(fn (WmsShortage $record) => $record->allocations_total_qty ?? 0)
-                                    ->live()
-                                    ->extraInputAttributes(['class' => 'text-blue-600 font-bold text-lg'])
-                                    ->columnSpan(1),
-
-                                TextInput::make('remaining_display')
-                                    ->label('残欠品数（リアルタイム計算）')
-                                    ->disabled()
-                                    ->dehydrated(false)
-                                    ->default(fn (WmsShortage $record) => $record->remaining_qty)
-                                    ->live()
-                                    ->extraInputAttributes(['class' => 'text-red-600 font-bold text-lg'])
-                                    ->columnSpan(1),
-                            ])
-                            ->columns(2)
-                            ->compact(),
-
                         Repeater::make('allocations')
                             ->label('移動出荷指示')
-                            ->live(onBlur: true)
-                            ->afterStateUpdated(function ($state, $set, WmsShortage $record, $livewire) {
-                                // 移動出荷数量の合計を計算
-                                $totalAllocated = collect($state ?? [])->sum('assign_qty');
-                                // 残欠品数を計算
-                                $remaining = max(0, $record->shortage_qty - $totalAllocated);
-
-                                // 移動出荷数のフィールドを更新
-                                $set('allocated_display', $totalAllocated > 0 ? (string)$totalAllocated : '0');
-                                // 残欠品数のフィールドを更新
-                                $set('remaining_display', $remaining > 0 ? (string)$remaining : '0');
-
-                                // バリデーションエラーをクリア
-                                $livewire->resetValidation();
-                            })
+                            ->validationAttribute('移動出荷指示')
                             ->rules([
                                 function (WmsShortage $record) {
                                     return function (string $attribute, $value, \Closure $fail) use ($record) {
@@ -450,26 +420,31 @@ class WmsShortagesTable
                                             return;
                                         }
 
-                                        // 倉庫の重複チェック
-                                        $warehouseIds = collect($value)
-                                            ->pluck('from_warehouse_id')
-                                            ->filter();
+                                        // 移動出荷総数が欠品数を超えないかチェック（数値に変換）
+                                        $totalAllocated = collect($value)->sum(function ($item) {
+                                            $qty = $item['assign_qty'] ?? 0;
+                                            return is_numeric($qty) ? (int)$qty : 0;
+                                        });
 
-                                        if ($warehouseIds->count() !== $warehouseIds->unique()->count()) {
-                                            $fail('同じ倉庫を複数選択することはできません。');
-                                        }
-
-                                        // 元倉庫が含まれていないか確認
-                                        if ($warehouseIds->contains($record->warehouse_id)) {
-                                            $fail('元倉庫を移動出荷倉庫として選択することはできません。');
-                                        }
-
-                                        // 移動出荷総数が欠品数を超えないかチェック
-                                        $totalAllocated = collect($value)->sum('assign_qty');
                                         if ($totalAllocated > $record->shortage_qty) {
                                             $qtyType = \App\Enums\QuantityType::tryFrom($record->qty_type_at_order);
                                             $unit = $qtyType ? $qtyType->name() : $record->qty_type_at_order;
                                             $fail("移動出荷総数（{$totalAllocated}{$unit}）が欠品数（{$record->shortage_qty}{$unit}）を超えています。");
+                                        }
+
+                                        // 倉庫の重複チェック
+                                        $selectedWarehouses = collect($value)
+                                            ->pluck('from_warehouse_id')
+                                            ->filter()
+                                            ->toArray();
+
+                                        $counts = array_count_values($selectedWarehouses);
+                                        foreach ($counts as $warehouseId => $count) {
+                                            if ($count > 1) {
+                                                $warehouseName = Warehouse::find($warehouseId)?->name ?? '倉庫';
+                                                $fail("{$warehouseName}が重複して選択されています。");
+                                                break;
+                                            }
                                         }
                                     };
                                 },
@@ -480,37 +455,15 @@ class WmsShortagesTable
                                 Select::make('from_warehouse_id')
                                     ->label('移動出荷倉庫')
                                     ->options(function (WmsShortage $record) {
-                                        // 欠品元倉庫以外の倉庫を取得
+                                        // 元倉庫を除外
                                         return Warehouse::where('id', '!=', $record->warehouse_id)
                                             ->pluck('name', 'id')
                                             ->toArray();
                                     })
                                     ->required()
                                     ->searchable()
-                                    ->reactive()
-                                    ->disableOptionWhen(function ($value, WmsShortage $record, $get) {
-                                        // 元倉庫は選択不可
-                                        if ($value == $record->warehouse_id) {
-                                            return true;
-                                        }
+                                    ->validationAttribute('移動出荷倉庫'),
 
-                                        // 他の行で既に選択されている倉庫は選択不可
-                                        // 現在の行のインデックスを取得
-                                        $statePath = $get('statePath');
-                                        $allocations = $get('../../allocations') ?? [];
-
-                                        $selectedWarehouses = collect($allocations)
-                                            ->filter(function ($allocation, $index) use ($statePath) {
-                                                // 現在の行は除外
-                                                return !str_contains($statePath ?? '', "allocations.{$index}");
-                                            })
-                                            ->pluck('from_warehouse_id')
-                                            ->filter()
-                                            ->values()
-                                            ->toArray();
-
-                                        return in_array($value, $selectedWarehouses);
-                                    }),
 
                                 TextInput::make('assign_qty')
                                     ->label('移動出荷数量')
@@ -520,14 +473,35 @@ class WmsShortagesTable
                                     ->integer()
                                     ->inputMode('numeric')
                                     ->live(onBlur: true)
+                                    ->afterStateUpdated(function ($state, $set, $get, WmsShortage $record) {
+                                        // 全ての移動出荷数量を取得して合計を計算
+                                        $allocations = $get('../../allocations') ?? [];
+                                        $totalAllocated = collect($allocations)
+                                            ->sum(function ($item) {
+                                                $qty = $item['assign_qty'] ?? 0;
+                                                return is_numeric($qty) ? (int)$qty : 0;
+                                            });
+
+                                        // 残欠品数を計算（0以下も表示）
+                                        $remaining = (int)$record->shortage_qty - $totalAllocated;
+
+                                        // テーブル内の移動出荷数を更新（リアルタイム計算）
+                                        $set('../../allocated_qty_for_table', $totalAllocated);
+                                        // テーブル内の残欠品数を更新（リアルタイム計算、0以下も表示）
+                                        $set('../../remaining_qty_for_table', $remaining);
+                                    })
                                     ->extraInputAttributes([
                                         'pattern' => '[0-9]*',
                                         'type' => 'number',
                                         'min' => '1',
                                         'step' => '1',
-                                        'oninput' => 'this.value = this.value.replace(/[^0-9]/g, "")',
+                                        'oninput' => 'this.value = this.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")',
+                                        'onblur' => 'this.value = this.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")',
+                                        'onchange' => 'this.value = this.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")',
                                     ])
-                                    ->rule('regex:/^[0-9]+$/'),
+                                    ->rule('regex:/^[0-9]+$/')
+                                    ->dehydrateStateUsing(fn ($state) => is_numeric($state) ? (int)$state : null)
+                                    ->validationAttribute('移動出荷数量'),
 
                                 Select::make('assign_qty_type')
                                     ->label('単位')
