@@ -62,8 +62,23 @@ class ShortageConfirmationService
 
             $pickResult->save();
 
-            // 6. 欠品レコードのステータスをSHORTAGEに更新し、承認者と日時を記録
-            $shortage->status = WmsShortage::STATUS_SHORTAGE;
+            // 6. 欠品レコードのステータスを判定して更新
+            // - 移動出荷数が0の場合: SHORTAGE（欠品確定）
+            // - 移動出荷数 > 0 かつ 残欠品数 > 0の場合: PARTIAL_SHORTAGE（部分欠品）
+            // - 移動出荷数 > 0 かつ 残欠品数 = 0の場合: SHORTAGE（完全充足だが確定）
+            $remainingShortage = $shortage->shortage_qty - $totalAllocatedQty;
+
+            if ($totalAllocatedQty === 0) {
+                // 移動出荷が無い場合は欠品確定
+                $shortage->status = WmsShortage::STATUS_SHORTAGE;
+            } elseif ($remainingShortage > 0) {
+                // 移動出荷があるが欠品が残る場合は部分欠品
+                $shortage->status = WmsShortage::STATUS_PARTIAL_SHORTAGE;
+            } else {
+                // 移動出荷で完全に充足した場合も確定扱い
+                $shortage->status = WmsShortage::STATUS_SHORTAGE;
+            }
+
             $shortage->is_confirmed = true;
             $shortage->confirmed_by = auth()->id();
             $shortage->confirmed_at = now();
@@ -74,6 +89,8 @@ class ShortageConfirmationService
                 'shortage_id' => $shortage->id,
                 'pick_result_id' => $pickResult->id,
                 'allocated_qty' => $totalAllocatedQty,
+                'remaining_shortage' => $remainingShortage,
+                'status' => $shortage->status,
                 'qty_type' => $shortage->qty_type_at_order,
             ]);
 

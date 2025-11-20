@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsShortages;
 
+use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsShortages\Pages\CreateWmsShortage;
 use App\Filament\Resources\WmsShortages\Pages\EditWmsShortage;
 use App\Filament\Resources\WmsShortages\Pages\ListWmsShortages;
@@ -20,13 +21,18 @@ class WmsShortageResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
-    protected static ?string $navigationLabel = '欠品管理';
+    protected static ?string $navigationLabel = '欠品処理';
 
     protected static ?string $modelLabel = '欠品';
 
     protected static ?string $pluralModelLabel = '欠品一覧';
 
-    protected static ?int $navigationSort = 30;
+    protected static ?int $navigationSort = 1;
+
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenuCategory::SHORTAGE->label();
+    }
 
     public static function form(Schema $schema): Schema
     {

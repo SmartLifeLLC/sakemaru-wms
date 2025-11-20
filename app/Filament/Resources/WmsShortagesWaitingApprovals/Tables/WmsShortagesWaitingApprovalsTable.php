@@ -1,18 +1,15 @@
 <?php
 
-namespace App\Filament\Resources\WmsShortages\Tables;
+namespace App\Filament\Resources\WmsShortagesWaitingApprovals\Tables;
 
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
 use App\Services\Shortage\ProxyShipmentService;
-use App\Services\Shortage\ShortageConfirmationCancelService;
-use App\Services\Shortage\ShortageConfirmationService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
-use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -24,8 +21,9 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
-class WmsShortagesTable
+class WmsShortagesWaitingApprovalsTable
 {
     public static function configure(Table $table): Table
     {
@@ -48,8 +46,15 @@ class WmsShortagesTable
 
                 TextColumn::make('confirmedBy.name')
                     ->label('承認者')
-                    ->default('-')
-                    ->alignment('center'),
+                    ->searchable()
+                    ->alignment('center')
+                    ->toggleable(),
+
+                TextColumn::make('confirmed_at')
+                    ->label('承認日時')
+                    ->dateTime('Y-m-d H:i')
+                    ->alignment('center')
+                    ->toggleable(),
 
                 TextColumn::make('status')
                     ->label('ステータス')
@@ -68,172 +73,123 @@ class WmsShortagesTable
                         'PARTIAL_SHORTAGE' => '部分欠品',
                         default => $state ?? '-',
                     })
+                    ->sortable()
                     ->alignment('center'),
 
+                TextColumn::make('wave_id')
+                    ->label('ウェーブID')
+                    ->sortable()
+                    ->alignment('center')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextColumn::make('wave.shipping_date')
-                    ->label('出荷日')
+                    ->label('納品日')
                     ->date('Y-m-d')
                     ->sortable()
                     ->alignment('center'),
 
-                TextColumn::make('trade.serial_id')
-                    ->label('識別ID')
-                    ->searchable()
-                    ->sortable()
-                    ->default('-')
-                    ->alignment('center'),
-
                 TextColumn::make('trade.partner.code')
-                    ->label('得意先コード')
+                    ->label('得意先CD')
+                    ->sortable()
                     ->searchable()
-                    ->default('-')
                     ->alignment('center'),
 
                 TextColumn::make('trade.partner.name')
                     ->label('得意先名')
+                    ->sortable()
                     ->searchable()
                     ->limit(20)
-                    ->default('-')
+                    ->alignment('center'),
+
+                TextColumn::make('item.code')
+                    ->label('商品CD')
+                    ->sortable()
+                    ->searchable()
+                    ->alignment('center'),
+
+                TextColumn::make('item.name')
+                    ->label('商品名')
+                    ->sortable()
+                    ->searchable()
+                    ->limit(30)
                     ->alignment('center'),
 
                 TextColumn::make('warehouse.name')
                     ->label('倉庫')
                     ->sortable()
-                    ->searchable(),
-
-                TextColumn::make('trade.earning.delivery_course.code')
-                    ->label('配送コード')
                     ->searchable()
-                    ->default('-')
-                    ->alignment('center'),
-
-                TextColumn::make('trade.earning.delivery_course.name')
-                    ->label('配送コース')
-                    ->searchable()
-                    ->limit(20)
-                    ->default('-')
-                    ->alignment('center'),
-
-                TextColumn::make('item.name')
-                    ->label('商品名')
-                    ->searchable(),
-
-                TextColumn::make('item.capacity_case')
-                    ->label('入り数')
-                    ->formatStateUsing(fn($state) => $state ? (string)$state : '-')
-                    ->alignment('center'),
-
-                TextColumn::make('item.volume')
-                    ->label('容量')
-                    ->formatStateUsing(function ($state, $record) {
-                        if (!$state) {
-                            return '-';
-                        }
-                        $volumeUnit = $record->item->volume_unit;
-                        if (!$volumeUnit) {
-                            return $state;
-                        }
-                        $unit = \App\Enums\EVolumeUnit::tryFrom($volumeUnit);
-
-                        return $state . ($unit ? $unit->name() : '');
-                    })
-                    ->alignment('center'),
-
-                TextColumn::make('qty_type_at_order')
-                    ->label('受注単位')
-                    ->formatStateUsing(fn(?string $state): string => $state ? (QuantityType::tryFrom($state)?->name() ?? $state) : '-'
-                    )
-                    ->badge()
                     ->alignment('center'),
 
                 TextColumn::make('order_qty')
-                    ->label('受注')
+                    ->label('受注数')
+                    ->numeric()
+                    ->alignment('center'),
+
+                TextColumn::make('picked_qty')
+                    ->label('引当数')
+                    ->numeric()
                     ->alignment('center'),
 
                 TextColumn::make('shortage_qty')
-                    ->label('欠品')
-                    ->color(fn($record) => $record->shortage_qty > 0 ? 'danger' : 'gray')
-                    ->weight('bold')
-                    ->alignment('center'),
+                    ->label('欠品数')
+                    ->numeric()
+                    ->alignment('center')
+                    ->color('danger'),
 
                 TextColumn::make('allocations_total_qty')
-                    ->label('移動出荷')
-                    ->formatStateUsing(function ($record) {
-                        $qty = $record->allocations_total_qty ?? 0;
-
-                        return $qty > 0 ? (string)$qty : '-';
-                    })
-                    ->color(fn($record) => ($record->allocations_total_qty ?? 0) > 0 ? 'info' : 'gray')
-                    ->alignment('center'),
+                    ->label('移動出荷数')
+                    ->numeric()
+                    ->alignment('center')
+                    ->color('info'),
 
                 TextColumn::make('remaining_qty')
-                    ->label('残欠品')
-                    ->formatStateUsing(function ($record) {
-                        $qty = $record->remaining_qty;
+                    ->label('残欠品数')
+                    ->numeric()
+                    ->alignment('center')
+                    ->color('warning'),
 
-                        return $qty > 0 ? (string)$qty : '-';
-                    })
-                    ->color(fn($record) => $record->remaining_qty > 0 ? 'warning' : 'success')
-                    ->alignment('center'),
+                TextColumn::make('allocation_shortage_qty')
+                    ->label('引当時欠品')
+                    ->numeric()
+                    ->sortable()
+                    ->alignment('center')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('picking_shortage_qty')
+                    ->label('ピッキング時欠品')
+                    ->numeric()
+                    ->sortable()
+                    ->alignment('center')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('created_at')
-                    ->label('発生日時')
-                    ->dateTime('Y-m-d H:i')
-                    ->sortable()
-                    ->alignment('center'),
-
-                TextColumn::make('trade.earning.buyer.current_detail.salesman.name')
-                    ->label('担当営業')
-                    ->default('-')
-                    ->limit(15)
-                    ->alignment('center'),
-
-                TextColumn::make('confirmed_at')
-                    ->label('確定日時')
+                    ->label('作成日時')
                     ->dateTime('Y-m-d H:i')
                     ->sortable()
                     ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('confirmedUser.name')
-                    ->label('確定者')
-                    ->default('-')
-                    ->limit(15)
+                TextColumn::make('updated_at')
+                    ->label('更新日時')
+                    ->dateTime('Y-m-d H:i')
+                    ->sortable()
                     ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('status')
                     ->label('ステータス')
-                    ->options([
-                        'OPEN' => '未対応',
-                        'REALLOCATING' => '移動出荷中',
-                        'FULFILLED' => '充足',
-                        'CONFIRMED' => '処理確定済み',
-                        'CANCELLED' => 'キャンセル',
-                    ]),
+                    ->options(WmsShortage::STATUS_LABELS)
+                    ->multiple(),
 
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
                     ->relationship('warehouse', 'name')
-                    ->searchable(),
-
-                SelectFilter::make('delivery_course_id')
-                    ->label('配送コース')
-                    ->relationship('trade.earning.delivery_course', 'name')
                     ->searchable()
-                    ->query(function ($query, $data) {
-                        if (!empty($data['value'])) {
-                            $query->whereHas('trade.earning', function ($q) use ($data) {
-                                $q->where('delivery_course_id', $data['value']);
-                            });
-                        }
-                    }),
+                    ->multiple(),
 
-                SelectFilter::make('partner_id')
+                SelectFilter::make('trade.partner_id')
                     ->label('得意先')
-                    ->relationship('trade.partner', 'name')
-                    ->searchable()
                     ->query(function ($query, $data) {
                         if (!empty($data['value'])) {
                             $query->whereHas('trade', function ($q) use ($data) {
@@ -241,49 +197,35 @@ class WmsShortagesTable
                             });
                         }
                     }),
-
-                SelectFilter::make('shipping_date')
-                    ->label('出荷日')
-                    ->options(function () {
-                        return \App\Models\Wave::query()
-                            ->select('shipping_date')
-                            ->distinct()
-                            ->orderBy('shipping_date', 'desc')
-                            ->limit(30)
-                            ->pluck('shipping_date', 'shipping_date')
-                            ->map(fn($date) => $date ? $date->format('Y-m-d') : '-')
-                            ->toArray();
-                    })
-                    ->query(function ($query, $data) {
-                        if (!empty($data['value'])) {
-                            $query->whereHas('wave', function ($q) use ($data) {
-                                $q->whereDate('shipping_date', $data['value']);
-                            });
-                        }
-                    }),
-
-                SelectFilter::make('salesman_id')
-                    ->label('担当営業')
-                    ->relationship('trade.earning.buyer.current_detail.salesman', 'name')
-                    ->searchable()
-                    ->query(function ($query, $data) {
-                        if (!empty($data['value'])) {
-                            $query->whereHas('trade.earning.buyer.current_detail.salesman', function ($q) use ($data) {
-                                $q->where('id', $data['value']);
-                            });
-                        }
-                    }),
             ])
-            ->recordAction(fn(WmsShortage $record) => $record->is_confirmed ? 'viewProxyShipment' : 'createProxyShipment'
-            )
+            ->recordAction('editProxyShipment')
             ->recordActions([
-                Action::make('createProxyShipment')
+                // 編集アクション（承認済みは編集不可）
+                Action::make('editProxyShipment')
                     ->label('欠品処理')
                     ->icon('heroicon-o-truck')
                     ->color('warning')
                     ->hidden(fn(WmsShortage $record) => $record->is_confirmed)
-                    ->modalHeading('')
-                    ->modalSubmitActionLabel('欠品処理確定')
+                    ->modalHeading('欠品処理')
+                    ->modalSubmitActionLabel('保存')
+                    ->fillForm(function (WmsShortage $record): array {
+                        $allocations = $record->allocations()
+                            ->whereNotIn('status', ['CANCELLED'])
+                            ->get()
+                            ->map(function ($allocation) {
+                                return [
+                                    'id' => $allocation->id,
+                                    'from_warehouse_id' => $allocation->from_warehouse_id,
+                                    'assign_qty' => $allocation->assign_qty,
+                                    'qty_type' => $allocation->qty_type,
+                                ];
+                            })
+                            ->toArray();
+
+                        return [
+                            'allocations' => $allocations,
+                        ];
+                    })
                     ->schema([
                         Section::make()
                             ->schema([
@@ -402,50 +344,11 @@ class WmsShortagesTable
                             ->live()
                             ->deletable(false)
                             ->reorderable(false)
-                            ->validationAttribute('移動出荷指示')
-                            ->rules([
-                                function (WmsShortage $record) {
-                                    return function (string $attribute, $value, \Closure $fail) use ($record) {
-                                        if (!is_array($value)) {
-                                            return;
-                                        }
-
-                                        $totalAllocated = collect($value)->sum(function ($item) {
-                                            $qty = $item['assign_qty'] ?? 0;
-
-                                            return is_numeric($qty) ? (int)$qty : 0;
-                                        });
-
-                                        if ($totalAllocated > $record->shortage_qty) {
-                                            $qtyType = QuantityType::tryFrom($record->qty_type_at_order);
-                                            $unit = $qtyType ? $qtyType->name() : $record->qty_type_at_order;
-                                            $fail("移動出荷総数（{$totalAllocated}{$unit}）が欠品数（{$record->shortage_qty}{$unit}）を超えています。");
-                                        }
-
-                                        $selectedWarehouses = collect($value)
-                                            ->pluck('from_warehouse_id')
-                                            ->filter()
-                                            ->toArray();
-
-                                        $counts = array_count_values($selectedWarehouses);
-                                        foreach ($counts as $warehouseId => $count) {
-                                            if ($count > 1) {
-                                                $warehouseName = Warehouse::find($warehouseId)?->name ?? '倉庫';
-                                                $fail("{$warehouseName}が重複して選択されています。");
-                                                break;
-                                            }
-                                        }
-                                    };
-                                },
-                            ])
                             ->schema([
-                                Hidden::make('id'),
-
                                 Select::make('from_warehouse_id')
                                     ->label('移動出荷倉庫')
                                     ->options(function (WmsShortage $record) {
-                                        return Warehouse::pluck('name', 'id')
-                                            ->toArray();
+                                        return Warehouse::pluck('name', 'id')->toArray();
                                     })
                                     ->required()
                                     ->searchable()
@@ -464,162 +367,93 @@ class WmsShortagesTable
                                         'type' => 'number',
                                         'min' => '0',
                                         'step' => '1',
-                                        'oninput' => 'this.value = this.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")',
-                                        'onblur' => 'this.value = this.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")',
-                                        'onchange' => 'this.value = this.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")',
+                                        'onkeydown' => "return (event.keyCode !== 69 && event.keyCode !== 189 && event.keyCode !== 187 && event.keyCode !== 190 && event.keyCode !== 110)",
+                                        'oninput' => "this.value = this.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '')",
+                                        'lang' => 'en',
                                     ])
-                                    ->rule('regex:/^[0-9]+$/')
-                                    ->dehydrateStateUsing(fn($state) => is_numeric($state) ? (int)$state : null)
                                     ->validationAttribute('移動出荷数量'),
 
-                                Select::make('assign_qty_type')
+                                TextInput::make('qty_type')
                                     ->label('単位')
-                                    ->options(function (WmsShortage $record) {
-                                        $qtyType = QuantityType::tryFrom($record->qty_type_at_order);
-
-                                        return [$qtyType->value => $qtyType->name()];
-                                    })
                                     ->default(fn(WmsShortage $record) => $record->qty_type_at_order)
                                     ->disabled()
-                                    ->dehydrated()
-                                    ->required(),
+                                    ->dehydrated(false)
+                                    ->formatStateUsing(fn($state) => QuantityType::tryFrom($state)?->name() ?? $state),
                             ])
-                            ->default(function (WmsShortage $record) {
-                                $allocations = $record->allocations()
-                                    ->with('fromWarehouse')
-                                    ->whereNotIn('status', ['CANCELLED'])
-                                    ->get();
-
-                                if ($allocations->isEmpty()) {
-                                    return [];
-                                }
-
-                                return $allocations->map(function ($allocation) use ($record) {
-                                    return [
-                                        'id' => $allocation->id,
-                                        'from_warehouse_id' => $allocation->from_warehouse_id,
-                                        'assign_qty' => $allocation->assign_qty,
-                                        'assign_qty_type' => $record->qty_type_at_order,
-                                    ];
-                                })->toArray();
-                            })
+                            ->defaultItems(0)
+                            ->addActionLabel('移動出荷指示を追加')
                             ->columns(3),
                     ])
-                    ->action(function (WmsShortage $record, array $data, Action $action): void {
-                        try {
-                            $service = app(ProxyShipmentService::class);
-                            $createdCount = 0;
-                            $updatedCount = 0;
-                            $deletedCount = 0;
+                    ->action(function (WmsShortage $record, array $data) {
+                        $service = app(ProxyShipmentService::class);
+                        $deletedCount = 0;
 
-                            $formAllocationIds = collect($data['allocations'] ?? [])
-                                ->pluck('id')
-                                ->filter()
-                                ->toArray();
-
-                            $existingAllocations = $record->allocations()
-                                ->whereNotIn('status', ['CANCELLED'])
-                                ->get();
-
-                            foreach ($existingAllocations as $existing) {
-                                if (!in_array($existing->id, $formAllocationIds)) {
-                                    $service->cancelProxyShipment($existing, auth()->id() ?? 0);
-                                    $deletedCount++;
-                                }
-                            }
-
-                            foreach ($data['allocations'] as $allocation) {
-                                // 数量が0の場合は削除
-                                if (isset($allocation['assign_qty']) && $allocation['assign_qty'] == 0) {
-                                    if (!empty($allocation['id'])) {
-                                        $existingAllocation = WmsShortageAllocation::find($allocation['id']);
-                                        if ($existingAllocation) {
-                                            $service->cancelProxyShipment($existingAllocation, auth()->id() ?? 0);
-                                            $deletedCount++;
-                                        }
-                                    }
-                                    continue;
-                                }
-
+                        foreach ($data['allocations'] as $allocation) {
+                            // 数量が0の場合は削除
+                            if (isset($allocation['assign_qty']) && $allocation['assign_qty'] == 0) {
                                 if (!empty($allocation['id'])) {
                                     $existingAllocation = WmsShortageAllocation::find($allocation['id']);
-                                    if ($existingAllocation && in_array($existingAllocation->status, ['PENDING', 'RESERVED'])) {
-                                        $existingAllocation->update([
-                                            'from_warehouse_id' => $allocation['from_warehouse_id'],
-                                            'assign_qty' => $allocation['assign_qty'],
-                                        ]);
-                                        $updatedCount++;
+                                    if ($existingAllocation) {
+                                        $service->cancelProxyShipment($existingAllocation, auth()->id() ?? 0);
+                                        $deletedCount++;
                                     }
-                                } else {
-                                    $service->createProxyShipment(
-                                        $record,
+                                }
+                                continue;
+                            }
+
+                            // 既存のレコードを更新または新規作成
+                            if (!empty($allocation['id'])) {
+                                // 更新
+                                $existingAllocation = WmsShortageAllocation::find($allocation['id']);
+                                if ($existingAllocation) {
+                                    $service->updateProxyShipment(
+                                        $existingAllocation,
                                         $allocation['from_warehouse_id'],
                                         $allocation['assign_qty'],
-                                        $allocation['assign_qty_type'],
                                         auth()->id() ?? 0
                                     );
-                                    $createdCount++;
                                 }
-                            }
-
-                            // ステータスを更新
-                            $record->refresh();
-                            $totalAllocated = $record->allocations()
-                                ->whereNotIn('status', ['CANCELLED'])
-                                ->sum('assign_qty');
-                            $remainingShortage = max(0, $record->shortage_qty - $totalAllocated);
-
-                            if ($totalAllocated === 0) {
-                                // 移動出荷数が0の場合: SHORTAGE（欠品確定）
-                                $record->status = WmsShortage::STATUS_SHORTAGE;
-                            } elseif ($remainingShortage === 0) {
-                                // 移動出荷で欠品がない場合: REALLOCATING（再引当中）
-                                $record->status = WmsShortage::STATUS_REALLOCATING;
                             } else {
-                                // 移動出荷と欠品が共存する場合: PARTIAL_SHORTAGE（部分欠品）
-                                $record->status = WmsShortage::STATUS_PARTIAL_SHORTAGE;
+                                // 新規作成
+                                $service->createProxyShipment(
+                                    $record,
+                                    $allocation['from_warehouse_id'],
+                                    $allocation['assign_qty'],
+                                    $record->qty_type_at_order,  // 受注単位を使用
+                                    auth()->id() ?? 0
+                                );
                             }
-                            $record->save();
-
-                            $messages = [];
-                            if ($createdCount > 0) {
-                                $messages[] = "{$createdCount}件の新規指示を作成";
-                            }
-                            if ($updatedCount > 0) {
-                                $messages[] = "{$updatedCount}件の既存指示を更新";
-                            }
-                            if ($deletedCount > 0) {
-                                $messages[] = "{$deletedCount}件の指示を削除";
-                            }
-
-                            $statusLabel = match($record->status) {
-                                WmsShortage::STATUS_SHORTAGE => '欠品確定',
-                                WmsShortage::STATUS_REALLOCATING => '再引当中',
-                                WmsShortage::STATUS_PARTIAL_SHORTAGE => '部分欠品',
-                                default => $record->status,
-                            };
-
-                            Notification::make()
-                                ->title('欠品処理を確定しました')
-                                ->body(implode('、', $messages) . ($messages ? '。' : '') . "ステータス: {$statusLabel}")
-                                ->success()
-                                ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->title('エラー')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
                         }
+
+                        // ステータスを更新
+                        $record->refresh();
+                        $totalAllocated = $record->allocations()
+                            ->whereNotIn('status', ['CANCELLED'])
+                            ->sum('assign_qty');
+                        $remainingShortage = max(0, $record->shortage_qty - $totalAllocated);
+
+                        if ($totalAllocated === 0) {
+                            $record->status = WmsShortage::STATUS_SHORTAGE;
+                        } elseif ($remainingShortage === 0) {
+                            $record->status = WmsShortage::STATUS_REALLOCATING;
+                        } else {
+                            $record->status = WmsShortage::STATUS_PARTIAL_SHORTAGE;
+                        }
+                        $record->save();
+
+                        Notification::make()
+                            ->title('保存しました')
+                            ->body('欠品処理を更新しました' . ($deletedCount > 0 ? "（{$deletedCount}件削除）" : ''))
+                            ->success()
+                            ->send();
                     }),
 
-                // viewProxyShipment はそのまま（省略可だがここでは元に近い形で維持）
+                // 閲覧アクション（承認済みのみ）
                 Action::make('viewProxyShipment')
-                    ->label('欠品処理')
+                    ->label('詳細')
                     ->icon('heroicon-o-eye')
                     ->color('info')
-                    ->visible(fn(WmsShortage $record): bool => $record->is_confirmed
-                    )
+                    ->visible(fn(WmsShortage $record) => $record->is_confirmed)
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->schema([
@@ -708,74 +542,137 @@ class WmsShortagesTable
                                                     'value' => $shortageQtyValue,
                                                 ],
                                                 [
+                                                    'label' => '欠品詳細',
+                                                    'value' => $shortageDetailsValue ?: '-',
+                                                ],
+                                                [
                                                     'label' => '移動出荷数',
                                                     'value' => $allocatedQtyValue,
-                                                    'color' => 'blue',
                                                 ],
                                                 [
                                                     'label' => '残欠品数',
                                                     'value' => $remainingValue,
-                                                    'bold' => true,
-                                                    'color' => 'red',
-                                                ],
-                                                [
-                                                    'label' => '欠品内訳',
-                                                    'value' => $shortageDetailsValue,
                                                 ],
                                             ],
                                         ];
                                     }),
                             ]),
 
-                        Repeater::make('allocations')
-                            ->label('移動出荷指示')
-                            ->disabled()
-                            ->columns(4)
+                        Section::make('移動出荷指示')
                             ->schema([
-                                TextInput::make('id')
-                                    ->label('ID')
+                                Repeater::make('allocations')
+                                    ->label('')
+                                    ->relationship('allocations')
                                     ->disabled()
-                                    ->columnSpan(1),
+                                    ->schema([
+                                        Select::make('from_warehouse_id')
+                                            ->label('移動出荷倉庫')
+                                            ->relationship('fromWarehouse', 'name')
+                                            ->disabled(),
 
-                                Select::make('from_warehouse_id')
-                                    ->label('移動出荷倉庫')
-                                    ->options(Warehouse::pluck('name', 'id')->toArray())
-                                    ->disabled()
-                                    ->columnSpan(1),
+                                        TextInput::make('assign_qty')
+                                            ->label('移動出荷数量')
+                                            ->disabled(),
 
-                                TextInput::make('assign_qty')
-                                    ->label('移動出荷数量')
-                                    ->disabled()
-                                    ->columnSpan(1),
-
-                                Select::make('assign_qty_type')
-                                    ->label('単位')
-                                    ->options(function (WmsShortage $record) {
-                                        $qtyType = QuantityType::tryFrom($record->qty_type_at_order);
-
-                                        return [$qtyType->value => $qtyType->name()];
-                                    })
-                                    ->disabled()
-                                    ->columnSpan(1),
-                            ])
-                            ->default(function (WmsShortage $record) {
-                                $allocations = $record->allocations()
-                                    ->with('fromWarehouse')
-                                    ->whereNotIn('status', ['CANCELLED'])
-                                    ->get();
-
-                                return $allocations->map(function ($allocation) {
-                                    return [
-                                        'id' => $allocation->id,
-                                        'from_warehouse_id' => $allocation->from_warehouse_id,
-                                        'assign_qty' => $allocation->assign_qty,
-                                        'assign_qty_type' => $allocation->assign_qty_type,
-                                    ];
-                                })->toArray();
-                            }),
+                                        TextInput::make('qty_type')
+                                            ->label('単位')
+                                            ->disabled()
+                                            ->formatStateUsing(fn($state) => QuantityType::tryFrom($state)?->name() ?? $state),
+                                    ])
+                                    ->columns(3)
+                                    ->defaultItems(0),
+                            ]),
                     ]),
+
+                // 承認アクション
+                Action::make('confirmShortage')
+                    ->label('承認')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->visible(fn(WmsShortage $record) => !$record->is_confirmed)
+                    ->requiresConfirmation()
+                    ->modalHeading('欠品処理を承認しますか？')
+                    ->modalDescription('この欠品の移動出荷指示を承認します。')
+                    ->action(function (WmsShortage $record) {
+                        try {
+                            $record->is_confirmed = true;
+                            $record->confirmed_by = auth()->id();
+                            $record->confirmed_at = now();
+                            $record->confirmed_user_id = auth()->id();
+                            $record->save();
+
+                            Notification::make()
+                                ->title('承認しました')
+                                ->body('欠品処理を承認しました。')
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('エラー')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
             ], position: RecordActionsPosition::BeforeColumns)
+            ->bulkActions([
+                BulkActionGroup::make([
+                    BulkAction::make('confirmShortage')
+                        ->label('承認')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('欠品処理を承認しますか？')
+                        ->modalDescription('選択された欠品の移動出荷指示を承認します。')
+                        ->action(function ($records) {
+                            $count = 0;
+                            $skipped = 0;
+
+                            foreach ($records as $shortage) {
+                                // BEFOREまたは既に確定済みの場合はスキップ
+                                if ($shortage->status === WmsShortage::STATUS_BEFORE || $shortage->is_confirmed) {
+                                    $skipped++;
+                                    continue;
+                                }
+
+                                try {
+                                    $shortage->is_confirmed = true;
+                                    $shortage->confirmed_by = auth()->id();
+                                    $shortage->confirmed_at = now();
+                                    $shortage->confirmed_user_id = auth()->id();
+                                    $shortage->save();
+                                    $count++;
+                                } catch (\Exception $e) {
+                                    Notification::make()
+                                        ->title('エラー')
+                                        ->body("欠品ID {$shortage->id} の処理に失敗: {$e->getMessage()}")
+                                        ->danger()
+                                        ->send();
+                                }
+                            }
+
+                            if ($count > 0) {
+                                Notification::make()
+                                    ->title('承認しました')
+                                    ->body("{$count}件の欠品処理を承認しました" . ($skipped > 0 ? "（{$skipped}件スキップ）" : ''))
+                                    ->success()
+                                    ->send();
+                            } elseif ($skipped > 0) {
+                                Notification::make()
+                                    ->title('承認対象なし')
+                                    ->body('選択されたレコードは既に承認済みまたは承認可能な状態ではありません')
+                                    ->warning()
+                                    ->send();
+                            }
+                        }),
+                ]),
+            ])
             ->selectCurrentPageOnly()
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->modifyQueryUsing(function (Builder $query) {
+                // 承認待ちのレコードのみ表示: is_confirmed = 0 かつ status != BEFORE
+                $query->where('is_confirmed', false)
+                    ->where('status', '!=', WmsShortage::STATUS_BEFORE);
+            });
     }
 }

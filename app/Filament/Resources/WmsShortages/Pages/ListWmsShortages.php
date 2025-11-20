@@ -35,8 +35,8 @@ class ListWmsShortages extends ListRecords
     public function getPresetViews(): array
     {
         return [
-            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'SHORTAGE'))->favorite()->label('処理完了')->default(),
-            'not_confirmed' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'SHORTAGE'))->favorite()->label('処理中'),
+            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'BEFORE'))->favorite()->label('処理完了')->default(),
+            'not_confirmed' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'BEFORE'))->favorite()->label('処理中'),
         ];
 
     }

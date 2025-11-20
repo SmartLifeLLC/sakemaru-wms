@@ -19,7 +19,7 @@
         <tbody>
             <tr class="bg-white dark:bg-gray-900">
                 @foreach ($firstRow as $item)
-                    <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center {{ isset($item['bold']) && $item['bold'] ? 'font-bold' : '' }} {{ isset($item['color']) && $item['color'] === 'red' ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300' }}">
+                    <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center {{ isset($item['bold']) && $item['bold'] ? 'font-bold' : '' }} {{ isset($item['color']) && $item['color'] === 'red' ? 'text-red-600 dark:text-red-400' : (isset($item['color']) && $item['color'] === 'blue' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300') }}">
                         {{ $item['value'] }}
                     </td>
                 @endforeach
@@ -42,7 +42,7 @@
             <tbody>
                 <tr class="bg-white dark:bg-gray-900">
                     @foreach ($secondRow as $item)
-                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center {{ isset($item['bold']) && $item['bold'] ? 'font-bold' : '' }} {{ isset($item['color']) && $item['color'] === 'red' ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300' }}">
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center {{ isset($item['bold']) && $item['bold'] ? 'font-bold' : '' }} {{ isset($item['color']) && $item['color'] === 'red' ? 'text-red-600 dark:text-red-400' : (isset($item['color']) && $item['color'] === 'blue' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300') }}">
                             {{ $item['value'] }}
                         </td>
                     @endforeach

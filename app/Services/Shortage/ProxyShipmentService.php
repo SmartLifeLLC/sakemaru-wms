@@ -81,17 +81,74 @@ class ProxyShipmentService
     }
 
     /**
+     * 移動出荷指示を更新
+     *
+     * @param WmsShortageAllocation $allocation
+     * @param int $fromWarehouseId 移動出荷倉庫
+     * @param int $assignQty 移動出荷数量（受注単位ベース）
+     * @param int $updatedBy 更新者
+     * @return WmsShortageAllocation
+     * @throws \Exception
+     */
+    public function updateProxyShipment(
+        WmsShortageAllocation $allocation,
+        int $fromWarehouseId,
+        int $assignQty,
+        int $updatedBy
+    ): WmsShortageAllocation {
+        $shortage = $allocation->shortage;
+
+        // 欠品数を超える指定は警告
+        if ($assignQty > $shortage->shortage_qty) {
+            Log::warning('Proxy shipment quantity exceeds shortage', [
+                'allocation_id' => $allocation->id,
+                'shortage_id' => $shortage->id,
+                'shortage_qty' => $shortage->shortage_qty,
+                'assign_qty' => $assignQty,
+            ]);
+        }
+
+        return DB::connection('sakemaru')->transaction(function () use (
+            $allocation,
+            $fromWarehouseId,
+            $assignQty,
+            $updatedBy
+        ) {
+            $allocation->update([
+                'from_warehouse_id' => $fromWarehouseId,
+                'assign_qty' => $assignQty,
+                'updated_by' => $updatedBy,
+            ]);
+
+            Log::info('Proxy shipment updated', [
+                'allocation_id' => $allocation->id,
+                'from_warehouse_id' => $fromWarehouseId,
+                'assign_qty' => $assignQty,
+            ]);
+
+            return $allocation;
+        });
+    }
+
+    /**
      * 移動出荷をキャンセル
      *
      * @param WmsShortageAllocation $allocation
+     * @param int|null $cancelledBy キャンセル実行者（オプション）
      * @return void
      */
-    public function cancelProxyShipment(WmsShortageAllocation $allocation): void
+    public function cancelProxyShipment(WmsShortageAllocation $allocation, ?int $cancelledBy = null): void
     {
-        DB::connection('sakemaru')->transaction(function () use ($allocation) {
-            $allocation->update([
+        DB::connection('sakemaru')->transaction(function () use ($allocation, $cancelledBy) {
+            $updateData = [
                 'status' => WmsShortageAllocation::STATUS_CANCELLED,
-            ]);
+            ];
+
+            if ($cancelledBy !== null) {
+                $updateData['cancelled_by'] = $cancelledBy;
+            }
+
+            $allocation->update($updateData);
 
             // 他の移動出荷がなければ、欠品ステータスを BEFORE に戻す
             $shortage = $allocation->shortage;

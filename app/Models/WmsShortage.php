@@ -59,6 +59,14 @@ class WmsShortage extends Model
     public const STATUS_SHORTAGE = 'SHORTAGE';
     public const STATUS_PARTIAL_SHORTAGE = 'PARTIAL_SHORTAGE';
 
+    // Status labels for UI
+    public const STATUS_LABELS = [
+        self::STATUS_BEFORE => '処理前',
+        self::STATUS_REALLOCATING => '再引当中',
+        self::STATUS_SHORTAGE => '欠品確定',
+        self::STATUS_PARTIAL_SHORTAGE => '部分欠品',
+    ];
+
     // Deprecated status constants (for backward compatibility)
     public const STATUS_OPEN = 'BEFORE';  // Alias for BEFORE
     public const STATUS_CONFIRMED = 'SHORTAGE';  // Alias for SHORTAGE
