@@ -14,6 +14,12 @@ class WmsPickingItemResult extends Model
 
     protected $table = 'wms_picking_item_results';
 
+    // Status constants
+    public const STATUS_PENDING = 'PENDING';
+    public const STATUS_PICKING = 'PICKING';
+    public const STATUS_COMPLETED = 'COMPLETED';
+    public const STATUS_SHORTAGE = 'SHORTAGE';
+
     protected $fillable = [
         'picking_task_id',
         'earning_id',
@@ -99,6 +105,15 @@ class WmsPickingItemResult extends Model
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'location_id');
+    }
+
+    /**
+     * このピッキング明細に紐づく欠品
+     * wms_shortages.source_pick_result_id = wms_picking_item_results.id
+     */
+    public function shortage(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(WmsShortage::class, 'source_pick_result_id', 'id');
     }
 
     /**

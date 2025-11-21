@@ -2,6 +2,7 @@
 
 namespace App\Services\Shortage;
 
+use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
@@ -24,10 +25,8 @@ class ShortageConfirmationService
     public function confirm(WmsShortage $shortage): void
     {
         DB::connection('sakemaru')->transaction(function () use ($shortage) {
-            // 1. 全ての移動出荷指示（CANCELLED以外）を取得
-            $allocations = $shortage->allocations()
-                ->whereNotIn('status', [WmsShortageAllocation::STATUS_CANCELLED])
-                ->get();
+            // 1. 全ての移動出荷指示を取得
+            $allocations = $shortage->allocations()->get();
 
             if ($allocations->isEmpty()) {
                 Log::warning('No allocations to confirm', [
@@ -85,6 +84,12 @@ class ShortageConfirmationService
             $shortage->confirmed_user_id = auth()->id();  // 後方互換性のため
             $shortage->save();
 
+            // 7. 関連する代理出荷も承認
+            $confirmedAllocationsCount = ConfirmShortageAllocations::execute(
+                wmsShortageId: $shortage->id,
+                confirmedUserId: auth()->id() ?? 0
+            );
+
             Log::info('Shortage confirmation completed', [
                 'shortage_id' => $shortage->id,
                 'pick_result_id' => $pickResult->id,
@@ -92,9 +97,10 @@ class ShortageConfirmationService
                 'remaining_shortage' => $remainingShortage,
                 'status' => $shortage->status,
                 'qty_type' => $shortage->qty_type_at_order,
+                'confirmed_allocations_count' => $confirmedAllocationsCount,
             ]);
 
-            // 7. ピッキングタスクのステータスを確認・更新
+            // 8. ピッキングタスクのステータスを確認・更新
             $this->updatePickingTaskStatus($pickResult->pickingTask);
         });
     }

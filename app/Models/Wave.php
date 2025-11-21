@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Wave extends Model
 {
@@ -25,6 +26,16 @@ class Wave extends Model
     public function waveSetting(): BelongsTo
     {
         return $this->belongsTo(WaveSetting::class, 'wms_wave_setting_id');
+    }
+
+    public function pickingTasks(): HasMany
+    {
+        return $this->hasMany(WmsPickingTask::class, 'wave_id');
+    }
+
+    public function shortages(): HasMany
+    {
+        return $this->hasMany(WmsShortage::class, 'wave_id');
     }
 
     /**

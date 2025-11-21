@@ -12,10 +12,12 @@ class ListWmsShortageAllocations extends ListRecords
 {
     protected static string $resource = WmsShortageAllocationResource::class;
 
+    protected static ?string $title = '横持ち出荷依頼';
+
     protected function getHeaderActions(): array
     {
         return [
-            CreateAction::make(),
+            // CreateAction::make(), // 作成ボタンを削除
         ];
     }
 
@@ -23,11 +25,15 @@ class ListWmsShortageAllocations extends ListRecords
     {
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
+                ->where('is_finished', false)
                 ->with([
                     'shortage.wave',
                     'shortage.warehouse',
                     'shortage.item',
-                    'fromWarehouse',
+                    'shortage.trade.partner',
+                    'targetWarehouse',
+                    'sourceWarehouse',
+                    'deliveryCourse',
                 ])
             );
     }

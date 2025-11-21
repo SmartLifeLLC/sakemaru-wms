@@ -2,6 +2,8 @@
 
 namespace App\Services\Shortage;
 
+use App\Actions\Wms\GetWarehousePriceForAllocation;
+use App\Enums\QuantityType;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
 use Illuminate\Support\Facades\DB;
@@ -17,7 +19,7 @@ class ProxyShipmentService
      * 移動出荷指示を作成
      *
      * @param WmsShortage $shortage
-     * @param int $fromWarehouseId 移動出荷倉庫
+     * @param int $fromWarehouseId 移動出荷倉庫（出荷元倉庫）
      * @param int $assignQty 移動出荷数量（受注単位ベース）
      * @param string $assignQtyType 移動出荷単位 (CASE, PIECE, CARTON)
      * @param int $createdBy 作成者
@@ -52,17 +54,44 @@ class ProxyShipmentService
             $assignQtyType,
             $createdBy
         ) {
-            // 移動出荷指示レコード作成（受注単位ベース）
+            // 1. 倉庫単価と容器単価を取得
+            $quantityType = QuantityType::tryFrom($assignQtyType);
+            if (!$quantityType) {
+                throw new \Exception("Invalid quantity type: {$assignQtyType}");
+            }
+
+            $prices = GetWarehousePriceForAllocation::execute(
+                itemId: $shortage->item_id,
+                sourceWarehouseId: $shortage->warehouse_id,  // 元倉庫ID（欠品発生倉庫）
+                quantityType: $quantityType
+            );
+
+            // 2. 販売単価を取得（trade_itemsから）
+            $tradeItem = DB::connection('sakemaru')
+                ->table('trade_items')
+                ->where('id', $shortage->trade_item_id)
+                ->first();
+
+            $salePrice = $tradeItem?->price;
+
+            // 3. 移動出荷指示レコード作成（受注単位ベース）
             $allocation = WmsShortageAllocation::create([
                 'shortage_id' => $shortage->id,
-                'from_warehouse_id' => $fromWarehouseId,
+                'shipment_date' => $shortage->shipment_date,  // 親のshipment_dateを引き継ぐ
+                'delivery_course_id' => $shortage->delivery_course_id,  // 親のdelivery_course_idを引き継ぐ
+                'target_warehouse_id' => $fromWarehouseId,  // 出荷元倉庫（移動出荷倉庫）
+                'source_warehouse_id' => $shortage->warehouse_id,  // 元倉庫ID（欠品発生倉庫）
                 'assign_qty' => $assignQty,
                 'assign_qty_type' => $assignQtyType,
+                'purchase_price' => $prices['purchase_price'],
+                'tax_exempt_price' => $prices['tax_exempt_price'],
+                'price' => $salePrice,
                 'status' => WmsShortageAllocation::STATUS_PENDING,
+                'is_confirmed' => false,
                 'created_by' => $createdBy,
             ]);
 
-            // 欠品ステータスを REALLOCATING に更新し、更新者を記録
+            // 4. 欠品ステータスを REALLOCATING に更新し、更新者を記録
             $shortage->update([
                 'status' => WmsShortage::STATUS_REALLOCATING,
                 'updater_id' => $createdBy,
@@ -71,9 +100,13 @@ class ProxyShipmentService
             Log::info('Proxy shipment created', [
                 'allocation_id' => $allocation->id,
                 'shortage_id' => $shortage->id,
-                'from_warehouse_id' => $fromWarehouseId,
+                'target_warehouse_id' => $fromWarehouseId,
+                'source_warehouse_id' => $shortage->warehouse_id,
                 'assign_qty' => $assignQty,
                 'assign_qty_type' => $assignQtyType,
+                'purchase_price' => $prices['purchase_price'],
+                'tax_exempt_price' => $prices['tax_exempt_price'],
+                'price' => $salePrice,
             ]);
 
             return $allocation;
@@ -115,14 +148,14 @@ class ProxyShipmentService
             $updatedBy
         ) {
             $allocation->update([
-                'from_warehouse_id' => $fromWarehouseId,
+                'target_warehouse_id' => $fromWarehouseId,
                 'assign_qty' => $assignQty,
                 'updated_by' => $updatedBy,
             ]);
 
             Log::info('Proxy shipment updated', [
                 'allocation_id' => $allocation->id,
-                'from_warehouse_id' => $fromWarehouseId,
+                'target_warehouse_id' => $fromWarehouseId,
                 'assign_qty' => $assignQty,
             ]);
 
@@ -131,32 +164,23 @@ class ProxyShipmentService
     }
 
     /**
-     * 移動出荷をキャンセル
+     * 移動出荷を削除
      *
      * @param WmsShortageAllocation $allocation
-     * @param int|null $cancelledBy キャンセル実行者（オプション）
      * @return void
      */
-    public function cancelProxyShipment(WmsShortageAllocation $allocation, ?int $cancelledBy = null): void
+    public function deleteProxyShipment(WmsShortageAllocation $allocation): void
     {
-        DB::connection('sakemaru')->transaction(function () use ($allocation, $cancelledBy) {
-            $updateData = [
-                'status' => WmsShortageAllocation::STATUS_CANCELLED,
-            ];
+        DB::connection('sakemaru')->transaction(function () use ($allocation) {
+            $shortage = $allocation->shortage;
+            $allocationId = $allocation->id;
 
-            if ($cancelledBy !== null) {
-                $updateData['cancelled_by'] = $cancelledBy;
-            }
-
-            $allocation->update($updateData);
+            // 移動出荷レコードを物理削除
+            $allocation->delete();
 
             // 他の移動出荷がなければ、欠品ステータスを BEFORE に戻す
-            $shortage = $allocation->shortage;
             $activeAllocations = $shortage->allocations()
-                ->whereNotIn('status', [
-                    WmsShortageAllocation::STATUS_CANCELLED,
-                    WmsShortageAllocation::STATUS_FULFILLED,
-                ])
+                ->where('status', '!=', WmsShortageAllocation::STATUS_FULFILLED)
                 ->count();
 
             if ($activeAllocations === 0) {
@@ -165,8 +189,8 @@ class ProxyShipmentService
                 ]);
             }
 
-            Log::info('Proxy shipment cancelled', [
-                'allocation_id' => $allocation->id,
+            Log::info('Proxy shipment deleted', [
+                'allocation_id' => $allocationId,
                 'shortage_id' => $shortage->id,
             ]);
         });

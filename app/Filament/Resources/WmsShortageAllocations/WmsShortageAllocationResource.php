@@ -4,6 +4,8 @@ namespace App\Filament\Resources\WmsShortageAllocations;
 
 use App\Filament\Resources\WmsShortageAllocations\Pages\CreateWmsShortageAllocation;
 use App\Filament\Resources\WmsShortageAllocations\Pages\EditWmsShortageAllocation;
+use App\Filament\Resources\WmsShortageAllocations\Pages\ListFinishedWmsShortageAllocations;
+use App\Filament\Resources\WmsShortageAllocations\Pages\ListHistoryWmsShortageAllocations;
 use App\Filament\Resources\WmsShortageAllocations\Pages\ListWmsShortageAllocations;
 use App\Filament\Resources\WmsShortageAllocations\Schemas\WmsShortageAllocationForm;
 use App\Filament\Resources\WmsShortageAllocations\Tables\WmsShortageAllocationsTable;
@@ -21,13 +23,13 @@ class WmsShortageAllocationResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedTruck;
 
-    protected static string|UnitEnum|null $navigationGroup = '出荷管理';
+    protected static string|UnitEnum|null $navigationGroup = '横持ち出荷';
 
-    protected static ?string $navigationLabel = '移動出荷';
+    protected static ?string $navigationLabel = '横持ち出荷依頼';
 
-    protected static ?string $modelLabel = '移動出荷';
+    protected static ?string $modelLabel = '横持ち出荷';
 
-    protected static ?string $pluralModelLabel = '移動出荷一覧';
+    protected static ?string $pluralModelLabel = '横持ち出荷依頼';
 
     protected static ?int $navigationSort = 13;
 
@@ -52,8 +54,31 @@ class WmsShortageAllocationResource extends Resource
     {
         return [
             'index' => ListWmsShortageAllocations::route('/'),
+            'finished' => ListFinishedWmsShortageAllocations::route('/finished'),
+            'history' => ListHistoryWmsShortageAllocations::route('/history'),
             'create' => CreateWmsShortageAllocation::route('/create'),
             'edit' => EditWmsShortageAllocation::route('/{record}/edit'),
+        ];
+    }
+
+    public static function getNavigationItems(): array
+    {
+        return [
+            \Filament\Navigation\NavigationItem::make(static::getNavigationLabel())
+                ->group(static::getNavigationGroup())
+                ->icon(static::getNavigationIcon())
+                ->sort(static::getNavigationSort())
+                ->url(static::getUrl('index')),
+            \Filament\Navigation\NavigationItem::make('横持ち出荷完了一覧')
+                ->group(static::getNavigationGroup())
+                ->icon('heroicon-o-check-circle')
+                ->sort(static::getNavigationSort() + 1)
+                ->url(static::getUrl('finished')),
+            \Filament\Navigation\NavigationItem::make('横持ち出荷履歴')
+                ->group(static::getNavigationGroup())
+                ->icon('heroicon-o-clock')
+                ->sort(static::getNavigationSort() + 2)
+                ->url(static::getUrl('history')),
         ];
     }
 }

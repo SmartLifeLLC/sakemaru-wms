@@ -2,11 +2,14 @@
 
 namespace App\Filament\Resources\WmsShortagesWaitingApprovals\Tables;
 
+use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
+use App\Services\QuantityUpdate\QuantityUpdateQueueService;
 use App\Services\Shortage\ProxyShipmentService;
+use App\Services\Shortage\ShortageApprovalService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -210,14 +213,13 @@ class WmsShortagesWaitingApprovalsTable
                     ->modalSubmitActionLabel('保存')
                     ->fillForm(function (WmsShortage $record): array {
                         $allocations = $record->allocations()
-                            ->whereNotIn('status', ['CANCELLED'])
                             ->get()
                             ->map(function ($allocation) {
                                 return [
                                     'id' => $allocation->id,
-                                    'from_warehouse_id' => $allocation->from_warehouse_id,
+                                    'from_warehouse_id' => $allocation->target_warehouse_id,
                                     'assign_qty' => $allocation->assign_qty,
-                                    'qty_type' => $allocation->qty_type,
+                                    'qty_type' => $allocation->assign_qty_type,
                                 ];
                             })
                             ->toArray();
@@ -394,7 +396,7 @@ class WmsShortagesWaitingApprovalsTable
                                 if (!empty($allocation['id'])) {
                                     $existingAllocation = WmsShortageAllocation::find($allocation['id']);
                                     if ($existingAllocation) {
-                                        $service->cancelProxyShipment($existingAllocation, auth()->id() ?? 0);
+                                        $service->deleteProxyShipment($existingAllocation);
                                         $deletedCount++;
                                     }
                                 }
@@ -427,9 +429,7 @@ class WmsShortagesWaitingApprovalsTable
 
                         // ステータスを更新
                         $record->refresh();
-                        $totalAllocated = $record->allocations()
-                            ->whereNotIn('status', ['CANCELLED'])
-                            ->sum('assign_qty');
+                        $totalAllocated = $record->allocations()->sum('assign_qty');
                         $remainingShortage = max(0, $record->shortage_qty - $totalAllocated);
 
                         if ($totalAllocated === 0) {
@@ -565,9 +565,9 @@ class WmsShortagesWaitingApprovalsTable
                                     ->relationship('allocations')
                                     ->disabled()
                                     ->schema([
-                                        Select::make('from_warehouse_id')
+                                        Select::make('target_warehouse_id')
                                             ->label('移動出荷倉庫')
-                                            ->relationship('fromWarehouse', 'name')
+                                            ->relationship('targetWarehouse', 'name')
                                             ->disabled(),
 
                                         TextInput::make('assign_qty')
@@ -601,9 +601,31 @@ class WmsShortagesWaitingApprovalsTable
                             $record->confirmed_user_id = auth()->id();
                             $record->save();
 
+                            // 関連する代理出荷も承認
+                            $confirmedAllocationsCount = ConfirmShortageAllocations::execute(
+                                wmsShortageId: $record->id,
+                                confirmedUserId: auth()->id() ?? 0
+                            );
+
+                            // quantity_update_queueにレコードを作成
+                            $queueService = app(QuantityUpdateQueueService::class);
+                            $queue = $queueService->createQueueForShortageApproval($record);
+
+                            // ピッキングタスクのステータスを更新
+                            $approvalService = app(ShortageApprovalService::class);
+                            $approvalService->updatePickingTaskStatusAfterApproval($record);
+
+                            $message = '欠品処理を承認しました。';
+                            if ($confirmedAllocationsCount > 0) {
+                                $message .= "代理出荷{$confirmedAllocationsCount}件を承認しました。";
+                            }
+                            if ($queue) {
+                                $message .= '在庫更新キューを作成しました。';
+                            }
+
                             Notification::make()
                                 ->title('承認しました')
-                                ->body('欠品処理を承認しました。')
+                                ->body($message)
                                 ->success()
                                 ->send();
                         } catch (\Exception $e) {
@@ -627,6 +649,11 @@ class WmsShortagesWaitingApprovalsTable
                         ->action(function ($records) {
                             $count = 0;
                             $skipped = 0;
+                            $queueCreated = 0;
+                            $totalAllocationsConfirmed = 0;
+
+                            $queueService = app(QuantityUpdateQueueService::class);
+                            $approvalService = app(ShortageApprovalService::class);
 
                             foreach ($records as $shortage) {
                                 // BEFOREまたは既に確定済みの場合はスキップ
@@ -642,6 +669,22 @@ class WmsShortagesWaitingApprovalsTable
                                     $shortage->confirmed_user_id = auth()->id();
                                     $shortage->save();
                                     $count++;
+
+                                    // 関連する代理出荷も承認
+                                    $confirmedAllocationsCount = ConfirmShortageAllocations::execute(
+                                        wmsShortageId: $shortage->id,
+                                        confirmedUserId: auth()->id() ?? 0
+                                    );
+                                    $totalAllocationsConfirmed += $confirmedAllocationsCount;
+
+                                    // quantity_update_queueにレコードを作成
+                                    $queue = $queueService->createQueueForShortageApproval($shortage);
+                                    if ($queue) {
+                                        $queueCreated++;
+                                    }
+
+                                    // ピッキングタスクのステータスを更新
+                                    $approvalService->updatePickingTaskStatusAfterApproval($shortage);
                                 } catch (\Exception $e) {
                                     Notification::make()
                                         ->title('エラー')
@@ -652,9 +695,20 @@ class WmsShortagesWaitingApprovalsTable
                             }
 
                             if ($count > 0) {
+                                $message = "{$count}件の欠品処理を承認しました";
+                                if ($totalAllocationsConfirmed > 0) {
+                                    $message .= "（代理出荷{$totalAllocationsConfirmed}件承認）";
+                                }
+                                if ($queueCreated > 0) {
+                                    $message .= "（在庫更新キュー{$queueCreated}件作成）";
+                                }
+                                if ($skipped > 0) {
+                                    $message .= "（{$skipped}件スキップ）";
+                                }
+
                                 Notification::make()
                                     ->title('承認しました')
-                                    ->body("{$count}件の欠品処理を承認しました" . ($skipped > 0 ? "（{$skipped}件スキップ）" : ''))
+                                    ->body($message)
                                     ->success()
                                     ->send();
                             } elseif ($skipped > 0) {

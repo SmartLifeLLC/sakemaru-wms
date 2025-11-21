@@ -486,8 +486,7 @@ class WmsShortagesTable
                             ])
                             ->default(function (WmsShortage $record) {
                                 $allocations = $record->allocations()
-                                    ->with('fromWarehouse')
-                                    ->whereNotIn('status', ['CANCELLED'])
+                                    ->with('targetWarehouse')
                                     ->get();
 
                                 if ($allocations->isEmpty()) {
@@ -497,7 +496,7 @@ class WmsShortagesTable
                                 return $allocations->map(function ($allocation) use ($record) {
                                     return [
                                         'id' => $allocation->id,
-                                        'from_warehouse_id' => $allocation->from_warehouse_id,
+                                        'from_warehouse_id' => $allocation->target_warehouse_id,
                                         'assign_qty' => $allocation->assign_qty,
                                         'assign_qty_type' => $record->qty_type_at_order,
                                     ];
@@ -517,13 +516,11 @@ class WmsShortagesTable
                                 ->filter()
                                 ->toArray();
 
-                            $existingAllocations = $record->allocations()
-                                ->whereNotIn('status', ['CANCELLED'])
-                                ->get();
+                            $existingAllocations = $record->allocations()->get();
 
                             foreach ($existingAllocations as $existing) {
                                 if (!in_array($existing->id, $formAllocationIds)) {
-                                    $service->cancelProxyShipment($existing, auth()->id() ?? 0);
+                                    $service->deleteProxyShipment($existing);
                                     $deletedCount++;
                                 }
                             }
@@ -534,7 +531,7 @@ class WmsShortagesTable
                                     if (!empty($allocation['id'])) {
                                         $existingAllocation = WmsShortageAllocation::find($allocation['id']);
                                         if ($existingAllocation) {
-                                            $service->cancelProxyShipment($existingAllocation, auth()->id() ?? 0);
+                                            $service->deleteProxyShipment($existingAllocation);
                                             $deletedCount++;
                                         }
                                     }
@@ -564,9 +561,7 @@ class WmsShortagesTable
 
                             // ステータスを更新
                             $record->refresh();
-                            $totalAllocated = $record->allocations()
-                                ->whereNotIn('status', ['CANCELLED'])
-                                ->sum('assign_qty');
+                            $totalAllocated = $record->allocations()->sum('assign_qty');
                             $remainingShortage = max(0, $record->shortage_qty - $totalAllocated);
 
                             if ($totalAllocated === 0) {
@@ -760,14 +755,13 @@ class WmsShortagesTable
                             ])
                             ->default(function (WmsShortage $record) {
                                 $allocations = $record->allocations()
-                                    ->with('fromWarehouse')
-                                    ->whereNotIn('status', ['CANCELLED'])
+                                    ->with('targetWarehouse')
                                     ->get();
 
                                 return $allocations->map(function ($allocation) {
                                     return [
                                         'id' => $allocation->id,
-                                        'from_warehouse_id' => $allocation->from_warehouse_id,
+                                        'from_warehouse_id' => $allocation->target_warehouse_id,
                                         'assign_qty' => $allocation->assign_qty,
                                         'assign_qty_type' => $allocation->assign_qty_type,
                                     ];

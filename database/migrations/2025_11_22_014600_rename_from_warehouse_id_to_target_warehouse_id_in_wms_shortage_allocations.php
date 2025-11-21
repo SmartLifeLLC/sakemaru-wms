@@ -8,19 +8,17 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     *
-     * 移動出荷数量を受注単位ベースに変更
      */
     public function up(): void
     {
         Schema::connection('sakemaru')->table('wms_shortage_allocations', function (Blueprint $table) {
-            // カラム名を変更（_eachサフィックスを削除）
-            $table->renameColumn('assign_qty_each', 'assign_qty');
+            $table->renameColumn('from_warehouse_id', 'target_warehouse_id');
         });
 
-        // コメントを更新
+        // インデックス名も更新
         Schema::connection('sakemaru')->table('wms_shortage_allocations', function (Blueprint $table) {
-            $table->integer('assign_qty')->comment('移動出荷数量（受注単位ベース）')->change();
+            $table->dropIndex('idx_alloc_warehouse');
+            $table->index('target_warehouse_id', 'idx_alloc_target_warehouse');
         });
     }
 
@@ -30,13 +28,12 @@ return new class extends Migration
     public function down(): void
     {
         Schema::connection('sakemaru')->table('wms_shortage_allocations', function (Blueprint $table) {
-            // カラム名を戻す
-            $table->renameColumn('assign_qty', 'assign_qty_each');
+            $table->dropIndex('idx_alloc_target_warehouse');
+            $table->index('from_warehouse_id', 'idx_alloc_warehouse');
         });
 
-        // コメントを戻す
         Schema::connection('sakemaru')->table('wms_shortage_allocations', function (Blueprint $table) {
-            $table->integer('assign_qty_each')->comment('移動出荷数量(PIECE換算)')->change();
+            $table->renameColumn('target_warehouse_id', 'from_warehouse_id');
         });
     }
 };

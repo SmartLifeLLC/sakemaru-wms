@@ -16,9 +16,11 @@ class WmsShortage extends Model
 
     protected $fillable = [
         'wave_id',
+        'shipment_date',
         'warehouse_id',
         'item_id',
         'trade_id',
+        'delivery_course_id',
         'trade_item_id',
         'order_qty',
         'planned_qty',
@@ -31,6 +33,8 @@ class WmsShortage extends Model
         'is_confirmed',
         'confirmed_by',
         'confirmed_at',
+        'is_synced',
+        'is_synced_at',
         'source_reservation_id',
         'source_pick_result_id',
         'parent_shortage_id',
@@ -42,6 +46,7 @@ class WmsShortage extends Model
     ];
 
     protected $casts = [
+        'shipment_date' => 'date',
         'order_qty' => 'integer',
         'planned_qty' => 'integer',
         'picked_qty' => 'integer',
@@ -51,6 +56,8 @@ class WmsShortage extends Model
         'case_size_snap' => 'integer',
         'is_confirmed' => 'boolean',
         'confirmed_at' => 'datetime',
+        'is_synced' => 'boolean',
+        'is_synced_at' => 'datetime',
     ];
 
     // Status constants
@@ -180,6 +187,17 @@ class WmsShortage extends Model
         return $query->where('warehouse_id', $warehouseId);
     }
 
+    public function scopeUnsynced($query)
+    {
+        return $query->where('is_synced', false);
+    }
+
+    public function scopeConfirmedButNotSynced($query)
+    {
+        return $query->where('is_confirmed', true)
+            ->where('is_synced', false);
+    }
+
     // Helper methods
     public function hasAllocationShortage(): bool
     {
@@ -216,10 +234,19 @@ class WmsShortage extends Model
         return $this->status === self::STATUS_PARTIAL_SHORTAGE;
     }
 
+    public function isSynced(): bool
+    {
+        return $this->is_synced === true;
+    }
+
+    public function needsSync(): bool
+    {
+        return $this->is_confirmed && !$this->is_synced;
+    }
+
     /**
      * 欠品の残量を計算
      * 移動出荷で充足した分を差し引く
-     * キャンセル以外の全ての移動出荷を差し引く
      *
      * @return int 受注単位ベースの残欠品数
      */
@@ -230,9 +257,7 @@ class WmsShortage extends Model
         if (array_key_exists('allocations_total_qty', $this->attributes)) {
             $allocated = $this->attributes['allocations_total_qty'] ?? 0;
         } else {
-            $allocated = $this->allocations()
-                ->whereNotIn('status', [WmsShortageAllocation::STATUS_CANCELLED])
-                ->sum('assign_qty');
+            $allocated = $this->allocations()->sum('assign_qty');
         }
 
         return max(0, $this->shortage_qty - $allocated);

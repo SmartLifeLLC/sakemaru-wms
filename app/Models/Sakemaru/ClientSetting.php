@@ -16,6 +16,9 @@ class ClientSetting extends CustomModel
 
     protected $guarded = [];
 
+    // client_settingsテーブルにはis_activeカラムがない
+    protected bool $hasIsActiveColumn = false;
+
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);

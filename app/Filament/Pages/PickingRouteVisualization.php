@@ -259,25 +259,41 @@ class PickingRouteVisualization extends Page
 
     /**
      * Get picking tasks for the selected criteria
+     * 完了したタスクも含めて全て表示
      */
     #[Computed]
     public function pickingTasks()
     {
-        if (!$this->selectedWarehouseId || !$this->selectedFloorId || !$this->selectedDate || !$this->selectedDeliveryCourseId) {
+        if (!$this->selectedWarehouseId || !$this->selectedDate || !$this->selectedDeliveryCourseId) {
             return collect();
         }
 
-        return WmsPickingTask::where('warehouse_id', $this->selectedWarehouseId)
-            ->where('floor_id', $this->selectedFloorId)
+        $query = WmsPickingTask::where('warehouse_id', $this->selectedWarehouseId)
             ->whereDate('shipment_date', $this->selectedDate)
-            ->where('delivery_course_id', $this->selectedDeliveryCourseId)
+            ->where('delivery_course_id', $this->selectedDeliveryCourseId);
+
+        // フロアが選択されている場合のみフィルタ
+        if ($this->selectedFloorId) {
+            $query->where('floor_id', $this->selectedFloorId);
+        }
+
+        return $query
+            // ステータスフィルタなし - 全てのタスクを表示（PENDING, PICKING, COMPLETED）
             ->with('picker:id,code,name')
             ->orderBy('id')
             ->get()
             ->map(function ($task) {
+                $statusLabel = match($task->status) {
+                    'PENDING' => '待機中',
+                    'PICKING' => 'ピッキング中',
+                    'COMPLETED' => '完了',
+                    default => $task->status,
+                };
+
                 return [
                     'id' => $task->id,
                     'status' => $task->status,
+                    'status_label' => $statusLabel,
                     'picker_name' => $task->picker ? "{$task->picker->code} - {$task->picker->name}" : null,
                 ];
             });
