@@ -285,124 +285,175 @@ class WmsShortagesTable
                     ->modalHeading('')
                     ->modalSubmitActionLabel('欠品処理確定')
                     ->schema([
-                        Section::make()
-                            ->schema([
-                                View::make('filament.components.shortage-info-table')
-                                    ->viewData(function (Get $get, WmsShortage $record): array {
-                                        // リアルタイム計算値を取得
-                                        $allocations = $get('allocations') ?? [];
-                                        $allocatedQty = collect($allocations)->sum(function ($item) {
-                                            $qty = $item['assign_qty'] ?? 0;
-                                            return is_numeric($qty) ? (int)$qty : 0;
-                                        });
-                                        $remaining = max(0, $record->shortage_qty - $allocatedQty);
+                        View::make('filament.components.shortage-info-table')
+                            ->viewData(function (Get $get, WmsShortage $record): array {
+                                // リアルタイム計算値を取得
+                                $allocations = $get('allocations') ?? [];
+                                $allocatedQty = collect($allocations)->sum(function ($item) {
+                                    $qty = $item['assign_qty'] ?? 0;
+                                    return is_numeric($qty) ? (int)$qty : 0;
+                                });
+                                $remaining = max(0, $record->shortage_qty - $allocatedQty);
 
-                                        // 容量
-                                        $volumeValue = '-';
-                                        if ($record->item->volume) {
-                                            $unit = \App\Enums\EVolumeUnit::tryFrom($record->item->volume_unit);
-                                            $volumeValue = $record->item->volume . ($unit ? $unit->name() : '');
-                                        }
+                                // 容量
+                                $volumeValue = '-';
+                                if ($record->item->volume) {
+                                    $unit = \App\Enums\EVolumeUnit::tryFrom($record->item->volume_unit);
+                                    $volumeValue = $record->item->volume . ($unit ? $unit->name() : '');
+                                }
 
-                                        $orderQtyValue = (string)$record->order_qty;
-                                        $plannedQtyValue = (string)$record->picked_qty;
+                                $orderQtyValue = (string)$record->order_qty;
+                                $plannedQtyValue = (string)$record->picked_qty;
 
-                                        $shortageDetailsParts = [];
-                                        if ($record->allocation_shortage_qty > 0) {
-                                            $shortageDetailsParts[] = "引当時: {$record->allocation_shortage_qty}";
-                                        }
-                                        if ($record->picking_shortage_qty > 0) {
-                                            $shortageDetailsParts[] = "ピッキング時: {$record->picking_shortage_qty}";
-                                        }
-                                        $shortageDetailsValue = implode(' / ', $shortageDetailsParts);
+                                $shortageDetailsParts = [];
+                                if ($record->allocation_shortage_qty > 0) {
+                                    $shortageDetailsParts[] = "引当時: {$record->allocation_shortage_qty}";
+                                }
+                                if ($record->picking_shortage_qty > 0) {
+                                    $shortageDetailsParts[] = "ピッキング時: {$record->picking_shortage_qty}";
+                                }
+                                $shortageDetailsValue = implode(' / ', $shortageDetailsParts);
 
-                                        $shortageQtyValue = $record->shortage_qty > 0
-                                            ? (string)$record->shortage_qty
-                                            : '-';
+                                $shortageQtyValue = $record->shortage_qty > 0
+                                    ? (string)$record->shortage_qty
+                                    : '-';
 
-                                        $allocatedQtyValue = $allocatedQty > 0
-                                            ? (string)$allocatedQty
-                                            : '-';
+                                $allocatedQtyValue = $allocatedQty > 0
+                                    ? (string)$allocatedQty
+                                    : '-';
 
-                                        $remainingValue = (string)$remaining;
+                                $remainingValue = (string)$remaining;
 
-                                        return [
-                                            'data' => [
-                                                [
-                                                    'label' => '商品コード',
-                                                    'value' => $record->item->code ?? '-',
-                                                ],
-                                                [
-                                                    'label' => '商品名',
-                                                    'value' => $record->item->name ?? '-',
-                                                ],
-                                                [
-                                                    'label' => '入り数',
-                                                    'value' => $record->item->capacity_case
-                                                        ? (string)$record->item->capacity_case
-                                                        : '-',
-                                                ],
-                                                [
-                                                    'label' => '容量',
-                                                    'value' => $volumeValue,
-                                                ],
-                                                [
-                                                    'label' => '得意先コード',
-                                                    'value' => $record->trade->partner->code ?? '-',
-                                                ],
-                                                [
-                                                    'label' => '得意先名',
-                                                    'value' => $record->trade->partner->name ?? '-',
-                                                ],
-                                                [
-                                                    'label' => '元倉庫',
-                                                    'value' => $record->warehouse->name ?? '-',
-                                                ],
-                                                [
-                                                    'label' => '受注単位',
-                                                    'value' => QuantityType::tryFrom($record->qty_type_at_order)?->name()
-                                                        ?? $record->qty_type_at_order,
-                                                ],
-                                                [
-                                                    'label' => '受注数',
-                                                    'value' => $orderQtyValue,
-                                                ],
-                                                [
-                                                    'label' => '引当数',
-                                                    'value' => $plannedQtyValue,
-                                                ],
-                                                [
-                                                    'label' => '欠品数',
-                                                    'value' => $shortageQtyValue,
-                                                ],
-                                                [
-                                                    'label' => '横持ち出荷数',
-                                                    'value' => $allocatedQtyValue,
-                                                    'color' => 'blue',
-                                                ],
-                                                [
-                                                    'label' => '残欠品数',
-                                                    'value' => $remainingValue,
-                                                    'bold' => true,
-                                                    'color' => 'red',
-                                                ],
-                                                [
-                                                    'label' => '欠品内訳',
-                                                    'value' => $shortageDetailsValue,
-                                                ],
-                                            ],
-                                        ];
-                                    })
-                                    ->columnSpanFull(),
-                            ])
-                            ->compact(),
+                                return [
+                                    'data' => [
+                                        [
+                                            'label' => '商品コード',
+                                            'value' => $record->item->code ?? '-',
+                                        ],
+                                        [
+                                            'label' => '商品名',
+                                            'value' => $record->item->name ?? '-',
+                                        ],
+                                        [
+                                            'label' => '入り数',
+                                            'value' => $record->item->capacity_case
+                                                ? (string)$record->item->capacity_case
+                                                : '-',
+                                        ],
+                                        [
+                                            'label' => '容量',
+                                            'value' => $volumeValue,
+                                        ],
+                                        [
+                                            'label' => '得意先コード',
+                                            'value' => $record->trade->partner->code ?? '-',
+                                        ],
+                                        [
+                                            'label' => '得意先名',
+                                            'value' => $record->trade->partner->name ?? '-',
+                                        ],
+                                        [
+                                            'label' => '元倉庫',
+                                            'value' => $record->warehouse->name ?? '-',
+                                        ],
+                                        [
+                                            'label' => '受注単位',
+                                            'value' => QuantityType::tryFrom($record->qty_type_at_order)?->name()
+                                                ?? $record->qty_type_at_order,
+                                        ],
+                                        [
+                                            'label' => '受注数',
+                                            'value' => $orderQtyValue,
+                                        ],
+                                        [
+                                            'label' => '引当数',
+                                            'value' => $plannedQtyValue,
+                                        ],
+                                        [
+                                            'label' => '欠品数',
+                                            'value' => $shortageQtyValue,
+                                        ],
+                                        [
+                                            'label' => '横持ち出荷数',
+                                            'value' => $allocatedQtyValue,
+                                            'color' => 'blue',
+                                        ],
+                                        [
+                                            'label' => '残欠品数',
+                                            'value' => $remainingValue,
+                                            'bold' => true,
+                                            'color' => 'red',
+                                        ],
+                                        [
+                                            'label' => '欠品内訳',
+                                            'value' => $shortageDetailsValue,
+                                        ],
+                                    ],
+                                ];
+                            })
+                            ->columnSpanFull(),
 
-                        Repeater::make('allocations')
+                        \Filament\Forms\Components\ViewField::make('allocations')
                             ->label('横持ち出荷指示')
-                            ->live()
-                            ->deletable(false)
-                            ->reorderable(false)
-                            ->validationAttribute('横持ち出荷指示')
+                            ->view('filament.forms.components.proxy-shipment-allocations')
+                            ->viewData(function (WmsShortage $record) {
+                                // 該当商品の全倉庫在庫を取得（在庫がある倉庫のみ）
+                                $stocks = \DB::connection('sakemaru')
+                                    ->table('real_stocks')
+                                    ->select([
+                                        'real_stocks.warehouse_id',
+                                        \DB::raw('warehouses.name as warehouse_name'),
+                                        \DB::raw('SUM(real_stocks.current_quantity) as total_pieces'),
+                                    ])
+                                    ->join('warehouses', 'warehouses.id', '=', 'real_stocks.warehouse_id')
+                                    ->where('real_stocks.item_id', $record->item_id)
+                                    ->where('real_stocks.current_quantity', '>', 0)
+                                    ->groupBy('real_stocks.warehouse_id', 'warehouses.name')
+                                    ->orderBy('warehouses.name')
+                                    ->get();
+
+                                $caseSize = $record->item->capacity_case ?? 1;
+
+                                $stockData = $stocks->map(function ($stock) use ($caseSize) {
+                                    $totalPieces = (int) $stock->total_pieces;
+                                    $cases = floor($totalPieces / $caseSize);
+
+                                    return [
+                                        'warehouse_id' => $stock->warehouse_id,
+                                        'warehouse_name' => $stock->warehouse_name,
+                                        'cases' => $cases,
+                                        'total_pieces' => $totalPieces,
+                                    ];
+                                })->toArray();
+
+                                $qtyType = QuantityType::tryFrom($record->qty_type_at_order);
+
+                                return [
+                                    'stocks' => $stockData,
+                                    'warehouses' => Warehouse::pluck('name', 'id')->toArray(),
+                                    'shortage_qty' => $record->shortage_qty,
+                                    'qty_type' => $record->qty_type_at_order,
+                                    'qty_type_label' => $qtyType ? $qtyType->name() : $record->qty_type_at_order,
+                                ];
+                            })
+                            ->default(function (WmsShortage $record) {
+                                $allocations = $record->allocations()
+                                    ->with('targetWarehouse')
+                                    ->get();
+
+                                if ($allocations->isEmpty()) {
+                                    return [];
+                                }
+
+                                return $allocations->map(function ($allocation) use ($record) {
+                                    return [
+                                        'id' => $allocation->id,
+                                        'from_warehouse_id' => $allocation->target_warehouse_id,
+                                        'assign_qty' => $allocation->assign_qty,
+                                        'assign_qty_type' => $record->qty_type_at_order,
+                                    ];
+                                })->toArray();
+                            })
                             ->rules([
                                 function (WmsShortage $record) {
                                     return function (string $attribute, $value, \Closure $fail) use ($record) {
@@ -412,7 +463,6 @@ class WmsShortagesTable
 
                                         $totalAllocated = collect($value)->sum(function ($item) {
                                             $qty = $item['assign_qty'] ?? 0;
-
                                             return is_numeric($qty) ? (int)$qty : 0;
                                         });
 
@@ -437,73 +487,9 @@ class WmsShortagesTable
                                         }
                                     };
                                 },
-                            ])
-                            ->schema([
-                                Hidden::make('id'),
-
-                                Select::make('from_warehouse_id')
-                                    ->label('横持ち出荷倉庫')
-                                    ->options(function (WmsShortage $record) {
-                                        return Warehouse::pluck('name', 'id')
-                                            ->toArray();
-                                    })
-                                    ->required()
-                                    ->searchable()
-                                    ->validationAttribute('横持ち出荷倉庫'),
-
-                                TextInput::make('assign_qty')
-                                    ->label('横持ち出荷数量（0で削除）')
-                                    ->numeric()
-                                    ->required()
-                                    ->minValue(0)
-                                    ->integer()
-                                    ->inputMode('numeric')
-                                    ->live(onBlur: true)
-                                    ->extraInputAttributes([
-                                        'pattern' => '[0-9]*',
-                                        'type' => 'number',
-                                        'min' => '0',
-                                        'step' => '1',
-                                        'oninput' => 'this.value = this.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")',
-                                        'onblur' => 'this.value = this.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")',
-                                        'onchange' => 'this.value = this.value.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[^0-9]/g, "")',
-                                    ])
-                                    ->rule('regex:/^[0-9]+$/')
-                                    ->dehydrateStateUsing(fn($state) => is_numeric($state) ? (int)$state : null)
-                                    ->validationAttribute('横持ち出荷数量'),
-
-                                Select::make('assign_qty_type')
-                                    ->label('単位')
-                                    ->options(function (WmsShortage $record) {
-                                        $qtyType = QuantityType::tryFrom($record->qty_type_at_order);
-
-                                        return [$qtyType->value => $qtyType->name()];
-                                    })
-                                    ->default(fn(WmsShortage $record) => $record->qty_type_at_order)
-                                    ->disabled()
-                                    ->dehydrated()
-                                    ->required(),
-                            ])
-                            ->default(function (WmsShortage $record) {
-                                $allocations = $record->allocations()
-                                    ->with('targetWarehouse')
-                                    ->get();
-
-                                if ($allocations->isEmpty()) {
-                                    return [];
-                                }
-
-                                return $allocations->map(function ($allocation) use ($record) {
-                                    return [
-                                        'id' => $allocation->id,
-                                        'from_warehouse_id' => $allocation->target_warehouse_id,
-                                        'assign_qty' => $allocation->assign_qty,
-                                        'assign_qty_type' => $record->qty_type_at_order,
-                                    ];
-                                })->toArray();
-                            })
-                            ->columns(3),
-                    ])
+                            ]),
+                    ]
+)
                     ->action(function (WmsShortage $record, array $data, Action $action): void {
                         try {
                             $service = app(ProxyShipmentService::class);
