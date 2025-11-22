@@ -442,7 +442,7 @@ class GenerateWavesCommand extends Command
                 ->delete();
             $this->info("  ✓ Deleted {$deletedReservations} reservations and restored real_stocks");
 
-            // 5. Delete shortage allocations (移動出荷)
+            // 5. Delete shortage allocations (横持ち出荷)
             $deletedShortageAllocations = DB::connection('sakemaru')
                 ->table('wms_shortage_allocations')
                 ->whereIn('shortage_id', function ($query) use ($waveIds) {

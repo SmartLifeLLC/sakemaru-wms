@@ -571,7 +571,7 @@ class PickingTaskController extends Controller
         }
 
         // Check if task can be completed
-        if (!in_array($task->status, ['PICKING', 'PENDING'])) {
+        if (!in_array($task->status, ['PICKING', 'PENDING', 'SHORTAGE'])) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
@@ -585,12 +585,36 @@ class PickingTaskController extends Controller
             ], 422);
         }
 
+        // Check if all items are completed or have shortage
+        $pendingItems = $task->pickingItemResults()
+            ->whereNotIn('status', ['COMPLETED', 'SHORTAGE'])
+            ->get();
+
+        if ($pendingItems->isNotEmpty()) {
+            $pendingCount = $pendingItems->count();
+            return response()->json([
+                'is_success' => false,
+                'code' => 'VALIDATION_ERROR',
+                'result' => [
+                    'data' => null,
+                    'error_message' => 'ピッキング完了していない商品があります',
+                    'errors' => [
+                        'items' => ["{$pendingCount}件の商品がまだピッキング中です"],
+                    ],
+                ],
+            ], 422);
+        }
+
         // Capture status before update
         $statusBefore = $task->status;
 
-        // Task is always marked as COMPLETED when complete action is called
-        // Shortage tracking is now done via has_shortage flag on item results
-        $finalStatus = 'COMPLETED';
+        // Check if there are any items with shortage (has_shortage = true)
+        $hasShortage = $task->pickingItemResults()
+            ->where('has_shortage', true)
+            ->exists();
+
+        // Set status based on shortage existence
+        $finalStatus = $hasShortage ? 'SHORTAGE' : 'COMPLETED';
 
         // Update task
         $task->update([

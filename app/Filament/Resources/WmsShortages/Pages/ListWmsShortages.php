@@ -35,8 +35,8 @@ class ListWmsShortages extends ListRecords
     public function getPresetViews(): array
     {
         return [
-            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'CONFIRMED'))->favorite()->label('処理完了')->default(),
-            'not_confirmed' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'CONFIRMED'))->favorite()->label('処理中'),
+            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'BEFORE'))->favorite()->label('処理完了')->default(),
+            'not_confirmed' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'BEFORE'))->favorite()->label('処理中'),
         ];
 
     }
@@ -51,25 +51,23 @@ class ListWmsShortages extends ListRecords
                     'trade.partner',
                     'trade.earning.delivery_course',
                     'trade.earning.buyer.current_detail.salesman',
-                    'allocations.fromWarehouse',
+                    'allocations.targetWarehouse',
+                    'allocations.sourceWarehouse',
                     'updater',
+                    'confirmedBy',
                     'confirmedUser',
                 ])
-                ->withSum([
-                    'allocations as allocations_total_qty' => function ($query) {
-                        $query->whereNotIn('status', ['CANCELLED']);
-                    }
-                ], 'assign_qty_each')
+                ->withSum('allocations as allocations_total_qty', 'assign_qty')
                 ->withSum([
                     'allocations as allocations_case_qty' => function ($query) {
                         $query->where('assign_qty_type', 'CASE');
                     }
-                ], 'assign_qty_each')
+                ], 'assign_qty')
                 ->withSum([
                     'allocations as allocations_piece_qty' => function ($query) {
                         $query->where('assign_qty_type', 'PIECE');
                     }
-                ], 'assign_qty_each')
+                ], 'assign_qty')
             )
             ->recordUrl(null);
     }

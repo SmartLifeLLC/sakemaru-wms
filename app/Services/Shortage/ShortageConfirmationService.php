@@ -2,6 +2,7 @@
 
 namespace App\Services\Shortage;
 
+use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
@@ -11,7 +12,7 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * 欠品処理確定サービス
- * 移動出荷指示を確定し、ピッキング結果に反映する
+ * 横持ち出荷指示を確定し、ピッキング結果に反映する
  */
 class ShortageConfirmationService
 {
@@ -24,10 +25,8 @@ class ShortageConfirmationService
     public function confirm(WmsShortage $shortage): void
     {
         DB::connection('sakemaru')->transaction(function () use ($shortage) {
-            // 1. 全ての移動出荷指示（CANCELLED以外）を取得
-            $allocations = $shortage->allocations()
-                ->whereNotIn('status', [WmsShortageAllocation::STATUS_CANCELLED])
-                ->get();
+            // 1. 全ての横持ち出荷指示を取得
+            $allocations = $shortage->allocations()->get();
 
             if ($allocations->isEmpty()) {
                 Log::warning('No allocations to confirm', [
@@ -36,8 +35,8 @@ class ShortageConfirmationService
                 return;
             }
 
-            // 2. 合計移動出荷数を計算
-            $totalAllocatedQty = $allocations->sum('assign_qty_each');
+            // 2. 合計横持ち出荷数を計算（受注単位ベース）
+            $totalAllocatedQty = $allocations->sum('assign_qty');
 
             // 3. 対応するピッキング結果を取得
             $pickResult = WmsPickingItemResult::where('trade_item_id', $shortage->trade_item_id)
@@ -62,20 +61,46 @@ class ShortageConfirmationService
 
             $pickResult->save();
 
-            // 6. 欠品レコードのステータスをCONFIRMEDに更新し、確定者と日時を記録
-            $shortage->status = WmsShortage::STATUS_CONFIRMED;
-            $shortage->confirmed_user_id = auth()->id();
+            // 6. 欠品レコードのステータスを判定して更新
+            // - 横持ち出荷数が0の場合: SHORTAGE（欠品確定）
+            // - 横持ち出荷数 > 0 かつ 残欠品数 > 0の場合: PARTIAL_SHORTAGE（部分欠品）
+            // - 横持ち出荷数 > 0 かつ 残欠品数 = 0の場合: SHORTAGE（完全充足だが確定）
+            $remainingShortage = $shortage->shortage_qty - $totalAllocatedQty;
+
+            if ($totalAllocatedQty === 0) {
+                // 横持ち出荷が無い場合は欠品確定
+                $shortage->status = WmsShortage::STATUS_SHORTAGE;
+            } elseif ($remainingShortage > 0) {
+                // 横持ち出荷があるが欠品が残る場合は部分欠品
+                $shortage->status = WmsShortage::STATUS_PARTIAL_SHORTAGE;
+            } else {
+                // 横持ち出荷で完全に充足した場合も確定扱い
+                $shortage->status = WmsShortage::STATUS_SHORTAGE;
+            }
+
+            $shortage->is_confirmed = true;
+            $shortage->confirmed_by = auth()->id();
             $shortage->confirmed_at = now();
+            $shortage->confirmed_user_id = auth()->id();  // 後方互換性のため
             $shortage->save();
+
+            // 7. 関連する代理出荷も承認
+            $confirmedAllocationsCount = ConfirmShortageAllocations::execute(
+                wmsShortageId: $shortage->id,
+                confirmedUserId: auth()->id() ?? 0
+            );
 
             Log::info('Shortage confirmation completed', [
                 'shortage_id' => $shortage->id,
                 'pick_result_id' => $pickResult->id,
                 'allocated_qty' => $totalAllocatedQty,
+                'remaining_shortage' => $remainingShortage,
+                'status' => $shortage->status,
                 'qty_type' => $shortage->qty_type_at_order,
+                'confirmed_allocations_count' => $confirmedAllocationsCount,
             ]);
 
-            // 7. ピッキングタスクのステータスを確認・更新
+            // 8. ピッキングタスクのステータスを確認・更新
             $this->updatePickingTaskStatus($pickResult->pickingTask);
         });
     }

@@ -131,14 +131,9 @@
                                 >
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
-                                <input
-                                    type="number"
-                                    value="{{ $item['shortage_qty'] }}"
-                                    min="0"
-                                    step="1"
-                                    readonly
-                                    class="w-20 text-center border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 bg-gray-100 border cursor-not-allowed"
-                                >
+                                <span class="text-gray-900 dark:text-gray-100 @if($item['shortage_qty'] > 0) font-semibold text-red-600 dark:text-red-400 @endif">
+                                    {{ $item['shortage_qty'] }}
+                                </span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
                                 @if($item['status'] === 'COMPLETED')

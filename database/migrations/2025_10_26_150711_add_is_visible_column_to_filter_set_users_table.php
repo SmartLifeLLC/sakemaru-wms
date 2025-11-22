@@ -26,15 +26,15 @@ return new class extends Migration
         // Therefore, we need to attach (make favorite) any view created by the
         // user that are global favorite, but aren't attached (favorited).
 
-        Config::getUserView()::query()
-            ->withoutGlobalScope(TenantScope::class)
-            ->global()
-            ->each(function ($view) {
-                $view->userManagedUserViews()
-                    ->syncWithPivotValues($view->user_id, [
-                        'is_visible' => true,
-                    ], false);
-            });
+//        Config::getUserView()::query()
+//            ->withoutGlobalScope(TenantScope::class)
+//            ->global()
+//            ->each(function ($view) {
+//                $view->userManagedUserViews()
+//                    ->syncWithPivotValues($view->user_id, [
+//                        'is_visible' => true,
+//                    ], false);
+//            });
     }
 
     public function down(): void

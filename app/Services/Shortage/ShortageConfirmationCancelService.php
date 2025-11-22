@@ -22,59 +22,32 @@ class ShortageConfirmationCancelService
      */
     public function cancel(WmsShortage $shortage): void
     {
-        // CONFIRMED以外は処理しない
-        if ($shortage->status !== WmsShortage::STATUS_CONFIRMED) {
+        // is_confirmed = true または status = BEFORE の場合は処理しない
+        if ($shortage->is_confirmed) {
             throw new \RuntimeException(
-                "Shortage ID {$shortage->id} is not confirmed (status: {$shortage->status})"
+                "Shortage ID {$shortage->id} is already confirmed (is_confirmed: true)"
+            );
+        }
+
+        if ($shortage->status === WmsShortage::STATUS_BEFORE) {
+            throw new \RuntimeException(
+                "Shortage ID {$shortage->id} is in BEFORE status and cannot be cancelled"
             );
         }
 
         DB::connection('sakemaru')->transaction(function () use ($shortage) {
-            // 1. 対応するピッキング結果を取得
-            $pickResult = WmsPickingItemResult::where('trade_item_id', $shortage->trade_item_id)
-                ->whereHas('pickingTask', function ($query) use ($shortage) {
-                    $query->where('wave_id', $shortage->wave_id);
-                })
-                ->first();
+            // 欠品処理確定前の取り消しなので、ピッキング結果は更新不要
+            // ステータスをBEFOREに戻すのみ
 
-            if (!$pickResult) {
-                throw new \RuntimeException(
-                    "Picking item result not found for shortage ID {$shortage->id}"
-                );
-            }
-
-            // 2. shortage_allocated_qtyとshortage_allocated_qty_typeをクリア
-            $pickResult->shortage_allocated_qty = 0;
-            $pickResult->shortage_allocated_qty_type = null;
-
-            // 3. is_ready_to_shipmentとshipment_ready_atをクリア
-            $pickResult->is_ready_to_shipment = false;
-            $pickResult->shipment_ready_at = null;
-
-            $pickResult->save();
-
-            // 4. 欠品レコードのステータスをREALLOCATINGまたはOPENに戻す
-            // 移動出荷指示が存在する場合はREALLOCATING、なければOPEN
-            $hasAllocations = $shortage->allocations()
-                ->whereNotIn('status', ['CANCELLED'])
-                ->exists();
-
-            $shortage->status = $hasAllocations
-                ? WmsShortage::STATUS_REALLOCATING
-                : WmsShortage::STATUS_OPEN;
-            $shortage->confirmed_user_id = null;
-            $shortage->confirmed_at = null;
+            $shortage->status = WmsShortage::STATUS_BEFORE;
             $shortage->updater_id = auth()->id();
             $shortage->save();
 
-            Log::info('Shortage confirmation cancelled', [
+            Log::info('Shortage processing cancelled', [
                 'shortage_id' => $shortage->id,
-                'pick_result_id' => $pickResult->id,
+                'old_status' => $shortage->getOriginal('status'),
                 'new_status' => $shortage->status,
             ]);
-
-            // 5. ピッキングタスクのステータスを確認・更新
-            $this->updatePickingTaskStatus($pickResult->pickingTask);
         });
     }
 

@@ -36,6 +36,7 @@ class WmsPickingTask extends Model
         'picker_id',
         'started_at',
         'completed_at',
+        'print_requested_count',
     ];
 
     protected $casts = [
@@ -43,6 +44,7 @@ class WmsPickingTask extends Model
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
         'is_restricted_area' => 'boolean',
+        'print_requested_count' => 'integer',
     ];
 
     /**
