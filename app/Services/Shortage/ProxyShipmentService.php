@@ -10,18 +10,18 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * 移動出荷サービス
- * 段階4-5: 移動出荷指示と引当処理
+ * 横持ち出荷サービス
+ * 段階4-5: 横持ち出荷指示と引当処理
  */
 class ProxyShipmentService
 {
     /**
-     * 移動出荷指示を作成
+     * 横持ち出荷指示を作成
      *
      * @param WmsShortage $shortage
-     * @param int $fromWarehouseId 移動出荷倉庫（出荷元倉庫）
-     * @param int $assignQty 移動出荷数量（受注単位ベース）
-     * @param string $assignQtyType 移動出荷単位 (CASE, PIECE, CARTON)
+     * @param int $fromWarehouseId 横持ち出荷倉庫（出荷元倉庫）
+     * @param int $assignQty 横持ち出荷数量（受注単位ベース）
+     * @param string $assignQtyType 横持ち出荷単位 (CASE, PIECE, CARTON)
      * @param int $createdBy 作成者
      * @return WmsShortageAllocation
      * @throws \Exception
@@ -33,9 +33,9 @@ class ProxyShipmentService
         string $assignQtyType,
         int $createdBy
     ): WmsShortageAllocation {
-        // 受注単位と移動出荷単位が一致しているか確認
+        // 受注単位と横持ち出荷単位が一致しているか確認
         if ($assignQtyType !== $shortage->qty_type_at_order) {
-            throw new \Exception('移動出荷単位は受注単位と一致させてください');
+            throw new \Exception('横持ち出荷単位は受注単位と一致させてください');
         }
 
         // 欠品数を超える指定は警告
@@ -74,12 +74,12 @@ class ProxyShipmentService
 
             $salePrice = $tradeItem?->price;
 
-            // 3. 移動出荷指示レコード作成（受注単位ベース）
+            // 3. 横持ち出荷指示レコード作成（受注単位ベース）
             $allocation = WmsShortageAllocation::create([
                 'shortage_id' => $shortage->id,
                 'shipment_date' => $shortage->shipment_date,  // 親のshipment_dateを引き継ぐ
                 'delivery_course_id' => $shortage->delivery_course_id,  // 親のdelivery_course_idを引き継ぐ
-                'target_warehouse_id' => $fromWarehouseId,  // 出荷元倉庫（移動出荷倉庫）
+                'target_warehouse_id' => $fromWarehouseId,  // 出荷元倉庫（横持ち出荷倉庫）
                 'source_warehouse_id' => $shortage->warehouse_id,  // 元倉庫ID（欠品発生倉庫）
                 'assign_qty' => $assignQty,
                 'assign_qty_type' => $assignQtyType,
@@ -114,11 +114,11 @@ class ProxyShipmentService
     }
 
     /**
-     * 移動出荷指示を更新
+     * 横持ち出荷指示を更新
      *
      * @param WmsShortageAllocation $allocation
-     * @param int $fromWarehouseId 移動出荷倉庫
-     * @param int $assignQty 移動出荷数量（受注単位ベース）
+     * @param int $fromWarehouseId 横持ち出荷倉庫
+     * @param int $assignQty 横持ち出荷数量（受注単位ベース）
      * @param int $updatedBy 更新者
      * @return WmsShortageAllocation
      * @throws \Exception
@@ -164,7 +164,7 @@ class ProxyShipmentService
     }
 
     /**
-     * 移動出荷を削除
+     * 横持ち出荷を削除
      *
      * @param WmsShortageAllocation $allocation
      * @return void
@@ -175,10 +175,10 @@ class ProxyShipmentService
             $shortage = $allocation->shortage;
             $allocationId = $allocation->id;
 
-            // 移動出荷レコードを物理削除
+            // 横持ち出荷レコードを物理削除
             $allocation->delete();
 
-            // 他の移動出荷がなければ、欠品ステータスを BEFORE に戻す
+            // 他の横持ち出荷がなければ、欠品ステータスを BEFORE に戻す
             $activeAllocations = $shortage->allocations()
                 ->where('status', '!=', WmsShortageAllocation::STATUS_FULFILLED)
                 ->count();

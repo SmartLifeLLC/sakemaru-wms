@@ -17,7 +17,7 @@ class PickingShortageDetector
      * ピッキング完了時に欠品を検出して記録
      *
      * @param WmsPickingItemResult $pickResult
-     * @param int|null $parentShortageId 移動出荷の場合の親欠品ID
+     * @param int|null $parentShortageId 横持ち出荷の場合の親欠品ID
      * @return WmsShortage|null
      */
     public function detectAndRecord(
@@ -56,6 +56,16 @@ class PickingShortageDetector
             $qtyType = $pickResult->ordered_qty_type;
             $caseSize = $pickResult->item?->case_size ?? 1;
 
+            // earningをtrade_idから取得
+            $earning = DB::connection('sakemaru')
+                ->table('earnings')
+                ->where('trade_id', $pickResult->trade_id)
+                ->first();
+
+            $earningId = $earning?->id;
+            $shipmentDate = $earning?->delivered_date;  // earnings.delivered_dateから取得
+            $deliveryCourseId = $earning?->delivery_course_id;
+
             // 既存の欠品レコードを検索または作成
             $shortage = WmsShortage::firstOrCreate(
                 [
@@ -66,7 +76,10 @@ class PickingShortageDetector
                     'status' => WmsShortage::STATUS_BEFORE,
                 ],
                 [
+                    'shipment_date' => $shipmentDate,
                     'trade_id' => $pickResult->trade_id,
+                    'earning_id' => $earningId,
+                    'delivery_course_id' => $deliveryCourseId,
                     'order_qty' => $pickResult->planned_qty,
                     'planned_qty' => $pickResult->planned_qty,
                     'picked_qty' => 0,

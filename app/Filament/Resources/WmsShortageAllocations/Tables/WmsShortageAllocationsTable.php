@@ -6,6 +6,7 @@ use App\Enums\QuantityType;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortageAllocation;
 use App\Services\Shortage\ProxyShipmentService;
+use App\Services\Shortage\StockTransferQueueService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -216,11 +217,28 @@ class WmsShortageAllocationsTable
 
                         $record->save();
 
-                        Notification::make()
-                            ->title('横持ち出荷を完了しました')
-                            ->body("ステータス: {$record->status}")
-                            ->success()
-                            ->send();
+                        // 倉庫移動伝票キューを作成
+                        try {
+                            $queueService = app(StockTransferQueueService::class);
+                            $queueId = $queueService->createStockTransferQueue($record);
+
+                            $message = '横持ち出荷を完了しました';
+                            if ($queueId) {
+                                $message .= "\n倉庫移動伝票キューID: {$queueId}";
+                            }
+
+                            Notification::make()
+                                ->title($message)
+                                ->body("ステータス: {$record->status}")
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('完了しましたが、倉庫移動伝票の作成でエラーが発生しました')
+                                ->body($e->getMessage())
+                                ->warning()
+                                ->send();
+                        }
                     }),
 
                 // 追加の横持ち出荷アクション（残数量がある場合のみ）
@@ -322,6 +340,10 @@ class WmsShortageAllocationsTable
                             $completedCount = 0;
                             $fulfilledCount = 0;
                             $shortageCount = 0;
+                            $queueCreatedCount = 0;
+                            $queueErrorCount = 0;
+
+                            $queueService = app(StockTransferQueueService::class);
 
                             foreach ($records as $record) {
                                 // 既に完了している、またはステータスがPICKING/RESERVED以外の場合はスキップ
@@ -344,11 +366,33 @@ class WmsShortageAllocationsTable
 
                                 $record->save();
                                 $completedCount++;
+
+                                // 倉庫移動伝票キューを作成
+                                try {
+                                    $queueId = $queueService->createStockTransferQueue($record);
+                                    if ($queueId) {
+                                        $queueCreatedCount++;
+                                    }
+                                } catch (\Exception $e) {
+                                    $queueErrorCount++;
+                                    \Log::error('Failed to create stock transfer queue in bulk action', [
+                                        'allocation_id' => $record->id,
+                                        'error' => $e->getMessage(),
+                                    ]);
+                                }
+                            }
+
+                            $message = "完了件数: {$completedCount}件 (完了: {$fulfilledCount}件、欠品: {$shortageCount}件)";
+                            if ($queueCreatedCount > 0) {
+                                $message .= "\n倉庫移動伝票キュー作成: {$queueCreatedCount}件";
+                            }
+                            if ($queueErrorCount > 0) {
+                                $message .= "\n倉庫移動伝票キューエラー: {$queueErrorCount}件";
                             }
 
                             Notification::make()
                                 ->title('横持ち出荷を一括完了しました')
-                                ->body("完了件数: {$completedCount}件 (完了: {$fulfilledCount}件、欠品: {$shortageCount}件)")
+                                ->body($message)
                                 ->success()
                                 ->send();
                         }),

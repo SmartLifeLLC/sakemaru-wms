@@ -59,12 +59,25 @@ class AllocationShortageDetector
             $caseSizeSnap,
             $sourceReservationId
         ) {
+            // earningをtrade_idから取得
+            $earning = DB::connection('sakemaru')
+                ->table('earnings')
+                ->where('trade_id', $tradeId)
+                ->first();
+
+            $earningId = $earning?->id;
+            $shipmentDate = $earning?->delivered_date;  // earnings.delivered_dateから取得
+            $deliveryCourseId = $earning?->delivery_course_id;
+
             // 欠品レコード作成（受注単位ベース）
             $shortage = WmsShortage::create([
                 'wave_id' => $waveId,
+                'shipment_date' => $shipmentDate,
                 'warehouse_id' => $warehouseId,
                 'item_id' => $itemId,
                 'trade_id' => $tradeId,
+                'earning_id' => $earningId,
+                'delivery_course_id' => $deliveryCourseId,
                 'trade_item_id' => $tradeItemId,
                 'order_qty' => $orderQty,
                 'planned_qty' => $reservedQty,

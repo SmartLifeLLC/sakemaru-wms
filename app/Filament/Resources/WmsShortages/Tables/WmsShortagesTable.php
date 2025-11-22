@@ -63,7 +63,7 @@ class WmsShortagesTable
                     })
                     ->formatStateUsing(fn(?string $state): string => match ($state) {
                         'BEFORE' => '未対応',
-                        'REALLOCATING' => '移動出荷',
+                        'REALLOCATING' => '横持ち出荷',
                         'SHORTAGE' => '欠品確定',
                         'PARTIAL_SHORTAGE' => '部分欠品',
                         default => $state ?? '-',
@@ -157,7 +157,7 @@ class WmsShortagesTable
                     ->alignment('center'),
 
                 TextColumn::make('allocations_total_qty')
-                    ->label('移動出荷')
+                    ->label('横持ち出荷')
                     ->formatStateUsing(function ($record) {
                         $qty = $record->allocations_total_qty ?? 0;
 
@@ -207,7 +207,7 @@ class WmsShortagesTable
                     ->label('ステータス')
                     ->options([
                         'OPEN' => '未対応',
-                        'REALLOCATING' => '移動出荷中',
+                        'REALLOCATING' => '横持ち出荷中',
                         'FULFILLED' => '充足',
                         'CONFIRMED' => '処理確定済み',
                         'CANCELLED' => 'キャンセル',
@@ -376,7 +376,7 @@ class WmsShortagesTable
                                                     'value' => $shortageQtyValue,
                                                 ],
                                                 [
-                                                    'label' => '移動出荷数',
+                                                    'label' => '横持ち出荷数',
                                                     'value' => $allocatedQtyValue,
                                                     'color' => 'blue',
                                                 ],
@@ -398,11 +398,11 @@ class WmsShortagesTable
                             ->compact(),
 
                         Repeater::make('allocations')
-                            ->label('移動出荷指示')
+                            ->label('横持ち出荷指示')
                             ->live()
                             ->deletable(false)
                             ->reorderable(false)
-                            ->validationAttribute('移動出荷指示')
+                            ->validationAttribute('横持ち出荷指示')
                             ->rules([
                                 function (WmsShortage $record) {
                                     return function (string $attribute, $value, \Closure $fail) use ($record) {
@@ -419,7 +419,7 @@ class WmsShortagesTable
                                         if ($totalAllocated > $record->shortage_qty) {
                                             $qtyType = QuantityType::tryFrom($record->qty_type_at_order);
                                             $unit = $qtyType ? $qtyType->name() : $record->qty_type_at_order;
-                                            $fail("移動出荷総数（{$totalAllocated}{$unit}）が欠品数（{$record->shortage_qty}{$unit}）を超えています。");
+                                            $fail("横持ち出荷総数（{$totalAllocated}{$unit}）が欠品数（{$record->shortage_qty}{$unit}）を超えています。");
                                         }
 
                                         $selectedWarehouses = collect($value)
@@ -442,17 +442,17 @@ class WmsShortagesTable
                                 Hidden::make('id'),
 
                                 Select::make('from_warehouse_id')
-                                    ->label('移動出荷倉庫')
+                                    ->label('横持ち出荷倉庫')
                                     ->options(function (WmsShortage $record) {
                                         return Warehouse::pluck('name', 'id')
                                             ->toArray();
                                     })
                                     ->required()
                                     ->searchable()
-                                    ->validationAttribute('移動出荷倉庫'),
+                                    ->validationAttribute('横持ち出荷倉庫'),
 
                                 TextInput::make('assign_qty')
-                                    ->label('移動出荷数量（0で削除）')
+                                    ->label('横持ち出荷数量（0で削除）')
                                     ->numeric()
                                     ->required()
                                     ->minValue(0)
@@ -470,7 +470,7 @@ class WmsShortagesTable
                                     ])
                                     ->rule('regex:/^[0-9]+$/')
                                     ->dehydrateStateUsing(fn($state) => is_numeric($state) ? (int)$state : null)
-                                    ->validationAttribute('移動出荷数量'),
+                                    ->validationAttribute('横持ち出荷数量'),
 
                                 Select::make('assign_qty_type')
                                     ->label('単位')
@@ -565,13 +565,13 @@ class WmsShortagesTable
                             $remainingShortage = max(0, $record->shortage_qty - $totalAllocated);
 
                             if ($totalAllocated === 0) {
-                                // 移動出荷数が0の場合: SHORTAGE（欠品確定）
+                                // 横持ち出荷数が0の場合: SHORTAGE（欠品確定）
                                 $record->status = WmsShortage::STATUS_SHORTAGE;
                             } elseif ($remainingShortage === 0) {
-                                // 移動出荷で欠品がない場合: REALLOCATING（再引当中）
+                                // 横持ち出荷で欠品がない場合: REALLOCATING（再引当中）
                                 $record->status = WmsShortage::STATUS_REALLOCATING;
                             } else {
-                                // 移動出荷と欠品が共存する場合: PARTIAL_SHORTAGE（部分欠品）
+                                // 横持ち出荷と欠品が共存する場合: PARTIAL_SHORTAGE（部分欠品）
                                 $record->status = WmsShortage::STATUS_PARTIAL_SHORTAGE;
                             }
                             $record->save();
@@ -703,7 +703,7 @@ class WmsShortagesTable
                                                     'value' => $shortageQtyValue,
                                                 ],
                                                 [
-                                                    'label' => '移動出荷数',
+                                                    'label' => '横持ち出荷数',
                                                     'value' => $allocatedQtyValue,
                                                     'color' => 'blue',
                                                 ],
@@ -723,7 +723,7 @@ class WmsShortagesTable
                             ]),
 
                         Repeater::make('allocations')
-                            ->label('移動出荷指示')
+                            ->label('横持ち出荷指示')
                             ->disabled()
                             ->columns(4)
                             ->schema([
@@ -733,13 +733,13 @@ class WmsShortagesTable
                                     ->columnSpan(1),
 
                                 Select::make('from_warehouse_id')
-                                    ->label('移動出荷倉庫')
+                                    ->label('横持ち出荷倉庫')
                                     ->options(Warehouse::pluck('name', 'id')->toArray())
                                     ->disabled()
                                     ->columnSpan(1),
 
                                 TextInput::make('assign_qty')
-                                    ->label('移動出荷数量')
+                                    ->label('横持ち出荷数量')
                                     ->disabled()
                                     ->columnSpan(1),
 

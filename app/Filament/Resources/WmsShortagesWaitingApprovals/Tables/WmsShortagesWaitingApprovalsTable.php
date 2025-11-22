@@ -71,7 +71,7 @@ class WmsShortagesWaitingApprovalsTable
                     })
                     ->formatStateUsing(fn(?string $state): string => match ($state) {
                         'BEFORE' => '未対応',
-                        'REALLOCATING' => '移動出荷',
+                        'REALLOCATING' => '横持ち出荷',
                         'SHORTAGE' => '欠品確定',
                         'PARTIAL_SHORTAGE' => '部分欠品',
                         default => $state ?? '-',
@@ -140,7 +140,7 @@ class WmsShortagesWaitingApprovalsTable
                     ->color('danger'),
 
                 TextColumn::make('allocations_total_qty')
-                    ->label('移動出荷数')
+                    ->label('横持ち出荷数')
                     ->numeric()
                     ->alignment('center')
                     ->color('info'),
@@ -320,7 +320,7 @@ class WmsShortagesWaitingApprovalsTable
                                                     'value' => $shortageQtyValue,
                                                 ],
                                                 [
-                                                    'label' => '移動出荷数',
+                                                    'label' => '横持ち出荷数',
                                                     'value' => $allocatedQtyValue,
                                                     'color' => 'blue',
                                                 ],
@@ -342,22 +342,22 @@ class WmsShortagesWaitingApprovalsTable
                             ->compact(),
 
                         Repeater::make('allocations')
-                            ->label('移動出荷指示')
+                            ->label('横持ち出荷指示')
                             ->live()
                             ->deletable(false)
                             ->reorderable(false)
                             ->schema([
                                 Select::make('from_warehouse_id')
-                                    ->label('移動出荷倉庫')
+                                    ->label('横持ち出荷倉庫')
                                     ->options(function (WmsShortage $record) {
                                         return Warehouse::pluck('name', 'id')->toArray();
                                     })
                                     ->required()
                                     ->searchable()
-                                    ->validationAttribute('移動出荷倉庫'),
+                                    ->validationAttribute('横持ち出荷倉庫'),
 
                                 TextInput::make('assign_qty')
-                                    ->label('移動出荷数量（0で削除）')
+                                    ->label('横持ち出荷数量（0で削除）')
                                     ->numeric()
                                     ->required()
                                     ->minValue(0)
@@ -373,7 +373,7 @@ class WmsShortagesWaitingApprovalsTable
                                         'oninput' => "this.value = this.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '')",
                                         'lang' => 'en',
                                     ])
-                                    ->validationAttribute('移動出荷数量'),
+                                    ->validationAttribute('横持ち出荷数量'),
 
                                 TextInput::make('qty_type')
                                     ->label('単位')
@@ -383,7 +383,7 @@ class WmsShortagesWaitingApprovalsTable
                                     ->formatStateUsing(fn($state) => QuantityType::tryFrom($state)?->name() ?? $state),
                             ])
                             ->defaultItems(0)
-                            ->addActionLabel('移動出荷指示を追加')
+                            ->addActionLabel('横持ち出荷指示を追加')
                             ->columns(3),
                     ])
                     ->action(function (WmsShortage $record, array $data) {
@@ -546,7 +546,7 @@ class WmsShortagesWaitingApprovalsTable
                                                     'value' => $shortageDetailsValue ?: '-',
                                                 ],
                                                 [
-                                                    'label' => '移動出荷数',
+                                                    'label' => '横持ち出荷数',
                                                     'value' => $allocatedQtyValue,
                                                 ],
                                                 [
@@ -558,7 +558,7 @@ class WmsShortagesWaitingApprovalsTable
                                     }),
                             ]),
 
-                        Section::make('移動出荷指示')
+                        Section::make('横持ち出荷指示')
                             ->schema([
                                 Repeater::make('allocations')
                                     ->label('')
@@ -566,12 +566,12 @@ class WmsShortagesWaitingApprovalsTable
                                     ->disabled()
                                     ->schema([
                                         Select::make('target_warehouse_id')
-                                            ->label('移動出荷倉庫')
+                                            ->label('横持ち出荷倉庫')
                                             ->relationship('targetWarehouse', 'name')
                                             ->disabled(),
 
                                         TextInput::make('assign_qty')
-                                            ->label('移動出荷数量')
+                                            ->label('横持ち出荷数量')
                                             ->disabled(),
 
                                         TextInput::make('qty_type')
@@ -592,7 +592,7 @@ class WmsShortagesWaitingApprovalsTable
                     ->visible(fn(WmsShortage $record) => !$record->is_confirmed)
                     ->requiresConfirmation()
                     ->modalHeading('欠品処理を承認しますか？')
-                    ->modalDescription('この欠品の移動出荷指示を承認します。')
+                    ->modalDescription('この欠品の横持ち出荷指示を承認します。')
                     ->action(function (WmsShortage $record) {
                         try {
                             $record->is_confirmed = true;
@@ -645,7 +645,7 @@ class WmsShortagesWaitingApprovalsTable
                         ->color('success')
                         ->requiresConfirmation()
                         ->modalHeading('欠品処理を承認しますか？')
-                        ->modalDescription('選択された欠品の移動出荷指示を承認します。')
+                        ->modalDescription('選択された欠品の横持ち出荷指示を承認します。')
                         ->action(function ($records) {
                             $count = 0;
                             $skipped = 0;

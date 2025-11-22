@@ -20,6 +20,7 @@ class WmsShortage extends Model
         'warehouse_id',
         'item_id',
         'trade_id',
+        'earning_id',
         'delivery_course_id',
         'trade_item_id',
         'order_qty',
@@ -246,7 +247,7 @@ class WmsShortage extends Model
 
     /**
      * 欠品の残量を計算
-     * 移動出荷で充足した分を差し引く
+     * 横持ち出荷で充足した分を差し引く
      *
      * @return int 受注単位ベースの残欠品数
      */
