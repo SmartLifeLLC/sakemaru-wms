@@ -278,12 +278,12 @@ class WmsShortagesTable
             )
             ->recordActions([
                 Action::make('createProxyShipment')
-                    ->label('欠品処理')
+                    ->label('欠品対応')
                     ->icon('heroicon-o-truck')
                     ->color('warning')
                     ->hidden(fn(WmsShortage $record) => $record->is_confirmed)
                     ->modalHeading('')
-                    ->modalSubmitActionLabel('欠品処理確定')
+                    ->modalSubmitActionLabel('欠品対応確定')
                     ->schema([
                         View::make('filament.components.shortage-info-table')
                             ->viewData(function (Get $get, WmsShortage $record): array {
@@ -581,7 +581,7 @@ class WmsShortagesTable
                             };
 
                             Notification::make()
-                                ->title('欠品処理を確定しました')
+                                ->title('欠品対応を確定しました')
                                 ->body(implode('、', $messages) . ($messages ? '。' : '') . "ステータス: {$statusLabel}")
                                 ->success()
                                 ->send();
@@ -596,7 +596,7 @@ class WmsShortagesTable
 
                 // viewProxyShipment はそのまま（省略可だがここでは元に近い形で維持）
                 Action::make('viewProxyShipment')
-                    ->label('欠品処理')
+                    ->label('対応確認')
                     ->icon('heroicon-o-eye')
                     ->color('info')
                     ->visible(fn(WmsShortage $record): bool => $record->is_confirmed

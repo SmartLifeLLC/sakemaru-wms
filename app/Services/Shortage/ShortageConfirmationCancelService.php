@@ -9,13 +9,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * 欠品処理確定取り消しサービス
- * 確定済みの欠品処理を取り消す
+ * 欠品対応確定取り消しサービス
+ * 確定済みの欠品対応を取り消す
  */
 class ShortageConfirmationCancelService
 {
     /**
-     * 欠品処理確定を取り消す
+     * 欠品対応確定を取り消す
      *
      * @param WmsShortage $shortage 欠品レコード
      * @return void
@@ -36,7 +36,7 @@ class ShortageConfirmationCancelService
         }
 
         DB::connection('sakemaru')->transaction(function () use ($shortage) {
-            // 欠品処理確定前の取り消しなので、ピッキング結果は更新不要
+            // 欠品対応確定前の取り消しなので、ピッキング結果は更新不要
             // ステータスをBEFOREに戻すのみ
 
             $shortage->status = WmsShortage::STATUS_BEFORE;

@@ -134,7 +134,7 @@ class ShortageApprovalService
                 if ($shortage && !$shortage->is_synced) {
                     return [
                         'can_print' => false,
-                        'error_message' => '欠品処理が完了していません。在庫同期が完了するまでお待ちください。',
+                        'error_message' => '欠品対応が完了していません。在庫同期が完了するまでお待ちください。',
                     ];
                 }
             }

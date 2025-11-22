@@ -205,11 +205,11 @@ class WmsShortagesWaitingApprovalsTable
             ->recordActions([
                 // 編集アクション（承認済みは編集不可）
                 Action::make('editProxyShipment')
-                    ->label('欠品処理')
+                    ->label('欠品対応')
                     ->icon('heroicon-o-truck')
                     ->color('warning')
                     ->hidden(fn(WmsShortage $record) => $record->is_confirmed)
-                    ->modalHeading('欠品処理')
+                    ->modalHeading('欠品対応')
                     ->modalSubmitActionLabel('保存')
                     ->fillForm(function (WmsShortage $record): array {
                         $allocations = $record->allocations()
@@ -443,7 +443,7 @@ class WmsShortagesWaitingApprovalsTable
 
                         Notification::make()
                             ->title('保存しました')
-                            ->body('欠品処理を更新しました' . ($deletedCount > 0 ? "（{$deletedCount}件削除）" : ''))
+                            ->body('欠品対応を更新しました' . ($deletedCount > 0 ? "（{$deletedCount}件削除）" : ''))
                             ->success()
                             ->send();
                     }),
@@ -591,7 +591,7 @@ class WmsShortagesWaitingApprovalsTable
                     ->color('success')
                     ->visible(fn(WmsShortage $record) => !$record->is_confirmed)
                     ->requiresConfirmation()
-                    ->modalHeading('欠品処理を承認しますか？')
+                    ->modalHeading('欠品対応を承認しますか？')
                     ->modalDescription('この欠品の横持ち出荷指示を承認します。')
                     ->action(function (WmsShortage $record) {
                         try {
@@ -615,7 +615,7 @@ class WmsShortagesWaitingApprovalsTable
                             $approvalService = app(ShortageApprovalService::class);
                             $approvalService->updatePickingTaskStatusAfterApproval($record);
 
-                            $message = '欠品処理を承認しました。';
+                            $message = '欠品対応を承認しました。';
                             if ($confirmedAllocationsCount > 0) {
                                 $message .= "代理出荷{$confirmedAllocationsCount}件を承認しました。";
                             }
@@ -644,7 +644,7 @@ class WmsShortagesWaitingApprovalsTable
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->requiresConfirmation()
-                        ->modalHeading('欠品処理を承認しますか？')
+                        ->modalHeading('欠品対応を承認しますか？')
                         ->modalDescription('選択された欠品の横持ち出荷指示を承認します。')
                         ->action(function ($records) {
                             $count = 0;
@@ -695,7 +695,7 @@ class WmsShortagesWaitingApprovalsTable
                             }
 
                             if ($count > 0) {
-                                $message = "{$count}件の欠品処理を承認しました";
+                                $message = "{$count}件の欠品対応を承認しました";
                                 if ($totalAllocationsConfirmed > 0) {
                                     $message .= "（代理出荷{$totalAllocationsConfirmed}件承認）";
                                 }

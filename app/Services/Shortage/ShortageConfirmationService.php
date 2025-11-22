@@ -11,13 +11,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * 欠品処理確定サービス
+ * 欠品対応確定サービス
  * 横持ち出荷指示を確定し、ピッキング結果に反映する
  */
 class ShortageConfirmationService
 {
     /**
-     * 欠品処理を確定する
+     * 欠品対応を確定する
      *
      * @param WmsShortage $shortage 欠品レコード
      * @return void

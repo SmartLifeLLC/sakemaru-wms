@@ -75,7 +75,7 @@ class WmsShipmentSlipsTable
                     ->color('warning')
                     ->requiresConfirmation()
                     ->modalHeading('強制印刷')
-                    ->modalDescription('ピッキングや欠品処理が完了していない状態でも、現状のまま印刷します。本当に実行しますか？')
+                    ->modalDescription('ピッキングや欠品対応が完了していない状態でも、現状のまま印刷します。本当に実行しますか？')
                     ->modalSubmitActionLabel('強制印刷')
                     ->action(function (WmsPickingTask $record) {
                         $systemDate = ClientSetting::systemDate();

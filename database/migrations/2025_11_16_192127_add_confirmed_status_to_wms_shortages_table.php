@@ -9,7 +9,7 @@ return new class extends Migration
      * Run the migrations.
      *
      * Add CONFIRMED status to wms_shortages.status ENUM
-     * CONFIRMED: 欠品処理確定済み（横持ち出荷指示がピッキング結果に反映済み）
+     * CONFIRMED: 欠品対応確定済み（横持ち出荷指示がピッキング結果に反映済み）
      */
     public function up(): void
     {
