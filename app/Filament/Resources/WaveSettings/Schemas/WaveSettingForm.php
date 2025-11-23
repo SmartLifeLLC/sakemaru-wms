@@ -17,6 +17,11 @@ class WaveSettingForm
                 Section::make('Wave Configuration')
                     ->description('Configure wave generation settings for warehouse and delivery course combinations')
                     ->schema([
+                        \Filament\Forms\Components\TextInput::make('name')
+                            ->label('Wave Name')
+                            ->maxLength(255)
+                            ->nullable(),
+
                         Select::make('warehouse_id')
                             ->label('Warehouse')
                             ->options(function () {

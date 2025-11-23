@@ -188,10 +188,11 @@ class GenerateWavesCommand extends Command
 
                         $reservationResults[$tradeItem->id] = $reservationResult;
 
-                        // Skip items with zero allocation (complete shortage)
-                        if ($result['allocated'] == 0) {
-                            continue;
-                        }
+                        // Skip items with zero allocation (complete shortage) - REMOVED
+                        // We now process them to create shortage records
+                        // if ($result['allocated'] == 0) {
+                        //     continue;
+                        // }
 
                         // Get picking area ID, floor ID, temperature_type, and is_restricted_area from primary location
                         $pickingAreaId = null;
@@ -262,6 +263,27 @@ class GenerateWavesCommand extends Command
                             ];
                         }
                         $itemsByGroup[$groupKey]['items'][] = $tradeItem;
+
+                        // Detect and record shortage if allocated < ordered
+                        if ($result['allocated'] < $tradeItem->quantity) {
+                            $shortageDetector = new \App\Services\Shortage\AllocationShortageDetector();
+                            // Get case size snapshot (assuming 1 if not available for now, or fetch from item)
+                            // Ideally this should come from item master
+                            $item = DB::connection('sakemaru')->table('items')->where('id', $tradeItem->item_id)->first();
+                            $caseSizeSnap = $item->quantity_per_case ?? 1;
+
+                            $shortageDetector->detectAndRecord(
+                                $wave->id,
+                                $setting->warehouse_id,
+                                $tradeItem->item_id,
+                                $tradeItem->trade_id,
+                                $tradeItem->id,
+                                $tradeItem->quantity,
+                                $result['allocated'],
+                                $tradeItem->quantity_type ?? 'PIECE',
+                                $caseSizeSnap
+                            );
+                        }
                     }
 
                 // Create one picking task per (floor_id, picking_area_id) group
@@ -271,11 +293,12 @@ class GenerateWavesCommand extends Command
                         continue;
                     }
 
-                    // Filter items to only include those with successful reservations
+                    // Filter items to only include those with successful reservations OR valid shortages
                     $validItems = [];
                     foreach ($groupData['items'] as $tradeItem) {
                         $reservationResult = $reservationResults[$tradeItem->id] ?? null;
-                        if ($reservationResult && $reservationResult['allocated_qty'] > 0) {
+                        // Include if we have a reservation result (even if allocated_qty is 0)
+                        if ($reservationResult) {
                             $validItems[] = $tradeItem;
                         }
                     }

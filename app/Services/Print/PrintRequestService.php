@@ -15,9 +15,10 @@ class PrintRequestService
      * @param int $deliveryCourseId 配送コースID
      * @param string $shipmentDate 納品日
      * @param int $warehouseId 倉庫ID
+     * @param int|null $waveId ウェーブID (Optional)
      * @return array ['success' => bool, 'message' => string, 'queue_id' => int|null]
      */
-    public function createPrintRequest(int $deliveryCourseId, string $shipmentDate, int $warehouseId): array
+    public function createPrintRequest(int $deliveryCourseId, string $shipmentDate, int $warehouseId, ?int $waveId = null): array
     {
         try {
             // 配送コースの情報を取得
@@ -45,10 +46,14 @@ class PrintRequestService
             }
 
             // 対象のピッキングタスクを取得
-            $tasks = WmsPickingTask::where('delivery_course_id', $deliveryCourseId)
-                ->where('shipment_date', $shipmentDate)
-                ->with(['pickingItemResults'])
-                ->get();
+            $query = WmsPickingTask::where('delivery_course_id', $deliveryCourseId)
+                ->where('shipment_date', $shipmentDate);
+
+            if ($waveId) {
+                $query->where('wave_id', $waveId);
+            }
+
+            $tasks = $query->with(['pickingItemResults'])->get();
 
             if ($tasks->isEmpty()) {
                 return [
