@@ -12,13 +12,15 @@ class WmsPickingWaitingResource extends Resource
 {
     protected static ?string $model = WmsPickingTask::class;
 
-    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clock';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-user-plus';
 
-    protected static ?string $navigationLabel = 'ピッキング待ち';
+    protected static ?string $navigationLabel = 'ピッキング担当待ち';
 
-    protected static ?string $modelLabel = 'ピッキング待ち';
+    protected static ?string $modelLabel = 'ピッキング担当待ち';
 
     protected static ?string $slug = 'wms-picking-waitings';
+
+    protected static ?int $navigationSort = 2;
 
     public static function getNavigationGroup(): ?string
     {

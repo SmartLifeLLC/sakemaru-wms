@@ -3,16 +3,15 @@
 namespace App\Filament\Resources\WmsPickingTasks\Pages;
 
 use App\Filament\Concerns\HasWmsUserViews;
-use App\Filament\Resources\WmsPickingItemResults\WmsPickingItemResultResource;
-use App\Models\Sakemaru\ClientSetting;
+use App\Filament\Resources\WmsPickingTasks\WmsPickingItemEditResource;
+use App\Filament\Resources\WmsPickingTasks\Widgets\PickingTaskInfoWidget;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
-use App\Filament\Resources\WmsPickingTasks\Widgets\PickingTaskInfoWidget;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
 
-class ListWmsPickingItemResults extends ListRecords
+class ListWmsPickingItemEdits extends ListRecords
 {
     use ExposesTableToWidgets;
     use AdvancedTables;
@@ -21,7 +20,9 @@ class ListWmsPickingItemResults extends ListRecords
         HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
     }
 
-    protected static string $resource = WmsPickingItemResultResource::class;
+    protected static string $resource = WmsPickingItemEditResource::class;
+
+    protected static ?string $title = 'ピッキング明細編集';
 
     public ?int $pickingTaskId = null;
 
@@ -33,10 +34,15 @@ class ListWmsPickingItemResults extends ListRecords
         $this->pickingTaskId = request()->input('tableFilters.picking_task_id.value');
     }
 
-    protected function getHeaderActions(): array
+    public function getHeading(): string
+    {
+        return 'ピッキング明細編集';
+    }
+
+    protected function getHeaderWidgets(): array
     {
         return [
-            //
+            PickingTaskInfoWidget::make(['pickingTaskId' => $this->pickingTaskId]),
         ];
     }
 
@@ -45,16 +51,6 @@ class ListWmsPickingItemResults extends ListRecords
         return [
             'default' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query->where('has_soft_shortage', true))->favorite()->label('引き当て欠品あり')->default(),
             'all' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query)->favorite()->label('全体'),
-
-
-
-        ];
-    }
-
-    protected function getHeaderWidgets(): array
-    {
-        return [
-            PickingTaskInfoWidget::make(['pickingTaskId' => $this->pickingTaskId]),
         ];
     }
 }

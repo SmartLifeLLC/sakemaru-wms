@@ -9,7 +9,7 @@ use Filament\Support\Icons\Heroicon;
 
 class WmsOutbound extends Page
 {
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedArrowUpTray;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedPresentationChartBar;
 
     protected string $view = 'filament.pages.wms-outbound';
 

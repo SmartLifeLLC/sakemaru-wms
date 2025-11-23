@@ -131,9 +131,9 @@ enum EMenu: string
 
             // 出荷管理
             self::OUTBOUND_DASHBOARD => 1,
-            self::WAVES => 2,
+            self::WAVES => 7,
             self::PICKING_TASKS => 3,
-            self::SHIPMENT_INSPECTIONS => 4,
+            self::SHIPMENT_INSPECTIONS => 8,
 
             // 在庫管理
             self::REAL_STOCKS => 1,

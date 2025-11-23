@@ -34,7 +34,7 @@ class WmsCompletedPickingTaskResource extends Resource
 
     public static function getNavigationSort(): ?int
     {
-        return EMenu::PICKING_TASKS->sort() + 1;
+        return 6;
     }
 
     public static function getEloquentQuery(): Builder

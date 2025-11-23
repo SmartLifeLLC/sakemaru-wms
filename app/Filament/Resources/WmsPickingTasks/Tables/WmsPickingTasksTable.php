@@ -247,7 +247,7 @@ class WmsPickingTasksTable
                     ->label('明細確認・修正')
                     ->icon('heroicon-o-list-bullet')
                     ->color('success')
-                    ->url(fn ($record) => \App\Filament\Resources\WmsPickingTasks\WmsPickingItemResultResource::getUrl('index', [
+                    ->url(fn ($record) => \App\Filament\Resources\WmsPickingTasks\WmsPickingItemEditResource::getUrl('index', [
                         'tableFilters' => [
                             'picking_task_id' => [
                                 'value' => $record->id,

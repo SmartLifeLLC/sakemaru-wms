@@ -2,8 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickingTasks;
 
-use App\Enums\EMenuCategory;
-use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingItemResults;
+use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingItemEdits;
 use App\Models\WmsPickingItemResult;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Resources\Resource;
@@ -15,22 +14,14 @@ use Filament\Tables\Table;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsPickingItemResultResource extends Resource
+class WmsPickingItemEditResource extends Resource
 {
     protected static ?string $model = WmsPickingItemResult::class;
 
-    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-list';
+    protected static ?string $slug = 'wms-picking-item-edit';
 
-    protected static ?string $navigationLabel = '欠品・引当修正';
-
-    protected static ?string $modelLabel = 'ピッキング明細';
-
-    protected static ?string $slug = 'wms-picking-item-results';
-
-    public static function getNavigationGroup(): ?string
-    {
-        return EMenuCategory::OUTBOUND->label();
-    }
+    // Hide from navigation menu
+    protected static bool $shouldRegisterNavigation = false;
 
     public static function table(Table $table): Table
     {
@@ -151,7 +142,7 @@ class WmsPickingItemResultResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => ListWmsPickingItemResults::route('/'),
+            'index' => ListWmsPickingItemEdits::route('/'),
         ];
     }
 }
