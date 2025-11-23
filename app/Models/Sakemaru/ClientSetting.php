@@ -49,6 +49,14 @@ class ClientSetting extends CustomModel
 
     }
 
+    public static function systemYesterdayYMD(): string{
+        return self::systemDate()->copy()->subDay()->format('Y-m-d');
+    }
+
+    public static function systemDateYMD(): string{
+        return self::systemDate()->format('Y-m-d');
+    }
+
     public static function systemMonth(): int|null
     {
         $client_setting = auth()->user()?->client?->setting;

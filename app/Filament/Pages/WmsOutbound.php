@@ -42,4 +42,11 @@ class WmsOutbound extends Page
     {
         return 'full';
     }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            \App\Filament\Widgets\WmsOutboundOverview::class,
+        ];
+    }
 }

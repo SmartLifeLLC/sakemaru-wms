@@ -71,6 +71,59 @@
             });
         }
     }">
+        <!-- 商品情報テーブル -->
+        <div class="mb-6 -mt-2">
+            <table class="w-full border-collapse border border-gray-300 dark:border-gray-600 mb-1">
+                <thead class="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">商品コード</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">商品名</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">入り数</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">容量</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">得意先コード</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">得意先名</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white dark:bg-gray-900">
+                    <tr>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $item_code }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $item_name }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $capacity_case }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $volume_value }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $partner_code }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $partner_name }}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <table class="w-full border-collapse border border-gray-300 dark:border-gray-600">
+                <thead class="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">元倉庫</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">受注単位</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">受注数</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">{{ $picked_qty_label ?? '引当数' }}</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">欠品数</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">横持ち出荷数</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">残欠品数</th>
+                        <th class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-gray-100 text-center">欠品内訳</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white dark:bg-gray-900">
+                    <tr>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $warehouse_name }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $qty_type_label }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $order_qty }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $picked_qty }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $shortage_qty }}</td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-blue-600 dark:text-blue-400" x-text="allocatedQty"></td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center font-bold" :class="remainingQty > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'" x-text="remainingQty"></td>
+                        <td class="border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm text-center text-gray-700 dark:text-gray-300">{{ $shortage_details }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
         <!-- 在庫リスト -->
         <div class="mb-4 overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600">
             <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
