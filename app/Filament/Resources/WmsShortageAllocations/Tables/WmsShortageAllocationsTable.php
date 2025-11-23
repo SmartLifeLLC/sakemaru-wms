@@ -20,6 +20,7 @@ use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 class WmsShortageAllocationsTable
 {
@@ -252,68 +253,161 @@ class WmsShortageAllocationsTable
                     ->modalHeading('追加の横持ち出荷指示')
                     ->modalSubmitActionLabel('確定')
                     ->form([
-                        Section::make()
-                            ->schema([
-                                TextInput::make('current_assign_qty')
-                                    ->label('現在の出荷数量')
-                                    ->default(fn (WmsShortageAllocation $record) => $record->assign_qty)
-                                    ->disabled()
-                                    ->dehydrated(false),
+                        \Filament\Forms\Components\ViewField::make('allocations')
+                            ->label('横持ち出荷指示')
+                            ->live()
+                            ->view('filament.forms.components.proxy-shipment-allocations')
+                            ->viewData(function (WmsShortageAllocation $record) {
+                                // 該当商品の全倉庫在庫を取得（在庫がある倉庫のみ）
+                                $stocks = \DB::connection('sakemaru')
+                                    ->table('real_stocks')
+                                    ->select([
+                                        'real_stocks.warehouse_id',
+                                        \DB::raw('warehouses.name as warehouse_name'),
+                                        \DB::raw('SUM(real_stocks.current_quantity) as total_pieces'),
+                                    ])
+                                    ->join('warehouses', 'warehouses.id', '=', 'real_stocks.warehouse_id')
+                                    ->where('real_stocks.item_id', $record->shortage->item_id)
+                                    ->where('real_stocks.current_quantity', '>', 0)
+                                    ->where('real_stocks.warehouse_id', '!=', $record->target_warehouse_id) // 現在の倉庫を除外
+                                    ->groupBy('real_stocks.warehouse_id', 'warehouses.name')
+                                    ->orderBy('warehouses.name')
+                                    ->get();
 
-                                TextInput::make('current_picked_qty')
-                                    ->label('ピッキング済み数量')
-                                    ->default(fn (WmsShortageAllocation $record) => $record->picked_qty)
-                                    ->disabled()
-                                    ->dehydrated(false),
+                                $caseSize = $record->shortage->item->capacity_case ?? 1;
 
-                                TextInput::make('remaining_qty_display')
-                                    ->label('残数量')
-                                    ->default(fn (WmsShortageAllocation $record) => $record->remaining_qty)
-                                    ->disabled()
-                                    ->dehydrated(false)
-                                    ->helperText('この数量を別の倉庫から横持ち出荷できます'),
-                            ])
-                            ->columns(3),
+                                $stockData = $stocks->map(function ($stock) use ($caseSize) {
+                                    $totalPieces = (int) $stock->total_pieces;
+                                    $cases = floor($totalPieces / $caseSize);
 
-                        Select::make('new_from_warehouse_id')
-                            ->label('追加横持ち出荷倉庫')
-                            ->options(function (WmsShortageAllocation $record) {
-                                return Warehouse::where('id', '!=', $record->target_warehouse_id)
-                                    ->pluck('name', 'id')
-                                    ->toArray();
+                                    return [
+                                        'warehouse_id' => $stock->warehouse_id,
+                                        'warehouse_name' => $stock->warehouse_name,
+                                        'cases' => $cases,
+                                        'total_pieces' => $totalPieces,
+                                    ];
+                                })->toArray();
+
+                                $qtyType = QuantityType::tryFrom($record->assign_qty_type);
+                                
+                                // 容量
+                                $volumeValue = '-';
+                                if ($record->shortage->item->volume) {
+                                    $unit = \App\Enums\EVolumeUnit::tryFrom($record->shortage->item->volume_unit);
+                                    $volumeValue = $record->shortage->item->volume . ($unit ? $unit->name() : '');
+                                }
+
+                                // 欠品内訳（このレコードのコンテキストに合わせて表示）
+                                $shortageDetailsValue = "残数量: {$record->remaining_qty}";
+
+                                return [
+                                    'stocks' => $stockData,
+                                    'warehouses' => Warehouse::where('id', '!=', $record->target_warehouse_id)->pluck('name', 'id')->toArray(), // 現在の倉庫を除外
+                                    'shortage_qty' => $record->remaining_qty, // この割り当ての残数を上限とする
+                                    'qty_type' => $record->assign_qty_type,
+                                    'qty_type_label' => $qtyType ? $qtyType->name() : $record->assign_qty_type,
+                                    // Info Table Data
+                                    'item_code' => $record->shortage->item->code ?? '-',
+                                    'item_name' => $record->shortage->item->name ?? '-',
+                                    'capacity_case' => $record->shortage->item->capacity_case ? (string)$record->shortage->item->capacity_case : '-',
+                                    'volume_value' => $volumeValue,
+                                    'partner_code' => $record->shortage->trade->partner->code ?? '-',
+                                    'partner_name' => $record->shortage->trade->partner->name ?? '-',
+                                    'warehouse_name' => $record->shortage->warehouse->name ?? '-',
+                                    'order_qty' => (string)$record->assign_qty, // 横持ち出荷指示数
+                                    'picked_qty' => (string)$record->picked_qty, // ピッキング済み数
+                                    'picked_qty_label' => 'ピック数',
+                                    'shortage_details' => $shortageDetailsValue,
+                                ];
                             })
-                            ->required()
-                            ->searchable()
-                            ->validationAttribute('横持ち出荷倉庫'),
+                            ->default([]) // 新規追加なので空
+                            ->rules([
+                                function (WmsShortageAllocation $record) {
+                                    return function (string $attribute, $value, \Closure $fail) use ($record) {
+                                        if (!is_array($value)) {
+                                            return;
+                                        }
 
-                        TextInput::make('new_assign_qty')
-                            ->label('追加横持ち出荷数量')
-                            ->numeric()
-                            ->required()
-                            ->default(fn (WmsShortageAllocation $record) => $record->remaining_qty)
-                            ->minValue(1)
-                            ->maxValue(fn (WmsShortageAllocation $record) => $record->remaining_qty)
-                            ->helperText(fn (WmsShortageAllocation $record) => "最大: {$record->remaining_qty}")
-                            ->validationAttribute('出荷数量'),
+                                        $totalAllocated = collect($value)->sum(function ($item) {
+                                            $qty = $item['assign_qty'] ?? 0;
+                                            return is_numeric($qty) ? (int)$qty : 0;
+                                        });
+
+                                        if ($totalAllocated > $record->remaining_qty) {
+                                            $qtyType = QuantityType::tryFrom($record->assign_qty_type);
+                                            $unit = $qtyType ? $qtyType->name() : $record->assign_qty_type;
+                                            $fail("追加出荷総数（{$totalAllocated}{$unit}）が残数量（{$record->remaining_qty}{$unit}）を超えています。");
+                                        }
+
+                                        $selectedWarehouses = collect($value)
+                                            ->pluck('from_warehouse_id')
+                                            ->filter()
+                                            ->toArray();
+
+                                        // 現在の倉庫が含まれていないかチェック
+                                        if (in_array($record->target_warehouse_id, $selectedWarehouses)) {
+                                            $fail("現在の出荷元倉庫と同じ倉庫は選択できません。");
+                                        }
+
+                                        $counts = array_count_values($selectedWarehouses);
+                                        foreach ($counts as $warehouseId => $count) {
+                                            if ($count > 1) {
+                                                $warehouseName = Warehouse::find($warehouseId)?->name ?? '倉庫';
+                                                $fail("{$warehouseName}が重複して選択されています。");
+                                                break;
+                                            }
+                                        }
+                                    };
+                                },
+                            ]),
                     ])
                     ->action(function (WmsShortageAllocation $record, array $data): void {
                         try {
                             $service = app(ProxyShipmentService::class);
+                            $createdCount = 0;
+                            $totalReallocatedQty = 0;
 
-                            // 新しい横持ち出荷レコードを作成
-                            $newAllocation = $service->createProxyShipment(
-                                shortage: $record->shortage,
-                                fromWarehouseId: $data['new_from_warehouse_id'],
-                                assignQty: $data['new_assign_qty'],
-                                assignQtyType: $record->assign_qty_type,
-                                createdBy: auth()->id() ?? 0
-                            );
+                            DB::transaction(function () use ($record, $data, $service, &$createdCount, &$totalReallocatedQty) {
+                                foreach ($data['allocations'] as $allocation) {
+                                    if (empty($allocation['assign_qty']) || $allocation['assign_qty'] <= 0) {
+                                        continue;
+                                    }
 
-                            Notification::make()
-                                ->title('追加の横持ち出荷を作成しました')
-                                ->body("横持ち出荷ID: {$newAllocation->id}、数量: {$data['new_assign_qty']}")
-                                ->success()
-                                ->send();
+                                    // 新しい横持ち出荷レコードを作成
+                                    $service->createProxyShipment(
+                                        shortage: $record->shortage,
+                                        fromWarehouseId: $allocation['from_warehouse_id'],
+                                        assignQty: $allocation['assign_qty'],
+                                        assignQtyType: $record->assign_qty_type,
+                                        createdBy: auth()->id() ?? 0
+                                    );
+                                    $createdCount++;
+                                    $totalReallocatedQty += (int)$allocation['assign_qty'];
+                                }
+
+                                if ($createdCount > 0) {
+                                    // 元の横持ち出荷指示の数量を減らす
+                                    $record->assign_qty -= $totalReallocatedQty;
+                                    $record->save();
+
+                                    // 欠品情報の承認状態を解除
+                                    $record->shortage->is_confirmed = false;
+                                    $record->shortage->save();
+                                }
+                            });
+
+                            if ($createdCount > 0) {
+                                Notification::make()
+                                    ->title("追加の横持ち出荷を{$createdCount}件作成しました")
+                                    ->body("元の出荷指示から{$totalReallocatedQty}個を振り分けました。承認状態が解除されました。")
+                                    ->success()
+                                    ->send();
+                            } else {
+                                Notification::make()
+                                    ->title('追加の出荷指示がありませんでした')
+                                    ->warning()
+                                    ->send();
+                            }
                         } catch (\Exception $e) {
                             Notification::make()
                                 ->title('エラー')
@@ -399,6 +493,7 @@ class WmsShortageAllocationsTable
                 ]),
             ])
             ->toolbarActions([])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->recordUrl(null);
     }
 }

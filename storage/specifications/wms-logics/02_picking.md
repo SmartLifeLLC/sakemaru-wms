@@ -159,7 +159,7 @@ WHERE real_stock_id = :id
 ## 🔟 備考
 
 * ピッキングステータスは `earnings.picking_status` にも反映される。
-* 波動完了後は、欠品処理フェーズ（`03_shortage_reallocation.md`）へ移行。
+* 波動完了後は、欠品対応フェーズ（`03_shortage_reallocation.md`）へ移行。
 
 ```
 

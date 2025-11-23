@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsShortages\Pages;
 
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsShortages\WmsShortageResource;
+use App\Models\Sakemaru\ClientSetting;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\CreateAction;
@@ -34,9 +35,11 @@ class ListWmsShortages extends ListRecords
 
     public function getPresetViews(): array
     {
+
         return [
-            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'BEFORE'))->favorite()->label('処理完了')->default(),
-            'not_confirmed' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'BEFORE'))->favorite()->label('処理中'),
+            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'BEFORE'))->favorite()->label('対応待ち')->default(),
+            'finished' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'BEFORE')->where('shipment_date',ClientSetting::systemDate()))->favorite()->label('対応完了(当日分)'),
+            'finished_all' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'BEFORE'))->favorite()->label('対応完了(全件)')
         ];
 
     }

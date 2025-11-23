@@ -21,7 +21,7 @@ class WmsShortageResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
-    protected static ?string $navigationLabel = '欠品処理';
+    protected static ?string $navigationLabel = '欠品対応';
 
     protected static ?string $modelLabel = '欠品';
 

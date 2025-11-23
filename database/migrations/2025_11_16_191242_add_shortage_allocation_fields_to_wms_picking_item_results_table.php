@@ -12,9 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::connection('sakemaru')->table('wms_picking_item_results', function (Blueprint $table) {
-            // 欠品処理で割り当てられた数量
+            // 欠品対応で割り当てられた数量
             $table->integer('shortage_allocated_qty')->default(0)->after('picked_qty');
-            // 欠品処理で割り当てられた数量のタイプ
+            // 欠品対応で割り当てられた数量のタイプ
             $table->enum('shortage_allocated_qty_type', ['CASE', 'PIECE', 'CARTON'])->nullable()->after('shortage_allocated_qty');
             // 出荷準備完了フラグ
             $table->boolean('is_ready_to_shipment')->default(false)->after('shortage_allocated_qty_type');

@@ -47,7 +47,7 @@ WMS（倉庫管理層）
    - 各伝票（`earnings`）に `wms_picking_tasks` を作成。
    - 商品ごとに在庫を `wms_reservations` に拘束。
 
-3. **欠品処理（Shortage）**
+3. **欠品対応（Shortage）**
    - ピッカーが欠品を報告 (`shortage_qty > 0`)。
    - 欠品ボードに自動反映。
 
@@ -88,7 +88,7 @@ real_stocks ──< wms_real_stocks
 |------|------|
 | 排他制御 | `SELECT FOR UPDATE` + `lock_version` による楽観ロック |
 | 冪等制御 | `wms_idempotency_keys` に scope/key_hash を保持 |
-| 欠品処理 | 再配分中は欠品印字せず、欠品確定のみ販売管理側印字 |
+| 欠品対応 | 再配分中は欠品印字せず、欠品確定のみ販売管理側印字 |
 | 操作監査 | `wms_op_logs` に before/after JSON を記録 |
 | 性能目標 | ピッキングリスト取得 < 1秒、波動生成 < 1分 |
 

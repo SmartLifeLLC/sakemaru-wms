@@ -7,11 +7,13 @@ use App\Models\WmsPickingTask;
 use App\Services\Print\PrintRequestService;
 use App\Services\Shortage\ShortageApprovalService;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
 class WmsShipmentSlipsTable
@@ -44,7 +46,7 @@ class WmsShipmentSlipsTable
                     ->searchable(),
 
                 TextColumn::make('print_requested_count')
-                    ->label('印刷依頼回数')
+                    ->label('印刷回数')
                     ->alignEnd()
                     ->sortable(),
 
@@ -67,57 +69,30 @@ class WmsShipmentSlipsTable
             ->filters([
                 //
             ])
-            ->recordAction('printSlip')
+            ->recordAction('')
             ->recordActions([
-                Action::make('forcePrintSlip')
-                    ->label('強制印刷')
-                    ->icon('heroicon-o-exclamation-triangle')
-                    ->color('warning')
-                    ->requiresConfirmation()
-                    ->modalHeading('強制印刷')
-                    ->modalDescription('ピッキングや欠品処理が完了していない状態でも、現状のまま印刷します。本当に実行しますか？')
-                    ->modalSubmitActionLabel('強制印刷')
-                    ->action(function (WmsPickingTask $record) {
+                Action::make('print')
+                    ->label(function (WmsPickingTask $record) {
                         $systemDate = ClientSetting::systemDate();
-
-                        // 印刷依頼を作成
-                        $printService = app(PrintRequestService::class);
-                        $result = $printService->createPrintRequest(
+                        $approvalService = app(ShortageApprovalService::class);
+                        $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d'),
-                            $record->warehouse_id
+                            $systemDate->format('Y-m-d')
                         );
 
-                        if (!$result['success']) {
-                            Notification::make()
-                                ->title('エラー')
-                                ->body($result['message'])
-                                ->danger()
-                                ->send();
-                            return;
-                        }
-
-                        // 同じ配送コース・納品日のタスクをすべて取得
-                        $tasksToUpdate = WmsPickingTask::where('shipment_date', $systemDate)
-                            ->where('delivery_course_id', $record->delivery_course_id)
-                            ->get();
-
-                        // print_requested_countをインクリメント
-                        foreach ($tasksToUpdate as $task) {
-                            $task->increment('print_requested_count');
-                        }
-
-                        Notification::make()
-                            ->title('強制印刷依頼')
-                            ->body('伝票印刷を強制実行しました。（売上' . $result['earning_count'] . '件、タスク' . $tasksToUpdate->count() . '件）')
-                            ->warning()
-                            ->send();
-                    }),
-
-                Action::make('printSlip')
-                    ->label('印刷')
+                        return $printability['can_print'] ? '印刷' : '強制印刷';
+                    })
                     ->icon('heroicon-o-printer')
-                    ->color('primary')
+                    ->color(function (WmsPickingTask $record) {
+                        $systemDate = ClientSetting::systemDate();
+                        $approvalService = app(ShortageApprovalService::class);
+                        $printability = $approvalService->checkPrintability(
+                            $record->delivery_course_id,
+                            $systemDate->format('Y-m-d')
+                        );
+
+                        return $printability['can_print'] ? 'primary' : 'warning';
+                    })
                     ->requiresConfirmation()
                     ->modalHeading(function (WmsPickingTask $record) {
                         $systemDate = ClientSetting::systemDate();
@@ -127,7 +102,7 @@ class WmsShipmentSlipsTable
                             $systemDate->format('Y-m-d')
                         );
 
-                        return $printability['can_print'] ? '出荷伝票印刷' : '印刷できません';
+                        return $printability['can_print'] ? '出荷伝票印刷' : '強制印刷';
                     })
                     ->modalDescription(function (WmsPickingTask $record) {
                         $systemDate = ClientSetting::systemDate();
@@ -138,7 +113,7 @@ class WmsShipmentSlipsTable
                         );
 
                         if (!$printability['can_print']) {
-                            return $printability['error_message'];
+                            return $printability['error_message'] . "\n\nピッキングや欠品対応が完了していない状態でも、現状のまま印刷します。本当に実行しますか？";
                         }
 
                         return 'この配送コースの伝票を印刷します。';
@@ -151,43 +126,17 @@ class WmsShipmentSlipsTable
                             $systemDate->format('Y-m-d')
                         );
 
-                        return $printability['can_print'] ? '印刷' : '閉じる';
-                    })
-                    ->modalCancelAction(function (WmsPickingTask $record) {
-                        $systemDate = ClientSetting::systemDate();
-                        $approvalService = app(ShortageApprovalService::class);
-                        $printability = $approvalService->checkPrintability(
-                            $record->delivery_course_id,
-                            $systemDate->format('Y-m-d')
-                        );
-
-                        // エラーの場合はキャンセルボタンを非表示
-                        return $printability['can_print'] ? null : false;
-                    })
-                    ->color(function (WmsPickingTask $record) {
-                        $systemDate = ClientSetting::systemDate();
-                        $approvalService = app(ShortageApprovalService::class);
-                        $printability = $approvalService->checkPrintability(
-                            $record->delivery_course_id,
-                            $systemDate->format('Y-m-d')
-                        );
-
-                        return $printability['can_print'] ? 'primary' : 'danger';
+                        return $printability['can_print'] ? '印刷' : '強制印刷';
                     })
                     ->action(function (WmsPickingTask $record) {
                         $systemDate = ClientSetting::systemDate();
 
-                        // 印刷可能性チェック（再度実行）
+                        // 印刷可能性チェック
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
                             $systemDate->format('Y-m-d')
                         );
-
-                        if (!$printability['can_print']) {
-                            // エラーの場合は何もしない
-                            return;
-                        }
 
                         // 印刷依頼を作成
                         $printService = app(PrintRequestService::class);
@@ -216,13 +165,79 @@ class WmsShipmentSlipsTable
                             $task->increment('print_requested_count');
                         }
 
+                        $title = $printability['can_print'] ? '印刷依頼' : '強制印刷依頼';
+                        $notificationType = $printability['can_print'] ? 'success' : 'warning';
+
                         Notification::make()
-                            ->title('印刷依頼')
+                            ->title($title)
                             ->body('伝票印刷を依頼しました。（売上' . $result['earning_count'] . '件、タスク' . $tasksToUpdate->count() . '件）')
-                            ->success()
+                            ->{$notificationType}()
                             ->send();
                     }),
             ], position: RecordActionsPosition::BeforeColumns)
+            ->bulkActions([
+                BulkAction::make('bulkPrint')
+                    ->label('一括印刷')
+                    ->icon('heroicon-o-printer')
+                    ->color('primary')
+                    ->requiresConfirmation()
+                    ->modalHeading('一括印刷')
+                    ->modalDescription(fn (Collection $records): string =>
+                        "選択された {$records->count()} 件の配送コースの伝票を印刷します。"
+                    )
+                    ->modalSubmitActionLabel('一括印刷')
+                    ->action(function (Collection $records): void {
+                        $systemDate = ClientSetting::systemDate();
+                        $printService = app(PrintRequestService::class);
+                        $successCount = 0;
+                        $errorCount = 0;
+                        $totalEarnings = 0;
+                        $totalTasks = 0;
+
+                        foreach ($records as $record) {
+                            try {
+                                // 印刷依頼を作成
+                                $result = $printService->createPrintRequest(
+                                    $record->delivery_course_id,
+                                    $systemDate->format('Y-m-d'),
+                                    $record->warehouse_id
+                                );
+
+                                if ($result['success']) {
+                                    // 同じ配送コース・納品日のタスクをすべて取得
+                                    $tasksToUpdate = WmsPickingTask::where('shipment_date', $systemDate)
+                                        ->where('delivery_course_id', $record->delivery_course_id)
+                                        ->get();
+
+                                    // print_requested_countをインクリメント
+                                    foreach ($tasksToUpdate as $task) {
+                                        $task->increment('print_requested_count');
+                                    }
+
+                                    $successCount++;
+                                    $totalEarnings += $result['earning_count'];
+                                    $totalTasks += $tasksToUpdate->count();
+                                } else {
+                                    $errorCount++;
+                                }
+                            } catch (\Exception $e) {
+                                $errorCount++;
+                            }
+                        }
+
+                        $message = "印刷依頼完了: {$successCount}件成功";
+                        if ($errorCount > 0) {
+                            $message .= "、{$errorCount}件失敗";
+                        }
+                        $message .= "（売上{$totalEarnings}件、タスク{$totalTasks}件）";
+
+                        Notification::make()
+                            ->title('一括印刷')
+                            ->body($message)
+                            ->success()
+                            ->send();
+                    }),
+            ])
             ->modifyQueryUsing(function (Builder $query) {
                 // system_dateを取得
                 $systemDate = ClientSetting::systemDate();
