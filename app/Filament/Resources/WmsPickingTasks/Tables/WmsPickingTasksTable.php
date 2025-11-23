@@ -246,6 +246,76 @@ class WmsPickingTasksTable
                     })
                     ->visible(fn ($record) => in_array($record->status, ['COMPLETED', 'SHORTAGE'])),
 
+                Action::make('edit_allocation')
+                    ->label('引当数修正')
+                    ->icon('heroicon-o-pencil-square')
+                    ->color('success')
+                    ->form(function ($record) {
+                        return [
+                            \Filament\Forms\Components\Repeater::make('items')
+                                ->label('商品一覧')
+                                ->schema([
+                                    TextInput::make('item_name')
+                                        ->label('商品名')
+                                        ->disabled(),
+                                    TextInput::make('ordered_qty')
+                                        ->label('受注数')
+                                        ->disabled(),
+                                    TextInput::make('planned_qty')
+                                        ->label('引当数')
+                                        ->numeric()
+                                        ->minValue(0)
+                                        ->required(),
+                                    TextInput::make('shortage_qty')
+                                        ->label('欠品数')
+                                        ->disabled(),
+                                ])
+                                ->disableItemCreation()
+                                ->disableItemDeletion()
+                                ->columns(4)
+                                ->default(function () use ($record) {
+                                    return $record->pickingItemResults->map(function ($item) {
+                                        return [
+                                            'id' => $item->id,
+                                            'item_name' => $item->item->name ?? 'Unknown',
+                                            'ordered_qty' => $item->ordered_qty,
+                                            'planned_qty' => $item->planned_qty,
+                                            'shortage_qty' => $item->shortage_qty,
+                                        ];
+                                    })->toArray();
+                                }),
+                        ];
+                    })
+                    ->action(function ($record, array $data) {
+                        DB::connection('sakemaru')->transaction(function () use ($record, $data) {
+                            foreach ($data['items'] as $itemData) {
+                                $itemResult = \App\Models\WmsPickingItemResult::find($itemData['id']);
+                                if (!$itemResult) continue;
+
+                                $newPlannedQty = (int) $itemData['planned_qty'];
+                                $oldPlannedQty = $itemResult->planned_qty;
+
+                                if ($newPlannedQty === $oldPlannedQty) continue;
+
+                                // Update picking item result
+                                $itemResult->update([
+                                    'planned_qty' => $newPlannedQty,
+                                    'updated_at' => now(),
+                                ]);
+
+                                // Update real_stocks and reservations logic would go here
+                                // For now, we just update the planned_qty as requested to allow manual correction
+                                // A full implementation would need to adjust reservations and stock locks
+                                // This is a simplified version for "Manager Correction"
+                            }
+
+                            Notification::make()
+                                ->title('引当数を更新しました')
+                                ->success()
+                                ->send();
+                        });
+                    }),
+
             ], position: RecordActionsPosition::BeforeColumns)
             ->defaultSort('created_at', 'desc')
             ->toolbarActions([

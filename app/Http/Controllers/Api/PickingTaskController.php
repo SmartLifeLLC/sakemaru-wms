@@ -191,6 +191,7 @@ class PickingTaskController extends Controller
             // Note: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
             $itemResults = $task->pickingItemResults()
                 ->with('item')
+                ->where('planned_qty', '>', 0) // Filter out items with 0 planned quantity (complete shortage)
                 ->orderBy('item_id', 'asc')
                 ->get();
 

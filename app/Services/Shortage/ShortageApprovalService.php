@@ -88,15 +88,20 @@ class ShortageApprovalService
      *
      * @param int $deliveryCourseId 配送コースID
      * @param string $shipmentDate 納品日
+     * @param int|null $waveId ウェーブID (Optional)
      * @return array ['can_print' => bool, 'error_message' => string|null]
      */
-    public function checkPrintability(int $deliveryCourseId, string $shipmentDate): array
+    public function checkPrintability(int $deliveryCourseId, string $shipmentDate, ?int $waveId = null): array
     {
         // 対象配送コースの全てのピッキングタスクを取得
-        $tasks = WmsPickingTask::where('delivery_course_id', $deliveryCourseId)
-            ->where('shipment_date', $shipmentDate)
-            ->with(['pickingItemResults.shortage'])
-            ->get();
+        $query = WmsPickingTask::where('delivery_course_id', $deliveryCourseId)
+            ->where('shipment_date', $shipmentDate);
+
+        if ($waveId) {
+            $query->where('wave_id', $waveId);
+        }
+
+        $tasks = $query->with(['pickingItemResults.shortage'])->get();
 
         if ($tasks->isEmpty()) {
             return [

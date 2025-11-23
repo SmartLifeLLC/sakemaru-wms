@@ -17,6 +17,7 @@ class Wave extends Model
         'wave_no',
         'shipping_date',
         'status',
+        'print_count',
     ];
 
     protected $casts = [

@@ -11,6 +11,7 @@ use Filament\Actions\BulkAction;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -45,6 +46,34 @@ class WmsShipmentSlipsTable
                     ->label('倉庫名')
                     ->searchable(),
 
+                TextColumn::make('wave.waveSetting.name')
+                    ->label('ウェーブ名')
+                    ->sortable(),
+
+                TextColumn::make('wave.wave_no')
+                    ->label('ウェーブNo')
+                    ->sortable(),
+
+                TextColumn::make('floor.name')
+                    ->label('フロア')
+                    ->sortable(),
+
+                TextColumn::make('pickingArea.name')
+                    ->label('エリア')
+                    ->sortable(),
+
+                TextColumn::make('is_restricted_area')
+                    ->label('制限エリア')
+                    ->badge()
+                    ->color(fn ($state) => $state ? 'danger' : 'success')
+                    ->formatStateUsing(fn ($state) => $state ? 'あり' : 'なし')
+                    ->sortable(),
+
+                TextColumn::make('wave.print_count')
+                    ->label('Wave印刷回数')
+                    ->alignEnd()
+                    ->sortable(),
+
                 TextColumn::make('print_requested_count')
                     ->label('印刷回数')
                     ->alignEnd()
@@ -67,7 +96,36 @@ class WmsShipmentSlipsTable
                     }),
             ])
             ->filters([
-                //
+                SelectFilter::make('warehouse_id')
+                    ->label('倉庫')
+                    ->relationship('warehouse', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                SelectFilter::make('delivery_course_id')
+                    ->label('配送コース')
+                    ->relationship('deliveryCourse', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                SelectFilter::make('floor_id')
+                    ->label('フロア')
+                    ->relationship('floor', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                SelectFilter::make('wms_picking_area_id')
+                    ->label('ピッキングエリア')
+                    ->relationship('pickingArea', 'name')
+                    ->searchable()
+                    ->preload(),
+
+                SelectFilter::make('is_restricted_area')
+                    ->label('制限エリア')
+                    ->options([
+                        '1' => 'あり',
+                        '0' => 'なし',
+                    ]),
             ])
             ->recordAction('')
             ->recordActions([
@@ -77,7 +135,8 @@ class WmsShipmentSlipsTable
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d')
+                            $systemDate->format('Y-m-d'),
+                            $record->wave_id
                         );
 
                         return $printability['can_print'] ? '印刷' : '強制印刷';
@@ -88,7 +147,8 @@ class WmsShipmentSlipsTable
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d')
+                            $systemDate->format('Y-m-d'),
+                            $record->wave_id
                         );
 
                         return $printability['can_print'] ? 'primary' : 'warning';
@@ -99,7 +159,8 @@ class WmsShipmentSlipsTable
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d')
+                            $systemDate->format('Y-m-d'),
+                            $record->wave_id
                         );
 
                         return $printability['can_print'] ? '出荷伝票印刷' : '強制印刷';
@@ -109,7 +170,8 @@ class WmsShipmentSlipsTable
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d')
+                            $systemDate->format('Y-m-d'),
+                            $record->wave_id
                         );
 
                         if (!$printability['can_print']) {
@@ -123,7 +185,8 @@ class WmsShipmentSlipsTable
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d')
+                            $systemDate->format('Y-m-d'),
+                            $record->wave_id
                         );
 
                         return $printability['can_print'] ? '印刷' : '強制印刷';
@@ -135,7 +198,8 @@ class WmsShipmentSlipsTable
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d')
+                            $systemDate->format('Y-m-d'),
+                            $record->wave_id
                         );
 
                         // 印刷依頼を作成
@@ -143,7 +207,8 @@ class WmsShipmentSlipsTable
                         $result = $printService->createPrintRequest(
                             $record->delivery_course_id,
                             $systemDate->format('Y-m-d'),
-                            $record->warehouse_id
+                            $record->warehouse_id,
+                            $record->wave_id
                         );
 
                         if (!$result['success']) {
@@ -155,14 +220,24 @@ class WmsShipmentSlipsTable
                             return;
                         }
 
-                        // 同じ配送コース・納品日のタスクをすべて取得
-                        $tasksToUpdate = WmsPickingTask::where('shipment_date', $systemDate)
-                            ->where('delivery_course_id', $record->delivery_course_id)
-                            ->get();
+                        // 同じ配送コース・納品日・Waveのタスクをすべて取得
+                        $query = WmsPickingTask::where('shipment_date', $systemDate)
+                            ->where('delivery_course_id', $record->delivery_course_id);
+                        
+                        if ($record->wave_id) {
+                            $query->where('wave_id', $record->wave_id);
+                        }
+                        
+                        $tasksToUpdate = $query->get();
 
                         // print_requested_countをインクリメント
                         foreach ($tasksToUpdate as $task) {
                             $task->increment('print_requested_count');
+                        }
+
+                        // Waveの印刷回数をインクリメント
+                        if ($record->wave) {
+                            $record->wave->increment('print_count');
                         }
 
                         $title = $printability['can_print'] ? '印刷依頼' : '強制印刷依頼';
@@ -200,18 +275,29 @@ class WmsShipmentSlipsTable
                                 $result = $printService->createPrintRequest(
                                     $record->delivery_course_id,
                                     $systemDate->format('Y-m-d'),
-                                    $record->warehouse_id
+                                    $record->warehouse_id,
+                                    $record->wave_id
                                 );
 
                                 if ($result['success']) {
-                                    // 同じ配送コース・納品日のタスクをすべて取得
-                                    $tasksToUpdate = WmsPickingTask::where('shipment_date', $systemDate)
-                                        ->where('delivery_course_id', $record->delivery_course_id)
-                                        ->get();
+                                    // 同じ配送コース・納品日・Waveのタスクをすべて取得
+                                    $query = WmsPickingTask::where('shipment_date', $systemDate)
+                                        ->where('delivery_course_id', $record->delivery_course_id);
+
+                                    if ($record->wave_id) {
+                                        $query->where('wave_id', $record->wave_id);
+                                    }
+
+                                    $tasksToUpdate = $query->get();
 
                                     // print_requested_countをインクリメント
                                     foreach ($tasksToUpdate as $task) {
                                         $task->increment('print_requested_count');
+                                    }
+
+                                    // Waveの印刷回数をインクリメント
+                                    if ($record->wave) {
+                                        $record->wave->increment('print_count');
                                     }
 
                                     $successCount++;
@@ -243,15 +329,15 @@ class WmsShipmentSlipsTable
                 $systemDate = ClientSetting::systemDate();
 
                 // shipment_dateが営業日(system_date)のもののみ
-                // 各配送コース・納品日ごとに最初のレコードのみ取得
+                // 各配送コース・納品日・Waveごとに最初のレコードのみ取得
                 $query->where('shipment_date', $systemDate)
                     ->whereIn('id', function ($subQuery) use ($systemDate) {
                         $subQuery->select(DB::raw('MIN(id)'))
                             ->from('wms_picking_tasks')
                             ->where('shipment_date', $systemDate)
-                            ->groupBy('delivery_course_id', 'shipment_date');
+                            ->groupBy('delivery_course_id', 'shipment_date', 'wave_id', 'floor_id', 'wms_picking_area_id', 'is_restricted_area');
                     })
-                    ->with(['deliveryCourse', 'warehouse']);
+                    ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting', 'floor', 'pickingArea']);
             })
             ->defaultSort('delivery_course_code', 'asc');
     }
