@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
 
 class WmsPickingTasksTable
 {
-    public static function configure(Table $table): Table
+    public static function configure(Table $table, bool $isCompletedView = false, bool $isWaitingView = false): Table
     {
         return $table
             ->columns([
@@ -216,12 +216,7 @@ class WmsPickingTasksTable
                     }),
             ])
             ->recordActions([
-                Action::make('execute')
-                    ->label('ピッキング')
-                    ->icon('heroicon-o-play')
-                    ->color('primary')
-                    ->url(fn ($record) => WmsPickingTaskResource::getUrl('execute', ['record' => $record->id]))
-                    ->visible(fn ($record) => in_array($record->status, ['PENDING', 'PICKING', 'SHORTAGE'])),
+
 
                 Action::make('revert_to_picking')
                     ->label('取消')
@@ -244,81 +239,93 @@ class WmsPickingTasksTable
                                 ->send();
                         });
                     })
-                    ->visible(fn ($record) => in_array($record->status, ['COMPLETED', 'SHORTAGE'])),
+                    ->visible(fn ($record) => $isCompletedView && in_array($record->status, ['COMPLETED', 'SHORTAGE'])),
 
-                Action::make('edit_allocation')
-                    ->label('引当数修正')
-                    ->icon('heroicon-o-pencil-square')
+
+
+                Action::make('edit_items')
+                    ->label('明細確認・修正')
+                    ->icon('heroicon-o-list-bullet')
                     ->color('success')
-                    ->form(function ($record) {
-                        return [
-                            \Filament\Forms\Components\Repeater::make('items')
-                                ->label('商品一覧')
-                                ->schema([
-                                    TextInput::make('item_name')
-                                        ->label('商品名')
-                                        ->disabled(),
-                                    TextInput::make('ordered_qty')
-                                        ->label('受注数')
-                                        ->disabled(),
-                                    TextInput::make('planned_qty')
-                                        ->label('引当数')
-                                        ->numeric()
-                                        ->minValue(0)
-                                        ->required(),
-                                    TextInput::make('shortage_qty')
-                                        ->label('欠品数')
-                                        ->disabled(),
-                                ])
-                                ->disableItemCreation()
-                                ->disableItemDeletion()
-                                ->columns(4)
-                                ->default(function () use ($record) {
-                                    return $record->pickingItemResults->map(function ($item) {
-                                        return [
-                                            'id' => $item->id,
-                                            'item_name' => $item->item->name ?? 'Unknown',
-                                            'ordered_qty' => $item->ordered_qty,
-                                            'planned_qty' => $item->planned_qty,
-                                            'shortage_qty' => $item->shortage_qty,
-                                        ];
-                                    })->toArray();
-                                }),
-                        ];
-                    })
+                    ->url(fn ($record) => \App\Filament\Resources\WmsPickingTasks\WmsPickingItemResultResource::getUrl('index', [
+                        'tableFilters' => [
+                            'picking_task_id' => [
+                                'value' => $record->id,
+                            ],
+                        ],
+                    ]))
+                    ->visible(fn ($record) => $isWaitingView),
+
+                Action::make('assign_picker')
+                    ->label('担当者割当')
+                    ->icon('heroicon-o-user-plus')
+                    ->color('primary')
+                    ->form([
+                        \Filament\Forms\Components\Select::make('picker_id')
+                            ->label('担当者')
+                            ->options(\App\Models\User::pluck('name', 'id')) // Assuming User model is used for pickers
+                            ->searchable()
+                            ->required(),
+                    ])
                     ->action(function ($record, array $data) {
-                        DB::connection('sakemaru')->transaction(function () use ($record, $data) {
-                            foreach ($data['items'] as $itemData) {
-                                $itemResult = \App\Models\WmsPickingItemResult::find($itemData['id']);
-                                if (!$itemResult) continue;
+                        $record->update([
+                            'picker_id' => $data['picker_id'],
+                            'status' => 'PICKING',
+                        ]);
 
-                                $newPlannedQty = (int) $itemData['planned_qty'];
-                                $oldPlannedQty = $itemResult->planned_qty;
+                        Notification::make()
+                            ->title('担当者を割り当てました')
+                            ->success()
+                            ->send();
+                    })
+                    ->visible(fn ($record) => $isWaitingView),
 
-                                if ($newPlannedQty === $oldPlannedQty) continue;
+                Action::make('remove_picker')
+                    ->label('担当解除')
+                    ->icon('heroicon-o-user-minus')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->action(function ($record) {
+                        $record->update([
+                            'picker_id' => null,
+                            'status' => 'PENDING',
+                        ]);
 
-                                // Update picking item result
-                                $itemResult->update([
-                                    'planned_qty' => $newPlannedQty,
-                                    'updated_at' => now(),
-                                ]);
-
-                                // Update real_stocks and reservations logic would go here
-                                // For now, we just update the planned_qty as requested to allow manual correction
-                                // A full implementation would need to adjust reservations and stock locks
-                                // This is a simplified version for "Manager Correction"
-                            }
-
-                            Notification::make()
-                                ->title('引当数を更新しました')
-                                ->success()
-                                ->send();
-                        });
-                    }),
+                        Notification::make()
+                            ->title('担当者を解除しました')
+                            ->success()
+                            ->send();
+                    })
+                    ->visible(fn ($record) => !$isWaitingView && !$isCompletedView),
 
             ], position: RecordActionsPosition::BeforeColumns)
             ->defaultSort('created_at', 'desc')
             ->toolbarActions([
+                BulkAction::make('bulk_assign_picker')
+                    ->label('一括担当者割当')
+                    ->icon('heroicon-o-user-plus')
+                    ->color('primary')
+                    ->form([
+                        \Filament\Forms\Components\Select::make('picker_id')
+                            ->label('担当者')
+                            ->options(\App\Models\User::pluck('name', 'id'))
+                            ->searchable()
+                            ->required(),
+                    ])
+                    ->action(function (Collection $records, array $data) {
+                        $records->each(function ($record) use ($data) {
+                            $record->update([
+                                'picker_id' => $data['picker_id'],
+                                'status' => 'PICKING',
+                            ]);
+                        });
+
+                        Notification::make()
+                            ->title('一括で担当者を割り当てました')
+                            ->success()
+                            ->send();
+                    })
+                    ->visible(fn () => $isWaitingView),
                 BulkAction::make('assignPicker')
                     ->label('担当者を割り当てる')
                     ->icon('heroicon-o-user-plus')
