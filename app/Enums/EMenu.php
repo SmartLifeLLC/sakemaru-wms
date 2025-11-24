@@ -13,6 +13,7 @@ enum EMenu: string
     case OUTBOUND_DASHBOARD = 'outbound.dashboard';
     case WAVES = 'outbound.waves';
     case PICKING_TASKS = 'outbound.picking_tasks';
+    case DELIVERY_COURSE_CHANGE = 'outbound.delivery_course_change';
     case SHIPMENT_INSPECTIONS = 'outbound.shipment_inspections';
 
     // 在庫管理
@@ -45,6 +46,7 @@ enum EMenu: string
             self::OUTBOUND_DASHBOARD,
             self::WAVES,
             self::PICKING_TASKS,
+            self::DELIVERY_COURSE_CHANGE,
             self::SHIPMENT_INSPECTIONS => EMenuCategory::OUTBOUND,
 
             self::REAL_STOCKS => EMenuCategory::INVENTORY,
@@ -73,6 +75,7 @@ enum EMenu: string
             self::OUTBOUND_DASHBOARD => '出荷ダッシュボード',
             self::WAVES => 'Wave管理',
             self::PICKING_TASKS => 'ピッキングタスク',
+            self::DELIVERY_COURSE_CHANGE => '配送コース変更',
             self::SHIPMENT_INSPECTIONS => '出荷検品',
 
             self::REAL_STOCKS => '在庫管理',
@@ -102,6 +105,7 @@ enum EMenu: string
             self::OUTBOUND_DASHBOARD => 'heroicon-o-presentation-chart-bar',
             self::WAVES => 'heroicon-o-queue-list',
             self::PICKING_TASKS => 'heroicon-o-clipboard-document-list',
+            self::DELIVERY_COURSE_CHANGE => 'heroicon-o-arrow-path',
             self::SHIPMENT_INSPECTIONS => 'heroicon-o-check-circle',
 
             self::REAL_STOCKS => 'heroicon-o-cube-transparent',
@@ -131,8 +135,9 @@ enum EMenu: string
 
             // 出荷管理
             self::OUTBOUND_DASHBOARD => 1,
-            self::WAVES => 7,
+            self::DELIVERY_COURSE_CHANGE => 2,
             self::PICKING_TASKS => 3,
+            self::WAVES => 7,
             self::SHIPMENT_INSPECTIONS => 8,
 
             // 在庫管理

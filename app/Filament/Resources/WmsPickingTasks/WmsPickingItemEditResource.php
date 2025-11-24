@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsPickingTasks;
 
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingItemEdits;
+use App\Models\Sakemaru\Partner;
 use App\Models\WmsPickingItemResult;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Resources\Resource;
@@ -25,7 +26,16 @@ class WmsPickingItemEditResource extends Resource
 
     public static function table(Table $table): Table
     {
+
         return $table
+            ->modifyQueryUsing(function (Builder $query,$livewire) {
+                // リクエストから値を取得
+                // Pageクラスのプロパティを参照
+                // ※ $livewireがListWmsPickingItemEditsのインスタンスか念のためチェックしても良い
+                if (isset($livewire->pickingTaskId) && filled($livewire->pickingTaskId)) {
+                    $query->where('picking_task_id', $livewire->pickingTaskId);
+                }
+            })
             ->defaultSort('id', 'desc')
             ->defaultPaginationPageOption(50)
             ->paginationPageOptions([25, 50, 100, 200])
@@ -33,9 +43,14 @@ class WmsPickingItemEditResource extends Resource
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
+                    ->alignCenter(),
+                TextColumn::make('pickingTask.wave.id')->label('wave id'),
+                TextColumn::make('trade.serial_id')
+                    ->label('伝票番号')
                     ->alignCenter()
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: false),
                 TextColumn::make('earning.buyer.partner.code')
                     ->label('得意先コード')
                     ->sortable()
@@ -69,6 +84,7 @@ class WmsPickingItemEditResource extends Resource
                     ->type('number')
                     ->step(1)
                     ->alignCenter()
+                    ->disabled(fn ($record) => !$record->pickingTask || $record->pickingTask->status !== \App\Models\WmsPickingTask::STATUS_PENDING)
                     ->extraCellAttributes([
                         'class' => 'p-0',
                     ])
@@ -116,18 +132,38 @@ class WmsPickingItemEditResource extends Resource
                     ->formatStateUsing(fn ($state) => $state > 0 ? $state : '-'),
             ])
             ->filters([
-                TernaryFilter::make('shortage')
-                    ->label('欠品のみ')
-                    ->queries(
-                        true: fn (Builder $query) => $query->whereColumn('ordered_qty', '>', 'planned_qty'),
-                        false: fn (Builder $query) => $query->whereColumn('ordered_qty', '<=', 'planned_qty'),
-                        blank: fn (Builder $query) => $query,
-                    ),
+//                TernaryFilter::make('shortage')
+//                    ->label('欠品のみ')
+//                    ->queries(
+//                        true: fn (Builder $query) => $query->whereColumn('ordered_qty', '>', 'planned_qty'),
+//                        false: fn (Builder $query) => $query->whereColumn('ordered_qty', '<=', 'planned_qty'),
+//                        blank: fn (Builder $query) => $query,
+//                    ),
                 SelectFilter::make('partner')
                     ->label('得意先')
-                    ->relationship('earning.buyer.partner', 'name')
-                    ->searchable()
-                    ->preload(),
+                    ->options(function () {
+                        // Get pickingTaskId from URL query parameters
+                        $pickingTaskId = request()->input('tableFilters.picking_task_id.value');
+
+                        if (!$pickingTaskId) {
+                            return [];
+                        }
+
+                        // Get unique partners from this picking task
+
+                        $partners = Partner::whereHas('trades.wmsPickingItemResults', function (Builder $query) use ($pickingTaskId) {
+                            $query->where('picking_task_id', $pickingTaskId);
+                        })->get();
+                        return $partners->pluck('name', 'id')->toArray();
+                    })
+                    ->query(function (Builder $query, $state) {
+                        if (!empty($state['value'])) {
+                            return $query->whereHas('earning.buyer.partner', function ($q) use ($state) {
+                                $q->where('id', $state['value']);
+                            });
+                        }
+                        return $query;
+                    }),
                 SelectFilter::make('item')
                     ->label('商品')
                     ->relationship('item', 'name')

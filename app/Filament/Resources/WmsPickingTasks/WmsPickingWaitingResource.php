@@ -14,9 +14,9 @@ class WmsPickingWaitingResource extends Resource
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-user-plus';
 
-    protected static ?string $navigationLabel = 'ピッキング担当待ち';
+    protected static ?string $navigationLabel = 'ピッキング準備待ち';
 
-    protected static ?string $modelLabel = 'ピッキング担当待ち';
+    protected static ?string $modelLabel = 'ピッキング準備待ち';
 
     protected static ?string $slug = 'wms-picking-waitings';
 
