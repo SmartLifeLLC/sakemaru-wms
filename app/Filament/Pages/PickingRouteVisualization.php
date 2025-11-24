@@ -15,7 +15,7 @@ use Illuminate\Support\Carbon;
 
 class PickingRouteVisualization extends Page
 {
-    protected static \BackedEnum|string|null $navigationIcon = 'heroicon-o-map-pin';
+    protected static \BackedEnum|string|null $navigationIcon = 'heroicon-o-map';
 
     protected string $view = 'filament.pages.picking-route-visualization';
 
@@ -50,7 +50,7 @@ class PickingRouteVisualization extends Page
 
     public static function getNavigationSort(): ?int
     {
-        return 60;
+        return 5;
     }
 
     public function getTitle(): string

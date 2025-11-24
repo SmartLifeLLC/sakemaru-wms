@@ -49,10 +49,10 @@ class WmsPickingItemResult extends Model
     protected $casts = [
         'walking_order' => 'integer',
         'distance_from_previous' => 'integer',
-        'ordered_qty' => 'decimal:2',
-        'planned_qty' => 'decimal:2',
-        'picked_qty' => 'decimal:2',
-        'shortage_qty' => 'decimal:2',
+        'ordered_qty' => 'integer',
+        'planned_qty' => 'integer',
+        'picked_qty' => 'integer',
+        'shortage_qty' => 'integer',
         'shortage_allocated_qty' => 'integer',
         'is_ready_to_shipment' => 'boolean',
         'picked_at' => 'datetime',
@@ -75,6 +75,9 @@ class WmsPickingItemResult extends Model
         return $this->belongsTo(Earning::class, 'earning_id');
     }
 
+    public function picker(){
+        return $this->belongsTo(WmsPicker::class, 'picker_id');
+    }
     /**
      * このピッキング明細が属する取引（売上伝票）
      */
@@ -236,4 +239,6 @@ class WmsPickingItemResult extends Model
     {
         return self::getQuantityTypeLabel($this->picked_qty_type ?? 'PIECE');
     }
+
+
 }

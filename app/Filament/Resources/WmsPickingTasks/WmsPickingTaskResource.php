@@ -16,6 +16,11 @@ class WmsPickingTaskResource extends Resource
 {
     protected static ?string $model = WmsPickingTask::class;
 
+    public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        return parent::getEloquentQuery()->where('status', '!=', 'COMPLETED');
+    }
+
     protected static BackedEnum|string|null $navigationIcon = 'heroicon-o-clipboard-document-list';
 
     protected static ?string $navigationLabel = null;

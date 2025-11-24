@@ -17,6 +17,7 @@ class WmsPickingTask extends Model
 
     // Status constants
     public const STATUS_PENDING = 'PENDING';
+    public const STATUS_PICKING_READY = 'PICKING_READY';
     public const STATUS_PICKING = 'PICKING';
     public const STATUS_COMPLETED = 'COMPLETED';
 
@@ -43,6 +44,7 @@ class WmsPickingTask extends Model
         'shipment_date' => 'date',
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
+        'temperature_type' => \App\Enums\TemperatureType::class,
         'is_restricted_area' => 'boolean',
         'print_requested_count' => 'integer',
     ];
@@ -116,7 +118,7 @@ class WmsPickingTask extends Model
      */
     public function scopeInProgress($query)
     {
-        return $query->whereIn('status', ['PENDING', 'PICKING']);
+        return $query->whereIn('status', ['PENDING', 'PICKING_READY', 'PICKING']);
     }
 
     /**

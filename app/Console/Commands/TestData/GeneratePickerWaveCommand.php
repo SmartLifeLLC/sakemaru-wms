@@ -415,30 +415,23 @@ class GeneratePickerWaveCommand extends Command
             return;
         }
 
-        // Set wave setting times to ensure immediate processing
-        // picking_start_time must be before current time + 10 minutes
-        // Always use 00:00:00 as picking start time to ensure it's before any current time + 10 minutes
-        $pickingStartTime = '00:00:00';
+        // Set wave setting times based on current hour
+        // Example: if current time is 18:55, use 18:00:00
+        $currentHour = now()->format('H');
+        $pickingStartTime = sprintf('%02d:00:00', $currentHour);
         $pickingDeadlineTime = '23:59:59';
 
+        // Search for existing wave setting with the same picking_start_time
         $existing = WaveSetting::where('warehouse_id', $this->warehouseId)
             ->where('delivery_course_id', $course->id)
+            ->where('picking_start_time', $pickingStartTime)
             ->first();
 
         $adminUserId = $this->getAdminUserId();
 
         if ($existing) {
-            // Update existing wave setting times for test data generation
-            DB::connection('sakemaru')
-                ->table('wms_wave_settings')
-                ->where('id', $existing->id)
-                ->update([
-                    'picking_start_time' => $pickingStartTime,
-                    'picking_deadline_time' => $pickingDeadlineTime,
-                    'last_updater_id' => $adminUserId,
-                    'updated_at' => now(),
-                ]);
-            $this->line("  ✓ Updated wave setting for course {$courseCode} (picking: {$pickingStartTime} - {$pickingDeadlineTime})");
+            // Already exists with the same time, no update needed
+            $this->line("  ✓ Wave setting already exists for course {$courseCode} (picking: {$pickingStartTime})");
             return;
         }
 

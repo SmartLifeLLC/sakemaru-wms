@@ -23,6 +23,7 @@ use App\Models\Sakemaru\StockTransfer;
 use App\Models\Sakemaru\TradeBalance;
 use App\Models\Sakemaru\TradeItem;
 use App\Models\Sakemaru\TradePrice;
+use App\Models\WmsPickingItemResult;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -230,6 +231,9 @@ class Trade extends CustomModel
         return  $is_recreatable;
     }
 
+    public function wmsPickingItemResults():HasMany{
+        return $this->hasMany(WmsPickingItemResult::class);
+    }
     public static function warehouseIdQuery() : Builder
     {
         return Trade::select(['trades.id'])
