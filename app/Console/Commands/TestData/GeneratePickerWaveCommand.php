@@ -31,6 +31,7 @@ class GeneratePickerWaveCommand extends Command
     private array $buyers = [];
     private array $testItems = [];
     private array $specifiedLocations = [];
+    private int $buyerIndex = 0;
 
     public function handle()
     {
@@ -195,7 +196,7 @@ class GeneratePickerWaveCommand extends Command
             ->where('buyer_details.is_allowed_case_quantity', true)
             ->select('partners.code', 'partners.id')
             ->inRandomOrder()
-            ->limit(100) // Get enough buyers for all possible earnings
+            ->limit(1000) // Get enough buyers for all possible earnings
             ->get();
 
         if ($buyers->isEmpty()) {
@@ -204,7 +205,7 @@ class GeneratePickerWaveCommand extends Command
         }
 
         // Store buyers as array with code as value
-        $this->buyers = $buyers->pluck('code', 'id')->toArray();
+        $this->buyers = $buyers->pluck('code')->toArray();
         $this->line("Loaded " . count($this->buyers) . " eligible buyers for earnings generation");
 
         // Get warehouse
@@ -305,14 +306,13 @@ class GeneratePickerWaveCommand extends Command
         ];
 
         $earnings = [];
-        $buyerCodes = array_values($this->buyers); // Get all buyer codes
-
         for ($i = 0; $i < $count; $i++) {
             $scenario = $scenarios[$i % count($scenarios)];
 
             // Select a unique buyer for this earning
-            // Use modulo to cycle through available buyers if count exceeds buyer count
-            $buyerCode = $buyerCodes[$i % count($buyerCodes)];
+            // Use global index to ensure unique buyers across different courses
+            $buyerCode = $this->buyers[$this->buyerIndex % count($this->buyers)];
+            $this->buyerIndex++;
 
             // Filter items based on scenario qty_type to ensure stock allocation succeeds
             $availableItems = collect($this->testItems);
