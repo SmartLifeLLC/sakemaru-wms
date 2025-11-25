@@ -38,6 +38,11 @@ class WmsOutbound extends Page
         return true;
     }
 
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public function getMaxContentWidth(): ?string
     {
         return 'full';

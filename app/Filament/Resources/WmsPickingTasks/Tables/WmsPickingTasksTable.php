@@ -24,6 +24,7 @@ class WmsPickingTasksTable
     public static function configure(Table $table, bool $isCompletedView = false, bool $isWaitingView = false): Table
     {
         return $table
+            ->striped()
             ->columns([
                 TextColumn::make('id')
                     ->label('タスクID')
@@ -121,6 +122,16 @@ class WmsPickingTasksTable
                     })
                     ->toggleable(isToggledHiddenByDefault: false),
 
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫コード')
+                    ->searchable()
+                    ->sortable(),
+
+                TextColumn::make('warehouse.name')
+                    ->label('倉庫名')
+                    ->searchable()
+                    ->sortable(),
+
                 TextColumn::make('floor.name')
                     ->label('フロア')
                     ->default('-')
@@ -148,16 +159,6 @@ class WmsPickingTasksTable
                     ->default('未割当')
                     ->badge()
                     ->color(fn($state) => $state !== '未割当' ? 'success' : 'danger')
-                    ->sortable(),
-
-                TextColumn::make('warehouse.code')
-                    ->label('倉庫コード')
-                    ->searchable()
-                    ->sortable(),
-
-                TextColumn::make('warehouse.name')
-                    ->label('倉庫名')
-                    ->searchable()
                     ->sortable(),
 
                 TextColumn::make('deliveryCourse.code')

@@ -362,12 +362,12 @@ class GenerateWavesCommand extends Command
                     }
                 }
 
-                // Update all earnings picking_status to PICKING
+                // Update all earnings picking_status to BEFORE_PICKING
                 DB::connection('sakemaru')
                     ->table('earnings')
                     ->whereIn('id', $earningIds)
                     ->update([
-                        'picking_status' => 'PICKING',
+                        'picking_status' => 'BEFORE_PICKING',
                         'updated_at' => now(),
                     ]);
 

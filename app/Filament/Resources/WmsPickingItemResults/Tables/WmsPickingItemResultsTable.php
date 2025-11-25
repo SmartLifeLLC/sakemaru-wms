@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickingItemResults\Tables;
 
+use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use Filament\Forms\Components\Select;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -12,6 +13,7 @@ class WmsPickingItemResultsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
             ->defaultPaginationPageOption(20)
             ->paginationPageOptions([20, 50, 100, 200])
             ->columns([
@@ -47,7 +49,7 @@ class WmsPickingItemResultsTable
                     ->sortable(),
 
                 TextColumn::make('trade.serial_id')
-                    ->label('識別ID')
+                    ->label('伝票番号')
                     ->searchable()
                     ->sortable()
                     ->default('-')
@@ -91,6 +93,29 @@ class WmsPickingItemResultsTable
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: false),
 
+                TextColumn::make('item.capacity_case')
+                    ->label('入り数')
+                    ->formatStateUsing(fn($state) => $state ? (string)$state : '-')
+                    ->alignment('center')
+                    ->toggleable(isToggledHiddenByDefault: false),
+
+                TextColumn::make('item.volume')
+                    ->label('容量')
+                    ->formatStateUsing(function ($state, $record) {
+                        if (!$state) {
+                            return '-';
+                        }
+                        $volumeUnit = $record->item->volume_unit;
+                        if (!$volumeUnit) {
+                            return $state;
+                        }
+                        $unit = \App\Enums\EVolumeUnit::tryFrom($volumeUnit);
+
+                        return $state . ($unit ? $unit->name() : '');
+                    })
+                    ->alignment('center')
+                    ->toggleable(isToggledHiddenByDefault: false),
+
                 TextColumn::make('location_display')
                     ->label('ロケーション')
                     ->default('-')
@@ -102,32 +127,37 @@ class WmsPickingItemResultsTable
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
 
+                QuantityTypeColumn::make('ordered_qty_type'),
+
                 TextColumn::make('ordered_qty')
-                    ->label('注文数')
+                    ->label('受注')
                     ->numeric()
                     ->sortable()
-                    ->formatStateUsing(fn ($record) => $record->ordered_qty . ' ' . ($record->ordered_qty_type_display ?? ''))
+                    ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('planned_qty')
-                    ->label('予定数')
+                    ->label('引当')
                     ->numeric()
                     ->sortable()
-                    ->formatStateUsing(fn ($record) => $record->planned_qty . ' ' . ($record->planned_qty_type_display ?? ''))
+                    ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('picked_qty')
-                    ->label('実績数')
+                    ->label('出荷')
                     ->numeric()
                     ->sortable()
-                    ->formatStateUsing(fn ($record) => ($record->picked_qty ?? '-') . ($record->picked_qty ? ' ' . ($record->picked_qty_type_display ?? '') : ''))
+                    ->alignment('center')
+                    ->formatStateUsing(fn ($record) => $record->picked_qty ?? '-')
                     ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('shortage_qty')
-                    ->label('欠品数')
+                    ->label('欠品')
                     ->numeric()
                     ->sortable()
+                    ->alignment('center')
                     ->color(fn ($state) => $state > 0 ? 'danger' : 'gray')
+                    ->weight(fn ($state) => $state > 0 ? 'bold' : 'normal')
                     ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('picked_at')
