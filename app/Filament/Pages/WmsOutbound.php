@@ -47,6 +47,7 @@ class WmsOutbound extends Page
     {
         return [
             \App\Filament\Widgets\WmsOutboundOverview::class,
+            \App\Filament\Widgets\WmsOutboundChartsWidget::class,
         ];
     }
 }
