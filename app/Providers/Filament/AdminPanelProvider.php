@@ -31,7 +31,7 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
-            ->login()
+            ->login(\App\Filament\Pages\Auth\Login::class)
             ->topNavigation() // トップナビゲーションを有効化
             ->maxContentWidth('full')
             ->breadcrumbs(false) // パンくずリストを無効化
