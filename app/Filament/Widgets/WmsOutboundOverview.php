@@ -3,12 +3,10 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Sakemaru\ClientSetting;
-use App\Models\WmsPickingItemResult;
-use App\Models\WmsPickingTask;
-use App\Models\WmsShortage;
+use App\Models\Sakemaru\Warehouse;
+use App\Services\WmsStatsService;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
-use Illuminate\Support\Facades\DB;
 
 class WmsOutboundOverview extends BaseWidget
 {
@@ -19,84 +17,79 @@ class WmsOutboundOverview extends BaseWidget
         $date = ClientSetting::systemDate() ?? now();
         $dateStr = $date->toDateString();
 
-        // 1. ピッキング伝票数 (unique earning_id)
-        $pickingSlipsCount = WmsPickingItemResult::query()
-            ->join('wms_picking_tasks', 'wms_picking_item_results.picking_task_id', '=', 'wms_picking_tasks.id')
-            ->whereDate('wms_picking_tasks.shipment_date', $dateStr)
-            ->distinct('wms_picking_item_results.earning_id')
-            ->count('wms_picking_item_results.earning_id');
+        // 統計サービスを使用してデータ取得
+        $statsService = app(WmsStatsService::class);
 
-        // 2. ピッキング商品数 (unique item_id)
-        $pickingItemsCount = WmsPickingItemResult::query()
-            ->join('wms_picking_tasks', 'wms_picking_item_results.picking_task_id', '=', 'wms_picking_tasks.id')
-            ->whereDate('wms_picking_tasks.shipment_date', $dateStr)
-            ->distinct('wms_picking_item_results.item_id')
-            ->count('wms_picking_item_results.item_id');
+        // 全倉庫の統計を集計
+        $warehouses = Warehouse::where('is_active', true)->get();
+        $totalStats = [
+            'picking_slip_count' => 0,
+            'picking_item_count' => 0,
+            'unique_item_count' => 0,
+            'stockout_unique_count' => 0,
+            'stockout_total_count' => 0,
+            'delivery_course_count' => 0,
+            'total_ship_qty' => 0,
+            'total_amount_ex' => 0,
+            'total_amount_in' => 0,
+            'total_opportunity_loss' => 0,
+        ];
 
-        // 3. ピッキングStatus別の状態
-        $pickingStatusCounts = WmsPickingItemResult::query()
-            ->join('wms_picking_tasks', 'wms_picking_item_results.picking_task_id', '=', 'wms_picking_tasks.id')
-            ->whereDate('wms_picking_tasks.shipment_date', $dateStr)
-            ->select('wms_picking_item_results.status', DB::raw('count(*) as count'))
-            ->groupBy('wms_picking_item_results.status')
-            ->pluck('count', 'status')
-            ->toArray();
-
-        $pickingStatusDesc = collect($pickingStatusCounts)
-            ->map(fn($count, $status) => "{$status}: {$count}")
-            ->join(' / ');
-
-        // 4. 欠品Status別の状態
-        $shortageStatusCounts = WmsShortage::query()
-            ->whereDate('shipment_date', $dateStr)
-            ->select('status', DB::raw('count(*) as count'))
-            ->groupBy('status')
-            ->pluck('count', 'status')
-            ->toArray();
-
-        $shortageStatusDesc = collect($shortageStatusCounts)
-            ->map(fn($count, $status) => "{$status}: {$count}")
-            ->join(' / ');
-
-        // 5. 配送コース数 (unique delivery_course_id)
-        $deliveryCourseCount = WmsPickingTask::query()
-            ->whereDate('shipment_date', $dateStr)
-            ->distinct('delivery_course_id')
-            ->count('delivery_course_id');
-
-        // 6. 配送コース別印刷完了数
-        $printedDeliveryCourseCount = WmsPickingTask::query()
-            ->whereDate('shipment_date', $dateStr)
-            ->where('print_requested_count', '>', 0)
-            ->distinct('delivery_course_id')
-            ->count('delivery_course_id');
+        foreach ($warehouses as $warehouse) {
+            try {
+                $stat = $statsService->getOrUpdateDailyStats($date, $warehouse->id);
+                $totalStats['picking_slip_count'] += $stat->picking_slip_count;
+                $totalStats['picking_item_count'] += $stat->picking_item_count;
+                $totalStats['unique_item_count'] += $stat->unique_item_count;
+                $totalStats['stockout_unique_count'] += $stat->stockout_unique_count;
+                $totalStats['stockout_total_count'] += $stat->stockout_total_count;
+                $totalStats['delivery_course_count'] += $stat->delivery_course_count;
+                $totalStats['total_ship_qty'] += $stat->total_ship_qty;
+                $totalStats['total_amount_ex'] += $stat->total_amount_ex;
+                $totalStats['total_amount_in'] += $stat->total_amount_in;
+                $totalStats['total_opportunity_loss'] += $stat->total_opportunity_loss;
+            } catch (\Exception $e) {
+                // エラーが発生した場合はログに記録してスキップ
+                \Log::warning("Failed to get stats for warehouse {$warehouse->id}: " . $e->getMessage());
+            }
+        }
 
         return [
-            Stat::make('ピッキング伝票数', $pickingSlipsCount)
+            Stat::make('ピッキング伝票数', number_format($totalStats['picking_slip_count']))
                 ->description('対象日: ' . $dateStr)
-                ->icon('heroicon-o-document-text'),
+                ->descriptionIcon('heroicon-o-document-text')
+                ->icon('heroicon-o-document-text')
+                ->color('primary'),
 
-            Stat::make('ピッキング商品数', $pickingItemsCount)
-                ->description('ユニーク商品数')
-                ->icon('heroicon-o-cube'),
+            Stat::make('ピッキング商品数', number_format($totalStats['picking_item_count']))
+                ->description('ユニーク: ' . number_format($totalStats['unique_item_count']))
+                ->descriptionIcon('heroicon-o-cube')
+                ->icon('heroicon-o-cube')
+                ->color('success'),
 
-            Stat::make('ピッキング状況', array_sum($pickingStatusCounts) . ' 件')
-                ->description($pickingStatusDesc ?: 'データなし')
-                ->descriptionIcon('heroicon-o-chart-pie'),
+            Stat::make('合計出荷数量', number_format($totalStats['total_ship_qty']))
+                ->description('総バラ数')
+                ->descriptionIcon('heroicon-o-squares-2x2')
+                ->icon('heroicon-o-squares-2x2')
+                ->color('info'),
 
-            Stat::make('欠品状況', array_sum($shortageStatusCounts) . ' 件')
-                ->description($shortageStatusDesc ?: 'データなし')
-                ->color('danger')
-                ->icon('heroicon-o-exclamation-triangle'),
-
-            Stat::make('配送コース数', $deliveryCourseCount)
+            Stat::make('配送コース数', number_format($totalStats['delivery_course_count']))
                 ->description('全配送コース')
-                ->icon('heroicon-o-truck'),
+                ->descriptionIcon('heroicon-o-truck')
+                ->icon('heroicon-o-truck')
+                ->color('warning'),
 
-            Stat::make('印刷完了コース数', $printedDeliveryCourseCount)
-                ->description("完了: {$printedDeliveryCourseCount} / 全: {$deliveryCourseCount}")
-                ->color($printedDeliveryCourseCount === $deliveryCourseCount && $deliveryCourseCount > 0 ? 'success' : 'warning')
-                ->icon('heroicon-o-printer'),
+            Stat::make('税込合計金額', '¥' . number_format($totalStats['total_amount_in']))
+                ->description('税抜: ¥' . number_format($totalStats['total_amount_ex']))
+                ->descriptionIcon('heroicon-o-currency-yen')
+                ->icon('heroicon-o-currency-yen')
+                ->color('success'),
+
+            Stat::make('欠品状況', number_format($totalStats['stockout_total_count']) . ' 件')
+                ->description('ユニーク: ' . number_format($totalStats['stockout_unique_count']) . ' / 損失: ¥' . number_format($totalStats['total_opportunity_loss']))
+                ->descriptionIcon('heroicon-o-exclamation-triangle')
+                ->icon('heroicon-o-exclamation-triangle')
+                ->color($totalStats['stockout_total_count'] > 0 ? 'danger' : 'success'),
         ];
     }
 }

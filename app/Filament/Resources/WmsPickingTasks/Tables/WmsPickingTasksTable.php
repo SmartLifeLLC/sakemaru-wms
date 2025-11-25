@@ -508,23 +508,23 @@ class WmsPickingTasksTable
 //                    })
 //                    ->visible(fn ($record) => $isWaitingView),
 
-                Action::make('remove_picker')
-                    ->label('担当解除')
-                    ->icon('heroicon-o-user-minus')
-                    ->color('warning')
-                    ->requiresConfirmation()
-                    ->action(function ($record) {
-                        $record->update([
-                            'picker_id' => null,
-                            'status' => 'PENDING',
-                        ]);
-
-                        Notification::make()
-                            ->title('担当者を解除しました')
-                            ->success()
-                            ->send();
-                    })
-                    ->visible(fn ($record) => !$isWaitingView && !$isCompletedView),
+//                Action::make('remove_picker')
+//                    ->label('担当解除')
+//                    ->icon('heroicon-o-user-minus')
+//                    ->color('warning')
+//                    ->requiresConfirmation()
+//                    ->action(function ($record) {
+//                        $record->update([
+//                            'picker_id' => null,
+//                            'status' => 'PENDING',
+//                        ]);
+//
+//                        Notification::make()
+//                            ->title('担当者を解除しました')
+//                            ->success()
+//                            ->send();
+//                    })
+//                    ->visible(fn ($record) => !$isWaitingView && !$isCompletedView),
 
             ], position: RecordActionsPosition::BeforeColumns)
             ->defaultSort('created_at', 'desc');
