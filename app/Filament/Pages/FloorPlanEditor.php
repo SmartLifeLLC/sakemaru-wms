@@ -36,6 +36,16 @@ class FloorPlanEditor extends Page
     public int $pickingEndY = 0;
     public ?array $walkableAreas = null;
     public ?array $navmeta = null;
+    public $pickingAreas = [];
+    public $pickingAreaMode = null; // 'draw'
+    public $currentPolygonPoints = [];
+    public $showPickingAreaNameModal = false;
+    public $newPickingAreaName = '';
+    public $newPickingAreaColor = '#8B5CF6'; // Default purple
+    public array $newPickingArea = [
+        'name' => '',
+        'polygon' => [],
+    ];
 
     public static function getNavigationGroup(): ?string
     {
@@ -231,6 +241,19 @@ class FloorPlanEditor extends Page
         $this->pickingEndY = $layout->picking_end_y ?? 0;
         $this->walkableAreas = $layout->walkable_areas ?? null;
         $this->navmeta = $layout->navmeta ?? null;
+
+        // Load picking areas
+        $this->pickingAreas = \App\Models\WmsPickingArea::where('warehouse_id', $this->selectedWarehouseId)
+            ->where('floor_id', $this->selectedFloorId)
+            ->get()
+            ->map(function ($area) {
+                return [
+                    'id' => $area->id,
+                    'name' => $area->name,
+                    'color' => $area->color ?? '#8B5CF6',
+                    'polygon' => $area->polygon,
+                ];
+            })->values()->toArray();
     }
 
     /**
@@ -250,6 +273,7 @@ class FloorPlanEditor extends Page
         $this->pickingEndY = 0;
         $this->walkableAreas = null;
         $this->navmeta = null;
+        $this->pickingAreas = [];
     }
 
     /**
@@ -797,6 +821,169 @@ class FloorPlanEditor extends Page
         }
     }
 
+    /**
+     * Save new picking area
+     */
+    public function savePickingArea(string $name, array $polygon, string $color = '#8B5CF6'): void
+    {
+        if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+            return;
+        }
+
+        try {
+            // Create with temporary code
+            $area = \App\Models\WmsPickingArea::create([
+                'warehouse_id' => $this->selectedWarehouseId,
+                'floor_id' => $this->selectedFloorId,
+                'code' => uniqid(),
+                'name' => $name,
+                'color' => $color,
+                'polygon' => $polygon,
+                'is_active' => true,
+            ]);
+
+            // Update code to match ID as requested
+            $area->update(['code' => (string) $area->id]);
+
+            // Assign locations to this area
+            $count = $this->assignLocationsToArea($area);
+
+            // Reload layout
+            $this->loadLayout();
+            
+            // Notify frontend
+            $zones = $this->zones->toArray();
+            $this->dispatch('layout-loaded',
+                zones: $zones,
+                walls: $this->walls,
+                fixedAreas: $this->fixedAreas,
+                canvasWidth: $this->canvasWidth,
+                canvasHeight: $this->canvasHeight,
+                walkableAreas: $this->walkableAreas,
+                navmeta: $this->navmeta,
+                pickingAreas: $this->pickingAreas
+            );
+
+            \Filament\Notifications\Notification::make()
+                ->title('ピッキングエリアを作成しました')
+                ->body("{$count}件のロケーションを割り当てました")
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('作成に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    /**
+     * Assign locations inside the polygon to the picking area
+     */
+    private function assignLocationsToArea(\App\Models\WmsPickingArea $area): int
+    {
+        $polygon = $area->polygon;
+        if (empty($polygon) || count($polygon) < 3) {
+            return 0;
+        }
+
+        $locations = Location::where('floor_id', $this->selectedFloorId)->get();
+        $count = 0;
+
+        foreach ($locations as $location) {
+            // Check if center point of location is inside polygon
+            $centerX = ($location->x1_pos + $location->x2_pos) / 2;
+            $centerY = ($location->y1_pos + $location->y2_pos) / 2;
+
+            if ($this->isPointInPolygon($centerX, $centerY, $polygon)) {
+                // Update WmsLocation
+                \App\Models\WmsLocation::updateOrCreate(
+                    ['location_id' => $location->id],
+                    ['wms_picking_area_id' => $area->id]
+                );
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * Check if point is inside polygon (Ray casting algorithm)
+     */
+    private function isPointInPolygon($x, $y, $polygon): bool
+    {
+        $inside = false;
+        $count = count($polygon);
+        
+        for ($i = 0, $j = $count - 1; $i < $count; $j = $i++) {
+            $xi = $polygon[$i]['x'];
+            $yi = $polygon[$i]['y'];
+            $xj = $polygon[$j]['x'];
+            $yj = $polygon[$j]['y'];
+
+            $intersect = (($yi > $y) != ($yj > $y))
+                && ($x < ($xj - $xi) * ($y - $yi) / ($yj - $yi) + $xi);
+
+            if ($intersect) {
+                $inside = !$inside;
+            }
+        }
+
+        return $inside;
+    }
+
+    /**
+     * Delete picking area
+     */
+    public function deletePickingArea(int $id): void
+    {
+        try {
+            $area = \App\Models\WmsPickingArea::find($id);
+            if ($area) {
+                // Unassign locations and delete area in transaction
+                \Illuminate\Support\Facades\DB::transaction(function () use ($area) {
+                    // Use Location model as WmsLocation is deprecated
+                    \App\Models\Sakemaru\Location::whereHas('wmsLocation', function ($query) use ($area) {
+                        $query->where('wms_picking_area_id', $area->id);
+                    })->with('wmsLocation')->get()->each(function ($location) {
+                        $location->wmsLocation()->update(['wms_picking_area_id' => null]);
+                    });
+                    
+                    $area->delete();
+                });
+
+                // Reload layout
+                $this->loadLayout();
+                
+                // Notify frontend
+                $zones = $this->zones->toArray();
+                $this->dispatch('layout-loaded',
+                    zones: $zones,
+                    walls: $this->walls,
+                    fixedAreas: $this->fixedAreas,
+                    canvasWidth: $this->canvasWidth,
+                    canvasHeight: $this->canvasHeight,
+                    walkableAreas: $this->walkableAreas,
+                    navmeta: $this->navmeta,
+                    pickingAreas: $this->pickingAreas
+                );
+
+                \Filament\Notifications\Notification::make()
+                    ->title('ピッキングエリアを削除しました')
+                    ->success()
+                    ->send();
+            }
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('削除に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
     /**
      * Update picking start point
      */

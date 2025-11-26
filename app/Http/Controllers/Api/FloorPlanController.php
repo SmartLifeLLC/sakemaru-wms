@@ -270,88 +270,59 @@ class FloorPlanController extends Controller
     }
 
     /**
-     * Get stock data for a location (grouped by WMS shelf level)
+     * Get stock data for a location (grouped by expiration date and item details)
      */
-    public function getZoneStocks($locationId)
-    {
-        $location = Location::findOrFail($locationId);
+     public function getZoneStocks($locationId)
+     {
+         $location = Location::findOrFail($locationId);
 
-        // Get WMS levels for this location
-        $wmsLevels = WmsLocationLevel::where('location_id', $location->id)
-            ->orderBy('level_number')
-            ->get();
+         // Get stock data for this location, joining items to get details and grouping by item and expiration date
+         $stocks = DB::connection('sakemaru')
+             ->table('real_stocks as rs')
+             ->leftJoin('items as i', 'rs.item_id', '=', 'i.id')
+             ->where('rs.location_id', $location->id)
+             ->select([
+                 'rs.item_id',
+                 'i.name as item_name',
+                 'i.capacity_case',
+                 'i.volume',
+                 'i.volume_unit',
+                 'rs.expiration_date',
+                 DB::raw('SUM(rs.current_quantity) as total_qty'),
+             ])
+             ->groupBy('rs.item_id', 'i.name', 'i.capacity_case', 'i.volume', 'i.volume_unit', 'rs.expiration_date')
+             ->orderBy('i.name')
+             ->orderBy('rs.expiration_date')
+             ->get();
 
-        $levelStocks = [];
+         $items = [];
+         foreach ($stocks as $stock) {
+             $items[] = [
+                 'item_id' => $stock->item_id,
+                 'item_name' => $stock->item_name,
+                 'capacity_case' => $stock->capacity_case,
+                 'volume' => $stock->volume,
+                 'volume_unit_name' => \App\Enums\EVolumeUnit::tryFrom($stock->volume_unit)?->name() ?? $stock->volume_unit,
+                 'expiration_date' => $stock->expiration_date,
+                 'total_qty' => (int) $stock->total_qty,
+             ];
+         }
 
-        // If no WMS levels exist, show location-level stock as level 1
-        if ($wmsLevels->isEmpty()) {
-            // Get stock data for this location
-            $stocks = DB::connection('sakemaru')
-                ->table('real_stocks as rs')
-                ->leftJoin('items as i', 'rs.item_id', '=', 'i.id')
-                ->where('rs.location_id', $location->id)
-                ->select([
-                    'rs.item_id',
-                    'i.code as item_code',
-                    'i.name as item_name',
-                    DB::raw('SUM(rs.current_quantity) as current_qty'),
-                    DB::raw('SUM(rs.wms_reserved_qty) as reserved_qty'),
-                    DB::raw('SUM(rs.available_quantity) as available_qty'),
-                ])
-                ->groupBy('rs.item_id', 'i.code', 'i.name')
-                ->get();
+         // Return as a single level (level 1) since we are not using WMS levels for stock now
+         $levelStocks = [
+             1 => [
+                 'level' => 1,
+                 'level_id' => null,
+                 'location_id' => $location->id,
+                 'items' => $items,
+             ],
+         ];
 
-            $currentTotal = 0;
-            $reservedTotal = 0;
-            $availableTotal = 0;
-            $items = [];
-
-            foreach ($stocks as $stock) {
-                $currentTotal += $stock->current_qty;
-                $reservedTotal += $stock->reserved_qty;
-                $availableTotal += $stock->available_qty;
-
-                $items[] = [
-                    'item_id' => $stock->item_id,
-                    'item_code' => $stock->item_code,
-                    'item_name' => $stock->item_name,
-                    'current_qty' => (int) $stock->current_qty,
-                    'reserved_qty' => (int) $stock->reserved_qty,
-                    'available_qty' => (int) $stock->available_qty,
-                ];
-            }
-
-            $levelStocks[1] = [
-                'level' => 1,
-                'level_id' => null,
-                'location_id' => $location->id,
-                'current_qty' => $currentTotal,
-                'reserved_qty' => $reservedTotal,
-                'available_qty' => $availableTotal,
-                'items' => $items,
-            ];
-        } else {
-            // Show WMS levels (currently all stock is at location level, not level-specific)
-            foreach ($wmsLevels as $wmsLevel) {
-                // For now, show stock at location level for each WMS level
-                // In the future, you might track stock per WMS level
-                $levelStocks[$wmsLevel->level_number] = [
-                    'level' => $wmsLevel->level_number,
-                    'level_id' => $wmsLevel->id,
-                    'location_id' => $location->id,
-                    'current_qty' => 0,
-                    'reserved_qty' => 0,
-                    'available_qty' => 0,
-                    'items' => [],
-                ];
-            }
-        }
-
-        return response()->json([
-            'success' => true,
-            'data' => $levelStocks,
-        ]);
-    }
+         return response()->json([
+             'success' => true,
+             'data' => $levelStocks,
+         ]);
+     }
 
     /**
      * Export floor plan as CSV (Shift_JIS for Excel compatibility)
