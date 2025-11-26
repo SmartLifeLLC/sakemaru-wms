@@ -31,6 +31,7 @@ class WmsShortagesWaitingApprovalsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([10, 25, 50, 100, 500, 1000])
             ->columns([

@@ -12,15 +12,19 @@ class WmsPickingArea extends Model
 
     protected $fillable = [
         'warehouse_id',
+        'floor_id',
         'code',
         'name',
+        'color',
         'display_order',
         'is_active',
+        'polygon',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'display_order' => 'integer',
+        'polygon' => 'array',
     ];
 
     /**

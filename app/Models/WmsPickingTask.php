@@ -8,6 +8,7 @@ use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class WmsPickingTask extends Model
 {
@@ -48,6 +49,93 @@ class WmsPickingTask extends Model
         'is_restricted_area' => 'boolean',
         'print_requested_count' => 'integer',
     ];
+
+    /**
+     * Boot the model
+     */
+    protected static function booted(): void
+    {
+        static::updated(function (WmsPickingTask $task) {
+            if (!$task->isDirty('status')) {
+                return;
+            }
+
+            // ステータスがPICKINGに変更されたときに、関連する伝票のpicking_statusを更新
+            if ($task->status === self::STATUS_PICKING) {
+                // このタスクに関連するearning_idを取得
+                $earningIds = DB::connection('sakemaru')
+                    ->table('wms_picking_item_results')
+                    ->where('picking_task_id', $task->id)
+                    ->whereNotNull('earning_id')
+                    ->distinct()
+                    ->pluck('earning_id')
+                    ->toArray();
+
+                // 取得したearningのpicking_statusをPICKINGに更新
+                if (!empty($earningIds)) {
+                    DB::connection('sakemaru')
+                        ->table('earnings')
+                        ->whereIn('id', $earningIds)
+                        ->update([
+                            'picking_status' => 'PICKING',
+                            'updated_at' => now(),
+                        ]);
+                }
+            }
+
+            // ステータスがCOMPLETEDに変更されたときに、関連する伝票のpicking_statusを更新
+            // ただし、該当earning_idが含まれている全てのwms_picking_taskがCOMPLETEDである必要がある
+            if ($task->status === self::STATUS_COMPLETED) {
+                // このタスクに関連するearning_idを取得
+                $earningIds = DB::connection('sakemaru')
+                    ->table('wms_picking_item_results')
+                    ->where('picking_task_id', $task->id)
+                    ->whereNotNull('earning_id')
+                    ->distinct()
+                    ->pluck('earning_id')
+                    ->toArray();
+
+                if (empty($earningIds)) {
+                    return;
+                }
+
+                // 各earning_idについて、全てのタスクが完了しているかチェック
+                $completableEarningIds = [];
+                foreach ($earningIds as $earningId) {
+                    // このearning_idを含む全てのタスクを取得
+                    $relatedTaskIds = DB::connection('sakemaru')
+                        ->table('wms_picking_item_results')
+                        ->where('earning_id', $earningId)
+                        ->distinct()
+                        ->pluck('picking_task_id')
+                        ->toArray();
+
+                    // 全てのタスクがCOMPLETEDかチェック
+                    $incompleteTasks = DB::connection('sakemaru')
+                        ->table('wms_picking_tasks')
+                        ->whereIn('id', $relatedTaskIds)
+                        ->where('status', '!=', self::STATUS_COMPLETED)
+                        ->count();
+
+                    // 全てのタスクが完了していれば、このearningをCOMPLETEDに更新可能
+                    if ($incompleteTasks === 0) {
+                        $completableEarningIds[] = $earningId;
+                    }
+                }
+
+                // 全てのタスクが完了しているearningのpicking_statusをCOMPLETEDに更新
+                if (!empty($completableEarningIds)) {
+                    DB::connection('sakemaru')
+                        ->table('earnings')
+                        ->whereIn('id', $completableEarningIds)
+                        ->update([
+                            'picking_status' => 'COMPLETED',
+                            'updated_at' => now(),
+                        ]);
+                }
+            }
+        });
+    }
 
     /**
      * このタスクが属するウェーブ

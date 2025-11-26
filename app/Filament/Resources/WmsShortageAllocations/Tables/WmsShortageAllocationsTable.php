@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsShortageAllocations\Tables;
 
 use App\Enums\QuantityType;
+use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortageAllocation;
 use App\Services\Shortage\ProxyShipmentService;
@@ -27,6 +28,7 @@ class WmsShortageAllocationsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -82,10 +84,7 @@ class WmsShortageAllocationsTable
                     ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: false),
 
-                TextColumn::make('assign_qty_type')
-                    ->label('単位')
-                    ->formatStateUsing(fn (string $state): string => \App\Enums\QuantityType::tryFrom($state)?->name() ?? $state)
-                    ->alignment('center'),
+                QuantityTypeColumn::make('assign_qty_type', '単位'),
 
                 TextColumn::make('assign_qty')
                     ->label('予定数')

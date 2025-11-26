@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsShortages\Tables;
 
 use App\Enums\QuantityType;
+use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
@@ -30,6 +31,7 @@ class WmsShortagesTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([10, 25, 50, 100, 500, 1000])
             ->columns([
@@ -77,7 +79,7 @@ class WmsShortagesTable
                     ->alignment('center'),
 
                 TextColumn::make('trade.serial_id')
-                    ->label('識別ID')
+                    ->label('伝票番号')
                     ->searchable()
                     ->sortable()
                     ->default('-')
@@ -139,15 +141,18 @@ class WmsShortagesTable
                     })
                     ->alignment('center'),
 
-                TextColumn::make('qty_type_at_order')
-                    ->label('受注単位')
-                    ->formatStateUsing(fn(?string $state): string => $state ? (QuantityType::tryFrom($state)?->name() ?? $state) : '-'
-                    )
-                    ->badge()
-                    ->alignment('center'),
+                QuantityTypeColumn::make('qty_type_at_order'),
 
                 TextColumn::make('order_qty')
                     ->label('受注')
+                    ->alignment('center'),
+
+                TextColumn::make('planned_qty')
+                    ->label('引当')
+                    ->alignment('center'),
+
+                TextColumn::make('picked_qty')
+                    ->label('出荷')
                     ->alignment('center'),
 
                 TextColumn::make('shortage_qty')
@@ -157,13 +162,15 @@ class WmsShortagesTable
                     ->alignment('center'),
 
                 TextColumn::make('allocations_total_qty')
-                    ->label('横持ち出荷')
-                    ->formatStateUsing(function ($record) {
+                    ->label('横持')
+                    ->state(function ($record) {
                         $qty = $record->allocations_total_qty ?? 0;
-
                         return $qty > 0 ? (string)$qty : '-';
                     })
-                    ->color(fn($record) => ($record->allocations_total_qty ?? 0) > 0 ? 'info' : 'gray')
+                    ->color(function ($record) {
+                        $qty = $record->allocations_total_qty ?? 0;
+                        return $qty > 0 ? 'info' : 'gray';
+                    })
                     ->alignment('center'),
 
                 TextColumn::make('remaining_qty')
@@ -175,6 +182,18 @@ class WmsShortagesTable
                     })
                     ->color(fn($record) => $record->remaining_qty > 0 ? 'warning' : 'success')
                     ->alignment('center'),
+
+                TextColumn::make('total_shortage_in_pieces')
+                    ->label('総欠品')
+                    ->formatStateUsing(function ($record) {
+                        $pieces = $record->total_shortage_in_pieces;
+
+                        return $pieces > 0 ? (string)$pieces : '-';
+                    })
+                    ->color(fn($record) => $record->total_shortage_in_pieces > 0 ? 'danger' : 'gray')
+                    ->weight('bold')
+                    ->alignment('center')
+                    ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('created_at')
                     ->label('発生日時')

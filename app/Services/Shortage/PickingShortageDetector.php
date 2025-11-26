@@ -54,7 +54,7 @@ class PickingShortageDetector
                 );
             }
             $qtyType = $pickResult->ordered_qty_type;
-            $caseSize = $pickResult->item?->case_size ?? 1;
+            $caseSize = $pickResult->item?->capacity_case ?? 1;
 
             // earningをtrade_idから取得
             $earning = DB::connection('sakemaru')

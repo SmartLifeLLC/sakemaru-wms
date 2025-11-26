@@ -28,10 +28,10 @@ class GeneratePickerWaveCommand extends Command
     private int $warehouseId;
     private string $warehouseCode;
     private int $clientId;
-    private int $buyerId;
-    private string $buyerCode;
+    private array $buyers = [];
     private array $testItems = [];
     private array $specifiedLocations = [];
+    private int $buyerIndex = 0;
 
     public function handle()
     {
@@ -182,8 +182,9 @@ class GeneratePickerWaveCommand extends Command
         $client = DB::connection('sakemaru')->table('clients')->first();
         $this->clientId = $client->id;
 
-        // Get buyer with specific criteria for earnings generation
-        $buyer = DB::connection('sakemaru')->table('buyers')
+        // Get multiple buyers with specific criteria for earnings generation
+        // Each earning will use a different buyer to ensure all trades have different partners
+        $buyers = DB::connection('sakemaru')->table('buyers')
             ->leftJoin('buyer_details', 'buyers.id', '=', 'buyer_details.buyer_id')
             ->leftJoin('partners', 'buyers.partner_id', '=', 'partners.id')
             ->where('partners.is_active', 1)
@@ -195,15 +196,17 @@ class GeneratePickerWaveCommand extends Command
             ->where('buyer_details.is_allowed_case_quantity', true)
             ->select('partners.code', 'partners.id')
             ->inRandomOrder()
-            ->first();
+            ->limit(1000) // Get enough buyers for all possible earnings
+            ->get();
 
-        if (!$buyer) {
-            $this->error('No eligible buyer found with the required criteria');
+        if ($buyers->isEmpty()) {
+            $this->error('No eligible buyers found with the required criteria');
             exit(1);
         }
 
-        $this->buyerId = $buyer->id;
-        $this->buyerCode = $buyer->code;
+        // Store buyers as array with code as value
+        $this->buyers = $buyers->pluck('code')->toArray();
+        $this->line("Loaded " . count($this->buyers) . " eligible buyers for earnings generation");
 
         // Get warehouse
         $warehouse = DB::connection('sakemaru')->table('warehouses')
@@ -295,17 +298,21 @@ class GeneratePickerWaveCommand extends Command
         }
 
         $scenarios = [
-            ['name' => 'ケース注文（十分な在庫）', 'qty_type' => 'CASE', 'qty' => 2],
-            ['name' => 'バラ注文（十分な在庫）', 'qty_type' => 'PIECE', 'qty' => 15],
-            ['name' => 'ケース注文（欠品あり）', 'qty_type' => 'CASE', 'qty' => 200],
-            ['name' => 'バラ注文（欠品あり）', 'qty_type' => 'PIECE', 'qty' => 500],
-            ['name' => 'ケース・バラ混在注文', 'qty_type' => 'MIXED', 'qty' => 0],
+            ['name' => 'ケース注文（十分な在庫）', 'qty_type' => 'CASE'],
+            ['name' => 'バラ注文（十分な在庫）', 'qty_type' => 'PIECE'],
+            ['name' => 'ケース注文（欠品あり）', 'qty_type' => 'CASE'],
+            ['name' => 'バラ注文（欠品あり）', 'qty_type' => 'PIECE'],
+            ['name' => 'ケース・バラ混在注文', 'qty_type' => 'MIXED'],
         ];
 
         $earnings = [];
-
         for ($i = 0; $i < $count; $i++) {
             $scenario = $scenarios[$i % count($scenarios)];
+
+            // Select a unique buyer for this earning
+            // Use global index to ensure unique buyers across different courses
+            $buyerCode = $this->buyers[$this->buyerIndex % count($this->buyers)];
+            $this->buyerIndex++;
 
             // Filter items based on scenario qty_type to ensure stock allocation succeeds
             $availableItems = collect($this->testItems);
@@ -333,8 +340,8 @@ class GeneratePickerWaveCommand extends Command
             $details = [];
             foreach ($selectedItems as $index => $item) {
                 $qtyType = $scenario['qty_type'];
-                $qty = $scenario['qty'];
 
+                // Generate quantity for each item (1-10)
                 if ($qtyType === 'MIXED') {
                     // For MIXED orders, choose type based on what the item supports
                     if ($item['supports_case'] && $item['supports_piece']) {
@@ -345,8 +352,10 @@ class GeneratePickerWaveCommand extends Command
                     } else {
                         $qtyType = 'PIECE';
                     }
-                    $qty = $qtyType === 'CASE' ? rand(1, 5) : rand(5, 20);
                 }
+
+                // Generate quantity: 1-10 for all types
+                $qty = rand(1, 10);
 
                 $details[] = [
                     'item_code' => $item['code'],
@@ -363,7 +372,7 @@ class GeneratePickerWaveCommand extends Command
                 'process_date' => $shippingDate,
                 'delivered_date' => $shippingDate,
                 'account_date' => $shippingDate,
-                'buyer_code' => $this->buyerCode,
+                'buyer_code' => $buyerCode, // Use unique buyer for each earning
                 'warehouse_code' => $this->warehouseCode,
                 'delivery_course_code' => $courseCode,
                 'note' => "WMSテスト（ピッカー専用）: {$scenario['name']}",

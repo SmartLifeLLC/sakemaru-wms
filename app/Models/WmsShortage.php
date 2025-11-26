@@ -246,6 +246,20 @@ class WmsShortage extends Model
     }
 
     /**
+     * 欠品数を計算: order_qty - picked_qty
+     * データベースにも保存されるが、常に計算値を返す
+     *
+     * @return int 欠品数（受注単位ベース）
+     */
+    public function getShortageQtyAttribute(): int
+    {
+        $orderQty = $this->attributes['order_qty'] ?? 0;
+        $pickedQty = $this->attributes['picked_qty'] ?? 0;
+
+        return max(0, $orderQty - $pickedQty);
+    }
+
+    /**
      * 欠品の残量を計算
      * 横持ち出荷で充足した分を差し引く
      *
@@ -262,6 +276,24 @@ class WmsShortage extends Model
         }
 
         return max(0, $this->shortage_qty - $allocated);
+    }
+
+    /**
+     * 総欠品数を計算（バラ数ベース）
+     * CASE受注の場合: shortage_qty * case_size_snap
+     * PIECE受注の場合: shortage_qty
+     *
+     * @return int バラ数ベースの総欠品数
+     */
+    public function getTotalShortageInPiecesAttribute(): int
+    {
+        $shortageQty = $this->shortage_qty;
+
+        if ($this->isCaseOrder() && $this->case_size_snap > 0) {
+            return $shortageQty * $this->case_size_snap;
+        }
+
+        return $shortageQty;
     }
 
     /**
