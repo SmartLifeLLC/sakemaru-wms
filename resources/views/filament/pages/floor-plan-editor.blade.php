@@ -17,30 +17,37 @@
                  initWalkableCanvas($event.detail.walkableAreas, $event.detail.navmeta);
              });
          "
+         @layout-saved.window="
+             showSettingsModal = false;
+             canvasWidth = $event.detail.canvasWidth;
+             canvasHeight = $event.detail.canvasHeight;
+         "
          class="h-full">
 
         {{-- Main Layout: Left (3/4) and Right (1/4) --}}
         <div class="flex gap-3" style="height: calc(100vh - 120px);">
 
             {{-- Left Side: Floor Plan Canvas (75%) --}}
-            <div class="w-3/4 bg-white dark:bg-gray-800 rounded-lg shadow relative overflow-auto bg-gray-50 dark:bg-gray-900"
-                 @mousedown="handleCanvasMouseDown($event)"
-                 @mousemove="handleCanvasMouseMove($event)"
-                 @mouseup="handleCanvasMouseUp($event)"
-                 @mouseup="handleCanvasMouseUp($event)"
-                 @click="handleCanvasClick($event)"
-                 @dblclick="handleCanvasDoubleClick($event)"
-                 @contextmenu.prevent
-                 :style="canvasStyle"
-                 id="floor-plan-canvas">
+            <div class="w-3/4 bg-gray-200 dark:bg-gray-900 rounded-lg shadow relative overflow-auto"
+                 id="floor-plan-canvas-wrapper">
 
-                {{-- Canvas Inner Container with minimum size from Livewire --}}
-                <div class="relative" style="min-width: {{ $canvasWidth }}px; min-height: {{ $canvasHeight }}px;">
+                {{-- Centering wrapper --}}
+                <div class="flex justify-center" :style="{minWidth: canvasWidth + 'px', minHeight: canvasHeight + 'px'}">
+                    {{-- Canvas Inner Container with grid and exact size --}}
+                    <div class="relative bg-white dark:bg-gray-800 flex-shrink-0"
+                         @mousedown="handleCanvasMouseDown($event)"
+                         @mousemove="handleCanvasMouseMove($event)"
+                         @mouseup="handleCanvasMouseUp($event)"
+                         @click="handleCanvasClick($event)"
+                         @dblclick="handleCanvasDoubleClick($event)"
+                         @contextmenu.prevent
+                         :style="{...canvasStyle, width: canvasWidth + 'px', height: canvasHeight + 'px'}"
+                         id="floor-plan-canvas">
 
                 {{-- Walkable Area Canvas Layer --}}
                 <canvas x-ref="walkableCanvas"
-                        :width="{{ $canvasWidth }}"
-                        :height="{{ $canvasHeight }}"
+                        :width="canvasWidth"
+                        :height="canvasHeight"
                         @mousedown="handleWalkableMouseDown($event)"
                         @mousemove="handleWalkableMouseMove($event)"
                         @mouseup="handleWalkableMouseUp($event)"
@@ -144,7 +151,7 @@
                          width: '40px',
                          height: '40px',
                          transform: 'translate(-20px, -20px)',
-                         zIndex: 9999
+                         zIndex: 40
                      }"
                      class="flex items-center justify-center rounded-full bg-green-500 border-4 border-white shadow-xl cursor-move hover:bg-green-600 select-none">
                     <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -164,7 +171,7 @@
                          width: '40px',
                          height: '40px',
                          transform: 'translate(-20px, -20px)',
-                         zIndex: 9999
+                         zIndex: 40
                      }"
                      class="flex items-center justify-center rounded-full bg-red-500 border-4 border-white shadow-xl cursor-move hover:bg-red-600 select-none">
                     <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -223,6 +230,7 @@
                     </div>
                 </template>
 
+                    </div>
                 </div>
             </div>
 
@@ -253,6 +261,13 @@
                     <button @click="saveAllChangesWithWalkable()"
                         class="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium whitespace-nowrap">
                         保存
+                    </button>
+                    <button @click="showSettingsModal = true" title="キャンバス設定"
+                        class="p-1.5 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
                     </button>
                 </div>
 
@@ -1031,8 +1046,8 @@
         </div>
 
         {{-- Settings Modal --}}
-        <div x-data="{ showSettingsModal: false }" x-show="showSettingsModal" x-cloak
-             class="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50"
+        <div x-show="showSettingsModal" x-cloak
+             class="fixed inset-0 flex items-center justify-center z-50"
              @click.self="showSettingsModal = false">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
                  @click.stop>
@@ -1294,6 +1309,8 @@
                 pickerWarehouseFilter: '',
                 pickerShowSelectedOnly: false,
                 warehousesList: [],
+                // Settings modal
+                showSettingsModal: false,
 
                 // Computed: filtered picker list
                 get filteredPickersList() {

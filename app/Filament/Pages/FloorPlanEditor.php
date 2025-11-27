@@ -348,6 +348,10 @@ class FloorPlanEditor extends Page
     public function saveLayout(): void
     {
         if (!$this->selectedWarehouseId) {
+            \Filament\Notifications\Notification::make()
+                ->title('倉庫を選択してください')
+                ->danger()
+                ->send();
             return;
         }
 
@@ -371,6 +375,14 @@ class FloorPlanEditor extends Page
                 'navmeta' => $this->navmeta,
             ]
         );
+
+        \Filament\Notifications\Notification::make()
+            ->title('レイアウト設定を保存しました')
+            ->success()
+            ->send();
+
+        // Dispatch event to close modal and update canvas
+        $this->dispatch('layout-saved', canvasWidth: $this->canvasWidth, canvasHeight: $this->canvasHeight);
     }
 
     /**
