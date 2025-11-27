@@ -151,7 +151,7 @@
                          width: '40px',
                          height: '40px',
                          transform: 'translate(-20px, -20px)',
-                         zIndex: 40
+                         zIndex: 20
                      }"
                      class="flex items-center justify-center rounded-full bg-green-500 border-4 border-white shadow-xl cursor-move hover:bg-green-600 select-none">
                     <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -171,7 +171,7 @@
                          width: '40px',
                          height: '40px',
                          transform: 'translate(-20px, -20px)',
-                         zIndex: 40
+                         zIndex: 20
                      }"
                      class="flex items-center justify-center rounded-full bg-red-500 border-4 border-white shadow-xl cursor-move hover:bg-red-600 select-none">
                     <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

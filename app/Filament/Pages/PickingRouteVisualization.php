@@ -8,6 +8,7 @@ use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\WmsWarehouseLayout;
 use App\Models\WmsPickingTask;
+use App\Models\WmsPickingArea;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Livewire\Attributes\Computed;
@@ -33,6 +34,7 @@ class PickingRouteVisualization extends Page
     public array $textStyles = [];
     public array $walls = [];
     public array $fixedAreas = [];
+    public array $pickingAreas = [];
     public int $pickingStartX = 0;
     public int $pickingStartY = 0;
     public int $pickingEndX = 0;
@@ -153,6 +155,46 @@ class PickingRouteVisualization extends Page
             $this->pickingEndX = 0;
             $this->pickingEndY = 0;
         }
+
+        // Always load picking areas (regardless of layout existence)
+        $this->loadPickingAreas();
+    }
+
+    /**
+     * Load picking areas for the selected warehouse and floor
+     */
+    private function loadPickingAreas(): void
+    {
+        if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+            $this->pickingAreas = [];
+            return;
+        }
+
+        $this->pickingAreas = WmsPickingArea::where('warehouse_id', $this->selectedWarehouseId)
+            ->where('floor_id', $this->selectedFloorId)
+            ->with('pickers')
+            ->withCount('locations')
+            ->get()
+            ->map(function ($area) {
+                return [
+                    'id' => $area->id,
+                    'name' => $area->name,
+                    'color' => $area->color ?? '#8B5CF6',
+                    'polygon' => $area->polygon,
+                    'temperature_type' => $area->temperature_type,
+                    'available_quantity_flags' => $area->available_quantity_flags,
+                    'is_restricted_area' => $area->is_restricted_area ?? false,
+                    'location_count' => $area->locations_count ?? 0,
+                    'pickers' => $area->pickers->map(function ($picker) {
+                        return [
+                            'id' => $picker->id,
+                            'code' => $picker->code,
+                            'name' => $picker->name,
+                            'can_access_restricted_area' => $picker->can_access_restricted_area ?? false,
+                        ];
+                    })->values()->toArray(),
+                ];
+            })->values()->toArray();
     }
 
     /**
@@ -165,7 +207,10 @@ class PickingRouteVisualization extends Page
             $this->dispatch('layout-loaded',
                 zones: $zones,
                 walls: $this->walls,
-                fixedAreas: $this->fixedAreas
+                fixedAreas: $this->fixedAreas,
+                pickingAreas: $this->pickingAreas,
+                canvasWidth: $this->canvasWidth,
+                canvasHeight: $this->canvasHeight
             );
         }
     }
