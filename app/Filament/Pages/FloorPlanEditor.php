@@ -1156,4 +1156,200 @@ class FloorPlanEditor extends Page
                 ->send();
         }
     }
+
+    /**
+     * Search locations in the same warehouse for stock transfer
+     */
+    public function searchTransferLocations(string $search, int $excludeLocationId): array
+    {
+        if (!$this->selectedWarehouseId || strlen($search) < 1) {
+            return [];
+        }
+
+        $locations = Location::where('warehouse_id', $this->selectedWarehouseId)
+            ->where('id', '!=', $excludeLocationId)
+            ->whereNotNull('code1')
+            ->whereNotNull('code2')
+            ->where(function ($query) use ($search) {
+                $query->where('name', 'like', "%{$search}%")
+                    ->orWhere('code1', 'like', "%{$search}%")
+                    ->orWhere('code2', 'like', "%{$search}%")
+                    ->orWhereRaw("CONCAT(code1, code2) LIKE ?", ["%{$search}%"]);
+            })
+            ->with('floor:id,name,code')
+            ->orderBy('code1')
+            ->orderBy('code2')
+            ->limit(20)
+            ->get(['id', 'floor_id', 'code1', 'code2', 'name']);
+
+        return $locations->map(function ($loc) {
+            return [
+                'id' => $loc->id,
+                'code1' => $loc->code1,
+                'code2' => $loc->code2,
+                'name' => $loc->name,
+                'floor_name' => $loc->floor?->name ?? '',
+            ];
+        })->toArray();
+    }
+
+    /**
+     * Execute stock transfer between locations
+     */
+    public function executeStockTransfer(array $transferData): void
+    {
+        try {
+            $sourceLocationId = $transferData['source_location_id'];
+            $targetLocationId = $transferData['target_location_id'];
+            $warehouseId = $transferData['warehouse_id'];
+            $items = $transferData['items'] ?? [];
+
+            if (empty($items)) {
+                \Filament\Notifications\Notification::make()
+                    ->title('移動する商品が選択されていません')
+                    ->warning()
+                    ->send();
+                return;
+            }
+
+            // Get current user info for worker tracking
+            $userId = auth()->id();
+            $userName = auth()->user()?->name ?? 'Unknown';
+
+            \Illuminate\Support\Facades\DB::connection('sakemaru')->transaction(function () use (
+                $sourceLocationId,
+                $targetLocationId,
+                $warehouseId,
+                $items,
+                $userId,
+                $userName
+            ) {
+                foreach ($items as $item) {
+                    $realStockId = $item['real_stock_id'];
+                    $itemId = $item['item_id'];
+                    $transferQty = (int) $item['transfer_qty'];
+                    $totalQty = (int) ($item['total_qty'] ?? $transferQty);
+
+                    // Get the source real_stock record
+                    $sourceStock = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                        ->table('real_stocks')
+                        ->where('id', $realStockId)
+                        ->first();
+
+                    if (!$sourceStock) {
+                        continue;
+                    }
+
+                    if ($transferQty >= $totalQty) {
+                        // Full transfer: just update the location_id
+                        \Illuminate\Support\Facades\DB::connection('sakemaru')
+                            ->table('real_stocks')
+                            ->where('id', $realStockId)
+                            ->update([
+                                'location_id' => $targetLocationId,
+                                'updated_at' => now(),
+                            ]);
+                    } else {
+                        // Partial transfer: reduce source and create/update target
+                        $remainingQty = $totalQty - $transferQty;
+
+                        // Reduce quantity at source location
+                        \Illuminate\Support\Facades\DB::connection('sakemaru')
+                            ->table('real_stocks')
+                            ->where('id', $realStockId)
+                            ->update([
+                                'current_quantity' => $remainingQty,
+                                'available_quantity' => \Illuminate\Support\Facades\DB::raw("GREATEST(0, available_quantity - {$transferQty})"),
+                                'updated_at' => now(),
+                            ]);
+
+                        // Check if there's an existing stock at target location with same item/expiration
+                        $existingTargetStock = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                            ->table('real_stocks')
+                            ->where('location_id', $targetLocationId)
+                            ->where('item_id', $sourceStock->item_id)
+                            ->where('expiration_date', $sourceStock->expiration_date)
+                            ->where('client_id', $sourceStock->client_id)
+                            ->first();
+
+                        if ($existingTargetStock) {
+                            // Add to existing stock at target
+                            \Illuminate\Support\Facades\DB::connection('sakemaru')
+                                ->table('real_stocks')
+                                ->where('id', $existingTargetStock->id)
+                                ->update([
+                                    'current_quantity' => $existingTargetStock->current_quantity + $transferQty,
+                                    'available_quantity' => $existingTargetStock->available_quantity + $transferQty,
+                                    'updated_at' => now(),
+                                ]);
+                        } else {
+                            // Get target location's floor_id
+                            $targetLocation = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                                ->table('locations')
+                                ->where('id', $targetLocationId)
+                                ->first();
+
+                            // Create new stock record at target location
+                            \Illuminate\Support\Facades\DB::connection('sakemaru')
+                                ->table('real_stocks')
+                                ->insert([
+                                    'client_id' => $sourceStock->client_id,
+                                    'warehouse_id' => $sourceStock->warehouse_id,
+                                    'floor_id' => $targetLocation?->floor_id ?? $sourceStock->floor_id,
+                                    'location_id' => $targetLocationId,
+                                    'item_id' => $sourceStock->item_id,
+                                    'stock_allocation_id' => $sourceStock->stock_allocation_id,
+                                    'purchase_id' => $sourceStock->purchase_id,
+                                    'trade_item_id' => $sourceStock->trade_item_id,
+                                    'expiration_date' => $sourceStock->expiration_date,
+                                    'price' => $sourceStock->price,
+                                    'item_management_type' => $sourceStock->item_management_type,
+                                    'order_rank' => $sourceStock->order_rank ?? '',
+                                    'order_parameter' => $sourceStock->order_parameter,
+                                    'content_amount' => $sourceStock->content_amount,
+                                    'container_amount' => $sourceStock->container_amount,
+                                    'current_quantity' => $transferQty,
+                                    'available_quantity' => $transferQty,
+                                    'reserved_quantity' => 0,
+                                    'picking_quantity' => 0,
+                                    'wms_reserved_qty' => 0,
+                                    'wms_picking_qty' => 0,
+                                    'wms_lock_version' => 0,
+                                    'lock_version' => 0,
+                                    'created_at' => now(),
+                                    'updated_at' => now(),
+                                ]);
+                        }
+                    }
+
+                    // Create transfer history record
+                    \App\Models\WmsStockTransfer::create([
+                        'item_id' => $itemId,
+                        'real_stock_id' => $realStockId,
+                        'transfer_qty' => $transferQty,
+                        'warehouse_id' => $warehouseId,
+                        'item_management_type' => 'NONE',
+                        'source_location_id' => $sourceLocationId,
+                        'target_location_id' => $targetLocationId,
+                        'worker_id' => $userId,
+                        'worker_name' => $userName,
+                        'transferred_at' => now(),
+                    ]);
+                }
+            });
+
+            $itemCount = count($items);
+            \Filament\Notifications\Notification::make()
+                ->title("在庫を移動しました（{$itemCount}件）")
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('在庫移動に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
 }

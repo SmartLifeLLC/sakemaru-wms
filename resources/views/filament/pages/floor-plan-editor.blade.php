@@ -579,65 +579,87 @@
              style="z-index: 10000;"
              @click.self="showEditModal = false">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-5xl max-h-[90vh] overflow-y-auto text-xs" @click.stop>
-                <h3 class="text-2xl font-bold mb-4">区画詳細</h3>
-
-                {{-- Basic Info --}}
-                <div class="grid grid-cols-3 gap-4 mb-6">
-                    <div>
-                        <label class="block text-sm font-medium mb-1">名称</label>
-                        <input type="text" x-model="editingZone.name"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"/>
+                {{-- Header with name input --}}
+                <div class="mb-4 rounded-lg transition-colors duration-200"
+                     :class="editingZone.is_restricted_area ? 'bg-red-100 dark:bg-red-900/30 p-3' : ''">
+                    <div x-show="editingZone.is_restricted_area" class="flex items-center gap-2 mb-2 text-red-600 dark:text-red-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                        </svg>
+                        <span class="text-sm font-medium">制限エリア</span>
                     </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-1">通路 (code1)</label>
+                    <input type="text" x-model="editingZone.name"
+                        placeholder="名称を入力"
+                        class="text-2xl font-bold w-full border-b-2 focus:outline-none pb-1 transition-colors duration-200"
+                        :class="editingZone.is_restricted_area
+                            ? 'bg-transparent border-red-400 dark:border-red-500 focus:border-red-600 text-red-800 dark:text-red-200'
+                            : 'bg-transparent border-gray-300 dark:border-gray-600 focus:border-blue-500'"/>
+                </div>
+
+                {{-- Row 1: 通路、棚番号、温度帯、引当可能単位 --}}
+                <div class="flex gap-4 mb-3">
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">通路</label>
                         <input type="text" x-model="editingZone.code1" maxlength="10"
                             class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                     </div>
-
-                    <div>
-                        <label class="block text-sm font-medium mb-1">棚番号 (code2)</label>
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">棚番号</label>
                         <input type="text" x-model="editingZone.code2" maxlength="10"
                             class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                     </div>
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">温度帯</label>
+                        <select x-model="editingZone.temperature_type"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            <option value="NORMAL">常温</option>
+                            <option value="CHILLED">冷蔵</option>
+                            <option value="FROZEN">冷凍</option>
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">引当可能単位</label>
+                        <select x-model.number="editingZone.available_quantity_flags"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            <option value="1">ケース</option>
+                            <option value="2">バラ</option>
+                            <option value="3">ケース+バラ</option>
+                            <option value="4">ボール</option>
+                        </select>
+                    </div>
+                </div>
 
-
-
-
-                    <div class="col-span-3 w-full flex gap-4 mb-6">
-    <div class="flex-1">
-        <label class="block text-sm font-medium mb-1">引当可能単位</label>
-        <select x-model.number="editingZone.available_quantity_flags"
-                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-            <option value="1">ケース</option>
-            <option value="2">バラ</option>
-            <option value="3">ケース+バラ</option>
-            <option value="4">ボール</option>
-        </select>
-    </div>
-    <div class="flex-1 w-full">
-        <label class="block text-sm font-medium mb-1">温度帯</label>
-        <select x-model="editingZone.temperature_type"
-                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-            <option value="NORMAL">常温</option>
-            <option value="CHILLED">冷蔵</option>
-            <option value="FROZEN">冷凍</option>
-        </select>
-    </div>
-    <div class="flex items-center gap-2 h-10 flex-1">
-        <input type="checkbox"
-               x-model="editingZone.is_restricted_area"
-               class="rounded border border-gray-300 dark:border-gray-600 w-5 h-5" />
-        <span class="text-sm text-gray-600">制限エリアとして設定</span>
-    </div>
-</div>
+                {{-- Row 2: 制限エリア設定 --}}
+                <div class="flex items-center gap-2 mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+                    <input type="checkbox"
+                           x-model="editingZone.is_restricted_area"
+                           class="rounded border border-gray-300 dark:border-gray-600 w-5 h-5" />
+                    <span class="text-sm text-gray-600 dark:text-gray-400">制限エリアとして設定</span>
                 </div>
 
                 {{-- Stock Information --}}
-                <h3 class="text-xl font-semibold mt-4 mb-2">在庫情報</h3>
+                <div class="flex items-center justify-between mt-4 mb-2">
+                    <h3 class="text-xl font-semibold">在庫情報</h3>
+                    <button @click="openTransferModal()"
+                            :disabled="selectedStocksForTransfer.length === 0"
+                            class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-md flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                        </svg>
+                        ロケ移動
+                        <span x-show="selectedStocksForTransfer.length > 0" x-text="'(' + selectedStocksForTransfer.length + ')'"></span>
+                    </button>
+                </div>
                 <div style="max-height:300px; overflow-y:auto;">
                     <table class="w-full table-auto border divide-y divide-gray-200">
                         <thead class="bg-gray-100 dark:bg-gray-700">
                             <tr>
+                                <th class="px-2 py-1 w-8">
+                                    <input type="checkbox"
+                                           @change="toggleAllStocks($event.target.checked)"
+                                           :checked="levelStocks[1]?.items?.length > 0 && selectedStocksForTransfer.length === levelStocks[1]?.items?.length"
+                                           class="rounded border-gray-300">
+                                </th>
                                 <th class="px-2 py-1">商品名</th>
                                 <th class="px-2 py-1 text-center">入り数</th>
                                 <th class="px-2 py-1 text-center">容量</th>
@@ -647,8 +669,16 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <template x-for="item in levelStocks[1]?.items" :key="item.item_id">
-                                <tr class="odd:bg-gray-100 dark:odd:bg-gray-800">
+                            <template x-for="item in levelStocks[1]?.items" :key="item.real_stock_id">
+                                <tr class="odd:bg-gray-100 dark:odd:bg-gray-800"
+                                    :class="isStockSelected(item.real_stock_id) ? 'bg-blue-50 dark:bg-blue-900/30' : ''">
+                                    <td class="border px-2 py-1 text-center">
+                                        <input type="checkbox"
+                                               :value="item.real_stock_id"
+                                               :checked="isStockSelected(item.real_stock_id)"
+                                               @change="toggleStockSelection(item)"
+                                               class="rounded border-gray-300">
+                                    </td>
                                     <td class="border px-2 py-1" x-text="item.item_name"></td>
                                     <td class="border px-2 py-1 text-center" x-text="item.capacity_case"></td>
                                     <td class="border px-2 py-1 text-center" x-text="item.volume"></td>
@@ -658,7 +688,7 @@
                                 </tr>
                             </template>
                             <tr x-show="!levelStocks[1]?.items?.length">
-                                <td colspan="6" class="text-center py-2 text-gray-500">在庫なし</td>
+                                <td colspan="7" class="text-center py-2 text-gray-500">在庫なし</td>
                             </tr>
                         </tbody>
                     </table>
@@ -676,6 +706,110 @@
                     <button @click="showEditModal = false"
                         class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
                         閉じる
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {{-- Stock Transfer Modal --}}
+        <div x-show="showTransferModal" x-cloak
+             class="fixed inset-0 flex items-center justify-center"
+             style="z-index: 10001;"
+             @click.self="showTransferModal = false">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" @click.stop>
+                <h3 class="text-lg font-bold mb-4">ロケーション移動</h3>
+
+                {{-- Source Location Info --}}
+                <div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                    <div class="text-sm text-gray-600 dark:text-gray-400">移動元</div>
+                    <div class="font-semibold" x-text="editingZone.name"></div>
+                    <div class="text-sm text-gray-500" x-text="'選択商品: ' + selectedStocksForTransfer.length + '件'"></div>
+                </div>
+
+                {{-- Selected Items Summary --}}
+                <div class="mb-4">
+                    <h4 class="text-sm font-semibold mb-2">移動対象商品</h4>
+                    <div class="max-h-48 overflow-y-auto border rounded-lg">
+                        <table class="w-full text-xs">
+                            <thead class="bg-gray-50 dark:bg-gray-700 sticky top-0">
+                                <tr>
+                                    <th class="px-2 py-1 text-left">商品名</th>
+                                    <th class="px-2 py-1 text-center">賞味期限</th>
+                                    <th class="px-2 py-1 text-center">在庫数</th>
+                                    <th class="px-2 py-1 text-center">移動数量</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="selected in selectedStocksForTransfer" :key="selected.real_stock_id">
+                                    <tr class="border-t">
+                                        <td class="px-2 py-1" x-text="getSelectedStockItem(selected.real_stock_id)?.item_name"></td>
+                                        <td class="px-2 py-1 text-center" x-text="getSelectedStockItem(selected.real_stock_id)?.expiration_date || '―'"></td>
+                                        <td class="px-2 py-1 text-center" x-text="getSelectedStockItem(selected.real_stock_id)?.total_qty"></td>
+                                        <td class="px-2 py-1 text-center">
+                                            <input type="number"
+                                                   :value="selected.transfer_qty"
+                                                   @input="updateTransferQty(selected.real_stock_id, $event.target.value)"
+                                                   :max="getSelectedStockItem(selected.real_stock_id)?.total_qty"
+                                                   min="1"
+                                                   class="w-20 px-2 py-1 text-center border rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700">
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {{-- Target Location Selection --}}
+                <div class="mb-4">
+                    <h4 class="text-sm font-semibold mb-2">移動先ロケーション</h4>
+                    <div class="relative">
+                        <input type="text"
+                               x-model="transferLocationSearch"
+                               @input="searchTransferLocations()"
+                               placeholder="ロケーション名または通路・棚番号で検索..."
+                               class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                    </div>
+                    <div class="mt-2 max-h-48 overflow-y-auto border rounded-lg" x-show="transferLocationResults.length > 0">
+                        <template x-for="loc in transferLocationResults" :key="loc.id">
+                            <div @click="selectTransferLocation(loc)"
+                                 class="px-3 py-2 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/30 border-b last:border-b-0"
+                                 :class="selectedTransferLocationId === loc.id ? 'bg-blue-100 dark:bg-blue-900/50' : ''">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-medium" x-text="loc.name"></span>
+                                    <span x-show="loc.floor_name" class="text-xs bg-gray-200 dark:bg-gray-600 px-2 py-0.5 rounded" x-text="loc.floor_name"></span>
+                                </div>
+                                <div class="text-xs text-gray-500" x-text="'通路: ' + loc.code1 + ' / 棚: ' + loc.code2"></div>
+                            </div>
+                        </template>
+                    </div>
+                    <div x-show="transferLocationSearch && transferLocationResults.length === 0" class="mt-2 text-sm text-gray-500">
+                        該当するロケーションが見つかりません
+                    </div>
+                </div>
+
+                {{-- Selected Target Location Display --}}
+                <div x-show="selectedTransferLocationId" class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                    <div class="text-sm text-gray-600 dark:text-gray-400">移動先</div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-semibold" x-text="selectedTransferLocation?.name"></span>
+                        <span x-show="selectedTransferLocation?.floor_name" class="text-xs bg-blue-200 dark:bg-blue-700 px-2 py-0.5 rounded" x-text="selectedTransferLocation?.floor_name"></span>
+                    </div>
+                    <div class="text-xs text-gray-500" x-text="'通路: ' + selectedTransferLocation?.code1 + ' / 棚: ' + selectedTransferLocation?.code2"></div>
+                </div>
+
+                {{-- Action Buttons --}}
+                <div class="flex gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button @click="executeTransfer()"
+                            :disabled="!selectedTransferLocationId || transferInProgress"
+                            class="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-md">
+                        <span x-show="!transferInProgress">移動実行</span>
+                        <span x-show="transferInProgress">移動中...</span>
+                    </button>
+                    <button @click="showTransferModal = false"
+                            :disabled="transferInProgress"
+                            class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 text-white rounded-md">
+                        キャンセル
                     </button>
                 </div>
             </div>
@@ -922,6 +1056,14 @@
                 newPickingAreaColor: '#8B5CF6', // Default color for new picking areas
                 canvasWidth: {{ $canvasWidth }},
                 canvasHeight: {{ $canvasHeight }},
+                // Stock transfer state
+                selectedStocksForTransfer: [], // Array of { real_stock_id, transfer_qty }
+                showTransferModal: false,
+                transferLocationSearch: '',
+                transferLocationResults: [],
+                selectedTransferLocationId: null,
+                selectedTransferLocation: null,
+                transferInProgress: false,
 
                 init() {
                     // Request initial data from Livewire
@@ -1681,6 +1823,7 @@
                     this.editingZone = { ...zone, levels: zone.levels || 3 };
                     this.selectedLevel = 1;
                     this.levelStocks = {};
+                    this.selectedStocksForTransfer = []; // Reset selected stocks when opening new zone
                     this.showEditModal = true;
 
                     // Load stock data for each level
@@ -1723,6 +1866,125 @@
                         });
                     }
                     this.showEditModal = false;
+                },
+
+                // Stock transfer methods
+                toggleStockSelection(item) {
+                    const idx = this.selectedStocksForTransfer.findIndex(s => s.real_stock_id === item.real_stock_id);
+                    if (idx >= 0) {
+                        this.selectedStocksForTransfer.splice(idx, 1);
+                    } else {
+                        // Add with default quantity = total_qty
+                        this.selectedStocksForTransfer.push({
+                            real_stock_id: item.real_stock_id,
+                            transfer_qty: item.total_qty
+                        });
+                    }
+                },
+
+                toggleAllStocks(checked) {
+                    if (checked && this.levelStocks[1]?.items) {
+                        this.selectedStocksForTransfer = this.levelStocks[1].items.map(item => ({
+                            real_stock_id: item.real_stock_id,
+                            transfer_qty: item.total_qty
+                        }));
+                    } else {
+                        this.selectedStocksForTransfer = [];
+                    }
+                },
+
+                isStockSelected(stockId) {
+                    return this.selectedStocksForTransfer.some(s => s.real_stock_id === stockId);
+                },
+
+                getSelectedStock(stockId) {
+                    return this.selectedStocksForTransfer.find(s => s.real_stock_id === stockId);
+                },
+
+                getSelectedStockItem(stockId) {
+                    if (!this.levelStocks[1]?.items) return null;
+                    return this.levelStocks[1].items.find(item => item.real_stock_id === stockId);
+                },
+
+                updateTransferQty(stockId, qty) {
+                    const selected = this.selectedStocksForTransfer.find(s => s.real_stock_id === stockId);
+                    const item = this.getSelectedStockItem(stockId);
+                    if (selected && item) {
+                        // Ensure qty is within valid range
+                        const newQty = Math.max(1, Math.min(parseInt(qty) || 1, item.total_qty));
+                        selected.transfer_qty = newQty;
+                    }
+                },
+
+                openTransferModal() {
+                    if (this.selectedStocksForTransfer.length === 0) return;
+                    this.showTransferModal = true;
+                    this.transferLocationSearch = '';
+                    this.transferLocationResults = [];
+                    this.selectedTransferLocationId = null;
+                    this.selectedTransferLocation = null;
+                    this.transferInProgress = false;
+                },
+
+                async searchTransferLocations() {
+                    if (!this.transferLocationSearch || this.transferLocationSearch.length < 1) {
+                        this.transferLocationResults = [];
+                        return;
+                    }
+
+                    // Search from all locations in the same warehouse via Livewire
+                    try {
+                        this.transferLocationResults = await this.$wire.searchTransferLocations(
+                            this.transferLocationSearch,
+                            this.editingZone.id
+                        );
+                    } catch (error) {
+                        console.error('Failed to search locations:', error);
+                        this.transferLocationResults = [];
+                    }
+                },
+
+                selectTransferLocation(loc) {
+                    this.selectedTransferLocationId = loc.id;
+                    this.selectedTransferLocation = loc;
+                },
+
+                async executeTransfer() {
+                    if (!this.selectedTransferLocationId || this.selectedStocksForTransfer.length === 0) return;
+                    if (this.transferInProgress) return;
+
+                    this.transferInProgress = true;
+
+                    try {
+                        // Prepare transfer data with specified quantities
+                        const transferItems = this.selectedStocksForTransfer.map(selected => {
+                            const item = this.getSelectedStockItem(selected.real_stock_id);
+                            return {
+                                real_stock_id: selected.real_stock_id,
+                                item_id: item?.item_id,
+                                transfer_qty: selected.transfer_qty,
+                                total_qty: item?.total_qty // Original quantity for partial transfer detection
+                            };
+                        });
+
+                        // Call Livewire method to execute transfer
+                        await this.$wire.executeStockTransfer({
+                            source_location_id: this.editingZone.id,
+                            target_location_id: this.selectedTransferLocationId,
+                            warehouse_id: this.editingZone.warehouse_id,
+                            items: transferItems
+                        });
+
+                        // Close modal and refresh stocks
+                        this.showTransferModal = false;
+                        this.selectedStocksForTransfer = [];
+                        await this.loadLevelStocks(this.editingZone);
+
+                    } catch (error) {
+                        console.error('Transfer failed:', error);
+                    } finally {
+                        this.transferInProgress = false;
+                    }
                 },
 
                 handleCanvasMouseDown(event) {
