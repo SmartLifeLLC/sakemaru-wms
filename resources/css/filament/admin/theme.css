@@ -201,3 +201,24 @@
     padding: 1px 2px !important;        /* input の余白は不要 */
     margin: 1px 2px !important;
 }
+
+/* IconColumn の余白を詰める */
+.fi-ta-icon {
+    padding: 1px 2px !important;
+    margin: 0 !important;
+}
+
+.fi-ta-icon svg {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+/* IconColumn を含むセルの余白 */
+.fi-ta-cell:has(.fi-ta-icon) {
+    padding: 1px 2px !important;
+}
+
+.fi-ta-cell:has(.fi-ta-icon) > div {
+    padding: 0 !important;
+    margin: 0 !important;
+}

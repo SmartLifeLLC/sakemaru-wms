@@ -27,6 +27,9 @@ enum EMenu: string
     case WMS_PICKING_AREAS = 'master.wms_picking_areas';
     case WMS_PICKERS = 'master.wms_pickers';
 
+    // 出荷管理（追加）
+    case WMS_PICKER_ATTENDANCE = 'outbound.wms_picker_attendance';
+
     // 統計データ
     case EARNINGS = 'statistics.earnings';
 
@@ -59,6 +62,8 @@ enum EMenu: string
             self::WAVE_SETTINGS,
             self::WMS_PICKERS => EMenuCategory::MASTER,
 
+            self::WMS_PICKER_ATTENDANCE => EMenuCategory::OUTBOUND,
+
             self::EARNINGS => EMenuCategory::STATISTICS,
 
             self::TEST_DATA_GENERATOR => EMenuCategory::TEST_DATA,
@@ -86,6 +91,7 @@ enum EMenu: string
             self::WMS_LOCATIONS => 'WMSロケーション',
             self::WMS_PICKING_AREAS => 'ピッキングエリア',
             self::WMS_PICKERS => 'ピッカー',
+            self::WMS_PICKER_ATTENDANCE => 'ピッカー勤怠',
 
             self::EARNINGS => '売上データ',
 
@@ -116,6 +122,7 @@ enum EMenu: string
             self::WMS_LOCATIONS => 'heroicon-o-squares-2x2',
             self::WMS_PICKING_AREAS => 'heroicon-o-squares-plus',
             self::WMS_PICKERS => 'heroicon-o-user-group',
+            self::WMS_PICKER_ATTENDANCE => 'heroicon-o-calendar-days',
 
             self::EARNINGS => 'heroicon-o-currency-yen',
 
@@ -135,8 +142,9 @@ enum EMenu: string
 
             // 出荷管理
             self::OUTBOUND_DASHBOARD => 1,
-            self::DELIVERY_COURSE_CHANGE => 2,
-            self::PICKING_TASKS => 3,
+            self::WMS_PICKER_ATTENDANCE => 2,
+            self::DELIVERY_COURSE_CHANGE => 3,
+            self::PICKING_TASKS => 4,
             self::WAVES => 7,
             self::SHIPMENT_INSPECTIONS => 8,
 

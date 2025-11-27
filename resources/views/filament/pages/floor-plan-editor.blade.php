@@ -8,6 +8,7 @@
              walls = Array.isArray($event.detail.walls) ? $event.detail.walls : [];
              fixedAreas = Array.isArray($event.detail.fixedAreas) ? $event.detail.fixedAreas : [];
              zonePositions = {};
+             deletedZoneIds = [];
              pickingAreas = Array.isArray($event.detail.pickingAreas) ? $event.detail.pickingAreas : [];
              if ($event.detail.canvasWidth && $event.detail.canvasHeight) {
                  $dispatch('canvas-size-updated', { width: $event.detail.canvasWidth, height: $event.detail.canvasHeight });
@@ -74,6 +75,7 @@
                              border-width: ${zone.is_restricted_area ? '2px' : (selectedZones.includes(zone.id) ? '2px' : '1px')};
                              color: {{ $textStyles['location']['color'] ?? '#6B7280' }};
                              font-size: {{ $textStyles['location']['size'] ?? 12 }}px;
+                             pointer-events: ${walkablePaintMode ? 'none' : 'auto'};
                          `"
                          class="cursor-move flex flex-col items-center justify-center p-2 rounded shadow-sm select-none border-solid">
 
@@ -97,13 +99,14 @@
                              top: ${wall.y1}px;
                              width: ${wall.x2 - wall.x1}px;
                              height: ${wall.y2 - wall.y1}px;
-                             z-index: 10;
+                             z-index: 9;
                              background-color: {{ $colors['wall']['rectangle'] ?? '#9CA3AF' }};
                              border-width: ${selectedWalls.includes(wall.id) ? '3px' : '1px'};
                              border-style: solid;
                              border-color: ${selectedWalls.includes(wall.id) ? '#374151' : '{{ $colors['wall']['border'] ?? '#6B7280' }}'};
                              color: {{ $textStyles['wall']['color'] ?? '#FFFFFF' }};
                              font-size: {{ $textStyles['wall']['size'] ?? 10 }}px;
+                             pointer-events: ${walkablePaintMode ? 'none' : 'auto'};
                          `"
                          class="flex items-center justify-center rounded select-none cursor-move">
                         <div x-text="wall.name"></div>
@@ -124,13 +127,14 @@
                              top: ${area.y1}px;
                              width: ${area.x2 - area.x1}px;
                              height: ${area.y2 - area.y1}px;
-                             z-index: 10;
+                             z-index: 9;
                              background-color: {{ $colors['fixed_area']['rectangle'] ?? '#FEF3C7' }};
                              border-width: ${selectedFixedAreas.includes(area.id) ? '4px' : '2px'};
                              border-style: solid;
                              border-color: ${selectedFixedAreas.includes(area.id) ? '#B45309' : '{{ $colors['fixed_area']['border'] ?? '#F59E0B' }}'};
                              color: {{ $textStyles['fixed_area']['color'] ?? '#92400E' }};
                              font-size: {{ $textStyles['fixed_area']['size'] ?? 12 }}px;
+                             pointer-events: ${walkablePaintMode ? 'none' : 'auto'};
                          `"
                          class="flex items-center justify-center rounded-lg select-none font-medium cursor-move">
                         <div x-text="area.name"></div>
@@ -275,7 +279,7 @@
                 <div class="flex flex-wrap gap-3 justify-start">
                     {{-- Add Zone --}}
                     <div class="flex flex-col items-center gap-1">
-                        <button @click="saveAllChanges(); $wire.addZone()" title="区画追加"
+                        <button type="button" @click="addZone()" title="区画追加"
                             class="p-2 bg-purple-500 hover:bg-purple-600 text-white rounded-md shadow-sm transition-colors">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
@@ -286,7 +290,7 @@
 
                     {{-- Add Wall --}}
                     <div class="flex flex-col items-center gap-1">
-                        <button @click="saveAllChanges(); $wire.addWall()" title="壁追加"
+                        <button type="button" @click="$wire.addWall()" title="壁追加"
                             class="p-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md shadow-sm transition-colors">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8"></path>
@@ -297,7 +301,7 @@
 
                     {{-- Add Fixed Area --}}
                     <div class="flex flex-col items-center gap-1">
-                        <button @click="saveAllChanges(); $wire.addFixedArea()" title="固定領域追加"
+                        <button type="button" @click="$wire.addFixedArea()" title="固定領域追加"
                             class="p-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-md shadow-sm transition-colors">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
@@ -1254,6 +1258,7 @@
                 selectedZones: [],
                 selectedWalls: [],
                 selectedFixedAreas: [],
+                deletedZoneIds: [], // Track deleted zones for saving
                 dragState: null,
                 resizeState: null,
                 showEditModal: false,
@@ -1279,6 +1284,8 @@
                 pickingAreas: @entangle('pickingAreas'),
                 pickingAreaMode: null, // 'draw'
                 currentPolygonPoints: [],
+                drawPreviewPos: null, // Current mouse position for preview line
+                isShiftPressed: false, // Track shift key state
                 snapPoint: null, // For snapping to start point
                 hiddenPickingAreaIds: [], // IDs of hidden areas
                 showPickingAreaNameModal: false,
@@ -2020,22 +2027,25 @@
                 },
 
                 addZone() {
-                    if (!this.selectedFloorId) {
+                    const floorId = this.$wire.selectedFloorId;
+                    const warehouseId = this.$wire.selectedWarehouseId;
+
+                    if (!floorId) {
                         alert('フロアを選択してください');
                         return;
                     }
 
                     const newZone = {
                         id: 'temp_' + Date.now(),
-                        floor_id: this.selectedFloorId,
-                        warehouse_id: this.selectedWarehouseId,
+                        floor_id: floorId,
+                        warehouse_id: warehouseId,
                         code1: 'A',
                         code2: String(this.zones.length + 1).padStart(3, '0'),
                         name: 'NEW ZONE',
-                        x1_pos: 20,
-                        y1_pos: 20,
-                        x2_pos: 80,
-                        y2_pos: 60,
+                        x1_pos: 100,
+                        y1_pos: 100,
+                        x2_pos: 160,
+                        y2_pos: 140,
                         available_quantity_flags: 3,
                         levels: 1,
                         stock_count: 0,
@@ -2047,6 +2057,9 @@
                 },
 
                 selectZone(event, zone) {
+                    // Disable selection during walkable paint mode
+                    if (this.walkablePaintMode) return;
+
                     // Clear other selections
                     this.selectedWalls = [];
                     this.selectedFixedAreas = [];
@@ -2064,6 +2077,9 @@
                 },
 
                 selectWall(event, wall) {
+                    // Disable selection during walkable paint mode
+                    if (this.walkablePaintMode) return;
+
                     // Clear other selections
                     this.selectedZones = [];
                     this.selectedFixedAreas = [];
@@ -2081,6 +2097,9 @@
                 },
 
                 selectFixedArea(event, area) {
+                    // Disable selection during walkable paint mode
+                    if (this.walkablePaintMode) return;
+
                     // Clear other selections
                     this.selectedZones = [];
                     this.selectedWalls = [];
@@ -2452,8 +2471,25 @@
                     } else if (this.pickingAreaMode === 'draw') {
                         // Handle snapping to start point
                         const rect = document.getElementById('floor-plan-canvas').getBoundingClientRect();
-                        const x = Math.round(event.clientX - rect.left + document.getElementById('floor-plan-canvas').scrollLeft);
-                        const y = Math.round(event.clientY - rect.top + document.getElementById('floor-plan-canvas').scrollTop);
+                        let x = Math.round(event.clientX - rect.left + document.getElementById('floor-plan-canvas').scrollLeft);
+                        let y = Math.round(event.clientY - rect.top + document.getElementById('floor-plan-canvas').scrollTop);
+
+                        // Apply shift constraint for preview
+                        if (event.shiftKey && this.currentPolygonPoints.length > 0) {
+                            const lastPoint = this.currentPolygonPoints[this.currentPolygonPoints.length - 1];
+                            const dx = Math.abs(x - lastPoint.x);
+                            const dy = Math.abs(y - lastPoint.y);
+
+                            if (dx > dy) {
+                                y = lastPoint.y;
+                            } else {
+                                x = lastPoint.x;
+                            }
+                        }
+
+                        // Update preview position
+                        this.drawPreviewPos = { x, y };
+                        this.isShiftPressed = event.shiftKey;
 
                         this.snapPoint = null;
                         if (this.currentPolygonPoints.length > 2) {
@@ -2497,9 +2533,24 @@
                             }
                         } else {
                             const rect = document.getElementById('floor-plan-canvas').getBoundingClientRect();
-                            const x = Math.round(event.clientX - rect.left + document.getElementById('floor-plan-canvas').scrollLeft);
-                            const y = Math.round(event.clientY - rect.top + document.getElementById('floor-plan-canvas').scrollTop);
-                            
+                            let x = Math.round(event.clientX - rect.left + document.getElementById('floor-plan-canvas').scrollLeft);
+                            let y = Math.round(event.clientY - rect.top + document.getElementById('floor-plan-canvas').scrollTop);
+
+                            // Shift key: constrain to horizontal or vertical line
+                            if (event.shiftKey && this.currentPolygonPoints.length > 0) {
+                                const lastPoint = this.currentPolygonPoints[this.currentPolygonPoints.length - 1];
+                                const dx = Math.abs(x - lastPoint.x);
+                                const dy = Math.abs(y - lastPoint.y);
+
+                                if (dx > dy) {
+                                    // Horizontal line
+                                    y = lastPoint.y;
+                                } else {
+                                    // Vertical line
+                                    x = lastPoint.x;
+                                }
+                            }
+
                             this.currentPolygonPoints.push({x, y});
                         }
                         
@@ -2544,26 +2595,47 @@
 
                 deleteZone() {
                     if (confirm('この区画を削除しますか？')) {
-                        const index = this.zones.findIndex(z => z.id === this.editingZone.id);
+                        const zoneId = this.editingZone.id;
+                        const index = this.zones.findIndex(z => z.id === zoneId);
                         if (index !== -1) {
+                            const zone = this.zones[index];
+                            // Only track deletion for existing zones (not new/temp zones)
+                            if (!zone.isNew && typeof zoneId === 'number') {
+                                this.deletedZoneIds.push(zoneId);
+                            }
                             this.zones.splice(index, 1);
                         }
                         this.showEditModal = false;
                         this.editingZone = {};
                         // Remove from selection
-                        this.selectedZones = this.selectedZones.filter(id => id !== this.editingZone.id);
+                        this.selectedZones = this.selectedZones.filter(id => id !== zoneId);
                     }
                 },
 
                 async saveAllChanges() {
                     // Send all changes to Livewire in a single call
-                    // Only send zones that have been moved/resized
+                    // Include moved/resized zones
                     const changedZones = Object.keys(this.zonePositions).map(zoneId => ({
-                        id: parseInt(zoneId),
+                        id: zoneId.startsWith('temp_') ? zoneId : parseInt(zoneId),
                         ...this.zonePositions[zoneId]
                     }));
 
-                    await this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas);
+                    // Include new zones (isNew: true)
+                    const newZones = this.zones.filter(z => z.isNew).map(z => ({
+                        id: z.id,
+                        code1: z.code1,
+                        code2: z.code2,
+                        name: z.name,
+                        x1_pos: z.x1_pos,
+                        y1_pos: z.y1_pos,
+                        x2_pos: z.x2_pos,
+                        y2_pos: z.y2_pos,
+                        available_quantity_flags: z.available_quantity_flags,
+                        levels: z.levels || 1,
+                        isNew: true
+                    }));
+
+                    await this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas, newZones, this.deletedZoneIds);
 
                     // Reload page with warehouse/floor parameters
                     this.reloadWithParams();
@@ -2572,11 +2644,26 @@
                 async saveAllChangesWithWalkable() {
                     // Send all changes to Livewire in a single call
                     const changedZones = Object.keys(this.zonePositions).map(zoneId => ({
-                        id: parseInt(zoneId),
+                        id: zoneId.startsWith('temp_') ? zoneId : parseInt(zoneId),
                         ...this.zonePositions[zoneId]
                     }));
 
-                    await this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas);
+                    // Include new zones (isNew: true)
+                    const newZones = this.zones.filter(z => z.isNew).map(z => ({
+                        id: z.id,
+                        code1: z.code1,
+                        code2: z.code2,
+                        name: z.name,
+                        x1_pos: z.x1_pos,
+                        y1_pos: z.y1_pos,
+                        x2_pos: z.x2_pos,
+                        y2_pos: z.y2_pos,
+                        available_quantity_flags: z.available_quantity_flags,
+                        levels: z.levels || 1,
+                        isNew: true
+                    }));
+
+                    await this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas, newZones, this.deletedZoneIds);
 
                     // Save walkable areas if bitmap exists
                     if (this.walkableBitmap) {
@@ -2866,6 +2953,7 @@
                         this.pickingAreaMode = null;
                         this.currentPolygonPoints = [];
                         this.snapPoint = null;
+                        this.drawPreviewPos = null;
                         this.newPickingAreaName = '';
                         this.newPickingAreaColor = '#8B5CF6';
                         this.newPickingAreaQuantityFlags = null;
@@ -2875,6 +2963,7 @@
                         this.pickingAreaMode = 'draw';
                         this.currentPolygonPoints = [];
                         this.snapPoint = null;
+                        this.drawPreviewPos = null;
                         this.newPickingAreaName = '';
                         this.newPickingAreaColor = '#8B5CF6';
                         this.newPickingAreaQuantityFlags = null;
@@ -2887,6 +2976,7 @@
 
                 resetPickingAreaDrawing() {
                     this.currentPolygonPoints = [];
+                    this.drawPreviewPos = null;
                 },
 
                 savePickingArea() {
@@ -3048,7 +3138,12 @@
 
                 getPreviewPoints() {
                     if (this.currentPolygonPoints.length === 0) return '';
-                    return this.currentPolygonPoints.map(p => `${p.x},${p.y}`).join(' ');
+                    let points = this.currentPolygonPoints.map(p => `${p.x},${p.y}`).join(' ');
+                    // Add current mouse position to show preview line
+                    if (this.drawPreviewPos && this.currentPolygonPoints.length > 0) {
+                        points += ` ${this.drawPreviewPos.x},${this.drawPreviewPos.y}`;
+                    }
+                    return points;
                 },
 
                 getPolygonCentroid(polygon) {

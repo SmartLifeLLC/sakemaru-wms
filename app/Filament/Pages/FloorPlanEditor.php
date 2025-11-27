@@ -661,16 +661,34 @@ class FloorPlanEditor extends Page
     }
 
     /**
-     * Save all positions at once (zones, walls, fixed areas)
+     * Save all positions at once (zones, walls, fixed areas, new zones, deleted zones)
      */
-    public function saveAllPositions(array $changedZones, array $walls, array $fixedAreas): void
+    public function saveAllPositions(array $changedZones, array $walls, array $fixedAreas, array $newZones = [], array $deletedZoneIds = []): void
     {
         if (!$this->selectedWarehouseId) {
             return;
         }
 
+        // Delete zones
+        $deletedCount = 0;
+        if (!empty($deletedZoneIds)) {
+            foreach ($deletedZoneIds as $zoneId) {
+                $location = Location::find($zoneId);
+                if ($location) {
+                    // Delete related WmsLocationLevels first
+                    WmsLocationLevel::where('location_id', $zoneId)->delete();
+                    $location->delete();
+                    $deletedCount++;
+                }
+            }
+        }
+
         // Update only changed zones positions in database
         foreach ($changedZones as $zoneData) {
+            // Skip temp IDs (new zones are handled separately)
+            if (is_string($zoneData['id']) && str_starts_with($zoneData['id'], 'temp_')) {
+                continue;
+            }
             $location = Location::find($zoneData['id']);
             if ($location) {
                 $location->update([
@@ -679,6 +697,51 @@ class FloorPlanEditor extends Page
                     'x2_pos' => $zoneData['x2_pos'],
                     'y2_pos' => $zoneData['y2_pos'],
                 ]);
+            }
+        }
+
+        // Create new zones
+        $createdCount = 0;
+        if (!empty($newZones) && $this->selectedFloorId) {
+            $floor = Floor::find($this->selectedFloorId);
+            $warehouse = Warehouse::find($this->selectedWarehouseId);
+
+            if ($floor && $warehouse) {
+                foreach ($newZones as $zoneData) {
+                    // Generate location name
+                    $locationName = "{$warehouse->name}{$floor->name}-{$zoneData['code1']}-{$zoneData['code2']}";
+
+                    // Create the location
+                    $newLocation = Location::create([
+                        'client_id' => $floor->client_id,
+                        'warehouse_id' => $this->selectedWarehouseId,
+                        'floor_id' => $this->selectedFloorId,
+                        'code1' => $zoneData['code1'],
+                        'code2' => $zoneData['code2'],
+                        'code3' => null,
+                        'name' => $zoneData['name'] === 'NEW ZONE' ? $locationName : $zoneData['name'],
+                        'x1_pos' => $zoneData['x1_pos'],
+                        'y1_pos' => $zoneData['y1_pos'],
+                        'x2_pos' => $zoneData['x2_pos'],
+                        'y2_pos' => $zoneData['y2_pos'],
+                        'available_quantity_flags' => $zoneData['available_quantity_flags'] ?? 3,
+                        'creator_id' => 0,
+                        'last_updater_id' => 0,
+                    ]);
+
+                    // Create WMS levels for this location
+                    $levels = $zoneData['levels'] ?? 1;
+                    for ($level = 1; $level <= $levels; $level++) {
+                        WmsLocationLevel::create([
+                            'location_id' => $newLocation->id,
+                            'level_number' => $level,
+                            'name' => "{$newLocation->name} {$level}段",
+                            'available_quantity_flags' => $zoneData['available_quantity_flags'] ?? 3,
+                        ]);
+                    }
+
+                    $createdCount++;
+                }
             }
         }
 
@@ -692,8 +755,19 @@ class FloorPlanEditor extends Page
         $this->saveLayout();
 
         // Show success notification
+        $message = '保存しました';
+        $details = [];
+        if ($createdCount > 0) {
+            $details[] = "新規: {$createdCount}件";
+        }
+        if ($deletedCount > 0) {
+            $details[] = "削除: {$deletedCount}件";
+        }
+        if (!empty($details)) {
+            $message .= '（' . implode('、', $details) . '）';
+        }
         \Filament\Notifications\Notification::make()
-            ->title('保存しました')
+            ->title($message)
             ->success()
             ->send();
     }

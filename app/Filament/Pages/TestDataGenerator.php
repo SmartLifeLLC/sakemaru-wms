@@ -3,7 +3,10 @@
 namespace App\Filament\Pages;
 
 use App\Enums\EMenu;
+use App\Enums\PickerSkillLevel;
+use App\Enums\TemperatureType;
 use App\Models\Sakemaru\DeliveryCourse;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsPicker;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -19,6 +22,8 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class TestDataGenerator extends Page
 {
@@ -140,6 +145,116 @@ class TestDataGenerator extends Page
                     }
                 }),
 
+            Action::make('truncateAllData')
+                ->label('全データTRUNCATE')
+                ->icon('heroicon-o-fire')
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalHeading('全テーブルをTRUNCATE')
+                ->modalDescription('WMS関連・売上関連の全テーブルをTRUNCATEします。この操作は取り消せません。本当に実行しますか？')
+                ->modalSubmitActionLabel('TRUNCATEを実行')
+                ->action(function (): void {
+                    try {
+                        $tables = [
+                            'wms_shortages',
+                            'wms_shortage_allocations',
+                            'wms_waves',
+                            'wms_picking_tasks',
+                            'wms_picking_item_results',
+                            'wms_pickers',
+                            'wms_reservations',
+                            'real_stocks',
+                            'earnings',
+                            'trades',
+                            'trade_prices',
+                            'trade_items',
+                            'trade_candidate_items',
+                            'trade_balances',
+                        ];
+
+                        DB::connection('sakemaru')->statement('SET FOREIGN_KEY_CHECKS=0');
+
+                        $truncatedCount = 0;
+                        foreach ($tables as $table) {
+                            try {
+                                DB::connection('sakemaru')->table($table)->truncate();
+                                $truncatedCount++;
+                            } catch (\Exception $e) {
+                                // テーブルが存在しない場合はスキップ
+                            }
+                        }
+
+                        DB::connection('sakemaru')->statement('SET FOREIGN_KEY_CHECKS=1');
+
+                        Notification::make()
+                            ->title('TRUNCATEが完了しました')
+                            ->body("{$truncatedCount}個のテーブルをTRUNCATEしました。")
+                            ->success()
+                            ->send();
+                    } catch (\Exception $e) {
+                        DB::connection('sakemaru')->statement('SET FOREIGN_KEY_CHECKS=1');
+                        Notification::make()
+                            ->title('エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
+            Action::make('updateItemTemperatureTypes')
+                ->label('商品温度帯設定')
+                ->icon('heroicon-o-sun')
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading('商品の温度帯を自動設定')
+                ->modalDescription('商品名から適切な温度帯（常温/定温/冷蔵/冷凍）を判定し、一括で設定します。')
+                ->modalSubmitActionLabel('温度帯を設定')
+                ->action(function (): void {
+                    try {
+                        $items = DB::connection('sakemaru')
+                            ->table('items')
+                            ->where('is_active', true)
+                            ->get(['id', 'name', 'temperature_type']);
+
+                        $updatedCount = 0;
+                        $results = [
+                            'FROZEN' => 0,
+                            'CHILLED' => 0,
+                            'CONSTANT' => 0,
+                            'NORMAL' => 0,
+                        ];
+
+                        foreach ($items as $item) {
+                            $newType = self::detectTemperatureType($item->name);
+
+                            if ($newType !== $item->temperature_type) {
+                                DB::connection('sakemaru')
+                                    ->table('items')
+                                    ->where('id', $item->id)
+                                    ->update(['temperature_type' => $newType]);
+                                $updatedCount++;
+                            }
+                            $results[$newType]++;
+                        }
+
+                        $summary = collect($results)
+                            ->map(fn($count, $type) => TemperatureType::from($type)->label() . ": {$count}件")
+                            ->implode(', ');
+
+                        Notification::make()
+                            ->title('温度帯設定が完了しました')
+                            ->body("更新: {$updatedCount}件 / 全{$items->count()}件\n({$summary})")
+                            ->success()
+                            ->send();
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
             Action::make('generateWaveSettings')
                 ->label('Wave設定生成')
                 ->icon('heroicon-o-cog-6-tooth')
@@ -186,6 +301,83 @@ class TestDataGenerator extends Page
                                 ->danger()
                                 ->send();
                         }
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
+            Action::make('generatePickers')
+                ->label('ピッカー生成')
+                ->icon('heroicon-o-user-plus')
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalHeading('ピッカーを生成')
+                ->modalDescription('指定した倉庫に5人のピッカーを生成します。各スキルレベル1人ずつ、異なる作業速度で生成されます。')
+                ->form([
+                    Select::make('warehouse_id')
+                        ->label('倉庫')
+                        ->options(Warehouse::where('is_active', true)->pluck('name', 'id'))
+                        ->required()
+                        ->searchable(),
+                ])
+                ->action(function (array $data): void {
+                    try {
+                        $warehouse = Warehouse::find($data['warehouse_id']);
+                        if (!$warehouse) {
+                            throw new \Exception('倉庫が見つかりません');
+                        }
+
+                        $warehouseCode = $warehouse->code;
+
+                        // 5人分のピッカー設定: skill_level と speed の組み合わせ
+                        $pickerConfigs = [
+                            ['skill' => PickerSkillLevel::TRAINEE, 'speed' => 0.80],
+                            ['skill' => PickerSkillLevel::JUNIOR, 'speed' => 0.80],
+                            ['skill' => PickerSkillLevel::SENIOR, 'speed' => 1.00],
+                            ['skill' => PickerSkillLevel::EXPERT, 'speed' => 1.00],
+                            ['skill' => PickerSkillLevel::MASTER, 'speed' => 1.20],
+                        ];
+
+                        // 既存のピッカーコードの最大連番を取得
+                        $existingMaxSeq = WmsPicker::where('code', 'like', "{$warehouseCode}-%")
+                            ->get()
+                            ->map(function ($picker) use ($warehouseCode) {
+                                $code = $picker->code;
+                                $seq = str_replace("{$warehouseCode}-", '', $code);
+                                return is_numeric($seq) ? (int)$seq : 0;
+                            })
+                            ->max() ?? 0;
+
+                        $createdCount = 0;
+                        foreach ($pickerConfigs as $index => $config) {
+                            $seq = $existingMaxSeq + $index + 1;
+                            $code = "{$warehouseCode}-" . str_pad($seq, 3, '0', STR_PAD_LEFT);
+                            $name = $config['skill']->label() . ' ' . number_format($config['speed'], 1) . 'x';
+
+                            WmsPicker::create([
+                                'code' => $code,
+                                'name' => $name,
+                                'password' => Hash::make('password'),
+                                'default_warehouse_id' => $warehouse->id,
+                                'skill_level' => $config['skill']->value,
+                                'picking_speed_rate' => $config['speed'],
+                                'is_active' => true,
+                                'can_access_restricted_area' => false,
+                                'is_available_for_picking' => false,
+                                'current_warehouse_id' => null,
+                            ]);
+                            $createdCount++;
+                        }
+
+                        Notification::make()
+                            ->title('ピッカーを生成しました')
+                            ->body("{$warehouse->name}に{$createdCount}人のピッカーを生成しました。")
+                            ->success()
+                            ->send();
                     } catch (\Exception $e) {
                         Notification::make()
                             ->title('エラー')
@@ -752,5 +944,64 @@ class TestDataGenerator extends Page
                     }
                 }),
         ];
+    }
+
+    /**
+     * 商品名から温度帯を判定する
+     */
+    private static function detectTemperatureType(string $name): string
+    {
+        // 冷凍キーワード（優先度高）
+        $frozenKeywords = [
+            '冷凍', 'フローズン', 'アイス', '氷', 'シャーベット',
+            'ジェラート', '凍結', '冷凍食品',
+        ];
+
+        // 冷蔵キーワード
+        $chilledKeywords = [
+            '冷蔵', '生', '要冷蔵', 'フレッシュ', '生ビール',
+            '牛乳', 'ミルク', 'ヨーグルト', 'チーズ', '乳製品',
+            'バター', '生クリーム', 'プリン', 'ゼリー',
+            '刺身', '寿司', '鮮魚', '生肉', '生鮮',
+            'サラダ', '豆腐', '納豆', '漬物', 'キムチ',
+            'ハム', 'ソーセージ', 'ベーコン', '生ハム',
+            'ケーキ', '生菓子', 'クレープ',
+            '果汁', 'ジュース100%', 'スムージー',
+            '生酒', '生貯蔵', '要冷', 'チルド',
+        ];
+
+        // 定温キーワード（ワイン、一部の日本酒など）
+        $constantKeywords = [
+            'ワイン', 'シャンパン', 'スパークリング',
+            '赤ワイン', '白ワイン', 'ロゼ',
+            '純米', '大吟醸', '吟醸', '本醸造',
+            'シェリー', 'ポート', 'マデイラ',
+        ];
+
+        $nameUpper = mb_strtoupper($name);
+
+        // 冷凍チェック
+        foreach ($frozenKeywords as $keyword) {
+            if (mb_strpos($name, $keyword) !== false) {
+                return TemperatureType::FROZEN->value;
+            }
+        }
+
+        // 冷蔵チェック
+        foreach ($chilledKeywords as $keyword) {
+            if (mb_strpos($name, $keyword) !== false) {
+                return TemperatureType::CHILLED->value;
+            }
+        }
+
+        // 定温チェック
+        foreach ($constantKeywords as $keyword) {
+            if (mb_strpos($name, $keyword) !== false) {
+                return TemperatureType::CONSTANT->value;
+            }
+        }
+
+        // デフォルトは常温
+        return TemperatureType::NORMAL->value;
     }
 }
