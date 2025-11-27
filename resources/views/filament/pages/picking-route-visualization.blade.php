@@ -147,15 +147,17 @@
                     @endif
 
                     {{-- Picking Areas (Polygons) --}}
-                    <template x-for="area in pickingAreas" :key="area.id">
-                        <svg class="absolute inset-0 pointer-events-none" :width="canvasWidth" :height="canvasHeight" style="z-index: 5;">
-                            <polygon :points="getPolygonPoints(area.polygon)"
-                                     :fill="area.color || '#8B5CF6'"
-                                     :stroke="area.color || '#8B5CF6'"
-                                     fill-opacity="0.1"
-                                     stroke-width="2">
-                            </polygon>
-                        </svg>
+                    <template x-if="showPickingAreas">
+                        <template x-for="area in pickingAreas" :key="area.id">
+                            <svg class="absolute inset-0 pointer-events-none" :width="canvasWidth" :height="canvasHeight" style="z-index: 5;">
+                                <polygon :points="getPolygonPoints(area.polygon)"
+                                         :fill="area.color || '#8B5CF6'"
+                                         :stroke="area.color || '#8B5CF6'"
+                                         fill-opacity="0.1"
+                                         stroke-width="2">
+                                </polygon>
+                            </svg>
+                        </template>
                     </template>
 
                     {{-- Route Lines --}}
@@ -252,24 +254,46 @@
                     {{-- Display Options (Single Line) --}}
                     <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
                         <h4 class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">表示オプション</h4>
-                        <div class="flex items-center gap-4">
+                        <div class="flex flex-wrap items-center gap-4">
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" x-model="showRouteLines"
                                     class="rounded border-gray-300">
-                                <span class="text-sm">経路線表示</span>
+                                <span class="text-sm">経路線</span>
                             </label>
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" x-model="showWalkingOrder"
                                     class="rounded border-gray-300">
-                                <span class="text-sm">順序番号表示</span>
+                                <span class="text-sm">順序番号</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="showPickingAreas"
+                                    class="rounded border-gray-300">
+                                <span class="text-sm">ピッキングエリア</span>
                             </label>
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" x-model="showWalkableAreas"
                                        @change="renderWalkableAreas()"
                                     class="rounded border-gray-300">
-                                <span class="text-sm">歩行領域表示</span>
+                                <span class="text-sm">歩行領域</span>
                             </label>
                         </div>
+                    </div>
+
+                    {{-- Route Recalculation Button --}}
+                    <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
+                        <button @click="recalculateRoute()"
+                                x-show="taskInfo?.task_id"
+                                :disabled="isRecalculating || !['PENDING', 'PICKING_READY'].includes(taskInfo?.status)"
+                                class="w-full text-sm bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-3 py-2 rounded flex items-center justify-center gap-2 transition-colors"
+                                title="経路を再計算">
+                            <svg class="w-4 h-4" :class="{'animate-spin': isRecalculating}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            <span x-text="isRecalculating ? '計算中...' : '経路再計算'"></span>
+                        </button>
+                        <p x-show="taskInfo?.task_id && !['PENDING', 'PICKING_READY'].includes(taskInfo?.status)" class="text-xs text-gray-500 mt-1 text-center">
+                            ※PENDING/PICKING_READYステータスのタスクのみ再計算可能
+                        </p>
                     </div>
                     </div>
                 </div>
@@ -297,20 +321,8 @@
                 <div x-show="taskInfo" class="bg-white dark:bg-gray-800 rounded-lg shadow p-3">
                     <div class="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">
                         <h3 class="text-xs font-semibold">ピッキング情報</h3>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded font-mono"
-                                  x-text="'#' + (taskInfo?.task_id || '-')"></span>
-                            <button @click="recalculateRoute()"
-                                    x-show="taskInfo?.task_id && taskInfo?.status === 'PENDING'"
-                                    :disabled="isRecalculating"
-                                    class="text-xs bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
-                                    title="経路を再計算">
-                                <svg class="w-3 h-3" :class="{'animate-spin': isRecalculating}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                                </svg>
-                                <span x-text="isRecalculating ? '計算中...' : '再計算'"></span>
-                            </button>
-                        </div>
+                        <span class="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded font-mono"
+                              x-text="'#' + (taskInfo?.task_id || '-')"></span>
                     </div>
 
                     <div class="space-y-1.5 text-xs">
@@ -561,6 +573,7 @@
                 taskInfo: null,
                 showRouteLines: true,
                 showWalkingOrder: true,
+                showPickingAreas: true,
                 showWalkableAreas: false,
                 walkablePolygons: null,
                 walkableNavmeta: null,

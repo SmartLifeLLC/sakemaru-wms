@@ -943,6 +943,233 @@ class TestDataGenerator extends Page
                             ->send();
                     }
                 }),
+
+            Action::make('generateAlcoholStocks')
+                ->label('酒類在庫生成')
+                ->icon('heroicon-o-beaker')
+                ->color('info')
+                ->requiresConfirmation()
+                ->modalHeading('酒類在庫データを生成')
+                ->modalDescription('ALCOHOL商品に対して、温度帯・制限エリアを考慮した在庫データを大量生成します。')
+                ->modalWidth('xl')
+                ->form([
+                    Select::make('warehouse_id')
+                        ->label('倉庫')
+                        ->options(Warehouse::where('is_active', true)->pluck('name', 'id'))
+                        ->required()
+                        ->searchable(),
+
+                    TextInput::make('items_limit')
+                        ->label('対象商品数（上限）')
+                        ->helperText('0で全商品対象。テスト時は少数推奨。')
+                        ->numeric()
+                        ->default(100)
+                        ->minValue(0)
+                        ->maxValue(10000),
+
+                    TextInput::make('rare_percentage')
+                        ->label('希少品(RARE)の割合 (%)')
+                        ->helperText('制限エリアに配置される希少品の割合')
+                        ->numeric()
+                        ->default(10)
+                        ->minValue(0)
+                        ->maxValue(100),
+                ])
+                ->action(function (array $data): void {
+                    try {
+                        Notification::make()
+                            ->title('在庫生成を開始します')
+                            ->body('処理中...')
+                            ->info()
+                            ->send();
+
+                        $warehouseId = $data['warehouse_id'];
+                        $itemsLimit = (int) $data['items_limit'];
+                        $rarePercentage = (int) $data['rare_percentage'];
+
+                        // 1. ALCOHOL商品を取得
+                        $itemsQuery = DB::connection('sakemaru')
+                            ->table('items')
+                            ->where('is_active', true)
+                            ->where('type', 'ALCOHOL');
+
+                        if ($itemsLimit > 0) {
+                            $itemsQuery->limit($itemsLimit);
+                        }
+
+                        $items = $itemsQuery->get(['id', 'name', 'temperature_type', 'capacity_case', 'client_id']);
+
+                        if ($items->isEmpty()) {
+                            throw new \Exception('ALCOHOL商品が見つかりません');
+                        }
+
+                        // 2. 対象倉庫のロケーションを取得
+                        $locations = DB::connection('sakemaru')
+                            ->table('locations')
+                            ->where('warehouse_id', $warehouseId)
+                            ->get(['id', 'floor_id', 'available_quantity_flags', 'temperature_type', 'is_restricted_area']);
+
+                        if ($locations->isEmpty()) {
+                            throw new \Exception('ロケーションが見つかりません');
+                        }
+
+                        // ロケーションを温度帯・制限エリアでグループ化
+                        $locationGroups = [];
+                        foreach ($locations as $loc) {
+                            $tempType = $loc->temperature_type ?? 'NORMAL';
+                            $restricted = $loc->is_restricted_area ? 'restricted' : 'standard';
+                            $key = "{$tempType}_{$restricted}";
+                            if (!isset($locationGroups[$key])) {
+                                $locationGroups[$key] = [];
+                            }
+                            $locationGroups[$key][] = $loc;
+                        }
+
+                        // 3. 在庫データ生成
+                        $stockRecords = [];
+                        $now = now();
+                        $oneYearLater = now()->addYear();
+
+                        foreach ($items as $item) {
+                            $itemTempType = $item->temperature_type ?? 'NORMAL';
+
+                            // RARE判定 (指定割合で希少品)
+                            $isRare = (rand(1, 100) <= $rarePercentage);
+                            $managementType = $isRare ? 'RARE' : 'STANDARD';
+                            $restrictedKey = $isRare ? 'restricted' : 'standard';
+
+                            // 該当する温度帯・制限エリアのロケーションを検索
+                            $locationKey = "{$itemTempType}_{$restrictedKey}";
+                            $candidateLocations = $locationGroups[$locationKey] ?? [];
+
+                            // 該当がなければ、温度帯だけでマッチング（制限エリア無視）
+                            if (empty($candidateLocations)) {
+                                $fallbackKey = "{$itemTempType}_standard";
+                                $candidateLocations = $locationGroups[$fallbackKey] ?? [];
+                            }
+
+                            // それでもなければ NORMAL_standard
+                            if (empty($candidateLocations)) {
+                                $candidateLocations = $locationGroups['NORMAL_standard'] ?? [];
+                            }
+
+                            if (empty($candidateLocations)) {
+                                continue; // ロケーションがない場合はスキップ
+                            }
+
+                            // ランダムにロケーションを選択
+                            $location = $candidateLocations[array_rand($candidateLocations)];
+
+                            // 賞味期限パターン (1-2個)
+                            $expirationPatterns = rand(1, 2);
+                            $expirationDates = [];
+                            for ($i = 0; $i < $expirationPatterns; $i++) {
+                                $expirationDates[] = $now->copy()->addDays(rand(30, 365))->format('Y-m-d');
+                            }
+
+                            // 荷姿に基づいて在庫レコード作成
+                            $flags = $location->available_quantity_flags ?? 3;
+                            $capacityCase = $item->capacity_case ?? 12;
+
+                            foreach ($expirationDates as $expDate) {
+                                // CASE (flag 1) が有効
+                                if ($flags & 1) {
+                                    $caseQty = rand(5, 50);
+                                    $pieceQty = $caseQty * $capacityCase; // バラ換算
+
+                                    $stockRecords[] = [
+                                        'client_id' => $item->client_id ?? 1,
+                                        'warehouse_id' => $warehouseId,
+                                        'stock_allocation_id' => 1,
+                                        'floor_id' => $location->floor_id,
+                                        'location_id' => $location->id,
+                                        'item_id' => $item->id,
+                                        'purchase_id' => null,
+                                        'trade_item_id' => null,
+                                        'current_quantity' => $pieceQty,
+                                        'available_quantity' => $pieceQty,
+                                        'wms_reserved_qty' => 0,
+                                        'wms_picking_qty' => 0,
+                                        'wms_lock_version' => 0,
+                                        'item_management_type' => $managementType,
+                                        'order_rank' => 'A',
+                                        'order_parameter' => null,
+                                        'expiration_date' => $expDate,
+                                        'price' => 0,
+                                        'content_amount' => null,
+                                        'container_amount' => null,
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                        'reserved_quantity' => 0,
+                                        'picking_quantity' => 0,
+                                        'lock_version' => 0,
+                                    ];
+                                }
+
+                                // PIECE (flag 2) が有効で、別レコードとして作成
+                                if (($flags & 2) && !($flags & 1)) {
+                                    // CASEがない場合のみPIECEレコード
+                                    $pieceQty = rand(5, 50);
+
+                                    $stockRecords[] = [
+                                        'client_id' => $item->client_id ?? 1,
+                                        'warehouse_id' => $warehouseId,
+                                        'stock_allocation_id' => 1,
+                                        'floor_id' => $location->floor_id,
+                                        'location_id' => $location->id,
+                                        'item_id' => $item->id,
+                                        'purchase_id' => null,
+                                        'trade_item_id' => null,
+                                        'current_quantity' => $pieceQty,
+                                        'available_quantity' => $pieceQty,
+                                        'wms_reserved_qty' => 0,
+                                        'wms_picking_qty' => 0,
+                                        'wms_lock_version' => 0,
+                                        'item_management_type' => $managementType,
+                                        'order_rank' => 'A',
+                                        'order_parameter' => null,
+                                        'expiration_date' => $expDate,
+                                        'price' => 0,
+                                        'content_amount' => null,
+                                        'container_amount' => null,
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                        'reserved_quantity' => 0,
+                                        'picking_quantity' => 0,
+                                        'lock_version' => 0,
+                                    ];
+                                }
+                            }
+                        }
+
+                        // 4. バルクインサート
+                        $insertedCount = 0;
+                        if (!empty($stockRecords)) {
+                            foreach (array_chunk($stockRecords, 500) as $chunk) {
+                                DB::connection('sakemaru')
+                                    ->table('real_stocks')
+                                    ->insertOrIgnore($chunk);
+                                $insertedCount += count($chunk);
+                            }
+                        }
+
+                        // 統計
+                        $rareCount = collect($stockRecords)->where('item_management_type', 'RARE')->count();
+                        $standardCount = $insertedCount - $rareCount;
+
+                        Notification::make()
+                            ->title('酒類在庫を生成しました')
+                            ->body("対象商品: {$items->count()}件\n生成在庫: {$insertedCount}件\n(RARE: {$rareCount}件, STANDARD: {$standardCount}件)")
+                            ->success()
+                            ->send();
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
         ];
     }
 

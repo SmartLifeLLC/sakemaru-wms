@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickingItemResults;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WmsPickingItemResults\Pages\CreateWmsPickingItemResult;
 use App\Filament\Resources\WmsPickingItemResults\Pages\EditWmsPickingItemResult;
 use App\Filament\Resources\WmsPickingItemResults\Pages\ListWmsPickingItemResults;
@@ -13,15 +14,25 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
-use UnitEnum;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsPickingItemResultResource extends Resource
 {
     protected static ?string $model = WmsPickingItemResult::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedListBullet;
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->with([
+                'pickingTask',
+                'trade',
+                'item',
+                'earning.buyer.partner',
+                'earning.delivery_course',
+            ]);
+    }
 
-    protected static string|UnitEnum|null $navigationGroup = '出荷管理';
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedListBullet;
 
     protected static ?string $navigationLabel = 'ピッキング商品リスト';
 
@@ -29,7 +40,15 @@ class WmsPickingItemResultResource extends Resource
 
     protected static ?string $pluralModelLabel = 'ピッキング商品リスト';
 
-    protected static ?int $navigationSort = 4;
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenu::WMS_PICKING_ITEM_RESULTS->category()->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WMS_PICKING_ITEM_RESULTS->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {

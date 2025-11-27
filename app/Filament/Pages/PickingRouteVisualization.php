@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Sakemaru\Floor;
@@ -42,7 +43,7 @@ class PickingRouteVisualization extends Page
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenuCategory::OUTBOUND->label();
+        return EMenu::PICKING_ROUTE_VISUALIZATION->category()->label();
     }
 
     public static function getNavigationLabel(): string
@@ -52,7 +53,7 @@ class PickingRouteVisualization extends Page
 
     public static function getNavigationSort(): ?int
     {
-        return 5;
+        return EMenu::PICKING_ROUTE_VISUALIZATION->sort();
     }
 
     public function getTitle(): string
@@ -479,9 +480,9 @@ class PickingRouteVisualization extends Page
             return;
         }
 
-        if ($task->status !== 'PENDING') {
+        if (!in_array($task->status, ['PENDING', 'PICKING_READY'])) {
             \Filament\Notifications\Notification::make()
-                ->title('PENDINGステータスのタスクのみ再計算可能です')
+                ->title('PENDING/PICKING_READYステータスのタスクのみ再計算可能です')
                 ->warning()
                 ->send();
             return;

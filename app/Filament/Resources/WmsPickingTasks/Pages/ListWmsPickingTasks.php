@@ -28,7 +28,7 @@ class ListWmsPickingTasks extends ListRecords
     public function getPresetViews(): array
     {
         return [
-            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PENDING'))->favorite()->label('ピッキング前')->default(),
+            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING_READY'))->favorite()->label('ピッキング前')->default(),
             'PICKING' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING'))->favorite()->label('ピッキング中'),
             'SHORTAGE' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'SHORTAGE'))->favorite()->label('欠品対応待ち'),
             'COMPLETED_TODAY' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED')->where('shipment_date',ClientSetting::systemDateYMD()))->favorite()->label('ピッキング完了(本日出荷)'),

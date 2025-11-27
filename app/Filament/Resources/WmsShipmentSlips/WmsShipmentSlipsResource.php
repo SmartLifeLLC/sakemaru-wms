@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsShipmentSlips;
 
+use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsShipmentSlips\Pages\ListWmsShipmentSlips;
 use App\Filament\Resources\WmsShipmentSlips\Tables\WmsShipmentSlipsTable;
@@ -26,11 +27,14 @@ class WmsShipmentSlipsResource extends Resource
 
     protected static ?string $slug = 'wms-shipment-slips';
 
-    protected static ?int $navigationSort = 9;
-
     public static function getNavigationGroup(): ?string
     {
-        return EMenuCategory::OUTBOUND->label();
+        return EMenu::WMS_SHIPMENT_SLIPS->category()->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WMS_SHIPMENT_SLIPS->sort();
     }
 
     public static function canCreate(): bool

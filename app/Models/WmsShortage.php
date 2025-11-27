@@ -246,17 +246,16 @@ class WmsShortage extends Model
     }
 
     /**
-     * 欠品数を計算: order_qty - picked_qty
-     * データベースにも保存されるが、常に計算値を返す
-     *
-     * @return int 欠品数（受注単位ベース）
+     * 欠品数量を更新（stored fields）
+     * shortage_qty = order_qty - picked_qty
+     * allocation_shortage_qty = order_qty - planned_qty
+     * picking_shortage_qty = planned_qty - picked_qty
      */
-    public function getShortageQtyAttribute(): int
+    public function calculateAndStoreShortageQty(): void
     {
-        $orderQty = $this->attributes['order_qty'] ?? 0;
-        $pickedQty = $this->attributes['picked_qty'] ?? 0;
-
-        return max(0, $orderQty - $pickedQty);
+        $this->shortage_qty = max(0, $this->order_qty - $this->picked_qty);
+        $this->allocation_shortage_qty = max(0, $this->order_qty - $this->planned_qty);
+        $this->picking_shortage_qty = max(0, $this->planned_qty - $this->picked_qty);
     }
 
     /**

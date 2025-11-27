@@ -10,18 +10,25 @@ use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsPickerAttendanceResource extends Resource
 {
     protected static ?string $model = WmsPicker::class;
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->with(['defaultWarehouse', 'currentWarehouse']);
+    }
+
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCalendarDays;
 
     protected static ?string $navigationLabel = null;
 
-    protected static ?string $modelLabel = 'ピッカー勤怠';
+    protected static ?string $modelLabel = 'ピッカー勤怠管理';
 
-    protected static ?string $pluralModelLabel = 'ピッカー勤怠';
+    protected static ?string $pluralModelLabel = 'ピッカー勤怠管理';
 
     protected static ?string $slug = 'wms-picker-attendance';
 

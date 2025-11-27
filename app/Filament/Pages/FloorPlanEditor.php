@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Sakemaru\Floor;
@@ -62,7 +63,7 @@ class FloorPlanEditor extends Page
 
     public static function getNavigationSort(): ?int
     {
-        return 50;
+        return EMenu::FLOOR_PLAN_EDITOR->sort();
     }
 
     public function getTitle(): string

@@ -248,45 +248,25 @@ class GenerateWavesCommand extends Command
                             }
                         }
 
-                        // Group by (floor_id, picking_area_id, temperature_type, is_restricted_area)
-                        $groupKey = ($floorId ?? 'null') . '|' .
-                                    ($pickingAreaId ?? 'null') . '|' .
-                                    ($temperatureType ?? 'null') . '|' .
-                                    ($isRestrictedArea ? '1' : '0');
+                        // Group by floor_id only (no CASE/PIECE separation)
+                        // All items on the same floor go into one picking task
+                        $groupKey = ($floorId ?? 'null');
                         if (!isset($itemsByGroup[$groupKey])) {
                             $itemsByGroup[$groupKey] = [
                                 'floor_id' => $floorId,
-                                'picking_area_id' => $pickingAreaId,
-                                'temperature_type' => $temperatureType,
-                                'is_restricted_area' => $isRestrictedArea,
+                                'picking_area_id' => $pickingAreaId, // Use first item's picking area as representative
+                                'temperature_type' => $temperatureType, // Use first item's temperature type
+                                'is_restricted_area' => $isRestrictedArea, // Use first item's restricted flag
                                 'items' => [],
                             ];
                         }
                         $itemsByGroup[$groupKey]['items'][] = $tradeItem;
 
-                        // Detect and record shortage if allocated < ordered
-                        if ($result['allocated'] < $tradeItem->quantity) {
-                            $shortageDetector = new \App\Services\Shortage\AllocationShortageDetector();
-                            // Get case size snapshot (assuming 1 if not available for now, or fetch from item)
-                            // Ideally this should come from item master
-                            $item = DB::connection('sakemaru')->table('items')->where('id', $tradeItem->item_id)->first();
-                            $caseSizeSnap = $item->quantity_per_case ?? 1;
-
-                            $shortageDetector->detectAndRecord(
-                                $wave->id,
-                                $setting->warehouse_id,
-                                $tradeItem->item_id,
-                                $tradeItem->trade_id,
-                                $tradeItem->id,
-                                $tradeItem->quantity,
-                                $result['allocated'],
-                                $tradeItem->quantity_type ?? 'PIECE',
-                                $caseSizeSnap
-                            );
-                        }
+                        // Note: Shortage detection is now done at picking completion time
+                        // (see PickingShortageDetector)
                     }
 
-                // Create one picking task per (floor_id, picking_area_id) group
+                // Create one picking task per floor_id group
                 foreach ($itemsByGroup as $groupData) {
                     // Skip groups with no items (all items had zero allocation)
                     if (empty($groupData['items'])) {
@@ -295,11 +275,22 @@ class GenerateWavesCommand extends Command
 
                     // Filter items to only include those with successful reservations OR valid shortages
                     $validItems = [];
+                    $hasRestrictedItem = false;
                     foreach ($groupData['items'] as $tradeItem) {
                         $reservationResult = $reservationResults[$tradeItem->id] ?? null;
                         // Include if we have a reservation result (even if allocated_qty is 0)
                         if ($reservationResult) {
                             $validItems[] = $tradeItem;
+                            // Check if this item's location is restricted
+                            if ($reservationResult['location_id']) {
+                                $location = DB::connection('sakemaru')
+                                    ->table('locations')
+                                    ->where('id', $reservationResult['location_id'])
+                                    ->first();
+                                if ($location && $location->is_restricted_area) {
+                                    $hasRestrictedItem = true;
+                                }
+                            }
                         }
                     }
 
@@ -313,9 +304,9 @@ class GenerateWavesCommand extends Command
                         'wms_picking_area_id' => $groupData['picking_area_id'],
                         'warehouse_id' => $setting->warehouse_id,
                         'warehouse_code' => $warehouse->code,
-                        'floor_id' => $groupData['floor_id'], // Added: floor_id for grouping
-                        'temperature_type' => $groupData['temperature_type'], // Added: temperature type for grouping
-                        'is_restricted_area' => $groupData['is_restricted_area'], // Added: restricted area flag for grouping
+                        'floor_id' => $groupData['floor_id'],
+                        'temperature_type' => $groupData['temperature_type'], // First item's temperature type (for display only)
+                        'is_restricted_area' => $hasRestrictedItem, // True if ANY item is in restricted area
                         'delivery_course_id' => $setting->delivery_course_id,
                         'delivery_course_code' => $course->code,
                         'shipment_date' => $shippingDate,

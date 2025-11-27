@@ -11,10 +11,22 @@ enum EMenu: string
 
     // 出荷管理
     case OUTBOUND_DASHBOARD = 'outbound.dashboard';
-    case WAVES = 'outbound.waves';
+    case WMS_PICKER_ATTENDANCE = 'outbound.wms_picker_attendance';
+    case WMS_PICKING_WAITINGS = 'outbound.wms_picking_waitings';
     case PICKING_TASKS = 'outbound.picking_tasks';
+    case WAVES = 'outbound.waves';
+    case PICKING_ROUTE_VISUALIZATION = 'outbound.picking_route_visualization';
+    case WMS_PICKING_ITEM_RESULTS = 'outbound.wms_picking_item_results';
     case DELIVERY_COURSE_CHANGE = 'outbound.delivery_course_change';
     case SHIPMENT_INSPECTIONS = 'outbound.shipment_inspections';
+    case WMS_SHIPMENT_SLIPS = 'outbound.wms_shipment_slips';
+
+    // 欠品管理
+    case WMS_SHORTAGES = 'shortage.wms_shortages';
+    case WMS_SHORTAGES_WAITING_APPROVALS = 'shortage.wms_shortages_waiting_approvals';
+
+    // 横持ち出荷
+    case WMS_SHORTAGE_ALLOCATIONS = 'horizontal_shipment.wms_shortage_allocations';
 
     // 在庫管理
     case REAL_STOCKS = 'inventory.real_stocks';
@@ -26,12 +38,14 @@ enum EMenu: string
     case WMS_LOCATIONS = 'master.wms_locations';
     case WMS_PICKING_AREAS = 'master.wms_picking_areas';
     case WMS_PICKERS = 'master.wms_pickers';
-
-    // 出荷管理（追加）
-    case WMS_PICKER_ATTENDANCE = 'outbound.wms_picker_attendance';
+    case WMS_PICKING_ASSIGNMENT_STRATEGIES = 'master.wms_picking_assignment_strategies';
+    case FLOOR_PLAN_EDITOR = 'master.floor_plan_editor';
 
     // 統計データ
     case EARNINGS = 'statistics.earnings';
+
+    // ログ
+    case WMS_PICKING_LOGS = 'logs.wms_picking_logs';
 
     // システム設定
     case WAVE_SETTINGS = 'settings.wave_settings';
@@ -47,10 +61,20 @@ enum EMenu: string
             self::RECEIPT_INSPECTIONS => EMenuCategory::INBOUND,
 
             self::OUTBOUND_DASHBOARD,
-            self::WAVES,
+            self::WMS_PICKER_ATTENDANCE,
+            self::WMS_PICKING_WAITINGS,
             self::PICKING_TASKS,
+            self::WAVES,
+            self::PICKING_ROUTE_VISUALIZATION,
+            self::WMS_PICKING_ITEM_RESULTS,
             self::DELIVERY_COURSE_CHANGE,
-            self::SHIPMENT_INSPECTIONS => EMenuCategory::OUTBOUND,
+            self::SHIPMENT_INSPECTIONS,
+            self::WMS_SHIPMENT_SLIPS => EMenuCategory::OUTBOUND,
+
+            self::WMS_SHORTAGES,
+            self::WMS_SHORTAGES_WAITING_APPROVALS => EMenuCategory::SHORTAGE,
+
+            self::WMS_SHORTAGE_ALLOCATIONS => EMenuCategory::HORIZONTAL_SHIPMENT,
 
             self::REAL_STOCKS => EMenuCategory::INVENTORY,
 
@@ -59,12 +83,15 @@ enum EMenu: string
             self::LOCATIONS,
             self::WMS_LOCATIONS,
             self::WMS_PICKING_AREAS,
-            self::WAVE_SETTINGS,
-            self::WMS_PICKERS => EMenuCategory::MASTER,
-
-            self::WMS_PICKER_ATTENDANCE => EMenuCategory::OUTBOUND,
+            self::WMS_PICKERS,
+            self::WMS_PICKING_ASSIGNMENT_STRATEGIES,
+            self::FLOOR_PLAN_EDITOR => EMenuCategory::MASTER,
 
             self::EARNINGS => EMenuCategory::STATISTICS,
+
+            self::WMS_PICKING_LOGS => EMenuCategory::LOGS,
+
+            self::WAVE_SETTINGS => EMenuCategory::SETTINGS,
 
             self::TEST_DATA_GENERATOR => EMenuCategory::TEST_DATA,
         };
@@ -78,10 +105,20 @@ enum EMenu: string
             self::RECEIPT_INSPECTIONS => '入荷検品',
 
             self::OUTBOUND_DASHBOARD => '出荷ダッシュボード',
-            self::WAVES => 'Wave管理',
+            self::WMS_PICKER_ATTENDANCE => 'ピッカー勤怠管理',
+            self::WMS_PICKING_WAITINGS => 'ピッキング待機',
             self::PICKING_TASKS => 'ピッキングタスク',
+            self::WAVES => 'Wave管理',
+            self::PICKING_ROUTE_VISUALIZATION => 'ピッキング経路確認',
+            self::WMS_PICKING_ITEM_RESULTS => 'ピッキング商品リスト',
             self::DELIVERY_COURSE_CHANGE => '配送コース変更',
             self::SHIPMENT_INSPECTIONS => '出荷検品',
+            self::WMS_SHIPMENT_SLIPS => '出荷伝票',
+
+            self::WMS_SHORTAGES => '欠品一覧',
+            self::WMS_SHORTAGES_WAITING_APPROVALS => '承認待ち欠品',
+
+            self::WMS_SHORTAGE_ALLOCATIONS => '横持ち出荷依頼',
 
             self::REAL_STOCKS => '在庫管理',
 
@@ -91,9 +128,12 @@ enum EMenu: string
             self::WMS_LOCATIONS => 'WMSロケーション',
             self::WMS_PICKING_AREAS => 'ピッキングエリア',
             self::WMS_PICKERS => 'ピッカー',
-            self::WMS_PICKER_ATTENDANCE => 'ピッカー勤怠',
+            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 'ピッキング割当戦略',
+            self::FLOOR_PLAN_EDITOR => 'フロア図エディタ',
 
             self::EARNINGS => '売上データ',
+
+            self::WMS_PICKING_LOGS => 'ピッキングログ',
 
             self::WAVE_SETTINGS => 'Wave設定',
 
@@ -109,10 +149,20 @@ enum EMenu: string
             self::RECEIPT_INSPECTIONS => 'heroicon-o-clipboard-document-check',
 
             self::OUTBOUND_DASHBOARD => 'heroicon-o-presentation-chart-bar',
-            self::WAVES => 'heroicon-o-queue-list',
+            self::WMS_PICKER_ATTENDANCE => 'heroicon-o-calendar-days',
+            self::WMS_PICKING_WAITINGS => 'heroicon-o-clock',
             self::PICKING_TASKS => 'heroicon-o-clipboard-document-list',
+            self::WAVES => 'heroicon-o-queue-list',
+            self::PICKING_ROUTE_VISUALIZATION => 'heroicon-o-map',
+            self::WMS_PICKING_ITEM_RESULTS => 'heroicon-o-list-bullet',
             self::DELIVERY_COURSE_CHANGE => 'heroicon-o-arrow-path',
             self::SHIPMENT_INSPECTIONS => 'heroicon-o-check-circle',
+            self::WMS_SHIPMENT_SLIPS => 'heroicon-o-document-text',
+
+            self::WMS_SHORTAGES => 'heroicon-o-exclamation-triangle',
+            self::WMS_SHORTAGES_WAITING_APPROVALS => 'heroicon-o-hand-raised',
+
+            self::WMS_SHORTAGE_ALLOCATIONS => 'heroicon-o-truck',
 
             self::REAL_STOCKS => 'heroicon-o-cube-transparent',
 
@@ -122,11 +172,14 @@ enum EMenu: string
             self::WMS_LOCATIONS => 'heroicon-o-squares-2x2',
             self::WMS_PICKING_AREAS => 'heroicon-o-squares-plus',
             self::WMS_PICKERS => 'heroicon-o-user-group',
-            self::WMS_PICKER_ATTENDANCE => 'heroicon-o-calendar-days',
+            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 'heroicon-o-adjustments-horizontal',
+            self::FLOOR_PLAN_EDITOR => 'heroicon-o-map',
 
             self::EARNINGS => 'heroicon-o-currency-yen',
 
-            self::WAVE_SETTINGS => 'heroicon-o-adjustments-horizontal',
+            self::WMS_PICKING_LOGS => 'heroicon-o-rectangle-stack',
+
+            self::WAVE_SETTINGS => 'heroicon-o-cog-6-tooth',
 
             self::TEST_DATA_GENERATOR => 'heroicon-o-beaker',
         };
@@ -141,12 +194,23 @@ enum EMenu: string
             self::RECEIPT_INSPECTIONS => 3,
 
             // 出荷管理
-            self::OUTBOUND_DASHBOARD => 1,
-            self::WMS_PICKER_ATTENDANCE => 2,
-            self::DELIVERY_COURSE_CHANGE => 3,
+            self::WMS_PICKER_ATTENDANCE => 1,
+            self::WMS_PICKING_WAITINGS => 2,
+            self::PICKING_ROUTE_VISUALIZATION => 3,
             self::PICKING_TASKS => 4,
-            self::WAVES => 7,
+            self::WMS_PICKING_ITEM_RESULTS => 5,
+            self::WAVES => 6,
+            self::DELIVERY_COURSE_CHANGE => 7,
             self::SHIPMENT_INSPECTIONS => 8,
+            self::WMS_SHIPMENT_SLIPS => 9,
+            self::OUTBOUND_DASHBOARD => 10,
+
+            // 欠品管理
+            self::WMS_SHORTAGES => 1,
+            self::WMS_SHORTAGES_WAITING_APPROVALS => 2,
+
+            // 横持ち出荷
+            self::WMS_SHORTAGE_ALLOCATIONS => 1,
 
             // 在庫管理
             self::REAL_STOCKS => 1,
@@ -158,9 +222,14 @@ enum EMenu: string
             self::WMS_LOCATIONS => 4,
             self::WMS_PICKING_AREAS => 5,
             self::WMS_PICKERS => 6,
+            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 7,
+            self::FLOOR_PLAN_EDITOR => 50,
 
             // 統計データ
             self::EARNINGS => 1,
+
+            // ログ
+            self::WMS_PICKING_LOGS => 1,
 
             // システム設定
             self::WAVE_SETTINGS => 1,
