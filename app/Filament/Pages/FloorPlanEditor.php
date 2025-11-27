@@ -9,6 +9,8 @@ use App\Models\Sakemaru\Location;
 use App\Models\WmsLocationLevel;
 use App\Models\WmsWarehouseLayout;
 use App\Models\WmsFloorObject;
+use App\Models\WmsPickingArea;
+use App\Models\WmsLocation;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Livewire\Attributes\Computed;
@@ -252,6 +254,35 @@ class FloorPlanEditor extends Page
                     'name' => $area->name,
                     'color' => $area->color ?? '#8B5CF6',
                     'polygon' => $area->polygon,
+                    'available_quantity_flags' => $area->available_quantity_flags,
+                    'temperature_type' => $area->temperature_type,
+                    'is_restricted_area' => $area->is_restricted_area ?? false,
+                ];
+            })->values()->toArray();
+    }
+
+    /**
+     * Reload picking areas (called after update)
+     */
+    private function loadPickingAreas(): void
+    {
+        if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+            $this->pickingAreas = [];
+            return;
+        }
+
+        $this->pickingAreas = WmsPickingArea::where('warehouse_id', $this->selectedWarehouseId)
+            ->where('floor_id', $this->selectedFloorId)
+            ->get()
+            ->map(function ($area) {
+                return [
+                    'id' => $area->id,
+                    'name' => $area->name,
+                    'color' => $area->color ?? '#8B5CF6',
+                    'polygon' => $area->polygon,
+                    'available_quantity_flags' => $area->available_quantity_flags,
+                    'temperature_type' => $area->temperature_type,
+                    'is_restricted_area' => $area->is_restricted_area ?? false,
                 ];
             })->values()->toArray();
     }
@@ -824,7 +855,14 @@ class FloorPlanEditor extends Page
     /**
      * Save new picking area
      */
-    public function savePickingArea(string $name, array $polygon, string $color = '#8B5CF6'): void
+    public function savePickingArea(
+        string $name,
+        array $polygon,
+        string $color = '#8B5CF6',
+        ?int $availableQuantityFlags = null,
+        ?string $temperatureType = null,
+        bool $isRestrictedArea = false
+    ): void
     {
         if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
             return;
@@ -832,13 +870,16 @@ class FloorPlanEditor extends Page
 
         try {
             // Create with temporary code
-            $area = \App\Models\WmsPickingArea::create([
+            $area = WmsPickingArea::create([
                 'warehouse_id' => $this->selectedWarehouseId,
                 'floor_id' => $this->selectedFloorId,
                 'code' => uniqid(),
                 'name' => $name,
                 'color' => $color,
                 'polygon' => $polygon,
+                'available_quantity_flags' => $availableQuantityFlags,
+                'temperature_type' => $temperatureType,
+                'is_restricted_area' => $isRestrictedArea,
                 'is_active' => true,
             ]);
 
@@ -847,6 +888,11 @@ class FloorPlanEditor extends Page
 
             // Assign locations to this area
             $count = $this->assignLocationsToArea($area);
+
+            // Apply area settings to the assigned locations
+            if ($count > 0) {
+                $area->applySettingsToLocations();
+            }
 
             // Reload layout
             $this->loadLayout();
@@ -984,6 +1030,61 @@ class FloorPlanEditor extends Page
                 ->send();
         }
     }
+
+    /**
+     * Get location count for a picking area
+     */
+    public function getAreaLocationCount(int $areaId): int
+    {
+        return WmsLocation::where('wms_picking_area_id', $areaId)->count();
+    }
+
+    /**
+     * Update picking area settings and apply to locations
+     */
+    public function updatePickingAreaSettings(array $data): void
+    {
+        try {
+            $area = WmsPickingArea::find($data['id']);
+
+            if (!$area) {
+                \Filament\Notifications\Notification::make()
+                    ->title('エリアが見つかりません')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            // Update area settings
+            $area->update([
+                'name' => $data['name'],
+                'color' => $data['color'],
+                'available_quantity_flags' => $data['available_quantity_flags'],
+                'temperature_type' => $data['temperature_type'],
+                'is_restricted_area' => $data['is_restricted_area'] ?? false,
+            ]);
+
+            // Apply settings to all locations in this area
+            $updatedCount = $area->applySettingsToLocations();
+
+            // Reload pickingAreas
+            $this->loadPickingAreas();
+
+            \Filament\Notifications\Notification::make()
+                ->title('エリア設定を更新しました')
+                ->body("{$updatedCount} 件のロケーションに設定を適用しました")
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('更新に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
     /**
      * Update picking start point
      */

@@ -462,7 +462,38 @@
                             </template>
                         </div>
                     </div>
-                    
+
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">引当可能単位</label>
+                        <select x-model.number="newPickingAreaQuantityFlags"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1">
+                            <option :value="null">未設定</option>
+                            <option value="1">ケース</option>
+                            <option value="2">バラ</option>
+                            <option value="3">ケース+バラ</option>
+                            <option value="4">ボール</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">温度帯</label>
+                        <select x-model="newPickingAreaTemperatureType"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1">
+                            <option :value="null">未設定</option>
+                            <option value="NORMAL">常温</option>
+                            <option value="CHILLED">冷蔵</option>
+                            <option value="FROZEN">冷凍</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" x-model="newPickingAreaIsRestricted"
+                                   class="rounded border-gray-300 w-4 h-4">
+                            <span class="text-xs text-gray-700 dark:text-gray-300">制限エリア</span>
+                        </label>
+                    </div>
+
                     <div class="text-xs text-gray-500 dark:text-gray-400">
                         <p>クリックして点を追加</p>
                         <p>Ctrl+Z で直前の点を削除</p>
@@ -489,16 +520,19 @@
                         <h4 class="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">保存済みエリア</h4>
                         <div class="space-y-2 max-h-40 overflow-y-auto">
                             <template x-for="area in pickingAreas" :key="area.id">
-                                <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-700 p-2 rounded text-sm">
+                                <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-700 p-2 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
+                                     @click="openAreaEditModal(area)">
                                     <div class="flex items-center gap-2 overflow-hidden">
-                                        <input type="checkbox" 
+                                        <input type="checkbox"
                                                :checked="!hiddenPickingAreaIds.includes(area.id)"
-                                               @change="toggleAreaVisibility(area.id)"
+                                               @change.stop="toggleAreaVisibility(area.id)"
+                                               @click.stop
                                                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4">
                                         <div class="w-3 h-3 rounded-full flex-shrink-0" :style="{ backgroundColor: area.color || '#8B5CF6' }"></div>
                                         <span class="truncate" x-text="area.name"></span>
+                                        <span x-show="area.is_restricted_area" class="text-red-500 text-xs">制限</span>
                                     </div>
-                                    <button @click="deletePickingArea(area.id)" class="text-red-500 hover:text-red-700 ml-2">
+                                    <button @click.stop="deletePickingArea(area.id)" class="text-red-500 hover:text-red-700 ml-2">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                         </svg>
@@ -815,6 +849,86 @@
             </div>
         </div>
 
+        {{-- Picking Area Edit Modal --}}
+        <div x-show="showAreaEditModal" x-cloak
+             class="fixed inset-0 flex items-center justify-center"
+             style="z-index: 10002;"
+             @click.self="showAreaEditModal = false">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md" @click.stop>
+                <h3 class="text-lg font-bold mb-4">エリア設定</h3>
+
+                {{-- Area Name --}}
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">エリア名</label>
+                    <input type="text" x-model="editingArea.name"
+                           class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                </div>
+
+                {{-- Area Color --}}
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">カラー</label>
+                    <input type="color" x-model="editingArea.color"
+                           class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 cursor-pointer">
+                </div>
+
+                {{-- Available Quantity Flags --}}
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">引当可能単位</label>
+                    <select x-model.number="editingArea.available_quantity_flags"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                        <option :value="null">未設定</option>
+                        <option value="1">ケース</option>
+                        <option value="2">バラ</option>
+                        <option value="3">ケース+バラ</option>
+                        <option value="4">ボール</option>
+                    </select>
+                </div>
+
+                {{-- Temperature Type --}}
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">温度帯</label>
+                    <select x-model="editingArea.temperature_type"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                        <option :value="null">未設定</option>
+                        <option value="NORMAL">常温</option>
+                        <option value="CHILLED">冷蔵</option>
+                        <option value="FROZEN">冷凍</option>
+                    </select>
+                </div>
+
+                {{-- Is Restricted Area --}}
+                <div class="mb-6">
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" x-model="editingArea.is_restricted_area"
+                               class="rounded border-gray-300 w-5 h-5">
+                        <span class="text-sm">制限エリアとして設定</span>
+                    </label>
+                </div>
+
+                {{-- Location Count Info --}}
+                <div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm">
+                    <div class="text-gray-600 dark:text-gray-400">
+                        このエリアには <span class="font-semibold" x-text="editingArea.location_count || 0"></span> 件のロケーションが含まれています。
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">
+                        保存時に上記の設定がエリア内の全ロケーションに適用されます。
+                    </div>
+                </div>
+
+                {{-- Action Buttons --}}
+                <div class="flex gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button @click="saveAreaSettings()"
+                            class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md">
+                        保存
+                    </button>
+                    <button @click="showAreaEditModal = false"
+                            class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
+                        キャンセル
+                    </button>
+                </div>
+            </div>
+        </div>
+
         {{-- Settings Modal --}}
         <div x-data="{ showSettingsModal: false }" x-show="showSettingsModal" x-cloak
              class="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50"
@@ -1054,6 +1168,9 @@
                 showPickingAreaNameModal: false,
                 newPickingAreaName: '',
                 newPickingAreaColor: '#8B5CF6', // Default color for new picking areas
+                newPickingAreaQuantityFlags: null,
+                newPickingAreaTemperatureType: null,
+                newPickingAreaIsRestricted: false,
                 canvasWidth: {{ $canvasWidth }},
                 canvasHeight: {{ $canvasHeight }},
                 // Stock transfer state
@@ -1064,6 +1181,9 @@
                 selectedTransferLocationId: null,
                 selectedTransferLocation: null,
                 transferInProgress: false,
+                // Area edit state
+                showAreaEditModal: false,
+                editingArea: {},
 
                 init() {
                     // Request initial data from Livewire
@@ -2540,12 +2660,18 @@
                         this.snapPoint = null;
                         this.newPickingAreaName = '';
                         this.newPickingAreaColor = '#8B5CF6';
+                        this.newPickingAreaQuantityFlags = null;
+                        this.newPickingAreaTemperatureType = null;
+                        this.newPickingAreaIsRestricted = false;
                     } else {
                         this.pickingAreaMode = 'draw';
                         this.currentPolygonPoints = [];
                         this.snapPoint = null;
                         this.newPickingAreaName = '';
                         this.newPickingAreaColor = '#8B5CF6';
+                        this.newPickingAreaQuantityFlags = null;
+                        this.newPickingAreaTemperatureType = null;
+                        this.newPickingAreaIsRestricted = false;
                         this.walkablePaintMode = null; // Disable other modes
                         this.pickingPointMode = null;
                     }
@@ -2565,13 +2691,23 @@
                         alert('最低3つの点が必要です');
                         return;
                     }
-                    
-                    this.$wire.savePickingArea(this.newPickingAreaName, this.currentPolygonPoints, this.newPickingAreaColor);
-                    
+
+                    this.$wire.savePickingArea(
+                        this.newPickingAreaName,
+                        this.currentPolygonPoints,
+                        this.newPickingAreaColor,
+                        this.newPickingAreaQuantityFlags,
+                        this.newPickingAreaTemperatureType,
+                        this.newPickingAreaIsRestricted
+                    );
+
                     // Reset for next area, but keep drawing mode
                     this.currentPolygonPoints = [];
                     this.newPickingAreaName = '';
                     this.newPickingAreaColor = '#8B5CF6';
+                    this.newPickingAreaQuantityFlags = null;
+                    this.newPickingAreaTemperatureType = null;
+                    this.newPickingAreaIsRestricted = false;
                     // this.pickingAreaMode = null; // Keep mode active
                 },
 
@@ -2586,6 +2722,54 @@
                 deletePickingArea(id) {
                     if (confirm('このピッキングエリアを削除しますか？')) {
                         this.$wire.deletePickingArea(id);
+                    }
+                },
+
+                async openAreaEditModal(area) {
+                    // Get location count for this area
+                    const locationCount = await this.$wire.getAreaLocationCount(area.id);
+
+                    this.editingArea = {
+                        id: area.id,
+                        name: area.name,
+                        color: area.color || '#8B5CF6',
+                        available_quantity_flags: area.available_quantity_flags,
+                        temperature_type: area.temperature_type,
+                        is_restricted_area: area.is_restricted_area || false,
+                        location_count: locationCount
+                    };
+                    this.showAreaEditModal = true;
+                },
+
+                async saveAreaSettings() {
+                    if (!this.editingArea.id) return;
+
+                    try {
+                        await this.$wire.updatePickingAreaSettings({
+                            id: this.editingArea.id,
+                            name: this.editingArea.name,
+                            color: this.editingArea.color,
+                            available_quantity_flags: this.editingArea.available_quantity_flags,
+                            temperature_type: this.editingArea.temperature_type,
+                            is_restricted_area: this.editingArea.is_restricted_area
+                        });
+
+                        // Update local pickingAreas array
+                        const idx = this.pickingAreas.findIndex(a => a.id === this.editingArea.id);
+                        if (idx >= 0) {
+                            this.pickingAreas[idx] = {
+                                ...this.pickingAreas[idx],
+                                name: this.editingArea.name,
+                                color: this.editingArea.color,
+                                available_quantity_flags: this.editingArea.available_quantity_flags,
+                                temperature_type: this.editingArea.temperature_type,
+                                is_restricted_area: this.editingArea.is_restricted_area
+                            };
+                        }
+
+                        this.showAreaEditModal = false;
+                    } catch (error) {
+                        console.error('Failed to save area settings:', error);
                     }
                 },
 
