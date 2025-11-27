@@ -6,6 +6,7 @@ use App\Domains\Sakemaru\SakemaruEarning;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class GenerateTestEarningsCommand extends Command
@@ -19,14 +20,13 @@ class GenerateTestEarningsCommand extends Command
     protected $description = 'Generate test earnings data via BoozeCore API';
 
     private int $warehouseId;
-    private int $clientId;
-    private int $buyerId;
-    private string $buyerCode;
     private string $warehouseCode;
-    private array $deliveryCourses = [];
     private array $specifiedCourses = [];
     private array $specifiedLocations = [];
     private array $testItems = [];
+    private Collection $eligibleBuyers;
+    private array $usedBuyerCodes = [];
+    private array $deliveryCourseCodes = [];
 
     public function handle()
     {
@@ -45,8 +45,14 @@ class GenerateTestEarningsCommand extends Command
         $this->specifiedCourses = $this->option('courses') ?: [];
         $this->specifiedLocations = array_map('intval', $this->option('locations') ?: []);
 
-        // Initialize client, buyer, and warehouse data
+        // Initialize warehouse and buyer data
         $this->initializeData();
+
+        // Check if we have enough buyers
+        if ($this->eligibleBuyers->count() < $count) {
+            $this->error("Not enough buyers available. Found {$this->eligibleBuyers->count()} buyers, but need {$count}.");
+            return 1;
+        }
 
         // Load test items
         $this->loadTestItems();
@@ -60,7 +66,7 @@ class GenerateTestEarningsCommand extends Command
         $result = $this->generateEarnings($count);
 
         if ($result['success']) {
-            $this->info("✓ Successfully created {$count} test earnings via API");
+            $this->info("✓ Successfully created {$result['count']} test earnings via API");
             return 0;
         } else {
             $this->error("Failed to create earnings: " . ($result['error'] ?? 'Unknown error'));
@@ -70,34 +76,6 @@ class GenerateTestEarningsCommand extends Command
 
     private function initializeData(): void
     {
-        // Get client ID
-        $client = DB::connection('sakemaru')->table('clients')->first();
-        $this->clientId = $client->id;
-
-        // Get buyer with specific criteria for earnings generation
-        $buyer = DB::connection('sakemaru')->table('buyers')
-            ->leftJoin('buyer_details', 'buyers.id', '=', 'buyer_details.buyer_id')
-            ->leftJoin('partners', 'buyers.partner_id', '=', 'partners.id')
-            ->where('partners.is_active', 1)
-            ->where('partners.is_supplier', 0)
-            ->where('buyer_details.is_active', 1)
-            ->whereNull('partners.end_of_trade_date')
-            ->where('buyer_details.can_register_earnings', 1)
-            ->where('buyer_details.is_allowed_duplicated_item', true)
-            ->where('buyer_details.is_allowed_case_quantity', true)
-            ->select('partners.code', 'partners.id')
-            ->inRandomOrder()
-            ->first();
-
-        if (!$buyer) {
-            $this->error('No eligible buyer found with the required criteria');
-            exit(1);
-        }
-
-        $this->buyerId = $buyer->id;
-        $this->buyerCode = $buyer->code;
-
-
         // Get warehouse
         $warehouse = DB::connection('sakemaru')->table('warehouses')
             ->where('id', $this->warehouseId)
@@ -105,28 +83,68 @@ class GenerateTestEarningsCommand extends Command
         $this->warehouseCode = $warehouse->code ?? (string) $this->warehouseId;
 
         // Get delivery courses for this warehouse
-        $query = DB::connection('sakemaru')->table('delivery_courses')
+        $courseQuery = DB::connection('sakemaru')->table('delivery_courses')
             ->where('warehouse_id', $this->warehouseId);
 
         // Filter by specified courses if provided
         if (!empty($this->specifiedCourses)) {
-            $query->whereIn('code', $this->specifiedCourses);
+            $courseQuery->whereIn('code', $this->specifiedCourses);
         }
 
-        $this->deliveryCourses = $query->pluck('code')->toArray();
+        $deliveryCourses = $courseQuery->get(['id', 'code']);
+        $deliveryCourseIds = $deliveryCourses->pluck('id')->toArray();
+        $this->deliveryCourseCodes = $deliveryCourses->pluck('code')->toArray();
 
-        if (empty($this->deliveryCourses)) {
+        if (empty($deliveryCourseIds)) {
             $this->warn("No delivery courses found for warehouse {$this->warehouseId}");
+            $this->eligibleBuyers = collect();
+            return;
         }
 
-        $this->line("Using buyer: {$this->buyerId} (code: {$this->buyerCode}), warehouse: {$this->warehouseId} (code: {$this->warehouseCode})");
+        // Get eligible buyers (no longer filtered by delivery course)
+        // Just need active buyers that can register earnings
+        $this->eligibleBuyers = DB::connection('sakemaru')
+            ->table('buyer_details as bd')
+            ->join('buyers as b', 'bd.buyer_id', '=', 'b.id')
+            ->join('partners as p', 'b.partner_id', '=', 'p.id')
+            ->where('bd.is_active', 1)
+            ->where('bd.can_register_earnings', 1)
+            ->where('bd.is_allowed_case_quantity', 1)
+            ->where('p.is_active', 1)
+            ->where('p.is_supplier', 0)
+            ->whereNull('p.end_of_trade_date')
+            ->select(['p.code as buyer_code'])
+            ->distinct()
+            ->get();
+
+        $this->line("Warehouse: {$this->warehouseId} (code: {$this->warehouseCode})");
         $this->line("Delivery courses: " . (!empty($this->specifiedCourses)
             ? implode(', ', $this->specifiedCourses) . ' (specified)'
-            : count($this->deliveryCourses) . ' (all)'));
+            : count($deliveryCourseIds) . ' (all)'));
+        $this->line("Eligible buyers: {$this->eligibleBuyers->count()}");
         if (!empty($this->specifiedLocations)) {
             $this->line("Stock locations filter: " . implode(', ', $this->specifiedLocations));
         }
         $this->newLine();
+    }
+
+    /**
+     * Get a unique buyer for earning generation
+     */
+    private function getUniqueBuyer(): ?object
+    {
+        $available = $this->eligibleBuyers->filter(
+            fn($buyer) => !in_array($buyer->buyer_code, $this->usedBuyerCodes)
+        );
+
+        if ($available->isEmpty()) {
+            return null;
+        }
+
+        $buyer = $available->random();
+        $this->usedBuyerCodes[] = $buyer->buyer_code;
+
+        return $buyer;
     }
 
     private function loadTestItems(): void
@@ -185,81 +203,46 @@ class GenerateTestEarningsCommand extends Command
         $processDate = ClientSetting::systemDate()->format('Y-m-d');
         $shippingDate = $processDate;
 
-        $scenarios = [
-            ['name' => 'ケースのみ（在庫十分）', 'qty_type' => 'CASE', 'qty' => 2],
-            ['name' => 'バラのみ（在庫十分）', 'qty_type' => 'PIECE', 'qty' => 15],
-            ['name' => 'ケース・バラ混在（通常注文）', 'qty_type' => 'MIXED_CASE_PIECE', 'qty' => 0],
-            ['name' => 'ケースのみ（欠品発生）', 'qty_type' => 'CASE', 'qty' => 200],
-            ['name' => 'バラのみ（欠品発生）', 'qty_type' => 'PIECE', 'qty' => 500],
-            ['name' => 'ケース・バラ混在（欠品あり）', 'qty_type' => 'MIXED_CASE_PIECE_SHORTAGE', 'qty' => 0],
-        ];
-
         $earnings = [];
+        $createdCount = 0;
 
         for ($i = 0; $i < $count; $i++) {
-            $scenario = $scenarios[$i % count($scenarios)];
+            // Get a unique buyer for each earning
+            $buyer = $this->getUniqueBuyer();
+            if (!$buyer) {
+                $this->warn("  No more unique buyers available, stopping at {$createdCount} earnings");
+                break;
+            }
 
-            // Filter items based on scenario qty_type to ensure stock allocation succeeds
+            // Filter items that support both CASE and PIECE for mixed ordering
+            // Also include items that support only CASE or only PIECE
             $availableItems = collect($this->testItems);
 
-            if ($scenario['qty_type'] === 'CASE') {
-                // For CASE orders, only select items with CASE support
-                $availableItems = $availableItems->filter(fn($item) => $item['supports_case']);
-            } elseif ($scenario['qty_type'] === 'PIECE') {
-                // For PIECE orders, only select items with PIECE support
-                $availableItems = $availableItems->filter(fn($item) => $item['supports_piece']);
-            }
-            // For MIXED, we'll handle filtering per item below
-
             if ($availableItems->isEmpty()) {
-                // Skip this earning if no suitable items available
-                $this->warn("  No items available for {$scenario['name']}, skipping");
+                $this->warn("  No items available, skipping");
                 continue;
             }
 
-            // Determine item count based on scenario
-            $itemCount = match($scenario['qty_type']) {
-                'MIXED_CASE_PIECE', 'MIXED_ALL', 'MIXED_CASE_PIECE_SHORTAGE' => rand(4, 6),
-                default => rand(2, 4),
-            };
-
+            // Determine item count: 4-6 items per earning to ensure mix
+            $itemCount = rand(4, 6);
             $itemCount = min($itemCount, $availableItems->count());
-            $selectedItems = $availableItems->random($itemCount);
+            $selectedItems = $availableItems->random($itemCount)->values();
 
+            // Ensure at least one CASE and one PIECE item
             $details = [];
-            foreach ($selectedItems as $index => $item) {
-                $qtyType = $scenario['qty_type'];
-                $qty = $scenario['qty'];
-                $caseQuantity = $item['case_quantity'];
+            $hasCaseItem = false;
+            $hasPieceItem = false;
 
-                // Handle mixed scenarios
-                if ($qtyType === 'MIXED_CASE_PIECE') {
-                    // For MIXED orders, choose type based on what the item supports
-                    if ($item['supports_case'] && $item['supports_piece']) {
-                        // Both supported, alternate
-                        $qtyType = $index % 2 === 0 ? 'CASE' : 'PIECE';
-                    } elseif ($item['supports_case']) {
-                        $qtyType = 'CASE';
-                    } else {
-                        $qtyType = 'PIECE';
-                    }
-                    $qty = $qtyType === 'CASE' ? rand(1, 3) : rand(10, 30);
-                } elseif ($qtyType === 'MIXED_CASE_PIECE_SHORTAGE') {
-                    // Mix with some shortage items
-                    if ($item['supports_case'] && $item['supports_piece']) {
-                        $qtyType = $index % 2 === 0 ? 'CASE' : 'PIECE';
-                    } elseif ($item['supports_case']) {
-                        $qtyType = 'CASE';
-                    } else {
-                        $qtyType = 'PIECE';
-                    }
-                    if ($index < 2) {
-                        // First 2 items: normal quantity
-                        $qty = $qtyType === 'CASE' ? rand(1, 3) : rand(10, 30);
-                    } else {
-                        // Remaining items: shortage quantity
-                        $qty = $qtyType === 'CASE' ? rand(50, 100) : rand(200, 500);
-                    }
+            foreach ($selectedItems as $index => $item) {
+                // Determine quantity type to ensure mix
+                $qtyType = $this->determineQuantityType($item, $index, $hasCaseItem, $hasPieceItem);
+
+                if ($qtyType === 'CASE') {
+                    $hasCaseItem = true;
+                    $qty = rand(1, 5);
+                } else {
+                    $hasPieceItem = true;
+                    $qty = rand(5, 30);
                 }
 
                 $details[] = [
@@ -269,30 +252,40 @@ class GenerateTestEarningsCommand extends Command
                     'order_quantity' => $qty,
                     'order_quantity_type' => $qtyType,
                     'price' => rand(100, 5000),
-                    'note' => "{$qtyType} {$qty}個",
+                    'note' => "{$qtyType} {$qty}",
                 ];
             }
 
-            // Get a random delivery course code
-            $deliveryCourseCode = !empty($this->deliveryCourses)
-                ? $this->deliveryCourses[array_rand($this->deliveryCourses)]
-                : null;
+            // Use a random delivery course from the specified/available courses (ignore buyer's default)
+            $deliveryCourseCode = $this->deliveryCourseCodes[array_rand($this->deliveryCourseCodes)];
 
             $earnings[] = [
                 'process_date' => $processDate,
                 'delivered_date' => $shippingDate,
                 'account_date' => $shippingDate,
-                'buyer_code' => $this->buyerCode,
+                'buyer_code' => $buyer->buyer_code,
                 'warehouse_code' => $this->warehouseCode,
                 'delivery_course_code' => $deliveryCourseCode,
-                'note' => "WMSテスト: {$scenario['name']}",
+                'note' => "WMSテスト: 伝票#{$i} (得意先:{$buyer->buyer_code})",
                 'is_delivered' => false,
                 'is_returned' => false,
                 'details' => $details,
             ];
+
+            $this->line("  [{$i}] Buyer: {$buyer->buyer_code}, Course: {$deliveryCourseCode}, Items: " . count($details));
+            $createdCount++;
         }
 
-        $this->line("Sending {$count} earnings to API...");
+        if (empty($earnings)) {
+            return [
+                'success' => false,
+                'error' => 'No earnings could be generated',
+                'count' => 0,
+            ];
+        }
+
+        $this->newLine();
+        $this->line("Sending {$createdCount} earnings to API...");
 
         $requestData = ['earnings' => $earnings];
 
@@ -308,7 +301,7 @@ class GenerateTestEarningsCommand extends Command
         $response = SakemaruEarning::postData($requestData);
 
         if (isset($response['success']) && $response['success']) {
-            return ['success' => true];
+            return ['success' => true, 'count' => $createdCount];
         } else {
             // Output request data on error for debugging
             $this->newLine();
@@ -319,7 +312,35 @@ class GenerateTestEarningsCommand extends Command
             return [
                 'success' => false,
                 'error' => $response['debug_message'] ?? $response['message'] ?? 'API request failed',
+                'count' => 0,
             ];
         }
+    }
+
+    /**
+     * Determine quantity type ensuring mix of CASE and PIECE
+     */
+    private function determineQuantityType(array $item, int $index, bool $hasCaseItem, bool $hasPieceItem): string
+    {
+        $supportsBoth = $item['supports_case'] && $item['supports_piece'];
+        $supportsCase = $item['supports_case'];
+        $supportsPiece = $item['supports_piece'];
+
+        // If we don't have CASE yet and item supports CASE, use CASE
+        if (!$hasCaseItem && $supportsCase) {
+            return 'CASE';
+        }
+
+        // If we don't have PIECE yet and item supports PIECE, use PIECE
+        if (!$hasPieceItem && $supportsPiece) {
+            return 'PIECE';
+        }
+
+        // Both types satisfied, alternate or use what's supported
+        if ($supportsBoth) {
+            return $index % 2 === 0 ? 'CASE' : 'PIECE';
+        }
+
+        return $supportsCase ? 'CASE' : 'PIECE';
     }
 }

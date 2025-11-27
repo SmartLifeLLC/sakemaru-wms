@@ -5,6 +5,11 @@
              zones = Array.isArray($event.detail.zones) ? $event.detail.zones : [];
              walls = Array.isArray($event.detail.walls) ? $event.detail.walls : [];
              fixedAreas = Array.isArray($event.detail.fixedAreas) ? $event.detail.fixedAreas : [];
+             pickingAreas = Array.isArray($event.detail.pickingAreas) ? $event.detail.pickingAreas : [];
+             if ($event.detail.canvasWidth && $event.detail.canvasHeight) {
+                 canvasWidth = $event.detail.canvasWidth;
+                 canvasHeight = $event.detail.canvasHeight;
+             }
              // Reload walkable areas when layout changes
              loadWalkableAreas();
              // Recalculate route lines if picking items are already loaded
@@ -23,17 +28,20 @@
         <div class="flex gap-3" style="height: calc(100vh - 120px);">
 
             {{-- Left Side: Floor Plan Canvas (75%) --}}
-            <div class="w-3/4 bg-white dark:bg-gray-800 rounded-lg shadow relative overflow-auto bg-gray-50 dark:bg-gray-900"
-                 :style="canvasStyle"
-                 id="picking-route-canvas">
+            <div class="w-3/4 bg-gray-200 dark:bg-gray-900 rounded-lg shadow relative overflow-auto"
+                 id="picking-route-canvas-wrapper">
 
-                {{-- Canvas Inner Container --}}
-                <div class="relative" style="min-width: {{ $canvasWidth }}px; min-height: {{ $canvasHeight }}px;">
+                {{-- Centering wrapper --}}
+                <div class="flex justify-center" :style="{minWidth: canvasWidth + 'px', minHeight: canvasHeight + 'px'}">
+                    {{-- Canvas Inner Container with grid and exact size --}}
+                    <div class="relative bg-white dark:bg-gray-800 flex-shrink-0"
+                         :style="{...canvasStyle, width: canvasWidth + 'px', height: canvasHeight + 'px'}"
+                         id="picking-route-canvas">
 
                     {{-- Walkable Area Visualization Layer --}}
                     <canvas x-ref="walkableVisualizationCanvas"
-                            :width="{{ $canvasWidth }}"
-                            :height="{{ $canvasHeight }}"
+                            :width="canvasWidth"
+                            :height="canvasHeight"
                             class="absolute inset-0 pointer-events-none z-0"
                             :style="showWalkableAreas ? 'opacity: 0.3;' : 'opacity: 0; pointer-events: none;'">
                     </canvas>
@@ -112,7 +120,7 @@
                                 width: 40px;
                                 height: 40px;
                                 transform: translate(-20px, -20px);
-                                z-index: 9999;"
+                                z-index: 20;"
                          class="flex items-center justify-center rounded-full bg-green-500 border-4 border-white shadow-xl select-none pointer-events-none">
                         <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
@@ -129,7 +137,7 @@
                                 width: 40px;
                                 height: 40px;
                                 transform: translate(-20px, -20px);
-                                z-index: 9999;"
+                                z-index: 20;"
                          class="flex items-center justify-center rounded-full bg-red-500 border-4 border-white shadow-xl select-none pointer-events-none">
                         <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -138,6 +146,20 @@
                     </div>
                     @endif
 
+                    {{-- Picking Areas (Polygons) --}}
+                    <template x-if="showPickingAreas">
+                        <template x-for="area in pickingAreas" :key="area.id">
+                            <svg class="absolute inset-0 pointer-events-none" :width="canvasWidth" :height="canvasHeight" style="z-index: 5;">
+                                <polygon :points="getPolygonPoints(area.polygon)"
+                                         :fill="area.color || '#8B5CF6'"
+                                         :stroke="area.color || '#8B5CF6'"
+                                         fill-opacity="0.1"
+                                         stroke-width="2">
+                                </polygon>
+                            </svg>
+                        </template>
+                    </template>
+
                     {{-- Route Lines --}}
                     <template x-if="showRouteLines && routeLines.length > 0">
                         <div class="absolute inset-0 pointer-events-none">
@@ -145,6 +167,8 @@
                             </svg>
                         </div>
                     </template>
+
+                    </div>
                 </div>
             </div>
 
@@ -169,89 +193,127 @@
                          x-collapse
                          class="p-3 pt-0 flex flex-col gap-3 border-t border-gray-200 dark:border-gray-700">
 
-                    {{-- Warehouse and Floor Selection (2:1 ratio) --}}
+                    {{-- Row 1: Warehouse, Floor, Date --}}
                     <div class="flex gap-2">
-                        <div class="w-2/3">
+                        <div class="flex-[2]">
                             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
                             <select wire:model.live="selectedWarehouseId"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                                <option value="">選択してください</option>
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                                <option value="">選択</option>
                                 @foreach($this->warehouses as $wh)
                                     <option value="{{ $wh->id }}">{{ $wh->name }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div class="w-1/3">
+                        <div class="flex-1">
                             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
                             <select wire:model.live="selectedFloorId"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
                                 <option value="">選択</option>
                                 @foreach($this->floors as $floor)
                                     <option value="{{ $floor->id }}">{{ $floor->name }}</option>
                                 @endforeach
                             </select>
                         </div>
+                        <div class="flex-[2]">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">日付</label>
+                            <input type="date" wire:model.live="selectedDate"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                        </div>
                     </div>
 
-                    {{-- Delivery Course and Date Selection (2:1 ratio) --}}
+                    {{-- Row 2: Delivery Course, Picking Task --}}
                     <div class="flex gap-2">
-                        <div class="w-2/3">
+                        <div class="flex-1">
                             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">配送コース</label>
                             <select wire:model.live="selectedDeliveryCourseId"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                                <option value="">選択してください</option>
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                                <option value="">選択</option>
                                 @foreach($this->deliveryCourses as $course)
-                                    <option value="{{ $course['id'] }}">{{ $course['code'] }} - {{ $course['name'] }}</option>
+                                    <option value="{{ $course['id'] }}">{{ $course['code'] }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div class="w-1/3">
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">日付</label>
-                            <input type="date" wire:model.live="selectedDate"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
+                        <div class="flex-1">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">タスク</label>
+                            <select wire:model.live="selectedPickingTaskId"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                                <option value="">選択</option>
+                                @foreach($this->pickingTasks as $task)
+                                    <option value="{{ $task['id'] }}">
+                                        #{{ $task['id'] }}
+                                        @if($task['picker_name'])
+                                            {{ $task['picker_name'] }}
+                                        @endif
+                                    </option>
+                                @endforeach
+                            </select>
                         </div>
-                    </div>
-
-                    {{-- Picking Task Selection --}}
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">ピッキングタスク</label>
-                        <select wire:model.live="selectedPickingTaskId"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                            <option value="">選択してください</option>
-                            @foreach($this->pickingTasks as $task)
-                                <option value="{{ $task['id'] }}">
-                                    タスク #{{ $task['id'] }}
-                                    @if($task['picker_name'])
-                                        - {{ $task['picker_name'] }}
-                                    @endif
-                                    ({{ $task['status'] }})
-                                </option>
-                            @endforeach
-                        </select>
                     </div>
 
                     {{-- Display Options (Single Line) --}}
                     <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
                         <h4 class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">表示オプション</h4>
-                        <div class="flex items-center gap-4">
+                        <div class="flex flex-wrap items-center gap-4">
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" x-model="showRouteLines"
                                     class="rounded border-gray-300">
-                                <span class="text-sm">経路線表示</span>
+                                <span class="text-sm">経路線</span>
                             </label>
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" x-model="showWalkingOrder"
                                     class="rounded border-gray-300">
-                                <span class="text-sm">順序番号表示</span>
+                                <span class="text-sm">順序番号</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="showPickingAreas"
+                                    class="rounded border-gray-300">
+                                <span class="text-sm">ピッキングエリア</span>
                             </label>
                             <label class="flex items-center gap-2">
                                 <input type="checkbox" x-model="showWalkableAreas"
                                        @change="renderWalkableAreas()"
                                     class="rounded border-gray-300">
-                                <span class="text-sm">歩行領域表示</span>
+                                <span class="text-sm">歩行領域</span>
                             </label>
                         </div>
                     </div>
+
+                    {{-- Route Recalculation Button --}}
+                    <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
+                        <button @click="recalculateRoute()"
+                                x-show="taskInfo?.task_id"
+                                :disabled="isRecalculating || !['PENDING', 'PICKING_READY'].includes(taskInfo?.status)"
+                                class="w-full text-sm bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-3 py-2 rounded flex items-center justify-center gap-2 transition-colors"
+                                title="経路を再計算">
+                            <svg class="w-4 h-4" :class="{'animate-spin': isRecalculating}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            <span x-text="isRecalculating ? '計算中...' : '経路再計算'"></span>
+                        </button>
+                        <p x-show="taskInfo?.task_id && !['PENDING', 'PICKING_READY'].includes(taskInfo?.status)" class="text-xs text-gray-500 mt-1 text-center">
+                            ※PENDING/PICKING_READYステータスのタスクのみ再計算可能
+                        </p>
+                    </div>
+                    </div>
+                </div>
+
+                {{-- Picking Areas List --}}
+                <div x-show="pickingAreas.length > 0" class="bg-white dark:bg-gray-800 rounded-lg shadow p-3">
+                    <h3 class="text-xs font-semibold border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">
+                        ピッキングエリア
+                        <span class="text-gray-500 font-normal">(<span x-text="pickingAreas.length"></span>)</span>
+                    </h3>
+                    <div class="space-y-1.5 max-h-40 overflow-y-auto">
+                        <template x-for="area in pickingAreas" :key="area.id">
+                            <div @click="showAreaDetail(area)"
+                                 class="flex items-center gap-2 p-1.5 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                <div class="w-3 h-3 rounded-full flex-shrink-0"
+                                     :style="{backgroundColor: area.color || '#8B5CF6'}"></div>
+                                <span class="text-xs truncate" x-text="area.name"></span>
+                                <span class="text-xs text-gray-400 ml-auto" x-text="getTemperatureLabel(area.temperature_type)"></span>
+                            </div>
+                        </template>
                     </div>
                 </div>
 
@@ -259,20 +321,8 @@
                 <div x-show="taskInfo" class="bg-white dark:bg-gray-800 rounded-lg shadow p-3">
                     <div class="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 pb-2 mb-2">
                         <h3 class="text-xs font-semibold">ピッキング情報</h3>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded font-mono"
-                                  x-text="'#' + (taskInfo?.task_id || '-')"></span>
-                            <button @click="recalculateRoute()"
-                                    x-show="taskInfo?.task_id && taskInfo?.status === 'PENDING'"
-                                    :disabled="isRecalculating"
-                                    class="text-xs bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
-                                    title="経路を再計算">
-                                <svg class="w-3 h-3" :class="{'animate-spin': isRecalculating}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                                </svg>
-                                <span x-text="isRecalculating ? '計算中...' : '再計算'"></span>
-                            </button>
-                        </div>
+                        <span class="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded font-mono"
+                              x-text="'#' + (taskInfo?.task_id || '-')"></span>
                     </div>
 
                     <div class="space-y-1.5 text-xs">
@@ -407,6 +457,108 @@
                 </div>
             </div>
         </div>
+
+        {{-- Area Detail Modal --}}
+        <div x-show="showAreaModal" x-cloak
+             class="fixed inset-0 flex items-center justify-center z-50"
+             @click.self="showAreaModal = false">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+                 @click.stop>
+                {{-- Header --}}
+                <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
+                    <h3 class="text-lg font-bold flex items-center gap-2">
+                        <div class="w-5 h-5 rounded-full border-2 border-white shadow"
+                             :style="{backgroundColor: selectedArea?.color || '#8B5CF6'}"></div>
+                        <span x-text="selectedArea?.name"></span>
+                        <span x-show="selectedArea?.is_restricted_area"
+                              class="text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded ml-2">制限エリア</span>
+                    </h3>
+                    <button @click="showAreaModal = false" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-2 gap-6">
+                    {{-- Left Column: Basic Info --}}
+                    <div class="space-y-3">
+                        <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300">基本情報</h4>
+
+                        <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500 dark:text-gray-400">エリアID</span>
+                                <span class="font-medium" x-text="selectedArea?.id"></span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500 dark:text-gray-400">カラー</span>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-4 h-4 rounded border"
+                                         :style="{backgroundColor: selectedArea?.color || '#8B5CF6'}"></div>
+                                    <span class="font-mono text-xs" x-text="selectedArea?.color || '#8B5CF6'"></span>
+                                </div>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500 dark:text-gray-400">引当可能単位</span>
+                                <span class="font-medium" x-text="getAvailableQuantityLabel(selectedArea?.available_quantity_flags)"></span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500 dark:text-gray-400">温度帯</span>
+                                <span class="font-medium" x-text="getTemperatureLabel(selectedArea?.temperature_type)"></span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500 dark:text-gray-400">制限エリア</span>
+                                <span class="font-medium" x-text="selectedArea?.is_restricted_area ? 'はい' : 'いいえ'"></span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500 dark:text-gray-400">ロケーション数</span>
+                                <span class="font-medium"><span x-text="selectedArea?.location_count || 0"></span>件</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Right Column: Assigned Pickers --}}
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                            担当ピッカー
+                            <span class="font-normal text-gray-500">(<span x-text="selectedArea?.pickers?.length || 0"></span>名)</span>
+                        </h4>
+
+                        <div class="border border-gray-200 dark:border-gray-600 rounded-lg max-h-48 overflow-y-auto">
+                            <template x-if="!selectedArea?.pickers || selectedArea?.pickers?.length === 0">
+                                <div class="text-sm text-gray-400 text-center py-6">
+                                    担当ピッカーなし
+                                </div>
+                            </template>
+                            <template x-if="selectedArea?.pickers?.length > 0">
+                                <div class="divide-y divide-gray-100 dark:divide-gray-700">
+                                    <template x-for="picker in selectedArea.pickers" :key="picker.id">
+                                        <div class="flex items-center gap-2 p-2.5 text-sm">
+                                            <div class="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center text-xs font-medium text-gray-600 dark:text-gray-300"
+                                                 x-text="picker.name?.charAt(0) || 'P'"></div>
+                                            <div class="flex-1 min-w-0">
+                                                <div class="font-medium truncate" x-text="picker.name"></div>
+                                                <div class="text-xs text-gray-500" x-text="picker.code"></div>
+                                            </div>
+                                            <span x-show="picker.can_access_restricted_area"
+                                                  class="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded whitespace-nowrap">制限可</span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Footer --}}
+                <div class="mt-5 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                    <button @click="showAreaModal = false"
+                            class="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md text-sm">
+                        閉じる
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     @push('scripts')
@@ -416,10 +568,12 @@
                 zones: [],
                 walls: [],
                 fixedAreas: [],
+                pickingAreas: [],
                 pickingItems: [],
                 taskInfo: null,
                 showRouteLines: true,
                 showWalkingOrder: true,
+                showPickingAreas: true,
                 showWalkableAreas: false,
                 walkablePolygons: null,
                 walkableNavmeta: null,
@@ -429,6 +583,10 @@
                 draggedIndex: null,
                 dragOverIndex: null,
                 isRecalculating: false,
+                canvasWidth: {{ $canvasWidth }},
+                canvasHeight: {{ $canvasHeight }},
+                showAreaModal: false,
+                selectedArea: null,
 
                 async init() {
                     // Request initial data from Livewire
@@ -829,6 +987,48 @@
 
                     // Highlight zones with picking items
                     return '#DBEAFE'; // Light blue
+                },
+
+                /**
+                 * Get polygon points string for SVG
+                 */
+                getPolygonPoints(polygon) {
+                    if (!polygon || !Array.isArray(polygon)) return '';
+                    return polygon.map(point => `${point.x},${point.y}`).join(' ');
+                },
+
+                /**
+                 * Show area detail modal
+                 */
+                showAreaDetail(area) {
+                    this.selectedArea = area;
+                    this.showAreaModal = true;
+                },
+
+                /**
+                 * Get temperature type label in Japanese
+                 */
+                getTemperatureLabel(temperatureType) {
+                    const labels = {
+                        'NORMAL': '常温',
+                        'CONSTANT': '定温',
+                        'CHILLED': '冷蔵',
+                        'FROZEN': '冷凍',
+                    };
+                    return labels[temperatureType] || temperatureType || '-';
+                },
+
+                /**
+                 * Get available quantity flags label in Japanese
+                 */
+                getAvailableQuantityLabel(flags) {
+                    const labels = {
+                        1: 'ケース',
+                        2: 'バラ',
+                        3: 'ケース+バラ',
+                        4: 'ボール',
+                    };
+                    return labels[flags] || '未設定';
                 },
 
                 /**

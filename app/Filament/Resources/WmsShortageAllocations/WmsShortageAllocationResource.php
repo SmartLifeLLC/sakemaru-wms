@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsShortageAllocations;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WmsShortageAllocations\Pages\CreateWmsShortageAllocation;
 use App\Filament\Resources\WmsShortageAllocations\Pages\EditWmsShortageAllocation;
 use App\Filament\Resources\WmsShortageAllocations\Pages\ListFinishedWmsShortageAllocations;
@@ -15,15 +16,25 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
-use UnitEnum;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsShortageAllocationResource extends Resource
 {
     protected static ?string $model = WmsShortageAllocation::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedTruck;
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->with([
+                'shortage.warehouse',
+                'shortage.item',
+                'shortage.trade.partner',
+                'targetWarehouse',
+                'deliveryCourse',
+            ]);
+    }
 
-    protected static string|UnitEnum|null $navigationGroup = '横持ち出荷';
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedTruck;
 
     protected static ?string $navigationLabel = '横持ち出荷依頼';
 
@@ -31,7 +42,15 @@ class WmsShortageAllocationResource extends Resource
 
     protected static ?string $pluralModelLabel = '横持ち出荷依頼';
 
-    protected static ?int $navigationSort = 13;
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenu::WMS_SHORTAGE_ALLOCATIONS->category()->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WMS_SHORTAGE_ALLOCATIONS->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {

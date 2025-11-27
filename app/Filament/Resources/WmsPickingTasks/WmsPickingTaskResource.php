@@ -18,7 +18,21 @@ class WmsPickingTaskResource extends Resource
 
     public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
     {
-        return parent::getEloquentQuery()->where('status', '!=', 'COMPLETED');
+        return parent::getEloquentQuery()
+            ->where('status', '!=', 'COMPLETED')
+            ->with([
+                'warehouse',
+                'floor',
+                'picker',
+                'deliveryCourse',
+                'pickingItemResults.trade',
+                'pickingItemResults.earning.buyer.partner',
+            ])
+            ->withCount([
+                'pickingItemResults as soft_shortage_count' => function ($query) {
+                    $query->where('has_soft_shortage', true);
+                },
+            ]);
     }
 
     protected static BackedEnum|string|null $navigationIcon = 'heroicon-o-clipboard-document-list';

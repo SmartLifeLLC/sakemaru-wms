@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickingTasks;
 
+use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingWaitings;
 use App\Models\WmsPickingTask;
@@ -12,25 +13,42 @@ class WmsPickingWaitingResource extends Resource
 {
     protected static ?string $model = WmsPickingTask::class;
 
-    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-user-plus';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-check';
 
-    protected static ?string $navigationLabel = 'ピッキング準備待ち';
+    protected static ?string $navigationLabel = 'ピッキング調整';
 
-    protected static ?string $modelLabel = 'ピッキング準備待ち';
+    protected static ?string $modelLabel = 'ピッキング調整';
 
     protected static ?string $slug = 'wms-picking-waitings';
 
-    protected static ?int $navigationSort = 2;
-
     public static function getNavigationGroup(): ?string
     {
-        return EMenuCategory::OUTBOUND->label();
+        return EMenu::WMS_PICKING_WAITINGS->category()->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WMS_PICKING_WAITINGS->sort();
     }
 
     public static function getEloquentQuery(): Builder
     {
         // Filter for tasks that are waiting (PENDING)
-        return parent::getEloquentQuery()->where('status', WmsPickingTask::STATUS_PENDING);
+        return parent::getEloquentQuery()
+            ->where('status', WmsPickingTask::STATUS_PENDING)
+            ->with([
+                'warehouse',
+                'floor',
+                'picker',
+                'deliveryCourse',
+                'pickingItemResults.trade',
+                'pickingItemResults.earning.buyer.partner',
+            ])
+            ->withCount([
+                'pickingItemResults as soft_shortage_count' => function ($query) {
+                    $query->where('has_soft_shortage', true);
+                },
+            ]);
     }
 
     public static function getPages(): array

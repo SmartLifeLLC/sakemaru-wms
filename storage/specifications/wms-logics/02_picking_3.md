@@ -305,7 +305,7 @@ class Location
             0
         );
     }
-}
+
 ```
 
 ---

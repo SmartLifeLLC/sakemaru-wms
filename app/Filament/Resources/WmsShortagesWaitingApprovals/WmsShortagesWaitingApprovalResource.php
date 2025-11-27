@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsShortagesWaitingApprovals;
 
+use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\Pages\ListWmsShortagesWaitingApprovals;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\Pages\ViewWmsShortagesWaitingApproval;
@@ -11,10 +12,28 @@ use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsShortagesWaitingApprovalResource extends Resource
 {
     protected static ?string $model = WmsShortage::class;
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->with([
+                'warehouse',
+                'wave',
+                'item',
+                'trade.partner',
+                'trade.earning.delivery_course',
+                'trade.earning.buyer.current_detail.salesman',
+                'confirmedBy',
+                'confirmedUser',
+                'allocations',
+            ])
+            ->withSum('allocations as allocations_total_qty', 'assign_qty');
+    }
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCheckCircle;
 
@@ -26,11 +45,14 @@ class WmsShortagesWaitingApprovalResource extends Resource
 
     protected static ?string $slug = 'wms-shortages-waiting-approval';
 
-    protected static ?int $navigationSort = 2;
-
     public static function getNavigationGroup(): ?string
     {
-        return EMenuCategory::SHORTAGE->label();
+        return EMenu::WMS_SHORTAGES_WAITING_APPROVALS->category()->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WMS_SHORTAGES_WAITING_APPROVALS->sort();
     }
 
     public static function table(Table $table): Table

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsShortages;
 
+use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsShortages\Pages\CreateWmsShortage;
 use App\Filament\Resources\WmsShortages\Pages\EditWmsShortage;
@@ -14,10 +15,28 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsShortageResource extends Resource
 {
     protected static ?string $model = WmsShortage::class;
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->with([
+                'warehouse',
+                'wave',
+                'item',
+                'trade.partner',
+                'trade.earning.delivery_course',
+                'trade.earning.buyer.current_detail.salesman',
+                'confirmedBy',
+                'confirmedUser',
+                'allocations',
+            ])
+            ->withSum('allocations as allocations_total_qty', 'assign_qty');
+    }
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
@@ -27,11 +46,14 @@ class WmsShortageResource extends Resource
 
     protected static ?string $pluralModelLabel = '欠品一覧';
 
-    protected static ?int $navigationSort = 1;
-
     public static function getNavigationGroup(): ?string
     {
-        return EMenuCategory::SHORTAGE->label();
+        return EMenu::WMS_SHORTAGES->category()->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WMS_SHORTAGES->sort();
     }
 
     public static function form(Schema $schema): Schema

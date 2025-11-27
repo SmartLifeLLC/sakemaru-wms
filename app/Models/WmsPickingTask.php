@@ -224,4 +224,30 @@ class WmsPickingTask extends Model
     {
         return $this->pickingItemResults()->count();
     }
+
+    /**
+     * 引当欠品があるかどうか（picking_item_results.has_soft_shortage経由）
+     */
+    public function hasSoftShortage(): bool
+    {
+        return $this->pickingItemResults()
+            ->where('has_soft_shortage', true)
+            ->exists();
+    }
+
+    /**
+     * 引当欠品のある明細数を取得
+     * withCount で事前ロードされている場合はその値を使用
+     */
+    public function getSoftShortageCountAttribute(): int
+    {
+        // withCount でロード済みの場合はそれを使用
+        if (array_key_exists('soft_shortage_count', $this->attributes)) {
+            return (int) $this->attributes['soft_shortage_count'];
+        }
+
+        return $this->pickingItemResults()
+            ->where('has_soft_shortage', true)
+            ->count();
+    }
 }

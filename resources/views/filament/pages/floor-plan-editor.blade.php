@@ -8,6 +8,7 @@
              walls = Array.isArray($event.detail.walls) ? $event.detail.walls : [];
              fixedAreas = Array.isArray($event.detail.fixedAreas) ? $event.detail.fixedAreas : [];
              zonePositions = {};
+             deletedZoneIds = [];
              pickingAreas = Array.isArray($event.detail.pickingAreas) ? $event.detail.pickingAreas : [];
              if ($event.detail.canvasWidth && $event.detail.canvasHeight) {
                  $dispatch('canvas-size-updated', { width: $event.detail.canvasWidth, height: $event.detail.canvasHeight });
@@ -17,30 +18,37 @@
                  initWalkableCanvas($event.detail.walkableAreas, $event.detail.navmeta);
              });
          "
+         @layout-saved.window="
+             showSettingsModal = false;
+             canvasWidth = $event.detail.canvasWidth;
+             canvasHeight = $event.detail.canvasHeight;
+         "
          class="h-full">
 
         {{-- Main Layout: Left (3/4) and Right (1/4) --}}
         <div class="flex gap-3" style="height: calc(100vh - 120px);">
 
             {{-- Left Side: Floor Plan Canvas (75%) --}}
-            <div class="w-3/4 bg-white dark:bg-gray-800 rounded-lg shadow relative overflow-auto bg-gray-50 dark:bg-gray-900"
-                 @mousedown="handleCanvasMouseDown($event)"
-                 @mousemove="handleCanvasMouseMove($event)"
-                 @mouseup="handleCanvasMouseUp($event)"
-                 @mouseup="handleCanvasMouseUp($event)"
-                 @click="handleCanvasClick($event)"
-                 @dblclick="handleCanvasDoubleClick($event)"
-                 @contextmenu.prevent
-                 :style="canvasStyle"
-                 id="floor-plan-canvas">
+            <div class="w-3/4 bg-gray-200 dark:bg-gray-900 rounded-lg shadow relative overflow-auto"
+                 id="floor-plan-canvas-wrapper">
 
-                {{-- Canvas Inner Container with minimum size from Livewire --}}
-                <div class="relative" style="min-width: {{ $canvasWidth }}px; min-height: {{ $canvasHeight }}px;">
+                {{-- Centering wrapper --}}
+                <div class="flex justify-center" :style="{minWidth: canvasWidth + 'px', minHeight: canvasHeight + 'px'}">
+                    {{-- Canvas Inner Container with grid and exact size --}}
+                    <div class="relative bg-white dark:bg-gray-800 flex-shrink-0"
+                         @mousedown="handleCanvasMouseDown($event)"
+                         @mousemove="handleCanvasMouseMove($event)"
+                         @mouseup="handleCanvasMouseUp($event)"
+                         @click="handleCanvasClick($event)"
+                         @dblclick="handleCanvasDoubleClick($event)"
+                         @contextmenu.prevent
+                         :style="{...canvasStyle, width: canvasWidth + 'px', height: canvasHeight + 'px'}"
+                         id="floor-plan-canvas">
 
                 {{-- Walkable Area Canvas Layer --}}
                 <canvas x-ref="walkableCanvas"
-                        :width="{{ $canvasWidth }}"
-                        :height="{{ $canvasHeight }}"
+                        :width="canvasWidth"
+                        :height="canvasHeight"
                         @mousedown="handleWalkableMouseDown($event)"
                         @mousemove="handleWalkableMouseMove($event)"
                         @mouseup="handleWalkableMouseUp($event)"
@@ -61,11 +69,13 @@
                              top: ${zone.y1_pos}px;
                              width: ${zone.x2_pos - zone.x1_pos}px;
                              height: ${zone.y2_pos - zone.y1_pos}px;
+                             z-index: 10;
                              background-color: {{ $colors['location']['rectangle'] ?? '#E0F2FE' }};
                              border-color: ${zone.is_restricted_area ? '#EF4444' : (selectedZones.includes(zone.id) ? '#1E3A8A' : '{{ $colors['location']['border'] ?? '#D1D5DB' }}')};
                              border-width: ${zone.is_restricted_area ? '2px' : (selectedZones.includes(zone.id) ? '2px' : '1px')};
                              color: {{ $textStyles['location']['color'] ?? '#6B7280' }};
                              font-size: {{ $textStyles['location']['size'] ?? 12 }}px;
+                             pointer-events: ${walkablePaintMode ? 'none' : 'auto'};
                          `"
                          class="cursor-move flex flex-col items-center justify-center p-2 rounded shadow-sm select-none border-solid">
 
@@ -89,12 +99,14 @@
                              top: ${wall.y1}px;
                              width: ${wall.x2 - wall.x1}px;
                              height: ${wall.y2 - wall.y1}px;
+                             z-index: 9;
                              background-color: {{ $colors['wall']['rectangle'] ?? '#9CA3AF' }};
                              border-width: ${selectedWalls.includes(wall.id) ? '3px' : '1px'};
                              border-style: solid;
                              border-color: ${selectedWalls.includes(wall.id) ? '#374151' : '{{ $colors['wall']['border'] ?? '#6B7280' }}'};
                              color: {{ $textStyles['wall']['color'] ?? '#FFFFFF' }};
                              font-size: {{ $textStyles['wall']['size'] ?? 10 }}px;
+                             pointer-events: ${walkablePaintMode ? 'none' : 'auto'};
                          `"
                          class="flex items-center justify-center rounded select-none cursor-move">
                         <div x-text="wall.name"></div>
@@ -115,12 +127,14 @@
                              top: ${area.y1}px;
                              width: ${area.x2 - area.x1}px;
                              height: ${area.y2 - area.y1}px;
+                             z-index: 9;
                              background-color: {{ $colors['fixed_area']['rectangle'] ?? '#FEF3C7' }};
                              border-width: ${selectedFixedAreas.includes(area.id) ? '4px' : '2px'};
                              border-style: solid;
                              border-color: ${selectedFixedAreas.includes(area.id) ? '#B45309' : '{{ $colors['fixed_area']['border'] ?? '#F59E0B' }}'};
                              color: {{ $textStyles['fixed_area']['color'] ?? '#92400E' }};
                              font-size: {{ $textStyles['fixed_area']['size'] ?? 12 }}px;
+                             pointer-events: ${walkablePaintMode ? 'none' : 'auto'};
                          `"
                          class="flex items-center justify-center rounded-lg select-none font-medium cursor-move">
                         <div x-text="area.name"></div>
@@ -141,7 +155,7 @@
                          width: '40px',
                          height: '40px',
                          transform: 'translate(-20px, -20px)',
-                         zIndex: 9999
+                         zIndex: 20
                      }"
                      class="flex items-center justify-center rounded-full bg-green-500 border-4 border-white shadow-xl cursor-move hover:bg-green-600 select-none">
                     <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -161,7 +175,7 @@
                          width: '40px',
                          height: '40px',
                          transform: 'translate(-20px, -20px)',
-                         zIndex: 9999
+                         zIndex: 20
                      }"
                      class="flex items-center justify-center rounded-full bg-red-500 border-4 border-white shadow-xl cursor-move hover:bg-red-600 select-none">
                     <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -220,47 +234,52 @@
                     </div>
                 </template>
 
+                    </div>
                 </div>
             </div>
 
             {{-- Right Side: Toolbar (25%) --}}
-            <div class="w-1/4 bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-3 overflow-y-auto">
-                <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2">設定</h3>
-
-                {{-- Save Button (Full Width) --}}
-                <button @click="saveAllChangesWithWalkable()"
-                    class="w-full px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium">
-                    保存
-                </button>
-
-                {{-- Warehouse & Floor Selection --}}
-                <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
-                    <select wire:model.live="selectedWarehouseId"
-                        class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                        <option value="">倉庫を選択</option>
-                        @foreach($this->warehouses as $wh)
-                            <option value="{{ $wh->id }}">{{ $wh->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
-                    <select wire:model.live="selectedFloorId"
-                        class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                        <option value="">フロアを選択</option>
-                        @foreach($this->floors as $floor)
-                            <option value="{{ $floor->id }}">{{ $floor->name }}</option>
-                        @endforeach
-                    </select>
+            <div class="w-1/4 bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-2 overflow-y-auto">
+                {{-- Warehouse & Floor & Save (Same Row) --}}
+                <div class="flex items-end gap-2">
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
+                        <select wire:model.live="selectedWarehouseId"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                            <option value="">選択</option>
+                            @foreach($this->warehouses as $wh)
+                                <option value="{{ $wh->id }}">{{ $wh->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
+                        <select wire:model.live="selectedFloorId"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                            <option value="">選択</option>
+                            @foreach($this->floors as $floor)
+                                <option value="{{ $floor->id }}">{{ $floor->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <button @click="saveAllChangesWithWalkable()"
+                        class="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium whitespace-nowrap">
+                        保存
+                    </button>
+                    <button @click="showSettingsModal = true" title="キャンバス設定"
+                        class="p-1.5 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                    </button>
                 </div>
 
                 {{-- Tool Icons (Horizontal) --}}
                 <div class="flex flex-wrap gap-3 justify-start">
                     {{-- Add Zone --}}
                     <div class="flex flex-col items-center gap-1">
-                        <button @click="saveAllChanges(); $wire.addZone()" title="区画追加"
+                        <button type="button" @click="addZone()" title="区画追加"
                             class="p-2 bg-purple-500 hover:bg-purple-600 text-white rounded-md shadow-sm transition-colors">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
@@ -271,7 +290,7 @@
 
                     {{-- Add Wall --}}
                     <div class="flex flex-col items-center gap-1">
-                        <button @click="saveAllChanges(); $wire.addWall()" title="壁追加"
+                        <button type="button" @click="$wire.addWall()" title="壁追加"
                             class="p-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md shadow-sm transition-colors">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8"></path>
@@ -282,7 +301,7 @@
 
                     {{-- Add Fixed Area --}}
                     <div class="flex flex-col items-center gap-1">
-                        <button @click="saveAllChanges(); $wire.addFixedArea()" title="固定領域追加"
+                        <button type="button" @click="$wire.addFixedArea()" title="固定領域追加"
                             class="p-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-md shadow-sm transition-colors">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
@@ -437,12 +456,42 @@
                     </div>
                 </div>
 
-                {{-- Picking Area Controls --}}
+                {{-- Saved Picking Areas List (Always visible) --}}
+                <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+                    <h4 class="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">ピッキングエリア</h4>
+                    <div class="space-y-1 max-h-32 overflow-y-auto">
+                        <template x-for="area in pickingAreas" :key="area.id">
+                            <div class="flex items-center justify-between bg-white dark:bg-gray-700 p-1.5 rounded text-xs hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
+                                 @click="openAreaEditModal(area)">
+                                <div class="flex items-center gap-1.5 overflow-hidden">
+                                    <input type="checkbox"
+                                           :checked="!hiddenPickingAreaIds.includes(area.id)"
+                                           @change.stop="toggleAreaVisibility(area.id)"
+                                           @click.stop
+                                           class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5">
+                                    <div class="w-3 h-3 rounded-full flex-shrink-0" :style="{ backgroundColor: area.color || '#8B5CF6' }"></div>
+                                    <span class="truncate" x-text="area.name"></span>
+                                    <span x-show="area.is_restricted_area" class="text-red-500 text-[10px]">制限</span>
+                                </div>
+                                <button @click.stop="deletePickingArea(area.id)" class="text-red-500 hover:text-red-700 ml-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="pickingAreas.length === 0">
+                            <div class="text-xs text-gray-400 text-center py-1">エリアなし</div>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- Picking Area Controls (Only when drawing) --}}
                 <div x-show="pickingAreaMode === 'draw'" class="bg-violet-50 dark:bg-violet-900/20 rounded-lg p-3 space-y-2">
                     <div class="text-xs font-semibold text-violet-700 dark:text-violet-300">
                         🏗️ ピッキングエリア作成
                     </div>
-                    
+
                     <div>
                         <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">エリア名</label>
                         <input type="text" x-model="newPickingAreaName"
@@ -462,83 +511,68 @@
                             </template>
                         </div>
                     </div>
-                    
-                    <div class="text-xs text-gray-500 dark:text-gray-400">
-                        <p>クリックして点を追加</p>
-                        <p>Ctrl+Z で直前の点を削除</p>
-                        <p>最低3点必要です。</p>
+
+                    <div class="flex gap-2">
+                        <div class="flex-1">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">引当可能単位</label>
+                            <select x-model.number="newPickingAreaQuantityFlags"
+                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-xs px-2 py-1">
+                                <option :value="null">未設定</option>
+                                <option value="1">ケース</option>
+                                <option value="2">バラ</option>
+                                <option value="3">ケース+バラ</option>
+                                <option value="4">ボール</option>
+                            </select>
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">温度帯</label>
+                            <select x-model="newPickingAreaTemperatureType"
+                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-xs px-2 py-1">
+                                <option :value="null">未設定</option>
+                                <option value="NORMAL">常温</option>
+                                <option value="CONSTANT">定温</option>
+                                <option value="CHILLED">冷蔵</option>
+                                <option value="FROZEN">冷凍</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" x-model="newPickingAreaIsRestricted"
+                                   class="rounded border-gray-300 w-4 h-4">
+                            <span class="text-xs text-gray-700 dark:text-gray-300">制限エリア</span>
+                        </label>
                     </div>
 
                     <div class="flex gap-2">
-                         <button @click="savePickingArea()" 
-                            class="flex-1 px-3 py-1 bg-violet-600 hover:bg-violet-700 text-white rounded-md text-xs">
+                         <button @click="savePickingArea()"
+                            class="flex-1 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-md text-sm font-medium">
                             保存
                         </button>
-                        <button @click="resetPickingAreaDrawing()" 
-                            class="flex-1 px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-md text-xs">
+                        <button @click="resetPickingAreaDrawing()"
+                            class="flex-1 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm font-medium">
                             リセット
                         </button>
-                        <button @click="togglePickingAreaMode()" 
-                            class="flex-1 px-3 py-1 bg-gray-500 hover:bg-gray-600 text-white rounded-md text-xs">
+                        <button @click="togglePickingAreaMode()"
+                            class="flex-1 px-3 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md text-sm font-medium">
                             終了
                         </button>
                     </div>
-
-                    {{-- Saved Areas List --}}
-                    <div class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3">
-                        <h4 class="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">保存済みエリア</h4>
-                        <div class="space-y-2 max-h-40 overflow-y-auto">
-                            <template x-for="area in pickingAreas" :key="area.id">
-                                <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-700 p-2 rounded text-sm">
-                                    <div class="flex items-center gap-2 overflow-hidden">
-                                        <input type="checkbox" 
-                                               :checked="!hiddenPickingAreaIds.includes(area.id)"
-                                               @change="toggleAreaVisibility(area.id)"
-                                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4">
-                                        <div class="w-3 h-3 rounded-full flex-shrink-0" :style="{ backgroundColor: area.color || '#8B5CF6' }"></div>
-                                        <span class="truncate" x-text="area.name"></span>
-                                    </div>
-                                    <button @click="deletePickingArea(area.id)" class="text-red-500 hover:text-red-700 ml-2">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </template>
-                            <template x-if="pickingAreas.length === 0">
-                                <div class="text-xs text-gray-400 text-center py-2">エリアはありません</div>
-                            </template>
-                        </div>
-                    </div>
                 </div>
 
-                <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
-
-                {{-- Grid Controls (Single Line) --}}
-                <div class="flex items-center gap-2 text-sm">
-                    <label class="flex items-center gap-1.5">
-                        <input type="checkbox" x-model="gridEnabled" @change="updateGrid()"
-                            class="rounded border-gray-300">
-                        <span>GRID</span>
-                    </label>
-                    <label class="flex items-center gap-1">
-                        <span>Size: 10px (固定)</span>
-                    </label>
-                    <label class="flex items-center gap-1">
-                        <span>閾値:</span>
-                        <input type="number" x-model="gridThreshold" min="0"
-                            class="w-12 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-1 py-0.5">
-                    </label>
+                {{-- Grid Controls (Hidden - keep for functionality) --}}
+                <div class="hidden">
+                    <input type="checkbox" x-model="gridEnabled" @change="updateGrid()">
+                    <input type="number" x-model="gridThreshold" min="0">
                 </div>
 
-                <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
-
+                {{-- Canvas Size Controls (Hidden - keep for functionality) --}}
                 <div x-data="{
                     tempWidth: {{ $canvasWidth }},
                     tempHeight: {{ $canvasHeight }},
                     async applySize() {
                         await $wire.updateCanvasSize(this.tempWidth, this.tempHeight);
-                        // Wait for Livewire to update, then sync values
                         await this.$nextTick();
                         this.tempWidth = $wire.canvasWidth;
                         this.tempHeight = $wire.canvasHeight;
@@ -548,23 +582,9 @@
                     tempWidth = $event.detail.width;
                     tempHeight = $event.detail.height;
                 "
-                class="flex items-center gap-1">
-                    <label class="flex items-center gap-1">
-                        <span class="text-sm">幅:</span>
-                        <input type="number" x-model.number="tempWidth" min="500" max="10000" step="100"
-                            class="w-20 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
-                    </label>
-
-                    <label class="flex items-center gap-1">
-                        <span class="text-sm">高さ:</span>
-                        <input type="number" x-model.number="tempHeight" min="500" max="10000" step="100"
-                            class="w-20 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
-                    </label>
-
-                    <button @click="applySize()"
-                        class="px-2 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-md text-xs font-medium">
-                        適用
-                    </button>
+                class="hidden">
+                    <input type="number" x-model.number="tempWidth" min="500" max="10000" step="100">
+                    <input type="number" x-model.number="tempHeight" min="500" max="10000" step="100">
                 </div>
 
                 <span x-show="selectedZones && selectedZones.length > 0" x-cloak class="text-gray-600 dark:text-gray-400 text-sm mt-2">
@@ -579,65 +599,105 @@
              style="z-index: 10000;"
              @click.self="showEditModal = false">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-5xl max-h-[90vh] overflow-y-auto text-xs" @click.stop>
-                <h3 class="text-2xl font-bold mb-4">区画詳細</h3>
+                {{-- Picking Area Info --}}
+                <div class="mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+                    <template x-if="getPickingAreaForZone(editingZone)">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">ピッキングエリア:</span>
+                            <div class="w-4 h-4 rounded-full" :style="{ backgroundColor: getPickingAreaForZone(editingZone)?.color || '#8B5CF6' }"></div>
+                            <span class="text-sm font-medium" x-text="getPickingAreaForZone(editingZone)?.name"></span>
+                        </div>
+                    </template>
+                    <template x-if="!getPickingAreaForZone(editingZone)">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">ピッキングエリア:</span>
+                            <span class="text-sm text-gray-400">設定なし</span>
+                        </div>
+                    </template>
+                </div>
 
-                {{-- Basic Info --}}
-                <div class="grid grid-cols-3 gap-4 mb-6">
-                    <div>
-                        <label class="block text-sm font-medium mb-1">名称</label>
-                        <input type="text" x-model="editingZone.name"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"/>
+                {{-- Header with name input --}}
+                <div class="mb-4 rounded-lg transition-colors duration-200"
+                     :class="editingZone.is_restricted_area ? 'bg-red-100 dark:bg-red-900/30 p-3' : ''">
+                    <div x-show="editingZone.is_restricted_area" class="flex items-center gap-2 mb-2 text-red-600 dark:text-red-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                        </svg>
+                        <span class="text-sm font-medium">制限エリア</span>
                     </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-1">通路 (code1)</label>
+                    <input type="text" x-model="editingZone.name"
+                        placeholder="名称を入力"
+                        class="text-2xl font-bold w-full border-b-2 focus:outline-none pb-1 transition-colors duration-200"
+                        :class="editingZone.is_restricted_area
+                            ? 'bg-transparent border-red-400 dark:border-red-500 focus:border-red-600 text-red-800 dark:text-red-200'
+                            : 'bg-transparent border-gray-300 dark:border-gray-600 focus:border-blue-500'"/>
+                </div>
+
+                {{-- Row 1: 通路、棚番号、温度帯、引当可能単位 --}}
+                <div class="flex gap-4 mb-3">
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">通路</label>
                         <input type="text" x-model="editingZone.code1" maxlength="10"
                             class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                     </div>
-
-                    <div>
-                        <label class="block text-sm font-medium mb-1">棚番号 (code2)</label>
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">棚番号</label>
                         <input type="text" x-model="editingZone.code2" maxlength="10"
                             class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                     </div>
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">温度帯</label>
+                        <select x-model="editingZone.temperature_type"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            <option value="NORMAL">常温</option>
+                            <option value="CONSTANT">定温</option>
+                            <option value="CHILLED">冷蔵</option>
+                            <option value="FROZEN">冷凍</option>
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium mb-1">引当可能単位</label>
+                        <select x-model.number="editingZone.available_quantity_flags"
+                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                            <option value="1">ケース</option>
+                            <option value="2">バラ</option>
+                            <option value="3">ケース+バラ</option>
+                            <option value="4">ボール</option>
+                        </select>
+                    </div>
+                </div>
 
-
-
-
-                    <div class="col-span-3 w-full flex gap-4 mb-6">
-    <div class="flex-1">
-        <label class="block text-sm font-medium mb-1">引当可能単位</label>
-        <select x-model.number="editingZone.available_quantity_flags"
-                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-            <option value="1">ケース</option>
-            <option value="2">バラ</option>
-            <option value="3">ケース+バラ</option>
-            <option value="4">ボール</option>
-        </select>
-    </div>
-    <div class="flex-1 w-full">
-        <label class="block text-sm font-medium mb-1">温度帯</label>
-        <select x-model="editingZone.temperature_type"
-                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-            <option value="NORMAL">常温</option>
-            <option value="CHILLED">冷蔵</option>
-            <option value="FROZEN">冷凍</option>
-        </select>
-    </div>
-    <div class="flex items-center gap-2 h-10 flex-1">
-        <input type="checkbox"
-               x-model="editingZone.is_restricted_area"
-               class="rounded border border-gray-300 dark:border-gray-600 w-5 h-5" />
-        <span class="text-sm text-gray-600">制限エリアとして設定</span>
-    </div>
-</div>
+                {{-- Row 2: 制限エリア設定 --}}
+                <div class="flex items-center gap-2 mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+                    <input type="checkbox"
+                           x-model="editingZone.is_restricted_area"
+                           class="rounded border border-gray-300 dark:border-gray-600 w-5 h-5" />
+                    <span class="text-sm text-gray-600 dark:text-gray-400">制限エリアとして設定</span>
                 </div>
 
                 {{-- Stock Information --}}
-                <h3 class="text-xl font-semibold mt-4 mb-2">在庫情報</h3>
+                <div class="flex items-center justify-between mt-4 mb-2">
+                    <h3 class="text-xl font-semibold">在庫情報</h3>
+                    <button @click="openTransferModal()"
+                            :disabled="selectedStocksForTransfer.length === 0"
+                            class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-md flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                        </svg>
+                        ロケ移動
+                        <span x-show="selectedStocksForTransfer.length > 0" x-text="'(' + selectedStocksForTransfer.length + ')'"></span>
+                    </button>
+                </div>
                 <div style="max-height:300px; overflow-y:auto;">
                     <table class="w-full table-auto border divide-y divide-gray-200">
                         <thead class="bg-gray-100 dark:bg-gray-700">
                             <tr>
+                                <th class="px-2 py-1 w-8">
+                                    <input type="checkbox"
+                                           @change="toggleAllStocks($event.target.checked)"
+                                           :checked="levelStocks[1]?.items?.length > 0 && selectedStocksForTransfer.length === levelStocks[1]?.items?.length"
+                                           class="rounded border-gray-300">
+                                </th>
                                 <th class="px-2 py-1">商品名</th>
                                 <th class="px-2 py-1 text-center">入り数</th>
                                 <th class="px-2 py-1 text-center">容量</th>
@@ -647,8 +707,16 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <template x-for="item in levelStocks[1]?.items" :key="item.item_id">
-                                <tr class="odd:bg-gray-100 dark:odd:bg-gray-800">
+                            <template x-for="item in levelStocks[1]?.items" :key="item.real_stock_id">
+                                <tr class="odd:bg-gray-100 dark:odd:bg-gray-800"
+                                    :class="isStockSelected(item.real_stock_id) ? 'bg-blue-50 dark:bg-blue-900/30' : ''">
+                                    <td class="border px-2 py-1 text-center">
+                                        <input type="checkbox"
+                                               :value="item.real_stock_id"
+                                               :checked="isStockSelected(item.real_stock_id)"
+                                               @change="toggleStockSelection(item)"
+                                               class="rounded border-gray-300">
+                                    </td>
                                     <td class="border px-2 py-1" x-text="item.item_name"></td>
                                     <td class="border px-2 py-1 text-center" x-text="item.capacity_case"></td>
                                     <td class="border px-2 py-1 text-center" x-text="item.volume"></td>
@@ -658,7 +726,7 @@
                                 </tr>
                             </template>
                             <tr x-show="!levelStocks[1]?.items?.length">
-                                <td colspan="6" class="text-center py-2 text-gray-500">在庫なし</td>
+                                <td colspan="7" class="text-center py-2 text-gray-500">在庫なし</td>
                             </tr>
                         </tbody>
                     </table>
@@ -681,9 +749,309 @@
             </div>
         </div>
 
+        {{-- Stock Transfer Modal --}}
+        <div x-show="showTransferModal" x-cloak
+             class="fixed inset-0 flex items-center justify-center"
+             style="z-index: 10001;"
+             @click.self="showTransferModal = false">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" @click.stop>
+                <h3 class="text-lg font-bold mb-4">ロケーション移動</h3>
+
+                {{-- Source Location Info --}}
+                <div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                    <div class="text-sm text-gray-600 dark:text-gray-400">移動元</div>
+                    <div class="font-semibold" x-text="editingZone.name"></div>
+                    <div class="text-sm text-gray-500" x-text="'選択商品: ' + selectedStocksForTransfer.length + '件'"></div>
+                </div>
+
+                {{-- Selected Items Summary --}}
+                <div class="mb-4">
+                    <h4 class="text-sm font-semibold mb-2">移動対象商品</h4>
+                    <div class="max-h-48 overflow-y-auto border rounded-lg">
+                        <table class="w-full text-xs">
+                            <thead class="bg-gray-50 dark:bg-gray-700 sticky top-0">
+                                <tr>
+                                    <th class="px-2 py-1 text-left">商品名</th>
+                                    <th class="px-2 py-1 text-center">賞味期限</th>
+                                    <th class="px-2 py-1 text-center">在庫数</th>
+                                    <th class="px-2 py-1 text-center">移動数量</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="selected in selectedStocksForTransfer" :key="selected.real_stock_id">
+                                    <tr class="border-t">
+                                        <td class="px-2 py-1" x-text="getSelectedStockItem(selected.real_stock_id)?.item_name"></td>
+                                        <td class="px-2 py-1 text-center" x-text="getSelectedStockItem(selected.real_stock_id)?.expiration_date || '―'"></td>
+                                        <td class="px-2 py-1 text-center" x-text="getSelectedStockItem(selected.real_stock_id)?.total_qty"></td>
+                                        <td class="px-2 py-1 text-center">
+                                            <input type="number"
+                                                   :value="selected.transfer_qty"
+                                                   @input="updateTransferQty(selected.real_stock_id, $event.target.value)"
+                                                   :max="getSelectedStockItem(selected.real_stock_id)?.total_qty"
+                                                   min="1"
+                                                   class="w-20 px-2 py-1 text-center border rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700">
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {{-- Target Location Selection --}}
+                <div class="mb-4">
+                    <h4 class="text-sm font-semibold mb-2">移動先ロケーション</h4>
+                    <div class="relative">
+                        <input type="text"
+                               x-model="transferLocationSearch"
+                               @input="searchTransferLocations()"
+                               placeholder="ロケーション名または通路・棚番号で検索..."
+                               class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                    </div>
+                    <div class="mt-2 max-h-48 overflow-y-auto border rounded-lg" x-show="transferLocationResults.length > 0">
+                        <template x-for="loc in transferLocationResults" :key="loc.id">
+                            <div @click="selectTransferLocation(loc)"
+                                 class="px-3 py-2 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/30 border-b last:border-b-0"
+                                 :class="selectedTransferLocationId === loc.id ? 'bg-blue-100 dark:bg-blue-900/50' : ''">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-medium" x-text="loc.name"></span>
+                                    <span x-show="loc.floor_name" class="text-xs bg-gray-200 dark:bg-gray-600 px-2 py-0.5 rounded" x-text="loc.floor_name"></span>
+                                </div>
+                                <div class="text-xs text-gray-500" x-text="'通路: ' + loc.code1 + ' / 棚: ' + loc.code2"></div>
+                            </div>
+                        </template>
+                    </div>
+                    <div x-show="transferLocationSearch && transferLocationResults.length === 0" class="mt-2 text-sm text-gray-500">
+                        該当するロケーションが見つかりません
+                    </div>
+                </div>
+
+                {{-- Selected Target Location Display --}}
+                <div x-show="selectedTransferLocationId" class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                    <div class="text-sm text-gray-600 dark:text-gray-400">移動先</div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-semibold" x-text="selectedTransferLocation?.name"></span>
+                        <span x-show="selectedTransferLocation?.floor_name" class="text-xs bg-blue-200 dark:bg-blue-700 px-2 py-0.5 rounded" x-text="selectedTransferLocation?.floor_name"></span>
+                    </div>
+                    <div class="text-xs text-gray-500" x-text="'通路: ' + selectedTransferLocation?.code1 + ' / 棚: ' + selectedTransferLocation?.code2"></div>
+                </div>
+
+                {{-- Action Buttons --}}
+                <div class="flex gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button @click="executeTransfer()"
+                            :disabled="!selectedTransferLocationId || transferInProgress"
+                            class="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-md">
+                        <span x-show="!transferInProgress">移動実行</span>
+                        <span x-show="transferInProgress">移動中...</span>
+                    </button>
+                    <button @click="showTransferModal = false"
+                            :disabled="transferInProgress"
+                            class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 text-white rounded-md">
+                        キャンセル
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {{-- Picking Area Edit Modal --}}
+        <div x-show="showAreaEditModal" x-cloak
+             class="fixed inset-0 flex items-center justify-center"
+             style="z-index: 10002;"
+             @click.self="showAreaEditModal = false">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" @click.stop>
+                <h3 class="text-lg font-bold mb-4">エリア設定</h3>
+
+                <div class="grid grid-cols-2 gap-6">
+                    {{-- Left Column: Basic Settings --}}
+                    <div>
+                        {{-- Area Name --}}
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-1">エリア名</label>
+                            <input type="text" x-model="editingArea.name"
+                                   class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                        </div>
+
+                        {{-- Area Color --}}
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-1">カラー</label>
+                            <input type="color" x-model="editingArea.color"
+                                   class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 cursor-pointer">
+                        </div>
+
+                        {{-- Available Quantity Flags --}}
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-1">引当可能単位</label>
+                            <select x-model.number="editingArea.available_quantity_flags"
+                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                                <option :value="null">未設定</option>
+                                <option value="1">ケース</option>
+                                <option value="2">バラ</option>
+                                <option value="3">ケース+バラ</option>
+                                <option value="4">ボール</option>
+                            </select>
+                        </div>
+
+                        {{-- Temperature Type --}}
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-1">温度帯</label>
+                            <select x-model="editingArea.temperature_type"
+                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                                <option :value="null">未設定</option>
+                                <option value="NORMAL">常温</option>
+                                <option value="CONSTANT">定温</option>
+                                <option value="CHILLED">冷蔵</option>
+                                <option value="FROZEN">冷凍</option>
+                            </select>
+                        </div>
+
+                        {{-- Is Restricted Area --}}
+                        <div class="mb-4">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="editingArea.is_restricted_area"
+                                       class="rounded border-gray-300 w-5 h-5">
+                                <span class="text-sm">制限エリアとして設定</span>
+                            </label>
+                        </div>
+
+                        {{-- Location Count Info --}}
+                        <div class="p-3 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm">
+                            <div class="text-gray-600 dark:text-gray-400">
+                                このエリアには <span class="font-semibold" x-text="editingArea.location_count || 0"></span> 件のロケーションが含まれています。
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">
+                                保存時に上記の設定がエリア内の全ロケーションに適用されます。
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Right Column: Picker Assignment --}}
+                    <div>
+                        <div class="mb-2 flex items-center justify-between">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">担当ピッカー</label>
+                                <p class="text-xs text-gray-500">このエリアを担当できるピッカーを選択</p>
+                            </div>
+                            <button @click="showNewPickerForm = !showNewPickerForm"
+                                    type="button"
+                                    class="text-xs px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded">
+                                <span x-show="!showNewPickerForm">+ 新規</span>
+                                <span x-show="showNewPickerForm">閉じる</span>
+                            </button>
+                        </div>
+
+                        {{-- New Picker Form --}}
+                        <div x-show="showNewPickerForm" x-collapse class="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                            <div class="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">新規ピッカー登録</div>
+                            <div class="space-y-2">
+                                <div>
+                                    <label class="block text-xs text-gray-600 dark:text-gray-400">コード</label>
+                                    <input type="text" x-model="newPicker.code"
+                                           class="w-full rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1"
+                                           placeholder="例: P001">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 dark:text-gray-400">名前</label>
+                                    <input type="text" x-model="newPicker.name"
+                                           class="w-full rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1"
+                                           placeholder="例: 山田太郎">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 dark:text-gray-400">パスワード</label>
+                                    <input type="password" x-model="newPicker.password"
+                                           class="w-full rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1"
+                                           placeholder="8文字以上推奨">
+                                </div>
+                                <div>
+                                    <label class="flex items-center gap-2">
+                                        <input type="checkbox" x-model="newPicker.can_access_restricted_area"
+                                               class="rounded border-gray-300 w-4 h-4">
+                                        <span class="text-xs text-gray-600 dark:text-gray-400">制限エリアアクセス可</span>
+                                    </label>
+                                </div>
+                                <button @click="createNewPicker()"
+                                        :disabled="!newPicker.code || !newPicker.name || !newPicker.password"
+                                        class="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded text-sm">
+                                    登録してこのエリアに追加
+                                </button>
+                            </div>
+                        </div>
+
+                        {{-- Search and Filter --}}
+                        <div class="mb-2 space-y-2">
+                            <input type="text" x-model="pickerSearchQuery"
+                                   class="w-full rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1"
+                                   placeholder="コード・名前で検索...">
+                            <div class="flex gap-2">
+                                <select x-model="pickerWarehouseFilter"
+                                        class="flex-1 rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1">
+                                    <option value="">全倉庫</option>
+                                    <option value="current">この倉庫のみ</option>
+                                    <option value="none">デフォルト倉庫未設定</option>
+                                    <template x-for="wh in warehousesList" :key="wh.id">
+                                        <option :value="wh.id" x-text="wh.name"></option>
+                                    </template>
+                                </select>
+                                <label class="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                                    <input type="checkbox" x-model="pickerShowSelectedOnly"
+                                           class="rounded border-gray-300 w-3.5 h-3.5">
+                                    選択済みのみ
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="border border-gray-300 dark:border-gray-600 rounded-lg p-2 max-h-52 overflow-y-auto">
+                            <template x-if="filteredPickersList.length === 0">
+                                <div class="text-sm text-gray-400 text-center py-4">
+                                    該当するピッカーがありません
+                                </div>
+                            </template>
+                            <template x-for="picker in filteredPickersList" :key="picker.id">
+                                <label class="flex items-start gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer">
+                                    <input type="checkbox"
+                                           :value="picker.id"
+                                           :checked="selectedAreaPickerIds.includes(picker.id)"
+                                           @change="toggleAreaPicker(picker.id)"
+                                           class="rounded border-gray-300 w-4 h-4 mt-0.5">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="text-sm font-medium" x-text="picker.display_name"></span>
+                                            <span x-show="picker.can_access_restricted_area"
+                                                  class="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded">制限可</span>
+                                        </div>
+                                        <div x-show="picker.warehouse_name" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5"
+                                             x-text="'デフォルト: ' + picker.warehouse_name"></div>
+                                    </div>
+                                </label>
+                            </template>
+                        </div>
+
+                        <div class="mt-2 text-xs text-gray-500">
+                            <span x-text="selectedAreaPickerIds.length"></span>名選択中
+                            <span class="text-gray-400 ml-2">（<span x-text="filteredPickersList.length"></span>/<span x-text="areaPickersList.length"></span>件表示）</span>
+                            <template x-if="editingArea.is_restricted_area">
+                                <span class="text-red-500 ml-2">※制限エリアのため「制限可」のピッカーのみ自動割当対象</span>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Action Buttons --}}
+                <div class="flex gap-2 pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button @click="saveAreaSettings()"
+                            class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md">
+                        保存
+                    </button>
+                    <button @click="showAreaEditModal = false"
+                            class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
+                        キャンセル
+                    </button>
+                </div>
+            </div>
+        </div>
+
         {{-- Settings Modal --}}
-        <div x-data="{ showSettingsModal: false }" x-show="showSettingsModal" x-cloak
-             class="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50"
+        <div x-show="showSettingsModal" x-cloak
+             class="fixed inset-0 flex items-center justify-center z-50"
              @click.self="showSettingsModal = false">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
                  @click.stop>
@@ -890,6 +1258,7 @@
                 selectedZones: [],
                 selectedWalls: [],
                 selectedFixedAreas: [],
+                deletedZoneIds: [], // Track deleted zones for saving
                 dragState: null,
                 resizeState: null,
                 showEditModal: false,
@@ -915,13 +1284,71 @@
                 pickingAreas: @entangle('pickingAreas'),
                 pickingAreaMode: null, // 'draw'
                 currentPolygonPoints: [],
+                drawPreviewPos: null, // Current mouse position for preview line
+                isShiftPressed: false, // Track shift key state
                 snapPoint: null, // For snapping to start point
                 hiddenPickingAreaIds: [], // IDs of hidden areas
                 showPickingAreaNameModal: false,
                 newPickingAreaName: '',
                 newPickingAreaColor: '#8B5CF6', // Default color for new picking areas
+                newPickingAreaQuantityFlags: null,
+                newPickingAreaTemperatureType: null,
+                newPickingAreaIsRestricted: false,
                 canvasWidth: {{ $canvasWidth }},
                 canvasHeight: {{ $canvasHeight }},
+                // Stock transfer state
+                selectedStocksForTransfer: [], // Array of { real_stock_id, transfer_qty }
+                showTransferModal: false,
+                transferLocationSearch: '',
+                transferLocationResults: [],
+                selectedTransferLocationId: null,
+                selectedTransferLocation: null,
+                transferInProgress: false,
+                // Area edit state
+                showAreaEditModal: false,
+                editingArea: {},
+                areaPickersList: [],
+                selectedAreaPickerIds: [],
+                showNewPickerForm: false,
+                newPicker: { code: '', name: '', password: '', can_access_restricted_area: false },
+                // Picker search/filter
+                pickerSearchQuery: '',
+                pickerWarehouseFilter: '',
+                pickerShowSelectedOnly: false,
+                warehousesList: [],
+                // Settings modal
+                showSettingsModal: false,
+
+                // Computed: filtered picker list
+                get filteredPickersList() {
+                    let list = this.areaPickersList;
+                    const currentWarehouseId = this.$wire.selectedWarehouseId;
+
+                    // Filter by selected only
+                    if (this.pickerShowSelectedOnly) {
+                        list = list.filter(p => this.selectedAreaPickerIds.includes(p.id));
+                    }
+
+                    // Filter by warehouse
+                    if (this.pickerWarehouseFilter === 'current' && currentWarehouseId) {
+                        list = list.filter(p => p.default_warehouse_id == currentWarehouseId);
+                    } else if (this.pickerWarehouseFilter === 'none') {
+                        list = list.filter(p => !p.default_warehouse_id);
+                    } else if (this.pickerWarehouseFilter && this.pickerWarehouseFilter !== '') {
+                        list = list.filter(p => p.default_warehouse_id == this.pickerWarehouseFilter);
+                    }
+
+                    // Filter by search query
+                    if (this.pickerSearchQuery.trim()) {
+                        const query = this.pickerSearchQuery.toLowerCase().trim();
+                        list = list.filter(p =>
+                            p.code.toLowerCase().includes(query) ||
+                            p.name.toLowerCase().includes(query)
+                        );
+                    }
+
+                    return list;
+                },
 
                 init() {
                     // Request initial data from Livewire
@@ -1600,22 +2027,25 @@
                 },
 
                 addZone() {
-                    if (!this.selectedFloorId) {
+                    const floorId = this.$wire.selectedFloorId;
+                    const warehouseId = this.$wire.selectedWarehouseId;
+
+                    if (!floorId) {
                         alert('フロアを選択してください');
                         return;
                     }
 
                     const newZone = {
                         id: 'temp_' + Date.now(),
-                        floor_id: this.selectedFloorId,
-                        warehouse_id: this.selectedWarehouseId,
+                        floor_id: floorId,
+                        warehouse_id: warehouseId,
                         code1: 'A',
                         code2: String(this.zones.length + 1).padStart(3, '0'),
                         name: 'NEW ZONE',
-                        x1_pos: 20,
-                        y1_pos: 20,
-                        x2_pos: 80,
-                        y2_pos: 60,
+                        x1_pos: 100,
+                        y1_pos: 100,
+                        x2_pos: 160,
+                        y2_pos: 140,
                         available_quantity_flags: 3,
                         levels: 1,
                         stock_count: 0,
@@ -1627,6 +2057,9 @@
                 },
 
                 selectZone(event, zone) {
+                    // Disable selection during walkable paint mode
+                    if (this.walkablePaintMode) return;
+
                     // Clear other selections
                     this.selectedWalls = [];
                     this.selectedFixedAreas = [];
@@ -1644,6 +2077,9 @@
                 },
 
                 selectWall(event, wall) {
+                    // Disable selection during walkable paint mode
+                    if (this.walkablePaintMode) return;
+
                     // Clear other selections
                     this.selectedZones = [];
                     this.selectedFixedAreas = [];
@@ -1661,6 +2097,9 @@
                 },
 
                 selectFixedArea(event, area) {
+                    // Disable selection during walkable paint mode
+                    if (this.walkablePaintMode) return;
+
                     // Clear other selections
                     this.selectedZones = [];
                     this.selectedWalls = [];
@@ -1681,6 +2120,7 @@
                     this.editingZone = { ...zone, levels: zone.levels || 3 };
                     this.selectedLevel = 1;
                     this.levelStocks = {};
+                    this.selectedStocksForTransfer = []; // Reset selected stocks when opening new zone
                     this.showEditModal = true;
 
                     // Load stock data for each level
@@ -1723,6 +2163,158 @@
                         });
                     }
                     this.showEditModal = false;
+                },
+
+                // Helper to check if a point is inside a polygon (ray casting algorithm)
+                isPointInPolygon(point, polygon) {
+                    if (!polygon || polygon.length < 3) return false;
+                    let inside = false;
+                    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                        const xi = polygon[i].x, yi = polygon[i].y;
+                        const xj = polygon[j].x, yj = polygon[j].y;
+                        if (((yi > point.y) !== (yj > point.y)) &&
+                            (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
+                            inside = !inside;
+                        }
+                    }
+                    return inside;
+                },
+
+                // Get picking area for a zone by checking if zone center is inside area polygon
+                getPickingAreaForZone(zone) {
+                    if (!zone || !this.pickingAreas || this.pickingAreas.length === 0) return null;
+
+                    // Calculate zone center
+                    const centerX = (zone.x1_pos + zone.x2_pos) / 2;
+                    const centerY = (zone.y1_pos + zone.y2_pos) / 2;
+                    const centerPoint = { x: centerX, y: centerY };
+
+                    // Find the picking area that contains this point
+                    for (const area of this.pickingAreas) {
+                        if (area.polygon && this.isPointInPolygon(centerPoint, area.polygon)) {
+                            return area;
+                        }
+                    }
+                    return null;
+                },
+
+                // Stock transfer methods
+                toggleStockSelection(item) {
+                    const idx = this.selectedStocksForTransfer.findIndex(s => s.real_stock_id === item.real_stock_id);
+                    if (idx >= 0) {
+                        this.selectedStocksForTransfer.splice(idx, 1);
+                    } else {
+                        // Add with default quantity = total_qty
+                        this.selectedStocksForTransfer.push({
+                            real_stock_id: item.real_stock_id,
+                            transfer_qty: item.total_qty
+                        });
+                    }
+                },
+
+                toggleAllStocks(checked) {
+                    if (checked && this.levelStocks[1]?.items) {
+                        this.selectedStocksForTransfer = this.levelStocks[1].items.map(item => ({
+                            real_stock_id: item.real_stock_id,
+                            transfer_qty: item.total_qty
+                        }));
+                    } else {
+                        this.selectedStocksForTransfer = [];
+                    }
+                },
+
+                isStockSelected(stockId) {
+                    return this.selectedStocksForTransfer.some(s => s.real_stock_id === stockId);
+                },
+
+                getSelectedStock(stockId) {
+                    return this.selectedStocksForTransfer.find(s => s.real_stock_id === stockId);
+                },
+
+                getSelectedStockItem(stockId) {
+                    if (!this.levelStocks[1]?.items) return null;
+                    return this.levelStocks[1].items.find(item => item.real_stock_id === stockId);
+                },
+
+                updateTransferQty(stockId, qty) {
+                    const selected = this.selectedStocksForTransfer.find(s => s.real_stock_id === stockId);
+                    const item = this.getSelectedStockItem(stockId);
+                    if (selected && item) {
+                        // Ensure qty is within valid range
+                        const newQty = Math.max(1, Math.min(parseInt(qty) || 1, item.total_qty));
+                        selected.transfer_qty = newQty;
+                    }
+                },
+
+                openTransferModal() {
+                    if (this.selectedStocksForTransfer.length === 0) return;
+                    this.showTransferModal = true;
+                    this.transferLocationSearch = '';
+                    this.transferLocationResults = [];
+                    this.selectedTransferLocationId = null;
+                    this.selectedTransferLocation = null;
+                    this.transferInProgress = false;
+                },
+
+                async searchTransferLocations() {
+                    if (!this.transferLocationSearch || this.transferLocationSearch.length < 1) {
+                        this.transferLocationResults = [];
+                        return;
+                    }
+
+                    // Search from all locations in the same warehouse via Livewire
+                    try {
+                        this.transferLocationResults = await this.$wire.searchTransferLocations(
+                            this.transferLocationSearch,
+                            this.editingZone.id
+                        );
+                    } catch (error) {
+                        console.error('Failed to search locations:', error);
+                        this.transferLocationResults = [];
+                    }
+                },
+
+                selectTransferLocation(loc) {
+                    this.selectedTransferLocationId = loc.id;
+                    this.selectedTransferLocation = loc;
+                },
+
+                async executeTransfer() {
+                    if (!this.selectedTransferLocationId || this.selectedStocksForTransfer.length === 0) return;
+                    if (this.transferInProgress) return;
+
+                    this.transferInProgress = true;
+
+                    try {
+                        // Prepare transfer data with specified quantities
+                        const transferItems = this.selectedStocksForTransfer.map(selected => {
+                            const item = this.getSelectedStockItem(selected.real_stock_id);
+                            return {
+                                real_stock_id: selected.real_stock_id,
+                                item_id: item?.item_id,
+                                transfer_qty: selected.transfer_qty,
+                                total_qty: item?.total_qty // Original quantity for partial transfer detection
+                            };
+                        });
+
+                        // Call Livewire method to execute transfer
+                        await this.$wire.executeStockTransfer({
+                            source_location_id: this.editingZone.id,
+                            target_location_id: this.selectedTransferLocationId,
+                            warehouse_id: this.editingZone.warehouse_id,
+                            items: transferItems
+                        });
+
+                        // Close modal and refresh stocks
+                        this.showTransferModal = false;
+                        this.selectedStocksForTransfer = [];
+                        await this.loadLevelStocks(this.editingZone);
+
+                    } catch (error) {
+                        console.error('Transfer failed:', error);
+                    } finally {
+                        this.transferInProgress = false;
+                    }
                 },
 
                 handleCanvasMouseDown(event) {
@@ -1879,8 +2471,25 @@
                     } else if (this.pickingAreaMode === 'draw') {
                         // Handle snapping to start point
                         const rect = document.getElementById('floor-plan-canvas').getBoundingClientRect();
-                        const x = Math.round(event.clientX - rect.left + document.getElementById('floor-plan-canvas').scrollLeft);
-                        const y = Math.round(event.clientY - rect.top + document.getElementById('floor-plan-canvas').scrollTop);
+                        let x = Math.round(event.clientX - rect.left + document.getElementById('floor-plan-canvas').scrollLeft);
+                        let y = Math.round(event.clientY - rect.top + document.getElementById('floor-plan-canvas').scrollTop);
+
+                        // Apply shift constraint for preview
+                        if (event.shiftKey && this.currentPolygonPoints.length > 0) {
+                            const lastPoint = this.currentPolygonPoints[this.currentPolygonPoints.length - 1];
+                            const dx = Math.abs(x - lastPoint.x);
+                            const dy = Math.abs(y - lastPoint.y);
+
+                            if (dx > dy) {
+                                y = lastPoint.y;
+                            } else {
+                                x = lastPoint.x;
+                            }
+                        }
+
+                        // Update preview position
+                        this.drawPreviewPos = { x, y };
+                        this.isShiftPressed = event.shiftKey;
 
                         this.snapPoint = null;
                         if (this.currentPolygonPoints.length > 2) {
@@ -1924,9 +2533,24 @@
                             }
                         } else {
                             const rect = document.getElementById('floor-plan-canvas').getBoundingClientRect();
-                            const x = Math.round(event.clientX - rect.left + document.getElementById('floor-plan-canvas').scrollLeft);
-                            const y = Math.round(event.clientY - rect.top + document.getElementById('floor-plan-canvas').scrollTop);
-                            
+                            let x = Math.round(event.clientX - rect.left + document.getElementById('floor-plan-canvas').scrollLeft);
+                            let y = Math.round(event.clientY - rect.top + document.getElementById('floor-plan-canvas').scrollTop);
+
+                            // Shift key: constrain to horizontal or vertical line
+                            if (event.shiftKey && this.currentPolygonPoints.length > 0) {
+                                const lastPoint = this.currentPolygonPoints[this.currentPolygonPoints.length - 1];
+                                const dx = Math.abs(x - lastPoint.x);
+                                const dy = Math.abs(y - lastPoint.y);
+
+                                if (dx > dy) {
+                                    // Horizontal line
+                                    y = lastPoint.y;
+                                } else {
+                                    // Vertical line
+                                    x = lastPoint.x;
+                                }
+                            }
+
                             this.currentPolygonPoints.push({x, y});
                         }
                         
@@ -1971,39 +2595,92 @@
 
                 deleteZone() {
                     if (confirm('この区画を削除しますか？')) {
-                        const index = this.zones.findIndex(z => z.id === this.editingZone.id);
+                        const zoneId = this.editingZone.id;
+                        const index = this.zones.findIndex(z => z.id === zoneId);
                         if (index !== -1) {
+                            const zone = this.zones[index];
+                            // Only track deletion for existing zones (not new/temp zones)
+                            if (!zone.isNew && typeof zoneId === 'number') {
+                                this.deletedZoneIds.push(zoneId);
+                            }
                             this.zones.splice(index, 1);
                         }
                         this.showEditModal = false;
                         this.editingZone = {};
                         // Remove from selection
-                        this.selectedZones = this.selectedZones.filter(id => id !== this.editingZone.id);
+                        this.selectedZones = this.selectedZones.filter(id => id !== zoneId);
                     }
                 },
 
-                saveAllChanges() {
+                async saveAllChanges() {
                     // Send all changes to Livewire in a single call
-                    // Only send zones that have been moved/resized
+                    // Include moved/resized zones
                     const changedZones = Object.keys(this.zonePositions).map(zoneId => ({
-                        id: parseInt(zoneId),
+                        id: zoneId.startsWith('temp_') ? zoneId : parseInt(zoneId),
                         ...this.zonePositions[zoneId]
                     }));
 
-                    this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas);
+                    // Include new zones (isNew: true)
+                    const newZones = this.zones.filter(z => z.isNew).map(z => ({
+                        id: z.id,
+                        code1: z.code1,
+                        code2: z.code2,
+                        name: z.name,
+                        x1_pos: z.x1_pos,
+                        y1_pos: z.y1_pos,
+                        x2_pos: z.x2_pos,
+                        y2_pos: z.y2_pos,
+                        available_quantity_flags: z.available_quantity_flags,
+                        levels: z.levels || 1,
+                        isNew: true
+                    }));
 
-                    // Clear tracked changes after save
-                    this.zonePositions = {};
+                    await this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas, newZones, this.deletedZoneIds);
+
+                    // Reload page with warehouse/floor parameters
+                    this.reloadWithParams();
                 },
 
                 async saveAllChangesWithWalkable() {
-                    // Save normal changes first
-                    this.saveAllChanges();
+                    // Send all changes to Livewire in a single call
+                    const changedZones = Object.keys(this.zonePositions).map(zoneId => ({
+                        id: zoneId.startsWith('temp_') ? zoneId : parseInt(zoneId),
+                        ...this.zonePositions[zoneId]
+                    }));
+
+                    // Include new zones (isNew: true)
+                    const newZones = this.zones.filter(z => z.isNew).map(z => ({
+                        id: z.id,
+                        code1: z.code1,
+                        code2: z.code2,
+                        name: z.name,
+                        x1_pos: z.x1_pos,
+                        y1_pos: z.y1_pos,
+                        x2_pos: z.x2_pos,
+                        y2_pos: z.y2_pos,
+                        available_quantity_flags: z.available_quantity_flags,
+                        levels: z.levels || 1,
+                        isNew: true
+                    }));
+
+                    await this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas, newZones, this.deletedZoneIds);
 
                     // Save walkable areas if bitmap exists
                     if (this.walkableBitmap) {
                         await this.saveWalkableAreas();
                     }
+
+                    // Reload page with warehouse/floor parameters
+                    this.reloadWithParams();
+                },
+
+                reloadWithParams() {
+                    const warehouseId = this.$wire.selectedWarehouseId;
+                    const floorId = this.$wire.selectedFloorId;
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('warehouse', warehouseId || '');
+                    url.searchParams.set('floor', floorId || '');
+                    window.location.href = url.toString();
                 },
 
                 exportCSV() {
@@ -2276,14 +2953,22 @@
                         this.pickingAreaMode = null;
                         this.currentPolygonPoints = [];
                         this.snapPoint = null;
+                        this.drawPreviewPos = null;
                         this.newPickingAreaName = '';
                         this.newPickingAreaColor = '#8B5CF6';
+                        this.newPickingAreaQuantityFlags = null;
+                        this.newPickingAreaTemperatureType = null;
+                        this.newPickingAreaIsRestricted = false;
                     } else {
                         this.pickingAreaMode = 'draw';
                         this.currentPolygonPoints = [];
                         this.snapPoint = null;
+                        this.drawPreviewPos = null;
                         this.newPickingAreaName = '';
                         this.newPickingAreaColor = '#8B5CF6';
+                        this.newPickingAreaQuantityFlags = null;
+                        this.newPickingAreaTemperatureType = null;
+                        this.newPickingAreaIsRestricted = false;
                         this.walkablePaintMode = null; // Disable other modes
                         this.pickingPointMode = null;
                     }
@@ -2291,6 +2976,7 @@
 
                 resetPickingAreaDrawing() {
                     this.currentPolygonPoints = [];
+                    this.drawPreviewPos = null;
                 },
 
                 savePickingArea() {
@@ -2303,13 +2989,23 @@
                         alert('最低3つの点が必要です');
                         return;
                     }
-                    
-                    this.$wire.savePickingArea(this.newPickingAreaName, this.currentPolygonPoints, this.newPickingAreaColor);
-                    
+
+                    this.$wire.savePickingArea(
+                        this.newPickingAreaName,
+                        this.currentPolygonPoints,
+                        this.newPickingAreaColor,
+                        this.newPickingAreaQuantityFlags,
+                        this.newPickingAreaTemperatureType,
+                        this.newPickingAreaIsRestricted
+                    );
+
                     // Reset for next area, but keep drawing mode
                     this.currentPolygonPoints = [];
                     this.newPickingAreaName = '';
                     this.newPickingAreaColor = '#8B5CF6';
+                    this.newPickingAreaQuantityFlags = null;
+                    this.newPickingAreaTemperatureType = null;
+                    this.newPickingAreaIsRestricted = false;
                     // this.pickingAreaMode = null; // Keep mode active
                 },
 
@@ -2327,6 +3023,109 @@
                     }
                 },
 
+                async openAreaEditModal(area) {
+                    // Get location count for this area
+                    const locationCount = await this.$wire.getAreaLocationCount(area.id);
+
+                    this.editingArea = {
+                        id: area.id,
+                        name: area.name,
+                        color: area.color || '#8B5CF6',
+                        available_quantity_flags: area.available_quantity_flags,
+                        temperature_type: area.temperature_type,
+                        is_restricted_area: area.is_restricted_area || false,
+                        location_count: locationCount
+                    };
+
+                    // Reset search/filter state
+                    this.pickerSearchQuery = '';
+                    this.pickerWarehouseFilter = 'current'; // Default to current warehouse
+                    this.pickerShowSelectedOnly = false;
+                    this.showNewPickerForm = false;
+
+                    // Load warehouses list for filter dropdown
+                    this.warehousesList = await this.$wire.getWarehousesList();
+
+                    // Load pickers (use Livewire property, not Alpine data)
+                    const warehouseId = this.$wire.selectedWarehouseId;
+                    if (warehouseId) {
+                        this.areaPickersList = await this.$wire.getPickersForWarehouse(warehouseId);
+                        // Get currently assigned pickers
+                        const assignedPickers = await this.$wire.getAreaPickers(area.id);
+                        this.selectedAreaPickerIds = assignedPickers.map(p => p.id);
+                    } else {
+                        this.areaPickersList = [];
+                        this.selectedAreaPickerIds = [];
+                    }
+
+                    this.showAreaEditModal = true;
+                },
+
+                toggleAreaPicker(pickerId) {
+                    const idx = this.selectedAreaPickerIds.indexOf(pickerId);
+                    if (idx >= 0) {
+                        this.selectedAreaPickerIds.splice(idx, 1);
+                    } else {
+                        this.selectedAreaPickerIds.push(pickerId);
+                    }
+                },
+
+                async createNewPicker() {
+                    if (!this.newPicker.code || !this.newPicker.name || !this.newPicker.password) {
+                        return;
+                    }
+
+                    try {
+                        // Call Livewire method to create the picker
+                        const newPickerData = await this.$wire.createPicker({
+                            code: this.newPicker.code,
+                            name: this.newPicker.name,
+                            password: this.newPicker.password,
+                            can_access_restricted_area: this.newPicker.can_access_restricted_area
+                        });
+
+                        if (newPickerData) {
+                            // Add to the picker list
+                            this.areaPickersList.push(newPickerData);
+
+                            // Auto-select the new picker
+                            this.selectedAreaPickerIds.push(newPickerData.id);
+
+                            // Reset the form
+                            this.newPicker = { code: '', name: '', password: '', can_access_restricted_area: false };
+                            this.showNewPickerForm = false;
+                        }
+                    } catch (error) {
+                        console.error('Failed to create picker:', error);
+                    }
+                },
+
+                async saveAreaSettings() {
+                    if (!this.editingArea.id) return;
+
+                    try {
+                        // Save area settings
+                        await this.$wire.updatePickingAreaSettings({
+                            id: this.editingArea.id,
+                            name: this.editingArea.name,
+                            color: this.editingArea.color,
+                            available_quantity_flags: this.editingArea.available_quantity_flags,
+                            temperature_type: this.editingArea.temperature_type,
+                            is_restricted_area: this.editingArea.is_restricted_area
+                        });
+
+                        // Save picker assignments
+                        await this.$wire.updateAreaPickers(this.editingArea.id, this.selectedAreaPickerIds);
+
+                        this.showAreaEditModal = false;
+
+                        // Reload page with warehouse/floor parameters
+                        this.reloadWithParams();
+                    } catch (error) {
+                        console.error('Failed to save area settings:', error);
+                    }
+                },
+
                 selectPickingArea(area) {
                     // Placeholder for selection logic if needed
                     console.log('Selected area:', area);
@@ -2339,7 +3138,12 @@
 
                 getPreviewPoints() {
                     if (this.currentPolygonPoints.length === 0) return '';
-                    return this.currentPolygonPoints.map(p => `${p.x},${p.y}`).join(' ');
+                    let points = this.currentPolygonPoints.map(p => `${p.x},${p.y}`).join(' ');
+                    // Add current mouse position to show preview line
+                    if (this.drawPreviewPos && this.currentPolygonPoints.length > 0) {
+                        points += ` ${this.drawPreviewPos.x},${this.drawPreviewPos.y}`;
+                    }
+                    return points;
                 },
 
                 getPolygonCentroid(polygon) {

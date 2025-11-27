@@ -27,8 +27,8 @@ class ExecuteWmsPickingTask extends Page implements HasForms
 
     public function mount(WmsPickingTask $record): void
     {
-        // ステータスがPENDINGまたはSHORTAGEの場合、PICKINGに変更
-        if (in_array($record->status, ['PENDING', 'SHORTAGE'])) {
+        // ステータスがPICKING_READY, PENDING, SHORTAGEの場合、PICKINGに変更
+        if (in_array($record->status, ['PICKING_READY', 'PENDING', 'SHORTAGE'])) {
             $record->update([
                 'status' => 'PICKING',
                 'started_at' => $record->started_at ?? now(),

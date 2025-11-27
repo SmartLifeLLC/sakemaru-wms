@@ -270,27 +270,29 @@ class FloorPlanController extends Controller
     }
 
     /**
-     * Get stock data for a location (grouped by expiration date and item details)
+     * Get stock data for a location (each real_stock record individually for transfer support)
      */
      public function getZoneStocks($locationId)
      {
          $location = Location::findOrFail($locationId);
 
-         // Get stock data for this location, joining items to get details and grouping by item and expiration date
+         // Get stock data for this location, joining items to get details
+         // Return each real_stock record individually to support stock transfer
          $stocks = DB::connection('sakemaru')
              ->table('real_stocks as rs')
              ->leftJoin('items as i', 'rs.item_id', '=', 'i.id')
              ->where('rs.location_id', $location->id)
+             ->where('rs.current_quantity', '>', 0)
              ->select([
+                 'rs.id as real_stock_id',
                  'rs.item_id',
                  'i.name as item_name',
                  'i.capacity_case',
                  'i.volume',
                  'i.volume_unit',
                  'rs.expiration_date',
-                 DB::raw('SUM(rs.current_quantity) as total_qty'),
+                 'rs.current_quantity as total_qty',
              ])
-             ->groupBy('rs.item_id', 'i.name', 'i.capacity_case', 'i.volume', 'i.volume_unit', 'rs.expiration_date')
              ->orderBy('i.name')
              ->orderBy('rs.expiration_date')
              ->get();
@@ -298,6 +300,7 @@ class FloorPlanController extends Controller
          $items = [];
          foreach ($stocks as $stock) {
              $items[] = [
+                 'real_stock_id' => $stock->real_stock_id,
                  'item_id' => $stock->item_id,
                  'item_name' => $stock->item_name,
                  'capacity_case' => $stock->capacity_case,

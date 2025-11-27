@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Sakemaru\Floor;
@@ -9,6 +10,9 @@ use App\Models\Sakemaru\Location;
 use App\Models\WmsLocationLevel;
 use App\Models\WmsWarehouseLayout;
 use App\Models\WmsFloorObject;
+use App\Models\WmsPickingArea;
+use App\Models\WmsLocation;
+use App\Models\WmsPicker;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Livewire\Attributes\Computed;
@@ -59,7 +63,7 @@ class FloorPlanEditor extends Page
 
     public static function getNavigationSort(): ?int
     {
-        return 50;
+        return EMenu::FLOOR_PLAN_EDITOR->sort();
     }
 
     public function getTitle(): string
@@ -81,22 +85,44 @@ class FloorPlanEditor extends Page
         $this->colors = WmsWarehouseLayout::getDefaultColors();
         $this->textStyles = WmsWarehouseLayout::getDefaultTextStyles();
 
-        // Set default warehouse if available
-        $firstWarehouse = Warehouse::where('is_active', true)->orderBy('code')->first();
-        if ($firstWarehouse) {
-            $this->selectedWarehouseId = $firstWarehouse->id;
+        // Check for URL parameters first
+        $warehouseParam = request()->query('warehouse');
+        $floorParam = request()->query('floor');
 
-            // Set default floor if available
-            $firstFloor = Floor::where('warehouse_id', $this->selectedWarehouseId)
-                ->where('is_active', true)
-                ->orderBy('code')
-                ->first();
-
-            if ($firstFloor) {
-                $this->selectedFloorId = $firstFloor->id;
+        if ($warehouseParam) {
+            // Use URL parameters
+            $this->selectedWarehouseId = (int) $warehouseParam;
+            if ($floorParam) {
+                $this->selectedFloorId = (int) $floorParam;
+            } else {
+                // Get first floor for this warehouse
+                $firstFloor = Floor::where('warehouse_id', $this->selectedWarehouseId)
+                    ->where('is_active', true)
+                    ->orderBy('code')
+                    ->first();
+                if ($firstFloor) {
+                    $this->selectedFloorId = $firstFloor->id;
+                }
             }
-
             $this->loadLayout();
+        } else {
+            // Set default warehouse if available
+            $firstWarehouse = Warehouse::where('is_active', true)->orderBy('code')->first();
+            if ($firstWarehouse) {
+                $this->selectedWarehouseId = $firstWarehouse->id;
+
+                // Set default floor if available
+                $firstFloor = Floor::where('warehouse_id', $this->selectedWarehouseId)
+                    ->where('is_active', true)
+                    ->orderBy('code')
+                    ->first();
+
+                if ($firstFloor) {
+                    $this->selectedFloorId = $firstFloor->id;
+                }
+
+                $this->loadLayout();
+            }
         }
     }
 
@@ -114,7 +140,8 @@ class FloorPlanEditor extends Page
                 canvasWidth: $this->canvasWidth,
                 canvasHeight: $this->canvasHeight,
                 walkableAreas: $this->walkableAreas,
-                navmeta: $this->navmeta
+                navmeta: $this->navmeta,
+                pickingAreas: $this->pickingAreas
             );
         }
     }
@@ -223,26 +250,37 @@ class FloorPlanEditor extends Page
                 ->first();
         }
 
-        if (!$layout) {
-            $this->resetToDefaults();
-            return;
+        if ($layout) {
+            // Load settings from database
+            $this->canvasWidth = $layout->width ?? 2000;
+            $this->canvasHeight = $layout->height ?? 1500;
+            $this->colors = $layout->colors ?? WmsWarehouseLayout::getDefaultColors();
+            $this->textStyles = $layout->text_styles ?? WmsWarehouseLayout::getDefaultTextStyles();
+            $this->walls = $layout->walls ?? [];
+            $this->fixedAreas = $layout->fixed_areas ?? [];
+            $this->pickingStartX = $layout->picking_start_x ?? 0;
+            $this->pickingStartY = $layout->picking_start_y ?? 0;
+            $this->pickingEndX = $layout->picking_end_x ?? 0;
+            $this->pickingEndY = $layout->picking_end_y ?? 0;
+            $this->walkableAreas = $layout->walkable_areas ?? null;
+            $this->navmeta = $layout->navmeta ?? null;
+        } else {
+            // Reset layout settings but continue to load picking areas
+            $this->canvasWidth = 2000;
+            $this->canvasHeight = 1500;
+            $this->colors = WmsWarehouseLayout::getDefaultColors();
+            $this->textStyles = WmsWarehouseLayout::getDefaultTextStyles();
+            $this->walls = [];
+            $this->fixedAreas = [];
+            $this->pickingStartX = 0;
+            $this->pickingStartY = 0;
+            $this->pickingEndX = 0;
+            $this->pickingEndY = 0;
+            $this->walkableAreas = null;
+            $this->navmeta = null;
         }
 
-        // Load settings from database
-        $this->canvasWidth = $layout->width ?? 2000;
-        $this->canvasHeight = $layout->height ?? 1500;
-        $this->colors = $layout->colors ?? WmsWarehouseLayout::getDefaultColors();
-        $this->textStyles = $layout->text_styles ?? WmsWarehouseLayout::getDefaultTextStyles();
-        $this->walls = $layout->walls ?? [];
-        $this->fixedAreas = $layout->fixed_areas ?? [];
-        $this->pickingStartX = $layout->picking_start_x ?? 0;
-        $this->pickingStartY = $layout->picking_start_y ?? 0;
-        $this->pickingEndX = $layout->picking_end_x ?? 0;
-        $this->pickingEndY = $layout->picking_end_y ?? 0;
-        $this->walkableAreas = $layout->walkable_areas ?? null;
-        $this->navmeta = $layout->navmeta ?? null;
-
-        // Load picking areas
+        // Always load picking areas (regardless of layout existence)
         $this->pickingAreas = \App\Models\WmsPickingArea::where('warehouse_id', $this->selectedWarehouseId)
             ->where('floor_id', $this->selectedFloorId)
             ->get()
@@ -252,6 +290,35 @@ class FloorPlanEditor extends Page
                     'name' => $area->name,
                     'color' => $area->color ?? '#8B5CF6',
                     'polygon' => $area->polygon,
+                    'available_quantity_flags' => $area->available_quantity_flags,
+                    'temperature_type' => $area->temperature_type,
+                    'is_restricted_area' => $area->is_restricted_area ?? false,
+                ];
+            })->values()->toArray();
+    }
+
+    /**
+     * Reload picking areas (called after update)
+     */
+    private function loadPickingAreas(): void
+    {
+        if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+            $this->pickingAreas = [];
+            return;
+        }
+
+        $this->pickingAreas = WmsPickingArea::where('warehouse_id', $this->selectedWarehouseId)
+            ->where('floor_id', $this->selectedFloorId)
+            ->get()
+            ->map(function ($area) {
+                return [
+                    'id' => $area->id,
+                    'name' => $area->name,
+                    'color' => $area->color ?? '#8B5CF6',
+                    'polygon' => $area->polygon,
+                    'available_quantity_flags' => $area->available_quantity_flags,
+                    'temperature_type' => $area->temperature_type,
+                    'is_restricted_area' => $area->is_restricted_area ?? false,
                 ];
             })->values()->toArray();
     }
@@ -282,6 +349,10 @@ class FloorPlanEditor extends Page
     public function saveLayout(): void
     {
         if (!$this->selectedWarehouseId) {
+            \Filament\Notifications\Notification::make()
+                ->title('倉庫を選択してください')
+                ->danger()
+                ->send();
             return;
         }
 
@@ -305,6 +376,14 @@ class FloorPlanEditor extends Page
                 'navmeta' => $this->navmeta,
             ]
         );
+
+        \Filament\Notifications\Notification::make()
+            ->title('レイアウト設定を保存しました')
+            ->success()
+            ->send();
+
+        // Dispatch event to close modal and update canvas
+        $this->dispatch('layout-saved', canvasWidth: $this->canvasWidth, canvasHeight: $this->canvasHeight);
     }
 
     /**
@@ -372,7 +451,8 @@ class FloorPlanEditor extends Page
             canvasWidth: $this->canvasWidth,
             canvasHeight: $this->canvasHeight,
             walkableAreas: $this->walkableAreas,
-            navmeta: $this->navmeta
+            navmeta: $this->navmeta,
+            pickingAreas: $this->pickingAreas
         );
     }
 
@@ -392,7 +472,8 @@ class FloorPlanEditor extends Page
             canvasWidth: $this->canvasWidth,
             canvasHeight: $this->canvasHeight,
             walkableAreas: $this->walkableAreas,
-            navmeta: $this->navmeta
+            navmeta: $this->navmeta,
+            pickingAreas: $this->pickingAreas
         );
     }
 
@@ -526,7 +607,12 @@ class FloorPlanEditor extends Page
             $this->dispatch('layout-loaded',
                 zones: $zones,
                 walls: $this->walls,
-                fixedAreas: $this->fixedAreas
+                fixedAreas: $this->fixedAreas,
+                canvasWidth: $this->canvasWidth,
+                canvasHeight: $this->canvasHeight,
+                walkableAreas: $this->walkableAreas,
+                navmeta: $this->navmeta,
+                pickingAreas: $this->pickingAreas
             );
 
             \Filament\Notifications\Notification::make()
@@ -576,16 +662,34 @@ class FloorPlanEditor extends Page
     }
 
     /**
-     * Save all positions at once (zones, walls, fixed areas)
+     * Save all positions at once (zones, walls, fixed areas, new zones, deleted zones)
      */
-    public function saveAllPositions(array $changedZones, array $walls, array $fixedAreas): void
+    public function saveAllPositions(array $changedZones, array $walls, array $fixedAreas, array $newZones = [], array $deletedZoneIds = []): void
     {
         if (!$this->selectedWarehouseId) {
             return;
         }
 
+        // Delete zones
+        $deletedCount = 0;
+        if (!empty($deletedZoneIds)) {
+            foreach ($deletedZoneIds as $zoneId) {
+                $location = Location::find($zoneId);
+                if ($location) {
+                    // Delete related WmsLocationLevels first
+                    WmsLocationLevel::where('location_id', $zoneId)->delete();
+                    $location->delete();
+                    $deletedCount++;
+                }
+            }
+        }
+
         // Update only changed zones positions in database
         foreach ($changedZones as $zoneData) {
+            // Skip temp IDs (new zones are handled separately)
+            if (is_string($zoneData['id']) && str_starts_with($zoneData['id'], 'temp_')) {
+                continue;
+            }
             $location = Location::find($zoneData['id']);
             if ($location) {
                 $location->update([
@@ -594,6 +698,51 @@ class FloorPlanEditor extends Page
                     'x2_pos' => $zoneData['x2_pos'],
                     'y2_pos' => $zoneData['y2_pos'],
                 ]);
+            }
+        }
+
+        // Create new zones
+        $createdCount = 0;
+        if (!empty($newZones) && $this->selectedFloorId) {
+            $floor = Floor::find($this->selectedFloorId);
+            $warehouse = Warehouse::find($this->selectedWarehouseId);
+
+            if ($floor && $warehouse) {
+                foreach ($newZones as $zoneData) {
+                    // Generate location name
+                    $locationName = "{$warehouse->name}{$floor->name}-{$zoneData['code1']}-{$zoneData['code2']}";
+
+                    // Create the location
+                    $newLocation = Location::create([
+                        'client_id' => $floor->client_id,
+                        'warehouse_id' => $this->selectedWarehouseId,
+                        'floor_id' => $this->selectedFloorId,
+                        'code1' => $zoneData['code1'],
+                        'code2' => $zoneData['code2'],
+                        'code3' => null,
+                        'name' => $zoneData['name'] === 'NEW ZONE' ? $locationName : $zoneData['name'],
+                        'x1_pos' => $zoneData['x1_pos'],
+                        'y1_pos' => $zoneData['y1_pos'],
+                        'x2_pos' => $zoneData['x2_pos'],
+                        'y2_pos' => $zoneData['y2_pos'],
+                        'available_quantity_flags' => $zoneData['available_quantity_flags'] ?? 3,
+                        'creator_id' => 0,
+                        'last_updater_id' => 0,
+                    ]);
+
+                    // Create WMS levels for this location
+                    $levels = $zoneData['levels'] ?? 1;
+                    for ($level = 1; $level <= $levels; $level++) {
+                        WmsLocationLevel::create([
+                            'location_id' => $newLocation->id,
+                            'level_number' => $level,
+                            'name' => "{$newLocation->name} {$level}段",
+                            'available_quantity_flags' => $zoneData['available_quantity_flags'] ?? 3,
+                        ]);
+                    }
+
+                    $createdCount++;
+                }
             }
         }
 
@@ -607,8 +756,19 @@ class FloorPlanEditor extends Page
         $this->saveLayout();
 
         // Show success notification
+        $message = '保存しました';
+        $details = [];
+        if ($createdCount > 0) {
+            $details[] = "新規: {$createdCount}件";
+        }
+        if ($deletedCount > 0) {
+            $details[] = "削除: {$deletedCount}件";
+        }
+        if (!empty($details)) {
+            $message .= '（' . implode('、', $details) . '）';
+        }
         \Filament\Notifications\Notification::make()
-            ->title('保存しました')
+            ->title($message)
             ->success()
             ->send();
     }
@@ -804,7 +964,10 @@ class FloorPlanEditor extends Page
                 walls: $this->walls,
                 fixedAreas: $this->fixedAreas,
                 canvasWidth: $this->canvasWidth,
-                canvasHeight: $this->canvasHeight
+                canvasHeight: $this->canvasHeight,
+                walkableAreas: $this->walkableAreas,
+                navmeta: $this->navmeta,
+                pickingAreas: $this->pickingAreas
             );
 
             \Filament\Notifications\Notification::make()
@@ -824,7 +987,14 @@ class FloorPlanEditor extends Page
     /**
      * Save new picking area
      */
-    public function savePickingArea(string $name, array $polygon, string $color = '#8B5CF6'): void
+    public function savePickingArea(
+        string $name,
+        array $polygon,
+        string $color = '#8B5CF6',
+        ?int $availableQuantityFlags = null,
+        ?string $temperatureType = null,
+        bool $isRestrictedArea = false
+    ): void
     {
         if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
             return;
@@ -832,13 +1002,16 @@ class FloorPlanEditor extends Page
 
         try {
             // Create with temporary code
-            $area = \App\Models\WmsPickingArea::create([
+            $area = WmsPickingArea::create([
                 'warehouse_id' => $this->selectedWarehouseId,
                 'floor_id' => $this->selectedFloorId,
                 'code' => uniqid(),
                 'name' => $name,
                 'color' => $color,
                 'polygon' => $polygon,
+                'available_quantity_flags' => $availableQuantityFlags,
+                'temperature_type' => $temperatureType,
+                'is_restricted_area' => $isRestrictedArea,
                 'is_active' => true,
             ]);
 
@@ -847,6 +1020,11 @@ class FloorPlanEditor extends Page
 
             // Assign locations to this area
             $count = $this->assignLocationsToArea($area);
+
+            // Apply area settings to the assigned locations
+            if ($count > 0) {
+                $area->applySettingsToLocations();
+            }
 
             // Reload layout
             $this->loadLayout();
@@ -900,6 +1078,41 @@ class FloorPlanEditor extends Page
             if ($this->isPointInPolygon($centerX, $centerY, $polygon)) {
                 // Update WmsLocation
                 \App\Models\WmsLocation::updateOrCreate(
+                    ['location_id' => $location->id],
+                    ['wms_picking_area_id' => $area->id]
+                );
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * Reassign locations to the picking area based on current positions
+     * This clears existing assignments and re-evaluates all locations
+     */
+    private function reassignLocationsToArea(\App\Models\WmsPickingArea $area): int
+    {
+        $polygon = $area->polygon;
+        if (empty($polygon) || count($polygon) < 3) {
+            return 0;
+        }
+
+        // Clear existing assignments for this area
+        WmsLocation::where('wms_picking_area_id', $area->id)->update(['wms_picking_area_id' => null]);
+
+        $locations = Location::where('floor_id', $area->floor_id)->get();
+        $count = 0;
+
+        foreach ($locations as $location) {
+            // Check if center point of location is inside polygon
+            $centerX = ($location->x1_pos + $location->x2_pos) / 2;
+            $centerY = ($location->y1_pos + $location->y2_pos) / 2;
+
+            if ($this->isPointInPolygon($centerX, $centerY, $polygon)) {
+                // Update WmsLocation
+                WmsLocation::updateOrCreate(
                     ['location_id' => $location->id],
                     ['wms_picking_area_id' => $area->id]
                 );
@@ -984,6 +1197,64 @@ class FloorPlanEditor extends Page
                 ->send();
         }
     }
+
+    /**
+     * Get location count for a picking area
+     */
+    public function getAreaLocationCount(int $areaId): int
+    {
+        return WmsLocation::where('wms_picking_area_id', $areaId)->count();
+    }
+
+    /**
+     * Update picking area settings and apply to locations
+     */
+    public function updatePickingAreaSettings(array $data): void
+    {
+        try {
+            $area = WmsPickingArea::find($data['id']);
+
+            if (!$area) {
+                \Filament\Notifications\Notification::make()
+                    ->title('エリアが見つかりません')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            // Update area settings
+            $area->update([
+                'name' => $data['name'],
+                'color' => $data['color'],
+                'available_quantity_flags' => $data['available_quantity_flags'],
+                'temperature_type' => $data['temperature_type'],
+                'is_restricted_area' => $data['is_restricted_area'] ?? false,
+            ]);
+
+            // Reassign locations based on current positions
+            $locationCount = $this->reassignLocationsToArea($area);
+
+            // Apply settings to all locations in this area
+            $area->applySettingsToLocations();
+
+            // Reload pickingAreas
+            $this->loadPickingAreas();
+
+            \Filament\Notifications\Notification::make()
+                ->title('エリア設定を更新しました')
+                ->body("{$locationCount} 件のロケーションを割り当てました")
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('更新に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
     /**
      * Update picking start point
      */
@@ -1154,6 +1425,374 @@ class FloorPlanEditor extends Page
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
+        }
+    }
+
+    /**
+     * Search locations in the same warehouse for stock transfer
+     */
+    public function searchTransferLocations(string $search, int $excludeLocationId): array
+    {
+        if (!$this->selectedWarehouseId || strlen($search) < 1) {
+            return [];
+        }
+
+        $locations = Location::where('warehouse_id', $this->selectedWarehouseId)
+            ->where('id', '!=', $excludeLocationId)
+            ->whereNotNull('code1')
+            ->whereNotNull('code2')
+            ->where(function ($query) use ($search) {
+                $query->where('name', 'like', "%{$search}%")
+                    ->orWhere('code1', 'like', "%{$search}%")
+                    ->orWhere('code2', 'like', "%{$search}%")
+                    ->orWhereRaw("CONCAT(code1, code2) LIKE ?", ["%{$search}%"]);
+            })
+            ->with('floor:id,name,code')
+            ->orderBy('code1')
+            ->orderBy('code2')
+            ->limit(20)
+            ->get(['id', 'floor_id', 'code1', 'code2', 'name']);
+
+        return $locations->map(function ($loc) {
+            return [
+                'id' => $loc->id,
+                'code1' => $loc->code1,
+                'code2' => $loc->code2,
+                'name' => $loc->name,
+                'floor_name' => $loc->floor?->name ?? '',
+            ];
+        })->toArray();
+    }
+
+    /**
+     * Execute stock transfer between locations
+     */
+    public function executeStockTransfer(array $transferData): void
+    {
+        try {
+            $sourceLocationId = $transferData['source_location_id'];
+            $targetLocationId = $transferData['target_location_id'];
+            $warehouseId = $transferData['warehouse_id'];
+            $items = $transferData['items'] ?? [];
+
+            if (empty($items)) {
+                \Filament\Notifications\Notification::make()
+                    ->title('移動する商品が選択されていません')
+                    ->warning()
+                    ->send();
+                return;
+            }
+
+            // Get current user info for worker tracking
+            $userId = auth()->id();
+            $userName = auth()->user()?->name ?? 'Unknown';
+
+            \Illuminate\Support\Facades\DB::connection('sakemaru')->transaction(function () use (
+                $sourceLocationId,
+                $targetLocationId,
+                $warehouseId,
+                $items,
+                $userId,
+                $userName
+            ) {
+                foreach ($items as $item) {
+                    $realStockId = $item['real_stock_id'];
+                    $itemId = $item['item_id'];
+                    $transferQty = (int) $item['transfer_qty'];
+                    $totalQty = (int) ($item['total_qty'] ?? $transferQty);
+
+                    // Get the source real_stock record
+                    $sourceStock = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                        ->table('real_stocks')
+                        ->where('id', $realStockId)
+                        ->first();
+
+                    if (!$sourceStock) {
+                        continue;
+                    }
+
+                    if ($transferQty >= $totalQty) {
+                        // Full transfer: just update the location_id
+                        \Illuminate\Support\Facades\DB::connection('sakemaru')
+                            ->table('real_stocks')
+                            ->where('id', $realStockId)
+                            ->update([
+                                'location_id' => $targetLocationId,
+                                'updated_at' => now(),
+                            ]);
+                    } else {
+                        // Partial transfer: reduce source and create/update target
+                        $remainingQty = $totalQty - $transferQty;
+
+                        // Reduce quantity at source location
+                        \Illuminate\Support\Facades\DB::connection('sakemaru')
+                            ->table('real_stocks')
+                            ->where('id', $realStockId)
+                            ->update([
+                                'current_quantity' => $remainingQty,
+                                'available_quantity' => \Illuminate\Support\Facades\DB::raw("GREATEST(0, available_quantity - {$transferQty})"),
+                                'updated_at' => now(),
+                            ]);
+
+                        // Check if there's an existing stock at target location with same item/expiration
+                        $existingTargetStock = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                            ->table('real_stocks')
+                            ->where('location_id', $targetLocationId)
+                            ->where('item_id', $sourceStock->item_id)
+                            ->where('expiration_date', $sourceStock->expiration_date)
+                            ->where('client_id', $sourceStock->client_id)
+                            ->first();
+
+                        if ($existingTargetStock) {
+                            // Add to existing stock at target
+                            \Illuminate\Support\Facades\DB::connection('sakemaru')
+                                ->table('real_stocks')
+                                ->where('id', $existingTargetStock->id)
+                                ->update([
+                                    'current_quantity' => $existingTargetStock->current_quantity + $transferQty,
+                                    'available_quantity' => $existingTargetStock->available_quantity + $transferQty,
+                                    'updated_at' => now(),
+                                ]);
+                        } else {
+                            // Get target location's floor_id
+                            $targetLocation = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                                ->table('locations')
+                                ->where('id', $targetLocationId)
+                                ->first();
+
+                            // Create new stock record at target location
+                            \Illuminate\Support\Facades\DB::connection('sakemaru')
+                                ->table('real_stocks')
+                                ->insert([
+                                    'client_id' => $sourceStock->client_id,
+                                    'warehouse_id' => $sourceStock->warehouse_id,
+                                    'floor_id' => $targetLocation?->floor_id ?? $sourceStock->floor_id,
+                                    'location_id' => $targetLocationId,
+                                    'item_id' => $sourceStock->item_id,
+                                    'stock_allocation_id' => $sourceStock->stock_allocation_id,
+                                    'purchase_id' => $sourceStock->purchase_id,
+                                    'trade_item_id' => $sourceStock->trade_item_id,
+                                    'expiration_date' => $sourceStock->expiration_date,
+                                    'price' => $sourceStock->price,
+                                    'item_management_type' => $sourceStock->item_management_type,
+                                    'order_rank' => $sourceStock->order_rank ?? '',
+                                    'order_parameter' => $sourceStock->order_parameter,
+                                    'content_amount' => $sourceStock->content_amount,
+                                    'container_amount' => $sourceStock->container_amount,
+                                    'current_quantity' => $transferQty,
+                                    'available_quantity' => $transferQty,
+                                    'reserved_quantity' => 0,
+                                    'picking_quantity' => 0,
+                                    'wms_reserved_qty' => 0,
+                                    'wms_picking_qty' => 0,
+                                    'wms_lock_version' => 0,
+                                    'lock_version' => 0,
+                                    'created_at' => now(),
+                                    'updated_at' => now(),
+                                ]);
+                        }
+                    }
+
+                    // Create transfer history record
+                    \App\Models\WmsStockTransfer::create([
+                        'item_id' => $itemId,
+                        'real_stock_id' => $realStockId,
+                        'transfer_qty' => $transferQty,
+                        'warehouse_id' => $warehouseId,
+                        'item_management_type' => 'NONE',
+                        'source_location_id' => $sourceLocationId,
+                        'target_location_id' => $targetLocationId,
+                        'worker_id' => $userId,
+                        'worker_name' => $userName,
+                        'transferred_at' => now(),
+                    ]);
+                }
+            });
+
+            $itemCount = count($items);
+            \Filament\Notifications\Notification::make()
+                ->title("在庫を移動しました（{$itemCount}件）")
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('在庫移動に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    /**
+     * Get all active pickers (for area assignment)
+     */
+    public function getPickersForWarehouse(int $warehouseId): array
+    {
+        // Get warehouse names for display
+        $warehouseNames = \Illuminate\Support\Facades\DB::connection('sakemaru')
+            ->table('warehouses')
+            ->pluck('name', 'id')
+            ->toArray();
+
+        // Return all active pickers - any picker can be assigned to any area
+        return WmsPicker::where('is_active', true)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name', 'can_access_restricted_area', 'default_warehouse_id'])
+            ->map(fn ($picker) => [
+                'id' => $picker->id,
+                'code' => $picker->code,
+                'name' => $picker->name,
+                'display_name' => "[{$picker->code}] {$picker->name}",
+                'can_access_restricted_area' => $picker->can_access_restricted_area,
+                'default_warehouse_id' => $picker->default_warehouse_id,
+                'warehouse_name' => $picker->default_warehouse_id ? ($warehouseNames[$picker->default_warehouse_id] ?? null) : null,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Get all active warehouses for filter dropdown
+     */
+    public function getWarehousesList(): array
+    {
+        return \Illuminate\Support\Facades\DB::connection('sakemaru')
+            ->table('warehouses')
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name'])
+            ->map(fn ($wh) => [
+                'id' => $wh->id,
+                'code' => $wh->code,
+                'name' => $wh->name,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Get pickers assigned to a picking area
+     */
+    public function getAreaPickers(int $areaId): array
+    {
+        $area = WmsPickingArea::find($areaId);
+        if (!$area) {
+            return [];
+        }
+
+        return $area->pickers()
+            ->orderBy('code')
+            ->get(['wms_pickers.id', 'code', 'name', 'can_access_restricted_area'])
+            ->map(fn ($picker) => [
+                'id' => $picker->id,
+                'code' => $picker->code,
+                'name' => $picker->name,
+                'display_name' => "[{$picker->code}] {$picker->name}",
+                'can_access_restricted_area' => $picker->can_access_restricted_area,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Update picker assignments for a picking area
+     */
+    public function updateAreaPickers(int $areaId, array $pickerIds): void
+    {
+        try {
+            $area = WmsPickingArea::find($areaId);
+            if (!$area) {
+                \Filament\Notifications\Notification::make()
+                    ->title('エリアが見つかりません')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            // Sync pickers (this will add/remove as needed)
+            $area->pickers()->sync($pickerIds);
+
+            \Filament\Notifications\Notification::make()
+                ->title('担当ピッカーを更新しました')
+                ->body(count($pickerIds) . '名のピッカーを設定しました')
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('更新に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    /**
+     * Create a new picker from the area settings modal
+     */
+    public function createPicker(array $data): ?array
+    {
+        try {
+            // Validate required fields
+            if (empty($data['code']) || empty($data['name']) || empty($data['password'])) {
+                \Filament\Notifications\Notification::make()
+                    ->title('必須項目を入力してください')
+                    ->danger()
+                    ->send();
+                return null;
+            }
+
+            // Check for duplicate code
+            $existingPicker = WmsPicker::where('code', $data['code'])->first();
+            if ($existingPicker) {
+                \Filament\Notifications\Notification::make()
+                    ->title('このコードは既に使用されています')
+                    ->danger()
+                    ->send();
+                return null;
+            }
+
+            // Create the picker
+            $picker = WmsPicker::create([
+                'code' => $data['code'],
+                'name' => $data['name'],
+                'password' => \Illuminate\Support\Facades\Hash::make($data['password']),
+                'default_warehouse_id' => $this->selectedWarehouseId,
+                'can_access_restricted_area' => $data['can_access_restricted_area'] ?? false,
+                'is_active' => true,
+            ]);
+
+            \Filament\Notifications\Notification::make()
+                ->title('ピッカーを登録しました')
+                ->body("[{$picker->code}] {$picker->name}")
+                ->success()
+                ->send();
+
+            // Get warehouse name for display
+            $warehouseName = null;
+            if ($this->selectedWarehouseId) {
+                $warehouseName = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                    ->table('warehouses')
+                    ->where('id', $this->selectedWarehouseId)
+                    ->value('name');
+            }
+
+            // Return the new picker data for Alpine.js
+            return [
+                'id' => $picker->id,
+                'code' => $picker->code,
+                'name' => $picker->name,
+                'display_name' => "[{$picker->code}] {$picker->name}",
+                'can_access_restricted_area' => $picker->can_access_restricted_area,
+                'default_warehouse_id' => $this->selectedWarehouseId,
+                'warehouse_name' => $warehouseName,
+            ];
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('登録に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+            return null;
         }
     }
 }

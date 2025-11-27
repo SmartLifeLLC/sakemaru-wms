@@ -25,6 +25,8 @@ class WmsPickingTasksTable
     {
         return $table
             ->striped()
+            ->defaultPaginationPageOption(50)
+            ->paginationPageOptions([25, 50, 100])
             ->columns([
                 TextColumn::make('id')
                     ->label('タスクID')
@@ -53,13 +55,32 @@ class WmsPickingTasksTable
                     })
                     ->sortable(),
 
+                TextColumn::make('soft_shortage_count')
+                    ->label('引当欠品')
+                    ->badge()
+                    ->color(fn($state) => $state > 0 ? 'danger' : 'gray')
+                    ->formatStateUsing(fn($state) => $state > 0 ? "欠品あり ({$state}件)" : '-')
+                    ->toggleable(isToggledHiddenByDefault: false),
+
+                TextColumn::make('picking_shortage_count')
+                    ->label('庫内欠品')
+                    ->badge()
+                    ->color(fn($state) => $state > 0 ? 'warning' : 'gray')
+                    ->state(function ($record) {
+                        // planned_qty - picked_qty の合計を計算
+                        return $record->pickingItemResults->sum(function ($item) {
+                            return max(0, ($item->planned_qty ?? 0) - ($item->picked_qty ?? 0));
+                        });
+                    })
+                    ->formatStateUsing(fn($state) => $state > 0 ? "{$state}" : '-')
+                    ->toggleable(isToggledHiddenByDefault: false),
+
                 TextColumn::make('serial_ids')
                     ->label('識別ID')
                     ->default('-')
                     ->formatStateUsing(function ($record) {
-                        $serialIds = $record->pickingItemResults()
-                            ->with('trade')
-                            ->get()
+                        // Use already eager-loaded relation
+                        $serialIds = $record->pickingItemResults
                             ->pluck('trade.serial_id')
                             ->filter()
                             ->unique()
@@ -76,44 +97,44 @@ class WmsPickingTasksTable
                     })
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('partner_codes')
-                    ->label('得意先コード')
+                TextColumn::make('partner_count')
+                    ->label('得意先数')
                     ->default('-')
                     ->formatStateUsing(function ($record) {
-                        $partnerCodes = $record->pickingItemResults()
-                            ->with('earning.buyer.partner')
-                            ->get()
-                            ->pluck('earning.buyer.partner.code')
+                        // Use already eager-loaded relation
+                        $count = $record->pickingItemResults
+                            ->pluck('earning.buyer.partner.id')
                             ->filter()
                             ->unique()
-                            ->sort()
-                            ->values()
-                            ->toArray();
+                            ->count();
 
-                        return !empty($partnerCodes) ? implode(', ', $partnerCodes) : '-';
+                        return $count > 0 ? "{$count}件" : '-';
                     })
-                    ->searchable(query: function ($query, $search) {
-                        return $query->whereHas('pickingItemResults.earning.buyer.partner', function ($q) use ($search) {
-                            $q->where('code', 'like', "%{$search}%");
-                        });
-                    })
+                    ->alignCenter()
                     ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('partner_names')
                     ->label('得意先名')
                     ->default('-')
                     ->formatStateUsing(function ($record) {
-                        $partnerNames = $record->pickingItemResults()
-                            ->with('earning.buyer.partner')
-                            ->get()
+                        // Use already eager-loaded relation
+                        $partnerNames = $record->pickingItemResults
                             ->pluck('earning.buyer.partner.name')
                             ->filter()
                             ->unique()
                             ->sort()
-                            ->values()
-                            ->toArray();
+                            ->values();
 
-                        return !empty($partnerNames) ? implode(', ', $partnerNames) : '-';
+                        if ($partnerNames->isEmpty()) {
+                            return '-';
+                        }
+
+                        // 2件以上の場合は6文字で省略（...なし）
+                        if ($partnerNames->count() >= 2) {
+                            $partnerNames = $partnerNames->map(fn ($name) => mb_substr($name, 0, 6));
+                        }
+
+                        return $partnerNames->implode(', ');
                     })
                     ->searchable(query: function ($query, $search) {
                         return $query->whereHas('pickingItemResults.earning.buyer.partner', function ($q) use ($search) {
@@ -234,8 +255,33 @@ class WmsPickingTasksTable
                             default => $query,
                         };
                     }),
+
+                SelectFilter::make('has_soft_shortage')
+                    ->label('引当欠品')
+                    ->options([
+                        'with_shortage' => '欠品あり',
+                        'without_shortage' => '欠品なし',
+                    ])
+                    ->query(function ($query, $state) {
+                        return match ($state['value'] ?? null) {
+                            'with_shortage' => $query->whereHas('pickingItemResults', function ($subQuery) {
+                                $subQuery->where('has_soft_shortage', true);
+                            }),
+                            'without_shortage' => $query->whereDoesntHave('pickingItemResults', function ($subQuery) {
+                                $subQuery->where('has_soft_shortage', true);
+                            }),
+                            default => $query,
+                        };
+                    }),
             ])
             ->recordActions([
+                Action::make('execute')
+                    ->label('ピッキング実施')
+                    ->icon('heroicon-o-play')
+                    ->color('primary')
+                    ->url(fn ($record) => WmsPickingTaskResource::getUrl('execute', ['record' => $record->id]))
+                    ->visible(fn ($record) => in_array($record->status, ['PICKING_READY', 'PICKING'])),
+
                 Action::make('edit_items')
                     ->label('明細確認')
                     ->icon('heroicon-o-list-bullet')

@@ -2,11 +2,11 @@
 
 namespace App\Filament\Resources\WmsPickingLogs;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WmsPickingLogs\Pages\ListWmsPickingLogs;
 use App\Filament\Resources\WmsPickingLogs\Tables\WmsPickingLogsTable;
 use App\Models\WmsPickingLog;
 use BackedEnum;
-use UnitEnum;
 use Filament\Resources\Resource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
@@ -17,13 +17,19 @@ class WmsPickingLogResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
-    protected static string|UnitEnum|null $navigationGroup = 'ログ';
-
     protected static ?string $navigationLabel = 'ピッキングログ';
 
     protected static ?string $modelLabel = 'ピッキングログ';
 
-    protected static ?int $navigationSort = 1;
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenu::WMS_PICKING_LOGS->category()->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WMS_PICKING_LOGS->sort();
+    }
 
     public static function table(Table $table): Table
     {

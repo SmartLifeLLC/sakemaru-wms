@@ -39,7 +39,21 @@ class WmsCompletedPickingTaskResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->where('status', 'COMPLETED');
+        return parent::getEloquentQuery()
+            ->where('status', 'COMPLETED')
+            ->with([
+                'warehouse',
+                'floor',
+                'picker',
+                'deliveryCourse',
+                'pickingItemResults.trade',
+                'pickingItemResults.earning.buyer.partner',
+            ])
+            ->withCount([
+                'pickingItemResults as soft_shortage_count' => function ($query) {
+                    $query->where('has_soft_shortage', true);
+                },
+            ]);
     }
 
     public static function getPages(): array
