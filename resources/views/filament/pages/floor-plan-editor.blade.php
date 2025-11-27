@@ -61,6 +61,7 @@
                              top: ${zone.y1_pos}px;
                              width: ${zone.x2_pos - zone.x1_pos}px;
                              height: ${zone.y2_pos - zone.y1_pos}px;
+                             z-index: 10;
                              background-color: {{ $colors['location']['rectangle'] ?? '#E0F2FE' }};
                              border-color: ${zone.is_restricted_area ? '#EF4444' : (selectedZones.includes(zone.id) ? '#1E3A8A' : '{{ $colors['location']['border'] ?? '#D1D5DB' }}')};
                              border-width: ${zone.is_restricted_area ? '2px' : (selectedZones.includes(zone.id) ? '2px' : '1px')};
@@ -89,6 +90,7 @@
                              top: ${wall.y1}px;
                              width: ${wall.x2 - wall.x1}px;
                              height: ${wall.y2 - wall.y1}px;
+                             z-index: 10;
                              background-color: {{ $colors['wall']['rectangle'] ?? '#9CA3AF' }};
                              border-width: ${selectedWalls.includes(wall.id) ? '3px' : '1px'};
                              border-style: solid;
@@ -115,6 +117,7 @@
                              top: ${area.y1}px;
                              width: ${area.x2 - area.x1}px;
                              height: ${area.y2 - area.y1}px;
+                             z-index: 10;
                              background-color: {{ $colors['fixed_area']['rectangle'] ?? '#FEF3C7' }};
                              border-width: ${selectedFixedAreas.includes(area.id) ? '4px' : '2px'};
                              border-style: solid;
@@ -224,36 +227,33 @@
             </div>
 
             {{-- Right Side: Toolbar (25%) --}}
-            <div class="w-1/4 bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-3 overflow-y-auto">
-                <h3 class="text-sm font-semibold border-b border-gray-200 dark:border-gray-700 pb-2">設定</h3>
-
-                {{-- Save Button (Full Width) --}}
-                <button @click="saveAllChangesWithWalkable()"
-                    class="w-full px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium">
-                    保存
-                </button>
-
-                {{-- Warehouse & Floor Selection --}}
-                <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
-                    <select wire:model.live="selectedWarehouseId"
-                        class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                        <option value="">倉庫を選択</option>
-                        @foreach($this->warehouses as $wh)
-                            <option value="{{ $wh->id }}">{{ $wh->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
-                    <select wire:model.live="selectedFloorId"
-                        class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-3 py-1.5">
-                        <option value="">フロアを選択</option>
-                        @foreach($this->floors as $floor)
-                            <option value="{{ $floor->id }}">{{ $floor->name }}</option>
-                        @endforeach
-                    </select>
+            <div class="w-1/4 bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-2 overflow-y-auto">
+                {{-- Warehouse & Floor & Save (Same Row) --}}
+                <div class="flex items-end gap-2">
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
+                        <select wire:model.live="selectedWarehouseId"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                            <option value="">選択</option>
+                            @foreach($this->warehouses as $wh)
+                                <option value="{{ $wh->id }}">{{ $wh->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
+                        <select wire:model.live="selectedFloorId"
+                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                            <option value="">選択</option>
+                            @foreach($this->floors as $floor)
+                                <option value="{{ $floor->id }}">{{ $floor->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <button @click="saveAllChangesWithWalkable()"
+                        class="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium whitespace-nowrap">
+                        保存
+                    </button>
                 </div>
 
                 {{-- Tool Icons (Horizontal) --}}
@@ -437,12 +437,42 @@
                     </div>
                 </div>
 
-                {{-- Picking Area Controls --}}
+                {{-- Saved Picking Areas List (Always visible) --}}
+                <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+                    <h4 class="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">ピッキングエリア</h4>
+                    <div class="space-y-1 max-h-32 overflow-y-auto">
+                        <template x-for="area in pickingAreas" :key="area.id">
+                            <div class="flex items-center justify-between bg-white dark:bg-gray-700 p-1.5 rounded text-xs hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
+                                 @click="openAreaEditModal(area)">
+                                <div class="flex items-center gap-1.5 overflow-hidden">
+                                    <input type="checkbox"
+                                           :checked="!hiddenPickingAreaIds.includes(area.id)"
+                                           @change.stop="toggleAreaVisibility(area.id)"
+                                           @click.stop
+                                           class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5">
+                                    <div class="w-3 h-3 rounded-full flex-shrink-0" :style="{ backgroundColor: area.color || '#8B5CF6' }"></div>
+                                    <span class="truncate" x-text="area.name"></span>
+                                    <span x-show="area.is_restricted_area" class="text-red-500 text-[10px]">制限</span>
+                                </div>
+                                <button @click.stop="deletePickingArea(area.id)" class="text-red-500 hover:text-red-700 ml-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="pickingAreas.length === 0">
+                            <div class="text-xs text-gray-400 text-center py-1">エリアなし</div>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- Picking Area Controls (Only when drawing) --}}
                 <div x-show="pickingAreaMode === 'draw'" class="bg-violet-50 dark:bg-violet-900/20 rounded-lg p-3 space-y-2">
                     <div class="text-xs font-semibold text-violet-700 dark:text-violet-300">
                         🏗️ ピッキングエリア作成
                     </div>
-                    
+
                     <div>
                         <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">エリア名</label>
                         <input type="text" x-model="newPickingAreaName"
@@ -463,27 +493,28 @@
                         </div>
                     </div>
 
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">引当可能単位</label>
-                        <select x-model.number="newPickingAreaQuantityFlags"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1">
-                            <option :value="null">未設定</option>
-                            <option value="1">ケース</option>
-                            <option value="2">バラ</option>
-                            <option value="3">ケース+バラ</option>
-                            <option value="4">ボール</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">温度帯</label>
-                        <select x-model="newPickingAreaTemperatureType"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1">
-                            <option :value="null">未設定</option>
-                            <option value="NORMAL">常温</option>
-                            <option value="CHILLED">冷蔵</option>
-                            <option value="FROZEN">冷凍</option>
-                        </select>
+                    <div class="flex gap-2">
+                        <div class="flex-1">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">引当可能単位</label>
+                            <select x-model.number="newPickingAreaQuantityFlags"
+                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-xs px-2 py-1">
+                                <option :value="null">未設定</option>
+                                <option value="1">ケース</option>
+                                <option value="2">バラ</option>
+                                <option value="3">ケース+バラ</option>
+                                <option value="4">ボール</option>
+                            </select>
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">温度帯</label>
+                            <select x-model="newPickingAreaTemperatureType"
+                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-xs px-2 py-1">
+                                <option :value="null">未設定</option>
+                                <option value="NORMAL">常温</option>
+                                <option value="CHILLED">冷蔵</option>
+                                <option value="FROZEN">冷凍</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div>
@@ -494,85 +525,34 @@
                         </label>
                     </div>
 
-                    <div class="text-xs text-gray-500 dark:text-gray-400">
-                        <p>クリックして点を追加</p>
-                        <p>Ctrl+Z で直前の点を削除</p>
-                        <p>最低3点必要です。</p>
-                    </div>
-
                     <div class="flex gap-2">
-                         <button @click="savePickingArea()" 
-                            class="flex-1 px-3 py-1 bg-violet-600 hover:bg-violet-700 text-white rounded-md text-xs">
+                         <button @click="savePickingArea()"
+                            class="flex-1 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-md text-sm font-medium">
                             保存
                         </button>
-                        <button @click="resetPickingAreaDrawing()" 
-                            class="flex-1 px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-md text-xs">
+                        <button @click="resetPickingAreaDrawing()"
+                            class="flex-1 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm font-medium">
                             リセット
                         </button>
-                        <button @click="togglePickingAreaMode()" 
-                            class="flex-1 px-3 py-1 bg-gray-500 hover:bg-gray-600 text-white rounded-md text-xs">
+                        <button @click="togglePickingAreaMode()"
+                            class="flex-1 px-3 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md text-sm font-medium">
                             終了
                         </button>
                     </div>
-
-                    {{-- Saved Areas List --}}
-                    <div class="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3">
-                        <h4 class="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">保存済みエリア</h4>
-                        <div class="space-y-2 max-h-40 overflow-y-auto">
-                            <template x-for="area in pickingAreas" :key="area.id">
-                                <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-700 p-2 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
-                                     @click="openAreaEditModal(area)">
-                                    <div class="flex items-center gap-2 overflow-hidden">
-                                        <input type="checkbox"
-                                               :checked="!hiddenPickingAreaIds.includes(area.id)"
-                                               @change.stop="toggleAreaVisibility(area.id)"
-                                               @click.stop
-                                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4">
-                                        <div class="w-3 h-3 rounded-full flex-shrink-0" :style="{ backgroundColor: area.color || '#8B5CF6' }"></div>
-                                        <span class="truncate" x-text="area.name"></span>
-                                        <span x-show="area.is_restricted_area" class="text-red-500 text-xs">制限</span>
-                                    </div>
-                                    <button @click.stop="deletePickingArea(area.id)" class="text-red-500 hover:text-red-700 ml-2">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </template>
-                            <template x-if="pickingAreas.length === 0">
-                                <div class="text-xs text-gray-400 text-center py-2">エリアはありません</div>
-                            </template>
-                        </div>
-                    </div>
                 </div>
 
-                <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
-
-                {{-- Grid Controls (Single Line) --}}
-                <div class="flex items-center gap-2 text-sm">
-                    <label class="flex items-center gap-1.5">
-                        <input type="checkbox" x-model="gridEnabled" @change="updateGrid()"
-                            class="rounded border-gray-300">
-                        <span>GRID</span>
-                    </label>
-                    <label class="flex items-center gap-1">
-                        <span>Size: 10px (固定)</span>
-                    </label>
-                    <label class="flex items-center gap-1">
-                        <span>閾値:</span>
-                        <input type="number" x-model="gridThreshold" min="0"
-                            class="w-12 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-1 py-0.5">
-                    </label>
+                {{-- Grid Controls (Hidden - keep for functionality) --}}
+                <div class="hidden">
+                    <input type="checkbox" x-model="gridEnabled" @change="updateGrid()">
+                    <input type="number" x-model="gridThreshold" min="0">
                 </div>
 
-                <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
-
+                {{-- Canvas Size Controls (Hidden - keep for functionality) --}}
                 <div x-data="{
                     tempWidth: {{ $canvasWidth }},
                     tempHeight: {{ $canvasHeight }},
                     async applySize() {
                         await $wire.updateCanvasSize(this.tempWidth, this.tempHeight);
-                        // Wait for Livewire to update, then sync values
                         await this.$nextTick();
                         this.tempWidth = $wire.canvasWidth;
                         this.tempHeight = $wire.canvasHeight;
@@ -582,23 +562,9 @@
                     tempWidth = $event.detail.width;
                     tempHeight = $event.detail.height;
                 "
-                class="flex items-center gap-1">
-                    <label class="flex items-center gap-1">
-                        <span class="text-sm">幅:</span>
-                        <input type="number" x-model.number="tempWidth" min="500" max="10000" step="100"
-                            class="w-20 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
-                    </label>
-
-                    <label class="flex items-center gap-1">
-                        <span class="text-sm">高さ:</span>
-                        <input type="number" x-model.number="tempHeight" min="500" max="10000" step="100"
-                            class="w-20 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-right px-2 py-1">
-                    </label>
-
-                    <button @click="applySize()"
-                        class="px-2 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-md text-xs font-medium">
-                        適用
-                    </button>
+                class="hidden">
+                    <input type="number" x-model.number="tempWidth" min="500" max="10000" step="100">
+                    <input type="number" x-model.number="tempHeight" min="500" max="10000" step="100">
                 </div>
 
                 <span x-show="selectedZones && selectedZones.length > 0" x-cloak class="text-gray-600 dark:text-gray-400 text-sm mt-2">
@@ -613,6 +579,23 @@
              style="z-index: 10000;"
              @click.self="showEditModal = false">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-5xl max-h-[90vh] overflow-y-auto text-xs" @click.stop>
+                {{-- Picking Area Info --}}
+                <div class="mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+                    <template x-if="getPickingAreaForZone(editingZone)">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">ピッキングエリア:</span>
+                            <div class="w-4 h-4 rounded-full" :style="{ backgroundColor: getPickingAreaForZone(editingZone)?.color || '#8B5CF6' }"></div>
+                            <span class="text-sm font-medium" x-text="getPickingAreaForZone(editingZone)?.name"></span>
+                        </div>
+                    </template>
+                    <template x-if="!getPickingAreaForZone(editingZone)">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">ピッキングエリア:</span>
+                            <span class="text-sm text-gray-400">設定なし</span>
+                        </div>
+                    </template>
+                </div>
+
                 {{-- Header with name input --}}
                 <div class="mb-4 rounded-lg transition-colors duration-200"
                      :class="editingZone.is_restricted_area ? 'bg-red-100 dark:bg-red-900/30 p-3' : ''">
@@ -1986,6 +1969,39 @@
                         });
                     }
                     this.showEditModal = false;
+                },
+
+                // Helper to check if a point is inside a polygon (ray casting algorithm)
+                isPointInPolygon(point, polygon) {
+                    if (!polygon || polygon.length < 3) return false;
+                    let inside = false;
+                    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                        const xi = polygon[i].x, yi = polygon[i].y;
+                        const xj = polygon[j].x, yj = polygon[j].y;
+                        if (((yi > point.y) !== (yj > point.y)) &&
+                            (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
+                            inside = !inside;
+                        }
+                    }
+                    return inside;
+                },
+
+                // Get picking area for a zone by checking if zone center is inside area polygon
+                getPickingAreaForZone(zone) {
+                    if (!zone || !this.pickingAreas || this.pickingAreas.length === 0) return null;
+
+                    // Calculate zone center
+                    const centerX = (zone.x1_pos + zone.x2_pos) / 2;
+                    const centerY = (zone.y1_pos + zone.y2_pos) / 2;
+                    const centerPoint = { x: centerX, y: centerY };
+
+                    // Find the picking area that contains this point
+                    for (const area of this.pickingAreas) {
+                        if (area.polygon && this.isPointInPolygon(centerPoint, area.polygon)) {
+                            return area;
+                        }
+                    }
+                    return null;
                 },
 
                 // Stock transfer methods
