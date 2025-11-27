@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Sakemaru\Location;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
@@ -86,5 +87,18 @@ class WmsPickingArea extends Model
         }
 
         return Location::whereIn('id', $locationIds)->update($updateData);
+    }
+
+    /**
+     * このエリアを担当できるピッカー
+     */
+    public function pickers(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            WmsPicker::class,
+            'wms_picking_area_pickers',
+            'wms_picking_area_id',
+            'wms_picker_id'
+        )->withTimestamps();
     }
 }

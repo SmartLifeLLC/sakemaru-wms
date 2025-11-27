@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Laravel\Sanctum\HasApiTokens;
 
@@ -64,5 +65,18 @@ class WmsPicker extends Model
     public function getDisplayNameAttribute(): string
     {
         return "[{$this->code}] {$this->name}";
+    }
+
+    /**
+     * このピッカーが担当できるピッキングエリア
+     */
+    public function pickingAreas(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            WmsPickingArea::class,
+            'wms_picking_area_pickers',
+            'wms_picker_id',
+            'wms_picking_area_id'
+        )->withTimestamps();
     }
 }

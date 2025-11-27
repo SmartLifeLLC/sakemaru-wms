@@ -11,6 +11,7 @@ use App\Models\WmsWarehouseLayout;
 use App\Models\WmsFloorObject;
 use App\Models\WmsPickingArea;
 use App\Models\WmsLocation;
+use App\Models\WmsPicker;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Livewire\Attributes\Computed;
@@ -83,22 +84,44 @@ class FloorPlanEditor extends Page
         $this->colors = WmsWarehouseLayout::getDefaultColors();
         $this->textStyles = WmsWarehouseLayout::getDefaultTextStyles();
 
-        // Set default warehouse if available
-        $firstWarehouse = Warehouse::where('is_active', true)->orderBy('code')->first();
-        if ($firstWarehouse) {
-            $this->selectedWarehouseId = $firstWarehouse->id;
+        // Check for URL parameters first
+        $warehouseParam = request()->query('warehouse');
+        $floorParam = request()->query('floor');
 
-            // Set default floor if available
-            $firstFloor = Floor::where('warehouse_id', $this->selectedWarehouseId)
-                ->where('is_active', true)
-                ->orderBy('code')
-                ->first();
-
-            if ($firstFloor) {
-                $this->selectedFloorId = $firstFloor->id;
+        if ($warehouseParam) {
+            // Use URL parameters
+            $this->selectedWarehouseId = (int) $warehouseParam;
+            if ($floorParam) {
+                $this->selectedFloorId = (int) $floorParam;
+            } else {
+                // Get first floor for this warehouse
+                $firstFloor = Floor::where('warehouse_id', $this->selectedWarehouseId)
+                    ->where('is_active', true)
+                    ->orderBy('code')
+                    ->first();
+                if ($firstFloor) {
+                    $this->selectedFloorId = $firstFloor->id;
+                }
             }
-
             $this->loadLayout();
+        } else {
+            // Set default warehouse if available
+            $firstWarehouse = Warehouse::where('is_active', true)->orderBy('code')->first();
+            if ($firstWarehouse) {
+                $this->selectedWarehouseId = $firstWarehouse->id;
+
+                // Set default floor if available
+                $firstFloor = Floor::where('warehouse_id', $this->selectedWarehouseId)
+                    ->where('is_active', true)
+                    ->orderBy('code')
+                    ->first();
+
+                if ($firstFloor) {
+                    $this->selectedFloorId = $firstFloor->id;
+                }
+
+                $this->loadLayout();
+            }
         }
     }
 
@@ -116,7 +139,8 @@ class FloorPlanEditor extends Page
                 canvasWidth: $this->canvasWidth,
                 canvasHeight: $this->canvasHeight,
                 walkableAreas: $this->walkableAreas,
-                navmeta: $this->navmeta
+                navmeta: $this->navmeta,
+                pickingAreas: $this->pickingAreas
             );
         }
     }
@@ -225,26 +249,37 @@ class FloorPlanEditor extends Page
                 ->first();
         }
 
-        if (!$layout) {
-            $this->resetToDefaults();
-            return;
+        if ($layout) {
+            // Load settings from database
+            $this->canvasWidth = $layout->width ?? 2000;
+            $this->canvasHeight = $layout->height ?? 1500;
+            $this->colors = $layout->colors ?? WmsWarehouseLayout::getDefaultColors();
+            $this->textStyles = $layout->text_styles ?? WmsWarehouseLayout::getDefaultTextStyles();
+            $this->walls = $layout->walls ?? [];
+            $this->fixedAreas = $layout->fixed_areas ?? [];
+            $this->pickingStartX = $layout->picking_start_x ?? 0;
+            $this->pickingStartY = $layout->picking_start_y ?? 0;
+            $this->pickingEndX = $layout->picking_end_x ?? 0;
+            $this->pickingEndY = $layout->picking_end_y ?? 0;
+            $this->walkableAreas = $layout->walkable_areas ?? null;
+            $this->navmeta = $layout->navmeta ?? null;
+        } else {
+            // Reset layout settings but continue to load picking areas
+            $this->canvasWidth = 2000;
+            $this->canvasHeight = 1500;
+            $this->colors = WmsWarehouseLayout::getDefaultColors();
+            $this->textStyles = WmsWarehouseLayout::getDefaultTextStyles();
+            $this->walls = [];
+            $this->fixedAreas = [];
+            $this->pickingStartX = 0;
+            $this->pickingStartY = 0;
+            $this->pickingEndX = 0;
+            $this->pickingEndY = 0;
+            $this->walkableAreas = null;
+            $this->navmeta = null;
         }
 
-        // Load settings from database
-        $this->canvasWidth = $layout->width ?? 2000;
-        $this->canvasHeight = $layout->height ?? 1500;
-        $this->colors = $layout->colors ?? WmsWarehouseLayout::getDefaultColors();
-        $this->textStyles = $layout->text_styles ?? WmsWarehouseLayout::getDefaultTextStyles();
-        $this->walls = $layout->walls ?? [];
-        $this->fixedAreas = $layout->fixed_areas ?? [];
-        $this->pickingStartX = $layout->picking_start_x ?? 0;
-        $this->pickingStartY = $layout->picking_start_y ?? 0;
-        $this->pickingEndX = $layout->picking_end_x ?? 0;
-        $this->pickingEndY = $layout->picking_end_y ?? 0;
-        $this->walkableAreas = $layout->walkable_areas ?? null;
-        $this->navmeta = $layout->navmeta ?? null;
-
-        // Load picking areas
+        // Always load picking areas (regardless of layout existence)
         $this->pickingAreas = \App\Models\WmsPickingArea::where('warehouse_id', $this->selectedWarehouseId)
             ->where('floor_id', $this->selectedFloorId)
             ->get()
@@ -403,7 +438,8 @@ class FloorPlanEditor extends Page
             canvasWidth: $this->canvasWidth,
             canvasHeight: $this->canvasHeight,
             walkableAreas: $this->walkableAreas,
-            navmeta: $this->navmeta
+            navmeta: $this->navmeta,
+            pickingAreas: $this->pickingAreas
         );
     }
 
@@ -423,7 +459,8 @@ class FloorPlanEditor extends Page
             canvasWidth: $this->canvasWidth,
             canvasHeight: $this->canvasHeight,
             walkableAreas: $this->walkableAreas,
-            navmeta: $this->navmeta
+            navmeta: $this->navmeta,
+            pickingAreas: $this->pickingAreas
         );
     }
 
@@ -557,7 +594,12 @@ class FloorPlanEditor extends Page
             $this->dispatch('layout-loaded',
                 zones: $zones,
                 walls: $this->walls,
-                fixedAreas: $this->fixedAreas
+                fixedAreas: $this->fixedAreas,
+                canvasWidth: $this->canvasWidth,
+                canvasHeight: $this->canvasHeight,
+                walkableAreas: $this->walkableAreas,
+                navmeta: $this->navmeta,
+                pickingAreas: $this->pickingAreas
             );
 
             \Filament\Notifications\Notification::make()
@@ -835,7 +877,10 @@ class FloorPlanEditor extends Page
                 walls: $this->walls,
                 fixedAreas: $this->fixedAreas,
                 canvasWidth: $this->canvasWidth,
-                canvasHeight: $this->canvasHeight
+                canvasHeight: $this->canvasHeight,
+                walkableAreas: $this->walkableAreas,
+                navmeta: $this->navmeta,
+                pickingAreas: $this->pickingAreas
             );
 
             \Filament\Notifications\Notification::make()
@@ -957,6 +1002,41 @@ class FloorPlanEditor extends Page
     }
 
     /**
+     * Reassign locations to the picking area based on current positions
+     * This clears existing assignments and re-evaluates all locations
+     */
+    private function reassignLocationsToArea(\App\Models\WmsPickingArea $area): int
+    {
+        $polygon = $area->polygon;
+        if (empty($polygon) || count($polygon) < 3) {
+            return 0;
+        }
+
+        // Clear existing assignments for this area
+        WmsLocation::where('wms_picking_area_id', $area->id)->update(['wms_picking_area_id' => null]);
+
+        $locations = Location::where('floor_id', $area->floor_id)->get();
+        $count = 0;
+
+        foreach ($locations as $location) {
+            // Check if center point of location is inside polygon
+            $centerX = ($location->x1_pos + $location->x2_pos) / 2;
+            $centerY = ($location->y1_pos + $location->y2_pos) / 2;
+
+            if ($this->isPointInPolygon($centerX, $centerY, $polygon)) {
+                // Update WmsLocation
+                WmsLocation::updateOrCreate(
+                    ['location_id' => $location->id],
+                    ['wms_picking_area_id' => $area->id]
+                );
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
      * Check if point is inside polygon (Ray casting algorithm)
      */
     private function isPointInPolygon($x, $y, $polygon): bool
@@ -1064,15 +1144,18 @@ class FloorPlanEditor extends Page
                 'is_restricted_area' => $data['is_restricted_area'] ?? false,
             ]);
 
+            // Reassign locations based on current positions
+            $locationCount = $this->reassignLocationsToArea($area);
+
             // Apply settings to all locations in this area
-            $updatedCount = $area->applySettingsToLocations();
+            $area->applySettingsToLocations();
 
             // Reload pickingAreas
             $this->loadPickingAreas();
 
             \Filament\Notifications\Notification::make()
                 ->title('エリア設定を更新しました')
-                ->body("{$updatedCount} 件のロケーションに設定を適用しました")
+                ->body("{$locationCount} 件のロケーションを割り当てました")
                 ->success()
                 ->send();
 
@@ -1451,6 +1534,178 @@ class FloorPlanEditor extends Page
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
+        }
+    }
+
+    /**
+     * Get all active pickers (for area assignment)
+     */
+    public function getPickersForWarehouse(int $warehouseId): array
+    {
+        // Get warehouse names for display
+        $warehouseNames = \Illuminate\Support\Facades\DB::connection('sakemaru')
+            ->table('warehouses')
+            ->pluck('name', 'id')
+            ->toArray();
+
+        // Return all active pickers - any picker can be assigned to any area
+        return WmsPicker::where('is_active', true)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name', 'can_access_restricted_area', 'default_warehouse_id'])
+            ->map(fn ($picker) => [
+                'id' => $picker->id,
+                'code' => $picker->code,
+                'name' => $picker->name,
+                'display_name' => "[{$picker->code}] {$picker->name}",
+                'can_access_restricted_area' => $picker->can_access_restricted_area,
+                'default_warehouse_id' => $picker->default_warehouse_id,
+                'warehouse_name' => $picker->default_warehouse_id ? ($warehouseNames[$picker->default_warehouse_id] ?? null) : null,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Get all active warehouses for filter dropdown
+     */
+    public function getWarehousesList(): array
+    {
+        return \Illuminate\Support\Facades\DB::connection('sakemaru')
+            ->table('warehouses')
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name'])
+            ->map(fn ($wh) => [
+                'id' => $wh->id,
+                'code' => $wh->code,
+                'name' => $wh->name,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Get pickers assigned to a picking area
+     */
+    public function getAreaPickers(int $areaId): array
+    {
+        $area = WmsPickingArea::find($areaId);
+        if (!$area) {
+            return [];
+        }
+
+        return $area->pickers()
+            ->orderBy('code')
+            ->get(['wms_pickers.id', 'code', 'name', 'can_access_restricted_area'])
+            ->map(fn ($picker) => [
+                'id' => $picker->id,
+                'code' => $picker->code,
+                'name' => $picker->name,
+                'display_name' => "[{$picker->code}] {$picker->name}",
+                'can_access_restricted_area' => $picker->can_access_restricted_area,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Update picker assignments for a picking area
+     */
+    public function updateAreaPickers(int $areaId, array $pickerIds): void
+    {
+        try {
+            $area = WmsPickingArea::find($areaId);
+            if (!$area) {
+                \Filament\Notifications\Notification::make()
+                    ->title('エリアが見つかりません')
+                    ->danger()
+                    ->send();
+                return;
+            }
+
+            // Sync pickers (this will add/remove as needed)
+            $area->pickers()->sync($pickerIds);
+
+            \Filament\Notifications\Notification::make()
+                ->title('担当ピッカーを更新しました')
+                ->body(count($pickerIds) . '名のピッカーを設定しました')
+                ->success()
+                ->send();
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('更新に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    /**
+     * Create a new picker from the area settings modal
+     */
+    public function createPicker(array $data): ?array
+    {
+        try {
+            // Validate required fields
+            if (empty($data['code']) || empty($data['name']) || empty($data['password'])) {
+                \Filament\Notifications\Notification::make()
+                    ->title('必須項目を入力してください')
+                    ->danger()
+                    ->send();
+                return null;
+            }
+
+            // Check for duplicate code
+            $existingPicker = WmsPicker::where('code', $data['code'])->first();
+            if ($existingPicker) {
+                \Filament\Notifications\Notification::make()
+                    ->title('このコードは既に使用されています')
+                    ->danger()
+                    ->send();
+                return null;
+            }
+
+            // Create the picker
+            $picker = WmsPicker::create([
+                'code' => $data['code'],
+                'name' => $data['name'],
+                'password' => \Illuminate\Support\Facades\Hash::make($data['password']),
+                'default_warehouse_id' => $this->selectedWarehouseId,
+                'can_access_restricted_area' => $data['can_access_restricted_area'] ?? false,
+                'is_active' => true,
+            ]);
+
+            \Filament\Notifications\Notification::make()
+                ->title('ピッカーを登録しました')
+                ->body("[{$picker->code}] {$picker->name}")
+                ->success()
+                ->send();
+
+            // Get warehouse name for display
+            $warehouseName = null;
+            if ($this->selectedWarehouseId) {
+                $warehouseName = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                    ->table('warehouses')
+                    ->where('id', $this->selectedWarehouseId)
+                    ->value('name');
+            }
+
+            // Return the new picker data for Alpine.js
+            return [
+                'id' => $picker->id,
+                'code' => $picker->code,
+                'name' => $picker->name,
+                'display_name' => "[{$picker->code}] {$picker->name}",
+                'can_access_restricted_area' => $picker->can_access_restricted_area,
+                'default_warehouse_id' => $this->selectedWarehouseId,
+                'warehouse_name' => $warehouseName,
+            ];
+
+        } catch (\Exception $e) {
+            \Filament\Notifications\Notification::make()
+                ->title('登録に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+            return null;
         }
     }
 }

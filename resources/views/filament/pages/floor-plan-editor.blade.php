@@ -511,6 +511,7 @@
                                     class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-xs px-2 py-1">
                                 <option :value="null">未設定</option>
                                 <option value="NORMAL">常温</option>
+                                <option value="CONSTANT">定温</option>
                                 <option value="CHILLED">冷蔵</option>
                                 <option value="FROZEN">冷凍</option>
                             </select>
@@ -630,6 +631,7 @@
                         <select x-model="editingZone.temperature_type"
                                 class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                             <option value="NORMAL">常温</option>
+                            <option value="CONSTANT">定温</option>
                             <option value="CHILLED">冷蔵</option>
                             <option value="FROZEN">冷凍</option>
                         </select>
@@ -837,69 +839,185 @@
              class="fixed inset-0 flex items-center justify-center"
              style="z-index: 10002;"
              @click.self="showAreaEditModal = false">
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md" @click.stop>
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" @click.stop>
                 <h3 class="text-lg font-bold mb-4">エリア設定</h3>
 
-                {{-- Area Name --}}
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">エリア名</label>
-                    <input type="text" x-model="editingArea.name"
-                           class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
-                </div>
+                <div class="grid grid-cols-2 gap-6">
+                    {{-- Left Column: Basic Settings --}}
+                    <div>
+                        {{-- Area Name --}}
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-1">エリア名</label>
+                            <input type="text" x-model="editingArea.name"
+                                   class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                        </div>
 
-                {{-- Area Color --}}
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">カラー</label>
-                    <input type="color" x-model="editingArea.color"
-                           class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 cursor-pointer">
-                </div>
+                        {{-- Area Color --}}
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-1">カラー</label>
+                            <input type="color" x-model="editingArea.color"
+                                   class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 cursor-pointer">
+                        </div>
 
-                {{-- Available Quantity Flags --}}
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">引当可能単位</label>
-                    <select x-model.number="editingArea.available_quantity_flags"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
-                        <option :value="null">未設定</option>
-                        <option value="1">ケース</option>
-                        <option value="2">バラ</option>
-                        <option value="3">ケース+バラ</option>
-                        <option value="4">ボール</option>
-                    </select>
-                </div>
+                        {{-- Available Quantity Flags --}}
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-1">引当可能単位</label>
+                            <select x-model.number="editingArea.available_quantity_flags"
+                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                                <option :value="null">未設定</option>
+                                <option value="1">ケース</option>
+                                <option value="2">バラ</option>
+                                <option value="3">ケース+バラ</option>
+                                <option value="4">ボール</option>
+                            </select>
+                        </div>
 
-                {{-- Temperature Type --}}
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">温度帯</label>
-                    <select x-model="editingArea.temperature_type"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
-                        <option :value="null">未設定</option>
-                        <option value="NORMAL">常温</option>
-                        <option value="CHILLED">冷蔵</option>
-                        <option value="FROZEN">冷凍</option>
-                    </select>
-                </div>
+                        {{-- Temperature Type --}}
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-1">温度帯</label>
+                            <select x-model="editingArea.temperature_type"
+                                    class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2">
+                                <option :value="null">未設定</option>
+                                <option value="NORMAL">常温</option>
+                                <option value="CONSTANT">定温</option>
+                                <option value="CHILLED">冷蔵</option>
+                                <option value="FROZEN">冷凍</option>
+                            </select>
+                        </div>
 
-                {{-- Is Restricted Area --}}
-                <div class="mb-6">
-                    <label class="flex items-center gap-2">
-                        <input type="checkbox" x-model="editingArea.is_restricted_area"
-                               class="rounded border-gray-300 w-5 h-5">
-                        <span class="text-sm">制限エリアとして設定</span>
-                    </label>
-                </div>
+                        {{-- Is Restricted Area --}}
+                        <div class="mb-4">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" x-model="editingArea.is_restricted_area"
+                                       class="rounded border-gray-300 w-5 h-5">
+                                <span class="text-sm">制限エリアとして設定</span>
+                            </label>
+                        </div>
 
-                {{-- Location Count Info --}}
-                <div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm">
-                    <div class="text-gray-600 dark:text-gray-400">
-                        このエリアには <span class="font-semibold" x-text="editingArea.location_count || 0"></span> 件のロケーションが含まれています。
+                        {{-- Location Count Info --}}
+                        <div class="p-3 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm">
+                            <div class="text-gray-600 dark:text-gray-400">
+                                このエリアには <span class="font-semibold" x-text="editingArea.location_count || 0"></span> 件のロケーションが含まれています。
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">
+                                保存時に上記の設定がエリア内の全ロケーションに適用されます。
+                            </div>
+                        </div>
                     </div>
-                    <div class="text-xs text-gray-500 mt-1">
-                        保存時に上記の設定がエリア内の全ロケーションに適用されます。
+
+                    {{-- Right Column: Picker Assignment --}}
+                    <div>
+                        <div class="mb-2 flex items-center justify-between">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">担当ピッカー</label>
+                                <p class="text-xs text-gray-500">このエリアを担当できるピッカーを選択</p>
+                            </div>
+                            <button @click="showNewPickerForm = !showNewPickerForm"
+                                    type="button"
+                                    class="text-xs px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded">
+                                <span x-show="!showNewPickerForm">+ 新規</span>
+                                <span x-show="showNewPickerForm">閉じる</span>
+                            </button>
+                        </div>
+
+                        {{-- New Picker Form --}}
+                        <div x-show="showNewPickerForm" x-collapse class="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                            <div class="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">新規ピッカー登録</div>
+                            <div class="space-y-2">
+                                <div>
+                                    <label class="block text-xs text-gray-600 dark:text-gray-400">コード</label>
+                                    <input type="text" x-model="newPicker.code"
+                                           class="w-full rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1"
+                                           placeholder="例: P001">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 dark:text-gray-400">名前</label>
+                                    <input type="text" x-model="newPicker.name"
+                                           class="w-full rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1"
+                                           placeholder="例: 山田太郎">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600 dark:text-gray-400">パスワード</label>
+                                    <input type="password" x-model="newPicker.password"
+                                           class="w-full rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1"
+                                           placeholder="8文字以上推奨">
+                                </div>
+                                <div>
+                                    <label class="flex items-center gap-2">
+                                        <input type="checkbox" x-model="newPicker.can_access_restricted_area"
+                                               class="rounded border-gray-300 w-4 h-4">
+                                        <span class="text-xs text-gray-600 dark:text-gray-400">制限エリアアクセス可</span>
+                                    </label>
+                                </div>
+                                <button @click="createNewPicker()"
+                                        :disabled="!newPicker.code || !newPicker.name || !newPicker.password"
+                                        class="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded text-sm">
+                                    登録してこのエリアに追加
+                                </button>
+                            </div>
+                        </div>
+
+                        {{-- Search and Filter --}}
+                        <div class="mb-2 space-y-2">
+                            <input type="text" x-model="pickerSearchQuery"
+                                   class="w-full rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1"
+                                   placeholder="コード・名前で検索...">
+                            <div class="flex gap-2">
+                                <select x-model="pickerWarehouseFilter"
+                                        class="flex-1 rounded border border-gray-300 dark:border-gray-600 text-sm px-2 py-1">
+                                    <option value="">全倉庫</option>
+                                    <option value="current">この倉庫のみ</option>
+                                    <option value="none">デフォルト倉庫未設定</option>
+                                    <template x-for="wh in warehousesList" :key="wh.id">
+                                        <option :value="wh.id" x-text="wh.name"></option>
+                                    </template>
+                                </select>
+                                <label class="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                                    <input type="checkbox" x-model="pickerShowSelectedOnly"
+                                           class="rounded border-gray-300 w-3.5 h-3.5">
+                                    選択済みのみ
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="border border-gray-300 dark:border-gray-600 rounded-lg p-2 max-h-52 overflow-y-auto">
+                            <template x-if="filteredPickersList.length === 0">
+                                <div class="text-sm text-gray-400 text-center py-4">
+                                    該当するピッカーがありません
+                                </div>
+                            </template>
+                            <template x-for="picker in filteredPickersList" :key="picker.id">
+                                <label class="flex items-start gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer">
+                                    <input type="checkbox"
+                                           :value="picker.id"
+                                           :checked="selectedAreaPickerIds.includes(picker.id)"
+                                           @change="toggleAreaPicker(picker.id)"
+                                           class="rounded border-gray-300 w-4 h-4 mt-0.5">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="text-sm font-medium" x-text="picker.display_name"></span>
+                                            <span x-show="picker.can_access_restricted_area"
+                                                  class="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded">制限可</span>
+                                        </div>
+                                        <div x-show="picker.warehouse_name" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5"
+                                             x-text="'デフォルト: ' + picker.warehouse_name"></div>
+                                    </div>
+                                </label>
+                            </template>
+                        </div>
+
+                        <div class="mt-2 text-xs text-gray-500">
+                            <span x-text="selectedAreaPickerIds.length"></span>名選択中
+                            <span class="text-gray-400 ml-2">（<span x-text="filteredPickersList.length"></span>/<span x-text="areaPickersList.length"></span>件表示）</span>
+                            <template x-if="editingArea.is_restricted_area">
+                                <span class="text-red-500 ml-2">※制限エリアのため「制限可」のピッカーのみ自動割当対象</span>
+                            </template>
+                        </div>
                     </div>
                 </div>
 
                 {{-- Action Buttons --}}
-                <div class="flex gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <div class="flex gap-2 pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
                     <button @click="saveAreaSettings()"
                             class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md">
                         保存
@@ -1167,6 +1285,46 @@
                 // Area edit state
                 showAreaEditModal: false,
                 editingArea: {},
+                areaPickersList: [],
+                selectedAreaPickerIds: [],
+                showNewPickerForm: false,
+                newPicker: { code: '', name: '', password: '', can_access_restricted_area: false },
+                // Picker search/filter
+                pickerSearchQuery: '',
+                pickerWarehouseFilter: '',
+                pickerShowSelectedOnly: false,
+                warehousesList: [],
+
+                // Computed: filtered picker list
+                get filteredPickersList() {
+                    let list = this.areaPickersList;
+                    const currentWarehouseId = this.$wire.selectedWarehouseId;
+
+                    // Filter by selected only
+                    if (this.pickerShowSelectedOnly) {
+                        list = list.filter(p => this.selectedAreaPickerIds.includes(p.id));
+                    }
+
+                    // Filter by warehouse
+                    if (this.pickerWarehouseFilter === 'current' && currentWarehouseId) {
+                        list = list.filter(p => p.default_warehouse_id == currentWarehouseId);
+                    } else if (this.pickerWarehouseFilter === 'none') {
+                        list = list.filter(p => !p.default_warehouse_id);
+                    } else if (this.pickerWarehouseFilter && this.pickerWarehouseFilter !== '') {
+                        list = list.filter(p => p.default_warehouse_id == this.pickerWarehouseFilter);
+                    }
+
+                    // Filter by search query
+                    if (this.pickerSearchQuery.trim()) {
+                        const query = this.pickerSearchQuery.toLowerCase().trim();
+                        list = list.filter(p =>
+                            p.code.toLowerCase().includes(query) ||
+                            p.name.toLowerCase().includes(query)
+                        );
+                    }
+
+                    return list;
+                },
 
                 init() {
                     // Request initial data from Livewire
@@ -2380,7 +2538,7 @@
                     }
                 },
 
-                saveAllChanges() {
+                async saveAllChanges() {
                     // Send all changes to Livewire in a single call
                     // Only send zones that have been moved/resized
                     const changedZones = Object.keys(this.zonePositions).map(zoneId => ({
@@ -2388,20 +2546,37 @@
                         ...this.zonePositions[zoneId]
                     }));
 
-                    this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas);
+                    await this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas);
 
-                    // Clear tracked changes after save
-                    this.zonePositions = {};
+                    // Reload page with warehouse/floor parameters
+                    this.reloadWithParams();
                 },
 
                 async saveAllChangesWithWalkable() {
-                    // Save normal changes first
-                    this.saveAllChanges();
+                    // Send all changes to Livewire in a single call
+                    const changedZones = Object.keys(this.zonePositions).map(zoneId => ({
+                        id: parseInt(zoneId),
+                        ...this.zonePositions[zoneId]
+                    }));
+
+                    await this.$wire.saveAllPositions(changedZones, this.walls, this.fixedAreas);
 
                     // Save walkable areas if bitmap exists
                     if (this.walkableBitmap) {
                         await this.saveWalkableAreas();
                     }
+
+                    // Reload page with warehouse/floor parameters
+                    this.reloadWithParams();
+                },
+
+                reloadWithParams() {
+                    const warehouseId = this.$wire.selectedWarehouseId;
+                    const floorId = this.$wire.selectedFloorId;
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('warehouse', warehouseId || '');
+                    url.searchParams.set('floor', floorId || '');
+                    window.location.href = url.toString();
                 },
 
                 exportCSV() {
@@ -2754,13 +2929,75 @@
                         is_restricted_area: area.is_restricted_area || false,
                         location_count: locationCount
                     };
+
+                    // Reset search/filter state
+                    this.pickerSearchQuery = '';
+                    this.pickerWarehouseFilter = 'current'; // Default to current warehouse
+                    this.pickerShowSelectedOnly = false;
+                    this.showNewPickerForm = false;
+
+                    // Load warehouses list for filter dropdown
+                    this.warehousesList = await this.$wire.getWarehousesList();
+
+                    // Load pickers (use Livewire property, not Alpine data)
+                    const warehouseId = this.$wire.selectedWarehouseId;
+                    if (warehouseId) {
+                        this.areaPickersList = await this.$wire.getPickersForWarehouse(warehouseId);
+                        // Get currently assigned pickers
+                        const assignedPickers = await this.$wire.getAreaPickers(area.id);
+                        this.selectedAreaPickerIds = assignedPickers.map(p => p.id);
+                    } else {
+                        this.areaPickersList = [];
+                        this.selectedAreaPickerIds = [];
+                    }
+
                     this.showAreaEditModal = true;
+                },
+
+                toggleAreaPicker(pickerId) {
+                    const idx = this.selectedAreaPickerIds.indexOf(pickerId);
+                    if (idx >= 0) {
+                        this.selectedAreaPickerIds.splice(idx, 1);
+                    } else {
+                        this.selectedAreaPickerIds.push(pickerId);
+                    }
+                },
+
+                async createNewPicker() {
+                    if (!this.newPicker.code || !this.newPicker.name || !this.newPicker.password) {
+                        return;
+                    }
+
+                    try {
+                        // Call Livewire method to create the picker
+                        const newPickerData = await this.$wire.createPicker({
+                            code: this.newPicker.code,
+                            name: this.newPicker.name,
+                            password: this.newPicker.password,
+                            can_access_restricted_area: this.newPicker.can_access_restricted_area
+                        });
+
+                        if (newPickerData) {
+                            // Add to the picker list
+                            this.areaPickersList.push(newPickerData);
+
+                            // Auto-select the new picker
+                            this.selectedAreaPickerIds.push(newPickerData.id);
+
+                            // Reset the form
+                            this.newPicker = { code: '', name: '', password: '', can_access_restricted_area: false };
+                            this.showNewPickerForm = false;
+                        }
+                    } catch (error) {
+                        console.error('Failed to create picker:', error);
+                    }
                 },
 
                 async saveAreaSettings() {
                     if (!this.editingArea.id) return;
 
                     try {
+                        // Save area settings
                         await this.$wire.updatePickingAreaSettings({
                             id: this.editingArea.id,
                             name: this.editingArea.name,
@@ -2770,20 +3007,13 @@
                             is_restricted_area: this.editingArea.is_restricted_area
                         });
 
-                        // Update local pickingAreas array
-                        const idx = this.pickingAreas.findIndex(a => a.id === this.editingArea.id);
-                        if (idx >= 0) {
-                            this.pickingAreas[idx] = {
-                                ...this.pickingAreas[idx],
-                                name: this.editingArea.name,
-                                color: this.editingArea.color,
-                                available_quantity_flags: this.editingArea.available_quantity_flags,
-                                temperature_type: this.editingArea.temperature_type,
-                                is_restricted_area: this.editingArea.is_restricted_area
-                            };
-                        }
+                        // Save picker assignments
+                        await this.$wire.updateAreaPickers(this.editingArea.id, this.selectedAreaPickerIds);
 
                         this.showAreaEditModal = false;
+
+                        // Reload page with warehouse/floor parameters
+                        this.reloadWithParams();
                     } catch (error) {
                         console.error('Failed to save area settings:', error);
                     }
