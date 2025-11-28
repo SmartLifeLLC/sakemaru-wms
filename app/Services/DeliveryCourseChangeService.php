@@ -22,9 +22,10 @@ class DeliveryCourseChangeService
     /**
      * 配送コースを変更
      *
-     * @param int $tradeId 伝票ID
-     * @param int $newCourseId 変更先の配送コースID
+     * @param  int  $tradeId  伝票ID
+     * @param  int  $newCourseId  変更先の配送コースID
      * @return array 変更結果
+     *
      * @throws \Exception
      */
     public function changeDeliveryCourse(int $tradeId, int $newCourseId): array
@@ -53,7 +54,7 @@ class DeliveryCourseChangeService
                 ->where('id', $newCourseId)
                 ->first();
 
-            if (!$newCourse) {
+            if (! $newCourse) {
                 throw new InvalidArgumentException("Delivery course ID {$newCourseId} not found");
             }
 
@@ -72,7 +73,7 @@ class DeliveryCourseChangeService
                     ->where('id', $itemResult->location_id)
                     ->first();
 
-                if (!$location) {
+                if (! $location) {
                     // location_idがnullの場合はスキップ（欠品等）
                     continue;
                 }
@@ -108,7 +109,19 @@ class DeliveryCourseChangeService
                 $movedCount++;
             }
 
-            // 4. 元のタスクをクリーンアップ
+            // 4. 元の伝票（earnings）の配送コースを更新
+            $earningIds = $itemResults->pluck('earning_id')->unique()->filter()->toArray();
+            if (! empty($earningIds)) {
+                DB::connection('sakemaru')
+                    ->table('earnings')
+                    ->whereIn('id', $earningIds)
+                    ->update([
+                        'delivery_course_id' => $newCourseId,
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            // 5. 元のタスクをクリーンアップ
             $deletedTaskCount = 0;
             foreach ($oldTaskIds as $oldTaskId) {
                 if ($this->cleanupEmptyTask($oldTaskId)) {
@@ -123,23 +136,13 @@ class DeliveryCourseChangeService
                 'wave_id' => $wave->id,
                 'moved_items' => $movedCount,
                 'deleted_tasks' => $deletedTaskCount,
+                'updated_earnings' => count($earningIds),
             ];
         });
     }
 
     /**
      * picking_taskを検索または作成
-     *
-     * @param int $waveId
-     * @param int $warehouseId
-     * @param int $deliveryCourseId
-     * @param string $deliveryCourseCode
-     * @param int|null $pickingAreaId
-     * @param int|null $floorId
-     * @param string|null $temperatureType
-     * @param bool $isRestrictedArea
-     * @param string $shipmentDate
-     * @return object
      */
     protected function findOrCreatePickingTask(
         int $waveId,
@@ -185,17 +188,6 @@ class DeliveryCourseChangeService
 
     /**
      * 新規picking_taskを作成
-     *
-     * @param int $waveId
-     * @param int $warehouseId
-     * @param int $deliveryCourseId
-     * @param string $deliveryCourseCode
-     * @param int|null $pickingAreaId
-     * @param int|null $floorId
-     * @param string|null $temperatureType
-     * @param bool $isRestrictedArea
-     * @param string $shipmentDate
-     * @return object
      */
     protected function createPickingTask(
         int $waveId,
@@ -243,7 +235,6 @@ class DeliveryCourseChangeService
     /**
      * 空になったタスクを削除
      *
-     * @param int $taskId
      * @return bool 削除されたかどうか
      */
     protected function cleanupEmptyTask(int $taskId): bool
@@ -270,8 +261,8 @@ class DeliveryCourseChangeService
     /**
      * 複数伝票の配送コースを一括変更
      *
-     * @param array $tradeIds 伝票IDの配列
-     * @param int $newCourseId 変更先の配送コースID
+     * @param  array  $tradeIds  伝票IDの配列
+     * @param  int  $newCourseId  変更先の配送コースID
      * @return array 変更結果
      */
     public function bulkChangeDeliveryCourse(array $tradeIds, int $newCourseId): array

@@ -195,15 +195,15 @@ enum EMenu: string
 
             // 出荷管理
             self::WMS_PICKER_ATTENDANCE => 1,
-            self::WMS_PICKING_WAITINGS => 2,
-            self::PICKING_ROUTE_VISUALIZATION => 3,
-            self::PICKING_TASKS => 4,
-            self::WMS_PICKING_ITEM_RESULTS => 5,
-            self::WAVES => 6,
-            self::DELIVERY_COURSE_CHANGE => 7,
+            self::DELIVERY_COURSE_CHANGE => 2,
+            self::WMS_PICKING_WAITINGS => 3,
+            self::PICKING_ROUTE_VISUALIZATION => 4,
+            self::PICKING_TASKS => 5,
+            self::WMS_PICKING_ITEM_RESULTS => 7,
             self::SHIPMENT_INSPECTIONS => 8,
-            self::WMS_SHIPMENT_SLIPS => 9,
-            self::OUTBOUND_DASHBOARD => 10,
+            self::WMS_SHIPMENT_SLIPS => 10,
+            self::OUTBOUND_DASHBOARD => 11,
+            self::WAVES => 12,
 
             // 欠品管理
             self::WMS_SHORTAGES => 1,
