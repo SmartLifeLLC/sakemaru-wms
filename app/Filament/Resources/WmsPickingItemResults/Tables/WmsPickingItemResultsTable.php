@@ -3,10 +3,13 @@
 namespace App\Filament\Resources\WmsPickingItemResults\Tables;
 
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
-use Filament\Forms\Components\Select;
+use App\Models\Sakemaru\ClientSetting;
+use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsPickingItemResultsTable
 {
@@ -29,17 +32,23 @@ class WmsPickingItemResultsTable
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: false),
 
+                TextColumn::make('pickingTask.shipment_date')
+                    ->label('出荷日')
+                    ->date('Y-m-d')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: false),
+
                 TextColumn::make('status')
                     ->label('ステータス')
                     ->badge()
-                    ->color(fn(string $state): string => match ($state) {
+                    ->color(fn (string $state): string => match ($state) {
                         'PENDING' => 'warning',
                         'PICKING' => 'info',
                         'COMPLETED' => 'success',
                         'CANCELLED' => 'danger',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn(string $state): string => match ($state) {
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
                         'PENDING' => '未着手',
                         'PICKING' => 'ピッキング中',
                         'COMPLETED' => '完了',
@@ -71,12 +80,12 @@ class WmsPickingItemResultsTable
                     ->label('配送コース')
                     ->default('-')
                     ->state(function ($record) {
-                        if (!$record->earning) {
+                        if (! $record->earning) {
                             return '-';
                         }
 
                         $deliveryCourse = $record->earning->delivery_course;
-                        if (!$deliveryCourse) {
+                        if (! $deliveryCourse) {
                             return '-';
                         }
 
@@ -95,23 +104,23 @@ class WmsPickingItemResultsTable
 
                 TextColumn::make('item.capacity_case')
                     ->label('入り数')
-                    ->formatStateUsing(fn($state) => $state ? (string)$state : '-')
+                    ->formatStateUsing(fn ($state) => $state ? (string) $state : '-')
                     ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('item.volume')
                     ->label('容量')
                     ->formatStateUsing(function ($state, $record) {
-                        if (!$state) {
+                        if (! $state) {
                             return '-';
                         }
                         $volumeUnit = $record->item->volume_unit;
-                        if (!$volumeUnit) {
+                        if (! $volumeUnit) {
                             return $state;
                         }
                         $unit = \App\Enums\EVolumeUnit::tryFrom($volumeUnit);
 
-                        return $state . ($unit ? $unit->name() : '');
+                        return $state.($unit ? $unit->name() : '');
                     })
                     ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: false),
@@ -180,6 +189,31 @@ class WmsPickingItemResultsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Filter::make('shipment_date')
+                    ->label('出荷日')
+                    ->form([
+                        DatePicker::make('shipment_date')
+                            ->label('出荷日')
+                            ->required()
+                            ->default(fn () => ClientSetting::systemDate()),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when(
+                            $data['shipment_date'],
+                            fn (Builder $query, $date): Builder => $query->whereHas(
+                                'pickingTask',
+                                fn (Builder $q) => $q->whereDate('shipment_date', $date)
+                            )
+                        );
+                    })
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['shipment_date']) {
+                            return null;
+                        }
+
+                        return '出荷日: '.\Carbon\Carbon::parse($data['shipment_date'])->format('Y-m-d');
+                    }),
+
                 SelectFilter::make('picking_task_id')
                     ->label('ピッキングタスク')
                     ->relationship('pickingTask', 'id')
@@ -216,6 +250,7 @@ class WmsPickingItemResultsTable
                                     ->orWhereNull('shortage_qty');
                             });
                         }
+
                         return $query;
                     }),
             ])
