@@ -14,6 +14,71 @@ use Illuminate\Support\Facades\DB;
 class PickingTaskController extends Controller
 {
     /**
+     * Format item result data for API response
+     */
+    private function formatItemResult($itemResult): array
+    {
+        $item = $itemResult->item;
+
+        // Get JAN codes from item_search_information
+        $janCodes = [];
+        if ($item && $item->item_search_information) {
+            $janCodes = $item->item_search_information
+                ->filter(fn ($info) => $info->code_type === EItemSearchCodeType::JAN->value)
+                ->sortByDesc('updated_at')
+                ->pluck('search_string')
+                ->values()
+                ->toArray();
+        }
+
+        // Get volume with unit
+        $volumeDisplay = null;
+        if ($item && $item->volume) {
+            $volumeUnit = EVolumeUnit::tryFrom($item->volume_unit);
+            $volumeDisplay = $item->volume.($volumeUnit ? $volumeUnit->name() : '');
+        }
+
+        // Get temperature type label
+        $temperatureTypeLabel = null;
+        if ($item && $item->temperature_type) {
+            $tempType = TemperatureType::tryFrom($item->temperature_type);
+            $temperatureTypeLabel = $tempType?->label();
+        }
+
+        // Get image URLs
+        $images = [];
+        if ($item) {
+            if ($item->image_url_1) {
+                $images[] = $item->image_url_1;
+            }
+            if ($item->image_url_2) {
+                $images[] = $item->image_url_2;
+            }
+            if ($item->image_url_3) {
+                $images[] = $item->image_url_3;
+            }
+        }
+
+        return [
+            'wms_picking_item_result_id' => $itemResult->id,
+            'item_id' => $itemResult->item_id,
+            'item_name' => $item->name ?? 'Unknown Item',
+            'jan_code' => $janCodes[0] ?? null,
+            'jan_code_list' => $janCodes,
+            'volume' => $volumeDisplay,
+            'capacity_case' => $item->capacity_case ?? null,
+            'packaging' => $item->packaging ?? null,
+            'temperature_type' => $temperatureTypeLabel,
+            'images' => $images,
+            'planned_qty_type' => $itemResult->planned_qty_type,
+            'planned_qty' => $itemResult->planned_qty,
+            'picked_qty' => $itemResult->picked_qty ?? 0,
+            'status' => $itemResult->status,
+            'slip_number' => $itemResult->earning_id,
+        ];
+    }
+
+    /**
      * GET /api/picking/tasks
      *
      * タスク一覧取得（配送コース別、ピッキング順最適化）
@@ -219,75 +284,242 @@ class PickingTaskController extends Controller
             // Add item results to picking list, sorted by item_id
             // Note: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
             $itemResults = $task->pickingItemResults()
-                ->with('item')
+                ->with(['item.item_search_information'])
                 ->where('planned_qty', '>', 0) // Filter out items with 0 planned quantity (complete shortage)
                 ->orderBy('item_id', 'asc')
                 ->get();
 
             foreach ($itemResults as $itemResult) {
-                $item = $itemResult->item;
-
-                // Get JAN codes from item_search_information
-                $janCodes = [];
-                if ($item && $item->item_search_information) {
-                    $janCodes = $item->item_search_information
-                        ->filter(fn ($info) => $info->code_type === EItemSearchCodeType::JAN->value)
-                        ->sortByDesc('updated_at')
-                        ->pluck('search_string')
-                        ->values()
-                        ->toArray();
-                }
-
-                // Get volume with unit
-                $volumeDisplay = null;
-                if ($item && $item->volume) {
-                    $volumeUnit = EVolumeUnit::tryFrom($item->volume_unit);
-                    $volumeDisplay = $item->volume.($volumeUnit ? $volumeUnit->name() : '');
-                }
-
-                // Get temperature type label
-                $temperatureTypeLabel = null;
-                if ($item && $item->temperature_type) {
-                    $tempType = TemperatureType::tryFrom($item->temperature_type);
-                    $temperatureTypeLabel = $tempType?->label();
-                }
-
-                // Get image URLs
-                $images = [];
-                if ($item) {
-                    if ($item->image_url_1) {
-                        $images[] = $item->image_url_1;
-                    }
-                    if ($item->image_url_2) {
-                        $images[] = $item->image_url_2;
-                    }
-                    if ($item->image_url_3) {
-                        $images[] = $item->image_url_3;
-                    }
-                }
-
-                $groupedData[$groupKey]['picking_list'][] = [
-                    'wms_picking_item_result_id' => $itemResult->id,
-                    'item_id' => $itemResult->item_id,
-                    'item_name' => $item->name ?? 'Unknown Item',
-                    'jan_code' => $janCodes[0] ?? null,
-                    'jan_code_list' => $janCodes,
-                    'volume' => $volumeDisplay,
-                    'capacity_case' => $item->capacity_case ?? null,
-                    'packaging' => $item->packaging ?? null,
-                    'temperature_type' => $temperatureTypeLabel,
-                    'images' => $images,
-                    'planned_qty_type' => $itemResult->planned_qty_type,
-                    'planned_qty' => $itemResult->planned_qty,
-                    'picked_qty' => $itemResult->picked_qty ?? 0,
-                    'status' => $itemResult->status,
-                    'slip_number' => $itemResult->earning_id,
-                ];
+                $groupedData[$groupKey]['picking_list'][] = $this->formatItemResult($itemResult);
             }
         }
 
         // Convert to array indexed from 1 (as per spec example)
         $data = array_values($groupedData);
+
+        return response()->json([
+            'is_success' => true,
+            'code' => 'SUCCESS',
+            'result' => [
+                'data' => $data,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /api/picking/tasks/{id}
+     *
+     * 単一タスク取得
+     *
+     * @OA\Get(
+     *     path="/api/picking/tasks/{id}",
+     *     tags={"Picking Tasks"},
+     *     summary="Get single picking task",
+     *     description="Retrieve a single picking task with course, picking area, wave, and picking list",
+     *     security={{"apiKey":{}, "sanctum":{}}},
+     *
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         description="Picking Task ID",
+     *         required=true,
+     *
+     *         @OA\Schema(type="integer", example=1)
+     *     ),
+     *
+     *     @OA\Response(
+     *         response=200,
+     *         description="Successful response",
+     *
+     *         @OA\JsonContent(
+     *
+     *             @OA\Property(property="is_success", type="boolean", example=true),
+     *             @OA\Property(property="code", type="string", example="SUCCESS")
+     *         )
+     *     ),
+     *
+     *     @OA\Response(response=404, description="Task not found")
+     * )
+     */
+    public function show($id)
+    {
+        $task = WmsPickingTask::with([
+            'pickingArea',
+            'deliveryCourse',
+            'pickingItemResults.item.item_search_information',
+            'pickingItemResults.earning',
+        ])->find($id);
+
+        if (! $task) {
+            return response()->json([
+                'is_success' => false,
+                'code' => 'NOT_FOUND',
+                'result' => [
+                    'data' => null,
+                    'error_message' => 'Picking task not found',
+                ],
+            ], 404);
+        }
+
+        $deliveryCourseCode = $task->deliveryCourse->code ?? 'UNKNOWN';
+        $deliveryCourseName = $task->deliveryCourse->name ?? 'Unknown Course';
+        $pickingAreaCode = $task->pickingArea->code ?? 'UNKNOWN';
+        $pickingAreaName = $task->pickingArea->name ?? 'Unknown Area';
+
+        // Build picking list
+        $pickingList = [];
+        $itemResults = $task->pickingItemResults()
+            ->with(['item.item_search_information'])
+            ->where('planned_qty', '>', 0)
+            ->orderBy('item_id', 'asc')
+            ->get();
+
+        foreach ($itemResults as $itemResult) {
+            $pickingList[] = $this->formatItemResult($itemResult);
+        }
+
+        $data = [
+            'course' => [
+                'code' => $deliveryCourseCode,
+                'name' => $deliveryCourseName,
+            ],
+            'picking_area' => [
+                'code' => $pickingAreaCode,
+                'name' => $pickingAreaName,
+            ],
+            'wave' => [
+                'wms_picking_task_id' => $task->id,
+                'wms_wave_id' => $task->wave_id,
+            ],
+            'picking_list' => $pickingList,
+        ];
+
+        return response()->json([
+            'is_success' => true,
+            'code' => 'SUCCESS',
+            'result' => [
+                'data' => $data,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /api/picking/items/{id}
+     *
+     * 単一ピッキングアイテム取得
+     *
+     * @OA\Get(
+     *     path="/api/picking/items/{id}",
+     *     tags={"Picking Tasks"},
+     *     summary="Get single picking item result",
+     *     description="Retrieve a single picking item result with item details",
+     *     security={{"apiKey":{}, "sanctum":{}}},
+     *
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         description="Picking Item Result ID",
+     *         required=true,
+     *
+     *         @OA\Schema(type="integer", example=1)
+     *     ),
+     *
+     *     @OA\Response(
+     *         response=200,
+     *         description="Successful response",
+     *
+     *         @OA\JsonContent(
+     *
+     *             @OA\Property(property="is_success", type="boolean", example=true),
+     *             @OA\Property(property="code", type="string", example="SUCCESS")
+     *         )
+     *     ),
+     *
+     *     @OA\Response(response=404, description="Item not found")
+     * )
+     */
+    public function showItem($id)
+    {
+        $itemResult = DB::connection('sakemaru')
+            ->table('wms_picking_item_results')
+            ->where('id', $id)
+            ->first();
+
+        if (! $itemResult) {
+            return response()->json([
+                'is_success' => false,
+                'code' => 'NOT_FOUND',
+                'result' => [
+                    'data' => null,
+                    'error_message' => 'Picking item result not found',
+                ],
+            ], 404);
+        }
+
+        // Load the item with item_search_information
+        $item = DB::connection('sakemaru')
+            ->table('items')
+            ->where('id', $itemResult->item_id)
+            ->first();
+
+        // Get JAN codes
+        $janCodes = [];
+        if ($item) {
+            $searchInfos = DB::connection('sakemaru')
+                ->table('item_search_information')
+                ->where('item_id', $item->id)
+                ->where('code_type', EItemSearchCodeType::JAN->value)
+                ->orderByDesc('updated_at')
+                ->pluck('search_string')
+                ->toArray();
+            $janCodes = $searchInfos;
+        }
+
+        // Get volume with unit
+        $volumeDisplay = null;
+        if ($item && $item->volume) {
+            $volumeUnit = EVolumeUnit::tryFrom($item->volume_unit);
+            $volumeDisplay = $item->volume.($volumeUnit ? $volumeUnit->name() : '');
+        }
+
+        // Get temperature type label
+        $temperatureTypeLabel = null;
+        if ($item && $item->temperature_type) {
+            $tempType = TemperatureType::tryFrom($item->temperature_type);
+            $temperatureTypeLabel = $tempType?->label();
+        }
+
+        // Get image URLs
+        $images = [];
+        if ($item) {
+            if ($item->image_url_1) {
+                $images[] = $item->image_url_1;
+            }
+            if ($item->image_url_2) {
+                $images[] = $item->image_url_2;
+            }
+            if ($item->image_url_3) {
+                $images[] = $item->image_url_3;
+            }
+        }
+
+        $data = [
+            'wms_picking_item_result_id' => $itemResult->id,
+            'item_id' => $itemResult->item_id,
+            'item_name' => $item->name ?? 'Unknown Item',
+            'jan_code' => $janCodes[0] ?? null,
+            'jan_code_list' => $janCodes,
+            'volume' => $volumeDisplay,
+            'capacity_case' => $item->capacity_case ?? null,
+            'packaging' => $item->packaging ?? null,
+            'temperature_type' => $temperatureTypeLabel,
+            'images' => $images,
+            'planned_qty_type' => $itemResult->planned_qty_type,
+            'planned_qty' => $itemResult->planned_qty,
+            'picked_qty' => $itemResult->picked_qty ?? 0,
+            'status' => $itemResult->status,
+            'slip_number' => $itemResult->earning_id,
+        ];
 
         return response()->json([
             'is_success' => true,
@@ -490,20 +722,6 @@ class PickingTaskController extends Controller
 
         // Capture state before update
         $itemResultBefore = (array) $itemResult;
-        $stockBefore = null;
-        $wmsStockBefore = null;
-
-        if ($itemResult->real_stock_id) {
-            $stockBefore = DB::connection('sakemaru')
-                ->table('real_stocks')
-                ->where('id', $itemResult->real_stock_id)
-                ->first();
-
-            $wmsStockBefore = (object) [
-                'wms_reserved_qty' => $stockBefore->wms_reserved_qty ?? 0,
-                'wms_picking_qty' => $stockBefore->wms_picking_qty ?? 0,
-            ];
-        }
 
         $pickedQty = $validated['picked_qty'];
         $pickedQtyType = $validated['picked_qty_type'] ?? $itemResult->picked_qty_type;
@@ -511,16 +729,11 @@ class PickingTaskController extends Controller
         // Calculate shortage
         $shortageQty = max(0, $itemResult->planned_qty - $pickedQty);
 
-        // Determine status based on new spec: PENDING, PICKING, COMPLETED
-        if ($pickedQty >= $itemResult->planned_qty) {
-            $status = 'COMPLETED';
-        } elseif ($pickedQty > 0) {
-            $status = 'PICKING';
-        } else {
-            $status = 'PENDING'; // Changed from 'SHORTAGE' to 'PENDING'
-        }
+        // Status is always PICKING during picking operation
+        // Final status (COMPLETED/SHORTAGE) is determined at task complete
+        $status = 'PICKING';
 
-        // Update picking item result
+        // Update picking item result (real_stock update is done at task complete)
         DB::connection('sakemaru')
             ->table('wms_picking_item_results')
             ->where('id', $itemResultId)
@@ -533,20 +746,6 @@ class PickingTaskController extends Controller
                 'picker_id' => $request->user()->id,
                 'updated_at' => now(),
             ]);
-
-        // Update real_stocks: decrease current_quantity, available_quantity, wms_reserved_qty, and increase wms_picking_qty
-        if ($pickedQty > 0 && $itemResult->real_stock_id) {
-            DB::connection('sakemaru')
-                ->table('real_stocks')
-                ->where('id', $itemResult->real_stock_id)
-                ->update([
-                    'current_quantity' => DB::raw("current_quantity - {$pickedQty}"),
-                    'available_quantity' => DB::raw("available_quantity - {$pickedQty}"),
-                    'wms_reserved_qty' => DB::raw("GREATEST(wms_reserved_qty - {$pickedQty}, 0)"),
-                    'wms_picking_qty' => DB::raw("wms_picking_qty + {$pickedQty}"),
-                    'updated_at' => now(),
-                ]);
-        }
 
         // Capture state after update
         $itemResultAfter = [
@@ -561,15 +760,6 @@ class PickingTaskController extends Controller
             'shortage_qty' => $shortageQty,
             'status' => $status,
         ];
-
-        $stockAfter = null;
-        if ($itemResult->real_stock_id && $stockBefore) {
-            $stockAfter = [
-                'current_quantity' => $stockBefore->current_quantity - $pickedQty,
-                'reserved_quantity' => max(0, ($wmsStockBefore->reserved_quantity ?? 0) - $pickedQty),
-                'picking_quantity' => ($wmsStockBefore->picking_quantity ?? 0) + $pickedQty,
-            ];
-        }
 
         $response = [
             'is_success' => true,
@@ -586,18 +776,14 @@ class PickingTaskController extends Controller
             ],
         ];
 
-        // Log the action
+        // Log the action (stock update is done at task complete, so no stock changes here)
         PickingLogService::logItemPick(
             $request,
             $itemResultId,
             $itemResultBefore,
             $itemResultAfter,
-            $stockBefore ? [
-                'current_quantity' => $stockBefore->current_quantity,
-                'reserved_quantity' => $wmsStockBefore->reserved_quantity ?? 0,
-                'picking_quantity' => $wmsStockBefore->picking_quantity ?? 0,
-            ] : null,
-            $stockAfter,
+            null,
+            null,
             $response,
             200
         );
@@ -684,13 +870,13 @@ class PickingTaskController extends Controller
             ], 422);
         }
 
-        // Check if all items are completed or have shortage
-        $pendingItems = $task->pickingItemResults()
-            ->whereNotIn('status', ['COMPLETED', 'SHORTAGE'])
+        // Check if any items have PENDING or PICKING status (not allowed to complete)
+        $incompleteItems = $task->pickingItemResults()
+            ->whereIn('status', ['PENDING', 'PICKING'])
             ->get();
 
-        if ($pendingItems->isNotEmpty()) {
-            $pendingCount = $pendingItems->count();
+        if ($incompleteItems->isNotEmpty()) {
+            $incompleteCount = $incompleteItems->count();
 
             return response()->json([
                 'is_success' => false,
@@ -699,7 +885,7 @@ class PickingTaskController extends Controller
                     'data' => null,
                     'error_message' => 'ピッキング完了していない商品があります',
                     'errors' => [
-                        'items' => ["{$pendingCount}件の商品がまだピッキング中です"],
+                        'items' => ["{$incompleteCount}件の商品がまだピッキング中です"],
                     ],
                 ],
             ], 422);
@@ -708,12 +894,40 @@ class PickingTaskController extends Controller
         // Capture status before update
         $statusBefore = $task->status;
 
-        // Check if there are any items with shortage (has_shortage = true)
-        $hasShortage = $task->pickingItemResults()
-            ->where('has_shortage', true)
-            ->exists();
+        // Update all item results: SHORTAGE if shortage_qty > 0, otherwise COMPLETED
+        $itemResults = $task->pickingItemResults;
+        $hasShortage = false;
 
-        // Set status based on shortage existence
+        foreach ($itemResults as $itemResult) {
+            $itemStatus = $itemResult->shortage_qty > 0 ? 'SHORTAGE' : 'COMPLETED';
+            if ($itemStatus === 'SHORTAGE') {
+                $hasShortage = true;
+            }
+
+            DB::connection('sakemaru')
+                ->table('wms_picking_item_results')
+                ->where('id', $itemResult->id)
+                ->update([
+                    'status' => $itemStatus,
+                    'updated_at' => now(),
+                ]);
+
+            // Update real_stocks: decrease wms_reserved_qty, current_quantity, available_quantity
+            if ($itemResult->real_stock_id && $itemResult->picked_qty > 0) {
+                $pickedQty = $itemResult->picked_qty;
+                DB::connection('sakemaru')
+                    ->table('real_stocks')
+                    ->where('id', $itemResult->real_stock_id)
+                    ->update([
+                        'current_quantity' => DB::raw("current_quantity - {$pickedQty}"),
+                        'available_quantity' => DB::raw("available_quantity - {$pickedQty}"),
+                        'wms_reserved_qty' => DB::raw("GREATEST(wms_reserved_qty - {$pickedQty}, 0)"),
+                        'updated_at' => now(),
+                    ]);
+            }
+        }
+
+        // Set task status based on shortage existence
         $finalStatus = $hasShortage ? 'SHORTAGE' : 'COMPLETED';
 
         // Update task
@@ -721,20 +935,6 @@ class PickingTaskController extends Controller
             'status' => $finalStatus,
             'completed_at' => now(),
         ]);
-
-        // Update real_stocks: decrease wms_picking_qty (picked items are now consumed)
-        $itemResults = $task->pickingItemResults;
-        foreach ($itemResults as $itemResult) {
-            if ($itemResult->real_stock_id && $itemResult->picked_qty > 0) {
-                DB::connection('sakemaru')
-                    ->table('real_stocks')
-                    ->where('id', $itemResult->real_stock_id)
-                    ->update([
-                        'wms_picking_qty' => DB::raw("GREATEST(wms_picking_qty - {$itemResult->picked_qty}, 0)"),
-                        'updated_at' => now(),
-                    ]);
-            }
-        }
 
         $response = [
             'is_success' => true,
@@ -752,6 +952,119 @@ class PickingTaskController extends Controller
 
         // Log the action
         PickingLogService::logTaskComplete($request, $task, $statusBefore, $response, 200);
+
+        return response()->json($response);
+    }
+
+    /**
+     * POST /api/picking/tasks/{wms_picking_item_result_id}/cancel
+     *
+     * ピッキングアイテムキャンセル
+     *
+     * @OA\Post(
+     *     path="/api/picking/tasks/{wms_picking_item_result_id}/cancel",
+     *     tags={"Picking Tasks"},
+     *     summary="Cancel picking item result",
+     *     description="Reset picking item result to PENDING status with picked_qty = 0",
+     *     security={{"apiKey":{}, "sanctum":{}}},
+     *
+     *     @OA\Parameter(
+     *         name="wms_picking_item_result_id",
+     *         in="path",
+     *         description="Picking Item Result ID",
+     *         required=true,
+     *
+     *         @OA\Schema(type="integer", example=1)
+     *     ),
+     *
+     *     @OA\Response(
+     *         response=200,
+     *         description="Picking item cancelled",
+     *
+     *         @OA\JsonContent(
+     *
+     *             @OA\Property(property="is_success", type="boolean", example=true),
+     *             @OA\Property(property="code", type="string", example="SUCCESS"),
+     *             @OA\Property(
+     *                 property="result",
+     *                 type="object",
+     *                 @OA\Property(
+     *                     property="data",
+     *                     type="object",
+     *                     @OA\Property(property="id", type="integer", example=1),
+     *                     @OA\Property(property="picked_qty", type="number", example=0),
+     *                     @OA\Property(property="shortage_qty", type="number", example=0),
+     *                     @OA\Property(property="status", type="string", example="PENDING")
+     *                 ),
+     *                 @OA\Property(property="message", type="string", example="Picking item cancelled"),
+     *                 @OA\Property(property="debug_message", type="string", example=null, nullable=true)
+     *             )
+     *         )
+     *     ),
+     *
+     *     @OA\Response(response=404, description="Item result not found"),
+     *     @OA\Response(response=422, description="Item cannot be cancelled (already completed)")
+     * )
+     */
+    public function cancelItemResult(Request $request, $itemResultId)
+    {
+        $itemResult = DB::connection('sakemaru')
+            ->table('wms_picking_item_results')
+            ->where('id', $itemResultId)
+            ->first();
+
+        if (! $itemResult) {
+            return response()->json([
+                'is_success' => false,
+                'code' => 'NOT_FOUND',
+                'result' => [
+                    'data' => null,
+                    'error_message' => 'Picking item result not found',
+                ],
+            ], 404);
+        }
+
+        // Check if item can be cancelled (not already COMPLETED or SHORTAGE)
+        if (in_array($itemResult->status, ['COMPLETED', 'SHORTAGE'])) {
+            return response()->json([
+                'is_success' => false,
+                'code' => 'VALIDATION_ERROR',
+                'result' => [
+                    'data' => null,
+                    'error_message' => 'キャンセルできません',
+                    'errors' => [
+                        'status' => ["ステータスが{$itemResult->status}のためキャンセルできません"],
+                    ],
+                ],
+            ], 422);
+        }
+
+        // Reset item result to PENDING status
+        DB::connection('sakemaru')
+            ->table('wms_picking_item_results')
+            ->where('id', $itemResultId)
+            ->update([
+                'picked_qty' => 0,
+                'shortage_qty' => 0,
+                'status' => 'PENDING',
+                'picked_at' => null,
+                'updated_at' => now(),
+            ]);
+
+        $response = [
+            'is_success' => true,
+            'code' => 'SUCCESS',
+            'result' => [
+                'data' => [
+                    'id' => $itemResultId,
+                    'picked_qty' => 0,
+                    'shortage_qty' => 0,
+                    'status' => 'PENDING',
+                ],
+                'message' => 'Picking item cancelled',
+                'debug_message' => null,
+            ],
+        ];
 
         return response()->json($response);
     }
