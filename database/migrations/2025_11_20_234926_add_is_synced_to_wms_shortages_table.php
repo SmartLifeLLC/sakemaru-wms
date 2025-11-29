@@ -12,13 +12,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::connection('sakemaru')->table('wms_shortages', function (Blueprint $table) {
-            $table->boolean('is_synced')->default(false)->after('is_confirmed')
+            $table->boolean('is_synced')->default(false)
                 ->comment('基幹システムへの在庫同期完了フラグ');
             $table->timestamp('is_synced_at')->nullable()->after('is_synced')
                 ->comment('基幹システムへの在庫同期完了日時');
 
             // Index for querying unsynced records
-            $table->index(['is_synced', 'is_confirmed'], 'idx_shortage_sync_status');
+            $table->index('is_synced', 'idx_shortage_sync_status');
         });
     }
 
