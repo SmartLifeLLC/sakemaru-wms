@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\EItemSearchCodeType;
+use App\Enums\EVolumeUnit;
+use App\Enums\TemperatureType;
 use App\Http\Controllers\Controller;
 use App\Models\WmsPickingTask;
 use App\Services\PickingLogService;
@@ -21,31 +24,40 @@ class PickingTaskController extends Controller
      *     summary="Get picking task list",
      *     description="Retrieve picking tasks grouped by delivery course and picking area, optimized by walking order",
      *     security={{"apiKey":{}, "sanctum":{}}},
+     *
      *     @OA\Parameter(
      *         name="warehouse_id",
      *         in="query",
      *         description="Warehouse ID (required)",
      *         required=true,
+     *
      *         @OA\Schema(type="integer", example=991)
      *     ),
+     *
      *     @OA\Parameter(
      *         name="picker_id",
      *         in="query",
      *         description="Picker ID (optional, filter tasks by specific picker)",
      *         required=false,
+     *
      *         @OA\Schema(type="integer", example=1)
      *     ),
+     *
      *     @OA\Parameter(
      *         name="picking_area_id",
      *         in="query",
      *         description="Picking Area ID (optional, filter tasks by specific area)",
      *         required=false,
+     *
      *         @OA\Schema(type="integer", example=1)
      *     ),
+     *
      *     @OA\Response(
      *         response=200,
      *         description="Successful response",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -54,8 +66,10 @@ class PickingTaskController extends Controller
      *                 @OA\Property(
      *                 property="data",
      *                 type="array",
+     *
      *                 @OA\Items(
      *                     type="object",
+     *
      *                     @OA\Property(
      *                         property="course",
      *                         type="object",
@@ -77,14 +91,24 @@ class PickingTaskController extends Controller
      *                     @OA\Property(
      *                         property="picking_list",
      *                         type="array",
+     *
      *                         @OA\Items(
      *                             type="object",
+     *
      *                             @OA\Property(property="wms_picking_item_result_id", type="integer", example=1, description="Picking item result ID"),
      *                             @OA\Property(property="item_id", type="integer", example=111110),
      *                             @OA\Property(property="item_name", type="string", example="×白鶴特撰　本醸造生貯蔵酒７２０ｍｌ（ギフト）"),
+     *                             @OA\Property(property="jan_code", type="string", example="4901681115008", nullable=true, description="Representative JAN code (most recently updated)"),
+     *                             @OA\Property(property="jan_code_list", type="array", @OA\Items(type="string"), example={"4901681115008", "4901681115015"}, description="List of all JAN codes ordered by updated_at desc"),
+     *                             @OA\Property(property="volume", type="string", example="720ml", nullable=true, description="Item volume with unit"),
+     *                             @OA\Property(property="capacity_case", type="integer", example=12, nullable=true, description="Items per case"),
+     *                             @OA\Property(property="packaging", type="string", example="瓶", nullable=true, description="Item packaging type"),
+     *                             @OA\Property(property="temperature_type", type="string", example="常温", nullable=true, description="Temperature type label"),
+     *                             @OA\Property(property="images", type="array", @OA\Items(type="string"), example={"https://example.com/image1.jpg", "https://example.com/image2.jpg"}, description="List of item image URLs (image_url_1, image_url_2, image_url_3)"),
      *                             @OA\Property(property="planned_qty_type", type="string", example="CASE", description="Quantity type: CASE or PIECE"),
      *                             @OA\Property(property="planned_qty", type="string", example="2.00"),
      *                             @OA\Property(property="picked_qty", type="string", example="0.00"),
+     *                             @OA\Property(property="status", type="string", example="PENDING", description="Item status: PENDING (not started), PICKING (in progress), COMPLETED, SHORTAGE"),
      *                             @OA\Property(property="slip_number", type="integer", example=1, description="Earning ID used as slip number")
      *                         )
      *                     )
@@ -93,10 +117,13 @@ class PickingTaskController extends Controller
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(
      *         response=400,
      *         description="Validation error",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="message", type="string", example="The warehouse id field is required."),
      *             @OA\Property(
      *                 property="errors",
@@ -104,11 +131,13 @@ class PickingTaskController extends Controller
      *                 @OA\Property(
      *                     property="warehouse_id",
      *                     type="array",
+     *
      *                     @OA\Items(type="string", example="The warehouse id field is required.")
      *                 )
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(
      *         response=401,
      *         description="Unauthorized - Invalid or missing token"
@@ -136,7 +165,7 @@ class PickingTaskController extends Controller
         $query = WmsPickingTask::with([
             'pickingArea',
             'deliveryCourse',
-            'pickingItemResults.item',
+            'pickingItemResults.item.item_search_information',
             'pickingItemResults.earning',
         ])
             ->where('warehouse_id', $warehouseId)
@@ -157,7 +186,7 @@ class PickingTaskController extends Controller
 
         foreach ($tasks as $task) {
             // Get delivery course from task (tasks are grouped by delivery_course_id)
-            if (!$task->deliveryCourse) {
+            if (! $task->deliveryCourse) {
                 continue; // Skip tasks without delivery course
             }
 
@@ -169,7 +198,7 @@ class PickingTaskController extends Controller
             // Create unique key for course + area combination
             $groupKey = "{$deliveryCourseCode}_{$pickingAreaCode}";
 
-            if (!isset($groupedData[$groupKey])) {
+            if (! isset($groupedData[$groupKey])) {
                 $groupedData[$groupKey] = [
                     'course' => [
                         'code' => $deliveryCourseCode,
@@ -196,15 +225,63 @@ class PickingTaskController extends Controller
                 ->get();
 
             foreach ($itemResults as $itemResult) {
+                $item = $itemResult->item;
+
+                // Get JAN codes from item_search_information
+                $janCodes = [];
+                if ($item && $item->item_search_information) {
+                    $janCodes = $item->item_search_information
+                        ->filter(fn ($info) => $info->code_type === EItemSearchCodeType::JAN->value)
+                        ->sortByDesc('updated_at')
+                        ->pluck('search_string')
+                        ->values()
+                        ->toArray();
+                }
+
+                // Get volume with unit
+                $volumeDisplay = null;
+                if ($item && $item->volume) {
+                    $volumeUnit = EVolumeUnit::tryFrom($item->volume_unit);
+                    $volumeDisplay = $item->volume.($volumeUnit ? $volumeUnit->name() : '');
+                }
+
+                // Get temperature type label
+                $temperatureTypeLabel = null;
+                if ($item && $item->temperature_type) {
+                    $tempType = TemperatureType::tryFrom($item->temperature_type);
+                    $temperatureTypeLabel = $tempType?->label();
+                }
+
+                // Get image URLs
+                $images = [];
+                if ($item) {
+                    if ($item->image_url_1) {
+                        $images[] = $item->image_url_1;
+                    }
+                    if ($item->image_url_2) {
+                        $images[] = $item->image_url_2;
+                    }
+                    if ($item->image_url_3) {
+                        $images[] = $item->image_url_3;
+                    }
+                }
+
                 $groupedData[$groupKey]['picking_list'][] = [
                     'wms_picking_item_result_id' => $itemResult->id,
                     'item_id' => $itemResult->item_id,
-                    'item_name' => $itemResult->item->name ?? 'Unknown Item',
+                    'item_name' => $item->name ?? 'Unknown Item',
+                    'jan_code' => $janCodes[0] ?? null,
+                    'jan_code_list' => $janCodes,
+                    'volume' => $volumeDisplay,
+                    'capacity_case' => $item->capacity_case ?? null,
+                    'packaging' => $item->packaging ?? null,
+                    'temperature_type' => $temperatureTypeLabel,
+                    'images' => $images,
                     'planned_qty_type' => $itemResult->planned_qty_type,
                     'planned_qty' => $itemResult->planned_qty,
                     'picked_qty' => $itemResult->picked_qty ?? 0,
-                    // 'walking_order' => $itemResult->walking_order, // Removed: walking_order is no longer used
-                    'slip_number' => $itemResult->earning_id, // Use earning_id from item result as slip number
+                    'status' => $itemResult->status,
+                    'slip_number' => $itemResult->earning_id,
                 ];
             }
         }
@@ -232,17 +309,22 @@ class PickingTaskController extends Controller
      *     summary="Start picking task",
      *     description="Change task status to PICKING and set started_at timestamp",
      *     security={{"apiKey":{}, "sanctum":{}}},
+     *
      *     @OA\Parameter(
      *         name="id",
      *         in="path",
      *         description="Picking Task ID",
      *         required=true,
+     *
      *         @OA\Schema(type="integer", example=1)
      *     ),
+     *
      *     @OA\Response(
      *         response=200,
      *         description="Task started successfully",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -260,6 +342,7 @@ class PickingTaskController extends Controller
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=404, description="Task not found"),
      *     @OA\Response(response=422, description="Task already started or completed")
      * )
@@ -268,7 +351,7 @@ class PickingTaskController extends Controller
     {
         $task = WmsPickingTask::find($id);
 
-        if (!$task) {
+        if (! $task) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'NOT_FOUND',
@@ -280,7 +363,7 @@ class PickingTaskController extends Controller
         }
 
         // Validate task can be started
-        if (!in_array($task->status, ['PENDING', 'PICKING'])) {
+        if (! in_array($task->status, ['PENDING', 'PICKING'])) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
@@ -332,25 +415,33 @@ class PickingTaskController extends Controller
      *     summary="Update picking result",
      *     description="Update picked quantity for a specific item in the picking task",
      *     security={{"apiKey":{}, "sanctum":{}}},
+     *
      *     @OA\Parameter(
      *         name="wms_picking_item_result_id",
      *         in="path",
      *         description="Picking Item Result ID",
      *         required=true,
+     *
      *         @OA\Schema(type="integer", example=1)
      *     ),
+     *
      *     @OA\RequestBody(
      *         required=true,
+     *
      *         @OA\JsonContent(
      *             required={"picked_qty"},
+     *
      *             @OA\Property(property="picked_qty", type="number", example=5, description="Picked quantity"),
      *             @OA\Property(property="picked_qty_type", type="string", example="PIECE", description="Quantity type (CASE/PIECE)")
      *         )
      *     ),
+     *
      *     @OA\Response(
      *         response=200,
      *         description="Picking result updated",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -369,6 +460,7 @@ class PickingTaskController extends Controller
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=404, description="Item result not found"),
      *     @OA\Response(response=422, description="Validation error")
      * )
@@ -385,7 +477,7 @@ class PickingTaskController extends Controller
             ->where('id', $itemResultId)
             ->first();
 
-        if (!$itemResult) {
+        if (! $itemResult) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'NOT_FOUND',
@@ -407,7 +499,7 @@ class PickingTaskController extends Controller
                 ->where('id', $itemResult->real_stock_id)
                 ->first();
 
-            $wmsStockBefore = (object)[
+            $wmsStockBefore = (object) [
                 'wms_reserved_qty' => $stockBefore->wms_reserved_qty ?? 0,
                 'wms_picking_qty' => $stockBefore->wms_picking_qty ?? 0,
             ];
@@ -524,17 +616,22 @@ class PickingTaskController extends Controller
      *     summary="Complete picking task",
      *     description="Mark task as completed. Status will be COMPLETED if all items are picked, SHORTAGE if any shortages exist",
      *     security={{"apiKey":{}, "sanctum":{}}},
+     *
      *     @OA\Parameter(
      *         name="id",
      *         in="path",
      *         description="Picking Task ID",
      *         required=true,
+     *
      *         @OA\Schema(type="integer", example=1)
      *     ),
+     *
      *     @OA\Response(
      *         response=200,
      *         description="Task completed",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -552,6 +649,7 @@ class PickingTaskController extends Controller
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=404, description="Task not found"),
      *     @OA\Response(response=422, description="Task cannot be completed")
      * )
@@ -560,7 +658,7 @@ class PickingTaskController extends Controller
     {
         $task = WmsPickingTask::with('pickingItemResults')->find($id);
 
-        if (!$task) {
+        if (! $task) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'NOT_FOUND',
@@ -572,7 +670,7 @@ class PickingTaskController extends Controller
         }
 
         // Check if task can be completed
-        if (!in_array($task->status, ['PICKING', 'PENDING', 'SHORTAGE'])) {
+        if (! in_array($task->status, ['PICKING', 'PENDING', 'SHORTAGE'])) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
@@ -593,6 +691,7 @@ class PickingTaskController extends Controller
 
         if ($pendingItems->isNotEmpty()) {
             $pendingCount = $pendingItems->count();
+
             return response()->json([
                 'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
