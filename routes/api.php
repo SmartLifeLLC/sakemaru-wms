@@ -26,8 +26,11 @@ Route::middleware('api.key')->group(function () {
 
         // Picking task endpoints
         Route::get('/picking/tasks', [PickingTaskController::class, 'index']);
+        Route::get('/picking/tasks/{id}', [PickingTaskController::class, 'show']);
+        Route::get('/picking/items/{id}', [PickingTaskController::class, 'showItem']);
         Route::post('/picking/tasks/{id}/start', [PickingTaskController::class, 'start']);
         Route::post('/picking/tasks/{itemResultId}/update', [PickingTaskController::class, 'updateItemResult']);
+        Route::post('/picking/tasks/{itemResultId}/cancel', [PickingTaskController::class, 'cancelItemResult']);
         Route::post('/picking/tasks/{id}/complete', [PickingTaskController::class, 'complete']);
     });
 });
