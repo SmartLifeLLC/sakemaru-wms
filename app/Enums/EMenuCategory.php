@@ -8,6 +8,7 @@ enum EMenuCategory: string
     case OUTBOUND = 'outbound';
     case SHORTAGE = 'shortage';
     case HORIZONTAL_SHIPMENT = 'horizontal_shipment';
+    case AUTO_ORDER = 'auto_order';
     case INVENTORY = 'inventory';
     case MASTER = 'master';
     case STATISTICS = 'statistics';
@@ -22,6 +23,7 @@ enum EMenuCategory: string
             self::OUTBOUND => '出荷管理',
             self::SHORTAGE => '欠品管理',
             self::HORIZONTAL_SHIPMENT => '横持ち出荷',
+            self::AUTO_ORDER => '自動発注',
             self::INVENTORY => '在庫管理',
             self::MASTER => 'マスタ管理',
             self::STATISTICS => '統計データ',
@@ -38,6 +40,7 @@ enum EMenuCategory: string
             self::OUTBOUND => 'heroicon-o-arrow-up-tray',
             self::SHORTAGE => 'heroicon-o-exclamation-triangle',
             self::HORIZONTAL_SHIPMENT => 'heroicon-o-truck',
+            self::AUTO_ORDER => 'heroicon-o-clipboard-document-check',
             self::INVENTORY => 'heroicon-o-cube',
             self::MASTER => 'heroicon-o-document-text',
             self::STATISTICS => 'heroicon-o-chart-bar',
@@ -54,9 +57,10 @@ enum EMenuCategory: string
             self::OUTBOUND => 2,
             self::SHORTAGE => 3,
             self::HORIZONTAL_SHIPMENT => 4,
-            self::INVENTORY => 5,
-            self::MASTER => 6,
-            self::STATISTICS => 7,
+            self::AUTO_ORDER => 5,
+            self::INVENTORY => 6,
+            self::MASTER => 7,
+            self::STATISTICS => 8,
             self::LOGS => 97,
             self::SETTINGS => 98,
             self::TEST_DATA => 99, // Last
