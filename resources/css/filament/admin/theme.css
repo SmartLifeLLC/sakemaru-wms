@@ -9,6 +9,11 @@
 @layer components {
     .fi-main {
         @apply max-w-none;
+        overflow: visible !important;
+    }
+
+    .fi-layout {
+        overflow: visible !important;
     }
 
     .fi-sidebar + .fi-main {

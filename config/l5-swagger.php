@@ -5,7 +5,7 @@ return [
     'documentations' => [
         'default' => [
             'api' => [
-                'title' => 'Smart WMS API Documentation',
+                'title' => '酒丸蔵 API Documentation',
             ],
 
             'routes' => [
