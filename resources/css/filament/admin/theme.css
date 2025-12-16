@@ -2,6 +2,7 @@
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+@source '../../../../resources/views/livewire/**/*';
 @source '../../../../vendor/archilex/filament-filter-sets';
 
 /* … Advanced Tables の設定はそのままでOK … */
