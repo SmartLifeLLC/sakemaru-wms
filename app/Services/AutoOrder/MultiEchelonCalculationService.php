@@ -34,6 +34,13 @@ class MultiEchelonCalculationService
      */
     private array $internalDemands = [];
 
+    private ContractorLeadTimeService $contractorLeadTimeService;
+
+    public function __construct(?ContractorLeadTimeService $contractorLeadTimeService = null)
+    {
+        $this->contractorLeadTimeService = $contractorLeadTimeService ?? new ContractorLeadTimeService();
+    }
+
     /**
      * 全階層の計算を実行
      */
@@ -99,7 +106,7 @@ class MultiEchelonCalculationService
     {
         $settings = WmsItemSupplySetting::enabled()
             ->atLevel($level)
-            ->with(['warehouse', 'item', 'sourceWarehouse', 'itemContractor.contractor'])
+            ->with(['warehouse', 'item', 'sourceWarehouse', 'itemContractor.contractor.leadTime'])
             ->get();
 
         $processedCount = 0;
@@ -130,8 +137,14 @@ class MultiEchelonCalculationService
         // 下位階層からの内部移動需要を取得
         $internalDemand = $this->getInternalDemand($setting->warehouse_id, $setting->item_id);
 
+        // 入荷予定日を計算（供給タイプに応じて異なるロジックを使用）
+        $arrivalResult = $this->calculateArrivalDateForSetting($setting, today());
+
+        // リードタイム中の消費予測を取得（発注先のリードタイムを考慮）
+        $leadTimeDays = $arrivalResult['lead_time_days'];
+        $consumptionDuringLT = $setting->daily_consumption_qty * $leadTimeDays;
+
         // 必要数計算
-        $consumptionDuringLT = $setting->getConsumptionDuringLeadTime();
         $requiredQty = ($setting->safety_stock_qty + $consumptionDuringLT + $internalDemand)
             - ($effectiveStock + $incomingStock);
 
@@ -139,13 +152,6 @@ class MultiEchelonCalculationService
         if ($requiredQty <= 0) {
             return false;
         }
-
-        // 入荷予定日を計算
-        $arrivalResult = $this->calculateArrivalDate(
-            $setting->warehouse_id,
-            $setting->lead_time_days,
-            today()
-        );
 
         // 計算ログを記録
         $this->logCalculation($setting, $batchCode, [
@@ -172,6 +178,58 @@ class MultiEchelonCalculationService
         }
 
         return true;
+    }
+
+    /**
+     * 供給設定に基づいて到着予定日を計算
+     *
+     * 外部発注: 発注先の曜日別リードタイム + 臨時休業を考慮
+     * 内部移動: 倉庫間の固定リードタイム + 倉庫休日を考慮
+     */
+    private function calculateArrivalDateForSetting(WmsItemSupplySetting $setting, Carbon $baseDate): array
+    {
+        if ($setting->isExternal()) {
+            // 外部発注: 発注先のリードタイムと臨時休業を考慮
+            $contractor = $setting->itemContractor?->contractor;
+
+            if ($contractor && $contractor->leadTime) {
+                $result = $this->contractorLeadTimeService->calculateArrivalDate($contractor, $baseDate);
+
+                // 倉庫の休日もチェック（到着先倉庫が休みの場合は翌営業日）
+                $arrivalDate = $result['arrival_date'];
+                $warehouseShiftedDays = 0;
+
+                for ($i = 0; $i < 30; $i++) {
+                    if (!WmsWarehouseCalendar::isHoliday($setting->warehouse_id, $arrivalDate)) {
+                        break;
+                    }
+                    $arrivalDate->addDay();
+                    $warehouseShiftedDays++;
+                }
+
+                return [
+                    'arrival_date' => $arrivalDate,
+                    'original_date' => $result['original_date'],
+                    'lead_time_days' => $result['lead_time_days'],
+                    'shifted_days' => $result['shifted_days'] + $warehouseShiftedDays,
+                    'shift_reason' => $result['shift_reason'] ?? ($warehouseShiftedDays > 0 ? '倉庫休日' : null),
+                ];
+            }
+
+            // 発注先のlead_time設定がない場合はフォールバック
+            return $this->calculateWarehouseArrivalDate(
+                $setting->warehouse_id,
+                $setting->lead_time_days,
+                $baseDate
+            );
+        }
+
+        // 内部移動: 倉庫間の固定リードタイム + 倉庫休日のみ考慮
+        return $this->calculateWarehouseArrivalDate(
+            $setting->warehouse_id,
+            $setting->lead_time_days,
+            $baseDate
+        );
     }
 
     /**
@@ -267,7 +325,7 @@ class MultiEchelonCalculationService
             'current_effective_stock' => $details['effective_stock'],
             'incoming_quantity' => $details['incoming_stock'],
             'safety_stock_setting' => $setting->safety_stock_qty,
-            'lead_time_days' => $setting->lead_time_days,
+            'lead_time_days' => $details['arrival_result']['lead_time_days'],
             'calculated_shortage_qty' => $details['required_qty'],
             'calculated_order_quantity' => $details['required_qty'],
             'calculation_details' => [
@@ -278,14 +336,15 @@ class MultiEchelonCalculationService
                 'source_warehouse_id' => $setting->source_warehouse_id,
                 'arrival_date_shifted' => $details['arrival_result']['shifted_days'] > 0,
                 'shifted_days' => $details['arrival_result']['shifted_days'],
+                'shift_reason' => $details['arrival_result']['shift_reason'] ?? null,
             ],
         ]);
     }
 
     /**
-     * 入荷予定日を計算（休日考慮）
+     * 倉庫の入荷予定日を計算（倉庫休日考慮）
      */
-    private function calculateArrivalDate(int $warehouseId, int $leadTimeDays, Carbon $baseDate): array
+    private function calculateWarehouseArrivalDate(int $warehouseId, int $leadTimeDays, Carbon $baseDate): array
     {
         $tempDate = $baseDate->copy()->addDays($leadTimeDays);
         $originalDate = $tempDate->copy();
@@ -303,7 +362,9 @@ class MultiEchelonCalculationService
         return [
             'arrival_date' => $tempDate,
             'original_date' => $originalDate,
+            'lead_time_days' => $leadTimeDays,
             'shifted_days' => $shiftedDays,
+            'shift_reason' => $shiftedDays > 0 ? '倉庫休日' : null,
         ];
     }
 }

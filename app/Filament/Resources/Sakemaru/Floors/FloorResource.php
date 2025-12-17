@@ -27,7 +27,7 @@ class FloorResource extends Resource
 
     protected static ?string $pluralModelLabel = 'フロア';
 
-    protected static \UnitEnum|string|null $navigationGroup = EMenuCategory::MASTER;
+    protected static \UnitEnum|string|null $navigationGroup = EMenuCategory::MASTER_WAREHOUSE;
 
     public static function getNavigationGroup(): ?string
     {

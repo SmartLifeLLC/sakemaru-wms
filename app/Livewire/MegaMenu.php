@@ -68,7 +68,9 @@ class MegaMenu extends Component
                 'label' => 'マスタ管理',
                 'icon' => 'fa-database',
                 'categories' => [
-                    EMenuCategory::MASTER,
+                    EMenuCategory::MASTER_WAREHOUSE,
+                    EMenuCategory::MASTER_ORDER,
+                    EMenuCategory::MASTER_PICKING,
                 ],
             ],
             'analysis' => [

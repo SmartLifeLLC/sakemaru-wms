@@ -53,7 +53,7 @@ class FloorPlanEditor extends Page
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenuCategory::MASTER->label();
+        return EMenuCategory::MASTER_WAREHOUSE->label();
     }
 
     public static function getNavigationLabel(): string

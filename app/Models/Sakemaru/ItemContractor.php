@@ -11,6 +11,11 @@ class ItemContractor extends CustomModel
     protected $guarded = [];
     protected $casts = [];
 
+    /**
+     * item_contractors テーブルには is_active カラムがない
+     */
+    protected bool $hasIsActiveColumn = false;
+
     public function item() : BelongsTo
     {
         return $this->belongsTo(Item::class);

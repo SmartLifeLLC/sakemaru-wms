@@ -10,6 +10,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (Schema::connection($this->connection)->hasTable('wms_order_transmission_logs')) {
+            return;
+        }
+
         Schema::connection($this->connection)->create('wms_order_transmission_logs', function (Blueprint $table) {
             $table->id();
             $table->string('batch_code', 20)->index();
@@ -24,8 +28,8 @@ return new class extends Migration
             $table->unsignedBigInteger('executed_by')->nullable();
             $table->timestamps();
 
-            $table->index(['wms_order_jx_document_id', 'created_at']);
-            $table->index(['transmission_type', 'status']);
+            $table->index(['wms_order_jx_document_id', 'created_at'], 'wms_otl_jx_doc_created_idx');
+            $table->index(['transmission_type', 'status'], 'wms_otl_type_status_idx');
         });
     }
 

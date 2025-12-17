@@ -71,8 +71,7 @@
                                 };
                                 $minWidth = match($columns) {
                                     3 => 'min-w-[600px]',
-                                    2 => 'min-w-[400px]',
-                                    default => 'min-w-[200px]',
+                                    default => 'min-w-[400px]',
                                 };
                             @endphp
                             <div class="flex gap-12">

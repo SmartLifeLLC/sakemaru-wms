@@ -39,6 +39,11 @@ enum EMenu: string
     // マスタ管理
     case WAREHOUSES = 'master.warehouses';
     case WAREHOUSE_CONTRACTORS = 'master.warehouse_contractors';
+    case CONTRACTORS = 'master.contractors';
+    case ITEM_CONTRACTORS = 'master.item_contractors';
+    case WMS_ITEM_SUPPLY_SETTINGS = 'master.wms_item_supply_settings';
+    case WMS_WAREHOUSE_CALENDARS = 'master.wms_warehouse_calendars';
+    case WMS_CONTRACTOR_HOLIDAYS = 'master.wms_contractor_holidays';
     case LOCATIONS = 'master.locations';
     case WMS_LOCATIONS = 'master.wms_locations';
     case WMS_PICKING_AREAS = 'master.wms_picking_areas';
@@ -87,14 +92,24 @@ enum EMenu: string
 
             self::REAL_STOCKS => EMenuCategory::INVENTORY,
 
+            // 倉庫マスタ
             self::WAREHOUSES,
-            self::WAREHOUSE_CONTRACTORS,
             self::LOCATIONS,
             self::WMS_LOCATIONS,
             self::WMS_PICKING_AREAS,
+            self::FLOOR_PLAN_EDITOR => EMenuCategory::MASTER_WAREHOUSE,
+
+            // 発注マスタ
+            self::WAREHOUSE_CONTRACTORS,
+            self::CONTRACTORS,
+            self::ITEM_CONTRACTORS,
+            self::WMS_ITEM_SUPPLY_SETTINGS,
+            self::WMS_WAREHOUSE_CALENDARS,
+            self::WMS_CONTRACTOR_HOLIDAYS => EMenuCategory::MASTER_ORDER,
+
+            // ピッキングマスタ
             self::WMS_PICKERS,
-            self::WMS_PICKING_ASSIGNMENT_STRATEGIES,
-            self::FLOOR_PLAN_EDITOR => EMenuCategory::MASTER,
+            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => EMenuCategory::MASTER_PICKING,
 
             self::EARNINGS => EMenuCategory::STATISTICS,
 
@@ -137,6 +152,11 @@ enum EMenu: string
 
             self::WAREHOUSES => '倉庫',
             self::WAREHOUSE_CONTRACTORS => '倉庫業者',
+            self::CONTRACTORS => '発注先',
+            self::ITEM_CONTRACTORS => '商品発注先',
+            self::WMS_ITEM_SUPPLY_SETTINGS => '供給設定',
+            self::WMS_WAREHOUSE_CALENDARS => '倉庫カレンダー',
+            self::WMS_CONTRACTOR_HOLIDAYS => '発注先休日',
             self::LOCATIONS => 'ロケーション',
             self::WMS_LOCATIONS => 'WMSロケーション',
             self::WMS_PICKING_AREAS => 'ピッキングエリア',
@@ -185,6 +205,11 @@ enum EMenu: string
 
             self::WAREHOUSES => 'heroicon-o-building-office-2',
             self::WAREHOUSE_CONTRACTORS => 'heroicon-o-building-storefront',
+            self::CONTRACTORS => 'heroicon-o-truck',
+            self::ITEM_CONTRACTORS => 'heroicon-o-document-text',
+            self::WMS_ITEM_SUPPLY_SETTINGS => 'heroicon-o-cog-6-tooth',
+            self::WMS_WAREHOUSE_CALENDARS => 'heroicon-o-calendar-days',
+            self::WMS_CONTRACTOR_HOLIDAYS => 'heroicon-o-calendar',
             self::LOCATIONS => 'heroicon-o-map-pin',
             self::WMS_LOCATIONS => 'heroicon-o-squares-2x2',
             self::WMS_PICKING_AREAS => 'heroicon-o-squares-plus',
@@ -237,15 +262,24 @@ enum EMenu: string
             // 在庫管理
             self::REAL_STOCKS => 1,
 
-            // マスタ管理
+            // 倉庫マスタ
             self::WAREHOUSES => 1,
-            self::WAREHOUSE_CONTRACTORS => 2,
-            self::LOCATIONS => 3,
-            self::WMS_LOCATIONS => 4,
-            self::WMS_PICKING_AREAS => 5,
-            self::WMS_PICKERS => 6,
-            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 7,
-            self::FLOOR_PLAN_EDITOR => 50,
+            self::LOCATIONS => 2,
+            self::WMS_LOCATIONS => 3,
+            self::WMS_PICKING_AREAS => 4,
+            self::FLOOR_PLAN_EDITOR => 5,
+
+            // 発注マスタ
+            self::WAREHOUSE_CONTRACTORS => 1,
+            self::CONTRACTORS => 2,
+            self::ITEM_CONTRACTORS => 3,
+            self::WMS_ITEM_SUPPLY_SETTINGS => 4,
+            self::WMS_WAREHOUSE_CALENDARS => 5,
+            self::WMS_CONTRACTOR_HOLIDAYS => 6,
+
+            // ピッキングマスタ
+            self::WMS_PICKERS => 1,
+            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 2,
 
             // 統計データ
             self::EARNINGS => 1,
