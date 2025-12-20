@@ -100,4 +100,81 @@ class JxClientResult
         $data = $this->getData();
         return $data !== null ? base64_decode($data) : null;
     }
+
+    /**
+     * 受信データをデコード＆解凍して取得
+     *
+     * @param bool $decompress GZIP解凍するかどうか
+     */
+    public function getDecodedAndDecompressedData(bool $decompress = false): ?string
+    {
+        $data = $this->getDecodedData();
+
+        if ($data === null) {
+            return null;
+        }
+
+        if ($decompress && $this->isGzipped($data)) {
+            return gzdecode($data);
+        }
+
+        return $data;
+    }
+
+    /**
+     * データがGZIP圧縮されているか判定
+     */
+    protected function isGzipped(string $data): bool
+    {
+        // GZIPマジックナンバー: 0x1f 0x8b
+        return strlen($data) >= 2 && ord($data[0]) === 0x1f && ord($data[1]) === 0x8b;
+    }
+
+    /**
+     * 圧縮タイプを取得
+     */
+    public function getCompressType(): ?string
+    {
+        return $this->getValueByTag('compressType');
+    }
+
+    /**
+     * ドキュメントタイプを取得
+     */
+    public function getDocumentType(): ?string
+    {
+        return $this->getValueByTag('documentType');
+    }
+
+    /**
+     * フォーマットタイプを取得
+     */
+    public function getFormatType(): ?string
+    {
+        return $this->getValueByTag('formatType');
+    }
+
+    /**
+     * 送信者IDを取得
+     */
+    public function getSenderId(): ?string
+    {
+        return $this->getValueByTag('senderId');
+    }
+
+    /**
+     * 受信者IDを取得
+     */
+    public function getReceiverId(): ?string
+    {
+        return $this->getValueByTag('receiverId');
+    }
+
+    /**
+     * ドキュメントがあるかどうか
+     */
+    public function hasDocument(): bool
+    {
+        return $this->getData() !== null && $this->getData() !== '';
+    }
 }

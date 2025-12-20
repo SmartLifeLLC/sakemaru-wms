@@ -12,11 +12,11 @@
         <GetDocumentResponse xmlns="http://www.dsri.jp/edi-bp/2004/jedicos-xml/client-server">
             <GetDocumentResult>{{$result}}</GetDocumentResult>
             <messageId>{{$document_message_id}}</messageId>
-            <data></data>
+            <data>{{$data}}</data>
             <senderId>{{$sender_id}}</senderId>
             <receiverId>{{$receiver_id}}</receiverId>
-            <formatType>SecondGenEDI</formatType>
-            <documentType>04</documentType>
+            <formatType>{{$format_type}}</formatType>
+            <documentType>{{$document_type}}</documentType>
             <compressType/>
         </GetDocumentResponse>
     </S:Body>

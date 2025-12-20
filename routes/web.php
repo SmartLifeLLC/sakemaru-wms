@@ -27,5 +27,5 @@ Route::prefix('api')->middleware(['web'])->group(function () {
 if (app()->environment('local', 'testing', 'staging')) {
     Route::post('/jx-server', [JxServerController::class, 'handle'])
         ->name('jx-server.handle')
-        ->middleware('auth.basic');
+        ->middleware('jx.basic');
 }

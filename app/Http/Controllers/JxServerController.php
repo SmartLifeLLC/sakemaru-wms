@@ -73,22 +73,87 @@ class JxServerController extends Controller
     {
         $receiverId = $doc->getElementsByTagName('receiverId')->item(0)?->nodeValue ?? '';
         $messageId = createJxMessageId('get', $data['from']);
-        $documentMessageId = createJxMessageId('get_data', $data['from']);
 
-        $responseData = array_merge($data, [
-            'receiver_id' => $receiverId,
-            'sender_id' => $jxSetting?->server_id ?? 'TEST_SERVER',
-            'result' => 'true',
-            'message_id' => $messageId,
-            'document_message_id' => $documentMessageId,
-        ]);
+        // 未配信のドキュメントを取得
+        $pendingDocument = $this->getPendingDocument();
 
-        Log::info('JxServer: GetDocument received', ['receiver_id' => $receiverId]);
+        if ($pendingDocument) {
+            $responseData = array_merge($data, [
+                'receiver_id' => $receiverId,
+                'sender_id' => $jxSetting?->server_id ?? 'TEST_SERVER',
+                'result' => 'true',
+                'message_id' => $messageId,
+                'document_message_id' => $pendingDocument['message_id'],
+                'data' => $pendingDocument['data'],
+                'document_type' => $pendingDocument['document_type'],
+                'format_type' => 'SecondGenEDI',
+            ]);
+
+            Log::info('JxServer: GetDocument - returning pending document', [
+                'receiver_id' => $receiverId,
+                'document_message_id' => $pendingDocument['message_id'],
+            ]);
+        } else {
+            // ドキュメントがない場合は空のレスポンス
+            $responseData = array_merge($data, [
+                'receiver_id' => $receiverId,
+                'sender_id' => $jxSetting?->server_id ?? 'TEST_SERVER',
+                'result' => 'true',
+                'message_id' => $messageId,
+                'document_message_id' => '',
+                'data' => '',
+                'document_type' => '',
+                'format_type' => '',
+            ]);
+
+            Log::info('JxServer: GetDocument - no pending documents', ['receiver_id' => $receiverId]);
+        }
 
         $responseXml = View::make('jx.get-document-response', $responseData)->render();
 
         return response($responseXml)
             ->header('Content-Type', 'application/xml');
+    }
+
+    /**
+     * 未配信のドキュメントを取得
+     */
+    protected function getPendingDocument(): ?array
+    {
+        $pendingDir = 'jx-server/pending';
+
+        if (!Storage::disk('local')->exists($pendingDir)) {
+            return null;
+        }
+
+        $files = Storage::disk('local')->files($pendingDir);
+
+        if (empty($files)) {
+            return null;
+        }
+
+        // 最初のファイルを取得
+        $file = $files[0];
+        $content = Storage::disk('local')->get($file);
+        $filename = basename($file);
+
+        // ファイル名からメタデータを抽出 (format: {document_type}_{message_id}.txt)
+        preg_match('/^(\d+)_(.+)\.txt$/', $filename, $matches);
+        $documentType = $matches[1] ?? '04';
+        $messageId = $matches[2] ?? createJxMessageId('doc', 'server');
+
+        // Base64エンコード
+        $encodedData = base64_encode($content);
+
+        // 配信済みに移動
+        $deliveredDir = 'jx-server/delivered/' . Carbon::today()->format('Y-m-d');
+        Storage::disk('local')->move($file, "{$deliveredDir}/{$filename}");
+
+        return [
+            'message_id' => $messageId,
+            'data' => $encodedData,
+            'document_type' => $documentType,
+        ];
     }
 
     /**

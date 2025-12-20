@@ -24,6 +24,7 @@ class WmsOrderJxSetting extends WmsModel
         'jx_from',
         'jx_to',
         'ssl_certification_file',
+        'test_file_path',
         'is_active',
     ];
 

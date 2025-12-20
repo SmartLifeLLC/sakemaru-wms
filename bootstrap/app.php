@@ -23,6 +23,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'api.key' => \App\Http\Middleware\ApiKeyAuth::class,
             'filament.auth' => \App\Http\Middleware\FilamentAuth::class,
+            'jx.basic' => \App\Http\Middleware\JxBasicAuth::class,
+        ]);
+
+        // JXサーバーエンドポイントはCSRF検証から除外
+        $middleware->validateCsrfTokens(except: [
+            'jx-server',
+            'jx-server/*',
         ]);
     })
     ->withSchedule(function (Schedule $schedule): void {
