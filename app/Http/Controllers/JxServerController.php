@@ -221,14 +221,19 @@ class JxServerController extends Controller
     }
 
     /**
-     * PutDocumentのデータを保存
+     * PutDocumentのデータを保存（pending キューに追加）
      */
     protected function savePutDocumentData(string $messageId, string $documentType, string $data): void
     {
-        $date = Carbon::now()->format('Y-m-d');
         $decodedData = base64_decode($data);
-        $filename = "jx-server/documents/{$date}/{$documentType}_{$messageId}.txt";
 
-        Storage::disk('local')->put($filename, $decodedData);
+        // pendingディレクトリに保存（GetDocumentで取得可能にする）
+        $pendingFilename = "jx-server/pending/{$documentType}_{$messageId}.txt";
+        Storage::disk('local')->put($pendingFilename, $decodedData);
+
+        // アーカイブ用にも保存
+        $date = Carbon::now()->format('Y-m-d');
+        $archiveFilename = "jx-server/documents/{$date}/{$documentType}_{$messageId}.txt";
+        Storage::disk('local')->put($archiveFilename, $decodedData);
     }
 }

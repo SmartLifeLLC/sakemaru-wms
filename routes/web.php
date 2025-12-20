@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\FloorPlanController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\JxServerController;
+use App\Http\Controllers\JxTransmissionLogController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -22,6 +23,11 @@ Route::prefix('api')->middleware(['web'])->group(function () {
     // Picking route visualization API
     Route::get('/picking-routes', [PickingRouteController::class, 'getPickingRoute']);
 });
+
+// JX送受信ログファイルダウンロード
+Route::get('/jx-transmission-logs/{log}/download', [JxTransmissionLogController::class, 'download'])
+    ->name('jx-transmission-logs.download')
+    ->middleware('auth');
 
 // JX-FINET テスト用受信サーバー（開発・テスト環境のみ）
 if (app()->environment('local', 'testing', 'staging')) {

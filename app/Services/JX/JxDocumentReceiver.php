@@ -2,6 +2,7 @@
 
 namespace App\Services\JX;
 
+use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderJxSetting;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -128,7 +129,39 @@ class JxDocumentReceiver
             ]);
         }
 
+        // 6. 受信ログを記録
+        $this->logReceive($receivedDocument);
+
         return $receivedDocument;
+    }
+
+    /**
+     * 受信ログを記録
+     */
+    protected function logReceive(JxReceivedDocument $document): void
+    {
+        try {
+            // ディスク情報をパスに含める（例: "s3:jx-received/..." または "local:jx-received/..."）
+            $filePathWithDisk = "{$this->storageDisk}:{$document->savedPath}";
+
+            WmsJxTransmissionLog::logReceive(
+                jxSettingId: $this->setting->id,
+                operationType: JxClient::DOCUMENT_TYPE_GET,
+                messageId: $document->messageId,
+                success: true,
+                documentType: $document->documentType,
+                formatType: $document->formatType,
+                senderId: $document->senderId,
+                receiverId: $document->receiverId,
+                dataSize: $document->getDataSize(),
+                filePath: $filePathWithDisk,
+                httpCode: 200,
+            );
+        } catch (\Exception $e) {
+            Log::warning('Failed to log JX receive', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

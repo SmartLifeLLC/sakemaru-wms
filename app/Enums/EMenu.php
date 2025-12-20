@@ -58,6 +58,7 @@ enum EMenu: string
 
     // ログ
     case WMS_PICKING_LOGS = 'logs.wms_picking_logs';
+    case WMS_JX_TRANSMISSION_LOGS = 'logs.wms_jx_transmission_logs';
 
     // システム設定
     case WAVE_SETTINGS = 'settings.wave_settings';
@@ -117,7 +118,8 @@ enum EMenu: string
 
             self::EARNINGS => EMenuCategory::STATISTICS,
 
-            self::WMS_PICKING_LOGS => EMenuCategory::LOGS,
+            self::WMS_PICKING_LOGS,
+            self::WMS_JX_TRANSMISSION_LOGS => EMenuCategory::LOGS,
 
             self::WAVE_SETTINGS => EMenuCategory::SETTINGS,
 
@@ -173,6 +175,7 @@ enum EMenu: string
             self::EARNINGS => '売上データ',
 
             self::WMS_PICKING_LOGS => 'ピッキングログ',
+            self::WMS_JX_TRANSMISSION_LOGS => 'JX送受信履歴',
 
             self::WAVE_SETTINGS => 'Wave設定',
 
@@ -228,6 +231,7 @@ enum EMenu: string
             self::EARNINGS => 'heroicon-o-currency-yen',
 
             self::WMS_PICKING_LOGS => 'heroicon-o-rectangle-stack',
+            self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrows-up-down',
 
             self::WAVE_SETTINGS => 'heroicon-o-cog-6-tooth',
 
@@ -296,6 +300,7 @@ enum EMenu: string
 
             // ログ
             self::WMS_PICKING_LOGS => 1,
+            self::WMS_JX_TRANSMISSION_LOGS => 2,
 
             // システム設定
             self::WAVE_SETTINGS => 1,

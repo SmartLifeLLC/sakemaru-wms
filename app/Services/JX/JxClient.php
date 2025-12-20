@@ -2,6 +2,7 @@
 
 namespace App\Services\JX;
 
+use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderJxSetting;
 use App\Support\JxRequestResponse;
 use Carbon\Carbon;
@@ -111,6 +112,7 @@ class JxClient
         $viewFile = $this->getViewFile($documentType);
         $xmlData = View::make($viewFile, $viewData)->render();
         $soapAction = 'http://www.dsri.jp/edi-bp/2004/jedicos-xml/client-server/' . $documentType;
+        $dataSize = isset($viewData['data']) ? strlen($viewData['data']) : null;
 
         try {
             $response = $this->doRequest($xmlData, $soapAction);
@@ -121,6 +123,16 @@ class JxClient
                     'message_id' => $viewData['message_id'],
                 ]);
 
+                // 失敗ログを記録
+                $this->logTransmission(
+                    $documentType,
+                    $viewData,
+                    false,
+                    $response->httpCode,
+                    "HTTP Code: {$response->httpCode}",
+                    $dataSize
+                );
+
                 return JxClientResult::failure(
                     "HTTP Code: {$response->httpCode}",
                     $viewData['message_id'],
@@ -129,7 +141,18 @@ class JxClient
             }
 
             // レスポンスを保存
-            $this->saveResponse($documentType, $viewData['message_id'], $response->bodyString);
+            $savedPath = $this->saveResponse($documentType, $viewData['message_id'], $response->bodyString);
+
+            // 成功ログを記録
+            $this->logTransmission(
+                $documentType,
+                $viewData,
+                true,
+                $response->httpCode,
+                null,
+                $dataSize,
+                $savedPath
+            );
 
             return JxClientResult::success(
                 $viewData['message_id'],
@@ -141,10 +164,52 @@ class JxClient
                 'message_id' => $viewData['message_id'],
             ]);
 
+            // 例外ログを記録
+            $this->logTransmission(
+                $documentType,
+                $viewData,
+                false,
+                null,
+                $e->getMessage(),
+                $dataSize
+            );
+
             return JxClientResult::failure(
                 $e->getMessage(),
                 $viewData['message_id']
             );
+        }
+    }
+
+    /**
+     * 送信ログを記録
+     */
+    protected function logTransmission(
+        string $documentType,
+        array $viewData,
+        bool $success,
+        ?int $httpCode,
+        ?string $errorMessage,
+        ?int $dataSize = null,
+        ?string $filePath = null
+    ): void {
+        try {
+            WmsJxTransmissionLog::logSend(
+                jxSettingId: $this->setting->id,
+                operationType: $documentType,
+                messageId: $viewData['message_id'],
+                success: $success,
+                documentType: $viewData['document_type'] ?? null,
+                formatType: $viewData['format_type'] ?? null,
+                dataSize: $dataSize,
+                filePath: $filePath,
+                httpCode: $httpCode,
+                errorMessage: $errorMessage,
+            );
+        } catch (\Exception $e) {
+            Log::warning('Failed to log JX transmission', [
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -211,7 +276,7 @@ class JxClient
     /**
      * レスポンスを保存
      */
-    protected function saveResponse(string $documentType, string $messageId, string $body): void
+    protected function saveResponse(string $documentType, string $messageId, string $body): string
     {
         $date = Carbon::today()->format('Y-m-d');
         $docType = strtolower($documentType);
@@ -219,5 +284,7 @@ class JxClient
         $savePath = "jx-client/responses/{$date}/{$docType}/{$timestamp}/{$messageId}.xml";
 
         Storage::disk('local')->put($savePath, $body);
+
+        return $savePath;
     }
 }

@@ -234,22 +234,68 @@ class WmsOrderJxSettingResource extends Resource
                                 ->send();
                         }
                     }),
-                Action::make('testReceive')
-                    ->label('テスト受信')
+                Action::make('receive')
+                    ->label('受信実行')
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->color('info')
+                    ->color('success')
                     ->requiresConfirmation()
-                    ->modalHeading('JXテスト受信')
-                    ->modalDescription('このJX設定でドキュメント受信をテストしますか？')
-                    ->modalSubmitActionLabel('受信')
+                    ->modalHeading('JXドキュメント受信')
+                    ->modalDescription('このJX設定で全ての待機中ドキュメントを受信しますか？（S3に保存）')
+                    ->modalSubmitActionLabel('受信開始')
                     ->visible(fn (WmsOrderJxSetting $record) => $record->is_active)
                     ->action(function (WmsOrderJxSetting $record) {
                         try {
                             $receiver = new JxDocumentReceiver($record);
-                            // ローカル環境ではlocalストレージを使用
-                            if (app()->environment('local', 'testing')) {
-                                $receiver->setStorageDisk('local');
+                            // 本番用: S3ストレージを使用
+                            $receiver->setStorageDisk('s3');
+
+                            $documents = $receiver->receiveAll();
+
+                            if ($documents->isEmpty()) {
+                                Notification::make()
+                                    ->title('受信完了')
+                                    ->body('受信可能なドキュメントはありません')
+                                    ->info()
+                                    ->send();
+
+                                return;
                             }
+
+                            $body = "受信件数: {$documents->count()}件\n\n";
+                            foreach ($documents->take(5) as $doc) {
+                                $body .= "- {$doc->messageId} ({$doc->documentType})\n";
+                            }
+                            if ($documents->count() > 5) {
+                                $body .= "...他 " . ($documents->count() - 5) . "件";
+                            }
+
+                            Notification::make()
+                                ->title('受信成功')
+                                ->body($body)
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('エラー')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+                Action::make('testReceive')
+                    ->label('テスト受信')
+                    ->icon('heroicon-o-beaker')
+                    ->color('info')
+                    ->requiresConfirmation()
+                    ->modalHeading('JXテスト受信')
+                    ->modalDescription('このJX設定でドキュメント受信をテストしますか？（ローカルストレージに保存）')
+                    ->modalSubmitActionLabel('テスト受信')
+                    ->visible(fn (WmsOrderJxSetting $record) => $record->is_active && app()->environment('local', 'testing', 'staging'))
+                    ->action(function (WmsOrderJxSetting $record) {
+                        try {
+                            $receiver = new JxDocumentReceiver($record);
+                            // テスト用: localストレージを使用
+                            $receiver->setStorageDisk('local');
 
                             $document = $receiver->receiveSingle();
 
@@ -270,7 +316,7 @@ class WmsOrderJxSettingResource extends Resource
                             $body .= "確認: " . ($document->confirmed ? 'OK' : 'NG');
 
                             Notification::make()
-                                ->title('受信成功')
+                                ->title('テスト受信成功')
                                 ->body($body)
                                 ->success()
                                 ->send();
