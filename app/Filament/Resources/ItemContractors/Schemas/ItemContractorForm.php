@@ -52,7 +52,10 @@ class ItemContractorForm
 
                         Select::make('supplier_id')
                             ->label('仕入先')
-                            ->options(fn () => Supplier::pluck('name', 'id'))
+                            ->options(fn () => Supplier::with('partner')
+                                ->get()
+                                ->mapWithKeys(fn ($s) => [$s->id => "[{$s->partner?->code}] {$s->partner?->name}"])
+                            )
                             ->searchable()
                             ->nullable()
                             ->helperText('仕入先（任意）'),

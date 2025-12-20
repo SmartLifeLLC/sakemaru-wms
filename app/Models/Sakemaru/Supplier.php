@@ -14,6 +14,11 @@ class Supplier extends CustomModel
     protected $guarded = [];
     protected $casts = [];
 
+    /**
+     * suppliersテーブルにはis_activeカラムがない
+     */
+    protected bool $hasIsActiveColumn = false;
+
     public function partner(): BelongsTo
     {
         return $this->belongsTo(Partner::class);

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Support\Facades\DB;
 
 /**
  * JX接続設定
@@ -15,7 +16,6 @@ class WmsOrderJxSetting extends WmsModel
     protected $fillable = [
         'name',
         'van_center',
-        'client_id',
         'server_id',
         'endpoint_url',
         'is_basic_auth',
@@ -26,6 +26,19 @@ class WmsOrderJxSetting extends WmsModel
         'ssl_certification_file',
         'is_active',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $model) {
+            // client_idはclientsテーブルの最初のレコードで固定
+            if (empty($model->client_id)) {
+                $model->client_id = DB::connection('sakemaru')
+                    ->table('clients')
+                    ->orderBy('id')
+                    ->value('id');
+            }
+        });
+    }
 
     protected $casts = [
         'is_basic_auth' => 'boolean',
