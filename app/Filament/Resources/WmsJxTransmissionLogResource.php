@@ -70,6 +70,10 @@ class WmsJxTransmissionLogResource extends Resource
                     ->label('ID')
                     ->sortable()
                     ->alignCenter(),
+                TextColumn::make('jxSetting.name')
+                    ->label('JX設定')
+                    ->sortable()
+                    ->searchable(),
                 TextColumn::make('transmitted_at')
                     ->label('送受信日時')
                     ->dateTime('Y-m-d H:i:s')
@@ -113,9 +117,6 @@ class WmsJxTransmissionLogResource extends Resource
                 TextColumn::make('document_type')
                     ->label('文書タイプ')
                     ->alignCenter(),
-                TextColumn::make('jxSetting.name')
-                    ->label('JX設定')
-                    ->sortable(),
                 TextColumn::make('data_size')
                     ->label('サイズ')
                     ->formatStateUsing(fn (?int $state) => $state ? number_format($state) . ' bytes' : '-')
