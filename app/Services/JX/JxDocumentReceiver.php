@@ -113,19 +113,19 @@ class JxDocumentReceiver
         $savedPath = $this->saveDocument($receivedDocument);
         $receivedDocument->savedPath = $savedPath;
 
-        // 5. ConfirmDocument を送信
-        $confirmResult = $this->client->confirmDocument($getResult->messageId);
+        // 5. ConfirmDocument を送信（受信ドキュメントのメッセージIDを使用）
+        $confirmResult = $this->client->confirmDocument($receivedDocument->messageId);
 
         if ($confirmResult->failed()) {
             Log::warning('JX ConfirmDocument failed', [
                 'error' => $confirmResult->error,
-                'original_message_id' => $getResult->messageId,
+                'received_message_id' => $receivedDocument->messageId,
             ]);
             $receivedDocument->confirmed = false;
         } else {
             $receivedDocument->confirmed = true;
             Log::info('JX ConfirmDocument succeeded', [
-                'original_message_id' => $getResult->messageId,
+                'received_message_id' => $receivedDocument->messageId,
             ]);
         }
 
@@ -174,8 +174,11 @@ class JxDocumentReceiver
 
         $data = $result->getDecodedAndDecompressedData($shouldDecompress);
 
+        // 受信ドキュメントのメッセージID（リクエストのmessageIdとは異なる）
+        $receivedMessageId = $result->getReceivedMessageId();
+
         return new JxReceivedDocument(
-            messageId: $result->messageId,
+            messageId: $receivedMessageId ?? $result->messageId,
             data: $data,
             documentType: $result->getDocumentType(),
             formatType: $result->getFormatType(),

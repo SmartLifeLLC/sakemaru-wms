@@ -177,4 +177,15 @@ class JxClientResult
     {
         return $this->getData() !== null && $this->getData() !== '';
     }
+
+    /**
+     * 受信ドキュメントのメッセージIDを取得
+     *
+     * GetDocumentResponseの<messageId>タグから取得
+     * （リクエストのmessageIdとは異なる）
+     */
+    public function getReceivedMessageId(): ?string
+    {
+        return $this->getValueByTag('messageId');
+    }
 }

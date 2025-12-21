@@ -77,6 +77,9 @@ class WmsOrderJxSettingResource extends Resource
                         TextInput::make('van_center')
                             ->label('VANセンター')
                             ->maxLength(50),
+                        TextInput::make('jx_client_id')
+                            ->label('JXクライアントID')
+                            ->maxLength(50),
                         TextInput::make('server_id')
                             ->label('サーバーID')
                             ->maxLength(50),
@@ -90,6 +93,55 @@ class WmsOrderJxSettingResource extends Resource
                         TextInput::make('jx_to')
                             ->label('JX To')
                             ->maxLength(50),
+                    ]),
+
+                Section::make('送信元情報（ヘッダー用）')
+                    ->columns(2)
+                    ->schema([
+                        TextInput::make('sender_trading_code')
+                            ->label('統一取引先コード')
+                            ->maxLength(12)
+                            ->helperText('12桁'),
+                        TextInput::make('sender_station_code')
+                            ->label('ステーションコード')
+                            ->maxLength(6)
+                            ->helperText('6桁'),
+                        TextInput::make('sender_name')
+                            ->label('企業名（半角カナ）')
+                            ->maxLength(15)
+                            ->helperText('15文字以内'),
+                        TextInput::make('sender_office_name')
+                            ->label('事業所名（半角カナ）')
+                            ->maxLength(10)
+                            ->helperText('10文字以内'),
+                    ]),
+
+                Section::make('送信先情報（ヘッダー用）')
+                    ->columns(2)
+                    ->schema([
+                        TextInput::make('receiver_trading_code')
+                            ->label('統一取引先コード')
+                            ->maxLength(12)
+                            ->helperText('12桁'),
+                        TextInput::make('receiver_station_code')
+                            ->label('ステーションコード')
+                            ->maxLength(6)
+                            ->helperText('6桁'),
+                    ]),
+
+                Section::make('データ種別コード')
+                    ->columns(2)
+                    ->schema([
+                        TextInput::make('send_document_type')
+                            ->label('送信種別コード')
+                            ->maxLength(2)
+                            ->default('91')
+                            ->helperText('2桁（例: 91=発注送信）'),
+                        TextInput::make('receive_document_type')
+                            ->label('受信種別コード')
+                            ->maxLength(2)
+                            ->default('90')
+                            ->helperText('2桁（例: 90=発注受信）'),
                     ]),
 
                 Section::make('認証情報')
@@ -206,12 +258,9 @@ class WmsOrderJxSettingResource extends Resource
                                 return;
                             }
 
-                            // Base64エンコード
-                            $encodedData = base64_encode($fileContent);
-
-                            // JX送信実行 (ドキュメントタイプ '01' = 発注)
+                            // JX送信実行（ヘッダー・フッター自動付与）
                             $client = new JxClient($record);
-                            $result = $client->putDocument($encodedData, '01', 'SecondGenEDI');
+                            $result = $client->putDocumentWithWrapper($fileContent, $record->send_document_type ?? '91', 'SecondGenEDI');
 
                             if ($result->succeeded()) {
                                 Notification::make()

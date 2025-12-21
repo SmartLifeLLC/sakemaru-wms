@@ -43,20 +43,54 @@ class JxClient
     ): JxClientResult {
         $messageId = createJxMessageId('put', $this->setting->jx_from);
 
+        // 送信データ本体を保存（Base64デコードして保存）
+        $decodedData = base64_decode($data);
+        $dataFilePath = $this->saveTransmittedData($documentType, $messageId, $decodedData);
+
         $viewData = [
             'from' => $this->setting->jx_from,
             'to' => $this->setting->jx_to,
             'message_id' => $messageId,
-            'sender_id' => $this->setting->client_id,
+            'sender_id' => $this->setting->jx_client_id,
             'receiver_id' => $this->setting->server_id,
             'document_type' => $documentType,
             'compress_type' => $compressType ?? '',
             'format_type' => $formatType,
             'data' => $data,
             'timestamp' => getJxTimestamp('UTC'),
+            '_data_file_path' => $dataFilePath, // ログ用
         ];
 
         return $this->sendRequest(self::DOCUMENT_TYPE_PUT, $viewData);
+    }
+
+    /**
+     * ヘッダー・フッター付きでドキュメントを送信 (PutDocument)
+     *
+     * ヘッダー・フッターがないデータに自動的に追加してから送信
+     *
+     * @param string $rawData 生データ（Base64エンコード前）
+     * @param string $documentType ドキュメントタイプ (例: '01' = 発注)
+     * @param string $formatType フォーマットタイプ (例: 'SecondGenEDI')
+     * @param string|null $compressType 圧縮タイプ
+     * @return JxClientResult
+     */
+    public function putDocumentWithWrapper(
+        string $rawData,
+        string $documentType,
+        string $formatType = 'SecondGenEDI',
+        ?string $compressType = null
+    ): JxClientResult {
+        // ヘッダー・フッターがない場合は追加
+        if (!JxDataWrapper::hasHeader($rawData)) {
+            $wrapper = new JxDataWrapper($this->setting);
+            $rawData = $wrapper->wrap($rawData);
+        }
+
+        // Base64エンコードして送信
+        $encodedData = base64_encode($rawData);
+
+        return $this->putDocument($encodedData, $documentType, $formatType, $compressType);
     }
 
     /**
@@ -73,7 +107,7 @@ class JxClient
             'from' => $this->setting->jx_from,
             'to' => $toHost,
             'message_id' => $messageId,
-            'receiver_id' => $this->setting->client_id,
+            'receiver_id' => $this->setting->jx_client_id,
             'timestamp' => getJxTimestamp('UTC'),
         ];
 
@@ -96,7 +130,7 @@ class JxClient
             'to' => $toHost,
             'message_id' => $messageId,
             'received_message_id' => $receivedMessageId,
-            'receiver_id' => $this->setting->client_id,
+            'receiver_id' => $this->setting->jx_client_id,
             'sender_id' => $this->setting->server_id,
             'timestamp' => getJxTimestamp('UTC'),
         ];
@@ -114,6 +148,9 @@ class JxClient
         $soapAction = 'http://www.dsri.jp/edi-bp/2004/jedicos-xml/client-server/' . $documentType;
         $dataSize = isset($viewData['data']) ? strlen($viewData['data']) : null;
 
+        // リクエストを保存
+        $this->saveRequest($documentType, $viewData['message_id'], $xmlData);
+
         try {
             $response = $this->doRequest($xmlData, $soapAction);
 
@@ -121,7 +158,11 @@ class JxClient
                 Log::error('JX request failed', [
                     'http_code' => $response->httpCode,
                     'message_id' => $viewData['message_id'],
+                    'response_body' => $response->bodyString,
                 ]);
+
+                // エラー時もレスポンスを保存（デバッグ用）
+                $this->saveResponse($documentType . '_error', $viewData['message_id'], $response->bodyString);
 
                 // 失敗ログを記録
                 $this->logTransmission(
@@ -141,7 +182,10 @@ class JxClient
             }
 
             // レスポンスを保存
-            $savedPath = $this->saveResponse($documentType, $viewData['message_id'], $response->bodyString);
+            $this->saveResponse($documentType, $viewData['message_id'], $response->bodyString);
+
+            // ログ用のファイルパス（PutDocumentの場合はデータ本体、それ以外はレスポンス）
+            $logFilePath = $viewData['_data_file_path'] ?? null;
 
             // 成功ログを記録
             $this->logTransmission(
@@ -151,7 +195,7 @@ class JxClient
                 $response->httpCode,
                 null,
                 $dataSize,
-                $savedPath
+                $logFilePath
             );
 
             return JxClientResult::success(
@@ -286,5 +330,34 @@ class JxClient
         Storage::disk('local')->put($savePath, $body);
 
         return $savePath;
+    }
+
+    /**
+     * リクエストを保存
+     */
+    protected function saveRequest(string $documentType, string $messageId, string $body): string
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $docType = strtolower($documentType);
+        $timestamp = Carbon::now()->format('YmdHis');
+        $savePath = "jx-client/requests/{$date}/{$docType}/{$timestamp}/{$messageId}.xml";
+
+        Storage::disk('local')->put($savePath, $body);
+
+        return $savePath;
+    }
+
+    /**
+     * 送信データ本体を保存
+     */
+    protected function saveTransmittedData(string $documentType, string $messageId, string $data): string
+    {
+        $date = Carbon::today()->format('Y-m-d');
+        $timestamp = Carbon::now()->format('YmdHis');
+        $savePath = "jx-client/data/{$date}/{$documentType}/{$timestamp}_{$messageId}.dat";
+
+        Storage::disk('local')->put($savePath, $data);
+
+        return "local:{$savePath}";
     }
 }
