@@ -62,11 +62,12 @@ class WmsItemSupplySettingsTable
                     ->sortable()
                     ->alignEnd(),
 
-                TextColumn::make('safety_stock_qty')
+                TextColumn::make('itemContractor.safety_stock')
                     ->label('安全在庫')
                     ->numeric()
-                    ->sortable()
-                    ->alignEnd(),
+                    ->default('-')
+                    ->alignEnd()
+                    ->toggleable(),
 
                 TextColumn::make('daily_consumption_qty')
                     ->label('日販')

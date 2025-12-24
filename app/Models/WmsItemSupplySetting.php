@@ -19,7 +19,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $source_warehouse_id
  * @property int|null $item_contractor_id
  * @property int $lead_time_days
- * @property int $safety_stock_qty
  * @property int $daily_consumption_qty
  * @property int $hierarchy_level
  * @property bool $is_enabled
@@ -35,7 +34,6 @@ class WmsItemSupplySetting extends WmsModel
         'source_warehouse_id',
         'item_contractor_id',
         'lead_time_days',
-        'safety_stock_qty',
         'daily_consumption_qty',
         'hierarchy_level',
         'is_enabled',
@@ -120,6 +118,24 @@ class WmsItemSupplySetting extends WmsModel
     }
 
     // ==================== Helpers ====================
+
+    /**
+     * 安全在庫を取得（item_contractorsから）
+     */
+    public function getSafetyStock(): int
+    {
+        // EXTERNALの場合はitem_contractor経由で取得
+        if ($this->isExternal() && $this->itemContractor) {
+            return $this->itemContractor->safety_stock ?? 0;
+        }
+
+        // INTERNALの場合はwarehouse_id + item_idで直接取得
+        $itemContractor = ItemContractor::where('warehouse_id', $this->warehouse_id)
+            ->where('item_id', $this->item_id)
+            ->first();
+
+        return $itemContractor?->safety_stock ?? 0;
+    }
 
     /**
      * リードタイム中の消費予測数を計算

@@ -99,15 +99,6 @@ class WmsItemSupplySettingForm
                             ->required()
                             ->helperText('発注から入荷までの日数'),
 
-                        TextInput::make('safety_stock_qty')
-                            ->label('安全在庫')
-                            ->numeric()
-                            ->default(0)
-                            ->minValue(0)
-                            ->suffix('個')
-                            ->required()
-                            ->helperText('最低限維持する在庫数'),
-
                         TextInput::make('daily_consumption_qty')
                             ->label('日販予測')
                             ->numeric()
@@ -129,7 +120,7 @@ class WmsItemSupplySettingForm
                             ->default(true)
                             ->helperText('無効にすると自動発注計算から除外'),
                     ])
-                    ->columns(3),
+                    ->columns(2),
             ]);
     }
 }

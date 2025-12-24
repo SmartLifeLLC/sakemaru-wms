@@ -12,6 +12,12 @@ class RealStock extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
+    /**
+     * real_stocks テーブルには is_active カラムがない
+     */
+    protected bool $hasIsActiveColumn = false;
+
     protected $casts = [
         'expiration_date' => 'date',
         'received_at' => 'datetime',

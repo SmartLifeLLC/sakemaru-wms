@@ -23,12 +23,12 @@ class ItemContractorsTable
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([10, 25, 50, 100])
             ->columns([
-                TextColumn::make('item.item_code')
+                TextColumn::make('item.code')
                     ->label('商品コード')
                     ->searchable()
                     ->sortable(),
 
-                TextColumn::make('item.item_name')
+                TextColumn::make('item.name')
                     ->label('商品名')
                     ->searchable()
                     ->sortable()
@@ -44,7 +44,7 @@ class ItemContractorsTable
                     ->searchable()
                     ->sortable(),
 
-                TextColumn::make('supplier.name')
+                TextColumn::make('supplier.partner.name')
                     ->label('仕入先')
                     ->sortable()
                     ->toggleable(),

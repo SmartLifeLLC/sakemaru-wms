@@ -22,11 +22,16 @@ class WmsWarehouseContractorSetting extends WmsModel
         'wms_order_jx_setting_id',
         'wms_order_ftp_setting_id',
         'format_strategy_class',
+        'transmission_time',
+        'transmission_days',
+        'is_auto_transmission',
         'is_active',
     ];
 
     protected $casts = [
         'transmission_type' => TransmissionType::class,
+        'transmission_days' => 'array',
+        'is_auto_transmission' => 'boolean',
         'is_active' => 'boolean',
     ];
 
@@ -53,5 +58,23 @@ class WmsWarehouseContractorSetting extends WmsModel
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * 送信曜日を日本語で取得
+     */
+    public function getTransmissionDaysLabelAttribute(): string
+    {
+        if (empty($this->transmission_days)) {
+            return '-';
+        }
+
+        $dayLabels = ['日', '月', '火', '水', '木', '金', '土'];
+
+        return collect($this->transmission_days)
+            ->sort()
+            ->map(fn ($day) => $dayLabels[$day] ?? '')
+            ->filter()
+            ->implode('・');
     }
 }

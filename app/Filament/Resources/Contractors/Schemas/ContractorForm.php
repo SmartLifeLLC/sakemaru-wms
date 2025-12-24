@@ -3,7 +3,7 @@
 namespace App\Filament\Resources\Contractors\Schemas;
 
 use App\Models\Sakemaru\LeadTime;
-use App\Models\Sakemaru\Supplier;
+use App\Models\Sakemaru\Warehouse;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -75,15 +75,6 @@ class ContractorForm
 
                 Section::make('設定')
                     ->schema([
-                        Select::make('supplier_id')
-                            ->label('仕入先')
-                            ->options(fn () => Supplier::with('partner')
-                                ->get()
-                                ->mapWithKeys(fn ($s) => [$s->id => "[{$s->partner?->code}] {$s->partner?->name}"])
-                            )
-                            ->searchable()
-                            ->nullable(),
-
                         Select::make('lead_time_id')
                             ->label('リードタイム')
                             ->options(fn () => LeadTime::get()
@@ -102,17 +93,25 @@ class ContractorForm
                             ])
                             ->default(0),
 
-                        Toggle::make('is_auto_change_order')
-                            ->label('自動発注対象')
-                            ->default(false)
-                            ->helperText('自動発注の対象にする場合はONにします'),
-
                         Toggle::make('is_active')
                             ->label('有効')
                             ->default(true)
                             ->helperText('無効にすると選択できなくなります'),
                     ])
                     ->columns(3),
+
+                Section::make('内部倉庫マッピング')
+                    ->description('この発注先が内部倉庫を表す場合、対応する倉庫を選択してください。設定すると供給タイプが「内部移動（INTERNAL）」として扱われます。')
+                    ->schema([
+                        Select::make('mapped_warehouse_id')
+                            ->label('対応する倉庫')
+                            ->helperText('外部発注先の場合は空欄のままにしてください')
+                            ->options(fn () => Warehouse::where('is_active', true)->pluck('name', 'id'))
+                            ->searchable()
+                            ->nullable()
+                            ->dehydrated(false),
+                    ])
+                    ->columns(1),
             ]);
     }
 }

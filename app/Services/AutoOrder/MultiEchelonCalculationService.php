@@ -144,8 +144,11 @@ class MultiEchelonCalculationService
         $leadTimeDays = $arrivalResult['lead_time_days'];
         $consumptionDuringLT = $setting->daily_consumption_qty * $leadTimeDays;
 
+        // 安全在庫を取得（item_contractorsから）
+        $safetyStock = $setting->getSafetyStock();
+
         // 必要数計算
-        $requiredQty = ($setting->safety_stock_qty + $consumptionDuringLT + $internalDemand)
+        $requiredQty = ($safetyStock + $consumptionDuringLT + $internalDemand)
             - ($effectiveStock + $incomingStock);
 
         // 不足がない場合はスキップ
@@ -158,6 +161,7 @@ class MultiEchelonCalculationService
             'effective_stock' => $effectiveStock,
             'incoming_stock' => $incomingStock,
             'internal_demand' => $internalDemand,
+            'safety_stock' => $safetyStock,
             'consumption_during_lt' => $consumptionDuringLT,
             'required_qty' => $requiredQty,
             'arrival_result' => $arrivalResult,
@@ -324,7 +328,7 @@ class MultiEchelonCalculationService
             'calculation_type' => $setting->isInternal() ? CalculationType::SATELLITE : CalculationType::HUB,
             'current_effective_stock' => $details['effective_stock'],
             'incoming_quantity' => $details['incoming_stock'],
-            'safety_stock_setting' => $setting->safety_stock_qty,
+            'safety_stock_setting' => $details['safety_stock'],
             'lead_time_days' => $details['arrival_result']['lead_time_days'],
             'calculated_shortage_qty' => $details['required_qty'],
             'calculated_order_quantity' => $details['required_qty'],
