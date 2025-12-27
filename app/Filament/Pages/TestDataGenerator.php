@@ -2,15 +2,13 @@
 
 namespace App\Filament\Pages;
 
-use App\Enums\AutoOrder\SupplyType;
 use App\Enums\EMenu;
 use App\Enums\PickerSkillLevel;
 use App\Enums\TemperatureType;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
-use App\Models\WmsContractorWarehouseMapping;
-use App\Models\WmsItemSupplySetting;
+use App\Models\WmsContractorSetting;
 use App\Models\WmsNationalHoliday;
 use App\Models\WmsPicker;
 use App\Models\WmsWarehouseAutoOrderSetting;
@@ -1487,187 +1485,6 @@ class TestDataGenerator extends Page
             });
     }
 
-    public function generateItemSupplySettingsAction(): Action
-    {
-        return Action::make('generateItemSupplySettings')
-            ->label('供給設定生成')
-            ->icon('heroicon-o-arrows-right-left')
-            ->color('primary')
-            ->requiresConfirmation()
-            ->modalHeading('商品供給設定を生成')
-            ->modalDescription('商品×倉庫の供給設定を一括生成します。item_contractorsを参照して自動生成します。')
-            ->modalWidth('2xl')
-            ->form([
-                Select::make('warehouse_id')
-                    ->label('対象倉庫')
-                    ->helperText('供給設定を生成する倉庫を選択')
-                    ->options(fn () => Warehouse::where('is_active', true)->pluck('name', 'id'))
-                    ->required()
-                    ->searchable()
-                    ->live(),
-
-                Toggle::make('auto_detect_supply_type')
-                    ->label('供給タイプを自動判定')
-                    ->helperText('発注先-倉庫マッピングを使用して、INTERNAL/EXTERNALを自動判定します')
-                    ->default(true)
-                    ->live(),
-
-                Select::make('supply_type')
-                    ->label('供給タイプ')
-                    ->options([
-                        SupplyType::EXTERNAL->value => '外部発注（EXTERNAL）',
-                        SupplyType::INTERNAL->value => '内部移動（INTERNAL）',
-                    ])
-                    ->default(SupplyType::EXTERNAL->value)
-                    ->visible(fn (Get $get) => !$get('auto_detect_supply_type'))
-                    ->required(fn (Get $get) => !$get('auto_detect_supply_type'))
-                    ->live(),
-
-                Select::make('source_warehouse_id')
-                    ->label('供給元倉庫')
-                    ->helperText('INTERNAL時の供給元倉庫（自動判定時は不要）')
-                    ->options(fn (Get $get) => Warehouse::where('is_active', true)
-                        ->where('id', '!=', $get('warehouse_id'))
-                        ->pluck('name', 'id'))
-                    ->searchable()
-                    ->visible(fn (Get $get) => !$get('auto_detect_supply_type') && $get('supply_type') === SupplyType::INTERNAL->value)
-                    ->required(fn (Get $get) => !$get('auto_detect_supply_type') && $get('supply_type') === SupplyType::INTERNAL->value),
-
-                TextInput::make('item_limit')
-                    ->label('商品数上限')
-                    ->helperText('生成する商品数の上限（0で無制限）')
-                    ->numeric()
-                    ->default(100)
-                    ->minValue(0)
-                    ->maxValue(10000),
-
-                TextInput::make('lead_time_days')
-                    ->label('リードタイム')
-                    ->suffix('日')
-                    ->numeric()
-                    ->default(2)
-                    ->required()
-                    ->minValue(0)
-                    ->maxValue(30),
-
-                TextInput::make('daily_consumption_qty')
-                    ->label('日販予測')
-                    ->suffix('個/日')
-                    ->numeric()
-                    ->default(10)
-                    ->required()
-                    ->minValue(0),
-            ])
-            ->action(function (array $data): void {
-                try {
-                    $warehouseId = $data['warehouse_id'];
-                    $autoDetect = $data['auto_detect_supply_type'] ?? true;
-                    $manualSupplyType = isset($data['supply_type']) ? SupplyType::from($data['supply_type']) : null;
-                    $manualSourceWarehouseId = $data['source_warehouse_id'] ?? null;
-                    $itemLimit = (int) ($data['item_limit'] ?? 100);
-                    $leadTimeDays = (int) $data['lead_time_days'];
-                    $dailyConsumptionQty = (int) $data['daily_consumption_qty'];
-
-                    // 発注先-倉庫マッピングを取得（自動判定用）
-                    $contractorWarehouseMappings = WmsContractorWarehouseMapping::getAllMappings();
-
-                    // item_contractorsから対象商品を取得
-                    $query = ItemContractor::where('warehouse_id', $warehouseId)
-                        ->where('is_auto_order', true)
-                        ->with(['item', 'contractor']);
-
-                    if ($itemLimit > 0) {
-                        $query->limit($itemLimit);
-                    }
-
-                    $itemContractors = $query->get();
-
-                    if ($itemContractors->isEmpty()) {
-                        Notification::make()
-                            ->title('対象データがありません')
-                            ->body('指定倉庫のitem_contractorsにデータがありません。')
-                            ->warning()
-                            ->send();
-                        return;
-                    }
-
-                    $createdCount = 0;
-                    $internalCount = 0;
-                    $externalCount = 0;
-
-                    DB::connection('sakemaru')->transaction(function () use (
-                        $warehouseId,
-                        $autoDetect,
-                        $manualSupplyType,
-                        $manualSourceWarehouseId,
-                        $leadTimeDays,
-                        $dailyConsumptionQty,
-                        $itemContractors,
-                        $contractorWarehouseMappings,
-                        &$createdCount,
-                        &$internalCount,
-                        &$externalCount
-                    ) {
-                        foreach ($itemContractors as $ic) {
-                            // 供給タイプを決定
-                            if ($autoDetect) {
-                                // 発注先が内部倉庫かどうかをマッピングで判定
-                                $mappedWarehouseId = $contractorWarehouseMappings[$ic->contractor_id] ?? null;
-                                $supplyType = $mappedWarehouseId ? SupplyType::INTERNAL : SupplyType::EXTERNAL;
-                                $sourceWarehouseId = $mappedWarehouseId;
-                            } else {
-                                $supplyType = $manualSupplyType;
-                                $sourceWarehouseId = $manualSourceWarehouseId;
-                            }
-
-                            WmsItemSupplySetting::updateOrCreate(
-                                [
-                                    'warehouse_id' => $warehouseId,
-                                    'item_id' => $ic->item_id,
-                                ],
-                                [
-                                    'supply_type' => $supplyType,
-                                    'source_warehouse_id' => $supplyType === SupplyType::INTERNAL ? $sourceWarehouseId : null,
-                                    'item_contractor_id' => $supplyType === SupplyType::EXTERNAL ? $ic->id : null,
-                                    'lead_time_days' => $leadTimeDays,
-                                    'daily_consumption_qty' => $dailyConsumptionQty,
-                                    'hierarchy_level' => $supplyType === SupplyType::EXTERNAL ? 1 : 0,
-                                    'is_enabled' => true,
-                                ]
-                            );
-                            $createdCount++;
-
-                            if ($supplyType === SupplyType::INTERNAL) {
-                                $internalCount++;
-                            } else {
-                                $externalCount++;
-                            }
-                        }
-
-                        // 階層レベルを再計算
-                        WmsItemSupplySetting::recalculateHierarchyLevels();
-                    });
-
-                    $body = "{$createdCount}件の供給設定を生成しました。";
-                    if ($autoDetect) {
-                        $body .= "\n（外部発注: {$externalCount}件、内部移動: {$internalCount}件）";
-                    }
-
-                    Notification::make()
-                        ->title('供給設定を生成しました')
-                        ->body($body)
-                        ->success()
-                        ->send();
-                } catch (\Exception $e) {
-                    Notification::make()
-                        ->title('エラー')
-                        ->body($e->getMessage())
-                        ->danger()
-                        ->send();
-                }
-            });
-    }
-
     public function resetAutoOrderTestDataAction(): Action
     {
         return Action::make('resetAutoOrderTestData')
@@ -1683,11 +1500,6 @@ class TestDataGenerator extends Page
                     ->label('発注候補・移動候補をリセット')
                     ->helperText('wms_order_candidates, wms_stock_transfer_candidates, wms_order_calculation_logs')
                     ->default(true),
-
-                Toggle::make('reset_settings')
-                    ->label('供給設定をリセット')
-                    ->helperText('wms_item_supply_settings')
-                    ->default(false),
 
                 Toggle::make('reset_calendars')
                     ->label('カレンダーをリセット')
@@ -1710,7 +1522,6 @@ class TestDataGenerator extends Page
                 try {
                     $warehouseIds = $data['warehouse_ids'] ?? [];
                     $resetCandidates = $data['reset_candidates'] ?? true;
-                    $resetSettings = $data['reset_settings'] ?? false;
                     $resetCalendars = $data['reset_calendars'] ?? false;
                     $resetWarehouseSettings = $data['reset_warehouse_settings'] ?? false;
 
@@ -1719,7 +1530,6 @@ class TestDataGenerator extends Page
                     DB::connection('sakemaru')->transaction(function () use (
                         $warehouseIds,
                         $resetCandidates,
-                        $resetSettings,
                         $resetCalendars,
                         $resetWarehouseSettings,
                         &$deletedCounts
@@ -1743,15 +1553,6 @@ class TestDataGenerator extends Page
                                 $query->whereIn('warehouse_id', $warehouseIds);
                             }
                             $deletedCounts['wms_order_calculation_logs'] = $query->delete();
-                        }
-
-                        // 供給設定をリセット
-                        if ($resetSettings) {
-                            $query = DB::connection('sakemaru')->table('wms_item_supply_settings');
-                            if (!empty($warehouseIds)) {
-                                $query->whereIn('warehouse_id', $warehouseIds);
-                            }
-                            $deletedCounts['wms_item_supply_settings'] = $query->delete();
                         }
 
                         // カレンダーをリセット

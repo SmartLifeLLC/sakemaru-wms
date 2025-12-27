@@ -8,11 +8,11 @@ use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionDocumentType;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Models\WmsAutoOrderJobControl;
+use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
 use App\Models\WmsOrderTransmissionLog;
-use App\Models\WmsWarehouseContractorSetting;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -61,12 +61,9 @@ class OrderTransmissionService
                     $candidates
                 );
 
-                // 送信設定を取得
-                $setting = WmsWarehouseContractorSetting::where('warehouse_id', $warehouseId)
-                    ->where('contractor_id', $contractorId)
-                    ->first();
-
-                $transmissionType = $setting?->transmission_type ?? TransmissionType::JX_FINET;
+                // 発注先のWMS送信設定を取得
+                $setting = WmsContractorSetting::where('contractor_id', $contractorId)->first();
+                $transmissionType = $setting?->transmission_type ?? TransmissionType::MANUAL_CSV;
 
                 // 送信実行
                 $success = $this->executeTransmission($document, $transmissionType);

@@ -2,7 +2,7 @@
 
 namespace App\Console\Commands\AutoOrder;
 
-use App\Services\AutoOrder\MultiEchelonCalculationService;
+use App\Services\AutoOrder\OrderCandidateCalculationService;
 use App\Services\AutoOrder\StockSnapshotService;
 use Illuminate\Console\Command;
 
@@ -11,11 +11,11 @@ class AutoOrderCalculateCommand extends Command
     protected $signature = 'wms:auto-order-calculate
                             {--skip-snapshot : スナップショット生成をスキップ}';
 
-    protected $description = '自動発注計算を実行（Multi-Echelon対応）';
+    protected $description = '自動発注計算を実行';
 
     public function handle(
         StockSnapshotService $snapshotService,
-        MultiEchelonCalculationService $calculationService
+        OrderCandidateCalculationService $calculationService
     ): int {
         $skipSnapshot = $this->option('skip-snapshot');
 
@@ -31,9 +31,9 @@ class AutoOrderCalculateCommand extends Command
                 $this->newLine();
             }
 
-            // Phase 1: 多段階計算（Level 0 → Level N）
-            $this->info('Phase 1: 多段階供給計算 (Multi-Echelon)...');
-            $job = $calculationService->calculateAll();
+            // Phase 1: 発注候補計算
+            $this->info('Phase 1: 発注候補計算...');
+            $job = $calculationService->calculate();
             $this->info("  完了: {$job->processed_records}件 (バッチ: {$job->batch_code})");
             $this->newLine();
 

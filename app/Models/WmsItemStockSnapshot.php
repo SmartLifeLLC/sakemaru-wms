@@ -7,7 +7,7 @@ use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * 倉庫×商品別在庫スナップショット
+ * 商品在庫スナップショット
  *
  * @property int $id
  * @property int $warehouse_id
@@ -17,9 +17,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $total_non_effective_piece
  * @property int $total_incoming_piece
  */
-class WmsWarehouseItemTotalStock extends WmsModel
+class WmsItemStockSnapshot extends WmsModel
 {
-    protected $table = 'wms_warehouse_item_total_stocks';
+    protected $table = 'wms_item_stock_snapshots';
 
     protected $fillable = [
         'warehouse_id',

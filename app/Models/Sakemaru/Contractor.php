@@ -2,9 +2,9 @@
 
 namespace App\Models\Sakemaru;
 
+use App\Enums\AutoOrder\TransmissionType;
+use App\Models\WmsContractorSetting;
 use App\Models\WmsContractorSupplier;
-use App\Models\WmsContractorWarehouseMapping;
-use App\Models\WmsWarehouseContractorSetting;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -33,50 +33,46 @@ class Contractor extends CustomModel
         return $this->hasMany(WarehouseContractor::class, 'contractor_id', 'id');
     }
 
-    // ==================== WMS Warehouse Mapping ====================
+    // ==================== WMS Contractor Setting ====================
 
     /**
-     * 倉庫マッピング（この発注先が内部倉庫を表す場合）
-     */
-    public function warehouseMapping(): HasOne
-    {
-        return $this->hasOne(WmsContractorWarehouseMapping::class);
-    }
-
-    /**
-     * この発注先が内部倉庫かどうか
+     * この発注先が倉庫間移動（INTERNAL）かどうか
      */
     public function isInternalWarehouse(): bool
     {
-        return WmsContractorWarehouseMapping::isInternalContractor($this->id);
+        return $this->wmsSetting?->transmission_type === TransmissionType::INTERNAL;
     }
 
     /**
-     * 内部倉庫の場合、対応する倉庫を取得
+     * INTERNAL（倉庫間移動）の場合、供給元倉庫を取得
      */
-    public function getMappedWarehouse(): ?Warehouse
+    public function getSupplyWarehouse(): ?Warehouse
     {
-        $warehouseId = WmsContractorWarehouseMapping::getWarehouseId($this->id);
-
-        return $warehouseId ? Warehouse::find($warehouseId) : null;
+        return $this->wmsSetting?->supplyWarehouse;
     }
 
     /**
-     * 内部倉庫の場合、対応する倉庫IDを取得
+     * INTERNAL（倉庫間移動）の場合、供給元倉庫IDを取得
      */
-    public function getMappedWarehouseId(): ?int
+    public function getSupplyWarehouseId(): ?int
     {
-        return WmsContractorWarehouseMapping::getWarehouseId($this->id);
+        return $this->wmsSetting?->supply_warehouse_id;
     }
 
-    // ==================== WMS Transmission Settings ====================
+    /**
+     * WMS送信設定（1:1）
+     */
+    public function wmsSetting(): HasOne
+    {
+        return $this->hasOne(WmsContractorSetting::class);
+    }
 
     /**
-     * 倉庫別の送信設定
+     * WMS送信設定を取得（なければ作成）
      */
-    public function warehouseContractorSettings(): HasMany
+    public function getOrCreateWmsSetting(): WmsContractorSetting
     {
-        return $this->hasMany(WmsWarehouseContractorSetting::class, 'contractor_id');
+        return WmsContractorSetting::findOrCreateByContractor($this->id);
     }
 
     // ==================== WMS Contractor Suppliers ====================

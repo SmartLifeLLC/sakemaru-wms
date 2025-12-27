@@ -3,10 +3,9 @@
 namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\JobProcessName;
-use App\Enums\AutoOrder\JobStatus;
 use App\Models\WmsAutoOrderJobControl;
+use App\Models\WmsItemStockSnapshot;
 use App\Models\WmsWarehouseAutoOrderSetting;
-use App\Models\WmsWarehouseItemTotalStock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -62,54 +61,42 @@ class StockSnapshotService
 
     /**
      * 指定倉庫の在庫スナップショットを生成
+     *
+     * INSERT INTO ... SELECT で一括処理（高速）
      */
     public function generateSnapshots(array $warehouseIds, ?WmsAutoOrderJobControl $job = null): int
     {
-        $snapshotAt = now();
-        $processedCount = 0;
+        $snapshotAt = now()->format('Y-m-d H:i:s');
 
-        // wms_v_stock_available ビューから有効在庫を集計
-        // 倉庫×商品ごとにグループ化
-        $stocks = DB::connection('sakemaru')
-            ->table('wms_v_stock_available')
-            ->select([
-                'warehouse_id',
-                'item_id',
-                DB::raw('SUM(available_piece) as total_effective_piece'),
-            ])
-            ->whereIn('warehouse_id', $warehouseIds)
-            ->groupBy('warehouse_id', 'item_id')
-            ->get();
+        // 既存データをTRUNCATE
+        WmsItemStockSnapshot::truncate();
 
-        $totalRecords = $stocks->count();
+        // INSERT INTO ... SELECT で一括処理
+        $warehouseIdsList = implode(',', $warehouseIds);
+
+        $sql = "
+            INSERT INTO wms_item_stock_snapshots
+                (warehouse_id, item_id, snapshot_at, total_effective_piece, total_non_effective_piece, total_incoming_piece, created_at, updated_at)
+            SELECT
+                warehouse_id,
+                item_id,
+                '{$snapshotAt}' as snapshot_at,
+                SUM(available_for_wms) as total_effective_piece,
+                0 as total_non_effective_piece,
+                0 as total_incoming_piece,
+                '{$snapshotAt}' as created_at,
+                '{$snapshotAt}' as updated_at
+            FROM wms_v_stock_available
+            WHERE warehouse_id IN ({$warehouseIdsList})
+            GROUP BY warehouse_id, item_id
+        ";
+
+        DB::connection('sakemaru')->statement($sql);
+
+        $processedCount = WmsItemStockSnapshot::count();
+
         if ($job) {
-            $job->update(['total_records' => $totalRecords]);
-        }
-
-        // 入荷予定数を取得（発注残）
-        $incomingStocks = $this->getIncomingStocks($warehouseIds);
-
-        foreach ($stocks as $stock) {
-            $incomingPiece = $incomingStocks[$stock->warehouse_id][$stock->item_id] ?? 0;
-
-            WmsWarehouseItemTotalStock::updateOrCreate(
-                [
-                    'warehouse_id' => $stock->warehouse_id,
-                    'item_id' => $stock->item_id,
-                ],
-                [
-                    'snapshot_at' => $snapshotAt,
-                    'total_effective_piece' => $stock->total_effective_piece,
-                    'total_non_effective_piece' => 0, // TODO: 期限切れ在庫の集計
-                    'total_incoming_piece' => $incomingPiece,
-                ]
-            );
-
-            $processedCount++;
-
-            if ($job && $processedCount % 100 === 0) {
-                $job->updateProgress($processedCount, $totalRecords);
-            }
+            $job->update(['total_records' => $processedCount]);
         }
 
         return $processedCount;

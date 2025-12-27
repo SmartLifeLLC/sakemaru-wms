@@ -7,7 +7,7 @@ use App\Filament\Resources\Contractors\Pages\CreateContractor;
 use App\Filament\Resources\Contractors\Pages\EditContractor;
 use App\Filament\Resources\Contractors\Pages\ListContractors;
 use App\Filament\Resources\Contractors\RelationManagers\ContractorSuppliersRelationManager;
-use App\Filament\Resources\Contractors\RelationManagers\WarehouseContractorSettingsRelationManager;
+use App\Filament\Resources\Contractors\RelationManagers\WmsSettingRelationManager;
 use App\Filament\Resources\Contractors\Schemas\ContractorForm;
 use App\Filament\Resources\Contractors\Tables\ContractorsTable;
 use App\Models\Sakemaru\Contractor;
@@ -57,8 +57,8 @@ class ContractorResource extends Resource
     public static function getRelations(): array
     {
         return [
+            WmsSettingRelationManager::class,
             ContractorSuppliersRelationManager::class,
-            WarehouseContractorSettingsRelationManager::class,
         ];
     }
 

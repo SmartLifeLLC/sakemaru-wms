@@ -44,7 +44,6 @@ enum EMenu: string
     case WMS_ITEM_SUPPLY_SETTINGS = 'master.wms_item_supply_settings';
     case WMS_WAREHOUSE_CALENDARS = 'master.wms_warehouse_calendars';
     case WMS_CONTRACTOR_HOLIDAYS = 'master.wms_contractor_holidays';
-    case WMS_WAREHOUSE_CONTRACTOR_SETTINGS = 'master.wms_warehouse_contractor_settings';
     case WMS_ORDER_JX_SETTINGS = 'master.wms_order_jx_settings';
     case LOCATIONS = 'master.locations';
     case WMS_LOCATIONS = 'master.wms_locations';
@@ -109,7 +108,6 @@ enum EMenu: string
             self::WMS_ITEM_SUPPLY_SETTINGS,
             self::WMS_WAREHOUSE_CALENDARS,
             self::WMS_CONTRACTOR_HOLIDAYS,
-            self::WMS_WAREHOUSE_CONTRACTOR_SETTINGS,
             self::WMS_ORDER_JX_SETTINGS => EMenuCategory::MASTER_ORDER,
 
             // ピッキングマスタ
@@ -163,7 +161,6 @@ enum EMenu: string
             self::WMS_ITEM_SUPPLY_SETTINGS => '供給設定',
             self::WMS_WAREHOUSE_CALENDARS => '倉庫カレンダー',
             self::WMS_CONTRACTOR_HOLIDAYS => '発注先休日',
-            self::WMS_WAREHOUSE_CONTRACTOR_SETTINGS => '発注先接続設定',
             self::WMS_ORDER_JX_SETTINGS => 'JX接続設定',
             self::LOCATIONS => 'ロケーション',
             self::WMS_LOCATIONS => 'WMSロケーション',
@@ -219,7 +216,6 @@ enum EMenu: string
             self::WMS_ITEM_SUPPLY_SETTINGS => 'heroicon-o-cog-6-tooth',
             self::WMS_WAREHOUSE_CALENDARS => 'heroicon-o-calendar-days',
             self::WMS_CONTRACTOR_HOLIDAYS => 'heroicon-o-calendar',
-            self::WMS_WAREHOUSE_CONTRACTOR_SETTINGS => 'heroicon-o-link',
             self::WMS_ORDER_JX_SETTINGS => 'heroicon-o-server',
             self::LOCATIONS => 'heroicon-o-map-pin',
             self::WMS_LOCATIONS => 'heroicon-o-squares-2x2',
@@ -288,8 +284,7 @@ enum EMenu: string
             self::WMS_ITEM_SUPPLY_SETTINGS => 4,
             self::WMS_WAREHOUSE_CALENDARS => 5,
             self::WMS_CONTRACTOR_HOLIDAYS => 6,
-            self::WMS_WAREHOUSE_CONTRACTOR_SETTINGS => 7,
-            self::WMS_ORDER_JX_SETTINGS => 8,
+            self::WMS_ORDER_JX_SETTINGS => 7,
 
             // ピッキングマスタ
             self::WMS_PICKERS => 1,
