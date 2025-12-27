@@ -4,14 +4,14 @@ namespace App\Enums\AutoOrder;
 
 enum CalculationType: string
 {
-    case SATELLITE = 'SATELLITE';
-    case HUB = 'HUB';
+    case INTERNAL = 'INTERNAL';
+    case EXTERNAL = 'EXTERNAL';
 
     public function label(): string
     {
         return match ($this) {
-            self::SATELLITE => 'Satellite計算',
-            self::HUB => 'Hub計算',
+            self::INTERNAL => '倉庫間移動',
+            self::EXTERNAL => '外部発注',
         };
     }
 }

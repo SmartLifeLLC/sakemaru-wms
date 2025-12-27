@@ -4,14 +4,17 @@ namespace App\Filament\Resources\WmsStockTransferCandidates\Tables;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -183,6 +186,54 @@ class WmsStockTransferCandidatesTable
                             ->success()
                             ->send();
                     }),
+
+                Action::make('viewCalculation')
+                    ->label('計算詳細')
+                    ->icon('heroicon-o-calculator')
+                    ->color('gray')
+                    ->modalHeading('計算詳細')
+                    ->modalSubmitAction(false)
+                    ->infolist(function ($record) {
+                        $log = WmsOrderCalculationLog::where('batch_code', $record->batch_code)
+                            ->where('warehouse_id', $record->satellite_warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->first();
+
+                        if (!$log) {
+                            return [
+                                TextEntry::make('no_log')
+                                    ->label('')
+                                    ->state('計算ログが見つかりません'),
+                            ];
+                        }
+
+                        $details = $log->calculation_details ?? [];
+
+                        return [
+                            TextEntry::make('formula')
+                                ->label('計算式')
+                                ->state($details['formula'] ?? '-'),
+                            TextEntry::make('effective_stock')
+                                ->label('有効在庫')
+                                ->state(number_format($details['effective_stock'] ?? 0)),
+                            TextEntry::make('incoming_stock')
+                                ->label('入庫予定')
+                                ->state(number_format($details['incoming_stock'] ?? 0)),
+                            TextEntry::make('safety_stock')
+                                ->label('発注点')
+                                ->state(number_format($details['safety_stock'] ?? 0)),
+                            TextEntry::make('calculated_available')
+                                ->label('計算後在庫')
+                                ->state(number_format($details['calculated_available'] ?? 0)),
+                            TextEntry::make('shortage_qty')
+                                ->label('不足数')
+                                ->state(number_format($details['shortage_qty'] ?? 0))
+                                ->color('danger'),
+                        ];
+                    }),
+
+                DeleteAction::make()
+                    ->visible(fn ($record) => $record->status === CandidateStatus::PENDING),
 
                 EditAction::make(),
             ])

@@ -2,6 +2,7 @@
 
 namespace App\Services\AutoOrder;
 
+use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
@@ -10,6 +11,7 @@ use App\Enums\QuantityType;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
+use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsStockTransferCandidate;
 use Carbon\Carbon;
@@ -35,6 +37,9 @@ class OrderCandidateCalculationService
 
     /** @var array contractor_ids */
     private array $internalContractorIds = [];
+
+    /** @var array 計算ログデータ */
+    private array $calculationLogs = [];
 
     /**
      * 発注候補計算を実行
@@ -73,6 +78,9 @@ class OrderCandidateCalculationService
 
             // Step 4: EXTERNAL発注候補を計算・バルクインサート
             $orderCount = $this->createExternalOrderCandidatesBulk($batchCode, $now, $transferCandidates);
+
+            // Step 5: 計算ログをバルクインサート
+            $this->insertCalculationLogs();
 
             $job->updateProgress(4, 4);
             $job->markAsSuccess($transferCount + $orderCount);
@@ -139,12 +147,13 @@ class OrderCandidateCalculationService
     }
 
     /**
-     * バッチコードで候補を削除
+     * バッチコードで候補とログを削除
      */
     public function deleteCandidatesByBatch(string $batchCode): void
     {
         WmsStockTransferCandidate::where('batch_code', $batchCode)->delete();
         WmsOrderCandidate::where('batch_code', $batchCode)->delete();
+        WmsOrderCalculationLog::where('batch_code', $batchCode)->delete();
     }
 
     /**
@@ -203,6 +212,30 @@ class OrderCandidateCalculationService
                 'lot_status' => LotStatus::RAW->value,
                 'created_at' => $now,
                 'updated_at' => $now,
+            ];
+
+            // 計算ログを追加
+            $this->calculationLogs[] = [
+                'batch_code' => $batchCode,
+                'warehouse_id' => $ic->warehouse_id,
+                'item_id' => $ic->item_id,
+                'calculation_type' => CalculationType::INTERNAL->value,
+                'contractor_id' => $ic->contractor_id,
+                'source_warehouse_id' => $supplyWarehouseId,
+                'current_effective_stock' => $effectiveStock,
+                'incoming_quantity' => $incomingStock,
+                'safety_stock_setting' => $ic->safety_stock,
+                'lead_time_days' => $leadTimeDays,
+                'calculated_shortage_qty' => $requiredQty,
+                'calculated_order_quantity' => $requiredQty,
+                'calculation_details' => json_encode([
+                    'formula' => 'safety_stock - (effective_stock + incoming_stock)',
+                    'effective_stock' => $effectiveStock,
+                    'incoming_stock' => $incomingStock,
+                    'safety_stock' => $ic->safety_stock,
+                    'calculated_available' => $effectiveStock + $incomingStock,
+                    'shortage_qty' => $requiredQty,
+                ], JSON_UNESCAPED_UNICODE),
             ];
         }
 
@@ -305,6 +338,32 @@ class OrderCandidateCalculationService
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
+
+            // 計算ログを追加
+            $this->calculationLogs[] = [
+                'batch_code' => $batchCode,
+                'warehouse_id' => $ic->warehouse_id,
+                'item_id' => $ic->item_id,
+                'calculation_type' => CalculationType::EXTERNAL->value,
+                'contractor_id' => $ic->contractor_id,
+                'source_warehouse_id' => null,
+                'current_effective_stock' => $effectiveStock,
+                'incoming_quantity' => $incomingStock,
+                'safety_stock_setting' => $ic->safety_stock,
+                'lead_time_days' => $defaultLeadTime,
+                'calculated_shortage_qty' => $requiredQty,
+                'calculated_order_quantity' => $requiredQty,
+                'calculation_details' => json_encode([
+                    'formula' => 'safety_stock - (effective_stock + incoming_stock + transfer_in - transfer_out)',
+                    'effective_stock' => $effectiveStock,
+                    'incoming_stock' => $incomingStock,
+                    'transfer_incoming' => $incomingFromTransfer,
+                    'transfer_outgoing' => $outgoingToTransfer,
+                    'safety_stock' => $ic->safety_stock,
+                    'calculated_available' => $calculatedStock,
+                    'shortage_qty' => $requiredQty,
+                ], JSON_UNESCAPED_UNICODE),
+            ];
         }
 
         // バルクインサート（1000件ずつ）
@@ -317,5 +376,22 @@ class OrderCandidateCalculationService
         Log::info('External order candidates created', ['count' => $count]);
 
         return $count;
+    }
+
+    /**
+     * 計算ログをバルクインサート
+     */
+    private function insertCalculationLogs(): void
+    {
+        if (empty($this->calculationLogs)) {
+            return;
+        }
+
+        $chunks = array_chunk($this->calculationLogs, 1000);
+        foreach ($chunks as $chunk) {
+            WmsOrderCalculationLog::insert($chunk);
+        }
+
+        Log::info('Calculation logs inserted', ['count' => count($this->calculationLogs)]);
     }
 }
