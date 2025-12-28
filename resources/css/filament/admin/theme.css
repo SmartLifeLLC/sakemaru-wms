@@ -7,6 +7,11 @@
 
 /* … Advanced Tables の設定はそのままでOK … */
 
+/* html要素のscrollbar-gutterをオーバーライド */
+html.fi {
+    scrollbar-gutter: auto !important;
+}
+
 @layer components {
     .fi-main {
         @apply max-w-none;
