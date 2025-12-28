@@ -7,15 +7,15 @@ enum CandidateStatus: string
     case PENDING = 'PENDING';
     case APPROVED = 'APPROVED';
     case EXCLUDED = 'EXCLUDED';
-    case EXECUTED = 'EXECUTED';
+    case TRANSMITTED = 'TRANSMITTED';
 
     public function label(): string
     {
         return match ($this) {
-            self::PENDING => '未承認',
+            self::PENDING => '承認前',
             self::APPROVED => '承認済',
             self::EXCLUDED => '除外',
-            self::EXECUTED => '実行済',
+            self::TRANSMITTED => '実行完了',
         };
     }
 
@@ -24,8 +24,8 @@ enum CandidateStatus: string
         return match ($this) {
             self::PENDING => 'gray',
             self::APPROVED => 'success',
-            self::EXCLUDED => 'warning',
-            self::EXECUTED => 'info',
+            self::EXCLUDED => 'danger',
+            self::TRANSMITTED => 'info',
         };
     }
 }

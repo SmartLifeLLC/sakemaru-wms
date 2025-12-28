@@ -11,6 +11,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 use Illuminate\Database\Eloquent\Builder;
 
 class WmsContractorHolidaysTable
@@ -18,6 +19,9 @@ class WmsContractorHolidaysTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['contractor'])->orderBy('holiday_date', 'desc'))
             ->columns([
                 TextColumn::make('contractor.name')

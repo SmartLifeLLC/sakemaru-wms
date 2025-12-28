@@ -4,96 +4,137 @@ namespace App\Filament\Resources\WmsOrderCandidates\Tables;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Infolists\Components\KeyValueEntry;
-use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
+use App\Enums\PaginationOptions;
 
 class WmsOrderCandidatesTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
+            ->extraAttributes(['class' => 'order-candidates-table'])
             ->columns([
                 TextColumn::make('batch_code')
-                    ->label('バッチコード')
-                    ->searchable()
+                    ->label('計算時刻')
+                    ->state(function ($record) {
+                        // batch_code は YmdHis 形式 (例: 20251227230547)
+                        return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
+                    })
                     ->sortable()
-                    ->toggleable(),
+                    ->width('80px'),
 
                 TextColumn::make('warehouse.name')
-                    ->label('Hub倉庫')
-                    ->searchable()
-                    ->sortable(),
-
-                TextColumn::make('item.item_name')
-                    ->label('商品')
+                    ->label('倉庫')
+                    ->state(fn ($record) => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-')
                     ->searchable()
                     ->sortable()
-                    ->limit(30),
+                    ->alignCenter()
+                    ->width('170px'),
 
-                TextColumn::make('contractor.contractor_name')
+                TextColumn::make('item.code')
+                    ->label('商品コード')
+                    ->searchable()
+                    ->sortable()
+                    ->alignCenter()
+                    ->width('100px'),
+
+                TextColumn::make('item.name')
+                    ->label('商品名')
+                    ->searchable()
+                    ->sortable()
+                    ->wrap()
+                    ->grow(),
+
+                TextColumn::make('item.packaging')
+                    ->label('規格')
+                    ->alignCenter()
+                    ->toggleable()
+                    ->width('100px'),
+
+                TextColumn::make('item.capacity_case')
+                    ->label('入数')
+                    ->numeric()
+                    ->alignCenter()
+                    ->toggleable()
+                    ->width('50px'),
+
+                TextColumn::make('contractor.name')
                     ->label('発注先')
+                    ->state(fn ($record) => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-')
                     ->searchable()
                     ->sortable()
-                    ->toggleable(),
+                    ->toggleable()
+                    ->width('120px'),
 
                 TextColumn::make('self_shortage_qty')
-                    ->label('自倉庫不足')
+                    ->label('倉庫不足')
                     ->numeric()
-                    ->sortable()
                     ->alignEnd()
+                    ->width('60px')
                     ->toggleable(),
 
                 TextColumn::make('satellite_demand_qty')
-                    ->label('Satellite需要')
+                    ->label('移動依頼')
                     ->numeric()
-                    ->sortable()
                     ->alignEnd()
+                    ->width('60px')
                     ->toggleable(),
 
                 TextColumn::make('suggested_quantity')
                     ->label('算出数')
                     ->numeric()
-                    ->sortable()
-                    ->alignEnd(),
-
-                TextColumn::make('order_quantity')
-                    ->label('発注数')
-                    ->numeric()
-                    ->sortable()
                     ->alignEnd()
-                    ->color(fn ($record) => $record->order_quantity !== $record->suggested_quantity ? 'warning' : null),
+                    ->width('60px'),
+
+                TextInputColumn::make('order_quantity')
+                    ->label('発注数')
+                    ->type('number')
+                    ->rules(['required', 'integer', 'min:0'])
+                    ->alignEnd()
+                    ->width('70px')
+                    ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
+                    ->afterStateUpdated(function ($record, $state) {
+                        $record->update([
+                            'is_manually_modified' => true,
+                            'modified_by' => auth()->id(),
+                            'modified_at' => now(),
+                        ]);
+                    }),
 
                 TextColumn::make('expected_arrival_date')
-                    ->label('入荷予定日')
-                    ->date()
-                    ->sortable(),
+                    ->label('入荷予定')
+                    ->date('m/d')
+                    ->sortable()
+                    ->alignCenter()
+                    ->width('70px'),
 
                 TextColumn::make('status')
-                    ->label('ステータス')
+                    ->label('状態')
                     ->badge()
-                    ->color(fn (CandidateStatus $state): string => match ($state) {
-                        CandidateStatus::PENDING => 'gray',
-                        CandidateStatus::APPROVED => 'success',
-                        CandidateStatus::EXCLUDED => 'danger',
-                        CandidateStatus::TRANSMITTED => 'info',
-                        default => 'gray',
-                    })
-                    ->sortable(),
+                    ->formatStateUsing(fn (CandidateStatus $state): string => $state->label())
+                    ->color(fn (CandidateStatus $state): string => $state->color())
+                    ->sortable()
+                    ->width('75px'),
 
                 TextColumn::make('lot_status')
                     ->label('ロット')
@@ -105,7 +146,8 @@ class WmsOrderCandidatesTable
                         LotStatus::NEED_APPROVAL => 'warning',
                         default => 'gray',
                     })
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('transmission_status')
                     ->label('送信')
@@ -123,21 +165,42 @@ class WmsOrderCandidatesTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('batch_code')
-                    ->label('バッチコード')
-                    ->options(fn () => WmsOrderCandidate::distinct()->pluck('batch_code', 'batch_code')),
-
                 SelectFilter::make('status')
                     ->label('ステータス')
-                    ->options(CandidateStatus::class),
-
-                SelectFilter::make('lot_status')
-                    ->label('ロットステータス')
-                    ->options(LotStatus::class),
+                    ->options(collect(CandidateStatus::cases())->mapWithKeys(fn ($status) => [
+                        $status->value => $status->label()
+                    ])),
 
                 SelectFilter::make('warehouse_id')
-                    ->label('Hub倉庫')
+                    ->label('在庫拠点倉庫')
                     ->relationship('warehouse', 'name'),
+
+                SelectFilter::make('contractor_id')
+                    ->label('発注先')
+                    ->options(fn () => Contractor::query()
+                        ->orderBy('code')
+                        ->get()
+                        ->mapWithKeys(fn ($contractor) => [
+                            $contractor->id => "[{$contractor->code}]{$contractor->name}"
+                        ]))
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        // 全角英数字を半角に変換
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Contractor::query()
+                            ->where(function ($query) use ($search) {
+                                $query->where('code', 'like', "%{$search}%")
+                                    ->orWhere('name', 'like', "%{$search}%");
+                            })
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($contractor) => [
+                                $contractor->id => "[{$contractor->code}]{$contractor->name}"
+                            ])
+                            ->toArray();
+                    }),
             ])
             ->recordActions([
                 Action::make('approve')
@@ -154,6 +217,101 @@ class WmsOrderCandidatesTable
                             ->send();
                     }),
 
+                Action::make('viewCalculation')
+                    ->label('詳細')
+                    ->icon('heroicon-o-eye')
+                    ->color('gray')
+                    ->modalHeading('発注候補詳細')
+                    ->modalWidth('6xl')
+                    ->fillForm(fn ($record) => [
+                        'order_quantity' => $record->order_quantity,
+                    ])
+                    ->schema(function (?WmsOrderCandidate $record): array {
+                        if (!$record) {
+                            return [];
+                        }
+
+                        $log = WmsOrderCalculationLog::where('batch_code', $record->batch_code)
+                            ->where('warehouse_id', $record->warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->first();
+
+                        $details = $log?->calculation_details ?? [];
+                        $item = $record->item;
+                        $capacityText = '-';
+                        if ($item) {
+                            $parts = [];
+                            if ($item->capacity_case) $parts[] = "ケース: {$item->capacity_case}";
+                            if ($item->capacity_carton) $parts[] = "ボール: {$item->capacity_carton}";
+                            $capacityText = implode(' / ', $parts) ?: '-';
+                        }
+
+                        return [
+                            Grid::make(3)
+                                ->schema([
+                                    View::make('filament.components.order-candidate-left-panel')
+                                        ->viewData([
+                                            'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
+                                            'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
+                                            'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+                                            'expectedArrivalDate' => $record->expected_arrival_date
+                                                ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
+                                                : '-',
+                                            'itemCode' => $item?->code ?? '-',
+                                            'itemName' => $item?->name ?? '-',
+                                            'packaging' => $item?->packaging ?? '-',
+                                            'capacityText' => $capacityText,
+                                        ])
+                                        ->columnSpan(1),
+
+                                    Section::make('発注情報')
+                                        ->schema([
+                                            View::make('filament.components.order-candidate-right-panel')
+                                                ->viewData([
+                                                    'selfShortageQty' => $record->self_shortage_qty ?? 0,
+                                                    'satelliteDemandQty' => $record->satellite_demand_qty ?? 0,
+                                                    'suggestedQuantity' => $record->suggested_quantity ?? 0,
+                                                    'hasCalculationLog' => !empty($details),
+                                                    'formula' => $details['formula'] ?? '-',
+                                                    'effectiveStock' => $details['effective_stock'] ?? 0,
+                                                    'incomingStock' => $details['incoming_stock'] ?? 0,
+                                                    'hasTransferIncoming' => isset($details['transfer_incoming']),
+                                                    'transferIncoming' => $details['transfer_incoming'] ?? 0,
+                                                    'hasTransferOutgoing' => isset($details['transfer_outgoing']),
+                                                    'transferOutgoing' => $details['transfer_outgoing'] ?? 0,
+                                                    'safetyStock' => $details['safety_stock'] ?? 0,
+                                                    'calculatedAvailable' => $details['calculated_available'] ?? 0,
+                                                    'shortageQty' => $details['shortage_qty'] ?? 0,
+                                                ]),
+
+                                            Section::make('発注数変更')
+                                                ->schema([
+                                                    TextInput::make('order_quantity')
+                                                        ->label('発注数')
+                                                        ->numeric()
+                                                        ->required()
+                                                        ->minValue(0),
+                                                ]),
+                                        ])
+                                        ->columnSpan(2),
+                                ]),
+                        ];
+                    })
+                    ->action(function ($record, array $data) {
+                        if ($data['order_quantity'] != $record->order_quantity) {
+                            $record->update([
+                                'order_quantity' => $data['order_quantity'],
+                                'is_manually_modified' => true,
+                                'modified_by' => auth()->id(),
+                                'modified_at' => now(),
+                            ]);
+                            Notification::make()
+                                ->title('発注数を更新しました')
+                                ->success()
+                                ->send();
+                        }
+                    }),
+
                 Action::make('exclude')
                     ->label('除外')
                     ->icon('heroicon-o-x-mark')
@@ -161,103 +319,18 @@ class WmsOrderCandidatesTable
                     ->visible(fn ($record) => $record->status === CandidateStatus::PENDING)
                     ->schema([
                         Textarea::make('exclusion_reason')
-                            ->label('除外理由')
-                            ->required(),
+                            ->label('除外理由'),
                     ])
                     ->action(function ($record, array $data) {
                         $record->update([
                             'status' => CandidateStatus::EXCLUDED,
-                            'exclusion_reason' => $data['exclusion_reason'],
+                            'exclusion_reason' => $data['exclusion_reason'] ?? null,
                         ]);
                         Notification::make()
                             ->title('発注候補を除外しました')
                             ->warning()
                             ->send();
                     }),
-
-                Action::make('modifyQuantity')
-                    ->label('数量修正')
-                    ->icon('heroicon-o-pencil')
-                    ->color('warning')
-                    ->visible(fn ($record) => in_array($record->status, [CandidateStatus::PENDING, CandidateStatus::APPROVED]))
-                    ->schema([
-                        TextInput::make('order_quantity')
-                            ->label('発注数量')
-                            ->numeric()
-                            ->required()
-                            ->minValue(0)
-                            ->default(fn ($record) => $record->order_quantity),
-                    ])
-                    ->action(function ($record, array $data) {
-                        $record->update([
-                            'order_quantity' => $data['order_quantity'],
-                            'is_manually_modified' => true,
-                            'modified_by' => auth()->id(),
-                            'modified_at' => now(),
-                        ]);
-                        Notification::make()
-                            ->title('発注数量を修正しました')
-                            ->success()
-                            ->send();
-                    }),
-
-                Action::make('viewCalculation')
-                    ->label('計算詳細')
-                    ->icon('heroicon-o-calculator')
-                    ->color('gray')
-                    ->modalHeading('計算詳細')
-                    ->modalSubmitAction(false)
-                    ->infolist(function ($record) {
-                        $log = WmsOrderCalculationLog::where('batch_code', $record->batch_code)
-                            ->where('warehouse_id', $record->warehouse_id)
-                            ->where('item_id', $record->item_id)
-                            ->first();
-
-                        if (!$log) {
-                            return [
-                                TextEntry::make('no_log')
-                                    ->label('')
-                                    ->state('計算ログが見つかりません'),
-                            ];
-                        }
-
-                        $details = $log->calculation_details ?? [];
-
-                        return [
-                            TextEntry::make('formula')
-                                ->label('計算式')
-                                ->state($details['formula'] ?? '-'),
-                            TextEntry::make('effective_stock')
-                                ->label('有効在庫')
-                                ->state(number_format($details['effective_stock'] ?? 0)),
-                            TextEntry::make('incoming_stock')
-                                ->label('入庫予定')
-                                ->state(number_format($details['incoming_stock'] ?? 0)),
-                            TextEntry::make('transfer_incoming')
-                                ->label('移動入庫')
-                                ->state(number_format($details['transfer_incoming'] ?? 0))
-                                ->visible(isset($details['transfer_incoming'])),
-                            TextEntry::make('transfer_outgoing')
-                                ->label('移動出庫')
-                                ->state(number_format($details['transfer_outgoing'] ?? 0))
-                                ->visible(isset($details['transfer_outgoing'])),
-                            TextEntry::make('safety_stock')
-                                ->label('発注点')
-                                ->state(number_format($details['safety_stock'] ?? 0)),
-                            TextEntry::make('calculated_available')
-                                ->label('計算後在庫')
-                                ->state(number_format($details['calculated_available'] ?? 0)),
-                            TextEntry::make('shortage_qty')
-                                ->label('不足数')
-                                ->state(number_format($details['shortage_qty'] ?? 0))
-                                ->color('danger'),
-                        ];
-                    }),
-
-                DeleteAction::make()
-                    ->visible(fn ($record) => $record->status === CandidateStatus::PENDING),
-
-                EditAction::make(),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
@@ -285,15 +358,14 @@ class WmsOrderCandidatesTable
                         ->requiresConfirmation()
                         ->schema([
                             Textarea::make('exclusion_reason')
-                                ->label('除外理由')
-                                ->required(),
+                                ->label('除外理由'),
                         ])
                         ->action(function (Collection $records, array $data) {
                             $count = $records
                                 ->where('status', CandidateStatus::PENDING)
                                 ->each(fn ($record) => $record->update([
                                     'status' => CandidateStatus::EXCLUDED,
-                                    'exclusion_reason' => $data['exclusion_reason'],
+                                    'exclusion_reason' => $data['exclusion_reason'] ?? null,
                                 ]))
                                 ->count();
 
@@ -302,8 +374,6 @@ class WmsOrderCandidatesTable
                                 ->warning()
                                 ->send();
                         }),
-
-                    DeleteBulkAction::make(),
                 ]),
             ])
             ->defaultSort('created_at', 'desc');

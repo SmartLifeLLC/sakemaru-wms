@@ -16,6 +16,8 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use App\Enums\PaginationOptions;
+
 
 class WmsPickingTasksTable
 {
@@ -23,8 +25,8 @@ class WmsPickingTasksTable
     {
         return $table
             ->striped()
-            ->defaultPaginationPageOption(50)
-            ->paginationPageOptions([25, 50, 100])
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('id')
                     ->label('タスクID')

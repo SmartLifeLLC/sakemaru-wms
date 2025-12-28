@@ -14,6 +14,8 @@ use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
+use App\Enums\PaginationOptions;
+
 
 class WmsPickingItemEditResource extends Resource
 {
@@ -37,8 +39,8 @@ class WmsPickingItemEditResource extends Resource
                 }
             })
             ->defaultSort('id', 'desc')
-            ->defaultPaginationPageOption(50)
-            ->paginationPageOptions([25, 50, 100, 200])
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->striped()
             ->columns([
                 TextColumn::make('id')

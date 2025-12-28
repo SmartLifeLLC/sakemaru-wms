@@ -14,6 +14,7 @@ use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -22,6 +23,9 @@ class WmsWarehouseCalendarsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['warehouse'])->orderBy('target_date', 'desc'))
             ->columns([
                 TextColumn::make('warehouse.name')

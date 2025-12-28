@@ -17,6 +17,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use App\Enums\PaginationOptions;
 
 class WmsJxTransmissionLogResource extends Resource
 {
@@ -63,7 +64,8 @@ class WmsJxTransmissionLogResource extends Resource
     {
         return $table
             ->defaultSort('transmitted_at', 'desc')
-            ->defaultPaginationPageOption(25)
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->striped()
             ->columns([
                 TextColumn::make('id')

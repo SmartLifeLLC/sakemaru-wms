@@ -3,14 +3,11 @@
 namespace App\Filament\Resources\WmsOrderCandidates;
 
 use App\Enums\EMenu;
-use App\Filament\Resources\WmsOrderCandidates\Pages\EditWmsOrderCandidate;
 use App\Filament\Resources\WmsOrderCandidates\Pages\ListWmsOrderCandidates;
-use App\Filament\Resources\WmsOrderCandidates\Schemas\WmsOrderCandidateForm;
 use App\Filament\Resources\WmsOrderCandidates\Tables\WmsOrderCandidatesTable;
 use App\Models\WmsOrderCandidate;
 use BackedEnum;
 use Filament\Resources\Resource;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
@@ -45,11 +42,6 @@ class WmsOrderCandidateResource extends Resource
         return EMenu::WMS_ORDER_CANDIDATES->sort();
     }
 
-    public static function form(Schema $schema): Schema
-    {
-        return WmsOrderCandidateForm::configure($schema);
-    }
-
     public static function table(Table $table): Table
     {
         return WmsOrderCandidatesTable::configure($table);
@@ -66,7 +58,6 @@ class WmsOrderCandidateResource extends Resource
     {
         return [
             'index' => ListWmsOrderCandidates::route('/'),
-            'edit' => EditWmsOrderCandidate::route('/{record}/edit'),
         ];
     }
 }

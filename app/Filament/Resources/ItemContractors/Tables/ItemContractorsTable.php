@@ -13,6 +13,8 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
+
 
 class ItemContractorsTable
 {
@@ -20,8 +22,8 @@ class ItemContractorsTable
     {
         return $table
             ->striped()
-            ->defaultPaginationPageOption(25)
-            ->paginationPageOptions([10, 25, 50, 100])
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('item.code')
                     ->label('商品コード')

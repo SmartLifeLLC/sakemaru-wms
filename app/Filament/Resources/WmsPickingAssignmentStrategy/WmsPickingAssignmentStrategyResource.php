@@ -25,6 +25,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 
 class WmsPickingAssignmentStrategyResource extends Resource
 {
@@ -117,7 +118,8 @@ class WmsPickingAssignmentStrategyResource extends Resource
     {
         return $table
             ->striped()
-            ->defaultPaginationPageOption(25)
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('warehouse.name')
                     ->label('対象倉庫')

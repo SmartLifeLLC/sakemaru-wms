@@ -1,15 +1,66 @@
 @import '../../../../vendor/filament/filament/resources/css/theme.css';
 
-@source '../../../../app/Filament/**/*';
-@source '../../../../resources/views/filament/**/*';
-@source '../../../../resources/views/livewire/**/*';
-@source '../../../../vendor/archilex/filament-filter-sets';
+@source '../../../../app/Filament/**/*.php';
+@source '../../../../resources/views/filament/**/*.blade.php';
+@source '../../../../resources/views/livewire/**/*.blade.php';
+@source '../../../../vendor/archilex/filament-filter-sets/**/*.php';
+@source '../../../../vendor/archilex/filament-filter-sets/**/*.blade.php';
+
+/* モーダルスプリットビュー用のカスタムクラス */
+.modal-split-left {
+    @apply w-full md:w-1/3 bg-gray-50 dark:bg-gray-800 p-6 border-r border-gray-200 dark:border-gray-700;
+}
+
+.modal-split-right {
+    @apply w-full md:w-2/3 p-6;
+}
+
+.modal-split-container {
+    @apply flex flex-col md:flex-row gap-0 -m-6;
+}
+
+.modal-info-card {
+    @apply bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4;
+}
+
+.modal-section-title {
+    @apply text-lg font-semibold text-gray-900 dark:text-white mb-4;
+}
+
+.modal-label {
+    @apply text-sm font-medium text-gray-500 dark:text-gray-400;
+}
+
+.modal-value {
+    @apply mt-1 text-sm text-gray-900 dark:text-white;
+}
+
+.modal-value-large {
+    @apply mt-1 text-2xl font-bold text-gray-900 dark:text-white;
+}
+
+.modal-value-primary {
+    @apply mt-1 text-2xl font-bold text-primary-600 dark:text-primary-400;
+}
+
+.modal-value-danger {
+    @apply text-sm text-red-600 dark:text-red-400 font-semibold;
+}
+
+.modal-calc-section {
+    @apply bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6;
+}
+
+.modal-warning-box {
+    @apply bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4 mb-6;
+}
 
 /* … Advanced Tables の設定はそのままでOK … */
 
 /* html要素のscrollbar-gutterをオーバーライド */
 html.fi {
     scrollbar-gutter: auto !important;
+    overflow: hidden !important;
 }
 
 @layer components {
@@ -209,8 +260,37 @@ html.fi {
 .fi-input input {
     height: 24px !important;
     line-height: 24px !important;
-    padding: 1px 2px !important;        /* input の余白は不要 */
+    padding: 1px 2px !important;
     margin: 1px 2px !important;
+}
+
+/* TextInputColumn の幅を固定（発注数・移動数など） */
+/* セル自体の幅を制限 */
+.fi-ta-cell:has(.fi-ta-text-input) {
+    width: 70px !important;
+    max-width: 70px !important;
+    min-width: 70px !important;
+}
+
+.fi-ta-cell:has(.fi-ta-text-input) > div {
+    width: 70px !important;
+    max-width: 70px !important;
+}
+
+.fi-ta-text-input {
+    width: 70px !important;
+    max-width: 70px !important;
+}
+
+.fi-ta-text-input .fi-input-wrp {
+    width: 65px !important;
+    max-width: 65px !important;
+}
+
+.fi-ta-text-input input[type="number"] {
+    width: 60px !important;
+    max-width: 60px !important;
+    text-align: right !important;
 }
 
 /* IconColumn の余白を詰める */
@@ -232,4 +312,61 @@ html.fi {
 .fi-ta-cell:has(.fi-ta-icon) > div {
     padding: 0 !important;
     margin: 0 !important;
+}
+
+/* テーブルのstripe色カスタマイズ */
+.fi-ta-table tbody tr:nth-child(odd) {
+    background-color: rgba(59, 130, 246, 0.05) !important; /* 薄い青 */
+}
+
+.fi-ta-table tbody tr:nth-child(even) {
+    background-color: white !important;
+}
+
+/* ダークモード用 */
+.dark .fi-ta-table tbody tr:nth-child(odd) {
+    background-color: rgba(59, 130, 246, 0.12) !important;
+}
+
+.dark .fi-ta-table tbody tr:nth-child(even) {
+    background-color: rgb(17, 24, 39) !important; /* より暗く */
+}
+
+/* 発注候補・移動候補テーブル専用スタイル */
+
+/* 発注候補テーブル - 倉庫カラム幅・中央整列 */
+.order-candidates-table colgroup col:nth-child(3) {
+    width: 170px !important;
+}
+
+.order-candidates-table thead tr th:nth-child(3),
+.order-candidates-table tbody tr td:nth-child(3) {
+    width: 170px !important;
+    min-width: 170px !important;
+    text-align: center !important;
+}
+
+/* 発注候補テーブル - 商品コードカラム中央整列 */
+.order-candidates-table thead tr th:nth-child(4),
+.order-candidates-table tbody tr td:nth-child(4) {
+    text-align: center !important;
+}
+
+.order-candidates-table thead tr th:nth-child(3) > div,
+.order-candidates-table thead tr th:nth-child(4) > div {
+    justify-content: center !important;
+}
+
+/* 移動候補テーブル - 倉庫カラム */
+.transfer-candidates-table colgroup col:nth-child(3),
+.transfer-candidates-table colgroup col:nth-child(4) {
+    width: 140px !important;
+}
+
+.transfer-candidates-table thead tr th:nth-child(3),
+.transfer-candidates-table tbody tr td:nth-child(3),
+.transfer-candidates-table thead tr th:nth-child(4),
+.transfer-candidates-table tbody tr td:nth-child(4) {
+    width: 140px !important;
+    min-width: 140px !important;
 }

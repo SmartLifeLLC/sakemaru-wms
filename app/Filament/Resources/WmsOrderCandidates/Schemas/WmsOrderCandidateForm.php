@@ -43,7 +43,7 @@ class WmsOrderCandidateForm
                             ->suffix(fn ($record) => $record->quantity_type?->name() ?? 'バラ'),
 
                         TextEntry::make('satellite_demand_qty')
-                            ->label('Satellite需要数')
+                            ->label('他倉庫移動依頼数')
                             ->suffix(fn ($record) => $record->quantity_type?->name() ?? 'バラ'),
 
                         TextEntry::make('total_required')

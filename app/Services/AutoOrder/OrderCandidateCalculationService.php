@@ -185,6 +185,16 @@ class OrderCandidateCalculationService
                 continue;
             }
 
+            // 依頼倉庫と横持ち出荷倉庫が同じ場合はスキップ（意味がないため）
+            if ($ic->warehouse_id === $supplyWarehouseId) {
+                Log::warning('Skipping transfer candidate: same warehouse', [
+                    'warehouse_id' => $ic->warehouse_id,
+                    'item_id' => $ic->item_id,
+                    'contractor_id' => $ic->contractor_id,
+                ]);
+                continue;
+            }
+
             // 在庫を取得
             $stock = $this->stockSnapshots[$ic->warehouse_id][$ic->item_id] ?? null;
             $effectiveStock = $stock['effective'] ?? 0;

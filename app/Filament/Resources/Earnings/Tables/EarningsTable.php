@@ -10,6 +10,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 use Illuminate\Database\Eloquent\Builder;
 
 class EarningsTable
@@ -17,6 +18,9 @@ class EarningsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('id')
                     ->label('伝票番号')

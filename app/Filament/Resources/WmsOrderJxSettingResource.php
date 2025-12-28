@@ -23,6 +23,7 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
+use App\Enums\PaginationOptions;
 
 class WmsOrderJxSettingResource extends Resource
 {
@@ -189,7 +190,8 @@ class WmsOrderJxSettingResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->defaultPaginationPageOption(25)
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->striped()
             ->columns([
                 TextColumn::make('id')

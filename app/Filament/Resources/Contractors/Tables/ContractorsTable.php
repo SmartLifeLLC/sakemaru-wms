@@ -10,6 +10,7 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 
 class ContractorsTable
 {
@@ -17,8 +18,8 @@ class ContractorsTable
     {
         return $table
             ->striped()
-            ->defaultPaginationPageOption(25)
-            ->paginationPageOptions([10, 25, 50, 100])
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('code')
                     ->label('コード')

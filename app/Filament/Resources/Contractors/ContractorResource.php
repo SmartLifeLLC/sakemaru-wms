@@ -7,6 +7,7 @@ use App\Filament\Resources\Contractors\Pages\CreateContractor;
 use App\Filament\Resources\Contractors\Pages\EditContractor;
 use App\Filament\Resources\Contractors\Pages\ListContractors;
 use App\Filament\Resources\Contractors\RelationManagers\ContractorSuppliersRelationManager;
+use App\Filament\Resources\Contractors\RelationManagers\DeliveryDaysRelationManager;
 use App\Filament\Resources\Contractors\RelationManagers\WmsSettingRelationManager;
 use App\Filament\Resources\Contractors\Schemas\ContractorForm;
 use App\Filament\Resources\Contractors\Tables\ContractorsTable;
@@ -59,6 +60,7 @@ class ContractorResource extends Resource
         return [
             WmsSettingRelationManager::class,
             ContractorSuppliersRelationManager::class,
+            DeliveryDaysRelationManager::class,
         ];
     }
 

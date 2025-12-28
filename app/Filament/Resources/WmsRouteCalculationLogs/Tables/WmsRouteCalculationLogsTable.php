@@ -6,6 +6,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 use Filament\Tables\Columns\TextColumn;
 
 class WmsRouteCalculationLogsTable
@@ -13,6 +14,9 @@ class WmsRouteCalculationLogsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')

@@ -10,6 +10,8 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use App\Enums\PaginationOptions;
+
 
 class WmsPickingItemResultsTable
 {
@@ -17,8 +19,8 @@ class WmsPickingItemResultsTable
     {
         return $table
             ->striped()
-            ->defaultPaginationPageOption(20)
-            ->paginationPageOptions([20, 50, 100, 200])
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')

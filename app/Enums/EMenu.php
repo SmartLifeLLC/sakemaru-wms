@@ -155,7 +155,7 @@ enum EMenu: string
             self::REAL_STOCKS => '在庫管理',
 
             self::WAREHOUSES => '倉庫',
-            self::WAREHOUSE_CONTRACTORS => '倉庫業者',
+            self::WAREHOUSE_CONTRACTORS => '発注先別ロット条件',
             self::CONTRACTORS => '発注先',
             self::ITEM_CONTRACTORS => '商品発注先',
             self::WMS_ITEM_SUPPLY_SETTINGS => '供給設定',
