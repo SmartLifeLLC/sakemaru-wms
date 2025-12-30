@@ -3,8 +3,8 @@
 namespace App\Models\Sakemaru;
 
 use App\Models\Sakemaru\ClientCalendar;
-
 use App\Models\Sakemaru\WarehouseContractor;
+use App\Models\WmsContractorWarehouseDeliveryDay;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -45,5 +45,15 @@ class Warehouse extends CustomModel
     public function warehouse_contractors() : HasMany
     {
         return $this->hasMany(WarehouseContractor::class);
+    }
+
+    // ==================== WMS Contractor Warehouse Delivery Days ====================
+
+    /**
+     * この倉庫に対する発注先別の納品可能曜日設定
+     */
+    public function contractorDeliveryDays(): HasMany
+    {
+        return $this->hasMany(WmsContractorWarehouseDeliveryDay::class, 'warehouse_id');
     }
 }

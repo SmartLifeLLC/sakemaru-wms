@@ -20,6 +20,8 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use App\Enums\PaginationOptions;
+
 
 class DeliveryCourseChangeResource extends Resource
 {
@@ -195,7 +197,7 @@ class DeliveryCourseChangeResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->defaultPaginationPageOption(50)
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->striped()
             ->columns([
                 TextColumn::make('serial_id')
@@ -520,8 +522,8 @@ class DeliveryCourseChangeResource extends Resource
                     ->modalSubmitActionLabel('一括変更する')
                     ->deselectRecordsAfterCompletion(),
             ])
-            ->defaultPaginationPageOption(25)
-            ->paginationPageOptions([10, 25, 50, 100]);
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all());
     }
 
     public static function getPages(): array

@@ -12,6 +12,8 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
+
 
 class WmsPickersTable
 {
@@ -19,8 +21,8 @@ class WmsPickersTable
     {
         return $table
             ->striped()
-            ->defaultPaginationPageOption(25)
-            ->paginationPageOptions([10, 25, 50, 100])
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('code')
                     ->label('コード')

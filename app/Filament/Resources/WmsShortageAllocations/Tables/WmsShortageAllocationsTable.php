@@ -20,6 +20,7 @@ use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -28,6 +29,8 @@ class WmsShortageAllocationsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->striped()
             ->columns([
                 TextColumn::make('id')

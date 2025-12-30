@@ -28,12 +28,23 @@ enum EMenu: string
     // 横持ち出荷
     case WMS_SHORTAGE_ALLOCATIONS = 'horizontal_shipment.wms_shortage_allocations';
 
+    // 自動発注
+    case WMS_STOCK_TRANSFER_CANDIDATES = 'auto_order.wms_stock_transfer_candidates';
+    case WMS_ORDER_CANDIDATES = 'auto_order.wms_order_candidates';
+    case WMS_AUTO_ORDER_JOBS = 'auto_order.wms_auto_order_jobs';
+
     // 在庫管理
     case REAL_STOCKS = 'inventory.real_stocks';
 
     // マスタ管理
     case WAREHOUSES = 'master.warehouses';
     case WAREHOUSE_CONTRACTORS = 'master.warehouse_contractors';
+    case CONTRACTORS = 'master.contractors';
+    case ITEM_CONTRACTORS = 'master.item_contractors';
+    case WMS_ITEM_SUPPLY_SETTINGS = 'master.wms_item_supply_settings';
+    case WMS_WAREHOUSE_CALENDARS = 'master.wms_warehouse_calendars';
+    case WMS_CONTRACTOR_HOLIDAYS = 'master.wms_contractor_holidays';
+    case WMS_ORDER_JX_SETTINGS = 'master.wms_order_jx_settings';
     case LOCATIONS = 'master.locations';
     case WMS_LOCATIONS = 'master.wms_locations';
     case WMS_PICKING_AREAS = 'master.wms_picking_areas';
@@ -46,6 +57,7 @@ enum EMenu: string
 
     // ログ
     case WMS_PICKING_LOGS = 'logs.wms_picking_logs';
+    case WMS_JX_TRANSMISSION_LOGS = 'logs.wms_jx_transmission_logs';
 
     // システム設定
     case WAVE_SETTINGS = 'settings.wave_settings';
@@ -76,20 +88,36 @@ enum EMenu: string
 
             self::WMS_SHORTAGE_ALLOCATIONS => EMenuCategory::HORIZONTAL_SHIPMENT,
 
+            self::WMS_STOCK_TRANSFER_CANDIDATES,
+            self::WMS_ORDER_CANDIDATES,
+            self::WMS_AUTO_ORDER_JOBS => EMenuCategory::AUTO_ORDER,
+
             self::REAL_STOCKS => EMenuCategory::INVENTORY,
 
+            // 倉庫マスタ
             self::WAREHOUSES,
-            self::WAREHOUSE_CONTRACTORS,
             self::LOCATIONS,
             self::WMS_LOCATIONS,
             self::WMS_PICKING_AREAS,
+            self::FLOOR_PLAN_EDITOR => EMenuCategory::MASTER_WAREHOUSE,
+
+            // 発注マスタ
+            self::WAREHOUSE_CONTRACTORS,
+            self::CONTRACTORS,
+            self::ITEM_CONTRACTORS,
+            self::WMS_ITEM_SUPPLY_SETTINGS,
+            self::WMS_WAREHOUSE_CALENDARS,
+            self::WMS_CONTRACTOR_HOLIDAYS,
+            self::WMS_ORDER_JX_SETTINGS => EMenuCategory::MASTER_ORDER,
+
+            // ピッキングマスタ
             self::WMS_PICKERS,
-            self::WMS_PICKING_ASSIGNMENT_STRATEGIES,
-            self::FLOOR_PLAN_EDITOR => EMenuCategory::MASTER,
+            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => EMenuCategory::MASTER_PICKING,
 
             self::EARNINGS => EMenuCategory::STATISTICS,
 
-            self::WMS_PICKING_LOGS => EMenuCategory::LOGS,
+            self::WMS_PICKING_LOGS,
+            self::WMS_JX_TRANSMISSION_LOGS => EMenuCategory::LOGS,
 
             self::WAVE_SETTINGS => EMenuCategory::SETTINGS,
 
@@ -120,10 +148,20 @@ enum EMenu: string
 
             self::WMS_SHORTAGE_ALLOCATIONS => '横持ち出荷依頼',
 
+            self::WMS_STOCK_TRANSFER_CANDIDATES => '移動候補一覧',
+            self::WMS_ORDER_CANDIDATES => '発注候補一覧',
+            self::WMS_AUTO_ORDER_JOBS => 'ジョブ履歴',
+
             self::REAL_STOCKS => '在庫管理',
 
             self::WAREHOUSES => '倉庫',
-            self::WAREHOUSE_CONTRACTORS => '倉庫業者',
+            self::WAREHOUSE_CONTRACTORS => '発注先別ロット条件',
+            self::CONTRACTORS => '発注先',
+            self::ITEM_CONTRACTORS => '商品発注先',
+            self::WMS_ITEM_SUPPLY_SETTINGS => '供給設定',
+            self::WMS_WAREHOUSE_CALENDARS => '倉庫カレンダー',
+            self::WMS_CONTRACTOR_HOLIDAYS => '発注先休日',
+            self::WMS_ORDER_JX_SETTINGS => 'JX接続設定',
             self::LOCATIONS => 'ロケーション',
             self::WMS_LOCATIONS => 'WMSロケーション',
             self::WMS_PICKING_AREAS => 'ピッキングエリア',
@@ -134,6 +172,7 @@ enum EMenu: string
             self::EARNINGS => '売上データ',
 
             self::WMS_PICKING_LOGS => 'ピッキングログ',
+            self::WMS_JX_TRANSMISSION_LOGS => 'JX送受信履歴',
 
             self::WAVE_SETTINGS => 'Wave設定',
 
@@ -164,10 +203,20 @@ enum EMenu: string
 
             self::WMS_SHORTAGE_ALLOCATIONS => 'heroicon-o-truck',
 
+            self::WMS_STOCK_TRANSFER_CANDIDATES => 'heroicon-o-arrows-right-left',
+            self::WMS_ORDER_CANDIDATES => 'heroicon-o-shopping-cart',
+            self::WMS_AUTO_ORDER_JOBS => 'heroicon-o-queue-list',
+
             self::REAL_STOCKS => 'heroicon-o-cube-transparent',
 
             self::WAREHOUSES => 'heroicon-o-building-office-2',
             self::WAREHOUSE_CONTRACTORS => 'heroicon-o-building-storefront',
+            self::CONTRACTORS => 'heroicon-o-truck',
+            self::ITEM_CONTRACTORS => 'heroicon-o-document-text',
+            self::WMS_ITEM_SUPPLY_SETTINGS => 'heroicon-o-cog-6-tooth',
+            self::WMS_WAREHOUSE_CALENDARS => 'heroicon-o-calendar-days',
+            self::WMS_CONTRACTOR_HOLIDAYS => 'heroicon-o-calendar',
+            self::WMS_ORDER_JX_SETTINGS => 'heroicon-o-server',
             self::LOCATIONS => 'heroicon-o-map-pin',
             self::WMS_LOCATIONS => 'heroicon-o-squares-2x2',
             self::WMS_PICKING_AREAS => 'heroicon-o-squares-plus',
@@ -178,6 +227,7 @@ enum EMenu: string
             self::EARNINGS => 'heroicon-o-currency-yen',
 
             self::WMS_PICKING_LOGS => 'heroicon-o-rectangle-stack',
+            self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrows-up-down',
 
             self::WAVE_SETTINGS => 'heroicon-o-cog-6-tooth',
 
@@ -212,24 +262,40 @@ enum EMenu: string
             // 横持ち出荷
             self::WMS_SHORTAGE_ALLOCATIONS => 1,
 
+            // 自動発注
+            self::WMS_STOCK_TRANSFER_CANDIDATES => 1,
+            self::WMS_ORDER_CANDIDATES => 2,
+            self::WMS_AUTO_ORDER_JOBS => 3,
+
             // 在庫管理
             self::REAL_STOCKS => 1,
 
-            // マスタ管理
+            // 倉庫マスタ
             self::WAREHOUSES => 1,
-            self::WAREHOUSE_CONTRACTORS => 2,
-            self::LOCATIONS => 3,
-            self::WMS_LOCATIONS => 4,
-            self::WMS_PICKING_AREAS => 5,
-            self::WMS_PICKERS => 6,
-            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 7,
-            self::FLOOR_PLAN_EDITOR => 50,
+            self::LOCATIONS => 2,
+            self::WMS_LOCATIONS => 3,
+            self::WMS_PICKING_AREAS => 4,
+            self::FLOOR_PLAN_EDITOR => 5,
+
+            // 発注マスタ
+            self::WAREHOUSE_CONTRACTORS => 1,
+            self::CONTRACTORS => 2,
+            self::ITEM_CONTRACTORS => 3,
+            self::WMS_ITEM_SUPPLY_SETTINGS => 4,
+            self::WMS_WAREHOUSE_CALENDARS => 5,
+            self::WMS_CONTRACTOR_HOLIDAYS => 6,
+            self::WMS_ORDER_JX_SETTINGS => 7,
+
+            // ピッキングマスタ
+            self::WMS_PICKERS => 1,
+            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 2,
 
             // 統計データ
             self::EARNINGS => 1,
 
             // ログ
             self::WMS_PICKING_LOGS => 1,
+            self::WMS_JX_TRANSMISSION_LOGS => 2,
 
             // システム設定
             self::WAVE_SETTINGS => 1,

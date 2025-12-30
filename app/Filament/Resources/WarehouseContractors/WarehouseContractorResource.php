@@ -21,6 +21,8 @@ class WarehouseContractorResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingOffice2;
 
+    protected static bool $shouldRegisterNavigation = false;
+
     public static function getNavigationGroup(): ?string
     {
         return EMenu::WAREHOUSE_CONTRACTORS->category()->label();
@@ -33,12 +35,12 @@ class WarehouseContractorResource extends Resource
 
     public static function getModelLabel(): string
     {
-        return '倉庫業者';
+        return '発注先別ロット条件';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '倉庫業者';
+        return '発注先別ロット条件';
     }
 
     public static function getNavigationSort(): ?int

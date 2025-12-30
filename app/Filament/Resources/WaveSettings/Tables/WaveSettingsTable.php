@@ -7,6 +7,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 use Illuminate\Support\Facades\DB;
 
 class WaveSettingsTable
@@ -14,6 +15,9 @@ class WaveSettingsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('warehouse_id')
                     ->label('Warehouse')

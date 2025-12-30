@@ -6,6 +6,7 @@ use App\Enums\EMenu;
 use App\Filament\Resources\Warehouses\Pages\CreateWarehouse;
 use App\Filament\Resources\Warehouses\Pages\EditWarehouse;
 use App\Filament\Resources\Warehouses\Pages\ListWarehouses;
+use App\Filament\Resources\Warehouses\RelationManagers\ContractorDeliveryDaysRelationManager;
 use App\Filament\Resources\Warehouses\Schemas\WarehouseForm;
 use App\Filament\Resources\Warehouses\Tables\WarehousesTable;
 use App\Models\Sakemaru\Warehouse;
@@ -59,7 +60,7 @@ class WarehouseResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            ContractorDeliveryDaysRelationManager::class,
         ];
     }
 

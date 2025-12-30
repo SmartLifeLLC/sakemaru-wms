@@ -16,6 +16,8 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use App\Enums\PaginationOptions;
+
 
 class WmsPickerAttendanceTable
 {
@@ -23,8 +25,8 @@ class WmsPickerAttendanceTable
     {
         return $table
             ->striped()
-            ->defaultPaginationPageOption(25)
-            ->paginationPageOptions([10, 25, 50, 100])
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->modifyQueryUsing(fn (Builder $query) => $query->where('is_active', true))
             ->columns([
                 TextColumn::make('code')

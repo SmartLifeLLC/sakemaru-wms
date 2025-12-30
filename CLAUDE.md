@@ -2,6 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 絶対禁止事項（CRITICAL）
+
+### データベース破壊コマンドの禁止
+
+**以下のコマンドは絶対に実行してはならない。本番データが削除される。**
+
+```bash
+# 禁止コマンド一覧
+php artisan migrate:fresh      # 全テーブル削除 → 禁止
+php artisan migrate:refresh    # 全テーブル削除 → 禁止
+php artisan migrate:reset      # 全マイグレーション取り消し → 禁止
+php artisan db:wipe            # データベース全削除 → 禁止
+php artisan db:fresh           # 禁止
+
+# 以下のオプション付きも禁止
+--fresh
+--refresh
+--seed (単体での実行は可、上記と組み合わせは禁止)
+```
+
+**許可されているコマンド:**
+```bash
+php artisan migrate            # 新規マイグレーションの実行 → OK
+php artisan migrate:status     # マイグレーション状態確認 → OK
+php artisan make:migration     # マイグレーション作成 → OK
+```
+
+**理由:** このプロジェクトは基幹システム（sakemaru）と共有データベースを使用しており、データ削除は業務に重大な影響を与える。
+
+---
+
 ## 重要: 作業開始前の必読ドキュメント
 
 新しいタスクを開始する前に、以下のドキュメントを必ず確認してください:

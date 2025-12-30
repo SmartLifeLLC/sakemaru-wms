@@ -8,7 +8,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * @OA\Info(
- *     title="Smart WMS API",
+ *     title="酒丸蔵 API",
  *     version="1.0.0",
  *     description="Warehouse Management System API for Android picking terminals"
  * )
