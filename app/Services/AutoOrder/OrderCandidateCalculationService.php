@@ -41,6 +41,21 @@ class OrderCandidateCalculationService
     /** @var array 計算ログデータ */
     private array $calculationLogs = [];
 
+    /** @var array 実倉庫（is_virtual=false）のIDリスト */
+    private array $realWarehouseIds = [];
+
+    /** @var array [item_id] => ['code' => ..., 'name' => ..., 'packaging' => ...] */
+    private array $itemMaster = [];
+
+    /** @var array [warehouse_id] => ['code' => ..., 'name' => ...] */
+    private array $warehouseMaster = [];
+
+    /** @var array [contractor_id] => ['code' => ..., 'name' => ...] */
+    private array $contractorMaster = [];
+
+    /** @var array [supplier_id] => ['code' => ..., 'name' => ...] */
+    private array $supplierMaster = [];
+
     /**
      * 発注候補計算を実行
      */
@@ -108,13 +123,23 @@ class OrderCandidateCalculationService
      */
     private function loadAllDataToMemory(): void
     {
-        // JOINでsafety_stock > 0の商品のスナップショットのみを取得
+        // 実倉庫（is_virtual=false）のIDをロード
+        $this->realWarehouseIds = DB::connection('sakemaru')
+            ->table('warehouses')
+            ->where('is_virtual', false)
+            ->pluck('id')
+            ->toArray();
+
+        Log::info('実倉庫をロード', ['count' => count($this->realWarehouseIds)]);
+
+        // JOINでsafety_stock > 0の商品のスナップショットのみを取得（実倉庫のみ）
         $snapshots = DB::connection('sakemaru')
             ->table('wms_item_stock_snapshots as s')
             ->join('item_contractors as ic', function ($join) {
                 $join->on('s.warehouse_id', '=', 'ic.warehouse_id')
                     ->on('s.item_id', '=', 'ic.item_id');
             })
+            ->whereIn('s.warehouse_id', $this->realWarehouseIds)
             ->where('ic.is_auto_order', true)
             ->where('ic.safety_stock', '>', 0)
             ->select('s.warehouse_id', 's.item_id', 's.total_effective_piece', 's.total_incoming_piece')
@@ -131,7 +156,7 @@ class OrderCandidateCalculationService
             ];
         }
 
-        Log::info('Stock snapshots loaded (filtered)', ['count' => $snapshots->count()]);
+        Log::info('在庫スナップショットをロード（実倉庫のみ）', ['count' => $snapshots->count()]);
 
         // INTERNAL発注先設定をメモリにロード
         $settings = WmsContractorSetting::where('transmission_type', TransmissionType::INTERNAL)
@@ -143,7 +168,69 @@ class OrderCandidateCalculationService
             $this->internalContractorIds[] = $s->contractor_id;
         }
 
-        Log::info('Internal settings loaded', ['count' => count($this->internalSettings)]);
+        Log::info('内部移動設定をロード', ['count' => count($this->internalSettings)]);
+
+        // 商品マスタをメモリにロード
+        $items = DB::connection('sakemaru')
+            ->table('items')
+            ->select('id', 'code', 'name', 'packaging')
+            ->get();
+
+        foreach ($items as $item) {
+            $this->itemMaster[$item->id] = [
+                'code' => $item->code,
+                'name' => $item->name,
+                'packaging' => $item->packaging,
+            ];
+        }
+
+        Log::info('商品マスタをロード', ['count' => count($this->itemMaster)]);
+
+        // 倉庫マスタをメモリにロード
+        $warehouses = DB::connection('sakemaru')
+            ->table('warehouses')
+            ->select('id', 'code', 'name')
+            ->get();
+
+        foreach ($warehouses as $w) {
+            $this->warehouseMaster[$w->id] = [
+                'code' => $w->code,
+                'name' => $w->name,
+            ];
+        }
+
+        Log::info('倉庫マスタをロード', ['count' => count($this->warehouseMaster)]);
+
+        // 発注先マスタをメモリにロード
+        $contractors = DB::connection('sakemaru')
+            ->table('contractors')
+            ->select('id', 'code', 'name')
+            ->get();
+
+        foreach ($contractors as $c) {
+            $this->contractorMaster[$c->id] = [
+                'code' => $c->code,
+                'name' => $c->name,
+            ];
+        }
+
+        Log::info('発注先マスタをロード', ['count' => count($this->contractorMaster)]);
+
+        // 仕入先マスタをメモリにロード（suppliers + partners結合）
+        $suppliers = DB::connection('sakemaru')
+            ->table('suppliers as s')
+            ->join('partners as p', 's.partner_id', '=', 'p.id')
+            ->select('s.id', 'p.code', 'p.name')
+            ->get();
+
+        foreach ($suppliers as $s) {
+            $this->supplierMaster[$s->id] = [
+                'code' => $s->code,
+                'name' => $s->name,
+            ];
+        }
+
+        Log::info('仕入先マスタをロード', ['count' => count($this->supplierMaster)]);
     }
 
     /**
@@ -162,17 +249,18 @@ class OrderCandidateCalculationService
     private function createInternalTransferCandidatesBulk(string $batchCode, Carbon $now): int
     {
         if (empty($this->internalContractorIds)) {
-            Log::info('No INTERNAL contractors found');
+            Log::info('INTERNAL発注先が見つかりません');
             return 0;
         }
 
-        // INTERNAL発注先の商品を取得（safety_stock > 0のみ）
+        // INTERNAL発注先の商品を取得（safety_stock > 0、実倉庫のみ）
         $itemContractors = DB::connection('sakemaru')
             ->table('item_contractors')
             ->whereIn('contractor_id', $this->internalContractorIds)
+            ->whereIn('warehouse_id', $this->realWarehouseIds)
             ->where('is_auto_order', true)
             ->where('safety_stock', '>', 0)
-            ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'safety_stock')
+            ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit')
             ->get();
 
         $leadTimeDays = 1; // 内部移動は1日と仮定
@@ -187,7 +275,7 @@ class OrderCandidateCalculationService
 
             // 依頼倉庫と横持ち出荷倉庫が同じ場合はスキップ（意味がないため）
             if ($ic->warehouse_id === $supplyWarehouseId) {
-                Log::warning('Skipping transfer candidate: same warehouse', [
+                Log::warning('移動候補スキップ: 同一倉庫', [
                     'warehouse_id' => $ic->warehouse_id,
                     'item_id' => $ic->item_id,
                     'contractor_id' => $ic->contractor_id,
@@ -200,12 +288,16 @@ class OrderCandidateCalculationService
             $effectiveStock = $stock['effective'] ?? 0;
             $incomingStock = $stock['incoming'] ?? 0;
 
-            // 必要数計算
-            $requiredQty = $ic->safety_stock - ($effectiveStock + $incomingStock);
+            // 必要数計算（不足数）
+            $shortageQty = $ic->safety_stock - ($effectiveStock + $incomingStock);
 
-            if ($requiredQty <= 0) {
+            if ($shortageQty <= 0) {
                 continue;
             }
+
+            // 最小仕入単位で切り上げ
+            $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
+            $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
 
             $insertData[] = [
                 'batch_code' => $batchCode,
@@ -213,8 +305,8 @@ class OrderCandidateCalculationService
                 'hub_warehouse_id' => $supplyWarehouseId,
                 'item_id' => $ic->item_id,
                 'contractor_id' => $ic->contractor_id,
-                'suggested_quantity' => $requiredQty,
-                'transfer_quantity' => $requiredQty,
+                'suggested_quantity' => $orderQty,
+                'transfer_quantity' => $orderQty,
                 'quantity_type' => QuantityType::PIECE->value,
                 'expected_arrival_date' => $arrivalDate,
                 'original_arrival_date' => $arrivalDate,
@@ -224,7 +316,14 @@ class OrderCandidateCalculationService
                 'updated_at' => $now,
             ];
 
-            // 計算ログを追加
+            // マスタ情報を取得
+            $itemInfo = $this->itemMaster[$ic->item_id] ?? null;
+            $warehouseInfo = $this->warehouseMaster[$ic->warehouse_id] ?? null;
+            $contractorInfo = $this->contractorMaster[$ic->contractor_id] ?? null;
+            $supplierInfo = $this->supplierMaster[$ic->supplier_id] ?? null;
+            $supplyWarehouseInfo = $this->warehouseMaster[$supplyWarehouseId] ?? null;
+
+            // 計算ログを追加（日本語）
             $this->calculationLogs[] = [
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
@@ -236,15 +335,31 @@ class OrderCandidateCalculationService
                 'incoming_quantity' => $incomingStock,
                 'safety_stock_setting' => $ic->safety_stock,
                 'lead_time_days' => $leadTimeDays,
-                'calculated_shortage_qty' => $requiredQty,
-                'calculated_order_quantity' => $requiredQty,
+                'calculated_shortage_qty' => $shortageQty,
+                'calculated_order_quantity' => $orderQty,
                 'calculation_details' => json_encode([
-                    'formula' => 'safety_stock - (effective_stock + incoming_stock)',
-                    'effective_stock' => $effectiveStock,
-                    'incoming_stock' => $incomingStock,
-                    'safety_stock' => $ic->safety_stock,
-                    'calculated_available' => $effectiveStock + $incomingStock,
-                    'shortage_qty' => $requiredQty,
+                    '商品コード' => $itemInfo['code'] ?? null,
+                    '商品名' => $itemInfo['name'] ?? null,
+                    '規格' => $itemInfo['packaging'] ?? null,
+                    '仕入先コード' => $supplierInfo['code'] ?? null,
+                    '仕入先名' => $supplierInfo['name'] ?? null,
+                    '発注先コード' => $contractorInfo['code'] ?? null,
+                    '発注先名' => $contractorInfo['name'] ?? null,
+                    '発注倉庫コード' => $warehouseInfo['code'] ?? null,
+                    '発注倉庫名' => $warehouseInfo['name'] ?? null,
+                    '供給元倉庫コード' => $supplyWarehouseInfo['code'] ?? null,
+                    '供給元倉庫名' => $supplyWarehouseInfo['name'] ?? null,
+                    '計算式' => '安全在庫 - (有効在庫 + 入庫予定)',
+                    '有効在庫' => $effectiveStock,
+                    '入庫予定数' => $incomingStock,
+                    '安全在庫' => $ic->safety_stock,
+                    '利用可能在庫' => $effectiveStock + $incomingStock,
+                    '不足数' => $shortageQty,
+                    '最小仕入単位' => $purchaseUnit,
+                    '単位調整後数量' => $orderQty,
+                    '単位調整説明' => $purchaseUnit > 1
+                        ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}"
+                        : '最小仕入単位が1のため調整なし',
                 ], JSON_UNESCAPED_UNICODE),
             ];
         }
@@ -256,7 +371,7 @@ class OrderCandidateCalculationService
         }
 
         $count = count($insertData);
-        Log::info('Internal transfer candidates created', ['count' => $count]);
+        Log::info('内部移動候補を作成', ['count' => $count]);
 
         return $count;
     }
@@ -297,13 +412,14 @@ class OrderCandidateCalculationService
      */
     private function createExternalOrderCandidatesBulk(string $batchCode, Carbon $now, array $transferCandidates): int
     {
-        // EXTERNAL発注先の商品を取得（safety_stock > 0のみ）
+        // EXTERNAL発注先の商品を取得（safety_stock > 0、実倉庫のみ）
         $itemContractors = DB::connection('sakemaru')
             ->table('item_contractors')
-            ->whereNotIn('contractor_id', $this->internalContractorIds)
+            ->whereNotIn('contractor_id', $this->internalContractorIds ?: [0])
+            ->whereIn('warehouse_id', $this->realWarehouseIds)
             ->where('is_auto_order', true)
             ->where('safety_stock', '>', 0)
-            ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'safety_stock')
+            ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit')
             ->get();
 
         $defaultLeadTime = 3;
@@ -324,22 +440,26 @@ class OrderCandidateCalculationService
             // 計算用在庫
             $calculatedStock = $effectiveStock + $incomingStock + $incomingFromTransfer - $outgoingToTransfer;
 
-            // 必要数計算
-            $requiredQty = $ic->safety_stock - $calculatedStock;
+            // 必要数計算（不足数）
+            $shortageQty = $ic->safety_stock - $calculatedStock;
 
-            if ($requiredQty <= 0) {
+            if ($shortageQty <= 0) {
                 continue;
             }
+
+            // 最小仕入単位で切り上げ
+            $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
+            $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
 
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
                 'item_id' => $ic->item_id,
                 'contractor_id' => $ic->contractor_id,
-                'self_shortage_qty' => $requiredQty,
+                'self_shortage_qty' => $shortageQty,
                 'satellite_demand_qty' => $outgoingToTransfer,
-                'suggested_quantity' => $requiredQty,
-                'order_quantity' => $requiredQty,
+                'suggested_quantity' => $orderQty,
+                'order_quantity' => $orderQty,
                 'quantity_type' => QuantityType::PIECE->value,
                 'expected_arrival_date' => $arrivalDate,
                 'original_arrival_date' => $arrivalDate,
@@ -349,7 +469,13 @@ class OrderCandidateCalculationService
                 'updated_at' => $now,
             ];
 
-            // 計算ログを追加
+            // マスタ情報を取得
+            $itemInfo = $this->itemMaster[$ic->item_id] ?? null;
+            $warehouseInfo = $this->warehouseMaster[$ic->warehouse_id] ?? null;
+            $contractorInfo = $this->contractorMaster[$ic->contractor_id] ?? null;
+            $supplierInfo = $this->supplierMaster[$ic->supplier_id] ?? null;
+
+            // 計算ログを追加（日本語）
             $this->calculationLogs[] = [
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
@@ -361,17 +487,31 @@ class OrderCandidateCalculationService
                 'incoming_quantity' => $incomingStock,
                 'safety_stock_setting' => $ic->safety_stock,
                 'lead_time_days' => $defaultLeadTime,
-                'calculated_shortage_qty' => $requiredQty,
-                'calculated_order_quantity' => $requiredQty,
+                'calculated_shortage_qty' => $shortageQty,
+                'calculated_order_quantity' => $orderQty,
                 'calculation_details' => json_encode([
-                    'formula' => 'safety_stock - (effective_stock + incoming_stock + transfer_in - transfer_out)',
-                    'effective_stock' => $effectiveStock,
-                    'incoming_stock' => $incomingStock,
-                    'transfer_incoming' => $incomingFromTransfer,
-                    'transfer_outgoing' => $outgoingToTransfer,
-                    'safety_stock' => $ic->safety_stock,
-                    'calculated_available' => $calculatedStock,
-                    'shortage_qty' => $requiredQty,
+                    '商品コード' => $itemInfo['code'] ?? null,
+                    '商品名' => $itemInfo['name'] ?? null,
+                    '規格' => $itemInfo['packaging'] ?? null,
+                    '仕入先コード' => $supplierInfo['code'] ?? null,
+                    '仕入先名' => $supplierInfo['name'] ?? null,
+                    '発注先コード' => $contractorInfo['code'] ?? null,
+                    '発注先名' => $contractorInfo['name'] ?? null,
+                    '発注倉庫コード' => $warehouseInfo['code'] ?? null,
+                    '発注倉庫名' => $warehouseInfo['name'] ?? null,
+                    '計算式' => '安全在庫 - (有効在庫 + 入庫予定 + 移動入庫 - 移動出庫)',
+                    '有効在庫' => $effectiveStock,
+                    '入庫予定数' => $incomingStock,
+                    '移動入庫予定' => $incomingFromTransfer,
+                    '移動出庫予定' => $outgoingToTransfer,
+                    '安全在庫' => $ic->safety_stock,
+                    '利用可能在庫' => $calculatedStock,
+                    '不足数' => $shortageQty,
+                    '最小仕入単位' => $purchaseUnit,
+                    '単位調整後数量' => $orderQty,
+                    '単位調整説明' => $purchaseUnit > 1
+                        ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}"
+                        : '最小仕入単位が1のため調整なし',
                 ], JSON_UNESCAPED_UNICODE),
             ];
         }
@@ -383,7 +523,7 @@ class OrderCandidateCalculationService
         }
 
         $count = count($insertData);
-        Log::info('External order candidates created', ['count' => $count]);
+        Log::info('外部発注候補を作成', ['count' => $count]);
 
         return $count;
     }
@@ -402,6 +542,22 @@ class OrderCandidateCalculationService
             WmsOrderCalculationLog::insert($chunk);
         }
 
-        Log::info('Calculation logs inserted', ['count' => count($this->calculationLogs)]);
+        Log::info('計算ログを保存', ['count' => count($this->calculationLogs)]);
+    }
+
+    /**
+     * 数量を指定単位で切り上げ
+     *
+     * @param int $quantity 数量
+     * @param int $unit 単位（1以上）
+     * @return int 切り上げ後の数量
+     */
+    private function roundUpToUnit(int $quantity, int $unit): int
+    {
+        if ($unit <= 1) {
+            return $quantity;
+        }
+
+        return (int) ceil($quantity / $unit) * $unit;
     }
 }
