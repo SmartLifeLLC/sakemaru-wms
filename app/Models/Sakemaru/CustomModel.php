@@ -21,6 +21,12 @@ abstract class CustomModel extends SakemaruModel
 //    use DataTransferModelTrait;
     protected bool $is_active_activate = true;
 
+    /**
+     * Indicates if the model has an 'is_active' column.
+     * Override this in child models if the table doesn't have this column.
+     */
+    protected bool $hasIsActiveColumn = true;
+
     public function __construct(array $attributes = [])
     {
         parent::__construct($attributes);
@@ -48,7 +54,7 @@ abstract class CustomModel extends SakemaruModel
 
     public static function hasColumn(string $col): bool
     {
-        return hasColumn(static::getTableName(), $col);
+        return Schema::hasColumn(static::getTableName(), $col);
     }
 
 
@@ -57,7 +63,7 @@ abstract class CustomModel extends SakemaruModel
         $query = parent::newQuery();
         $table_name = $this->getTable();
 
-        if ($this->is_active_activate && hasColumn($table_name, 'is_active')) {
+        if ($this->is_active_activate && $this->hasIsActiveColumn) {
             $query = $query->where("{$table_name}.is_active", true);
         }
         // 一時的に消す

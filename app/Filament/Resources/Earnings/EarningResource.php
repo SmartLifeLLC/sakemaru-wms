@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Earnings;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\Earnings\Pages\CreateEarning;
 use App\Filament\Resources\Earnings\Pages\EditEarning;
 use App\Filament\Resources\Earnings\Pages\ListEarnings;
@@ -22,20 +23,23 @@ class EarningResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return '出荷';
+        return EMenu::EARNINGS->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return '予定';
+        return EMenu::EARNINGS->label();
     }
 
     public static function getModelLabel(): string
     {
-        return '出荷予定';
+        return '売上データ';
     }
 
-    protected static ?int $navigationSort = 1;
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::EARNINGS->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {

@@ -8,6 +8,7 @@ use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Warehouse;
 
 class LocationsTable
@@ -15,7 +16,15 @@ class LocationsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
+                TextColumn::make('id')
+                    ->label('ID')
+                    ->searchable()
+                    ->sortable(),
+
                 TextColumn::make('warehouse.name')
                     ->label('倉庫')
                     ->searchable()
@@ -49,6 +58,20 @@ class LocationsTable
                     ->searchable()
                     ->sortable()
                     ->weight('bold'),
+
+                TextColumn::make('temperature_type')
+                    ->label('温度帯')
+                    ->badge()
+                    ->color(fn ($state) => $state?->color() ?? 'gray')
+                    ->formatStateUsing(fn ($state) => $state?->label() ?? '-')
+                    ->sortable(),
+
+                TextColumn::make('is_restricted_area')
+                    ->label('制限エリア')
+                    ->badge()
+                    ->color(fn (bool $state): string => $state ? 'danger' : 'success')
+                    ->formatStateUsing(fn (bool $state): string => $state ? '制限' : '通常')
+                    ->sortable(),
 
                 TextColumn::make('created_at')
                     ->label('作成日時')

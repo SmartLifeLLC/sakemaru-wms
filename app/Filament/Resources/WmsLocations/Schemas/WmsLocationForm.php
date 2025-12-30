@@ -53,17 +53,18 @@ class WmsLocationForm
                             ])
                             ->default('BOTH')
                             ->helperText('このロケーションから引き当て可能な商品単位')
-                            ->columnSpan(1),
+                            ->columnSpanFull(),
 
-                        TextInput::make('walking_order')
-                            ->label('動線順序')
-                            ->numeric()
-                            ->minValue(1)
-                            ->step(1)
-                            ->helperText('数値が小さいほど優先的にピッキング（通路順など）')
-                            ->columnSpan(1),
+                        // Removed: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
+                        // TextInput::make('walking_order')
+                        //     ->label('動線順序')
+                        //     ->numeric()
+                        //     ->minValue(1)
+                        //     ->step(1)
+                        //     ->helperText('数値が小さいほど優先的にピッキング（通路順など）')
+                        //     ->columnSpan(1),
                     ])
-                    ->columns(3),
+                    ->columns(1),
 
                 Section::make('倉庫物理構造')
                     ->description('通路・棚・段の情報を入力（任意）')

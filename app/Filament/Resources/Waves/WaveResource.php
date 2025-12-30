@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Waves;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\Waves\Pages\CreateWave;
 use App\Filament\Resources\Waves\Pages\EditWave;
 use App\Filament\Resources\Waves\Pages\ListWaves;
@@ -18,7 +19,24 @@ class WaveResource extends Resource
 {
     protected static ?string $model = Wave::class;
 
+    protected static bool $shouldRegisterNavigation = true;
+
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenu::WAVES->category()->label();
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return EMenu::WAVES->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WAVES->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {

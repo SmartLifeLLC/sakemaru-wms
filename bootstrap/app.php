@@ -4,6 +4,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -13,7 +14,23 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->statefulApi();
+        $middleware->trustProxies('*', headers: Request::HEADER_X_FORWARDED_FOR |
+            Request::HEADER_X_FORWARDED_HOST |
+            Request::HEADER_X_FORWARDED_PORT |
+            Request::HEADER_X_FORWARDED_PROTO |
+            Request::HEADER_X_FORWARDED_AWS_ELB);
+
+        $middleware->alias([
+            'api.key' => \App\Http\Middleware\ApiKeyAuth::class,
+            'filament.auth' => \App\Http\Middleware\FilamentAuth::class,
+            'jx.basic' => \App\Http\Middleware\JxBasicAuth::class,
+        ]);
+
+        // JXサーバーエンドポイントはCSRF検証から除外
+        $middleware->validateCsrfTokens(except: [
+            'jx-server',
+            'jx-server/*',
+        ]);
     })
     ->withSchedule(function (Schedule $schedule): void {
         // WMS Wave Generation - runs at 6:00, 7:00, and 8:00 daily

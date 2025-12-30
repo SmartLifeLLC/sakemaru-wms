@@ -22,6 +22,8 @@ class WmsReservation extends WmsModel
         'purchase_id',
         'unit_cost',
         'qty_each',
+        'qty_type',
+        'shortage_qty',
         'source_type',
         'source_id',
         'source_line_id',
@@ -35,6 +37,7 @@ class WmsReservation extends WmsModel
         'received_at' => 'datetime',
         'unit_cost' => 'decimal:4',
         'qty_each' => 'integer',
+        'shortage_qty' => 'integer',
     ];
 
     // Relationships
@@ -64,6 +67,7 @@ class WmsReservation extends WmsModel
     public const STATUS_RELEASED = 'RELEASED';
     public const STATUS_CONSUMED = 'CONSUMED';
     public const STATUS_CANCELLED = 'CANCELLED';
+    public const STATUS_SHORTAGE = 'SHORTAGE';
 
     // Source type constants
     public const SOURCE_EARNING = 'EARNING';

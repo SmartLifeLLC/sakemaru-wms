@@ -274,7 +274,7 @@ CREATE TABLE wms_picking_item_results (
 │    └─────────────────────────────────────────────────────┘ │
 │                          ↓                                  │
 │    ┌─────────────────────────────────────────────────────┐ │
-│    │ 5.4 欠品処理                                         │ │
+│    │ 5.4 欠品対応                                         │ │
 │    │     IF needQty > 0:                                 │ │
 │    │       status = totalAllocated>0 ? 'PARTIAL':'SHORTAGE'│
 │    │       wms_reservations に欠品レコード追加:          │ │
@@ -582,7 +582,7 @@ protected function reserveStockForTradeItem($waveId, $earning, $tradeItem): int
         }
     }
 
-    // ステップ3: 欠品処理
+    // ステップ3: 欠品対応
     if ($needQty > 0) {
         $status = $totalAllocated > 0 ? 'PARTIAL' : 'SHORTAGE';
 

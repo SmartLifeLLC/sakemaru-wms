@@ -9,12 +9,16 @@ use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use App\Enums\PaginationOptions;
 
 class RealStocksTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            ->striped()
+            ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
+            ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('warehouse.name')
                     ->label('倉庫')
@@ -73,8 +77,8 @@ class RealStocksTable
                     ->alignEnd()
                     ->color(fn ($state) => $state > 0 ? 'info' : null),
 
-                TextColumn::make('received_at')
-                    ->label('入庫日時')
+                TextColumn::make('created_at')
+                    ->label('登録日時')
                     ->dateTime('Y-m-d H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -106,6 +110,6 @@ class RealStocksTable
                     DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('received_at', 'desc');
+            ->defaultSort('created_at', 'desc');
     }
 }

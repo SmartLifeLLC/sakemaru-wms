@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickers;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WmsPickers\Pages\CreateWmsPicker;
 use App\Filament\Resources\WmsPickers\Pages\EditWmsPicker;
 use App\Filament\Resources\WmsPickers\Pages\ListWmsPickers;
@@ -21,15 +22,26 @@ class WmsPickerResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUserGroup;
 
-    protected static ?string $navigationLabel = 'ピッカー管理';
+    protected static ?string $navigationLabel = null;
 
     protected static ?string $modelLabel = 'ピッカー';
 
     protected static ?string $pluralModelLabel = 'ピッカー';
 
-    protected static UnitEnum|string|null $navigationGroup = 'WMS設定';
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenu::WMS_PICKERS->category()->label();
+    }
 
-    protected static ?int $navigationSort = 30;
+    public static function getNavigationLabel(): string
+    {
+        return EMenu::WMS_PICKERS->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WMS_PICKERS->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {
@@ -57,13 +69,14 @@ class WmsPickerResource extends Resource
         ];
     }
 
-    public static function getNavigationBadge(): ?string
-    {
-        return static::getModel()::active()->count() ?: null;
-    }
+    // Navigation badge disabled for performance
+    // public static function getNavigationBadge(): ?string
+    // {
+    //     return static::getModel()::active()->count() ?: null;
+    // }
 
-    public static function getNavigationBadgeColor(): ?string
-    {
-        return 'success';
-    }
+    // public static function getNavigationBadgeColor(): ?string
+    // {
+    //     return 'success';
+    // }
 }

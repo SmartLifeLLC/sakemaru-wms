@@ -2,11 +2,14 @@
 
 namespace App\Providers\Filament;
 
+use App\Enums\EMenuCategory;
 use Archilex\AdvancedTables\Plugin\AdvancedTablesPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationGroup;
+use Filament\Navigation\NavigationItem;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -19,6 +22,7 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use WatheqAlshowaiter\FilamentStickyTableHeader\StickyTableHeaderPlugin;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -28,7 +32,7 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
-            ->login()
+            ->login(\App\Filament\Pages\Auth\Login::class)
             ->topNavigation() // トップナビゲーションを有効化
             ->maxContentWidth('full')
             ->breadcrumbs(false) // パンくずリストを無効化
@@ -46,14 +50,19 @@ class AdminPanelProvider extends PanelProvider
                 AccountWidget::class,
                 FilamentInfoWidget::class,
             ])
-            ->navigationGroups([
-                '入荷',
-                '出荷',
-                '在庫',
-                '棚卸し',
-                '配送管理',
-                '管理',
-            ])
+            ->navigationGroups(
+                collect(EMenuCategory::cases())
+                    ->sortBy(fn(EMenuCategory $category) => $category->sort())
+                    ->map(fn(EMenuCategory $category) => NavigationGroup::make($category->label()))
+                    ->values()
+                    ->toArray()
+            )
+            ->navigationItems(
+                [NavigationItem::make('API Document')
+                    ->url('/api/documentation', shouldOpenInNewTab: true)
+                    ->icon('heroicon-o-link')->group(EMenuCategory::SETTINGS->label())
+                ]
+            )
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
@@ -66,11 +75,15 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             ->plugins([
-                AdvancedTablesPlugin::make()
-                    ->userViewsEnabled(false)
-//                    ->quickFiltersEnabled(false)
-
-
+                    StickyTableHeaderPlugin::make(),
+                    AdvancedTablesPlugin::make()
+                        ->userViewsEnabled(true)
+                        ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
+                        ->resourceNavigationSort(1000)
+                        ->userView(\App\Models\FilamentFilterSets\UserView::class)
+                        ->managedUserView(\App\Models\FilamentFilterSets\ManagedUserView::class)
+                        ->managedPresetView(\App\Models\FilamentFilterSets\ManagedPresetView::class)
+                        ->managedDefaultView(\App\Models\FilamentFilterSets\ManagedDefaultView::class)
                 ]
             )
             ->authMiddleware([

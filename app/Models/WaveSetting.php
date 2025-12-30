@@ -12,6 +12,7 @@ class WaveSetting extends Model
     protected $table = 'wms_wave_settings';
 
     protected $fillable = [
+        'name',
         'warehouse_id',
         'delivery_course_id',
         'picking_start_time',

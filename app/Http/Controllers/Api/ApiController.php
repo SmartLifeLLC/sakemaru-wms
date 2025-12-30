@@ -8,7 +8,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * @OA\Info(
- *     title="Smart WMS API",
+ *     title="酒丸蔵 API",
  *     version="1.0.0",
  *     description="Warehouse Management System API for Android picking terminals"
  * )
@@ -19,10 +19,19 @@ use Illuminate\Pagination\LengthAwarePaginator;
  * )
  *
  * @OA\SecurityScheme(
+ *     securityScheme="apiKey",
+ *     type="apiKey",
+ *     in="header",
+ *     name="X-API-Key",
+ *     description="API Key for WMS API access (required for all endpoints)"
+ * )
+ *
+ * @OA\SecurityScheme(
  *     securityScheme="sanctum",
  *     type="http",
  *     scheme="bearer",
- *     bearerFormat="token"
+ *     bearerFormat="token",
+ *     description="Bearer token from /auth/login endpoint"
  * )
  */
 class ApiController extends Controller
@@ -68,6 +77,7 @@ class ApiController extends Controller
         }
 
         $response = [
+            'is_success' => true,
             'code' => $code,
             'result' => $result,
         ];
@@ -124,6 +134,7 @@ class ApiController extends Controller
         }
 
         $response = [
+            'is_success' => false,
             'code' => $code,
             'result' => $result,
         ];

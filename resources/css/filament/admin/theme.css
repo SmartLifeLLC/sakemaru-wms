@@ -1,110 +1,76 @@
 @import '../../../../vendor/filament/filament/resources/css/theme.css';
 
-@source '../../../../app/Filament/**/*';
-@source '../../../../resources/views/filament/**/*';
-@source '../../../../vendor/archilex/filament-filter-sets';
+@source '../../../../app/Filament/**/*.php';
+@source '../../../../resources/views/filament/**/*.blade.php';
+@source '../../../../resources/views/livewire/**/*.blade.php';
+@source '../../../../vendor/archilex/filament-filter-sets/**/*.php';
+@source '../../../../vendor/archilex/filament-filter-sets/**/*.blade.php';
 
-/* Advanced Tables Plugin Styles */
-.advanced-tables-fav-bar-theme-filament {
-    @apply bg-gray-50 text-primary-600 dark:bg-white/5 dark:text-primary-400;
+/* モーダルスプリットビュー用のカスタムクラス */
+.modal-split-left {
+    @apply w-full md:w-1/3 bg-gray-50 dark:bg-gray-800 p-6 border-r border-gray-200 dark:border-gray-700;
 }
 
-.advanced-tables-icon-select ul {
-    @apply grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 p-2;
+.modal-split-right {
+    @apply w-full md:w-2/3 p-6;
 }
 
-.advanced-tables-icon-select ul li {
-    @apply h-10 py-0 flex items-center justify-center cursor-pointer rounded-md border-0 ring-1 ring-gray-950/15 dark:ring-white/15 shadow-xs transition-none;
+.modal-split-container {
+    @apply flex flex-col md:flex-row gap-0 -m-6;
 }
 
-.advanced-tables-filter-block div:first-of-type {
-    @apply items-end;
+.modal-info-card {
+    @apply bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4;
 }
 
-.advanced-tables-table-loading-overlay .fi-ta-col {
-    @apply relative;
+.modal-section-title {
+    @apply text-lg font-semibold text-gray-900 dark:text-white mb-4;
 }
 
-.advanced-tables-table-loading-overlay .fi-ta-col > * {
-    @apply opacity-0;
+.modal-label {
+    @apply text-sm font-medium text-gray-500 dark:text-gray-400;
 }
 
-.advanced-tables-table-loading-overlay .fi-ta-col::after {
-    @apply content-[''] opacity-30 absolute mx-3 top-1/2 -translate-y-1/2 h-3 bg-gray-400 rounded-full animate-pulse;
+.modal-value {
+    @apply mt-1 text-sm text-gray-900 dark:text-white;
 }
 
-.advanced-tables-summary .fi-fo-tags-input-tags-ctn {
-    @apply border-t-0;
+.modal-value-large {
+    @apply mt-1 text-2xl font-bold text-gray-900 dark:text-white;
 }
 
-.fi-ta-row:nth-child(6n+1) .fi-ta-col::after {
-    @apply w-4/5;
+.modal-value-primary {
+    @apply mt-1 text-2xl font-bold text-primary-600 dark:text-primary-400;
 }
 
-.fi-ta-row:nth-child(6n+2) .fi-ta-col::after {
-    @apply w-2/3;
+.modal-value-danger {
+    @apply text-sm text-red-600 dark:text-red-400 font-semibold;
 }
 
-.fi-ta-row:nth-child(6n+3) .fi-ta-col::after {
-    @apply w-5/6;
+.modal-calc-section {
+    @apply bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6;
 }
 
-.fi-ta-row:nth-child(6n+4) .fi-ta-col::after {
-    @apply w-1/2;
+.modal-warning-box {
+    @apply bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4 mb-6;
 }
 
-.fi-ta-row:nth-child(6n+5) .fi-ta-col::after {
-    @apply w-4/5;
+/* … Advanced Tables の設定はそのままでOK … */
+
+/* html要素のscrollbar-gutterをオーバーライド */
+html.fi {
+    scrollbar-gutter: auto !important;
+    overflow: hidden !important;
 }
 
-.fi-ta-row:nth-child(6n) .fi-ta-col::after {
-    @apply w-3/4;
-}
-
-.advanced-tables-advanced-columns-dropdown .fi-icon {
-    @apply text-gray-400 dark:text-gray-500;
-}
-
-.advanced-tables-advanced-columns-dropdown .fi-dropdown-item-sorted .fi-icon {
-    @apply text-gray-950 dark:text-white;
-}
-
-.advanced-tables-advanced-columns-dropdown .fi-dropdown-list-item {
-    @apply px-3;
-}
-
-.advanced-tables-color-button {
-    @apply p-0 ring-0 text-white flex flex-shrink-0 items-center justify-center rounded-full relative outline-none disabled:opacity-70 transition focus-visible:ring-2;
-}
-
-.advanced-tables-color-button.advanced-tables-color-button-size-xs {
-    @apply w-6 h-6;
-}
-
-.advanced-tables-color-button.advanced-tables-color-button-size-sm {
-    @apply w-8 h-8;
-}
-
-.advanced-tables-color-button.advanced-tables-color-button-size-md {
-    @apply w-10 h-10;
-}
-
-.advanced-tables-color-button.advanced-tables-color-button-size-lg {
-    @apply w-12 h-12;
-}
-
-.advanced-tables-color-button.advanced-tables-color-button-size-xl {
-    @apply w-16 h-16;
-}
-
-.advanced-tables-color-button .fi-icon {
-    @apply text-white dark:text-gray-950;
-}
-
-/* カスタムスタイル: 画面幅を最大化 */
 @layer components {
     .fi-main {
         @apply max-w-none;
+        overflow: visible !important;
+    }
+
+    .fi-layout {
+        overflow: visible !important;
     }
 
     .fi-sidebar + .fi-main {
@@ -115,48 +81,45 @@
         @apply max-w-none;
     }
 
-    /* ヘッダーのフォントサイズと余白を調整 */
     .fi-header-heading {
         @apply text-xl font-semibold;
     }
 
     .fi-header {
-        @apply pt-2 my-0 ;
+        @apply pt-2 my-0;
     }
 
     .fi-page-main {
-        @apply py-0 my-0 -mt-2;
+        @apply py-0 my-0 -mt-1;
     }
-    /* ページヘッダーの上下余白を削減 */
-    .fi-page-header-main-ctn {
-        @apply py-0 my-0;
-        @apply gap-0;
 
+    .fi-page-header-main-ctn {
+        @apply py-0 my-0 mt-1;
+        @apply gap-0;
     }
 
     .fi-page-header {
         @apply py-0 my-0;
-
     }
-    /* テーブル行の高さを調整 */
-    .fi-ta-row {
-        height: 37px !important;
 
+    /* ここを修正：高さ固定をやめる */
+    .fi-ta-row {
+        @apply divide-x divide-gray-200 dark:divide-white/5;
+        min-height: 0 !important;
+        height: auto !important; /* 追加 */
     }
 
     .fi-ta-cell {
-
-        height: 37px !important;
-        padding: 3px 5px 3px!important;
+        /* height: 37px !important; ← 削除 */
+        /* padding: 3px 5px 3px!important; ← 削除して、後の共通ルールに任せる */
     }
 
-    /* セレクションセル（チェックボックス）のpaddingを削減 */
     .fi-ta-selection-cell {
-        padding: 3px 5px 3px!important;
-        height: 37px !important;
+        /* height固定とpadding不要なら削除 */
+        /* padding: 3px 5px 3px!important;
+           height: 37px !important; */
     }
 
-    /* テーブルテキスト要素のpaddingを削減 */
     .fi-ta-text,
     .fi-ta-text-item,
     .fi-ta-text-has-badges {
@@ -175,47 +138,235 @@
         padding: 0 !important;
     }
 
-    /* ページタイトルのフォントサイズを調整 */
     .fi-section-header-heading {
         @apply text-base font-medium;
-
     }
 
     .fi-section-header {
-        @apply py-0 my-0;
+        @apply py-1 mt-1;
     }
 
-    /* テーブルヘッダーのフォントサイズと余白を調整 */
     .fi-ta-header-heading {
         @apply text-base font-medium;
     }
 
     .fi-ta-header {
-        @apply py-0 my-0;
+        @apply py-0 my-1;
     }
 
-    /* ページ全体の上部余白を調整 */
     .fi-page {
-        @apply pt-0;
+        @apply pt-1;
     }
 
-    /* テーブルとヘッダーの間隔を削減 */
     .fi-ta {
         @apply mt-0;
     }
 
-    /* セクション間の余白を削減 */
     .fi-section {
         @apply py-0 my-0;
     }
 
-    /* ページコンテンツの余白を調整 */
     .fi-page-content {
         @apply py-2;
     }
 
-    /* ページヘッダーとコンテンツの間隔を削減 */
     .fi-page > .fi-page-content {
         @apply mt-0;
     }
+
+    .fi-ta-table > thead > tr {
+        @apply divide-x divide-gray-200 dark:divide-white/5;
+    }
+}
+
+/* セル（td）の上下余白を完全に潰す */
+.compact-cell {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    height: auto !important;
+}
+
+/* セル内コンテナの余白も潰す */
+.compact-cell > div {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+.fi-ta-cell,
+.fi-ta-cell > div,
+.fi-ta-text,
+.fi-input,
+.fi-select-input {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    min-height: 0 !important;
+}
+
+/* TextInputColumn の input ラッパをさらに潰す */
+.fi-ta-cell:has(.fi-ta-text-input),
+.fi-ta-text-input,
+.fi-ta-text-input .fi-input {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    min-height: 0 !important;
+}
+
+/* 実際の input 自体も行高さを詰める */
+.fi-input input {
+    height: 24px !important;
+    line-height: 24px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+/* td（セル）の基本余白 */
+.fi-ta-cell,
+.compact-cell {
+    padding: 1px 2px !important; /* ← ここが希望の余白 */
+    height: auto !important;
+    min-height: 0 !important;
+}
+
+/* セル内の div も合わせる */
+.fi-ta-cell > div,
+.compact-cell > div {
+    padding: 0 !important;   /* 内側はゼロ。td側の padding だけ効かせる */
+    margin: 0 !important;
+}
+
+/* テキスト系 */
+.fi-ta-text,
+.fi-ta-text-item,
+.fi-ta-text-has-badges {
+    padding: 1px 2px  !important;
+    margin: 1px 2px  !important;
+}
+
+/* TextInputColumn のラッパ */
+.fi-ta-text-input,
+.fi-ta-text-input .fi-input {
+    padding: 1px !important;
+    margin: 1px 2px !important;
+    min-height: 0 !important;
+}
+
+/* 実際の input 要素の高さは固定 */
+.fi-input input {
+    height: 24px !important;
+    line-height: 24px !important;
+    padding: 1px 2px !important;
+    margin: 1px 2px !important;
+}
+
+/* TextInputColumn の幅を固定（発注数・移動数など） */
+/* セル自体の幅を制限 */
+.fi-ta-cell:has(.fi-ta-text-input) {
+    width: 70px !important;
+    max-width: 70px !important;
+    min-width: 70px !important;
+}
+
+.fi-ta-cell:has(.fi-ta-text-input) > div {
+    width: 70px !important;
+    max-width: 70px !important;
+}
+
+.fi-ta-text-input {
+    width: 70px !important;
+    max-width: 70px !important;
+}
+
+.fi-ta-text-input .fi-input-wrp {
+    width: 65px !important;
+    max-width: 65px !important;
+}
+
+.fi-ta-text-input input[type="number"] {
+    width: 60px !important;
+    max-width: 60px !important;
+    text-align: right !important;
+}
+
+/* IconColumn の余白を詰める */
+.fi-ta-icon {
+    padding: 1px 2px !important;
+    margin: 0 !important;
+}
+
+.fi-ta-icon svg {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+/* IconColumn を含むセルの余白 */
+.fi-ta-cell:has(.fi-ta-icon) {
+    padding: 1px 2px !important;
+}
+
+.fi-ta-cell:has(.fi-ta-icon) > div {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* テーブルのstripe色カスタマイズ */
+.fi-ta-table tbody tr:nth-child(odd) {
+    background-color: rgba(59, 130, 246, 0.05) !important; /* 薄い青 */
+}
+
+.fi-ta-table tbody tr:nth-child(even) {
+    background-color: white !important;
+}
+
+/* ダークモード用 */
+.dark .fi-ta-table tbody tr:nth-child(odd) {
+    background-color: rgba(59, 130, 246, 0.12) !important;
+}
+
+.dark .fi-ta-table tbody tr:nth-child(even) {
+    background-color: rgb(17, 24, 39) !important; /* より暗く */
+}
+
+/* 発注候補・移動候補テーブル専用スタイル */
+
+/* 発注候補テーブル - 倉庫カラム幅・中央整列 */
+.order-candidates-table colgroup col:nth-child(3) {
+    width: 170px !important;
+}
+
+.order-candidates-table thead tr th:nth-child(3),
+.order-candidates-table tbody tr td:nth-child(3) {
+    width: 170px !important;
+    min-width: 170px !important;
+    text-align: center !important;
+}
+
+/* 発注候補テーブル - 商品コードカラム中央整列 */
+.order-candidates-table thead tr th:nth-child(4),
+.order-candidates-table tbody tr td:nth-child(4) {
+    text-align: center !important;
+}
+
+.order-candidates-table thead tr th:nth-child(3) > div,
+.order-candidates-table thead tr th:nth-child(4) > div {
+    justify-content: center !important;
+}
+
+/* 移動候補テーブル - 倉庫カラム */
+.transfer-candidates-table colgroup col:nth-child(3),
+.transfer-candidates-table colgroup col:nth-child(4) {
+    width: 140px !important;
+}
+
+.transfer-candidates-table thead tr th:nth-child(3),
+.transfer-candidates-table tbody tr td:nth-child(3),
+.transfer-candidates-table thead tr th:nth-child(4),
+.transfer-candidates-table tbody tr td:nth-child(4) {
+    width: 140px !important;
+    min-width: 140px !important;
 }

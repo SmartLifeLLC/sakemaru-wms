@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickingAreas;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WmsPickingAreas\Pages\CreateWmsPickingArea;
 use App\Filament\Resources\WmsPickingAreas\Pages\EditWmsPickingArea;
 use App\Filament\Resources\WmsPickingAreas\Pages\ListWmsPickingAreas;
@@ -21,15 +22,26 @@ class WmsPickingAreaResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
-    protected static ?string $navigationLabel = 'ピッキングエリア';
+    protected static ?string $navigationLabel = null;
 
     protected static ?string $modelLabel = 'ピッキングエリア';
 
     protected static ?string $pluralModelLabel = 'ピッキングエリア';
 
-    protected static UnitEnum|string|null $navigationGroup = 'WMS設定';
+    public static function getNavigationGroup(): ?string
+    {
+        return EMenu::WMS_PICKING_AREAS->category()->label();
+    }
 
-    protected static ?int $navigationSort = 20;
+    public static function getNavigationLabel(): string
+    {
+        return EMenu::WMS_PICKING_AREAS->label();
+    }
+
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::WMS_PICKING_AREAS->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {

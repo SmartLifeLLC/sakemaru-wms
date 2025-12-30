@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsReceiptInspections;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WmsReceiptInspections\Pages\CreateWmsReceiptInspection;
 use App\Filament\Resources\WmsReceiptInspections\Pages\EditWmsReceiptInspection;
 use App\Filament\Resources\WmsReceiptInspections\Pages\ListWmsReceiptInspections;
@@ -22,12 +23,12 @@ class WmsReceiptInspectionResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return '入荷';
+        return EMenu::RECEIPT_INSPECTIONS->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return '検品';
+        return EMenu::RECEIPT_INSPECTIONS->label();
     }
 
     public static function getModelLabel(): string
@@ -35,7 +36,10 @@ class WmsReceiptInspectionResource extends Resource
         return '入荷検品';
     }
 
-    protected static ?int $navigationSort = 2;
+    public static function getNavigationSort(): ?int
+    {
+        return EMenu::RECEIPT_INSPECTIONS->sort();
+    }
 
     public static function form(Schema $schema): Schema
     {

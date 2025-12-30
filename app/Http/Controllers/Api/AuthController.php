@@ -18,6 +18,7 @@ class AuthController extends ApiController
      *     tags={"Authentication"},
      *     summary="Login to WMS",
      *     description="Authenticate picker with code and password, returns API token",
+     *     security={{"apiKey":{}}},
      *     @OA\RequestBody(
      *         required=true,
      *         @OA\MediaType(
@@ -34,6 +35,7 @@ class AuthController extends ApiController
      *         response=200,
      *         description="Successful login",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="LOGIN_SUCCESS"),
      *             @OA\Property(
      *                 property="result",
@@ -60,6 +62,7 @@ class AuthController extends ApiController
      *         response=401,
      *         description="Invalid credentials or inactive account",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=false),
      *             @OA\Property(property="code", type="string", example="UNAUTHORIZED"),
      *             @OA\Property(
      *                 property="result",
@@ -73,6 +76,7 @@ class AuthController extends ApiController
      *         response=422,
      *         description="Validation error",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=false),
      *             @OA\Property(property="code", type="string", example="VALIDATION_ERROR"),
      *             @OA\Property(
      *                 property="result",
@@ -135,11 +139,12 @@ class AuthController extends ApiController
      *     tags={"Authentication"},
      *     summary="Logout from WMS",
      *     description="Revoke current API token",
-     *     security={{"sanctum":{}}},
+     *     security={{"apiKey":{},"sanctum":{}}},
      *     @OA\Response(
      *         response=200,
      *         description="Successfully logged out",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="LOGOUT_SUCCESS"),
      *             @OA\Property(
      *                 property="result",
@@ -154,6 +159,7 @@ class AuthController extends ApiController
      *         response=401,
      *         description="Unauthenticated",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=false),
      *             @OA\Property(property="code", type="string", example="UNAUTHORIZED"),
      *             @OA\Property(
      *                 property="result",
@@ -180,11 +186,12 @@ class AuthController extends ApiController
      *     tags={"Authentication"},
      *     summary="Get current picker info",
      *     description="Returns information about the authenticated picker",
-     *     security={{"sanctum":{}}},
+     *     security={{"apiKey":{},"sanctum":{}}},
      *     @OA\Response(
      *         response=200,
      *         description="Picker information",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
      *                 property="result",
@@ -205,6 +212,7 @@ class AuthController extends ApiController
      *         response=401,
      *         description="Unauthenticated",
      *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=false),
      *             @OA\Property(property="code", type="string", example="UNAUTHORIZED"),
      *             @OA\Property(
      *                 property="result",

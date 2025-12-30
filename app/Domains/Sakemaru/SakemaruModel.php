@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 
 class SakemaruModel
 {
-    protected static function retryRequest(callable $request, string $url, int $maxRetry = 3): array
+    protected static function retryRequest(callable $request, string $url, int $maxRetry = 3, ?array $requestData = null): array
     {
         $retry = 1;
         $response = $request();
@@ -17,6 +17,7 @@ class SakemaruModel
             if ($retry > $maxRetry) {
                 Log::error('APIの呼び出しに失敗しました。', [
                     'url' => $url,
+                    'request' => $requestData,
                     'response' => $response->reason(),
                     'content' => $response->json(),
                 ]);
@@ -30,6 +31,7 @@ class SakemaruModel
             sleep($retry * 60);
             Log::info('API Retry ' . $retry, [
                 'url' => $url,
+                'request' => $requestData,
                 'response' => $response->reason(),
                 'content' => $response->json(),
             ]);
@@ -53,7 +55,9 @@ class SakemaruModel
     {
         return static::retryRequest(
             fn() => static::postResponse($data),
-            static::postUrl()
+            static::postUrl(),
+            3,
+            $data
         );
     }
 

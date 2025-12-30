@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsPickingTasks\Pages;
 
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsPickingTask;
+use App\Services\Shortage\PickingShortageDetector;
 use Filament\Actions\Action;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -26,15 +27,22 @@ class ExecuteWmsPickingTask extends Page implements HasForms
 
     public function mount(WmsPickingTask $record): void
     {
+        // ステータスがPICKING_READY, PENDING, SHORTAGEの場合、PICKINGに変更
+        if (in_array($record->status, ['PICKING_READY', 'PENDING', 'SHORTAGE'])) {
+            $record->update([
+                'status' => 'PICKING',
+                'started_at' => $record->started_at ?? now(),
+            ]);
+        }
+
         $record->load([
             'pickingItemResults' => function ($query) {
-                $query->with(['item', 'location'])
+                $query->with(['item', 'location', 'trade.partner', 'trade.earning.buyer.current_detail.salesman'])
                     ->orderBy('walking_order', 'asc')
                     ->orderBy('item_id', 'asc');
             },
             'wave',
-            'earning',
-            'trade',
+            'floor',
             'pickingArea',
             'warehouse',
             'picker'
@@ -42,8 +50,13 @@ class ExecuteWmsPickingTask extends Page implements HasForms
         $this->record = $record;
         // 商品データを配列に変換
         $this->items = $this->record->pickingItemResults->map(function ($item) {
+            $trade = $item->trade;
             return [
                 'id' => $item->id,
+                'serial_id' => $trade->serial_id ?? 'N/A',
+                'client_code' => $trade->partner->code ?? '-',
+                'client_name' => $trade->partner->name ?? '-',
+                'sales_rep_name' => $trade->earning?->buyer?->current_detail?->salesman?->name ?? '-',
                 'item_name' => $item->item_name_with_code ?? "商品{$item->item_id}",
                 'location' => $item->location_display ?? '-',
                 'ordered_qty' => (int) $item->ordered_qty,
@@ -140,30 +153,26 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     'status' => $shortageQty > 0 ? 'SHORTAGE' : 'COMPLETED',
                     'picked_at' => now(),
                 ]);
-
-                // 補正がない場合のみ成功メッセージを表示
-                if ($originalValue === $pickedQty) {
-                    Notification::make()
-                        ->title('更新しました')
-                        ->body("{$item->item_name_with_code} を更新しました")
-                        ->success()
-                        ->send();
-                }
             }
 
             // データを再読み込み
             $this->record->refresh();
             $this->record->load([
                 'pickingItemResults' => function ($query) {
-                    $query->with(['item', 'location'])
+                    $query->with(['item', 'location', 'trade.partner', 'trade.earning.buyer.current_detail.salesman'])
                         ->orderBy('walking_order', 'asc')
                         ->orderBy('item_id', 'asc');
                 }
             ]);
 
             $this->items = $this->record->pickingItemResults->map(function ($item) {
+                $trade = $item->trade;
                 return [
                     'id' => $item->id,
+                    'serial_id' => $trade->serial_id ?? 'N/A',
+                    'client_code' => $trade->partner->code ?? '-',
+                    'client_name' => $trade->partner->name ?? '-',
+                    'sales_rep_name' => $trade->earning?->buyer?->current_detail?->salesman?->name ?? '-',
                     'item_name' => $item->item_name_with_code ?? "商品{$item->item_id}",
                     'location' => $item->location_display ?? '-',
                     'ordered_qty' => (int) $item->ordered_qty,
@@ -202,11 +211,17 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 'completed_at' => now(),
             ]);
 
-            // 伝票のピッキングステータスを更新
-            if ($this->record->earning) {
+            // このタスクに関連する全ての伝票のピッキングステータスを更新
+            $earningIds = $this->record->pickingItemResults()
+                ->distinct('earning_id')
+                ->whereNotNull('earning_id')
+                ->pluck('earning_id')
+                ->toArray();
+
+            if (!empty($earningIds)) {
                 DB::connection('sakemaru')
                     ->table('earnings')
-                    ->where('id', $this->record->earning_id)
+                    ->whereIn('id', $earningIds)
                     ->update([
                         'picking_status' => 'COMPLETED',
                         'updated_at' => now(),
@@ -240,26 +255,64 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 return;
             }
 
-            // タスクを完了
+            // 欠品がある商品の欠品データを生成
+            $shortageItems = $this->record->pickingItemResults()
+                ->where('status', 'SHORTAGE')
+                ->get();
+
+            $shortageDetector = app(PickingShortageDetector::class);
+            $shortagesCreated = 0;
+
+            foreach ($shortageItems as $item) {
+                // 欠品検出・記録
+                $shortage = $shortageDetector->detectAndRecord(
+                    pickResult: $item,
+                    parentShortageId: null // 通常ピッキングでは親欠品なし
+                );
+
+                if ($shortage) {
+                    $shortagesCreated++;
+                }
+            }
+
+            // 欠品がある場合はステータスをSHORTAGE、ない場合はCOMPLETED
+            $hasShortage = $this->record->pickingItemResults()
+                ->where('has_shortage', true)
+                ->exists();
+
+            $taskStatus = $hasShortage ? 'SHORTAGE' : 'COMPLETED';
+
+            // タスクを完了または欠品状態に
             $this->record->update([
-                'status' => 'COMPLETED',
+                'status' => $taskStatus,
                 'completed_at' => now(),
             ]);
 
-            // 伝票のピッキングステータスを更新
-            if ($this->record->earning) {
+            // このタスクに関連する全ての伝票のピッキングステータスを更新
+            $earningIds = $this->record->pickingItemResults()
+                ->distinct('earning_id')
+                ->whereNotNull('earning_id')
+                ->pluck('earning_id')
+                ->toArray();
+
+            if (!empty($earningIds)) {
                 DB::connection('sakemaru')
                     ->table('earnings')
-                    ->where('id', $this->record->earning_id)
+                    ->whereIn('id', $earningIds)
                     ->update([
                         'picking_status' => 'COMPLETED',
                         'updated_at' => now(),
                     ]);
             }
 
+            $message = 'タスクが完了しました';
+            if ($shortagesCreated > 0) {
+                $message .= "（欠品{$shortagesCreated}件を記録しました）";
+            }
+
             Notification::make()
                 ->title('ピッキング完了')
-                ->body('タスクが完了しました')
+                ->body($message)
                 ->success()
                 ->send();
 
@@ -270,8 +323,9 @@ class ExecuteWmsPickingTask extends Page implements HasForms
     public function getTitle(): string
     {
         $waveCode = $this->record->wave->wave_code ?? 'Wave';
-        $serialId = $this->record->trade->serial_id ?? 'N/A';
-        return "ピッキング実行: {$waveCode} - 伝票 {$serialId}";
+        $taskId = $this->record->id;
+        $floorName = $this->record->floor->name ?? 'フロア未設定';
+        return "ピッキング実行: {$waveCode} - タスク #{$taskId} ({$floorName})";
     }
 
     public static function canAccess(array $parameters = []): bool

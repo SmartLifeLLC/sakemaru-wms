@@ -1,0 +1,6 @@
+ピッキングwave設定時にピッカー別(wms_pickers)のpicking可能な領域の考慮と温度帯の考慮ができるようにする。
+wms_picking_taskを作る際に、locations.is_restricted_areaとtemperature_typeごとに必要がある。(columnの追加が必要)
+つまり、warehouse_id、floor_id、delivery_course_id、is_restricted_area、temperature_type別に生成される必要がある。
+locations テーブルの対応は終わっている。
+wms_picking_tasksにtemperature_typeとis_restricted_areaのカラムを追加し、wave生成時のwms_picking_tasksの生成ロジックをアップデートする。
+

@@ -16,14 +16,14 @@ class WmsLocation extends Model
         'location_id',
         'wms_picking_area_id',
         'picking_unit_type',
-        'walking_order',
+        // 'walking_order', // Removed: walking_order is no longer used
         'aisle',
         'rack',
         'level',
     ];
 
     protected $casts = [
-        'walking_order' => 'integer',
+        // 'walking_order' => 'integer', // Removed: walking_order is no longer used
     ];
 
     /**

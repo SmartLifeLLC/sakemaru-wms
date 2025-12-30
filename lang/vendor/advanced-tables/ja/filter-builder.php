@@ -1,7 +1,8 @@
 <?php
 
 return [
-
+//    filament-tables::table.column_manager.actions.reset.labe
+// filament-tables::table.column_manager.actions.apply.labe
     'form' => [
 
         'add_filter' => 'Add filter',

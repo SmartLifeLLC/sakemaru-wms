@@ -16,6 +16,9 @@ class ClientSetting extends CustomModel
 
     protected $guarded = [];
 
+    // client_settingsテーブルにはis_activeカラムがない
+    protected bool $hasIsActiveColumn = false;
+
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
@@ -44,6 +47,14 @@ class ClientSetting extends CustomModel
 
         return new Carbon(ClientSetting::first()->system_date);
 
+    }
+
+    public static function systemYesterdayYMD(): string{
+        return self::systemDate()->copy()->subDay()->format('Y-m-d');
+    }
+
+    public static function systemDateYMD(): string{
+        return self::systemDate()->format('Y-m-d');
     }
 
     public static function systemMonth(): int|null

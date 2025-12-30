@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsLocations;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WmsLocations\Pages\CreateWmsLocation;
 use App\Filament\Resources\WmsLocations\Pages\EditWmsLocation;
 use App\Filament\Resources\WmsLocations\Pages\ListWmsLocations;
@@ -20,15 +21,14 @@ class WmsLocationResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
-    // Navigation settings
     public static function getNavigationGroup(): ?string
     {
-        return 'WMS管理';
+        return EMenu::WMS_LOCATIONS->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return 'ロケーション属性';
+        return EMenu::WMS_LOCATIONS->label();
     }
 
     public static function getModelLabel(): string
@@ -43,7 +43,7 @@ class WmsLocationResource extends Resource
 
     public static function getNavigationSort(): ?int
     {
-        return 10;
+        return EMenu::WMS_LOCATIONS->sort();
     }
 
     public static function form(Schema $schema): Schema

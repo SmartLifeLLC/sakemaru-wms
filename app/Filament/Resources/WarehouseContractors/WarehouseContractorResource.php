@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WarehouseContractors;
 
+use App\Enums\EMenu;
 use App\Filament\Resources\WarehouseContractors\Pages\CreateWarehouseContractor;
 use App\Filament\Resources\WarehouseContractors\Pages\EditWarehouseContractor;
 use App\Filament\Resources\WarehouseContractors\Pages\ListWarehouseContractors;
@@ -20,30 +21,31 @@ class WarehouseContractorResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingOffice2;
 
-    // Navigation settings
+    protected static bool $shouldRegisterNavigation = false;
+
     public static function getNavigationGroup(): ?string
     {
-        return 'マスタ管理';
+        return EMenu::WAREHOUSE_CONTRACTORS->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return '倉庫・仕入先';
+        return EMenu::WAREHOUSE_CONTRACTORS->label();
     }
 
     public static function getModelLabel(): string
     {
-        return '倉庫仕入先';
+        return '発注先別ロット条件';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '倉庫仕入先';
+        return '発注先別ロット条件';
     }
 
     public static function getNavigationSort(): ?int
     {
-        return 25;
+        return EMenu::WAREHOUSE_CONTRACTORS->sort();
     }
 
     public static function form(Schema $schema): Schema

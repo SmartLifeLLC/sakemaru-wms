@@ -56,6 +56,15 @@
                                 伝票番号
                             </th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                得意先コード
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                得意先名
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                担当営業
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 ロケーション
                             </th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -82,7 +91,16 @@
                         @foreach($items as $item)
                         <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
-                                {{ $record->trade->serial_id ?? 'N/A' }}
+                                {{ $item['serial_id'] }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                                {{ $item['client_code'] }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                                {{ $item['client_name'] }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                                {{ $item['sales_rep_name'] }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                                 {{ $item['location'] }}
@@ -113,14 +131,9 @@
                                 >
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
-                                <input
-                                    type="number"
-                                    value="{{ $item['shortage_qty'] }}"
-                                    min="0"
-                                    step="1"
-                                    readonly
-                                    class="w-20 text-center border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 bg-gray-100 border cursor-not-allowed"
-                                >
+                                <span class="text-gray-900 dark:text-gray-100 @if($item['shortage_qty'] > 0) font-semibold text-red-600 dark:text-red-400 @endif">
+                                    {{ $item['shortage_qty'] }}
+                                </span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-center">
                                 @if($item['status'] === 'COMPLETED')

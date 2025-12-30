@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
 use Illuminate\Database\Eloquent\Model;
@@ -13,13 +14,22 @@ class WmsPickingItemResult extends Model
 
     protected $table = 'wms_picking_item_results';
 
+    // Status constants
+    public const STATUS_PENDING = 'PENDING';
+    public const STATUS_PICKING = 'PICKING';
+    public const STATUS_COMPLETED = 'COMPLETED';
+    public const STATUS_SHORTAGE = 'SHORTAGE';
+
     protected $fillable = [
         'picking_task_id',
+        'earning_id',
+        'trade_id',
         'trade_item_id',
         'item_id',
         'real_stock_id',
         'location_id',
         'walking_order',
+        'distance_from_previous',
         'ordered_qty',
         'ordered_qty_type',
         'planned_qty',
@@ -27,6 +37,10 @@ class WmsPickingItemResult extends Model
         'picked_qty',
         'picked_qty_type',
         'shortage_qty',
+        'shortage_allocated_qty',
+        'shortage_allocated_qty_type',
+        'is_ready_to_shipment',
+        'shipment_ready_at',
         'status',
         'picker_id',
         'picked_at',
@@ -34,11 +48,15 @@ class WmsPickingItemResult extends Model
 
     protected $casts = [
         'walking_order' => 'integer',
-        'ordered_qty' => 'decimal:2',
-        'planned_qty' => 'decimal:2',
-        'picked_qty' => 'decimal:2',
-        'shortage_qty' => 'decimal:2',
+        'distance_from_previous' => 'integer',
+        'ordered_qty' => 'integer',
+        'planned_qty' => 'integer',
+        'picked_qty' => 'integer',
+        'shortage_qty' => 'integer',
+        'shortage_allocated_qty' => 'integer',
+        'is_ready_to_shipment' => 'boolean',
         'picked_at' => 'datetime',
+        'shipment_ready_at' => 'datetime',
     ];
 
     /**
@@ -47,6 +65,33 @@ class WmsPickingItemResult extends Model
     public function pickingTask(): BelongsTo
     {
         return $this->belongsTo(WmsPickingTask::class, 'picking_task_id');
+    }
+
+    /**
+     * このピッキング明細が属する売上伝票
+     */
+    public function earning(): BelongsTo
+    {
+        return $this->belongsTo(Earning::class, 'earning_id');
+    }
+
+    public function picker(){
+        return $this->belongsTo(WmsPicker::class, 'picker_id');
+    }
+    /**
+     * このピッキング明細が属する取引（売上伝票）
+     */
+    public function trade(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Sakemaru\Trade::class, 'trade_id');
+    }
+
+    /**
+     * このピッキング明細が属する取引明細
+     */
+    public function tradeItem(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Sakemaru\TradeItem::class, 'trade_item_id');
     }
 
     /**
@@ -66,12 +111,22 @@ class WmsPickingItemResult extends Model
     }
 
     /**
+     * このピッキング明細に紐づく欠品
+     * wms_shortages.source_pick_result_id = wms_picking_item_results.id
+     */
+    public function shortage(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(WmsShortage::class, 'source_pick_result_id', 'id');
+    }
+
+    /**
      * スコープ：ピッキング順序でソート
+     * Sorts by walking_order (warehouse movement sequence)
      */
     public function scopeOrderedForPicking($query)
     {
         return $query->orderBy('walking_order', 'asc')
-                     ->orderBy('item_id', 'asc');
+                    ->orderBy('item_id', 'asc');
     }
 
     /**
@@ -103,7 +158,15 @@ class WmsPickingItemResult extends Model
         if (!$location) {
             return "-";
         }
-        return trim("{$location->code1} {$location->code2} {$location->code3}");
+
+        $locationCode = trim("{$location->code1} {$location->code2} {$location->code3}");
+
+        // Add location name if available
+        if (!empty($location->name)) {
+            return "{$locationCode} - {$location->name}";
+        }
+
+        return $locationCode;
     }
 
     /**
@@ -111,15 +174,34 @@ class WmsPickingItemResult extends Model
      */
     public function isCompleted(): bool
     {
-        return in_array($this->status, ['COMPLETED', 'SHORTAGE']);
+        return $this->status === 'COMPLETED';
     }
 
     /**
-     * Check if item has shortage
+     * Check if item has any shortage (physical or soft)
+     * Note: has_shortage is a generated column, so this accessor reads from DB
      */
     public function hasShortage(): bool
     {
-        return $this->shortage_qty > 0;
+        return $this->has_shortage ?? false;
+    }
+
+    /**
+     * Check if item has physical shortage (warehouse discrepancy)
+     * True when: status == COMPLETED AND planned_qty > picked_qty
+     */
+    public function hasPhysicalShortage(): bool
+    {
+        return $this->has_physical_shortage ?? false;
+    }
+
+    /**
+     * Check if item has soft shortage (allocation shortage)
+     * True when: ordered_qty > planned_qty
+     */
+    public function hasSoftShortage(): bool
+    {
+        return $this->has_soft_shortage ?? false;
     }
 
     /**
@@ -157,4 +239,6 @@ class WmsPickingItemResult extends Model
     {
         return self::getQuantityTypeLabel($this->picked_qty_type ?? 'PIECE');
     }
+
+
 }
