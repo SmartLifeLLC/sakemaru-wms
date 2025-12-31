@@ -5,6 +5,7 @@ namespace App\Models\Sakemaru;
 
 use Archilex\AdvancedTables\Concerns\HasViews;
 use Archilex\AdvancedTables\Support\Config;
+use Filament\Models\Contracts\FilamentUser;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,7 +15,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class User extends Authenticatable
+class User extends Authenticatable implements FilamentUser
 {
     use HasViews;
 
@@ -305,6 +306,12 @@ class User extends Authenticatable
             ->orderBy('managed_by_current_user_sort_order', 'asc')
             ->limit(20)
             ->get();
+    }
+
+
+    public function canAccessPanel(\Filament\Panel $panel): bool
+    {
+        return true;
     }
 
 }
