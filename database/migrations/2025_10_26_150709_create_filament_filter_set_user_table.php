@@ -8,20 +8,37 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
 
+
     public function up(): void
     {
         Schema::create('filament_filter_set_user', function (Blueprint $table) {
-            $userClass = Config::getUser();
-            $user = new $userClass();
-
             $table->id();
 
-            $table->foreignId('user_id')->references($user->getKeyName())->on($user->getTable())->constrained()->cascadeOnDelete();
-            $table->foreignId('filter_set_id')->references('id')->on('filament_filter_sets')->constrained()->cascadeOnDelete();
+            // 通常カラムとして定義（FKは後で貼る）
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('filter_set_id');
+
             $table->smallInteger('sort_order')->default(1);
         });
-    }
 
+        // users（共有・prefixなし）への外部キー
+        DB::statement("
+        ALTER TABLE wms_filament_filter_set_user
+        ADD CONSTRAINT fk_wms_ffsu_user_id
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE
+    ");
+
+        // filament_filter_sets（prefixあり）への外部キー
+        DB::statement("
+        ALTER TABLE wms_filament_filter_set_user
+        ADD CONSTRAINT fk_wms_ffsu_filter_set_id
+        FOREIGN KEY (filter_set_id)
+        REFERENCES wms_filament_filter_sets(id)
+        ON DELETE CASCADE
+    ");
+    }
     public function down(): void
     {
         Schema::drop('filament_filter_set_user');

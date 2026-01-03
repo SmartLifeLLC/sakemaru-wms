@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('wms_picking_assignment_strategies', function (Blueprint $table) {
+        Schema::create('picking_assignment_strategies', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('warehouse_id')->comment('倉庫ID（FK制約なし）');
             $table->string('name')->comment('管理用表示名');

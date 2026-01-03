@@ -5,18 +5,16 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
 
     public function up(): void
     {
         Schema::create('filament_filter_sets', function (Blueprint $table) {
             $userClass = Config::getUser();
+
             $user = new $userClass();
-
             $table->id();
-
-            $table->foreignId('user_id')->references($user->getKeyName())->on($user->getTable())->constrained()->cascadeOnUpdate()->cascadeOnDelete();
+            $table->unsignedBigInteger('user_id');
             $table->string('name');
             $table->string('resource');
             $table->json('filters');
@@ -27,6 +25,14 @@ return new class extends Migration
 
             $table->timestamps();
         });
+        DB::statement("
+    ALTER TABLE wms_filament_filter_sets
+    ADD CONSTRAINT fk_wms_filament_filter_sets_user_id
+    FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+");
     }
 
     public function down(): void

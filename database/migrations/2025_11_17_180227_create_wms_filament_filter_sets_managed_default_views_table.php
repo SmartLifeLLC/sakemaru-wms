@@ -12,20 +12,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::connection('sakemaru')->create('wms_filament_filter_sets_managed_default_views', function (Blueprint $table) {
-            $userClass = Config::getUser();
-            $user = new $userClass();
 
-            $table->id();
-
-            $table->foreignId('user_id')->references($user->getKeyName())->on($user->getTable())->constrained()->cascadeOnDelete();
-            $table->integer('tenant_id')->nullable();
-            $table->string('resource');
-            $table->string('view_type');
-            $table->string('view');
-
-            $table->timestamps();
-        });
     }
 
     /**
