@@ -18,7 +18,7 @@ return new class extends Migration
                 $table->integer('wms_lock_version')->default(0)->comment('Optimistic lock version')->after('wms_picking_qty');
             });
         }
-    
+
     }
 
     /**
