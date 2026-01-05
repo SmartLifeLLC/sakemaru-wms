@@ -8,7 +8,11 @@ return new
 class extends Migration {
     public function up(): void
     {
-        Schema::create('users', function (Blueprint $table) {
+
+        //testように生成
+        //基本はsakemaru側に存在しているはず。
+        if(Schema::connection('sakemaru')->hasTable('users')) return;
+        Schema::connection('sakemaru')->create('users', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('sakemaru_user_id');
             $table->string('name');

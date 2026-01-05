@@ -12,23 +12,23 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::connection('sakemaru')->create('wms_filament_filter_sets', function (Blueprint $table) {
-            $userClass = Config::getUser();
-            $user = new $userClass();
-
-            $table->id();
-
-            $table->foreignId('user_id')->references($user->getKeyName())->on($user->getTable())->constrained()->cascadeOnUpdate()->cascadeOnDelete();
-            $table->string('name');
-            $table->string('resource');
-            $table->json('filters');
-            $table->json('indicators');
-            $table->boolean('is_public');
-            $table->boolean('is_global_favorite');
-            $table->smallInteger('sort_order')->default(1);
-
-            $table->timestamps();
-        });
+//        Schema::connection('sakemaru')->create('wms_filament_filter_sets', function (Blueprint $table) {
+//            $userClass = Config::getUser();
+//            $user = new $userClass();
+//
+//            $table->id();
+//
+//            $table->foreignId('user_id')->references($user->getKeyName())->on($user->getTable())->constrained()->cascadeOnUpdate()->cascadeOnDelete();
+//            $table->string('name');
+//            $table->string('resource');
+//            $table->json('filters');
+//            $table->json('indicators');
+//            $table->boolean('is_public');
+//            $table->boolean('is_global_favorite');
+//            $table->smallInteger('sort_order')->default(1);
+//
+//            $table->timestamps();
+//        });
     }
 
     /**

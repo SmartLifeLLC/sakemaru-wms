@@ -1,6 +1,5 @@
 <?php
 
-use Archilex\AdvancedTables\Support\Config;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -12,7 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-
+        Schema::table('locations', function (Blueprint $table) {
+            //
+        });
     }
 
     /**
@@ -20,6 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::connection('sakemaru')->dropIfExists('wms_filament_filter_sets_managed_default_views');
+        Schema::table('locations', function (Blueprint $table) {
+            //
+        });
     }
 };
