@@ -10,6 +10,11 @@ class SakemaruModel
 {
     protected static function retryRequest(callable $request, string $url, int $maxRetry = 3, ?array $requestData = null): array
     {
+        // Skip retries in local environment to avoid timeout
+        if (app()->environment('local')) {
+            $maxRetry = 1;
+        }
+
         $retry = 1;
         $response = $request();
 
@@ -25,10 +30,14 @@ class SakemaruModel
                     'success' => false,
                     'error' => $response->reason(),
                     'status' => $response->status(),
+                    'debug_message' => $response->body(),
                 ];
             }
 
-            sleep($retry * 60);
+            // Short sleep for local, normal sleep for production
+            $sleepSeconds = app()->environment('local') ? 2 : ($retry * 60);
+            sleep($sleepSeconds);
+
             Log::info('API Retry ' . $retry, [
                 'url' => $url,
                 'request' => $requestData,
@@ -68,23 +77,38 @@ class SakemaruModel
             $url .= "&{$key}={$param}";
         }
 
-        return Http::withHeaders([
+        $http = Http::withHeaders([
             'Content-Type' => 'application/json',
             'Accept' => 'application/json'
         ])
-            ->withToken(static::getApiToken())
-            ->get($url);
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->withToken(static::getApiToken());
+
+        // Disable SSL verification for local development
+        if (app()->environment('local')) {
+            $http = $http->withoutVerifying();
+        }
+
+        return $http->get($url);
     }
 
     protected static function postResponse(array $data): Response
     {
-        return Http::withHeaders([
+        $http = Http::withHeaders([
             'Content-Type' => 'application/json',
             'Accept' => 'application/json'
         ])
             ->timeout(300)
-            ->withToken(static::getApiToken())
-            ->post(static::postUrl(), $data);
+            ->connectTimeout(10)
+            ->withToken(static::getApiToken());
+
+        // Disable SSL verification for local development
+        if (app()->environment('local')) {
+            $http = $http->withoutVerifying();
+        }
+
+        return $http->post(static::postUrl(), $data);
     }
 
     protected static function url(int $page = 1): string

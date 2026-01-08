@@ -294,7 +294,11 @@ class TestDataGenerator extends Page
                 Select::make('warehouse_id')
                     ->label('倉庫')
                     ->helperText('未選択の場合、全ての有効な倉庫に対して生成します。')
-                    ->options(\App\Models\Sakemaru\Warehouse::where('is_active', true)->pluck('name', 'id'))
+                    ->options(
+                        \App\Models\Sakemaru\Warehouse::where('is_active', true)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}] {$w->name}"])
+                    )
                     ->searchable(),
                 Toggle::make('reset')
                     ->label('既存設定をリセット')
@@ -611,11 +615,11 @@ class TestDataGenerator extends Page
             ->modalHeading('売上テストデータを生成')
             ->modalDescription('BoozeCore APIを通じてテスト用の売上データを生成します。')
             ->modalWidth('2xl')
-            ->form([
+            ->schema([
                 Select::make('warehouse_id')
                     ->label('倉庫')
                     ->options(\App\Models\Sakemaru\Warehouse::pluck('name', 'id'))
-                    ->default(991)
+                    ->default(91)
                     ->required()
                     ->searchable()
                     ->reactive(),

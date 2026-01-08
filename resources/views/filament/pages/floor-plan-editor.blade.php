@@ -688,16 +688,18 @@
                         <span x-show="selectedStocksForTransfer.length > 0" x-text="'(' + selectedStocksForTransfer.length + ')'"></span>
                     </button>
                 </div>
+
                 <div style="max-height:300px; overflow-y:auto;">
                     <table class="w-full table-auto border divide-y divide-gray-200">
-                        <thead class="bg-gray-100 dark:bg-gray-700">
+                        <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0">
                             <tr>
                                 <th class="px-2 py-1 w-8">
                                     <input type="checkbox"
                                            @change="toggleAllStocks($event.target.checked)"
-                                           :checked="levelStocks[1]?.items?.length > 0 && selectedStocksForTransfer.length === levelStocks[1]?.items?.length"
+                                           :checked="getAllStockItems().length > 0 && selectedStocksForTransfer.length === getAllStockItems().length"
                                            class="rounded border-gray-300">
                                 </th>
+                                <th class="px-2 py-1">棚番</th>
                                 <th class="px-2 py-1">商品名</th>
                                 <th class="px-2 py-1 text-center">入り数</th>
                                 <th class="px-2 py-1 text-center">容量</th>
@@ -707,26 +709,29 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <template x-for="item in levelStocks[1]?.items" :key="item.real_stock_id">
-                                <tr class="odd:bg-gray-100 dark:odd:bg-gray-800"
-                                    :class="isStockSelected(item.real_stock_id) ? 'bg-blue-50 dark:bg-blue-900/30' : ''">
-                                    <td class="border px-2 py-1 text-center">
-                                        <input type="checkbox"
-                                               :value="item.real_stock_id"
-                                               :checked="isStockSelected(item.real_stock_id)"
-                                               @change="toggleStockSelection(item)"
-                                               class="rounded border-gray-300">
-                                    </td>
-                                    <td class="border px-2 py-1" x-text="item.item_name"></td>
-                                    <td class="border px-2 py-1 text-center" x-text="item.capacity_case"></td>
-                                    <td class="border px-2 py-1 text-center" x-text="item.volume"></td>
-                                    <td class="border px-2 py-1 text-center" x-text="item.volume_unit_name || item.volume_unit"></td>
-                                    <td class="border px-2 py-1 text-center" x-text="item.expiration_date || '―'"></td>
-                                    <td class="border px-2 py-1 text-center" x-text="item.total_qty"></td>
-                                </tr>
+                            <template x-for="(shelf, shelfIndex) in getSortedShelves()" :key="shelfIndex">
+                                <template x-for="item in shelf.items" :key="item.real_stock_id">
+                                    <tr class="odd:bg-gray-100 dark:odd:bg-gray-800"
+                                        :class="isStockSelected(item.real_stock_id) ? 'bg-blue-50 dark:bg-blue-900/30' : ''">
+                                        <td class="border px-2 py-1 text-center">
+                                            <input type="checkbox"
+                                                   :value="item.real_stock_id"
+                                                   :checked="isStockSelected(item.real_stock_id)"
+                                                   @change="toggleStockSelection(item)"
+                                                   class="rounded border-gray-300">
+                                        </td>
+                                        <td class="border px-2 py-1 text-center" x-text="shelf.shelf_name || (editingZone.code1 + editingZone.code2 + shelf.code3)"></td>
+                                        <td class="border px-2 py-1" x-text="item.item_name"></td>
+                                        <td class="border px-2 py-1 text-center" x-text="item.capacity_case"></td>
+                                        <td class="border px-2 py-1 text-center" x-text="item.volume"></td>
+                                        <td class="border px-2 py-1 text-center" x-text="item.volume_unit_name || item.volume_unit"></td>
+                                        <td class="border px-2 py-1 text-center" x-text="item.expiration_date || '―'"></td>
+                                        <td class="border px-2 py-1 text-center" x-text="item.total_qty"></td>
+                                    </tr>
+                                </template>
                             </template>
-                            <tr x-show="!levelStocks[1]?.items?.length">
-                                <td colspan="7" class="text-center py-2 text-gray-500">在庫なし</td>
+                            <tr x-show="getAllStockItems().length === 0">
+                                <td colspan="8" class="text-center py-2 text-gray-500">在庫なし</td>
                             </tr>
                         </tbody>
                     </table>
@@ -2123,7 +2128,7 @@
                     this.selectedStocksForTransfer = []; // Reset selected stocks when opening new zone
                     this.showEditModal = true;
 
-                    // Load stock data for each level
+                    // Load stock data for each shelf (code3)
                     await this.loadLevelStocks(zone);
                 },
 
@@ -2212,9 +2217,39 @@
                     }
                 },
 
+                // Get shelves sorted by code3 ASC
+                getSortedShelves() {
+                    const shelves = Object.values(this.levelStocks);
+                    shelves.sort((a, b) => {
+                        const code3A = String(a.code3 || '999');
+                        const code3B = String(b.code3 || '999');
+                        // String comparison for code3 ASC (203, 205, 206)
+                        if (code3A < code3B) return 1;
+                        if (code3A > code3B) return -1;
+                        return 0;
+                    });
+                    return shelves;
+                },
+
+                getAllStockItems() {
+                    const items = [];
+                    // Use sorted shelves to ensure code3 ASC order
+                    for (const shelf of this.getSortedShelves()) {
+                        if (shelf?.items) {
+                            items.push(...shelf.items.map(item => ({
+                                ...item,
+                                shelf_name: shelf.shelf_name,
+                                code3: shelf.code3
+                            })));
+                        }
+                    }
+                    return items;
+                },
+
                 toggleAllStocks(checked) {
-                    if (checked && this.levelStocks[1]?.items) {
-                        this.selectedStocksForTransfer = this.levelStocks[1].items.map(item => ({
+                    const allItems = this.getAllStockItems();
+                    if (checked && allItems.length > 0) {
+                        this.selectedStocksForTransfer = allItems.map(item => ({
                             real_stock_id: item.real_stock_id,
                             transfer_qty: item.total_qty
                         }));
@@ -2232,8 +2267,15 @@
                 },
 
                 getSelectedStockItem(stockId) {
-                    if (!this.levelStocks[1]?.items) return null;
-                    return this.levelStocks[1].items.find(item => item.real_stock_id === stockId);
+                    // Search across all shelves for the item
+                    for (const key in this.levelStocks) {
+                        const shelf = this.levelStocks[key];
+                        if (shelf?.items) {
+                            const item = shelf.items.find(item => item.real_stock_id === stockId);
+                            if (item) return item;
+                        }
+                    }
+                    return null;
                 },
 
                 updateTransferQty(stockId, qty) {

@@ -36,7 +36,6 @@ class FloorPlanController extends Controller
     public function getFloors($warehouseId)
     {
         $floors = Floor::where('warehouse_id', $warehouseId)
-            ->where('is_active', true)
             ->orderBy('code')
             ->get(['id', 'code', 'name', 'warehouse_id']);
 
@@ -47,51 +46,113 @@ class FloorPlanController extends Controller
     }
 
     /**
-     * Get zones (locations with WMS levels) for a floor
+     * Get zones (locations grouped by code1+code2) for a floor
+     * Each zone represents a rack position (code1+code2), with multiple shelves (code3) as tabs
      */
     public function getZones($floorId)
     {
-        // Get locations that have position set (x1_pos, y1_pos, x2_pos, y2_pos are not null/0)
+        // Get all locations for this floor (regardless of position)
+        // Exclude default location (ZZ1100)
         $locations = Location::where('floor_id', $floorId)
             ->whereNotNull('code1')
             ->whereNotNull('code2')
-            ->where(function ($query) {
-                $query->where('x1_pos', '>', 0)
-                    ->orWhere('y1_pos', '>', 0)
-                    ->orWhere('x2_pos', '>', 0)
-                    ->orWhere('y2_pos', '>', 0);
-            })
+            ->where('code1', '!=', 'ZZ')  // Exclude default location
             ->orderBy('code1')
             ->orderBy('code2')
+            ->orderBy('code3')
             ->get();
 
-        $zones = [];
-
+        // Group locations by code1+code2 to form zones
+        $zoneGroups = [];
         foreach ($locations as $location) {
-            // Count levels from wms_location_levels
-            $levelsCount = WmsLocationLevel::where('location_id', $location->id)->count();
+            $zoneKey = $location->code1 . '-' . $location->code2;
+            if (!isset($zoneGroups[$zoneKey])) {
+                $zoneGroups[$zoneKey] = [
+                    'locations' => [],
+                    'first_location' => $location,
+                    // Track max position (use largest position found in group)
+                    'max_x1' => 0,
+                    'max_y1' => 0,
+                    'max_x2' => 0,
+                    'max_y2' => 0,
+                ];
+            }
+            $zoneGroups[$zoneKey]['locations'][] = $location;
 
-            // Get stock count for this location
+            // Keep track of the best position (non-zero)
+            if ($location->x1_pos > 0 || $location->y1_pos > 0) {
+                $zoneGroups[$zoneKey]['max_x1'] = max($zoneGroups[$zoneKey]['max_x1'], $location->x1_pos ?? 0);
+                $zoneGroups[$zoneKey]['max_y1'] = max($zoneGroups[$zoneKey]['max_y1'], $location->y1_pos ?? 0);
+                $zoneGroups[$zoneKey]['max_x2'] = max($zoneGroups[$zoneKey]['max_x2'], $location->x2_pos ?? 0);
+                $zoneGroups[$zoneKey]['max_y2'] = max($zoneGroups[$zoneKey]['max_y2'], $location->y2_pos ?? 0);
+            }
+        }
+
+        $zones = [];
+        $zoneIndex = 0;
+        foreach ($zoneGroups as $zoneKey => $group) {
+            $firstLoc = $group['first_location'];
+            $locationIds = collect($group['locations'])->pluck('id')->toArray();
+
+            // Use stored position or auto-generate grid position
+            $x1 = $group['max_x1'];
+            $y1 = $group['max_y1'];
+            $x2 = $group['max_x2'];
+            $y2 = $group['max_y2'];
+
+            // Auto-generate position if none set
+            if ($x1 == 0 && $y1 == 0) {
+                $row = intdiv($zoneIndex, 30);
+                $col = $zoneIndex % 30;
+                $x1 = 50 + $col * 45;
+                $y1 = 50 + $row * 35;
+                $x2 = $x1 + 40;
+                $y2 = $y1 + 30;
+            }
+
+            // Get total stock count for all locations in this zone
             $stockCount = DB::connection('sakemaru')
                 ->table('real_stocks')
-                ->where('location_id', $location->id)
+                ->whereIn('location_id', $locationIds)
                 ->sum('current_quantity');
 
+            // Collect shelf info (code3) for tabs
+            $shelves = [];
+            foreach ($group['locations'] as $loc) {
+                $shelfStockCount = DB::connection('sakemaru')
+                    ->table('real_stocks')
+                    ->where('location_id', $loc->id)
+                    ->sum('current_quantity');
+
+                $shelves[] = [
+                    'location_id' => $loc->id,
+                    'code3' => $loc->code3,
+                    'name' => $loc->name,
+                    'stock_count' => $shelfStockCount ?: 0,
+                ];
+            }
+
             $zones[] = [
-                'id' => $location->id,
-                'warehouse_id' => $location->warehouse_id,
-                'floor_id' => $location->floor_id,
-                'code1' => $location->code1,
-                'code2' => $location->code2,
-                'name' => $location->name,
-                'x1_pos' => $location->x1_pos,
-                'y1_pos' => $location->y1_pos,
-                'x2_pos' => $location->x2_pos,
-                'y2_pos' => $location->y2_pos,
-                'available_quantity_flags' => $location->available_quantity_flags,
-                'levels' => $levelsCount ?: 1,
+                'id' => $firstLoc->id,  // Use first location's ID as zone ID
+                'zone_key' => $zoneKey,
+                'warehouse_id' => $firstLoc->warehouse_id,
+                'floor_id' => $firstLoc->floor_id,
+                'code1' => $firstLoc->code1,
+                'code2' => $firstLoc->code2,
+                'name' => $firstLoc->code1 . $firstLoc->code2,  // Zone name = code1+code2 only
+                'display_name' => $firstLoc->code1 . $firstLoc->code2,  // For zone label
+                'x1_pos' => $x1,
+                'y1_pos' => $y1,
+                'x2_pos' => $x2,
+                'y2_pos' => $y2,
+                'available_quantity_flags' => $firstLoc->available_quantity_flags,
+                'shelves' => $shelves,  // Array of code3 tabs with full names
+                'shelf_count' => count($shelves),
                 'stock_count' => $stockCount ?: 0,
+                'location_ids' => $locationIds,  // All location IDs in this zone
             ];
+
+            $zoneIndex++;
         }
 
         return response()->json([
@@ -219,47 +280,74 @@ class FloorPlanController extends Controller
 
     /**
      * Get unpositioned locations for a floor (locations with no x/y coordinates set)
+     * Returns locations GROUPED by code1+code2 (one entry per zone)
      */
     public function getUnpositionedLocations($floorId)
     {
+        // Get all locations for the floor, grouped by code1+code2
+        // Exclude default location (ZZ1100)
         $locations = Location::where('floor_id', $floorId)
             ->whereNotNull('code1')
             ->whereNotNull('code2')
-            ->where(function ($query) {
-                $query->where(function ($q) {
-                    $q->whereNull('x1_pos')->whereNull('y1_pos')
-                      ->whereNull('x2_pos')->whereNull('y2_pos');
-                })
-                ->orWhere(function ($q) {
-                    $q->where('x1_pos', 0)->where('y1_pos', 0)
-                      ->where('x2_pos', 0)->where('y2_pos', 0);
-                });
-            })
+            ->where('code1', '!=', 'ZZ')  // Exclude default location
             ->orderBy('code1')
             ->orderBy('code2')
-            ->get(['id', 'warehouse_id', 'floor_id', 'code1', 'code2', 'name', 'available_quantity_flags']);
+            ->orderBy('code3')
+            ->get(['id', 'warehouse_id', 'floor_id', 'code1', 'code2', 'code3', 'name', 'available_quantity_flags', 'x1_pos', 'y1_pos', 'x2_pos', 'y2_pos']);
+
+        // Group by code1+code2 to form zones
+        $zoneGroups = [];
+        foreach ($locations as $location) {
+            $zoneKey = $location->code1 . '-' . $location->code2;
+            if (!isset($zoneGroups[$zoneKey])) {
+                $zoneGroups[$zoneKey] = [
+                    'locations' => [],
+                    'first_location' => $location,
+                    'has_position' => false,
+                ];
+            }
+            $zoneGroups[$zoneKey]['locations'][] = $location;
+
+            // Check if any location in the group has a position
+            if ($location->x1_pos > 0 || $location->y1_pos > 0) {
+                $zoneGroups[$zoneKey]['has_position'] = true;
+            }
+        }
 
         $result = [];
 
-        // Get stock counts and level counts for each location
-        foreach ($locations as $location) {
+        // Only return zones that have NO position set
+        foreach ($zoneGroups as $zoneKey => $group) {
+            // Skip zones that already have position
+            if ($group['has_position']) {
+                continue;
+            }
+
+            $firstLoc = $group['first_location'];
+            $locationIds = collect($group['locations'])->pluck('id')->toArray();
+
+            // Get stock count for all locations in zone
             $stockCount = DB::connection('sakemaru')
                 ->table('real_stocks')
-                ->where('location_id', $location->id)
+                ->whereIn('location_id', $locationIds)
                 ->sum('current_quantity');
 
-            $levelsCount = WmsLocationLevel::where('location_id', $location->id)->count();
+            // Get total levels count for all locations in zone
+            $levelsCount = WmsLocationLevel::whereIn('location_id', $locationIds)->count();
 
             $result[] = [
-                'id' => $location->id,
-                'warehouse_id' => $location->warehouse_id,
-                'floor_id' => $location->floor_id,
-                'code1' => $location->code1,
-                'code2' => $location->code2,
-                'name' => $location->name,
-                'available_quantity_flags' => $location->available_quantity_flags,
+                'id' => $firstLoc->id,
+                'zone_key' => $zoneKey,
+                'warehouse_id' => $firstLoc->warehouse_id,
+                'floor_id' => $firstLoc->floor_id,
+                'code1' => $firstLoc->code1,
+                'code2' => $firstLoc->code2,
+                'name' => $firstLoc->code1 . $firstLoc->code2,  // Zone name = code1+code2
+                'available_quantity_flags' => $firstLoc->available_quantity_flags,
                 'stock_count' => $stockCount ?: 0,
                 'levels' => $levelsCount ?: 0,
+                'shelf_count' => count($group['locations']),
+                'location_ids' => $locationIds,
             ];
         }
 
@@ -270,62 +358,73 @@ class FloorPlanController extends Controller
     }
 
     /**
-     * Get stock data for a location (each real_stock record individually for transfer support)
+     * Get stock data for a zone (all locations with same code1+code2)
+     * Returns stocks grouped by shelf (code3) as tabs
      */
-     public function getZoneStocks($locationId)
-     {
-         $location = Location::findOrFail($locationId);
+    public function getZoneStocks($locationId)
+    {
+        $location = Location::findOrFail($locationId);
 
-         // Get stock data for this location, joining items to get details
-         // Return each real_stock record individually to support stock transfer
-         $stocks = DB::connection('sakemaru')
-             ->table('real_stocks as rs')
-             ->leftJoin('items as i', 'rs.item_id', '=', 'i.id')
-             ->where('rs.location_id', $location->id)
-             ->where('rs.current_quantity', '>', 0)
-             ->select([
-                 'rs.id as real_stock_id',
-                 'rs.item_id',
-                 'i.name as item_name',
-                 'i.capacity_case',
-                 'i.volume',
-                 'i.volume_unit',
-                 'rs.expiration_date',
-                 'rs.current_quantity as total_qty',
-             ])
-             ->orderBy('i.name')
-             ->orderBy('rs.expiration_date')
-             ->get();
+        // Get all locations with same code1+code2 (same zone/rack)
+        $zoneLocations = Location::where('floor_id', $location->floor_id)
+            ->where('code1', $location->code1)
+            ->where('code2', $location->code2)
+            ->orderBy('code3')
+            ->get();
 
-         $items = [];
-         foreach ($stocks as $stock) {
-             $items[] = [
-                 'real_stock_id' => $stock->real_stock_id,
-                 'item_id' => $stock->item_id,
-                 'item_name' => $stock->item_name,
-                 'capacity_case' => $stock->capacity_case,
-                 'volume' => $stock->volume,
-                 'volume_unit_name' => \App\Enums\EVolumeUnit::tryFrom($stock->volume_unit)?->name() ?? $stock->volume_unit,
-                 'expiration_date' => $stock->expiration_date,
-                 'total_qty' => (int) $stock->total_qty,
-             ];
-         }
+        $shelfStocks = [];
+        foreach ($zoneLocations as $index => $loc) {
+            // Get stock data for this shelf
+            $stocks = DB::connection('sakemaru')
+                ->table('real_stocks as rs')
+                ->leftJoin('items as i', 'rs.item_id', '=', 'i.id')
+                ->where('rs.location_id', $loc->id)
+                ->where('rs.current_quantity', '>', 0)
+                ->select([
+                    'rs.id as real_stock_id',
+                    'rs.item_id',
+                    'i.name as item_name',
+                    'i.capacity_case',
+                    'i.volume',
+                    'i.volume_unit',
+                    'rs.expiration_date',
+                    'rs.current_quantity as total_qty',
+                ])
+                ->orderBy('i.name')
+                ->orderBy('rs.expiration_date')
+                ->get();
 
-         // Return as a single level (level 1) since we are not using WMS levels for stock now
-         $levelStocks = [
-             1 => [
-                 'level' => 1,
-                 'level_id' => null,
-                 'location_id' => $location->id,
-                 'items' => $items,
-             ],
-         ];
+            $items = [];
+            foreach ($stocks as $stock) {
+                $items[] = [
+                    'real_stock_id' => $stock->real_stock_id,
+                    'item_id' => $stock->item_id,
+                    'item_name' => $stock->item_name,
+                    'capacity_case' => $stock->capacity_case,
+                    'volume' => $stock->volume,
+                    'volume_unit_name' => \App\Enums\EVolumeUnit::tryFrom($stock->volume_unit)?->name() ?? $stock->volume_unit,
+                    'expiration_date' => $stock->expiration_date,
+                    'total_qty' => (int) $stock->total_qty,
+                ];
+            }
 
-         return response()->json([
-             'success' => true,
-             'data' => $levelStocks,
-         ]);
-     }
+            // Use code3 as tab key (1-indexed for display)
+            $tabKey = $index + 1;
+            $shelfStocks[$tabKey] = [
+                'level' => $tabKey,
+                'level_id' => null,
+                'location_id' => $loc->id,
+                'code3' => $loc->code3,
+                'shelf_name' => $loc->name,
+                'items' => $items,
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $shelfStocks,
+        ]);
+    }
 
     /**
      * Export floor plan as CSV (Shift_JIS for Excel compatibility)
