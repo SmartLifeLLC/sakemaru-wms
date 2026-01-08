@@ -593,166 +593,8 @@
             </div>
         </div>
 
-        {{-- Detail Modal --}}
-        <div x-show="showEditModal" x-cloak
-             class="fixed inset-0 flex items-center justify-center"
-             style="z-index: 10000;"
-             @click.self="showEditModal = false">
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-5xl max-h-[90vh] overflow-y-auto text-xs" @click.stop>
-                {{-- Picking Area Info --}}
-                <div class="mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
-                    <template x-if="getPickingAreaForZone(editingZone)">
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 dark:text-gray-400">ピッキングエリア:</span>
-                            <div class="w-4 h-4 rounded-full" :style="{ backgroundColor: getPickingAreaForZone(editingZone)?.color || '#8B5CF6' }"></div>
-                            <span class="text-sm font-medium" x-text="getPickingAreaForZone(editingZone)?.name"></span>
-                        </div>
-                    </template>
-                    <template x-if="!getPickingAreaForZone(editingZone)">
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-500 dark:text-gray-400">ピッキングエリア:</span>
-                            <span class="text-sm text-gray-400">設定なし</span>
-                        </div>
-                    </template>
-                </div>
-
-                {{-- Header with name input --}}
-                <div class="mb-4 rounded-lg transition-colors duration-200"
-                     :class="editingZone.is_restricted_area ? 'bg-red-100 dark:bg-red-900/30 p-3' : ''">
-                    <div x-show="editingZone.is_restricted_area" class="flex items-center gap-2 mb-2 text-red-600 dark:text-red-400">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                        </svg>
-                        <span class="text-sm font-medium">制限エリア</span>
-                    </div>
-                    <input type="text" x-model="editingZone.name"
-                        placeholder="名称を入力"
-                        class="text-2xl font-bold w-full border-b-2 focus:outline-none pb-1 transition-colors duration-200"
-                        :class="editingZone.is_restricted_area
-                            ? 'bg-transparent border-red-400 dark:border-red-500 focus:border-red-600 text-red-800 dark:text-red-200'
-                            : 'bg-transparent border-gray-300 dark:border-gray-600 focus:border-blue-500'"/>
-                </div>
-
-                {{-- Row 1: 通路、棚番号、温度帯、引当可能単位 --}}
-                <div class="flex gap-4 mb-3">
-                    <div class="flex-1">
-                        <label class="block text-sm font-medium mb-1">通路</label>
-                        <input type="text" x-model="editingZone.code1" maxlength="10"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                    </div>
-                    <div class="flex-1">
-                        <label class="block text-sm font-medium mb-1">棚番号</label>
-                        <input type="text" x-model="editingZone.code2" maxlength="10"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                    </div>
-                    <div class="flex-1">
-                        <label class="block text-sm font-medium mb-1">温度帯</label>
-                        <select x-model="editingZone.temperature_type"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                            <option value="NORMAL">常温</option>
-                            <option value="CONSTANT">定温</option>
-                            <option value="CHILLED">冷蔵</option>
-                            <option value="FROZEN">冷凍</option>
-                        </select>
-                    </div>
-                    <div class="flex-1">
-                        <label class="block text-sm font-medium mb-1">引当可能単位</label>
-                        <select x-model.number="editingZone.available_quantity_flags"
-                                class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                            <option value="1">ケース</option>
-                            <option value="2">バラ</option>
-                            <option value="3">ケース+バラ</option>
-                            <option value="4">ボール</option>
-                        </select>
-                    </div>
-                </div>
-
-                {{-- Row 2: 制限エリア設定 --}}
-                <div class="flex items-center gap-2 mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
-                    <input type="checkbox"
-                           x-model="editingZone.is_restricted_area"
-                           class="rounded border border-gray-300 dark:border-gray-600 w-5 h-5" />
-                    <span class="text-sm text-gray-600 dark:text-gray-400">制限エリアとして設定</span>
-                </div>
-
-                {{-- Stock Information --}}
-                <div class="flex items-center justify-between mt-4 mb-2">
-                    <h3 class="text-xl font-semibold">在庫情報</h3>
-                    <button @click="openTransferModal()"
-                            :disabled="selectedStocksForTransfer.length === 0"
-                            class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-md flex items-center gap-1">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
-                        </svg>
-                        ロケ移動
-                        <span x-show="selectedStocksForTransfer.length > 0" x-text="'(' + selectedStocksForTransfer.length + ')'"></span>
-                    </button>
-                </div>
-
-                <div style="max-height:300px; overflow-y:auto;">
-                    <table class="w-full table-auto border divide-y divide-gray-200">
-                        <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0">
-                            <tr>
-                                <th class="px-2 py-1 w-8">
-                                    <input type="checkbox"
-                                           @change="toggleAllStocks($event.target.checked)"
-                                           :checked="getAllStockItems().length > 0 && selectedStocksForTransfer.length === getAllStockItems().length"
-                                           class="rounded border-gray-300">
-                                </th>
-                                <th class="px-2 py-1">棚番</th>
-                                <th class="px-2 py-1">商品名</th>
-                                <th class="px-2 py-1 text-center">入り数</th>
-                                <th class="px-2 py-1 text-center">容量</th>
-                                <th class="px-2 py-1 text-center">単位</th>
-                                <th class="px-2 py-1 text-center">賞味期限</th>
-                                <th class="px-2 py-1 text-center">総バラ数</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="(shelf, shelfIndex) in getSortedShelves()" :key="shelfIndex">
-                                <template x-for="item in shelf.items" :key="item.real_stock_id">
-                                    <tr class="odd:bg-gray-100 dark:odd:bg-gray-800"
-                                        :class="isStockSelected(item.real_stock_id) ? 'bg-blue-50 dark:bg-blue-900/30' : ''">
-                                        <td class="border px-2 py-1 text-center">
-                                            <input type="checkbox"
-                                                   :value="item.real_stock_id"
-                                                   :checked="isStockSelected(item.real_stock_id)"
-                                                   @change="toggleStockSelection(item)"
-                                                   class="rounded border-gray-300">
-                                        </td>
-                                        <td class="border px-2 py-1 text-center" x-text="shelf.shelf_name || (editingZone.code1 + editingZone.code2 + shelf.code3)"></td>
-                                        <td class="border px-2 py-1" x-text="item.item_name"></td>
-                                        <td class="border px-2 py-1 text-center" x-text="item.capacity_case"></td>
-                                        <td class="border px-2 py-1 text-center" x-text="item.volume"></td>
-                                        <td class="border px-2 py-1 text-center" x-text="item.volume_unit_name || item.volume_unit"></td>
-                                        <td class="border px-2 py-1 text-center" x-text="item.expiration_date || '―'"></td>
-                                        <td class="border px-2 py-1 text-center" x-text="item.total_qty"></td>
-                                    </tr>
-                                </template>
-                            </template>
-                            <tr x-show="getAllStockItems().length === 0">
-                                <td colspan="8" class="text-center py-2 text-gray-500">在庫なし</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="flex gap-2 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <button @click="saveEditedZone()"
-                        class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-md">
-                        保存
-                    </button>
-                    <button @click="deleteZone()"
-                        class="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md">
-                        削除
-                    </button>
-                    <button @click="showEditModal = false"
-                        class="flex-1 px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
-                        閉じる
-                    </button>
-                </div>
-            </div>
-        </div>
+        {{-- Zone Edit Modal (included from partial) --}}
+        @include('filament.pages.floor-plan-editor.zone-edit-modal')
 
         {{-- Stock Transfer Modal --}}
         <div x-show="showTransferModal" x-cloak
@@ -1270,6 +1112,8 @@
                 editingZone: {},
                 selectedLevel: 1,
                 levelStocks: {},
+                stockSearchQuery: '',
+                filteredItems: [],
                 showWallEditModal: false,
                 editingWall: {},
                 showFixedAreaEditModal: false,
@@ -2126,6 +1970,7 @@
                     this.selectedLevel = 1;
                     this.levelStocks = {};
                     this.selectedStocksForTransfer = []; // Reset selected stocks when opening new zone
+                    this.stockSearchQuery = ''; // Reset search query
                     this.showEditModal = true;
 
                     // Load stock data for each shelf (code3)
@@ -2135,6 +1980,7 @@
                 async loadLevelStocks(zone) {
                     if (!zone.id || zone.isNew) {
                         // No stock data for new zones
+                        this.filteredItems = [];
                         return;
                     }
 
@@ -2144,6 +1990,8 @@
 
                         if (data.success) {
                             this.levelStocks = data.data;
+                            // Initialize filtered items after loading
+                            this.updateFilteredItems();
                         }
                     } catch (error) {
                         console.error('Failed to load stock data:', error);
@@ -2238,7 +2086,7 @@
                         if (shelf?.items) {
                             items.push(...shelf.items.map(item => ({
                                 ...item,
-                                shelf_name: shelf.shelf_name,
+                                shelf_name: shelf.shelf_name || (this.editingZone.code1 + this.editingZone.code2 + shelf.code3),
                                 code3: shelf.code3
                             })));
                         }
@@ -2246,10 +2094,84 @@
                     return items;
                 },
 
+                // Normalize string for search (full-width to half-width, case-insensitive)
+                normalizeForSearch(str) {
+                    if (str === null || str === undefined) return '';
+                    // Convert to string if not already
+                    const strValue = String(str);
+                    // Convert full-width alphanumeric to half-width
+                    let normalized = strValue.replace(/[Ａ-Ｚａ-ｚ０-９]/g, char =>
+                        String.fromCharCode(char.charCodeAt(0) - 0xFEE0)
+                    );
+                    // Convert full-width katakana to half-width
+                    const kanaMap = {
+                        'ガ': 'ｶﾞ', 'ギ': 'ｷﾞ', 'グ': 'ｸﾞ', 'ゲ': 'ｹﾞ', 'ゴ': 'ｺﾞ',
+                        'ザ': 'ｻﾞ', 'ジ': 'ｼﾞ', 'ズ': 'ｽﾞ', 'ゼ': 'ｾﾞ', 'ゾ': 'ｿﾞ',
+                        'ダ': 'ﾀﾞ', 'ヂ': 'ﾁﾞ', 'ヅ': 'ﾂﾞ', 'デ': 'ﾃﾞ', 'ド': 'ﾄﾞ',
+                        'バ': 'ﾊﾞ', 'ビ': 'ﾋﾞ', 'ブ': 'ﾌﾞ', 'ベ': 'ﾍﾞ', 'ボ': 'ﾎﾞ',
+                        'パ': 'ﾊﾟ', 'ピ': 'ﾋﾟ', 'プ': 'ﾌﾟ', 'ペ': 'ﾍﾟ', 'ポ': 'ﾎﾟ',
+                        'ヴ': 'ｳﾞ', 'ヷ': 'ﾜﾞ', 'ヺ': 'ｦﾞ',
+                        'ア': 'ｱ', 'イ': 'ｲ', 'ウ': 'ｳ', 'エ': 'ｴ', 'オ': 'ｵ',
+                        'カ': 'ｶ', 'キ': 'ｷ', 'ク': 'ｸ', 'ケ': 'ｹ', 'コ': 'ｺ',
+                        'サ': 'ｻ', 'シ': 'ｼ', 'ス': 'ｽ', 'セ': 'ｾ', 'ソ': 'ｿ',
+                        'タ': 'ﾀ', 'チ': 'ﾁ', 'ツ': 'ﾂ', 'テ': 'ﾃ', 'ト': 'ﾄ',
+                        'ナ': 'ﾅ', 'ニ': 'ﾆ', 'ヌ': 'ﾇ', 'ネ': 'ﾈ', 'ノ': 'ﾉ',
+                        'ハ': 'ﾊ', 'ヒ': 'ﾋ', 'フ': 'ﾌ', 'ヘ': 'ﾍ', 'ホ': 'ﾎ',
+                        'マ': 'ﾏ', 'ミ': 'ﾐ', 'ム': 'ﾑ', 'メ': 'ﾒ', 'モ': 'ﾓ',
+                        'ヤ': 'ﾔ', 'ユ': 'ﾕ', 'ヨ': 'ﾖ',
+                        'ラ': 'ﾗ', 'リ': 'ﾘ', 'ル': 'ﾙ', 'レ': 'ﾚ', 'ロ': 'ﾛ',
+                        'ワ': 'ﾜ', 'ヲ': 'ｦ', 'ン': 'ﾝ',
+                        'ァ': 'ｧ', 'ィ': 'ｨ', 'ゥ': 'ｩ', 'ェ': 'ｪ', 'ォ': 'ｫ',
+                        'ッ': 'ｯ', 'ャ': 'ｬ', 'ュ': 'ｭ', 'ョ': 'ｮ',
+                        'ー': 'ｰ', '。': '｡', '「': '｢', '」': '｣', '、': '､', '・': '･'
+                    };
+                    for (const [full, half] of Object.entries(kanaMap)) {
+                        normalized = normalized.split(full).join(half);
+                    }
+                    // Convert full-width space to half-width
+                    normalized = normalized.replace(/　/g, ' ');
+                    // Lowercase for case-insensitive search
+                    return normalized.toLowerCase();
+                },
+
+                // Update filtered items based on search query (call this when search changes)
+                updateFilteredItems() {
+                    const items = this.getAllStockItems();
+                    console.log('updateFilteredItems called', { query: this.stockSearchQuery, itemCount: items.length });
+                    if (!this.stockSearchQuery || this.stockSearchQuery.trim() === '') {
+                        this.filteredItems = items;
+                        console.log('No query, showing all items:', this.filteredItems.length);
+                        return;
+                    }
+                    const query = this.normalizeForSearch(this.stockSearchQuery.trim());
+                    console.log('Normalized query:', query);
+                    this.filteredItems = items.filter(item => {
+                        const itemCode = this.normalizeForSearch(item.item_code || '');
+                        const itemName = this.normalizeForSearch(item.item_name || '');
+                        const shelfName = this.normalizeForSearch(item.shelf_name || '');
+                        return itemCode.includes(query) || itemName.includes(query) || shelfName.includes(query);
+                    });
+                    console.log('Filtered items:', this.filteredItems.length);
+                },
+
+                // Get stock items filtered by search query
+                getFilteredStockItems() {
+                    return this.filteredItems;
+                },
+
+                // Check if expiration date is near (within 30 days)
+                isExpirationNear(expirationDate) {
+                    if (!expirationDate) return false;
+                    const expDate = new Date(expirationDate);
+                    const today = new Date();
+                    const diffTime = expDate - today;
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    return diffDays <= 30 && diffDays >= 0;
+                },
+
                 toggleAllStocks(checked) {
-                    const allItems = this.getAllStockItems();
-                    if (checked && allItems.length > 0) {
-                        this.selectedStocksForTransfer = allItems.map(item => ({
+                    if (checked && this.filteredItems.length > 0) {
+                        this.selectedStocksForTransfer = this.filteredItems.map(item => ({
                             real_stock_id: item.real_stock_id,
                             transfer_qty: item.total_qty
                         }));

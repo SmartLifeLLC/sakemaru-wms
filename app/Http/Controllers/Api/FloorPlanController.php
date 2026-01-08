@@ -383,6 +383,7 @@ class FloorPlanController extends Controller
                 ->select([
                     'rs.id as real_stock_id',
                     'rs.item_id',
+                    'i.code as item_code',
                     'i.name as item_name',
                     'i.capacity_case',
                     'i.volume',
@@ -399,6 +400,7 @@ class FloorPlanController extends Controller
                 $items[] = [
                     'real_stock_id' => $stock->real_stock_id,
                     'item_id' => $stock->item_id,
+                    'item_code' => $stock->item_code,
                     'item_name' => $stock->item_name,
                     'capacity_case' => $stock->capacity_case,
                     'volume' => $stock->volume,
