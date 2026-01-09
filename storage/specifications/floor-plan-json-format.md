@@ -139,8 +139,6 @@ Text styling for different object types:
 - Uses `code1` + `code2` to match existing locations
 - Creates new locations if no match found
 - Updates position and properties if match found
-- Creates/updates `wms_location_levels` based on `levels` value
-- Removes excess levels if new level count is lower
 
 ### Layout Settings
 - Imports canvas size directly
@@ -149,7 +147,6 @@ Text styling for different object types:
 
 ### Database Updates
 - Updates `locations` table with new positions
-- Updates `wms_location_levels` table with level data
 - Updates `wms_warehouse_layouts` table with layout settings
 
 ## Export File Naming

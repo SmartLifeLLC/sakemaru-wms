@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Warehouse;
-use App\Models\WmsLocationLevel;
 use App\Models\WmsWarehouseLayout;
 use App\Models\WmsFloorObject;
 use Illuminate\Http\Request;
@@ -226,32 +225,6 @@ class FloorPlanController extends Controller
                 );
 
                 $processedLocationIds[] = $location->id;
-
-                // Sync levels in wms_location_levels
-                $existingLevels = WmsLocationLevel::where('location_id', $location->id)
-                    ->orderBy('level_number')
-                    ->get();
-
-                // Update or create levels
-                for ($level = 1; $level <= $levels; $level++) {
-                    WmsLocationLevel::updateOrCreate(
-                        [
-                            'location_id' => $location->id,
-                            'level_number' => $level,
-                        ],
-                        [
-                            'name' => "{$zone['name']} {$level}段",
-                            'available_quantity_flags' => $zone['available_quantity_flags'],
-                        ]
-                    );
-                }
-
-                // Remove levels that exceed the new count
-                if ($levels < $existingLevels->count()) {
-                    WmsLocationLevel::where('location_id', $location->id)
-                        ->where('level_number', '>', $levels)
-                        ->delete();
-                }
             }
 
             // Delete locations that were removed from the layout (keep positions > 0)
@@ -266,8 +239,6 @@ class FloorPlanController extends Controller
                         ->orWhere('y2_pos', '>', 0);
                 })
                 ->each(function ($location) {
-                    // Delete associated levels first
-                    WmsLocationLevel::where('location_id', $location->id)->delete();
                     $location->delete();
                 });
         });
@@ -332,9 +303,6 @@ class FloorPlanController extends Controller
                 ->whereIn('location_id', $locationIds)
                 ->sum('current_quantity');
 
-            // Get total levels count for all locations in zone
-            $levelsCount = WmsLocationLevel::whereIn('location_id', $locationIds)->count();
-
             $result[] = [
                 'id' => $firstLoc->id,
                 'zone_key' => $zoneKey,
@@ -345,7 +313,6 @@ class FloorPlanController extends Controller
                 'name' => $firstLoc->code1 . $firstLoc->code2,  // Zone name = code1+code2
                 'available_quantity_flags' => $firstLoc->available_quantity_flags,
                 'stock_count' => $stockCount ?: 0,
-                'levels' => $levelsCount ?: 0,
                 'shelf_count' => count($group['locations']),
                 'location_ids' => $locationIds,
             ];

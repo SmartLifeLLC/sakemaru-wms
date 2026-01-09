@@ -6,7 +6,6 @@ use App\Enums\EMenuCategory;
 use App\Filament\Resources\Sakemaru\Locations\Pages\CreateLocation;
 use App\Filament\Resources\Sakemaru\Locations\Pages\EditLocation;
 use App\Filament\Resources\Sakemaru\Locations\Pages\ListLocations;
-use App\Filament\Resources\Sakemaru\Locations\RelationManagers\LevelsRelationManager;
 use App\Filament\Resources\Sakemaru\Locations\Schemas\LocationForm;
 use App\Filament\Resources\Sakemaru\Locations\Tables\LocationsTable;
 use App\Models\Sakemaru\Location;
@@ -47,9 +46,7 @@ class LocationResource extends Resource
 
     public static function getRelations(): array
     {
-        return [
-            LevelsRelationManager::class,
-        ];
+        return [];
     }
 
     public static function getPages(): array

@@ -7,7 +7,6 @@ use App\Enums\EMenuCategory;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\Location;
-use App\Models\WmsLocationLevel;
 use App\Models\WmsWarehouseLayout;
 use App\Models\WmsFloorObject;
 use App\Models\WmsPickingArea;
@@ -238,8 +237,6 @@ class FloorPlanEditor extends Page
                 $y2 = $y1 + 30;
             }
 
-            $levelsCount = WmsLocationLevel::whereIn('location_id', $locationIds)->count();
-
             $zones[] = [
                 'id' => $firstLoc->id,  // Use first location's ID as zone ID
                 'zone_key' => $zoneKey,
@@ -255,7 +252,6 @@ class FloorPlanEditor extends Page
                 'available_quantity_flags' => $firstLoc->available_quantity_flags,
                 'temperature_type' => $firstLoc->temperature_type?->value,
                 'is_restricted_area' => $firstLoc->is_restricted_area ?? false,
-                'levels' => $levelsCount,
                 'shelf_count' => count($group['locations']),
                 'location_ids' => $locationIds,
             ];
@@ -648,14 +644,6 @@ class FloorPlanEditor extends Page
                 'last_updater_id' => 0,
             ]);
 
-            // Create one WMS level for this location
-            WmsLocationLevel::create([
-                'location_id' => $newLocation->id,
-                'level_number' => 1,
-                'name' => "{$locationName} 1段",
-                'available_quantity_flags' => 3,
-            ]);
-
             // Reload zones and dispatch
             $zones = $this->zones->toArray();
             $this->dispatch('layout-loaded',
@@ -730,8 +718,6 @@ class FloorPlanEditor extends Page
             foreach ($deletedZoneIds as $zoneId) {
                 $location = Location::find($zoneId);
                 if ($location) {
-                    // Delete related WmsLocationLevels first
-                    WmsLocationLevel::where('location_id', $zoneId)->delete();
                     $location->delete();
                     $deletedCount++;
                 }
@@ -781,17 +767,6 @@ class FloorPlanEditor extends Page
                         'y2_pos' => $zoneData['y2_pos'],
                         'available_quantity_flags' => $zoneData['available_quantity_flags'] ?? 3,
                     ]);
-
-                    // Create WMS levels for this location
-                    $levels = $zoneData['levels'] ?? 1;
-                    for ($level = 1; $level <= $levels; $level++) {
-                        WmsLocationLevel::create([
-                            'location_id' => $newLocation->id,
-                            'level_number' => $level,
-                            'name' => "{$newLocation->name} {$level}段",
-                            'available_quantity_flags' => $zoneData['available_quantity_flags'] ?? 3,
-                        ]);
-                    }
 
                     $createdCount++;
                 }
@@ -983,26 +958,6 @@ class FloorPlanEditor extends Page
                             'last_updater_id' => 0,
                         ]
                     );
-
-                    // Update or create levels
-                    $levels = $zoneData['levels'] ?? 1;
-                    for ($level = 1; $level <= $levels; $level++) {
-                        WmsLocationLevel::updateOrCreate(
-                            [
-                                'location_id' => $location->id,
-                                'level_number' => $level,
-                            ],
-                            [
-                                'name' => "{$locationName} {$level}段",
-                                'available_quantity_flags' => $zoneData['available_quantity_flags'],
-                            ]
-                        );
-                    }
-
-                    // Remove excess levels
-                    WmsLocationLevel::where('location_id', $location->id)
-                        ->where('level_number', '>', $levels)
-                        ->delete();
                 }
             }
 

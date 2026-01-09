@@ -25,11 +25,11 @@
          "
          class="h-full">
 
-        {{-- Main Layout: Left (3/4) and Right (1/4) --}}
-        <div class="flex gap-3" style="height: calc(100vh - 120px);">
+        {{-- Main Layout: Left (87.5%) and Right (12.5%) --}}
+        <div class="flex" style="height: calc(100vh - 120px);">
 
-            {{-- Left Side: Floor Plan Canvas (75%) --}}
-            <div class="w-3/4 bg-gray-200 dark:bg-gray-900 rounded-lg shadow relative overflow-auto"
+            {{-- Left Side: Floor Plan Canvas --}}
+            <div class="flex-1 bg-gray-200 dark:bg-gray-900 rounded-lg shadow relative overflow-auto"
                  id="floor-plan-canvas-wrapper">
 
                 {{-- Centering wrapper --}}
@@ -238,45 +238,47 @@
                 </div>
             </div>
 
-            {{-- Right Side: Toolbar (25%) --}}
-            <div class="w-1/4 bg-white dark:bg-gray-800 rounded-lg shadow p-3 flex flex-col gap-2 overflow-y-auto">
-                {{-- Warehouse & Floor & Save (Same Row) --}}
-                <div class="flex items-end gap-2">
-                    <div class="flex-1">
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">倉庫</label>
+            {{-- Right Side: Toolbar --}}
+            <div class="w-[220px] bg-white dark:bg-gray-800 rounded-lg shadow px-2 py-2 flex flex-col gap-2 overflow-y-auto">
+                {{-- Warehouse & Floor Selection --}}
+                <div class="flex flex-col gap-1">
+                    <div>
+                        <label class="block text-[10px] font-medium text-gray-700 dark:text-gray-300">倉庫</label>
                         <select wire:model.live="selectedWarehouseId"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                            class="w-full rounded border border-gray-300 dark:border-gray-600 text-xs px-1 py-1">
                             <option value="">選択</option>
                             @foreach($this->warehouses as $wh)
                                 <option value="{{ $wh->id }}">{{ $wh->name }}</option>
                             @endforeach
                         </select>
                     </div>
-                    <div class="flex-1">
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">フロア</label>
+                    <div>
+                        <label class="block text-[10px] font-medium text-gray-700 dark:text-gray-300">フロア</label>
                         <select wire:model.live="selectedFloorId"
-                            class="w-full rounded-md border border-gray-300 dark:border-gray-600 text-sm px-2 py-1.5">
+                            class="w-full rounded border border-gray-300 dark:border-gray-600 text-xs px-1 py-1">
                             <option value="">選択</option>
                             @foreach($this->floors as $floor)
                                 <option value="{{ $floor->id }}">{{ $floor->name }}</option>
                             @endforeach
                         </select>
                     </div>
-                    <button @click="saveAllChangesWithWalkable()"
-                        class="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-sm font-medium whitespace-nowrap">
-                        保存
-                    </button>
-                    <button @click="showSettingsModal = true" title="キャンバス設定"
-                        class="p-1.5 bg-gray-500 hover:bg-gray-600 text-white rounded-md">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                        </svg>
-                    </button>
+                    <div class="flex gap-1">
+                        <button @click="saveAllChangesWithWalkable()"
+                            class="flex-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white rounded text-xs font-medium">
+                            保存
+                        </button>
+                        <button @click="showSettingsModal = true" title="キャンバス設定"
+                            class="p-1 bg-gray-500 hover:bg-gray-600 text-white rounded">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 {{-- Tool Icons (Horizontal) --}}
-                <div class="flex flex-wrap gap-3 justify-start">
+                <div class="flex flex-wrap gap-2 justify-start">
                     {{-- Add Zone --}}
                     <div class="flex flex-col items-center gap-1">
                         <button type="button" @click="addZone()" title="区画追加"
@@ -417,7 +419,7 @@
                 <div class="border-t border-gray-300 dark:border-gray-600 my-1"></div>
 
                 {{-- Walkable Paint Controls --}}
-                <div x-show="walkablePaintMode" class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 space-y-2">
+                <div x-show="walkablePaintMode" class="bg-green-50 dark:bg-green-900/20 rounded p-2 space-y-1">
                     <div class="text-xs font-semibold text-green-700 dark:text-green-300">
                         <span x-show="walkablePaintMode === 'paint'">🖌️ ペイントモード</span>
                         <span x-show="walkablePaintMode === 'erase'">🧹 消しゴムモード</span>
@@ -457,8 +459,8 @@
                 </div>
 
                 {{-- Saved Picking Areas List (Always visible) --}}
-                <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
-                    <h4 class="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">ピッキングエリア</h4>
+                <div class="bg-gray-50 dark:bg-gray-700/50 rounded p-1.5">
+                    <h4 class="text-[10px] font-semibold mb-1 text-gray-700 dark:text-gray-300">ピッキングエリア</h4>
                     <div class="space-y-1 max-h-32 overflow-y-auto">
                         <template x-for="area in pickingAreas" :key="area.id">
                             <div class="flex items-center justify-between bg-white dark:bg-gray-700 p-1.5 rounded text-xs hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
@@ -595,6 +597,9 @@
 
         {{-- Zone Edit Modal (included from partial) --}}
         @include('filament.pages.floor-plan-editor.zone-edit-modal')
+
+        {{-- Add Zone Modal (included from partial) --}}
+        @include('filament.pages.floor-plan-editor.add-zone-modal')
 
         {{-- Stock Transfer Modal --}}
         <div x-show="showTransferModal" x-cloak
@@ -1118,6 +1123,14 @@
                 editingWall: {},
                 showFixedAreaEditModal: false,
                 editingFixedArea: {},
+                // Add Zone Modal state
+                showAddZoneModal: false,
+                newZoneData: {
+                    code1: '',
+                    code2: '',
+                    code3: '1A'
+                },
+                addZoneError: '',
                 pickingPointMode: null, // 'start' or 'end' when setting picking points
                 walkablePaintMode: null, // 'paint' or 'erase' when painting walkable areas
                 walkableBitmap: null, // 2D array for walkable area bitmap
@@ -1884,13 +1897,51 @@
                         return;
                     }
 
+                    // Reset form data and show modal
+                    this.newZoneData = {
+                        code1: '',
+                        code2: '',
+                        code3: '1A'
+                    };
+                    this.addZoneError = '';
+                    this.showAddZoneModal = true;
+                },
+
+                // Check if zone with same code1+code2+code3 already exists
+                isZoneDuplicate(code1, code2, code3) {
+                    return this.zones.some(zone =>
+                        zone.code1 === code1 &&
+                        zone.code2 === code2 &&
+                        zone.code3 === code3
+                    );
+                },
+
+                // Create zone after validation
+                createZone() {
+                    const floorId = this.$wire.selectedFloorId;
+                    const warehouseId = this.$wire.selectedWarehouseId;
+                    const { code1, code2, code3 } = this.newZoneData;
+
+                    // Validation
+                    if (!code1 || !code2) {
+                        this.addZoneError = '通路(code1)と棚番号(code2)は必須です';
+                        return;
+                    }
+
+                    // Check for duplicates
+                    if (this.isZoneDuplicate(code1, code2, code3)) {
+                        this.addZoneError = `ロケーション ${code1}${code2}${code3} は既に存在します`;
+                        return;
+                    }
+
                     const newZone = {
                         id: 'temp_' + Date.now(),
                         floor_id: floorId,
                         warehouse_id: warehouseId,
-                        code1: 'A',
-                        code2: String(this.zones.length + 1).padStart(3, '0'),
-                        name: 'NEW ZONE',
+                        code1: code1,
+                        code2: code2,
+                        code3: code3,
+                        name: '',
                         x1_pos: 100,
                         y1_pos: 100,
                         x2_pos: 160,
@@ -1903,6 +1954,8 @@
 
                     this.zones.push(newZone);
                     this.selectedZones = [newZone.id];
+                    this.showAddZoneModal = false;
+                    this.addZoneError = '';
                 },
 
                 selectZone(event, zone) {
