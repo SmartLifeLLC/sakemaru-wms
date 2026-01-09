@@ -61,6 +61,7 @@ enum EMenu: string
 
     // システム設定
     case WAVE_SETTINGS = 'settings.wave_settings';
+    case CLIENT_PRINTER_COURSE_SETTINGS = 'settings.client_printer_course_settings';
 
     // テストデータ
     case TEST_DATA_GENERATOR = 'test_data.generator';
@@ -119,7 +120,8 @@ enum EMenu: string
             self::WMS_PICKING_LOGS,
             self::WMS_JX_TRANSMISSION_LOGS => EMenuCategory::LOGS,
 
-            self::WAVE_SETTINGS => EMenuCategory::SETTINGS,
+            self::WAVE_SETTINGS,
+            self::CLIENT_PRINTER_COURSE_SETTINGS => EMenuCategory::SETTINGS,
 
             self::TEST_DATA_GENERATOR => EMenuCategory::TEST_DATA,
         };
@@ -176,6 +178,8 @@ enum EMenu: string
 
             self::WAVE_SETTINGS => 'Wave設定',
 
+            self::CLIENT_PRINTER_COURSE_SETTINGS => 'プリンター設定',
+
             self::TEST_DATA_GENERATOR => 'テストデータ生成',
         };
     }
@@ -230,6 +234,7 @@ enum EMenu: string
             self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrows-up-down',
 
             self::WAVE_SETTINGS => 'heroicon-o-cog-6-tooth',
+            self::CLIENT_PRINTER_COURSE_SETTINGS => 'heroicon-o-printer',
 
             self::TEST_DATA_GENERATOR => 'heroicon-o-beaker',
         };
@@ -299,6 +304,7 @@ enum EMenu: string
 
             // システム設定
             self::WAVE_SETTINGS => 1,
+            self::CLIENT_PRINTER_COURSE_SETTINGS => 2,
 
             // テストデータ
             self::TEST_DATA_GENERATOR => 1,
