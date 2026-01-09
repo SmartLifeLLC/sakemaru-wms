@@ -226,13 +226,7 @@ class WmsShortagesTable
             ->filters([
                 SelectFilter::make('status')
                     ->label('ステータス')
-                    ->options([
-                        'OPEN' => '未対応',
-                        'REALLOCATING' => '横持ち出荷中',
-                        'FULFILLED' => '充足',
-                        'CONFIRMED' => '処理確定済み',
-                        'CANCELLED' => 'キャンセル',
-                    ]),
+                    ->options(WmsShortage::STATUS_LABELS),
 
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')

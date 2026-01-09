@@ -15,8 +15,10 @@ use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Attributes\Url;
+
 class ListWmsPickingItemEdits extends ListRecords
 {
     use ExposesTableToWidgets;
@@ -29,6 +31,10 @@ class ListWmsPickingItemEdits extends ListRecords
     protected static string $resource = WmsPickingItemEditResource::class;
 
     protected static ?string $title = 'ピッキング詳細';
+
+    // View labels as constants for reuse
+    public const VIEW_LABEL_DEFAULT = '引き当て欠品あり';
+    public const VIEW_LABEL_ALL = '全体';
 
     // URLのクエリパラメータ ?picking_task_id=123 を自動的にこの変数にバインドします
     #[Url(as: 'picking_task_id')]
@@ -322,11 +328,29 @@ class ListWmsPickingItemEdits extends ListRecords
         return 1;
     }
 
+    public function table(Table $table): Table
+    {
+        return parent::table($table)
+            ->emptyStateHeading($this->getEmptyStateHeading())
+            ->emptyStateDescription('');
+    }
+
+    protected function getEmptyStateHeading(): string
+    {
+        $activeView = $this->activeView ?? 'default';
+
+        return match ($activeView) {
+            'default' => '「' . self::VIEW_LABEL_DEFAULT . '」のデータはありません',
+            'all' => '「' . self::VIEW_LABEL_ALL . '」のデータはありません',
+            default => 'データが見つかりません',
+        };
+    }
+
     public function getPresetViews(): array
     {
         return [
-            'default' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query->where('has_soft_shortage', true))->favorite()->label('引き当て欠品あり')->default(),
-            'all' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query)->favorite()->label('全体'),
+            'default' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query->where('has_soft_shortage', true))->favorite()->label(self::VIEW_LABEL_DEFAULT)->default(),
+            'all' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query)->favorite()->label(self::VIEW_LABEL_ALL),
         ];
     }
 }
