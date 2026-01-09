@@ -102,15 +102,18 @@
                         </div>
                         <input type="text"
                                x-model="stockSearchQuery"
-                               @keydown.enter="updateFilteredItems()"
-                               class="w-48 pl-9 pr-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-l bg-gray-50 dark:bg-gray-800 focus:ring-blue-500 focus:border-blue-500"
+                               @input.debounce.300ms="updateFilteredItems()"
+                               class="w-48 pl-9 pr-8 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-800 focus:ring-blue-500 focus:border-blue-500"
                                placeholder="商品コード / 商品名">
+                        {{-- Clear button --}}
+                        <button x-show="stockSearchQuery"
+                                @click="stockSearchQuery = ''; updateFilteredItems()"
+                                class="absolute inset-y-0 right-0 flex items-center pr-2 text-gray-400 hover:text-gray-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
                     </div>
-                    {{-- Search Button --}}
-                    <button @click="updateFilteredItems()"
-                            class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-r font-medium -ml-2">
-                        検索
-                    </button>
                 </div>
             </div>
 
