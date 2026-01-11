@@ -10,12 +10,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('filament_filter_sets_managed_preset_views', function (Blueprint $table) {
-            $userClass = Config::getUser();
-            $user = new $userClass();
-
             $table->id();
 
-            $table->foreignId('user_id')->references($user->getKeyName())->on($user->getTable())->constrained()->cascadeOnUpdate()->cascadeOnDelete();
+            // FK はあとで貼るので通常カラム
+            $table->unsignedBigInteger('user_id');
+
             $table->string('name');
             $table->string('label')->nullable();
             $table->string('resource');
@@ -24,10 +23,25 @@ return new class extends Migration
 
             $table->timestamps();
         });
+
+        // users（共有・prefixなし）への外部キー
+        DB::statement("
+        ALTER TABLE wms_filament_filter_sets_managed_preset_views
+        ADD CONSTRAINT fk_wms_ffsm_preset_views_user_id
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+    ");
     }
 
     public function down(): void
     {
-        Schema::drop('filament_filter_sets_managed_preset_views');
+        DB::statement("
+        ALTER TABLE wms_filament_filter_sets_managed_preset_views
+        DROP FOREIGN KEY fk_wms_ffsm_preset_views_user_id
+    ");
+
+        Schema::dropIfExists('filament_filter_sets_managed_preset_views');
     }
 };

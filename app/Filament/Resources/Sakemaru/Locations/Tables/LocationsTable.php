@@ -40,13 +40,6 @@ class LocationsTable
                 TextColumn::make('name')
                     ->label('ロケーション名')
                     ->searchable(),
-                TextColumn::make('levels')
-                    ->label('WMS段')
-                    ->formatStateUsing(function ($record) {
-                        $levels = $record->levels()->orderBy('level_number')->pluck('level_number');
-                        return $levels->isEmpty() ? '-' : $levels->join(', ');
-                    })
-                    ->sortable(false),
                 TextColumn::make('available_quantity_flags')
                     ->label('数量タイプ')
                     ->badge()

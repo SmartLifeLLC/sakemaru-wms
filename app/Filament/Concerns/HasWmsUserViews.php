@@ -4,7 +4,6 @@ namespace App\Filament\Concerns;
 
 use Archilex\AdvancedTables\Support\Config;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 trait HasWmsUserViews
 {
@@ -32,9 +31,11 @@ trait HasWmsUserViews
         return Config::getUserView()::query()
                 ->select($columns)
                 ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
-                    $query->selectRaw('COUNT(' . DB::getTablePrefix() . Config::getUserTable() . '.' . Config::getUserTableKeyColumn() . ')')
+                    // Use 'users' directly without prefix - users table doesn't have wms_ prefix
+                    $userTable = Config::getUserTable();
+                    $query->selectRaw('COUNT(' . $userTable . '.' . Config::getUserTableKeyColumn() . ')')
                         ->from($pivotTable)
-                        ->join(Config::getUserTable(), Config::getUserTable() . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
+                        ->join($userTable, $userTable . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
                         ->whereColumn($pivotTable . '.filter_set_id', $userViewTable . '.id')
                         ->where($pivotTable . '.user_id', Config::auth()->id());
                 }, 'is_managed_by_current_user')
@@ -108,9 +109,11 @@ trait HasWmsUserViews
         return Config::getUserView()::query()
             ->select($columns)
             ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
-                $query->selectRaw('COUNT(' . DB::getTablePrefix() . Config::getUserTable() . '.' . Config::getUserTableKeyColumn() . ')')
+                // Use 'users' directly without prefix - users table doesn't have wms_ prefix
+                $userTable = Config::getUserTable();
+                $query->selectRaw('COUNT(' . $userTable . '.' . Config::getUserTableKeyColumn() . ')')
                     ->from($pivotTable)
-                    ->join(Config::getUserTable(), Config::getUserTable() . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
+                    ->join($userTable, $userTable . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
                     ->whereColumn($pivotTable . '.filter_set_id', $userViewTable . '.id')
                     ->where($pivotTable . '.user_id', Config::auth()->id());
             }, 'is_managed_by_current_user')

@@ -4,11 +4,9 @@ namespace App\Models\Sakemaru;
 
 use App\Enums\AvailableQuantityFlag;
 use App\Enums\TemperatureType;
-use App\Models\WmsLocationLevel;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Location extends CustomModel
 {
@@ -41,13 +39,6 @@ class Location extends CustomModel
         return $this->hasOne(\App\Models\WmsLocation::class, 'location_id', 'id');
     }
 
-    /**
-     * Get the levels for this location
-     */
-    public function levels(): HasMany
-    {
-        return $this->hasMany(WmsLocationLevel::class, 'location_id');
-    }
     public function joinedLocation() : Attribute
     {
         return Attribute::make(

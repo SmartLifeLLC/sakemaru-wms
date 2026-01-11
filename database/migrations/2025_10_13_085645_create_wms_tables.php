@@ -69,6 +69,8 @@ return new class extends Migration
         });
 
 
+        if(Schema::connection('sakemaru')->hasTable('real_stocks')){
+
         // Create view for available stock with WMS tracking
         DB::connection('sakemaru')->statement("
                 CREATE OR REPLACE VIEW wms_v_stock_available AS
@@ -91,6 +93,7 @@ return new class extends Migration
                 LEFT JOIN wms_real_stocks wrs ON rs.id = wrs.real_stock_id
             ");
 
+        }
 
     }
 

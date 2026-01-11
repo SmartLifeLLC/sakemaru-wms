@@ -21,29 +21,24 @@ class PrintRequestService
     public function createPrintRequest(int $deliveryCourseId, string $shipmentDate, int $warehouseId, ?int $waveId = null): array
     {
         try {
-            // 配送コースの情報を取得
-            $deliveryCourse = DB::connection('sakemaru')
-                ->table('delivery_courses')
-                ->where('id', $deliveryCourseId)
+            // 配送コース別プリンター設定を取得
+            $printerSetting = DB::connection('sakemaru')
+                ->table('client_printer_course_settings')
+                ->where('warehouse_id', $warehouseId)
+                ->where('delivery_course_id', $deliveryCourseId)
+                ->where('is_active', true)
                 ->first();
 
-            if (!$deliveryCourse) {
-                return [
-                    'success' => false,
-                    'message' => '配送コースが見つかりません。',
-                    'queue_id' => null,
-                ];
-            }
-
-            // プリンタードライバーIDを取得
-            $printerDriverId = $deliveryCourse->client_printer_driver_id;
-            if (!$printerDriverId) {
+            if (!$printerSetting) {
                 return [
                     'success' => false,
                     'message' => '配送コースにプリンターが設定されていません。',
                     'queue_id' => null,
                 ];
             }
+
+            // プリンタードライバーIDを取得
+            $printerDriverId = $printerSetting->printer_driver_id;
 
             // 対象のピッキングタスクを取得
             $query = WmsPickingTask::where('delivery_course_id', $deliveryCourseId)

@@ -44,17 +44,19 @@ return new class extends Migration
         });
 
         // Step 5: 既存データのfloor_idを推測して設定（最初のアイテムのロケーションから）
-        DB::connection($connection)->statement("
-            UPDATE wms_picking_tasks pt
-            INNER JOIN (
-                SELECT pir.picking_task_id, l.floor_id
-                FROM wms_picking_item_results pir
-                INNER JOIN locations l ON pir.location_id = l.id
-                GROUP BY pir.picking_task_id, l.floor_id
-            ) first_item ON pt.id = first_item.picking_task_id
-            SET pt.floor_id = first_item.floor_id
-            WHERE pt.floor_id IS NULL
-        ");
+        if(Schema::connection($connection)->hasTable('locations')){
+            DB::connection($connection)->statement("
+                UPDATE wms_picking_tasks pt
+                INNER JOIN (
+                    SELECT pir.picking_task_id, l.floor_id
+                    FROM wms_picking_item_results pir
+                    INNER JOIN locations l ON pir.location_id = l.id
+                    GROUP BY pir.picking_task_id, l.floor_id
+                ) first_item ON pt.id = first_item.picking_task_id
+                SET pt.floor_id = first_item.floor_id
+                WHERE pt.floor_id IS NULL
+            ");
+        }
 
         // Step 6: wms_picking_tasksからtrade_idを削除
         Schema::connection($connection)->table('wms_picking_tasks', function (Blueprint $table) {

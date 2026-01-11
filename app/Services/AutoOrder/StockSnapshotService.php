@@ -63,6 +63,7 @@ class StockSnapshotService
      * 指定倉庫の在庫スナップショットを生成
      *
      * INSERT INTO ... SELECT で一括処理（高速）
+     * 入荷予定数は wms_order_incoming_schedules から集計
      */
     public function generateSnapshots(array $warehouseIds, ?WmsAutoOrderJobControl $job = null): int
     {
@@ -74,21 +75,70 @@ class StockSnapshotService
         // INSERT INTO ... SELECT で一括処理
         $warehouseIdsList = implode(',', $warehouseIds);
 
+        // 入荷予定数を含めたスナップショット生成
+        // wms_order_incoming_schedules から PENDING/PARTIAL ステータスの残数量を集計
         $sql = "
             INSERT INTO wms_item_stock_snapshots
                 (warehouse_id, item_id, snapshot_at, total_effective_piece, total_non_effective_piece, total_incoming_piece, created_at, updated_at)
             SELECT
-                warehouse_id,
-                item_id,
+                COALESCE(s.warehouse_id, i.warehouse_id) as warehouse_id,
+                COALESCE(s.item_id, i.item_id) as item_id,
                 '{$snapshotAt}' as snapshot_at,
-                SUM(available_for_wms) as total_effective_piece,
+                COALESCE(s.total_effective, 0) as total_effective_piece,
                 0 as total_non_effective_piece,
-                0 as total_incoming_piece,
+                COALESCE(i.total_incoming, 0) as total_incoming_piece,
                 '{$snapshotAt}' as created_at,
                 '{$snapshotAt}' as updated_at
-            FROM wms_v_stock_available
-            WHERE warehouse_id IN ({$warehouseIdsList})
-            GROUP BY warehouse_id, item_id
+            FROM (
+                -- 現在の有効在庫を集計
+                SELECT
+                    warehouse_id,
+                    item_id,
+                    SUM(available_for_wms) as total_effective
+                FROM wms_v_stock_available
+                WHERE warehouse_id IN ({$warehouseIdsList})
+                GROUP BY warehouse_id, item_id
+            ) s
+            LEFT JOIN (
+                -- 入荷予定数を集計（PENDING/PARTIAL のみ、残数量）
+                SELECT
+                    warehouse_id,
+                    item_id,
+                    SUM(expected_quantity - received_quantity) as total_incoming
+                FROM wms_order_incoming_schedules
+                WHERE warehouse_id IN ({$warehouseIdsList})
+                  AND status IN ('PENDING', 'PARTIAL')
+                GROUP BY warehouse_id, item_id
+            ) i ON s.warehouse_id = i.warehouse_id AND s.item_id = i.item_id
+
+            UNION
+
+            -- 在庫がないが入荷予定がある商品
+            SELECT
+                i.warehouse_id,
+                i.item_id,
+                '{$snapshotAt}' as snapshot_at,
+                0 as total_effective_piece,
+                0 as total_non_effective_piece,
+                i.total_incoming as total_incoming_piece,
+                '{$snapshotAt}' as created_at,
+                '{$snapshotAt}' as updated_at
+            FROM (
+                SELECT
+                    warehouse_id,
+                    item_id,
+                    SUM(expected_quantity - received_quantity) as total_incoming
+                FROM wms_order_incoming_schedules
+                WHERE warehouse_id IN ({$warehouseIdsList})
+                  AND status IN ('PENDING', 'PARTIAL')
+                GROUP BY warehouse_id, item_id
+            ) i
+            LEFT JOIN (
+                SELECT DISTINCT warehouse_id, item_id
+                FROM wms_v_stock_available
+                WHERE warehouse_id IN ({$warehouseIdsList})
+            ) s ON s.warehouse_id = i.warehouse_id AND s.item_id = i.item_id
+            WHERE s.warehouse_id IS NULL
         ";
 
         DB::connection('sakemaru')->statement($sql);
@@ -104,12 +154,32 @@ class StockSnapshotService
 
     /**
      * 入荷予定数を取得
-     * TODO: 実際の発注残テーブルから取得する処理を実装
+     *
+     * wms_order_incoming_schedules から PENDING/PARTIAL ステータスの残数量を取得
+     *
+     * @param array $warehouseIds 倉庫ID配列
+     * @return array ['warehouse_id-item_id' => quantity]
      */
-    private function getIncomingStocks(array $warehouseIds): array
+    public function getIncomingStocks(array $warehouseIds): array
     {
-        // 現時点では空の配列を返す
-        // 将来的には発注残テーブルから集計
-        return [];
+        if (empty($warehouseIds)) {
+            return [];
+        }
+
+        $results = DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('status', ['PENDING', 'PARTIAL'])
+            ->selectRaw('warehouse_id, item_id, SUM(expected_quantity - received_quantity) as incoming_qty')
+            ->groupBy('warehouse_id', 'item_id')
+            ->get();
+
+        $stocks = [];
+        foreach ($results as $row) {
+            $key = "{$row->warehouse_id}-{$row->item_id}";
+            $stocks[$key] = (int) $row->incoming_qty;
+        }
+
+        return $stocks;
     }
 }

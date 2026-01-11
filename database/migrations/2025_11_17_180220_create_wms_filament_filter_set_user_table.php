@@ -12,16 +12,16 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::connection('sakemaru')->create('wms_filament_filter_set_user', function (Blueprint $table) {
-            $userClass = Config::getUser();
-            $user = new $userClass();
-
-            $table->id();
-
-            $table->foreignId('user_id')->references($user->getKeyName())->on($user->getTable())->constrained()->cascadeOnDelete();
-            $table->foreignId('filter_set_id')->references('id')->on('wms_filament_filter_sets')->constrained()->cascadeOnDelete();
-            $table->smallInteger('sort_order')->default(1);
-        });
+//        Schema::connection('sakemaru')->create('wms_filament_filter_set_user', function (Blueprint $table) {
+//            $userClass = Config::getUser();
+//            $user = new $userClass();
+//
+//            $table->id();
+//
+//            $table->foreignId('user_id')->references($user->getKeyName())->on($user->getTable())->constrained()->cascadeOnDelete();
+//            $table->foreignId('filter_set_id')->references('id')->on('wms_filament_filter_sets')->constrained()->cascadeOnDelete();
+//            $table->smallInteger('sort_order')->default(1);
+//        });
     }
 
     /**

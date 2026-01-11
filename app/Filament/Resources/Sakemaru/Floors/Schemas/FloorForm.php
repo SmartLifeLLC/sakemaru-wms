@@ -4,7 +4,6 @@ namespace App\Filament\Resources\Sakemaru\Floors\Schemas;
 
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Schema;
 
 class FloorForm
@@ -29,9 +28,6 @@ class FloorForm
                     ->label('フロア名')
                     ->required()
                     ->maxLength(255),
-                Toggle::make('is_active')
-                    ->label('有効')
-                    ->default(true),
             ]);
     }
 }

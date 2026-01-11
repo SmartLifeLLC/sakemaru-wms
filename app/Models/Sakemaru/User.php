@@ -5,16 +5,16 @@ namespace App\Models\Sakemaru;
 
 use Archilex\AdvancedTables\Concerns\HasViews;
 use Archilex\AdvancedTables\Support\Config;
+use Filament\Models\Contracts\FilamentUser;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class User extends Authenticatable
+class User extends Authenticatable implements FilamentUser
 {
     use HasViews;
 
@@ -186,9 +186,11 @@ class User extends Authenticatable
         return Config::getUserView()::query()
                 ->select($columns)
                 ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
-                    $query->selectRaw('COUNT(' . DB::getTablePrefix() . Config::getUserTable() . '.' . Config::getUserTableKeyColumn() . ')')
+                    // Use 'users' directly without prefix - users table doesn't have wms_ prefix
+                    $userTable = Config::getUserTable();
+                    $query->selectRaw('COUNT(' . $userTable . '.' . Config::getUserTableKeyColumn() . ')')
                         ->from($pivotTable)
-                        ->join(Config::getUserTable(), Config::getUserTable() . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
+                        ->join($userTable, $userTable . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
                         ->whereColumn($pivotTable . '.filter_set_id', $userViewTable . '.id')
                         ->where($pivotTable . '.user_id', Config::auth()->id());
                 }, 'is_managed_by_current_user')
@@ -262,9 +264,11 @@ class User extends Authenticatable
         return Config::getUserView()::query()
             ->select($columns)
             ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
-                $query->selectRaw('COUNT(' . DB::getTablePrefix() . Config::getUserTable() . '.' . Config::getUserTableKeyColumn() . ')')
+                // Use 'users' directly without prefix - users table doesn't have wms_ prefix
+                $userTable = Config::getUserTable();
+                $query->selectRaw('COUNT(' . $userTable . '.' . Config::getUserTableKeyColumn() . ')')
                     ->from($pivotTable)
-                    ->join(Config::getUserTable(), Config::getUserTable() . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
+                    ->join($userTable, $userTable . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
                     ->whereColumn($pivotTable . '.filter_set_id', $userViewTable . '.id')
                     ->where($pivotTable . '.user_id', Config::auth()->id());
             }, 'is_managed_by_current_user')
@@ -305,6 +309,12 @@ class User extends Authenticatable
             ->orderBy('managed_by_current_user_sort_order', 'asc')
             ->limit(20)
             ->get();
+    }
+
+
+    public function canAccessPanel(\Filament\Panel $panel): bool
+    {
+        return true;
     }
 
 }

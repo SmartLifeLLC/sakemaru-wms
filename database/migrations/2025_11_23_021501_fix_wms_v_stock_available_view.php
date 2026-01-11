@@ -13,7 +13,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::connection('sakemaru')->statement("
+        if(Schema::connection('sakemaru')->hasTable('real_stocks')){
+            DB::connection('sakemaru')->statement("
             CREATE OR REPLACE VIEW wms_v_stock_available AS
             SELECT
                 rs.id AS real_stock_id,
@@ -32,6 +33,7 @@ return new class extends Migration
                 rs.created_at
             FROM real_stocks rs
         ");
+        }
     }
 
     /**

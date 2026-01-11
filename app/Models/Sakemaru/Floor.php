@@ -11,6 +11,11 @@ class Floor extends CustomModel
     protected $guarded = [];
     protected $casts = [];
 
+    /**
+     * floors table doesn't have is_active column
+     */
+    protected bool $hasIsActiveColumn = false;
+
     protected static function booted(): void
     {
         static::creating(function (Floor $floor) {

@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands\TestData;
 
-use App\Models\WmsLocationLevel;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -189,7 +188,6 @@ class GenerateMasterDataCommand extends Command
         ];
 
         $totalCreated = 0;
-        $totalLevelsCreated = 0;
         $walkingOrder = 1; // Initialize walking order counter for this floor
 
         // Get the next available code2 number for each prefix in this warehouse
@@ -254,20 +252,11 @@ class GenerateMasterDataCommand extends Command
                     'updated_at' => now(),
                 ]);
 
-                // Create ONE WMS level (level 1) for this location
-                WmsLocationLevel::create([
-                    'location_id' => $locationId,
-                    'level_number' => 1,
-                    'name' => "{$type['name']}エリア {$floor->name} {$code1}{$code2} 1段",
-                    'available_quantity_flags' => $type['flag'],
-                ]);
-
                 $totalCreated++;
-                $totalLevelsCreated++;
             }
         }
 
-        $this->line("  Created {$totalCreated} locations with {$totalLevelsCreated} WMS levels for floor {$floor->name}");
+        $this->line("  Created {$totalCreated} locations for floor {$floor->name}");
         return $totalCreated;
     }
 }

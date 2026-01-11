@@ -1,0 +1,7 @@
+このプロジェクトはLaravel filament で開発されている。
+このプロジェクトはsakemaru_wmsのdefault mysql データベースとDB_HOST_SAKEMARU, DB_DATABASE_SAKEMARUの設定による sakemaruデータベースがある。
+
+現在このシステムはwms用のテーブルにはwms_のprefixがついている。
+この手動のprefix管理から　database.php から prefix設定を自動的におこないたい。
+
+1. 現在の

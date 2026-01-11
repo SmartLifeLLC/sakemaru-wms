@@ -5,7 +5,6 @@ namespace App\Filament\Resources\Sakemaru\Floors\Tables;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use App\Enums\PaginationOptions;
@@ -31,10 +30,6 @@ class FloorsTable
                 TextColumn::make('name')
                     ->label('フロア名')
                     ->searchable(),
-                IconColumn::make('is_active')
-                    ->label('有効')
-                    ->boolean()
-                    ->sortable(),
                 TextColumn::make('created_at')
                     ->label('作成日時')
                     ->dateTime('Y-m-d H:i')

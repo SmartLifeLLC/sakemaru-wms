@@ -3,12 +3,18 @@
 namespace App\Models;
 
 use Archilex\AdvancedTables\Concerns\HasViews;
-use Illuminate\Database\Eloquent\Model;
 
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 
 
 // Only for filament advanced-tables (actual user table exists in SAKEMARU DB)
-class User extends Model
+class User extends Authenticatable implements FilamentUser
 {
-    use HasViews;
+    public function canAccessPanel(Panel $panel): bool
+    {
+
+        return true;
+    }
 }
