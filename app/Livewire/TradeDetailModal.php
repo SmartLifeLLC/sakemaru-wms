@@ -2,24 +2,25 @@
 
 namespace App\Livewire;
 
-use App\Models\Sakemaru\Trade;
 use App\Services\DeliveryCourseChangeService;
-use Filament\Notifications\Notification;
-use Illuminate\Support\Facades\DB;
-use Livewire\Component;
-
 use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\DB;
+use Livewire\Component;
 
 class TradeDetailModal extends Component implements HasForms
 {
     use InteractsWithForms;
 
     public $tradeId;
+
     public $tradeData = [];
+
     public $newDeliveryCourseId;
+
     public $availableCourses = [];
 
     public function mount(int $tradeId)
@@ -27,7 +28,7 @@ class TradeDetailModal extends Component implements HasForms
         $this->tradeId = $tradeId;
         $this->loadTradeDetails();
         $this->loadAvailableCourses();
-        
+
         $this->form->fill([
             'newDeliveryCourseId' => $this->newDeliveryCourseId,
         ]);
@@ -54,7 +55,7 @@ class TradeDetailModal extends Component implements HasForms
             ->where('id', $this->tradeId)
             ->first();
 
-        if (!$trade) {
+        if (! $trade) {
             return;
         }
 
@@ -152,14 +153,14 @@ class TradeDetailModal extends Component implements HasForms
         }
 
         // 2. If not found, try to get from picking task
-        if (!$warehouseId) {
+        if (! $warehouseId) {
             $pickingTask = DB::connection('sakemaru')
                 ->table('wms_picking_item_results')
                 ->where('trade_id', $this->tradeId)
                 ->join('wms_picking_tasks', 'wms_picking_item_results.picking_task_id', '=', 'wms_picking_tasks.id')
                 ->select('wms_picking_tasks.warehouse_id')
                 ->first();
-            
+
             if ($pickingTask) {
                 $warehouseId = $pickingTask->warehouse_id;
             }
@@ -177,8 +178,8 @@ class TradeDetailModal extends Component implements HasForms
                 })
                 ->toArray();
         } else {
-             // Fallback: fetch all active courses if warehouse not found
-             $this->availableCourses = DB::connection('sakemaru')
+            // Fallback: fetch all active courses if warehouse not found
+            $this->availableCourses = DB::connection('sakemaru')
                 ->table('delivery_courses')
                 ->where('is_active', true)
                 ->orderBy('code')
@@ -203,7 +204,7 @@ class TradeDetailModal extends Component implements HasForms
             Notification::make()
                 ->title('配送コース変更完了')
                 ->success()
-                ->body("配送コースを変更しました。")
+                ->body('配送コースを変更しました。')
                 ->send();
 
             $this->loadTradeDetails(); // Reload data to reflect changes

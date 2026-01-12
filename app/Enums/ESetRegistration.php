@@ -11,7 +11,7 @@ enum ESetRegistration: string
     case DISABLE = 'DISABLE';
     case ENABLE = 'ENABLE';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::DISABLE => '-',
@@ -19,7 +19,7 @@ enum ESetRegistration: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::DISABLE => 0,

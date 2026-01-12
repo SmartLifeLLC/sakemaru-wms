@@ -2,20 +2,18 @@
 
 namespace App\Filament\Resources\WmsPickingTasks;
 
+use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingItemEdits;
 use App\Models\Sakemaru\Partner;
 use App\Models\WmsPickingItemResult;
-use Filament\Tables\Columns\TextInputColumn;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
-use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
-use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
-use App\Enums\PaginationOptions;
-
 
 class WmsPickingItemEditResource extends Resource
 {
@@ -30,7 +28,7 @@ class WmsPickingItemEditResource extends Resource
     {
 
         return $table
-            ->modifyQueryUsing(function (Builder $query,$livewire) {
+            ->modifyQueryUsing(function (Builder $query, $livewire) {
                 // リクエストから値を取得
                 // Pageクラスのプロパティを参照
                 // ※ $livewireがListWmsPickingItemEditsのインスタンスか念のためチェックしても良い
@@ -86,25 +84,25 @@ class WmsPickingItemEditResource extends Resource
                     ->type('number')
                     ->step(1)
                     ->alignCenter()
-                    ->disabled(fn ($record) => !$record->pickingTask || $record->pickingTask->status !== \App\Models\WmsPickingTask::STATUS_PENDING)
+                    ->disabled(fn ($record) => ! $record->pickingTask || $record->pickingTask->status !== \App\Models\WmsPickingTask::STATUS_PENDING)
                     ->extraCellAttributes([
                         'class' => 'p-0',
                     ])
                     ->extraInputAttributes([
-                        'class' =>
-                            'w-16 !h-7 !p-0 text-center border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 border focus:border-primary-500 focus:ring-primary-500 !text-xs',
+                        'class' => 'w-16 !h-7 !p-0 text-center border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 border focus:border-primary-500 focus:ring-primary-500 !text-xs',
                         'min' => '0',
                         'step' => '1',
                         'inputmode' => 'numeric',
                         'pattern' => '[0-9]*',
                     ])
                     ->afterStateUpdated(function ($record, $state) {
-                        if (!is_numeric($state) || $state < 0) {
+                        if (! is_numeric($state) || $state < 0) {
                             Notification::make()
                                 ->title('エラー')
                                 ->body('有効な数値を入力してください')
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 
@@ -114,6 +112,7 @@ class WmsPickingItemEditResource extends Resource
                                 ->body("引当数は受注数（{$record->ordered_qty}）を超えることはできません")
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 
@@ -134,20 +133,20 @@ class WmsPickingItemEditResource extends Resource
                     ->formatStateUsing(fn ($state) => $state > 0 ? $state : '-'),
             ])
             ->filters([
-//                TernaryFilter::make('shortage')
-//                    ->label('欠品のみ')
-//                    ->queries(
-//                        true: fn (Builder $query) => $query->whereColumn('ordered_qty', '>', 'planned_qty'),
-//                        false: fn (Builder $query) => $query->whereColumn('ordered_qty', '<=', 'planned_qty'),
-//                        blank: fn (Builder $query) => $query,
-//                    ),
+                //                TernaryFilter::make('shortage')
+                //                    ->label('欠品のみ')
+                //                    ->queries(
+                //                        true: fn (Builder $query) => $query->whereColumn('ordered_qty', '>', 'planned_qty'),
+                //                        false: fn (Builder $query) => $query->whereColumn('ordered_qty', '<=', 'planned_qty'),
+                //                        blank: fn (Builder $query) => $query,
+                //                    ),
                 SelectFilter::make('partner')
                     ->label('得意先')
                     ->options(function () {
                         // Get pickingTaskId from URL query parameters
                         $pickingTaskId = request()->input('tableFilters.picking_task_id.value');
 
-                        if (!$pickingTaskId) {
+                        if (! $pickingTaskId) {
                             return [];
                         }
 
@@ -156,14 +155,16 @@ class WmsPickingItemEditResource extends Resource
                         $partners = Partner::whereHas('trades.wmsPickingItemResults', function (Builder $query) use ($pickingTaskId) {
                             $query->where('picking_task_id', $pickingTaskId);
                         })->get();
+
                         return $partners->pluck('name', 'id')->toArray();
                     })
                     ->query(function (Builder $query, $state) {
-                        if (!empty($state['value'])) {
+                        if (! empty($state['value'])) {
                             return $query->whereHas('earning.buyer.partner', function ($q) use ($state) {
                                 $q->where('id', $state['value']);
                             });
                         }
+
                         return $query;
                     }),
                 SelectFilter::make('item')

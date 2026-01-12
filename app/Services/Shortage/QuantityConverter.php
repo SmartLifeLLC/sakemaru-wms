@@ -11,10 +11,11 @@ class QuantityConverter
     /**
      * CASE/PIECE/CARTON → PIECE変換
      *
-     * @param int $qty 数量
-     * @param string $qtyType 単位タイプ (CASE, PIECE, CARTON)
-     * @param int $caseSize ケース入数
+     * @param  int  $qty  数量
+     * @param  string  $qtyType  単位タイプ (CASE, PIECE, CARTON)
+     * @param  int  $caseSize  ケース入数
      * @return int PIECE換算数量
+     *
      * @throws \Exception
      */
     public static function convertToEach(int $qty, string $qtyType, int $caseSize): int
@@ -30,8 +31,8 @@ class QuantityConverter
     /**
      * PIECE → 表示用 CASE/PIECE 変換
      *
-     * @param int $each PIECE数量
-     * @param int $caseSize ケース入数
+     * @param  int  $each  PIECE数量
+     * @param  int  $caseSize  ケース入数
      * @return array{case: int, piece: int}
      */
     public static function convertFromEach(int $each, int $caseSize): array
@@ -52,8 +53,8 @@ class QuantityConverter
     /**
      * CASE表示用の文字列を生成
      *
-     * @param int $each PIECE数量
-     * @param int $caseSize ケース入数
+     * @param  int  $each  PIECE数量
+     * @param  int  $caseSize  ケース入数
      * @return string 例: "2ケース 5個"
      */
     public static function formatCaseDisplay(int $each, int $caseSize): string

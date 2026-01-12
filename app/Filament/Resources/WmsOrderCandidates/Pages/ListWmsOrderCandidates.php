@@ -86,6 +86,7 @@ class ListWmsOrderCandidates extends ListRecords
                             ->body('この倉庫・商品の組み合わせは既に発注候補に存在します')
                             ->danger()
                             ->send();
+
                         return;
                     }
 
@@ -94,12 +95,13 @@ class ListWmsOrderCandidates extends ListRecords
                         ->where('item_id', $data['item_id'])
                         ->first();
 
-                    if (!$itemContractor) {
+                    if (! $itemContractor) {
                         Notification::make()
                             ->title('エラー')
                             ->body('この倉庫・商品の組み合わせに対する発注先が設定されていません')
                             ->danger()
                             ->send();
+
                         return;
                     }
 

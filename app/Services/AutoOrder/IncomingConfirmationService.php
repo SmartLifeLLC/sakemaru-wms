@@ -19,11 +19,10 @@ class IncomingConfirmationService
     /**
      * 入庫予定を確定し、仕入れデータ作成キューに登録
      *
-     * @param WmsOrderIncomingSchedule $schedule 入庫予定
-     * @param int $confirmedBy 確定者ID
-     * @param int|null $receivedQuantity 実際の入庫数量（nullの場合は予定数量）
-     * @param string|null $actualDate 実際の入庫日（nullの場合は本日）
-     * @return WmsOrderIncomingSchedule
+     * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
+     * @param  int  $confirmedBy  確定者ID
+     * @param  int|null  $receivedQuantity  実際の入庫数量（nullの場合は予定数量）
+     * @param  string|null  $actualDate  実際の入庫日（nullの場合は本日）
      */
     public function confirmIncoming(
         WmsOrderIncomingSchedule $schedule,
@@ -74,11 +73,10 @@ class IncomingConfirmationService
     /**
      * 一部入庫を記録
      *
-     * @param WmsOrderIncomingSchedule $schedule 入庫予定
-     * @param int $receivedQuantity 入庫数量
-     * @param int $confirmedBy 確定者ID
-     * @param string|null $actualDate 入庫日
-     * @return WmsOrderIncomingSchedule
+     * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
+     * @param  int  $receivedQuantity  入庫数量
+     * @param  int  $confirmedBy  確定者ID
+     * @param  string|null  $actualDate  入庫日
      */
     public function recordPartialIncoming(
         WmsOrderIncomingSchedule $schedule,
@@ -132,9 +130,9 @@ class IncomingConfirmationService
     /**
      * 複数の入庫予定を一括確定
      *
-     * @param Collection|array $scheduleIds 入庫予定IDの配列
-     * @param int $confirmedBy 確定者ID
-     * @param string|null $actualDate 入庫日
+     * @param  Collection|array  $scheduleIds  入庫予定IDの配列
+     * @param  int  $confirmedBy  確定者ID
+     * @param  string|null  $actualDate  入庫日
      * @return array ['success' => int, 'failed' => int, 'errors' => array]
      */
     public function confirmMultiple(array|Collection $scheduleIds, int $confirmedBy, ?string $actualDate = null): array
@@ -180,8 +178,8 @@ class IncomingConfirmationService
         $schedule->update([
             'status' => IncomingScheduleStatus::CANCELLED,
             'note' => $schedule->note
-                ? $schedule->note . "\n[キャンセル] " . $reason
-                : "[キャンセル] " . $reason,
+                ? $schedule->note."\n[キャンセル] ".$reason
+                : '[キャンセル] '.$reason,
         ]);
 
         Log::info('Incoming schedule cancelled', [
@@ -283,7 +281,7 @@ class IncomingConfirmationService
             'account_date' => $deliveredDate,
             'supplier_code' => $supplier?->code ?? '',
             'warehouse_code' => $warehouse->code,
-            'note' => $this->buildPurchaseNote($schedule) . ' (一部入庫)',
+            'note' => $this->buildPurchaseNote($schedule).' (一部入庫)',
             'details' => [
                 [
                     'item_code' => $item->code,

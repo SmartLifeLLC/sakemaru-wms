@@ -8,7 +8,7 @@ class PartnerBank extends CustomModel
 {
     protected $guarded = [];
 
-    public function partner() : belongsTo
+    public function partner(): belongsTo
     {
         return $this->belongsTo(Partner::class);
     }
@@ -20,6 +20,6 @@ class PartnerBank extends CustomModel
 
     public function hasData(): bool
     {
-        return !(is_null($this->bank_id) && is_null($this->account_number) && is_null($this->holder_name));
+        return ! (is_null($this->bank_id) && is_null($this->account_number) && is_null($this->holder_name));
     }
 }

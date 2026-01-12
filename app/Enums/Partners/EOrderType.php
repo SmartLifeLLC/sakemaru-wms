@@ -1,6 +1,5 @@
 <?php
 
-
 namespace App\Enums\Partners;
 
 use App\Traits\EnumExtensionTrait;
@@ -11,7 +10,6 @@ enum EOrderType: string
 
     case ONLY_ORDER = 'ONLY_ORDER';
     case CONFIRMED = 'CONFIRMED';
-
 
     public function name(): string
     {

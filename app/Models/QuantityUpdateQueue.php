@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class QuantityUpdateQueue extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'quantity_update_queue';
 
     protected $fillable = [
@@ -35,11 +36,14 @@ class QuantityUpdateQueue extends Model
 
     // Status constants
     public const STATUS_BEFORE = 'BEFORE';
+
     public const STATUS_UPDATING = 'UPDATING';
+
     public const STATUS_FINISHED = 'FINISHED';
 
     // Trade category constants
     public const TRADE_CATEGORY_EARNING = 'EARNING';
+
     public const TRADE_CATEGORY_PURCHASE = 'PURCHASE';
 
     // Relationships

@@ -12,8 +12,8 @@ class RouteOptimizer
      * Build initial route using Nearest Insertion algorithm
      * First key is fixed as start point, but we optimize the order of subsequent locations
      *
-     * @param array $keys Array of location keys (first key is START point)
-     * @param callable $distFunc Distance function (key1, key2) => distance
+     * @param  array  $keys  Array of location keys (first key is START point)
+     * @param  callable  $distFunc  Distance function (key1, key2) => distance
      * @return array Ordered array of keys
      */
     public function nearestInsertion(array $keys, callable $distFunc): array
@@ -46,7 +46,7 @@ class RouteOptimizer
         $unused = array_values(array_diff($unused, [$nearest]));
 
         // Insert remaining locations using nearest insertion
-        while (!empty($unused)) {
+        while (! empty($unused)) {
             $best = null;
 
             // For each unused location
@@ -91,9 +91,9 @@ class RouteOptimizer
      * Improve route using 2-opt algorithm
      * First element (START point) is kept fixed
      *
-     * @param array $seq Ordered array of location keys
-     * @param callable $distFunc Distance function (key1, key2) => distance
-     * @param int $minImprovement Minimum improvement in pixels to accept a swap (default: 1)
+     * @param  array  $seq  Ordered array of location keys
+     * @param  callable  $distFunc  Distance function (key1, key2) => distance
+     * @param  int  $minImprovement  Minimum improvement in pixels to accept a swap (default: 1)
      * @return array Improved route
      */
     public function twoOpt(array $seq, callable $distFunc, int $minImprovement = 1): array
@@ -151,8 +151,8 @@ class RouteOptimizer
     /**
      * Calculate total route distance
      *
-     * @param array $route Ordered array of location keys
-     * @param callable $distFunc Distance function
+     * @param  array  $route  Ordered array of location keys
+     * @param  callable  $distFunc  Distance function
      * @return int Total distance in pixels
      */
     public function calculateTotalDistance(array $route, callable $distFunc): int
@@ -161,14 +161,15 @@ class RouteOptimizer
         for ($i = 0; $i < count($route) - 1; $i++) {
             $total += $distFunc($route[$i], $route[$i + 1]);
         }
+
         return $total;
     }
 
     /**
      * Optimize route using both Nearest Insertion and 2-opt
      *
-     * @param array $keys Array of location keys
-     * @param callable $distFunc Distance function
+     * @param  array  $keys  Array of location keys
+     * @param  callable  $distFunc  Distance function
      * @return array ['route' => array, 'distance' => int, 'iterations' => int]
      */
     public function optimizeRoute(array $keys, callable $distFunc): array

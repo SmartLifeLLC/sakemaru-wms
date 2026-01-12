@@ -2,31 +2,24 @@
 
 namespace App\Filament\Resources\WmsShortages\Tables;
 
+use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
 use App\Services\Shortage\ProxyShipmentService;
-use App\Services\Shortage\ShortageConfirmationCancelService;
-use App\Services\Shortage\ShortageConfirmationService;
 use Filament\Actions\Action;
-use Filament\Actions\BulkAction;
-use Filament\Actions\BulkActionGroup;
-use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
-
 
 class WmsShortagesTable
 {
@@ -46,8 +39,8 @@ class WmsShortagesTable
                 TextColumn::make('is_confirmed')
                     ->label('承認')
                     ->badge()
-                    ->formatStateUsing(fn(bool $state): string => $state ? '承認済み' : '未承認')
-                    ->color(fn(bool $state): string => $state ? 'success' : 'gray')
+                    ->formatStateUsing(fn (bool $state): string => $state ? '承認済み' : '未承認')
+                    ->color(fn (bool $state): string => $state ? 'success' : 'gray')
                     ->alignment('center'),
 
                 TextColumn::make('confirmedBy.name')
@@ -58,14 +51,14 @@ class WmsShortagesTable
                 TextColumn::make('status')
                     ->label('ステータス')
                     ->badge()
-                    ->color(fn(?string $state): string => match ($state) {
+                    ->color(fn (?string $state): string => match ($state) {
                         'BEFORE' => 'danger',
                         'REALLOCATING' => 'warning',
                         'SHORTAGE' => 'info',
                         'PARTIAL_SHORTAGE' => 'warning',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn(?string $state): string => match ($state) {
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
                         'BEFORE' => '未対応',
                         'REALLOCATING' => '横持ち出荷',
                         'SHORTAGE' => '欠品確定',
@@ -124,22 +117,22 @@ class WmsShortagesTable
 
                 TextColumn::make('item.capacity_case')
                     ->label('入り数')
-                    ->formatStateUsing(fn($state) => $state ? (string)$state : '-')
+                    ->formatStateUsing(fn ($state) => $state ? (string) $state : '-')
                     ->alignment('center'),
 
                 TextColumn::make('item.volume')
                     ->label('容量')
                     ->formatStateUsing(function ($state, $record) {
-                        if (!$state) {
+                        if (! $state) {
                             return '-';
                         }
                         $volumeUnit = $record->item->volume_unit;
-                        if (!$volumeUnit) {
+                        if (! $volumeUnit) {
                             return $state;
                         }
                         $unit = \App\Enums\EVolumeUnit::tryFrom($volumeUnit);
 
-                        return $state . ($unit ? $unit->name() : '');
+                        return $state.($unit ? $unit->name() : '');
                     })
                     ->alignment('center'),
 
@@ -159,7 +152,7 @@ class WmsShortagesTable
 
                 TextColumn::make('shortage_qty')
                     ->label('欠品')
-                    ->color(fn($record) => $record->shortage_qty > 0 ? 'danger' : 'gray')
+                    ->color(fn ($record) => $record->shortage_qty > 0 ? 'danger' : 'gray')
                     ->weight('bold')
                     ->alignment('center'),
 
@@ -167,10 +160,12 @@ class WmsShortagesTable
                     ->label('横持')
                     ->state(function ($record) {
                         $qty = $record->allocations_total_qty ?? 0;
-                        return $qty > 0 ? (string)$qty : '-';
+
+                        return $qty > 0 ? (string) $qty : '-';
                     })
                     ->color(function ($record) {
                         $qty = $record->allocations_total_qty ?? 0;
+
                         return $qty > 0 ? 'info' : 'gray';
                     })
                     ->alignment('center'),
@@ -180,9 +175,9 @@ class WmsShortagesTable
                     ->formatStateUsing(function ($record) {
                         $qty = $record->remaining_qty;
 
-                        return $qty > 0 ? (string)$qty : '-';
+                        return $qty > 0 ? (string) $qty : '-';
                     })
-                    ->color(fn($record) => $record->remaining_qty > 0 ? 'warning' : 'success')
+                    ->color(fn ($record) => $record->remaining_qty > 0 ? 'warning' : 'success')
                     ->alignment('center'),
 
                 TextColumn::make('total_shortage_in_pieces')
@@ -190,9 +185,9 @@ class WmsShortagesTable
                     ->formatStateUsing(function ($record) {
                         $pieces = $record->total_shortage_in_pieces;
 
-                        return $pieces > 0 ? (string)$pieces : '-';
+                        return $pieces > 0 ? (string) $pieces : '-';
                     })
-                    ->color(fn($record) => $record->total_shortage_in_pieces > 0 ? 'danger' : 'gray')
+                    ->color(fn ($record) => $record->total_shortage_in_pieces > 0 ? 'danger' : 'gray')
                     ->weight('bold')
                     ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: false),
@@ -238,7 +233,7 @@ class WmsShortagesTable
                     ->relationship('trade.earning.delivery_course', 'name')
                     ->searchable()
                     ->query(function ($query, $data) {
-                        if (!empty($data['value'])) {
+                        if (! empty($data['value'])) {
                             $query->whereHas('trade.earning', function ($q) use ($data) {
                                 $q->where('delivery_course_id', $data['value']);
                             });
@@ -250,7 +245,7 @@ class WmsShortagesTable
                     ->relationship('trade.partner', 'name')
                     ->searchable()
                     ->query(function ($query, $data) {
-                        if (!empty($data['value'])) {
+                        if (! empty($data['value'])) {
                             $query->whereHas('trade', function ($q) use ($data) {
                                 $q->where('partner_id', $data['value']);
                             });
@@ -266,11 +261,11 @@ class WmsShortagesTable
                             ->orderBy('shipping_date', 'desc')
                             ->limit(30)
                             ->pluck('shipping_date', 'shipping_date')
-                            ->map(fn($date) => $date ? $date->format('Y-m-d') : '-')
+                            ->map(fn ($date) => $date ? $date->format('Y-m-d') : '-')
                             ->toArray();
                     })
                     ->query(function ($query, $data) {
-                        if (!empty($data['value'])) {
+                        if (! empty($data['value'])) {
                             $query->whereHas('wave', function ($q) use ($data) {
                                 $q->whereDate('shipping_date', $data['value']);
                             });
@@ -282,21 +277,21 @@ class WmsShortagesTable
                     ->relationship('trade.earning.buyer.current_detail.salesman', 'name')
                     ->searchable()
                     ->query(function ($query, $data) {
-                        if (!empty($data['value'])) {
+                        if (! empty($data['value'])) {
                             $query->whereHas('trade.earning.buyer.current_detail.salesman', function ($q) use ($data) {
                                 $q->where('id', $data['value']);
                             });
                         }
                     }),
             ])
-            ->recordAction(fn(WmsShortage $record) => $record->is_confirmed ? 'viewProxyShipment' : 'createProxyShipment'
+            ->recordAction(fn (WmsShortage $record) => $record->is_confirmed ? 'viewProxyShipment' : 'createProxyShipment'
             )
             ->recordActions([
                 Action::make('createProxyShipment')
                     ->label('欠品対応')
                     ->icon('heroicon-o-truck')
                     ->color('warning')
-                    ->hidden(fn(WmsShortage $record) => $record->is_confirmed)
+                    ->hidden(fn (WmsShortage $record) => $record->is_confirmed)
                     ->modalHeading('')
                     ->modalSubmitActionLabel('欠品対応確定')
                     ->schema([
@@ -336,12 +331,12 @@ class WmsShortagesTable
                                 })->toArray();
 
                                 $qtyType = QuantityType::tryFrom($record->qty_type_at_order);
-                                
+
                                 // 容量
                                 $volumeValue = '-';
                                 if ($record->item->volume) {
                                     $unit = \App\Enums\EVolumeUnit::tryFrom($record->item->volume_unit);
-                                    $volumeValue = $record->item->volume . ($unit ? $unit->name() : '');
+                                    $volumeValue = $record->item->volume.($unit ? $unit->name() : '');
                                 }
 
                                 // 欠品内訳
@@ -363,13 +358,13 @@ class WmsShortagesTable
                                     // Info Table Data
                                     'item_code' => $record->item->code ?? '-',
                                     'item_name' => $record->item->name ?? '-',
-                                    'capacity_case' => $record->item->capacity_case ? (string)$record->item->capacity_case : '-',
+                                    'capacity_case' => $record->item->capacity_case ? (string) $record->item->capacity_case : '-',
                                     'volume_value' => $volumeValue,
                                     'partner_code' => $record->trade->partner->code ?? '-',
                                     'partner_name' => $record->trade->partner->name ?? '-',
                                     'warehouse_name' => $record->warehouse->name ?? '-',
-                                    'order_qty' => (string)$record->order_qty,
-                                    'picked_qty' => (string)$record->picked_qty,
+                                    'order_qty' => (string) $record->order_qty,
+                                    'picked_qty' => (string) $record->picked_qty,
                                     'shortage_details' => $shortageDetailsValue,
                                 ];
                             })
@@ -394,13 +389,14 @@ class WmsShortagesTable
                             ->rules([
                                 function (WmsShortage $record) {
                                     return function (string $attribute, $value, \Closure $fail) use ($record) {
-                                        if (!is_array($value)) {
+                                        if (! is_array($value)) {
                                             return;
                                         }
 
                                         $totalAllocated = collect($value)->sum(function ($item) {
                                             $qty = $item['assign_qty'] ?? 0;
-                                            return is_numeric($qty) ? (int)$qty : 0;
+
+                                            return is_numeric($qty) ? (int) $qty : 0;
                                         });
 
                                         if ($totalAllocated > $record->shortage_qty) {
@@ -426,7 +422,7 @@ class WmsShortagesTable
                                 },
                             ]),
                     ]
-)
+                    )
                     ->action(function (WmsShortage $record, array $data, Action $action): void {
                         try {
                             $service = app(ProxyShipmentService::class);
@@ -442,7 +438,7 @@ class WmsShortagesTable
                             $existingAllocations = $record->allocations()->get();
 
                             foreach ($existingAllocations as $existing) {
-                                if (!in_array($existing->id, $formAllocationIds)) {
+                                if (! in_array($existing->id, $formAllocationIds)) {
                                     $service->deleteProxyShipment($existing);
                                     $deletedCount++;
                                 }
@@ -451,17 +447,18 @@ class WmsShortagesTable
                             foreach ($data['allocations'] as $allocation) {
                                 // 数量が0の場合は削除
                                 if (isset($allocation['assign_qty']) && $allocation['assign_qty'] == 0) {
-                                    if (!empty($allocation['id'])) {
+                                    if (! empty($allocation['id'])) {
                                         $existingAllocation = WmsShortageAllocation::find($allocation['id']);
                                         if ($existingAllocation) {
                                             $service->deleteProxyShipment($existingAllocation);
                                             $deletedCount++;
                                         }
                                     }
+
                                     continue;
                                 }
 
-                                if (!empty($allocation['id'])) {
+                                if (! empty($allocation['id'])) {
                                     $existingAllocation = WmsShortageAllocation::find($allocation['id']);
                                     if ($existingAllocation && in_array($existingAllocation->status, ['PENDING', 'RESERVED'])) {
                                         $existingAllocation->update([
@@ -510,7 +507,7 @@ class WmsShortagesTable
                                 $messages[] = "{$deletedCount}件の指示を削除";
                             }
 
-                            $statusLabel = match($record->status) {
+                            $statusLabel = match ($record->status) {
                                 WmsShortage::STATUS_SHORTAGE => '欠品確定',
                                 WmsShortage::STATUS_REALLOCATING => '再引当中',
                                 WmsShortage::STATUS_PARTIAL_SHORTAGE => '部分欠品',
@@ -519,7 +516,7 @@ class WmsShortagesTable
 
                             Notification::make()
                                 ->title('欠品対応を確定しました')
-                                ->body(implode('、', $messages) . ($messages ? '。' : '') . "ステータス: {$statusLabel}")
+                                ->body(implode('、', $messages).($messages ? '。' : '')."ステータス: {$statusLabel}")
                                 ->success()
                                 ->send();
                         } catch (\Exception $e) {
@@ -536,7 +533,7 @@ class WmsShortagesTable
                     ->label('対応確認')
                     ->icon('heroicon-o-eye')
                     ->color('info')
-                    ->visible(fn(WmsShortage $record): bool => $record->is_confirmed
+                    ->visible(fn (WmsShortage $record): bool => $record->is_confirmed
                     )
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
@@ -548,11 +545,11 @@ class WmsShortagesTable
                                         $volumeValue = '-';
                                         if ($record->item->volume) {
                                             $unit = \App\Enums\EVolumeUnit::tryFrom($record->item->volume_unit);
-                                            $volumeValue = $record->item->volume . ($unit ? $unit->name() : '');
+                                            $volumeValue = $record->item->volume.($unit ? $unit->name() : '');
                                         }
 
-                                        $orderQtyValue = (string)$record->order_qty;
-                                        $plannedQtyValue = (string)$record->picked_qty;
+                                        $orderQtyValue = (string) $record->order_qty;
+                                        $plannedQtyValue = (string) $record->picked_qty;
 
                                         $shortageDetailsParts = [];
                                         if ($record->allocation_shortage_qty > 0) {
@@ -564,16 +561,16 @@ class WmsShortagesTable
                                         $shortageDetailsValue = implode(' / ', $shortageDetailsParts);
 
                                         $shortageQtyValue = $record->shortage_qty > 0
-                                            ? (string)$record->shortage_qty
+                                            ? (string) $record->shortage_qty
                                             : '-';
 
                                         $allocatedQtyValue = ($record->allocations_total_qty ?? 0) > 0
-                                            ? (string)($record->allocations_total_qty ?? 0)
+                                            ? (string) ($record->allocations_total_qty ?? 0)
                                             : '-';
 
                                         $remainingQty = $record->remaining_qty;
                                         $remainingValue = $remainingQty > 0
-                                            ? (string)$remainingQty
+                                            ? (string) $remainingQty
                                             : '-';
 
                                         return [
@@ -589,7 +586,7 @@ class WmsShortagesTable
                                                 [
                                                     'label' => '入り数',
                                                     'value' => $record->item->capacity_case
-                                                        ? (string)$record->item->capacity_case
+                                                        ? (string) $record->item->capacity_case
                                                         : '-',
                                                 ],
                                                 [

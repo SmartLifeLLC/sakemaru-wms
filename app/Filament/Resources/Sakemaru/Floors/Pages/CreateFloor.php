@@ -14,8 +14,8 @@ class CreateFloor extends CreateRecord
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         // client_idは廃止予定だが、一旦はwarehouseのclient_idまたは最初のclientのIDを使用
-        if (!isset($data['client_id']) || empty($data['client_id'])) {
-            if (!empty($data['warehouse_id'])) {
+        if (! isset($data['client_id']) || empty($data['client_id'])) {
+            if (! empty($data['warehouse_id'])) {
                 $warehouse = Warehouse::find($data['warehouse_id']);
                 if ($warehouse) {
                     $data['client_id'] = $warehouse->client_id;
@@ -32,10 +32,10 @@ class CreateFloor extends CreateRecord
         }
 
         // creator_idとlast_updater_idを設定（現在は0を使用）
-        if (!isset($data['creator_id']) || empty($data['creator_id'])) {
+        if (! isset($data['creator_id']) || empty($data['creator_id'])) {
             $data['creator_id'] = 0;
         }
-        if (!isset($data['last_updater_id']) || empty($data['last_updater_id'])) {
+        if (! isset($data['last_updater_id']) || empty($data['last_updater_id'])) {
             $data['last_updater_id'] = 0;
         }
 

@@ -25,12 +25,19 @@ class GeneratePickerWaveCommand extends Command
     protected $description = 'Generate test earnings and waves for a specific picker with specified delivery courses';
 
     private int $pickerId;
+
     private int $warehouseId;
+
     private string $warehouseCode;
+
     private int $clientId;
+
     private array $buyers = [];
+
     private array $testItems = [];
+
     private array $specifiedLocations = [];
+
     private int $buyerIndex = 0;
 
     public function handle()
@@ -45,15 +52,17 @@ class GeneratePickerWaveCommand extends Command
 
         // Validate picker
         $picker = WmsPicker::find($this->pickerId);
-        if (!$picker) {
+        if (! $picker) {
             $this->error("Picker with ID {$this->pickerId} not found");
+
             return 1;
         }
 
         // Set warehouse
         $this->warehouseId = $this->option('warehouse-id') ?? $picker->default_warehouse_id;
-        if (!$this->warehouseId) {
-            $this->error("No warehouse specified and picker has no default warehouse");
+        if (! $this->warehouseId) {
+            $this->error('No warehouse specified and picker has no default warehouse');
+
             return 1;
         }
 
@@ -63,8 +72,8 @@ class GeneratePickerWaveCommand extends Command
         $this->line("Picker: [{$picker->code}] {$picker->name}");
         $this->line("Warehouse ID: {$this->warehouseId}");
         $this->line("Shipping Date: {$shippingDate}");
-        if (!empty($this->specifiedLocations)) {
-            $this->line("Locations: " . implode(', ', $this->specifiedLocations));
+        if (! empty($this->specifiedLocations)) {
+            $this->line('Locations: '.implode(', ', $this->specifiedLocations));
         }
         $this->newLine();
 
@@ -72,7 +81,7 @@ class GeneratePickerWaveCommand extends Command
         $this->initializeData();
 
         // Ensure stock exists in specified locations
-        if (!empty($this->specifiedLocations)) {
+        if (! empty($this->specifiedLocations)) {
             $this->ensureStockInLocations();
         }
 
@@ -80,6 +89,7 @@ class GeneratePickerWaveCommand extends Command
         $this->loadTestItems();
         if (empty($this->testItems)) {
             $this->error('No items with stock found for earnings generation');
+
             return 1;
         }
 
@@ -88,6 +98,7 @@ class GeneratePickerWaveCommand extends Command
         if (empty($courseCounts)) {
             $this->error('No delivery courses specified. Use --courses=CODE:COUNT format');
             $this->line('Example: --courses=910072:3 --courses=910073:2');
+
             return 1;
         }
 
@@ -104,7 +115,7 @@ class GeneratePickerWaveCommand extends Command
                 '--date' => $shippingDate,
                 '--reset' => true,
             ]);
-            $this->info("✓ Wave data reset completed");
+            $this->info('✓ Wave data reset completed');
             $this->newLine();
         }
 
@@ -119,12 +130,13 @@ class GeneratePickerWaveCommand extends Command
                 $totalGenerated += $count;
                 $this->info("  ✓ Generated {$count} earnings for course {$courseCode}");
             } else {
-                $this->error("  ✗ Failed to generate earnings for course {$courseCode}: " . $result['error']);
+                $this->error("  ✗ Failed to generate earnings for course {$courseCode}: ".$result['error']);
             }
         }
 
         if ($totalGenerated === 0) {
             $this->error('No earnings were generated');
+
             return 1;
         }
 
@@ -148,6 +160,7 @@ class GeneratePickerWaveCommand extends Command
         if ($exitCode !== 0) {
             $this->error('Wave generation failed');
             $this->line(Artisan::output());
+
             return 1;
         }
 
@@ -206,7 +219,7 @@ class GeneratePickerWaveCommand extends Command
 
         // Store buyers as array with code as value
         $this->buyers = $buyers->pluck('code')->toArray();
-        $this->line("Loaded " . count($this->buyers) . " eligible buyers for earnings generation");
+        $this->line('Loaded '.count($this->buyers).' eligible buyers for earnings generation');
 
         // Get warehouse
         $warehouse = DB::connection('sakemaru')->table('warehouses')
@@ -234,17 +247,17 @@ class GeneratePickerWaveCommand extends Command
             ->where('rs.available_quantity', '>', 0);
 
         // Filter by specified locations if provided
-        if (!empty($this->specifiedLocations)) {
+        if (! empty($this->specifiedLocations)) {
             $query->whereIn('rs.location_id', $this->specifiedLocations);
         }
 
         $items = $query->select(
-                'i.id',
-                'i.code',
-                'i.name',
-                'l.available_quantity_flags',
-                DB::raw('SUM(rs.available_quantity) as total_available')
-            )
+            'i.id',
+            'i.code',
+            'i.name',
+            'l.available_quantity_flags',
+            DB::raw('SUM(rs.available_quantity) as total_available')
+        )
             ->groupBy('i.id', 'i.code', 'i.name', 'l.available_quantity_flags')
             ->get();
 
@@ -259,10 +272,10 @@ class GeneratePickerWaveCommand extends Command
             ];
         })->toArray();
 
-        $locationInfo = !empty($this->specifiedLocations)
-            ? " (filtered by locations: " . implode(', ', $this->specifiedLocations) . ")"
-            : "";
-        $this->line("Loaded " . count($this->testItems) . " test items with location-based stock{$locationInfo}");
+        $locationInfo = ! empty($this->specifiedLocations)
+            ? ' (filtered by locations: '.implode(', ', $this->specifiedLocations).')'
+            : '';
+        $this->line('Loaded '.count($this->testItems)." test items with location-based stock{$locationInfo}");
     }
 
     private function parseCourseCounts(array $courseParams): array
@@ -278,6 +291,7 @@ class GeneratePickerWaveCommand extends Command
                 }
             }
         }
+
         return $result;
     }
 
@@ -290,10 +304,10 @@ class GeneratePickerWaveCommand extends Command
             ->where('warehouse_id', $this->warehouseId)
             ->first();
 
-        if (!$course) {
+        if (! $course) {
             return [
                 'success' => false,
-                'error' => "Delivery course {$courseCode} not found for warehouse {$this->warehouseId}"
+                'error' => "Delivery course {$courseCode} not found for warehouse {$this->warehouseId}",
             ];
         }
 
@@ -319,16 +333,17 @@ class GeneratePickerWaveCommand extends Command
 
             if ($scenario['qty_type'] === 'CASE') {
                 // For CASE orders, only select items with CASE support
-                $availableItems = $availableItems->filter(fn($item) => $item['supports_case']);
+                $availableItems = $availableItems->filter(fn ($item) => $item['supports_case']);
             } elseif ($scenario['qty_type'] === 'PIECE') {
                 // For PIECE orders, only select items with PIECE support
-                $availableItems = $availableItems->filter(fn($item) => $item['supports_piece']);
+                $availableItems = $availableItems->filter(fn ($item) => $item['supports_piece']);
             }
             // For MIXED, we'll handle filtering per item below
 
             if ($availableItems->isEmpty()) {
                 // Skip this earning if no suitable items available
                 $this->warn("  No items available for {$scenario['name']}, skipping");
+
                 continue;
             }
 
@@ -419,8 +434,9 @@ class GeneratePickerWaveCommand extends Command
             ->where('warehouse_id', $this->warehouseId)
             ->first();
 
-        if (!$course) {
+        if (! $course) {
             $this->warn("  Course {$courseCode} not found, skipping wave setting");
+
             return;
         }
 
@@ -441,6 +457,7 @@ class GeneratePickerWaveCommand extends Command
         if ($existing) {
             // Already exists with the same time, no update needed
             $this->line("  ✓ Wave setting already exists for course {$courseCode} (picking: {$pickingStartTime})");
+
             return;
         }
 
@@ -468,6 +485,7 @@ class GeneratePickerWaveCommand extends Command
 
         if ($waves->isEmpty()) {
             $this->warn('  No waves found for this shipping date and warehouse');
+
             return 0;
         }
 
@@ -480,7 +498,7 @@ class GeneratePickerWaveCommand extends Command
             ->whereNull('picker_id');
 
         // If locations were specified, only assign tasks with matching floor_id
-        if (!empty($this->specifiedLocations)) {
+        if (! empty($this->specifiedLocations)) {
             // Get floor_ids from specified locations
             $floorIds = DB::connection('sakemaru')
                 ->table('locations')
@@ -490,9 +508,9 @@ class GeneratePickerWaveCommand extends Command
                 ->filter() // Remove nulls
                 ->toArray();
 
-            if (!empty($floorIds)) {
+            if (! empty($floorIds)) {
                 $query->whereIn('floor_id', $floorIds);
-                $this->line("  Filtering tasks to floors: " . implode(', ', $floorIds));
+                $this->line('  Filtering tasks to floors: '.implode(', ', $floorIds));
             }
         }
 
@@ -519,11 +537,12 @@ class GeneratePickerWaveCommand extends Command
 
         if ($existingStockCount > 0) {
             $this->line("  ✓ Found {$existingStockCount} existing stock records in specified locations");
+
             return;
         }
 
         // No stock found, generate it directly
-        $this->warn("  ⚠ No stock found in specified locations, generating...");
+        $this->warn('  ⚠ No stock found in specified locations, generating...');
 
         // Get locations info
         $locations = DB::connection('sakemaru')
@@ -533,7 +552,8 @@ class GeneratePickerWaveCommand extends Command
             ->get();
 
         if ($locations->isEmpty()) {
-            $this->error("  ✗ No valid locations found");
+            $this->error('  ✗ No valid locations found');
+
             return;
         }
 
@@ -547,7 +567,8 @@ class GeneratePickerWaveCommand extends Command
             ->get();
 
         if ($items->isEmpty()) {
-            $this->error("  ✗ No active items found");
+            $this->error('  ✗ No active items found');
+
             return;
         }
 
@@ -577,6 +598,7 @@ class GeneratePickerWaveCommand extends Command
             $expirationDate = now()->addDays(rand(30, 180))->format('Y-m-d');
             $currentQuantity = rand(50, 500);
 
+            // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
             DB::connection('sakemaru')->table('real_stocks')->insert([
                 'client_id' => $clientId,
                 'stock_allocation_id' => 1,
@@ -586,11 +608,9 @@ class GeneratePickerWaveCommand extends Command
                 'item_management_type' => 'STANDARD',
                 'expiration_date' => $expirationDate,
                 'current_quantity' => $currentQuantity,
-                'available_quantity' => $currentQuantity,
+                'reserved_quantity' => 0,
                 'order_rank' => 'FIFO',
                 'price' => rand(100, 5000),
-                'wms_reserved_qty' => 0,
-                'wms_picking_qty' => 0,
                 'wms_lock_version' => 0,
                 'created_at' => now(),
                 'updated_at' => now(),

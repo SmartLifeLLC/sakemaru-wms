@@ -3,13 +3,11 @@
 namespace App\Filament\Resources\WmsShipmentSlips;
 
 use App\Enums\EMenu;
-use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsShipmentSlips\Pages\ListWmsShipmentSlips;
 use App\Filament\Resources\WmsShipmentSlips\Tables\WmsShipmentSlipsTable;
 use App\Models\WmsPickingTask;
 use BackedEnum;
 use Filament\Resources\Resource;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 

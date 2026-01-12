@@ -17,10 +17,9 @@ enum EOutOfStockType: string
     case NONE_MOVABLE = 'NONE_MOVABLE';
     case DIRECT = 'DIRECT';
 
-    public function name() : string
+    public function name(): string
     {
-        return match($this)
-        {
+        return match ($this) {
             self::AUTO_CALCULATION => '自動計算',
             self::SMALL_STOCK => '小口在庫品',
             self::ORDERED => '受注発注品',
@@ -33,10 +32,9 @@ enum EOutOfStockType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
-        return match($this)
-        {
+        return match ($this) {
             self::AUTO_CALCULATION => 1,
             self::SMALL_STOCK => 2,
             self::ORDERED => 3,

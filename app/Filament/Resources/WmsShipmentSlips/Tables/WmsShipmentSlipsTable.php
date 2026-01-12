@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsShipmentSlips\Tables;
 
+use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\WmsPickingTask;
 use App\Services\Print\PrintRequestService;
@@ -13,7 +14,6 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Collection as SupportCollection;
@@ -258,6 +258,7 @@ class WmsShipmentSlipsTable
                     $systemDate->format('Y-m-d'),
                     $record->wave_id
                 );
+
                 return $printability['can_print'];
             })
             ->bulkActions([
@@ -317,9 +318,9 @@ class WmsShipmentSlipsTable
 
                         foreach ($forcePrintRecords as $fp) {
                             $html .= '<tr class="border-t border-gray-200 dark:border-gray-700">';
-                            $html .= '<td class="py-1">' . e($fp['course_code']) . '</td>';
-                            $html .= '<td class="py-1">' . e(mb_substr($fp['course_name'], 0, 15)) . '</td>';
-                            $html .= '<td class="py-1 text-danger-600">' . e(mb_substr($fp['error'], 0, 20)) . '</td>';
+                            $html .= '<td class="py-1">'.e($fp['course_code']).'</td>';
+                            $html .= '<td class="py-1">'.e(mb_substr($fp['course_name'], 0, 15)).'</td>';
+                            $html .= '<td class="py-1 text-danger-600">'.e(mb_substr($fp['error'], 0, 20)).'</td>';
                             $html .= '</tr>';
                         }
 
@@ -359,8 +360,9 @@ class WmsShipmentSlipsTable
                                 $record->wave_id
                             );
 
-                            if (!$printability['can_print']) {
+                            if (! $printability['can_print']) {
                                 $skippedCount++;
+
                                 continue;
                             }
 
@@ -411,6 +413,7 @@ class WmsShipmentSlipsTable
                                 ->body("選択された {$skippedCount} 件はすべて強制印刷が必要です。個別に強制印刷してください。")
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 
@@ -511,7 +514,7 @@ class WmsShipmentSlipsTable
         $html .= '</div>';
 
         // ピッキング未完了アイテム
-        if (!empty($printability['incomplete_items'])) {
+        if (! empty($printability['incomplete_items'])) {
             $html .= '<div class="mt-4">';
             $html .= '<div class="font-medium text-sm text-gray-700 dark:text-gray-300 mb-2">ピッキング未完了アイテム:</div>';
             $html .= '<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-40 overflow-y-auto">';
@@ -527,9 +530,9 @@ class WmsShipmentSlipsTable
                     default => $item['status'],
                 };
                 $html .= '<tr class="border-t border-gray-200 dark:border-gray-700">';
-                $html .= '<td class="py-1">' . e($item['item_code']) . '</td>';
-                $html .= '<td class="py-1">' . e(mb_substr($item['item_name'], 0, 20)) . '</td>';
-                $html .= '<td class="py-1"><span class="text-warning-600">' . e($statusLabel) . '</span></td>';
+                $html .= '<td class="py-1">'.e($item['item_code']).'</td>';
+                $html .= '<td class="py-1">'.e(mb_substr($item['item_name'], 0, 20)).'</td>';
+                $html .= '<td class="py-1"><span class="text-warning-600">'.e($statusLabel).'</span></td>';
                 $html .= '</tr>';
             }
 
@@ -538,7 +541,7 @@ class WmsShipmentSlipsTable
         }
 
         // 在庫同期未完了の欠品
-        if (!empty($printability['unsynced_shortages'])) {
+        if (! empty($printability['unsynced_shortages'])) {
             $html .= '<div class="mt-4">';
             $html .= '<div class="font-medium text-sm text-gray-700 dark:text-gray-300 mb-2">在庫同期未完了の欠品:</div>';
             $html .= '<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-40 overflow-y-auto">';
@@ -551,10 +554,10 @@ class WmsShipmentSlipsTable
                 $confirmedLabel = $shortage['is_confirmed'] ? '済' : '未';
                 $confirmedClass = $shortage['is_confirmed'] ? 'text-success-600' : 'text-danger-600';
                 $html .= '<tr class="border-t border-gray-200 dark:border-gray-700">';
-                $html .= '<td class="py-1">' . e($shortage['item_code']) . '</td>';
-                $html .= '<td class="py-1">' . e(mb_substr($shortage['item_name'], 0, 20)) . '</td>';
-                $html .= '<td class="py-1">' . e($shortage['shortage_qty']) . '</td>';
-                $html .= '<td class="py-1"><span class="' . $confirmedClass . '">' . e($confirmedLabel) . '</span></td>';
+                $html .= '<td class="py-1">'.e($shortage['item_code']).'</td>';
+                $html .= '<td class="py-1">'.e(mb_substr($shortage['item_name'], 0, 20)).'</td>';
+                $html .= '<td class="py-1">'.e($shortage['shortage_qty']).'</td>';
+                $html .= '<td class="py-1"><span class="'.$confirmedClass.'">'.e($confirmedLabel).'</span></td>';
                 $html .= '</tr>';
             }
 

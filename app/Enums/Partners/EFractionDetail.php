@@ -1,6 +1,5 @@
 <?php
 
-
 namespace App\Enums\Partners;
 
 use App\Traits\EnumExtensionTrait;
@@ -16,10 +15,9 @@ enum EFractionDetail: string
     case ROUND_SEN = 'ROUND_SEN';
     case ROUND_UP_SEN = 'ROUND_UP_SEN';
 
-
-    public function name() : string
+    public function name(): string
     {
-        return match($this) {
+        return match ($this) {
             self::ROUND_DOWN_YEN => '切捨(円未満)',
             self::ROUND_YEN => '四捨五入(円未満)',
             self::ROUND_UP_YEN => '切上(円未満)',
@@ -28,9 +26,10 @@ enum EFractionDetail: string
             self::ROUND_UP_SEN => '切上(銭未満)',
         };
     }
-    public function getID() : int
+
+    public function getID(): int
     {
-        return match($this) {
+        return match ($this) {
             self::ROUND_DOWN_YEN => 1,
             self::ROUND_YEN => 2,
             self::ROUND_UP_YEN => 3,

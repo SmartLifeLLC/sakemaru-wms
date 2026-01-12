@@ -22,7 +22,7 @@ return new class extends Migration
         $hasAssignQtyEach = DB::connection('sakemaru')
             ->select("SHOW COLUMNS FROM wms_shortage_allocations LIKE 'assign_qty_each'");
 
-        if (!empty($hasAssignQtyEach)) {
+        if (! empty($hasAssignQtyEach)) {
             Schema::connection('sakemaru')->table('wms_shortage_allocations', function (Blueprint $table) {
                 $table->renameColumn('assign_qty_each', 'assign_qty');
             });

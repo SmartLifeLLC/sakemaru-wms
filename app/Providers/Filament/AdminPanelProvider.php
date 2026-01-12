@@ -52,15 +52,15 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->navigationGroups(
                 collect(EMenuCategory::cases())
-                    ->sortBy(fn(EMenuCategory $category) => $category->sort())
-                    ->map(fn(EMenuCategory $category) => NavigationGroup::make($category->label()))
+                    ->sortBy(fn (EMenuCategory $category) => $category->sort())
+                    ->map(fn (EMenuCategory $category) => NavigationGroup::make($category->label()))
                     ->values()
                     ->toArray()
             )
             ->navigationItems(
                 [NavigationItem::make('API Document')
                     ->url('/api/documentation', shouldOpenInNewTab: true)
-                    ->icon('heroicon-o-link')->group(EMenuCategory::SETTINGS->label())
+                    ->icon('heroicon-o-link')->group(EMenuCategory::SETTINGS->label()),
                 ]
             )
             ->middleware([
@@ -75,16 +75,16 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             ->plugins([
-                    StickyTableHeaderPlugin::make(),
-                    AdvancedTablesPlugin::make()
-                        ->userViewsEnabled(true)
-                        ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
-                        ->resourceNavigationSort(1000)
-                        ->userView(\App\Models\FilamentFilterSets\UserView::class)
-                        ->managedUserView(\App\Models\FilamentFilterSets\ManagedUserView::class)
-                        ->managedPresetView(\App\Models\FilamentFilterSets\ManagedPresetView::class)
-                        ->managedDefaultView(\App\Models\FilamentFilterSets\ManagedDefaultView::class)
-                ]
+                StickyTableHeaderPlugin::make(),
+                AdvancedTablesPlugin::make()
+                    ->userViewsEnabled(true)
+                    ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
+                    ->resourceNavigationSort(1000)
+                    ->userView(\App\Models\FilamentFilterSets\UserView::class)
+                    ->managedUserView(\App\Models\FilamentFilterSets\ManagedUserView::class)
+                    ->managedPresetView(\App\Models\FilamentFilterSets\ManagedPresetView::class)
+                    ->managedDefaultView(\App\Models\FilamentFilterSets\ManagedDefaultView::class),
+            ]
             )
             ->authMiddleware([
                 Authenticate::class,

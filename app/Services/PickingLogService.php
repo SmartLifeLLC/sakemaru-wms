@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
-use App\Models\WmsPickingLog;
 use App\Models\WmsPicker;
+use App\Models\WmsPickingLog;
 use App\Models\WmsPickingTask;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

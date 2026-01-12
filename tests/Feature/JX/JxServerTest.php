@@ -2,8 +2,6 @@
 
 namespace Tests\Feature\JX;
 
-use App\Models\WmsOrderJxSetting;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 

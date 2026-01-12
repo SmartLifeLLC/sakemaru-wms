@@ -18,7 +18,7 @@ class SakemaruModel
         $retry = 1;
         $response = $request();
 
-        while (!$response->successful()) {
+        while (! $response->successful()) {
             if ($retry > $maxRetry) {
                 Log::error('APIの呼び出しに失敗しました。', [
                     'url' => $url,
@@ -26,6 +26,7 @@ class SakemaruModel
                     'response' => $response->reason(),
                     'content' => $response->json(),
                 ]);
+
                 return [
                     'success' => false,
                     'error' => $response->reason(),
@@ -38,7 +39,7 @@ class SakemaruModel
             $sleepSeconds = app()->environment('local') ? 2 : ($retry * 60);
             sleep($sleepSeconds);
 
-            Log::info('API Retry ' . $retry, [
+            Log::info('API Retry '.$retry, [
                 'url' => $url,
                 'request' => $requestData,
                 'response' => $response->reason(),
@@ -55,7 +56,7 @@ class SakemaruModel
     public static function getData(int $page = 1, array $params = []): array
     {
         return static::retryRequest(
-            fn() => static::getResponse($page, $params),
+            fn () => static::getResponse($page, $params),
             static::url($page)
         );
     }
@@ -63,7 +64,7 @@ class SakemaruModel
     public static function postData(array $data): array
     {
         return static::retryRequest(
-            fn() => static::postResponse($data),
+            fn () => static::postResponse($data),
             static::postUrl(),
             3,
             $data
@@ -79,7 +80,7 @@ class SakemaruModel
 
         $http = Http::withHeaders([
             'Content-Type' => 'application/json',
-            'Accept' => 'application/json'
+            'Accept' => 'application/json',
         ])
             ->timeout(30)
             ->connectTimeout(10)
@@ -97,7 +98,7 @@ class SakemaruModel
     {
         $http = Http::withHeaders([
             'Content-Type' => 'application/json',
-            'Accept' => 'application/json'
+            'Accept' => 'application/json',
         ])
             ->timeout(300)
             ->connectTimeout(10)
@@ -124,7 +125,8 @@ class SakemaruModel
     protected static function baseUrl(): string
     {
         $coreUrl = config('app.core_url', env('CORE_URL', 'https://sakemaru-core.test'));
-        return rtrim($coreUrl, '/') . '/api';
+
+        return rtrim($coreUrl, '/').'/api';
     }
 
     protected static function getApiToken(): string

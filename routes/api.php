@@ -2,8 +2,8 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\MasterDataController;
-use App\Http\Controllers\Api\PickingTaskController;
 use App\Http\Controllers\Api\PickingRouteController;
+use App\Http\Controllers\Api\PickingTaskController;
 use Illuminate\Support\Facades\Route;
 
 // Internal API routes (for Filament pages, no API key required)

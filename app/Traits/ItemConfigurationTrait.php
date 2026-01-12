@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Traits;
-
 
 use App\Enums\EItemSearchCodeType;
 use App\Models\Contractor;
@@ -23,21 +21,20 @@ trait ItemConfigurationTrait
             switch ($key) {
                 case 'warehouse_code':
                     $warehouse = Warehouse::firstWhere('code', $value);
-                    data_set($this->$base, $index . '.warehouse_id', $warehouse?->id);
-                    data_set($this->$base, $index . '.warehouse_name', $warehouse?->name);
+                    data_set($this->$base, $index.'.warehouse_id', $warehouse?->id);
+                    data_set($this->$base, $index.'.warehouse_name', $warehouse?->name);
                     break;
                 case 'contractor_code':
                     $contractor = Contractor::firstWhere('code', $value);
-                    data_set($this->$base, $index . '.contractor_id', $contractor?->id);
-                    data_set($this->$base, $index . '.contractor_name', $contractor?->name);
+                    data_set($this->$base, $index.'.contractor_id', $contractor?->id);
+                    data_set($this->$base, $index.'.contractor_name', $contractor?->name);
                     break;
                 case 'supplier_code':
                     $partner = Partner::where('is_supplier', true)->firstWhere('code', $value);
-                    data_set($this->$base, $index . '.supplier_id', $partner?->supplier?->id);
-                    data_set($this->$base, $index . '.supplier_name', $partner?->name);
+                    data_set($this->$base, $index.'.supplier_id', $partner?->supplier?->id);
+                    data_set($this->$base, $index.'.supplier_name', $partner?->name);
                     break;
             }
-
 
             // JANコードの重複チェック
             if (Str::contains($property, 'search_string')) {
@@ -50,8 +47,8 @@ trait ItemConfigurationTrait
                 } else {
                     $is_duplicated = false;
                 }
-                
-                $this->setWarning($is_duplicated, $property, "既に利用されているJANコードです。");
+
+                $this->setWarning($is_duplicated, $property, '既に利用されているJANコードです。');
             }
         }
     }
@@ -67,5 +64,4 @@ trait ItemConfigurationTrait
     {
         data_forget($this->item_contractors, count($this->item_contractors) - 1);
     }
-
 }

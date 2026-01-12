@@ -1,6 +1,5 @@
 <?php
 
-
 namespace App\Enums\Partners;
 
 use App\Traits\EnumExtensionTrait;
@@ -19,9 +18,9 @@ enum ECashCollectionMethod: string
     case NP_LOAN = 'NP_LOAN';
     case CARD_PAYMENT = 'CARD_PAYMENT';
 
-    public function name() : string
+    public function name(): string
     {
-        return match($this) {
+        return match ($this) {
             self::SALESMAN => '営業集金',
             self::DELIVERY => '配達集金',
             self::PROMISSORY_NOTE => '手形',
@@ -33,9 +32,10 @@ enum ECashCollectionMethod: string
             self::CARD_PAYMENT => 'カード払い'
         };
     }
-    public function getID() : int
+
+    public function getID(): int
     {
-        return match($this) {
+        return match ($this) {
             self::SALESMAN => 0,
             self::DELIVERY => 1,
             self::PROMISSORY_NOTE => 2,

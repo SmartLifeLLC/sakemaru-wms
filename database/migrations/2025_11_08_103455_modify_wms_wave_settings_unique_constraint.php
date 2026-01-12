@@ -24,7 +24,7 @@ return new class extends Migration
 
         Schema::connection('sakemaru')->table('wms_wave_settings', function (Blueprint $table) use ($indexes) {
             // Drop old unique constraint only if it exists
-            if (!empty($indexes)) {
+            if (! empty($indexes)) {
                 $table->dropUnique(['warehouse_id', 'delivery_course_id']);
             }
 

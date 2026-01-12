@@ -3,7 +3,6 @@
 namespace Tests\Feature\Api;
 
 use App\Models\WmsPicker;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -16,7 +15,7 @@ class AuthApiTest extends TestCase
     {
         // Ensure test user exists with known password
         $picker = WmsPicker::where('code', 'TEST001')->first();
-        if (!$picker) {
+        if (! $picker) {
             $picker = WmsPicker::create([
                 'code' => 'TEST001',
                 'name' => 'Test Picker',
@@ -49,7 +48,7 @@ class AuthApiTest extends TestCase
                     ],
                 ],
             ]);
-            
+
         $this->assertArrayHasKey('token', $response->json('result.data'));
     }
 
@@ -82,7 +81,7 @@ class AuthApiTest extends TestCase
 
         $response = $this->withHeaders([
             'X-API-Key' => config('api.keys')[0] ?? 'test-key',
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
             'Accept' => 'application/json',
         ])->getJson('/api/me');
 
@@ -107,7 +106,7 @@ class AuthApiTest extends TestCase
 
         $response = $this->withHeaders([
             'X-API-Key' => config('api.keys')[0] ?? 'test-key',
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
             'Accept' => 'application/json',
         ])->postJson('/api/auth/logout');
 
@@ -115,7 +114,7 @@ class AuthApiTest extends TestCase
             ->assertJson([
                 'code' => 'LOGOUT_SUCCESS',
             ]);
-            
+
         // Token should be deleted
         $this->assertDatabaseMissing('personal_access_tokens', [
             'token' => hash('sha256', explode('|', $token)[1]),

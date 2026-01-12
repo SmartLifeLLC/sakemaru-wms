@@ -23,6 +23,7 @@ class WmsIdempotencyKey extends WmsModel
     public static function exists(string $scope, string $key): bool
     {
         $hash = hash('sha256', $key);
+
         return self::where('scope', $scope)
             ->where('key_hash', $hash)
             ->exists();
@@ -40,6 +41,7 @@ class WmsIdempotencyKey extends WmsModel
                 'key_hash' => $hash,
                 'created_at' => now(),
             ]);
+
             return true;
         } catch (\Exception $e) {
             return false;

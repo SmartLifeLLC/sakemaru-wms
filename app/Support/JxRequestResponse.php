@@ -11,12 +11,19 @@ use DOMDocument;
 class JxRequestResponse
 {
     public readonly CurlHandle $ch;
+
     public readonly string|bool $originalResponse;
+
     public readonly bool $isSuccess;
+
     public readonly string $headerString;
+
     public readonly string $bodyString;
+
     public readonly int $httpCode;
+
     public readonly array $responseInfo;
+
     public readonly ?DOMDocument $document;
 
     public function __construct(CurlHandle $ch, string|bool $response)
@@ -40,7 +47,7 @@ class JxRequestResponse
 
             if ($this->httpCode < 300) {
                 $this->isSuccess = true;
-                $this->document = new DOMDocument();
+                $this->document = new DOMDocument;
                 $this->document->loadXML($this->bodyString);
             } else {
                 $this->isSuccess = false;
@@ -52,8 +59,8 @@ class JxRequestResponse
     /**
      * XMLタグから値を取得
      *
-     * @param string $tagName タグ名
-     * @return string|null
+     * @param  string  $tagName  タグ名
+     *
      * @throws \Exception 複数の値が見つかった場合
      */
     public function getValueByTag(string $tagName): ?string
@@ -86,6 +93,6 @@ class JxRequestResponse
      */
     public function failed(): bool
     {
-        return !$this->isSuccess;
+        return ! $this->isSuccess;
     }
 }

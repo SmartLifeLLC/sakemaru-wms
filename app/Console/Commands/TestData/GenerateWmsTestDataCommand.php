@@ -7,8 +7,8 @@ use Database\Seeders\FloorSeeder;
 use Database\Seeders\LocationSeeder;
 use Database\Seeders\RealStockSeeder;
 use Database\Seeders\WmsLocationSeeder;
-use Database\Seeders\WmsPickingAreaSeeder;
 use Database\Seeders\WmsPickerSeeder;
+use Database\Seeders\WmsPickingAreaSeeder;
 use Illuminate\Console\Command;
 
 class GenerateWmsTestDataCommand extends Command
@@ -38,7 +38,7 @@ class GenerateWmsTestDataCommand extends Command
         $assignPickers = $this->option('assign-pickers');
 
         // If no specific option is set, generate all
-        if (!$all && !$pickingAreas && !$locations && !$stocks && !$pickers && !$assignPickers) {
+        if (! $all && ! $pickingAreas && ! $locations && ! $stocks && ! $pickers && ! $assignPickers) {
             $all = true;
         }
 
@@ -51,7 +51,7 @@ class GenerateWmsTestDataCommand extends Command
             // 0. Generate floors (prerequisite for locations)
             if ($all) {
                 $this->info('🏢 Generating floors...');
-                $seeder = new FloorSeeder();
+                $seeder = new FloorSeeder;
                 $seeder->setCommand($this);
                 $seeder->run();
                 $this->newLine();
@@ -60,7 +60,7 @@ class GenerateWmsTestDataCommand extends Command
             // 0.5. Generate base locations (one per floor per warehouse)
             if ($all) {
                 $this->info('📍 Generating base locations...');
-                $seeder = new LocationSeeder();
+                $seeder = new LocationSeeder;
                 $seeder->setCommand($this);
                 $seeder->run();
                 $this->newLine();
@@ -69,7 +69,7 @@ class GenerateWmsTestDataCommand extends Command
             // 1. Generate picking areas
             if ($all || $pickingAreas) {
                 $this->info('📦 Generating picking areas...');
-                $seeder = new WmsPickingAreaSeeder();
+                $seeder = new WmsPickingAreaSeeder;
                 $seeder->setCommand($this);
                 $seeder->run();
                 $this->newLine();
@@ -78,7 +78,7 @@ class GenerateWmsTestDataCommand extends Command
             // 2. Generate stocks (also creates additional locations if needed)
             if ($all || $stocks) {
                 $this->info('📊 Generating stock data...');
-                $seeder = new RealStockSeeder();
+                $seeder = new RealStockSeeder;
                 $seeder->setCommand($this);
                 $seeder->run();
                 $this->newLine();
@@ -87,7 +87,7 @@ class GenerateWmsTestDataCommand extends Command
             // 3. Generate WMS location mappings
             if ($all || $locations) {
                 $this->info('🗺️  Generating WMS location mappings...');
-                $seeder = new WmsLocationSeeder();
+                $seeder = new WmsLocationSeeder;
                 $seeder->setCommand($this);
                 $seeder->run();
                 $this->newLine();
@@ -96,7 +96,7 @@ class GenerateWmsTestDataCommand extends Command
             // 4. Generate WMS pickers
             if ($all || $pickers) {
                 $this->info('👤 Generating WMS pickers...');
-                $seeder = new WmsPickerSeeder();
+                $seeder = new WmsPickerSeeder;
                 $seeder->setCommand($this);
                 $seeder->run();
                 $this->newLine();
@@ -105,7 +105,7 @@ class GenerateWmsTestDataCommand extends Command
             // 5. Assign pickers to tasks (if tasks exist)
             if ($all || $assignPickers) {
                 $this->info('📋 Assigning pickers to tasks...');
-                $seeder = new AssignPickersToTasksSeeder();
+                $seeder = new AssignPickersToTasksSeeder;
                 $seeder->setCommand($this);
                 $seeder->run();
                 $this->newLine();
@@ -113,7 +113,7 @@ class GenerateWmsTestDataCommand extends Command
 
             $this->info('✅ WMS test data generation completed!');
         } catch (\Exception $e) {
-            $this->error('❌ Error generating WMS test data: ' . $e->getMessage());
+            $this->error('❌ Error generating WMS test data: '.$e->getMessage());
             $this->error($e->getTraceAsString());
             $exitCode = 1;
         }

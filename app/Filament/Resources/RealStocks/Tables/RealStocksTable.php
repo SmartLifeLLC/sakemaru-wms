@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RealStocks\Tables;
 
+use App\Enums\PaginationOptions;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -9,7 +10,6 @@ use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 
 class RealStocksTable
 {
@@ -57,25 +57,18 @@ class RealStocksTable
                     ->sortable()
                     ->alignEnd(),
 
-                TextColumn::make('available_quantity')
-                    ->label('利用可能数')
-                    ->numeric()
-                    ->sortable()
-                    ->alignEnd(),
-
-                TextColumn::make('wms_reserved_qty')
-                    ->label('WMS引当')
+                TextColumn::make('reserved_quantity')
+                    ->label('引当済')
                     ->numeric()
                     ->sortable()
                     ->alignEnd()
                     ->color(fn ($state) => $state > 0 ? 'warning' : null),
 
-                TextColumn::make('wms_picking_qty')
-                    ->label('WMSピッキング')
+                TextColumn::make('available_quantity')
+                    ->label('利用可能数')
                     ->numeric()
                     ->sortable()
-                    ->alignEnd()
-                    ->color(fn ($state) => $state > 0 ? 'info' : null),
+                    ->alignEnd(),
 
                 TextColumn::make('created_at')
                     ->label('登録日時')

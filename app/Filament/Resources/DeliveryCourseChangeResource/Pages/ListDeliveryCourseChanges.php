@@ -3,10 +3,9 @@
 namespace App\Filament\Resources\DeliveryCourseChangeResource\Pages;
 
 use App\Filament\Resources\DeliveryCourseChangeResource;
-use Filament\Resources\Pages\ListRecords;
-
 use App\Filament\Resources\DeliveryCourseChangeResource\Widgets\DeliveryCourseChangeStats;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
+use Filament\Resources\Pages\ListRecords;
 
 class ListDeliveryCourseChanges extends ListRecords
 {
@@ -31,12 +30,12 @@ class ListDeliveryCourseChanges extends ListRecords
     public function getHeading(): string|\Illuminate\Contracts\Support\Htmlable
     {
         $date = $this->tableFilters['shipment_date']['shipment_date'] ?? \App\Models\Sakemaru\ClientSetting::systemDateYMD();
-        
+
         $warehouseId = $this->tableFilters['warehouse_id']['value'] ?? auth()->user()->default_warehouse_id;
-        $warehouseName = $warehouseId 
+        $warehouseName = $warehouseId
             ? \Illuminate\Support\Facades\DB::connection('sakemaru')->table('warehouses')->where('id', $warehouseId)->value('name')
             : '未選択';
 
-        return parent::getHeading() . " [{$date} / {$warehouseName}]";
+        return parent::getHeading()." [{$date} / {$warehouseName}]";
     }
 }

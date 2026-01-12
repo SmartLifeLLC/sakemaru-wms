@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -13,7 +11,7 @@ enum EDirection: string
     case LEFT = 'LEFT';
     case RIGHT = 'RIGHT';
 
-    public function arrowIcon() : string
+    public function arrowIcon(): string
     {
         return match ($this) {
             self::UP => 'fa-chevron-up',
@@ -23,7 +21,7 @@ enum EDirection: string
         };
     }
 
-    public function position() : string
+    public function position(): string
     {
         return match ($this) {
             self::UP => '-top-10 left-0',

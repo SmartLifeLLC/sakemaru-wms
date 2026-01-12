@@ -4,7 +4,6 @@ namespace App\Enums;
 
 use App\Traits\EnumExtensionTrait;
 use Illuminate\Support\Arr;
-use function Aws\map;
 
 enum EOrderRank: string
 {
@@ -16,7 +15,6 @@ enum EOrderRank: string
     case ORDER_MANUAL = 'ORDER_MANUAL';
     case ORDER_STOP = 'ORDER_STOP';
     case ORDER_INPUT = 'ORDER_INPUT';
-
 
     public static function fromSymbol($symbol)
     {
@@ -55,7 +53,7 @@ enum EOrderRank: string
         };
     }
 
-    public static function symbolNames() : array
+    public static function symbolNames(): array
     {
         return Arr::mapWithKeys(self::cases(), function ($case) {
             return [$case->symbol() => $case->name()];

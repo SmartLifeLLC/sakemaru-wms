@@ -17,7 +17,7 @@ class FilamentAuth
     public function handle(Request $request, Closure $next): Response
     {
         // Check if user is authenticated using the default web guard
-        if (!Auth::guard('web')->check()) {
+        if (! Auth::guard('web')->check()) {
             // Redirect to Filament admin login
             return redirect('/admin/login');
         }

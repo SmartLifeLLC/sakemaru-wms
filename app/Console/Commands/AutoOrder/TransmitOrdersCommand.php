@@ -3,7 +3,6 @@
 namespace App\Console\Commands\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
-use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\OrderTransmissionService;
 use Illuminate\Console\Command;
@@ -23,15 +22,16 @@ class TransmitOrdersCommand extends Command
         $batchCode = $this->option('batch-code');
         $dryRun = $this->option('dry-run');
 
-        if (!$batchCode) {
+        if (! $batchCode) {
             // 最新の承認済みバッチを取得
             $latestCandidate = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
                 ->whereNull('transmitted_at')
                 ->orderBy('created_at', 'desc')
                 ->first();
 
-            if (!$latestCandidate) {
+            if (! $latestCandidate) {
                 $this->error('送信対象の承認済み発注候補がありません。');
+
                 return self::FAILURE;
             }
 
@@ -48,6 +48,7 @@ class TransmitOrdersCommand extends Command
 
         if ($candidates->isEmpty()) {
             $this->error("バッチコード {$batchCode} に送信対象の候補がありません。");
+
             return self::FAILURE;
         }
 
@@ -58,6 +59,7 @@ class TransmitOrdersCommand extends Command
         $groups = $candidates->groupBy(function ($c) {
             $warehouseName = $c->warehouse?->name ?? 'N/A';
             $contractorName = $c->contractor?->contractor_name ?? 'N/A';
+
             return "{$warehouseName}|{$contractorName}";
         });
 
@@ -65,6 +67,7 @@ class TransmitOrdersCommand extends Command
             ['倉庫', '発注先', '商品数', '合計数量'],
             $groups->map(function ($items, $key) {
                 [$warehouse, $contractor] = explode('|', $key);
+
                 return [
                     $warehouse,
                     $contractor,
@@ -76,11 +79,13 @@ class TransmitOrdersCommand extends Command
 
         if ($dryRun) {
             $this->warn('--dry-run が指定されているため、実際の送信は行いません。');
+
             return self::SUCCESS;
         }
 
-        if (!$this->confirm('送信を実行しますか？')) {
+        if (! $this->confirm('送信を実行しますか？')) {
             $this->info('キャンセルされました。');
+
             return self::SUCCESS;
         }
 
@@ -95,10 +100,12 @@ class TransmitOrdersCommand extends Command
 
         } catch (\RuntimeException $e) {
             $this->error($e->getMessage());
+
             return self::FAILURE;
 
         } catch (\Exception $e) {
-            $this->error('エラーが発生しました: ' . $e->getMessage());
+            $this->error('エラーが発生しました: '.$e->getMessage());
+
             return self::FAILURE;
         }
     }

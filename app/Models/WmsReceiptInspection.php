@@ -26,8 +26,11 @@ class WmsReceiptInspection extends WmsModel
 
     // Status constants
     public const STATUS_PENDING = 'PENDING';
+
     public const STATUS_IN_PROGRESS = 'IN_PROGRESS';
+
     public const STATUS_COMPLETED = 'COMPLETED';
+
     public const STATUS_CANCELLED = 'CANCELLED';
 
     // Relationships

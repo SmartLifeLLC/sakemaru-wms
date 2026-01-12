@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\WmsPickingTasks;
 
 use App\Enums\EMenu;
-use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingWaitings;
 use App\Models\WmsPickingTask;
 use Filament\Resources\Resource;

@@ -11,6 +11,7 @@ class StockTransfer extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     protected PrintType $checklist_print_type = PrintType::STOCK_TRANSFER_CHECK;

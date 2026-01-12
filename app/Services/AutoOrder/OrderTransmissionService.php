@@ -45,6 +45,7 @@ class OrderTransmissionService
             if ($candidateGroups->isEmpty()) {
                 Log::info('No approved candidates to transmit', ['batch_code' => $batchCode]);
                 $job->markAsSuccess(0);
+
                 return $job;
             }
 
@@ -168,6 +169,7 @@ class OrderTransmissionService
                 'status' => TransmissionDocumentStatus::ERROR,
                 'error_message' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -182,7 +184,7 @@ class OrderTransmissionService
             ->where('is_enabled', true)
             ->first();
 
-        if (!$jxSetting) {
+        if (! $jxSetting) {
             throw new \RuntimeException("JX-FINET settings not found for warehouse {$document->warehouse_id}");
         }
 
@@ -194,7 +196,7 @@ class OrderTransmissionService
         ]);
 
         // モック: 成功として処理
-        $mockDocumentNo = 'JX' . date('Ymd') . str_pad($document->id, 6, '0', STR_PAD_LEFT);
+        $mockDocumentNo = 'JX'.date('Ymd').str_pad($document->id, 6, '0', STR_PAD_LEFT);
 
         $document->update([
             'jx_document_no' => $mockDocumentNo,

@@ -124,7 +124,7 @@ class WmsAutoOrderJobControl extends WmsModel
      */
     public function getProgressPercentageAttribute(): ?int
     {
-        if (!$this->total_records || $this->total_records === 0) {
+        if (! $this->total_records || $this->total_records === 0) {
             return null;
         }
 

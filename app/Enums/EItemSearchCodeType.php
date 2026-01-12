@@ -13,7 +13,7 @@ enum EItemSearchCodeType: string
     case SDP = 'SDP';
     case OTHER = 'OTHER';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::JAN => 'JAN',
@@ -23,7 +23,7 @@ enum EItemSearchCodeType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::JAN => 0,

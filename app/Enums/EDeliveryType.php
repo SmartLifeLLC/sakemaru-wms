@@ -9,9 +9,9 @@ enum EDeliveryType: string
     use EnumExtensionTrait;
 
     case DIRECT = 'DIRECT';
-    case ARRIVAL = 'ARRIVAL'; //todo 命名変更
+    case ARRIVAL = 'ARRIVAL'; // todo 命名変更
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::DIRECT => '直送',
@@ -19,7 +19,7 @@ enum EDeliveryType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::DIRECT => 0,

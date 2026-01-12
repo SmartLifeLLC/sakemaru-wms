@@ -43,7 +43,7 @@ Schedule::command('wms:auto-order-calculate --skip-snapshot')
 
 // 祝日データインポート (毎年1月1日 3:00)
 // ※ 年間の祝日データを取得・更新
-Schedule::command('wms:import-holidays --year=' . (date('Y') + 1))
+Schedule::command('wms:import-holidays --year='.(date('Y') + 1))
     ->yearlyOn(1, 1, '03:00')
     ->withoutOverlapping()
     ->onOneServer()

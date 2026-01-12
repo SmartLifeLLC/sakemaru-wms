@@ -2,7 +2,6 @@
 
 namespace App\Enums;
 
-
 use App\Traits\EnumExtensionTrait;
 
 enum EUpperLowerType: string
@@ -13,7 +12,7 @@ enum EUpperLowerType: string
     case RATE = 'RATE';
     case FIXED_UNIT_PRICE = 'FIXED_UNIT_PRICE';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::DIFFERENCE => '差額',
@@ -22,7 +21,7 @@ enum EUpperLowerType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::DIFFERENCE => 1,
@@ -30,6 +29,4 @@ enum EUpperLowerType: string
             self::FIXED_UNIT_PRICE => 3,
         };
     }
-
-
 }

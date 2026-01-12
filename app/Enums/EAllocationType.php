@@ -13,7 +13,7 @@ enum EAllocationType: string
     case DISCOUNT = 'DISCOUNT';
     case CONTAINER_PICKUP = 'CONTAINER_PICKUP';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::DEPOSIT => '入金',
@@ -22,7 +22,7 @@ enum EAllocationType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::DEPOSIT => 0,
@@ -31,7 +31,7 @@ enum EAllocationType: string
         };
     }
 
-    public function allocationCol() : string
+    public function allocationCol(): string
     {
         return match ($this) {
             self::DEPOSIT => 'allocation_amount',
@@ -40,7 +40,7 @@ enum EAllocationType: string
         };
     }
 
-    public static function idNames(bool $with_unspecified = false) : array
+    public static function idNames(bool $with_unspecified = false): array
     {
         if ($with_unspecified) {
             $cases = self::cases();

@@ -11,8 +11,8 @@ class PolygonErosion
     /**
      * Erode (shrink) polygons by specified distance
      *
-     * @param array $polygons Array of polygons
-     * @param int $distance Erosion distance in pixels (cart radius)
+     * @param  array  $polygons  Array of polygons
+     * @param  int  $distance  Erosion distance in pixels (cart radius)
      * @return array Eroded polygons
      */
     public function erode(array $polygons, int $distance): array
@@ -38,8 +38,8 @@ class PolygonErosion
     /**
      * Erode a polygon ring (move vertices inward)
      *
-     * @param array $ring Array of [x,y] points
-     * @param int $distance Distance to erode
+     * @param  array  $ring  Array of [x,y] points
+     * @param  int  $distance  Distance to erode
      * @return array Eroded ring
      */
     private function erodeRing(array $ring, int $distance): array
@@ -73,9 +73,9 @@ class PolygonErosion
     /**
      * Calculate inward normal at vertex
      *
-     * @param array $prev Previous vertex
-     * @param array $curr Current vertex
-     * @param array $next Next vertex
+     * @param  array  $prev  Previous vertex
+     * @param  array  $curr  Current vertex
+     * @param  array  $next  Next vertex
      * @return array Normalized inward normal [x, y]
      */
     private function calculateInwardNormal(array $prev, array $curr, array $next): array
@@ -110,13 +110,14 @@ class PolygonErosion
         if ($len == 0) {
             return [0, 0];
         }
+
         return [$v[0] / $len, $v[1] / $len];
     }
 
     /**
      * Remove degenerate edges from polygon
      *
-     * @param array $ring Polygon ring
+     * @param  array  $ring  Polygon ring
      * @return array Cleaned ring
      */
     private function removeDegenerateEdges(array $ring): array

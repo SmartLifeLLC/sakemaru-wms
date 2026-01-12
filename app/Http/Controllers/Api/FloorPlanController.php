@@ -6,8 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Warehouse;
-use App\Models\WmsWarehouseLayout;
-use App\Models\WmsFloorObject;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -64,8 +62,8 @@ class FloorPlanController extends Controller
         // Group locations by code1+code2 to form zones
         $zoneGroups = [];
         foreach ($locations as $location) {
-            $zoneKey = $location->code1 . '-' . $location->code2;
-            if (!isset($zoneGroups[$zoneKey])) {
+            $zoneKey = $location->code1.'-'.$location->code2;
+            if (! isset($zoneGroups[$zoneKey])) {
                 $zoneGroups[$zoneKey] = [
                     'locations' => [],
                     'first_location' => $location,
@@ -138,8 +136,8 @@ class FloorPlanController extends Controller
                 'floor_id' => $firstLoc->floor_id,
                 'code1' => $firstLoc->code1,
                 'code2' => $firstLoc->code2,
-                'name' => $firstLoc->code1 . $firstLoc->code2,  // Zone name = code1+code2 only
-                'display_name' => $firstLoc->code1 . $firstLoc->code2,  // For zone label
+                'name' => $firstLoc->code1.$firstLoc->code2,  // Zone name = code1+code2 only
+                'display_name' => $firstLoc->code1.$firstLoc->code2,  // For zone label
                 'x1_pos' => $x1,
                 'y1_pos' => $y1,
                 'x2_pos' => $x2,
@@ -269,8 +267,8 @@ class FloorPlanController extends Controller
         // Group by code1+code2 to form zones
         $zoneGroups = [];
         foreach ($locations as $location) {
-            $zoneKey = $location->code1 . '-' . $location->code2;
-            if (!isset($zoneGroups[$zoneKey])) {
+            $zoneKey = $location->code1.'-'.$location->code2;
+            if (! isset($zoneGroups[$zoneKey])) {
                 $zoneGroups[$zoneKey] = [
                     'locations' => [],
                     'first_location' => $location,
@@ -310,7 +308,7 @@ class FloorPlanController extends Controller
                 'floor_id' => $firstLoc->floor_id,
                 'code1' => $firstLoc->code1,
                 'code2' => $firstLoc->code2,
-                'name' => $firstLoc->code1 . $firstLoc->code2,  // Zone name = code1+code2
+                'name' => $firstLoc->code1.$firstLoc->code2,  // Zone name = code1+code2
                 'available_quantity_flags' => $firstLoc->available_quantity_flags,
                 'stock_count' => $stockCount ?: 0,
                 'shelf_count' => count($group['locations']),
@@ -433,7 +431,7 @@ class FloorPlanController extends Controller
                 ->first();
 
             $rows[] = [
-                $location->code1 . $location->code2 . $location->code3,
+                $location->code1.$location->code2.$location->code3,
                 $location->code1,
                 $location->code2,
                 $location->code3,
@@ -450,10 +448,11 @@ class FloorPlanController extends Controller
             $csvContent .= implode(',', array_map(function ($value) {
                 $str = (string) $value;
                 if (preg_match('/[",\n\r]/', $str)) {
-                    return '"' . str_replace('"', '""', $str) . '"';
+                    return '"'.str_replace('"', '""', $str).'"';
                 }
+
                 return $str;
-            }, $row)) . "\r\n";
+            }, $row))."\r\n";
         }
 
         // Convert to Shift_JIS for Excel compatibility

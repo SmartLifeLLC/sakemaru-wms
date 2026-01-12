@@ -15,6 +15,7 @@ class GenerateStocksCommand extends Command
     protected $description = 'Generate stock data for all items evenly distributed across all locations in the specified floor';
 
     private int $warehouseId;
+
     private int $floorId;
 
     public function handle()
@@ -24,18 +25,20 @@ class GenerateStocksCommand extends Command
 
         // Get parameters
         $this->warehouseId = (int) $this->option('warehouse-id');
-        if (!$this->warehouseId) {
+        if (! $this->warehouseId) {
             $this->error('Warehouse ID is required. Use --warehouse-id option.');
+
             return 1;
         }
 
         $this->floorId = (int) $this->option('floor-id');
-        if (!$this->floorId) {
+        if (! $this->floorId) {
             $this->error('Floor ID is required. Use --floor-id option.');
+
             return 1;
         }
 
-        $this->line("Configuration:");
+        $this->line('Configuration:');
         $this->line("  Warehouse ID: {$this->warehouseId}");
         $this->line("  Floor ID: {$this->floorId}");
         $this->newLine();
@@ -54,6 +57,7 @@ class GenerateStocksCommand extends Command
 
             if ($locations->isEmpty()) {
                 $this->error('No locations found for the specified warehouse and floor');
+
                 return 1;
             }
 
@@ -64,6 +68,7 @@ class GenerateStocksCommand extends Command
             $items = $this->getAllActiveItems();
             if ($items->isEmpty()) {
                 $this->error('No active items found');
+
                 return 1;
             }
 
@@ -77,10 +82,12 @@ class GenerateStocksCommand extends Command
             $this->info("✅ Created {$createdCount} stock records");
             $this->info("   Items: {$items->count()}");
             $this->info("   Locations: {$locations->count()}");
+
             return 0;
         } catch (\Exception $e) {
-            $this->error('❌ Error generating stocks: ' . $e->getMessage());
+            $this->error('❌ Error generating stocks: '.$e->getMessage());
             $this->error($e->getTraceAsString());
+
             return 1;
         }
     }
@@ -131,6 +138,7 @@ class GenerateStocksCommand extends Command
             if ($existing) {
                 $skippedCount++;
                 $progressBar->advance();
+
                 continue;
             }
 
@@ -138,6 +146,7 @@ class GenerateStocksCommand extends Command
             $expirationDate = now()->addDays(rand(30, 180))->format('Y-m-d');
             $currentQuantity = rand(50, 500);
 
+            // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
             DB::connection('sakemaru')->table('real_stocks')->insert([
                 'client_id' => $clientId,
                 'stock_allocation_id' => 1,
@@ -147,11 +156,9 @@ class GenerateStocksCommand extends Command
                 'item_management_type' => 'STANDARD',
                 'expiration_date' => $expirationDate,
                 'current_quantity' => $currentQuantity,
-                'available_quantity' => $currentQuantity,
+                'reserved_quantity' => 0,
                 'order_rank' => 'FIFO',
                 'price' => rand(100, 5000),
-                'wms_reserved_qty' => 0,
-                'wms_picking_qty' => 0,
                 'wms_lock_version' => 0,
                 'created_at' => now(),
                 'updated_at' => now(),

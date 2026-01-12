@@ -19,7 +19,7 @@ class PaginationOptions
     /**
      * 選択可能なページオプション
      */
-    public const OPTIONS = [100,500, 1000, 1500, 2000];
+    public const OPTIONS = [100, 500, 1000, 1500, 2000];
 
     /**
      * ページオプションの配列を取得
@@ -45,7 +45,7 @@ class PaginationOptions
     {
         return array_combine(
             self::OPTIONS,
-            array_map(fn($v) => number_format($v) . '件', self::OPTIONS)
+            array_map(fn ($v) => number_format($v).'件', self::OPTIONS)
         );
     }
 }

@@ -54,7 +54,7 @@ class WmsContractorHoliday extends WmsModel
         $maxIterations = 30;
 
         for ($i = 0; $i < $maxIterations; $i++) {
-            if (!self::isHoliday($contractorId, $date)) {
+            if (! self::isHoliday($contractorId, $date)) {
                 return $date;
             }
             $date->addDay();

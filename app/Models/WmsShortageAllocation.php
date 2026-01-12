@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class WmsShortageAllocation extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'wms_shortage_allocations';
 
     protected $fillable = [
@@ -48,14 +49,20 @@ class WmsShortageAllocation extends Model
 
     // Status constants
     public const STATUS_PENDING = 'PENDING';
+
     public const STATUS_RESERVED = 'RESERVED';
+
     public const STATUS_PICKING = 'PICKING';
+
     public const STATUS_FULFILLED = 'FULFILLED';
+
     public const STATUS_SHORTAGE = 'SHORTAGE';
 
     // Quantity type constants
     public const QTY_TYPE_CASE = 'CASE';
+
     public const QTY_TYPE_PIECE = 'PIECE';
+
     public const QTY_TYPE_CARTON = 'CARTON';
 
     // Relationships
@@ -163,8 +170,6 @@ class WmsShortageAllocation extends Model
 
     /**
      * 残りの出荷数量を取得
-     *
-     * @return int
      */
     public function getRemainingQtyAttribute(): int
     {

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class WarehouseContractor extends CustomModel
 {
     protected $guarded = [];
+
     protected $casts = [];
 
     public function warehouse(): BelongsTo
@@ -14,7 +15,7 @@ class WarehouseContractor extends CustomModel
         return $this->belongsTo(Warehouse::class);
     }
 
-    public function contractor() : BelongsTo
+    public function contractor(): BelongsTo
     {
         return $this->belongsTo(Contractor::class);
     }

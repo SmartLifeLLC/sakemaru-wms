@@ -32,7 +32,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                             ->send();
                     } catch (\Exception $e) {
                         Notification::make()
-                            ->title('エラー: ' . $e->getMessage())
+                            ->title('エラー: '.$e->getMessage())
                             ->danger()
                             ->send();
                     }
@@ -55,7 +55,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                             ->send();
                     } catch (\Exception $e) {
                         Notification::make()
-                            ->title('エラー: ' . $e->getMessage())
+                            ->title('エラー: '.$e->getMessage())
                             ->danger()
                             ->send();
                     }
@@ -81,14 +81,14 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
                         Notification::make()
                             ->title('一括計算完了')
-                            ->body("バッチコード: {$calcJob->batch_code}\n" .
-                                "スナップショット: {$snapshotJob->processed_records}件\n" .
+                            ->body("バッチコード: {$calcJob->batch_code}\n".
+                                "スナップショット: {$snapshotJob->processed_records}件\n".
                                 "発注計算: {$calcJob->processed_records}件")
                             ->success()
                             ->send();
                     } catch (\Exception $e) {
                         Notification::make()
-                            ->title('エラー: ' . $e->getMessage())
+                            ->title('エラー: '.$e->getMessage())
                             ->danger()
                             ->send();
                     }

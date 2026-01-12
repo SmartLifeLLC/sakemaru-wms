@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Models\Sakemaru;
+
 use App\Enums\PrintType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,6 +11,7 @@ class Deposit extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     protected PrintType $checklist_print_type = PrintType::DEPOSIT_CHECK;

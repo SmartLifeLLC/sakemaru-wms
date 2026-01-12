@@ -11,7 +11,8 @@ enum EAutoWithdrawalType: string
     case NOT_USED = 'NOT_USED';
     case START_TO_USE = 'START_TO_USE';
     case USING = 'USING';
-    public function name() : string
+
+    public function name(): string
     {
         return match ($this) {
             self::NOT_USED => '未使用',
@@ -20,7 +21,7 @@ enum EAutoWithdrawalType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::NOT_USED => 0,
@@ -29,7 +30,7 @@ enum EAutoWithdrawalType: string
         };
     }
 
-    public function isConnected() : bool
+    public function isConnected(): bool
     {
         return match ($this) {
             self::NOT_USED => false,

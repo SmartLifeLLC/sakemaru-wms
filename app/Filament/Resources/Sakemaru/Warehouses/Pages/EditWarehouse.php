@@ -21,7 +21,7 @@ class EditWarehouse extends EditRecord
     protected function mutateFormDataBeforeSave(array $data): array
     {
         // client_idは廃止予定だが、一旦は最初のclientのIDを使用
-        if (!isset($data['client_id']) || empty($data['client_id'])) {
+        if (! isset($data['client_id']) || empty($data['client_id'])) {
             $firstClient = Client::first();
             if ($firstClient) {
                 $data['client_id'] = $firstClient->id;

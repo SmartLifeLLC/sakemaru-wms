@@ -37,7 +37,7 @@ class WaveSettingForm
                                     ->table('warehouses')
                                     ->where(function ($query) use ($search) {
                                         $query->where('name', 'like', "%{$search}%")
-                                              ->orWhere('code', 'like', "%{$search}%");
+                                            ->orWhere('code', 'like', "%{$search}%");
                                     })
                                     ->selectRaw("id, CONCAT(code, ' - ', name) as label")
                                     ->pluck('label', 'id')
@@ -53,7 +53,7 @@ class WaveSettingForm
                             ->options(function (callable $get) {
                                 $warehouseId = $get('warehouse_id');
 
-                                if (!$warehouseId) {
+                                if (! $warehouseId) {
                                     return [];
                                 }
 
@@ -68,7 +68,7 @@ class WaveSettingForm
                             ->getSearchResultsUsing(function (string $search, callable $get) {
                                 $warehouseId = $get('warehouse_id');
 
-                                if (!$warehouseId) {
+                                if (! $warehouseId) {
                                     return [];
                                 }
 
@@ -77,13 +77,13 @@ class WaveSettingForm
                                     ->where('warehouse_id', $warehouseId)
                                     ->where(function ($query) use ($search) {
                                         $query->where('name', 'like', "%{$search}%")
-                                              ->orWhere('code', 'like', "%{$search}%");
+                                            ->orWhere('code', 'like', "%{$search}%");
                                     })
                                     ->selectRaw("id, CONCAT(code, ' - ', name) as label")
                                     ->pluck('label', 'id')
                                     ->toArray();
                             })
-                            ->disabled(fn (callable $get) => !$get('warehouse_id'))
+                            ->disabled(fn (callable $get) => ! $get('warehouse_id'))
                             ->helperText('Select a warehouse first'),
 
                         TimePicker::make('picking_start_time')

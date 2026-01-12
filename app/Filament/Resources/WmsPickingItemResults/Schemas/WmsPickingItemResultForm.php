@@ -75,11 +75,11 @@ class WmsPickingItemResultForm
                 Toggle::make('has_shortage'),
                 Select::make('status')
                     ->options([
-            'PENDING' => 'P e n d i n g',
-            'PICKING' => 'P i c k i n g',
-            'COMPLETED' => 'C o m p l e t e d',
-            'SHORTAGE' => 'S h o r t a g e',
-        ])
+                        'PENDING' => 'P e n d i n g',
+                        'PICKING' => 'P i c k i n g',
+                        'COMPLETED' => 'C o m p l e t e d',
+                        'SHORTAGE' => 'S h o r t a g e',
+                    ])
                     ->default('PENDING'),
                 DateTimePicker::make('picked_at'),
                 TextInput::make('picker_id')

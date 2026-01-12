@@ -53,7 +53,7 @@ class ListWaves extends ListRecords
                             $warehouseId = $get('warehouse_id');
                             $shippingDate = $get('shipping_date');
 
-                            if (!$warehouseId || !$shippingDate) {
+                            if (! $warehouseId || ! $shippingDate) {
                                 return new HtmlString('<div class="text-gray-500">倉庫と出荷日を選択してください</div>');
                             }
 
@@ -86,10 +86,10 @@ class ListWaves extends ListRecords
                             $html .= '</tr></thead><tbody>';
 
                             foreach ($summary as $row) {
-                                $html .= "<tr class=\"hover:bg-gray-50 dark:hover:bg-gray-700\">";
+                                $html .= '<tr class="hover:bg-gray-50 dark:hover:bg-gray-700">';
                                 $html .= "<td class=\"border px-3 py-2\">{$row->course_name}</td>";
                                 $html .= "<td class=\"border px-3 py-2 text-right\">{$row->count}件</td>";
-                                $html .= "</tr>";
+                                $html .= '</tr>';
                             }
 
                             $html .= '</tbody></table></div>';
@@ -97,7 +97,7 @@ class ListWaves extends ListRecords
                             // Total
                             $html .= '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">';
                             $html .= '<span class="font-medium">合計</span>';
-                            $html .= '<span class="text-lg font-bold text-blue-600 dark:text-blue-400">' . $totalCount . '件</span>';
+                            $html .= '<span class="text-lg font-bold text-blue-600 dark:text-blue-400">'.$totalCount.'件</span>';
                             $html .= '</div>';
 
                             // Warning for large volume
@@ -141,6 +141,7 @@ class ListWaves extends ListRecords
                 ->title('対象伝票がありません')
                 ->warning()
                 ->send();
+
             return;
         }
 
@@ -164,7 +165,7 @@ class ListWaves extends ListRecords
                         ->where('delivery_course_id', $deliveryCourseId)
                         ->first();
 
-                    if (!$waveSetting) {
+                    if (! $waveSetting) {
                         $waveSetting = WaveSetting::create([
                             'warehouse_id' => $warehouseId,
                             'delivery_course_id' => $deliveryCourseId,
@@ -208,7 +209,7 @@ class ListWaves extends ListRecords
 
             Notification::make()
                 ->title('波動を生成しました')
-                ->body("生成数: " . count($createdWaves) . "件 (伝票数: {$totalEarnings}件)")
+                ->body('生成数: '.count($createdWaves)."件 (伝票数: {$totalEarnings}件)")
                 ->success()
                 ->send();
 
@@ -250,12 +251,12 @@ class ListWaves extends ListRecords
 
         foreach ($tradeItems as $tradeItem) {
             $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
-            if (!$earningId) {
+            if (! $earningId) {
                 continue;
             }
 
             // Reserve stock
-            $allocationService = new StockAllocationService();
+            $allocationService = new StockAllocationService;
             $result = $allocationService->allocateForItem(
                 $wave->id,
                 $waveSetting->warehouse_id,
@@ -347,7 +348,7 @@ class ListWaves extends ListRecords
 
             // Group by floor_id
             $groupKey = ($floorId ?? 'null');
-            if (!isset($itemsByGroup[$groupKey])) {
+            if (! isset($itemsByGroup[$groupKey])) {
                 $itemsByGroup[$groupKey] = [
                     'floor_id' => $floorId,
                     'picking_area_id' => $pickingAreaId,
@@ -410,7 +411,7 @@ class ListWaves extends ListRecords
                 $reservationResult = $reservationResults[$tradeItem->id];
                 $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
 
-                if (!$tradeItem->quantity_type) {
+                if (! $tradeItem->quantity_type) {
                     throw new \RuntimeException(
                         "quantity_type must be specified for trade_item ID {$tradeItem->id}"
                     );

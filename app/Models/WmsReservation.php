@@ -61,19 +61,26 @@ class WmsReservation extends WmsModel
         return $this->belongsTo(Location::class);
     }
 
-
     // Status constants
     public const STATUS_RESERVED = 'RESERVED';
+
     public const STATUS_RELEASED = 'RELEASED';
+
     public const STATUS_CONSUMED = 'CONSUMED';
+
     public const STATUS_CANCELLED = 'CANCELLED';
+
     public const STATUS_SHORTAGE = 'SHORTAGE';
 
     // Source type constants
     public const SOURCE_EARNING = 'EARNING';
+
     public const SOURCE_PURCHASE = 'PURCHASE';
+
     public const SOURCE_REPLENISH = 'REPLENISH';
+
     public const SOURCE_COUNT = 'COUNT';
+
     public const SOURCE_MOVE = 'MOVE';
 
     // Scopes

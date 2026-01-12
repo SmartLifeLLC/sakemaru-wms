@@ -13,13 +13,17 @@ class WmsJxTransmissionLog extends WmsModel
     protected $table = 'wms_jx_transmission_logs';
 
     public const DIRECTION_SEND = 'send';
+
     public const DIRECTION_RECEIVE = 'receive';
 
     public const STATUS_SUCCESS = 'success';
+
     public const STATUS_FAILURE = 'failure';
 
     public const OPERATION_PUT = 'PutDocument';
+
     public const OPERATION_GET = 'GetDocument';
+
     public const OPERATION_CONFIRM = 'ConfirmDocument';
 
     protected $fillable = [

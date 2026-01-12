@@ -3,7 +3,6 @@
 namespace App\Services\Picking;
 
 use App\Models\WmsLayoutDistanceCache;
-use App\Models\WmsWarehouseLayout;
 
 /**
  * Distance caching service for picking route optimization
@@ -12,14 +11,17 @@ use App\Models\WmsWarehouseLayout;
 class DistanceCacheService
 {
     private AStarGrid $aStar;
+
     private int $warehouseId;
+
     private ?int $floorId;
+
     private string $layoutHash;
 
     /**
      * Calculate layout hash from layout data
      *
-     * @param array $layoutData Layout data with width, height, walls, fixed_areas, picking_start_x, picking_start_y, picking_end_x, picking_end_y
+     * @param  array  $layoutData  Layout data with width, height, walls, fixed_areas, picking_start_x, picking_start_y, picking_end_x, picking_end_y
      * @return string MD5 hash
      */
     public static function layoutHash(array $layoutData): string
@@ -41,8 +43,8 @@ class DistanceCacheService
         ];
 
         // Sort walls and fixed_areas to ensure consistent order
-        usort($normalized['walls'], fn($a, $b) => ($a['x1'] ?? 0) <=> ($b['x1'] ?? 0));
-        usort($normalized['fixed_areas'], fn($a, $b) => ($a['x1'] ?? 0) <=> ($b['x1'] ?? 0));
+        usort($normalized['walls'], fn ($a, $b) => ($a['x1'] ?? 0) <=> ($b['x1'] ?? 0));
+        usort($normalized['fixed_areas'], fn ($a, $b) => ($a['x1'] ?? 0) <=> ($b['x1'] ?? 0));
 
         return md5(json_encode($normalized));
     }
@@ -50,10 +52,10 @@ class DistanceCacheService
     /**
      * Initialize distance cache service
      *
-     * @param AStarGrid $aStar A* algorithm instance
-     * @param int $warehouseId Warehouse ID
-     * @param int|null $floorId Floor ID
-     * @param string $layoutHash Layout hash
+     * @param  AStarGrid  $aStar  A* algorithm instance
+     * @param  int  $warehouseId  Warehouse ID
+     * @param  int|null  $floorId  Floor ID
+     * @param  string  $layoutHash  Layout hash
      */
     public function __construct(
         AStarGrid $aStar,
@@ -70,9 +72,9 @@ class DistanceCacheService
     /**
      * Get distance between two points (with caching)
      *
-     * @param string $fromKey Key format: 'LOC:{id}' or 'NODE:START'
-     * @param string $toKey Key format: 'LOC:{id}' or 'NODE:START'
-     * @param callable $resolver Closure that resolves keys to [x, y] coordinates
+     * @param  string  $fromKey  Key format: 'LOC:{id}' or 'NODE:START'
+     * @param  string  $toKey  Key format: 'LOC:{id}' or 'NODE:START'
+     * @param  callable  $resolver  Closure that resolves keys to [x, y] coordinates
      * @return array ['dist' => int, 'path' => [[x,y], ...]]
      */
     public function getDistance(string $fromKey, string $toKey, callable $resolver): array
@@ -120,9 +122,9 @@ class DistanceCacheService
     /**
      * Clear cache for a specific layout
      *
-     * @param int $warehouseId Warehouse ID
-     * @param int|null $floorId Floor ID
-     * @param string|null $layoutHash Layout hash (null = clear all)
+     * @param  int  $warehouseId  Warehouse ID
+     * @param  int|null  $floorId  Floor ID
+     * @param  string|null  $layoutHash  Layout hash (null = clear all)
      * @return int Number of records deleted
      */
     public static function clearCache(int $warehouseId, ?int $floorId, ?string $layoutHash = null): int
@@ -140,8 +142,8 @@ class DistanceCacheService
     /**
      * Get cache statistics
      *
-     * @param int $warehouseId Warehouse ID
-     * @param int|null $floorId Floor ID
+     * @param  int  $warehouseId  Warehouse ID
+     * @param  int|null  $floorId  Floor ID
      * @return array Statistics
      */
     public static function getCacheStats(int $warehouseId, ?int $floorId): array

@@ -2,7 +2,6 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Arr;
 
 return new class extends Migration
 {
@@ -13,7 +12,7 @@ return new class extends Migration
             ->chunkById(100, function ($records) {
                 foreach ($records as $record) {
                     $filters = json_decode($record->filters, true);
-                    
+
                     if (! is_array($filters)) {
                         continue;
                     }
@@ -21,8 +20,8 @@ return new class extends Migration
                     if (! isset($filters['tableSortColumn'])) {
                         continue;
                     }
-                    
-                    $filters['tableSort'] = $filters['tableSortColumn'] . ':' . ($filters['tableSortDirection'] ?? 'asc');
+
+                    $filters['tableSort'] = $filters['tableSortColumn'].':'.($filters['tableSortDirection'] ?? 'asc');
 
                     unset($filters['tableSortColumn'], $filters['tableSortDirection']);
 

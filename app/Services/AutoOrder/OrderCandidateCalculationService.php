@@ -8,7 +8,6 @@ use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
-use App\Models\Sakemaru\ItemContractor;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
@@ -147,7 +146,7 @@ class OrderCandidateCalculationService
             ->get();
 
         foreach ($snapshots as $s) {
-            if (!isset($this->stockSnapshots[$s->warehouse_id])) {
+            if (! isset($this->stockSnapshots[$s->warehouse_id])) {
                 $this->stockSnapshots[$s->warehouse_id] = [];
             }
             $this->stockSnapshots[$s->warehouse_id][$s->item_id] = [
@@ -250,6 +249,7 @@ class OrderCandidateCalculationService
     {
         if (empty($this->internalContractorIds)) {
             Log::info('INTERNAL発注先が見つかりません');
+
             return 0;
         }
 
@@ -269,7 +269,7 @@ class OrderCandidateCalculationService
 
         foreach ($itemContractors as $ic) {
             $supplyWarehouseId = $this->internalSettings[$ic->contractor_id] ?? null;
-            if (!$supplyWarehouseId) {
+            if (! $supplyWarehouseId) {
                 continue;
             }
 
@@ -280,6 +280,7 @@ class OrderCandidateCalculationService
                     'item_id' => $ic->item_id,
                     'contractor_id' => $ic->contractor_id,
                 ]);
+
                 continue;
             }
 
@@ -378,6 +379,7 @@ class OrderCandidateCalculationService
 
     /**
      * 移動候補をメモリにロード
+     *
      * @return array [warehouse_id][item_id] => ['incoming' => qty, 'outgoing' => qty]
      */
     private function loadTransferCandidatesToMemory(string $batchCode): array
@@ -392,13 +394,13 @@ class OrderCandidateCalculationService
 
         foreach ($candidates as $c) {
             // 移動先（入庫）
-            if (!isset($result[$c->satellite_warehouse_id][$c->item_id])) {
+            if (! isset($result[$c->satellite_warehouse_id][$c->item_id])) {
                 $result[$c->satellite_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0];
             }
             $result[$c->satellite_warehouse_id][$c->item_id]['incoming'] += $c->transfer_quantity;
 
             // 移動元（出庫）
-            if (!isset($result[$c->hub_warehouse_id][$c->item_id])) {
+            if (! isset($result[$c->hub_warehouse_id][$c->item_id])) {
                 $result[$c->hub_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0];
             }
             $result[$c->hub_warehouse_id][$c->item_id]['outgoing'] += $c->transfer_quantity;
@@ -548,8 +550,8 @@ class OrderCandidateCalculationService
     /**
      * 数量を指定単位で切り上げ
      *
-     * @param int $quantity 数量
-     * @param int $unit 単位（1以上）
+     * @param  int  $quantity  数量
+     * @param  int  $unit  単位（1以上）
      * @return int 切り上げ後の数量
      */
     private function roundUpToUnit(int $quantity, int $unit): int

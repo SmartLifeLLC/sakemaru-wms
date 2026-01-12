@@ -7,9 +7,11 @@ use App\Enums\EVolumeUnit;
 use App\Enums\TemperatureType;
 use App\Http\Controllers\Controller;
 use App\Models\WmsPickingTask;
+use App\Services\EarningDeliveryQueueService;
 use App\Services\PickingLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class PickingTaskController extends Controller
 {
@@ -912,19 +914,8 @@ class PickingTaskController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            // Update real_stocks: decrease wms_reserved_qty, current_quantity, available_quantity
-            if ($itemResult->real_stock_id && $itemResult->picked_qty > 0) {
-                $pickedQty = $itemResult->picked_qty;
-                DB::connection('sakemaru')
-                    ->table('real_stocks')
-                    ->where('id', $itemResult->real_stock_id)
-                    ->update([
-                        'current_quantity' => DB::raw("current_quantity - {$pickedQty}"),
-                        'available_quantity' => DB::raw("available_quantity - {$pickedQty}"),
-                        'wms_reserved_qty' => DB::raw("GREATEST(wms_reserved_qty - {$pickedQty}, 0)"),
-                        'updated_at' => now(),
-                    ]);
-            }
+            // Note: real_stocks の数量更新は earning_delivery_queue 経由で
+            // Sakemaru側の ProcessEarningDeliveryQueue Job が実行する
         }
 
         // Set task status based on shortage existence
@@ -935,6 +926,25 @@ class PickingTaskController extends Controller
             'status' => $finalStatus,
             'completed_at' => now(),
         ]);
+
+        // Register to earning_delivery_queue for lot-level stock updates
+        // This allows sakemaru Job to process lot allocation confirmation
+        try {
+            $queueService = new EarningDeliveryQueueService;
+            $queueRecord = $queueService->registerFromPickingTask($task);
+            if ($queueRecord) {
+                Log::info('Registered picking task completion to earning_delivery_queue', [
+                    'task_id' => $task->id,
+                    'queue_id' => $queueRecord->id,
+                ]);
+            }
+        } catch (\Exception $e) {
+            // Log error but don't fail the request - queue registration is for async processing
+            Log::error('Failed to register to earning_delivery_queue', [
+                'task_id' => $task->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         $response = [
             'is_success' => true,

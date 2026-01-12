@@ -11,8 +11,8 @@ class BitmapToRectangles
     /**
      * Convert bitmap to array of rectangles
      *
-     * @param array $bitmap 2D boolean array
-     * @param int $cellSize Size of each cell in pixels
+     * @param  array  $bitmap  2D boolean array
+     * @param  int  $cellSize  Size of each cell in pixels
      * @return array Array of rectangles [['x1' => int, 'y1' => int, 'x2' => int, 'y2' => int], ...]
      */
     public function convert(array $bitmap, int $cellSize): array
@@ -25,7 +25,7 @@ class BitmapToRectangles
         $width = count($bitmap[0]);
 
         // Create a working copy
-        $grid = array_map(fn($row) => [...$row], $bitmap);
+        $grid = array_map(fn ($row) => [...$row], $bitmap);
 
         $rectangles = [];
 
@@ -62,11 +62,11 @@ class BitmapToRectangles
     /**
      * Find largest rectangle starting from (x, y)
      *
-     * @param array $grid Working grid
-     * @param int $startX Starting X coordinate
-     * @param int $startY Starting Y coordinate
-     * @param int $width Grid width
-     * @param int $height Grid height
+     * @param  array  $grid  Working grid
+     * @param  int  $startX  Starting X coordinate
+     * @param  int  $startY  Starting Y coordinate
+     * @param  int  $width  Grid width
+     * @param  int  $height  Grid height
      * @return array|null Rectangle coordinates or null
      */
     private function findLargestRectangle(array $grid, int $startX, int $startY, int $width, int $height): ?array
@@ -92,7 +92,7 @@ class BitmapToRectangles
                 // Check if all cells in this row are available
                 $rowOk = true;
                 for ($x = $startX; $x < $startX + $currentWidth; $x++) {
-                    if (!$grid[$y][$x]) {
+                    if (! $grid[$y][$x]) {
                         $rowOk = false;
                         break;
                     }
@@ -123,10 +123,10 @@ class BitmapToRectangles
     /**
      * Convert rectangles back to bitmap
      *
-     * @param array $rectangles Array of rectangles
-     * @param int $cellSize Size of each cell in pixels
-     * @param int $canvasWidth Canvas width in pixels
-     * @param int $canvasHeight Canvas height in pixels
+     * @param  array  $rectangles  Array of rectangles
+     * @param  int  $cellSize  Size of each cell in pixels
+     * @param  int  $canvasWidth  Canvas width in pixels
+     * @param  int  $canvasHeight  Canvas height in pixels
      * @return array 2D boolean array
      */
     public function rectanglesToBitmap(array $rectangles, int $cellSize, int $canvasWidth, int $canvasHeight): array

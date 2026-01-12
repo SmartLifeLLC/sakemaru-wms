@@ -2,11 +2,11 @@
 
 namespace App\Filament\Resources\Purchases\Tables;
 
+use App\Enums\PaginationOptions;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 
 class PurchasesTable
 {

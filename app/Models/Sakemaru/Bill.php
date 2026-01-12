@@ -4,19 +4,12 @@ namespace App\Models\Sakemaru;
 
 use App\Enums\BillingType;
 use App\Enums\EAllocationType;
-use App\Models\Sakemaru\ClosingBill;
-use App\Models\Sakemaru\CustomModel;
-use App\Models\Sakemaru\Earning;
-use App\Models\Sakemaru\LedgerClassification;
-use App\Models\Sakemaru\Partner;
-use App\Models\Sakemaru\Purchase;
 use DB;
+use Illuminate\Contracts\Database\Query\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Contracts\Database\Query\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
@@ -25,8 +18,8 @@ class Bill extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
-    protected $casts = [];
 
+    protected $casts = [];
 
     public function earnings(): HasMany
     {
@@ -59,6 +52,7 @@ class Bill extends CustomModel
         if ($as_query) {
             return $query;
         }
+
         return $query->get();
     }
 
@@ -67,6 +61,7 @@ class Bill extends CustomModel
         if ($or_create) {
             $partner = Partner::find($partner_id);
             $creator_id = $creator_id ?? auth()->user()->id ?? 0;
+
             return static::firstOrCreate([
                 'partner_id' => $partner_id,
                 'is_tentative' => true,
@@ -82,6 +77,7 @@ class Bill extends CustomModel
                 'is_tentative' => true,
             ]);
         }
+
         return static::where('partner_id', $partner_id)
             ->where('is_tentative', true)
             ->first();
@@ -93,23 +89,23 @@ class Bill extends CustomModel
         $col = $allocation_type->allocationCol();
         $bill->$col += $price;
         $bill->save();
+
         return $bill;
     }
 
     protected function totalAllocation(): Attribute
     {
         return Attribute::make(
-            get: fn() => $this->container_pickup_amount + $this->allocation_amount + $this->discount_amount,
+            get: fn () => $this->container_pickup_amount + $this->allocation_amount + $this->discount_amount,
         );
     }
 
     protected function expectedAmount(): Attribute
     {
         return Attribute::make(
-            get: fn() => $this->amount - $this->total_allocation,
+            get: fn () => $this->amount - $this->total_allocation,
         );
     }
-
 
     // ... 既存のプロパティやリレーション、メソッド
 
@@ -118,8 +114,7 @@ class Bill extends CustomModel
      * effective_closing_dateをSQLで一括更新します。
      * 締め処理など、関連レコードが一度に作成された後のリアルタイム更新に最適です。
      *
-     * @param int $closingBillId 更新対象の締め請求ID
-     * @return void
+     * @param  int  $closingBillId  更新対象の締め請求ID
      */
     public static function bulkUpdateEffectiveClosingDateByClosingId(int $closingBillId): void
     {
@@ -138,7 +133,7 @@ class Bill extends CustomModel
             ->exists();
 
         if ($hasBuyerBills) {
-            DB::statement("
+            DB::statement('
                     UPDATE bills b
                     LEFT JOIN closing_bills cb ON b.closing_bill_id = cb.id
                     LEFT JOIN (
@@ -155,7 +150,7 @@ class Bill extends CustomModel
                     WHERE
                         b.is_from_supplier = 0
                         AND b.closing_bill_id = ?
-                ", [$closingBillId]);
+                ', [$closingBillId]);
         }
 
         // --- SUPPLIER用の更新 (is_from_supplier = 1) ---
@@ -166,7 +161,7 @@ class Bill extends CustomModel
             ->exists();
 
         if ($hasSupplierBills) {
-            DB::statement("
+            DB::statement('
                     UPDATE bills b
                     LEFT JOIN closing_bills cb ON b.closing_bill_id = cb.id
                     LEFT JOIN (
@@ -183,7 +178,7 @@ class Bill extends CustomModel
                     WHERE
                         b.is_from_supplier = 1
                         AND b.closing_bill_id = ?
-                ", [$closingBillId]);
+                ', [$closingBillId]);
         }
         Log::info("effective_closing_date が closing_bill_id: {$closingBillId} に対して一括更新されました。");
     }

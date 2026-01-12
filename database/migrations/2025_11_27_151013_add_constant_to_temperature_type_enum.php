@@ -24,7 +24,7 @@ return new class extends Migration
         ");
 
         // Update locations temperature_type enum (if it exists)
-        if(Schema::connection('sakemaru')->hasTable('locations')){
+        if (Schema::connection('sakemaru')->hasTable('locations')) {
             DB::connection('sakemaru')->statement("
                 ALTER TABLE locations
                 MODIFY COLUMN temperature_type ENUM('NORMAL', 'CONSTANT', 'CHILLED', 'FROZEN') NULL

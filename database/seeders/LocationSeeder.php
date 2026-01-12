@@ -36,7 +36,7 @@ class LocationSeeder extends Seeder
                     ->whereIn('id', $locationIds)
                     ->delete();
 
-                $this->command->info("  Deleted " . $locationIds->count() . " existing locations");
+                $this->command->info('  Deleted '.$locationIds->count().' existing locations');
             }
         });
 
@@ -54,6 +54,7 @@ class LocationSeeder extends Seeder
 
         if ($floors->isEmpty()) {
             $this->command->error('No floors found. Please run FloorSeeder first.');
+
             return;
         }
 

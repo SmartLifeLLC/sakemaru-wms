@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -14,8 +12,7 @@ enum ResponsiveSize: string
     case XLARGE = 'XLARGE';
     case X2LARGE = 'X2LARGE';
 
-
-    public function width() : string
+    public function width(): string
     {
         return match ($this) {
             self::SMALL => '640',
@@ -25,5 +22,4 @@ enum ResponsiveSize: string
             self::X2LARGE => '1536',
         };
     }
-
 }

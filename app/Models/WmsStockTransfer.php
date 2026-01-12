@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class WmsStockTransfer extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'wms_stock_transfers';
 
     protected $fillable = [
@@ -35,7 +36,9 @@ class WmsStockTransfer extends Model
 
     // Item management type constants
     public const MANAGEMENT_TYPE_LOT = 'LOT';
+
     public const MANAGEMENT_TYPE_EXPIRATION = 'EXPIRATION';
+
     public const MANAGEMENT_TYPE_NONE = 'NONE';
 
     // Relationships

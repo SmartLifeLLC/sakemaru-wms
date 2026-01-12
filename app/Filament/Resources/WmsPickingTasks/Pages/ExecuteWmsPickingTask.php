@@ -6,7 +6,6 @@ use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsPickingTask;
 use App\Services\Shortage\PickingShortageDetector;
 use Filament\Actions\Action;
-use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
@@ -45,12 +44,13 @@ class ExecuteWmsPickingTask extends Page implements HasForms
             'floor',
             'pickingArea',
             'warehouse',
-            'picker'
+            'picker',
         ]);
         $this->record = $record;
         // 商品データを配列に変換
         $this->items = $this->record->pickingItemResults->map(function ($item) {
             $trade = $item->trade;
+
             return [
                 'id' => $item->id,
                 'serial_id' => $trade->serial_id ?? 'N/A',
@@ -110,12 +110,13 @@ class ExecuteWmsPickingTask extends Page implements HasForms
         DB::connection('sakemaru')->transaction(function () use ($itemId, $field, $value) {
             $item = $this->record->pickingItemResults()->find($itemId);
 
-            if (!$item) {
+            if (! $item) {
                 Notification::make()
                     ->title('エラー')
                     ->body('商品が見つかりません')
                     ->danger()
                     ->send();
+
                 return;
             }
 
@@ -162,11 +163,12 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     $query->with(['item', 'location', 'trade.partner', 'trade.earning.buyer.current_detail.salesman'])
                         ->orderBy('walking_order', 'asc')
                         ->orderBy('item_id', 'asc');
-                }
+                },
             ]);
 
             $this->items = $this->record->pickingItemResults->map(function ($item) {
                 $trade = $item->trade;
+
                 return [
                     'id' => $item->id,
                     'serial_id' => $trade->serial_id ?? 'N/A',
@@ -218,7 +220,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 ->pluck('earning_id')
                 ->toArray();
 
-            if (!empty($earningIds)) {
+            if (! empty($earningIds)) {
                 DB::connection('sakemaru')
                     ->table('earnings')
                     ->whereIn('id', $earningIds)
@@ -252,6 +254,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     ->body("未完了の商品が{$pendingItems}件あります")
                     ->warning()
                     ->send();
+
                 return;
             }
 
@@ -295,7 +298,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 ->pluck('earning_id')
                 ->toArray();
 
-            if (!empty($earningIds)) {
+            if (! empty($earningIds)) {
                 DB::connection('sakemaru')
                     ->table('earnings')
                     ->whereIn('id', $earningIds)
@@ -325,6 +328,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
         $waveCode = $this->record->wave->wave_code ?? 'Wave';
         $taskId = $this->record->id;
         $floorName = $this->record->floor->name ?? 'フロア未設定';
+
         return "ピッキング実行: {$waveCode} - タスク #{$taskId} ({$floorName})";
     }
 

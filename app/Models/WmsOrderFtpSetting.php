@@ -56,6 +56,7 @@ class WmsOrderFtpSetting extends WmsModel
     public function generateFileName(?string $date = null): string
     {
         $date = $date ?? now()->format('Ymd');
+
         return str_replace('{date}', $date, $this->file_name_pattern);
     }
 }

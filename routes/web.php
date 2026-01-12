@@ -27,7 +27,7 @@ Route::prefix('api')->middleware(['web'])->group(function () {
 // JX送受信ログファイルダウンロード（Filament認証）
 Route::get('/jx-transmission-logs/{log}/download', [JxTransmissionLogController::class, 'download'])
     ->name('jx-transmission-logs.download')
-    ->middleware(['web', \Filament\Http\Middleware\Authenticate::class . ':admin']);
+    ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
 
 // JX-FINET テスト用受信サーバー（開発・テスト環境のみ）
 if (app()->environment('local', 'testing', 'staging')) {

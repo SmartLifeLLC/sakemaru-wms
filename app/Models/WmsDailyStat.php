@@ -56,13 +56,10 @@ class WmsDailyStat extends Model
 
     /**
      * 最終集計から指定分数が経過しているかチェック
-     *
-     * @param int $minutes
-     * @return bool
      */
     public function isStale(int $minutes = 30): bool
     {
-        if (!$this->last_calculated_at) {
+        if (! $this->last_calculated_at) {
             return true;
         }
 
@@ -71,8 +68,6 @@ class WmsDailyStat extends Model
 
     /**
      * カテゴリ別内訳を取得
-     *
-     * @return array
      */
     public function getCategoryBreakdown(): array
     {
@@ -81,13 +76,11 @@ class WmsDailyStat extends Model
 
     /**
      * 特定カテゴリのデータを取得
-     *
-     * @param int $categoryId
-     * @return array|null
      */
     public function getCategoryData(int $categoryId): ?array
     {
         $breakdown = $this->getCategoryBreakdown();
+
         return $breakdown['categories'][$categoryId] ?? null;
     }
 }

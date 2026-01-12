@@ -20,19 +20,18 @@ use Illuminate\Support\Facades\Log;
 class StockAllocationService
 {
     protected const BATCH_SIZE = 50;
+
     protected const MAX_PAGES = 2;
+
     protected const LOCK_TIMEOUT = 1; // seconds
 
     /**
      * Allocate stock for a specific item in a wave
      *
-     * @param int $waveId
-     * @param int $warehouseId
-     * @param int $itemId
-     * @param int $needQty Required quantity (in PIECE)
-     * @param string $quantityType Order quantity type (CASE|PIECE|CARTON)
-     * @param int $sourceId Source record ID (earning_id or trade_item_id)
-     * @param string $sourceType Source type (EARNING|TRADE_ITEM)
+     * @param  int  $needQty  Required quantity (in PIECE)
+     * @param  string  $quantityType  Order quantity type (CASE|PIECE|CARTON)
+     * @param  int  $sourceId  Source record ID (earning_id or trade_item_id)
+     * @param  string  $sourceType  Source type (EARNING|TRADE_ITEM)
      * @return array ['allocated' => int, 'shortage' => int, 'elapsed_ms' => float, 'race_count' => int]
      */
     public function allocateForItem(
@@ -48,7 +47,7 @@ class StockAllocationService
         $lockKey = "alloc:{$warehouseId}:{$itemId}";
 
         // Acquire named lock
-        if (!DbMutex::acquire($lockKey, self::LOCK_TIMEOUT, 'sakemaru')) {
+        if (! DbMutex::acquire($lockKey, self::LOCK_TIMEOUT, 'sakemaru')) {
             Log::warning('Stock allocation lock timeout', [
                 'warehouse_id' => $warehouseId,
                 'item_id' => $itemId,
@@ -137,31 +136,17 @@ class StockAllocationService
                     break;
                 }
 
-                $available = $stock->available_quantity - $stock->wms_reserved_qty - $stock->wms_picking_qty;
+                // available_quantity は生成カラム (= current_quantity - reserved_quantity)
+                // Sakemaru側で売上時に reserved_quantity が増加済み
+                $available = $stock->available_quantity;
                 if ($available <= 0) {
                     continue;
                 }
 
                 $takeQty = min($needQty - $totalAllocated, $available);
 
-                // Optimistic lock: Update real_stocks with lock_version check
-                $updated = DB::connection('sakemaru')
-                    ->table('real_stocks')
-                    ->where('id', $stock->real_stock_id)
-                    ->where('available_quantity', '>=', $takeQty)
-                    ->where('wms_lock_version', $stock->wms_lock_version)
-                    ->update([
-                        'available_quantity' => DB::raw('available_quantity - ' . $takeQty),
-                        'wms_reserved_qty' => DB::raw('wms_reserved_qty + ' . $takeQty),
-                        'wms_lock_version' => DB::raw('wms_lock_version + 1'),
-                        'updated_at' => now(),
-                    ]);
-
-                if ($updated === 0) {
-                    // Race condition or lock version mismatch
-                    $raceCount++;
-                    continue;
-                }
+                // Note: real_stocks の数量更新は行わない（Sakemaru側で管理）
+                // wms_reservations の作成のみ行う
 
                 // Success - record reservation
                 $reservations[] = [
@@ -191,7 +176,7 @@ class StockAllocationService
         }
 
         // Insert reservations in batch (if any)
-        if (!empty($reservations)) {
+        if (! empty($reservations)) {
             DB::connection('sakemaru')
                 ->table('wms_reservations')
                 ->insert($reservations);
@@ -247,14 +232,6 @@ class StockAllocationService
 
     /**
      * Get candidate stocks for allocation
-     *
-     * @param int $warehouseId
-     * @param int $itemId
-     * @param bool $usesExpiration
-     * @param AvailableQuantityFlag $quantityFlag
-     * @param int $limit
-     * @param int $offset
-     * @return \Illuminate\Support\Collection
      */
     protected function getCandidateStocks(
         int $warehouseId,
@@ -278,9 +255,6 @@ class StockAllocationService
                 'rs.expiration_date',
                 'rs.price as unit_cost',
                 'rs.available_quantity',
-                'rs.wms_reserved_qty',
-                'rs.wms_picking_qty',
-                'rs.wms_lock_version',
             ]);
 
         // Order by FEFO or FIFO

@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\WmsShortages;
 
 use App\Enums\EMenu;
-use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsShortages\Pages\CreateWmsShortage;
 use App\Filament\Resources\WmsShortages\Pages\EditWmsShortage;
 use App\Filament\Resources\WmsShortages\Pages\ListWmsShortages;

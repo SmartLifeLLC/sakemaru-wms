@@ -2,14 +2,13 @@
 
 namespace Tests\Unit\Support;
 
-use App\Support\JxRequestResponse;
 use PHPUnit\Framework\TestCase;
 
 class JxRequestResponseTest extends TestCase
 {
     public function test_parses_successful_xml_response(): void
     {
-        $xmlResponse = <<<XML
+        $xmlResponse = <<<'XML'
 <?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
     <soap:Body>
@@ -26,7 +25,7 @@ XML;
 
         // テスト用のレスポンスを構築（ヘッダー + ボディ）
         $headers = "HTTP/1.1 200 OK\r\nContent-Type: application/xml\r\n\r\n";
-        $fullResponse = $headers . $xmlResponse;
+        $fullResponse = $headers.$xmlResponse;
 
         // curlのgetinfo結果をシミュレートするため、実際のcurl_execを行わず
         // 代わりにリフレクションを使用してテスト
@@ -40,7 +39,7 @@ XML;
     public function test_get_value_by_tag_returns_correct_value(): void
     {
         // XMLをパースしてgetValueByTagをテスト
-        $xmlResponse = <<<XML
+        $xmlResponse = <<<'XML'
 <?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
     <soap:Body>
@@ -53,7 +52,7 @@ XML;
 </soap:Envelope>
 XML;
 
-        $doc = new \DOMDocument();
+        $doc = new \DOMDocument;
         $doc->loadXML($xmlResponse);
 
         $messageId = $doc->getElementsByTagName('messageId')->item(0)?->nodeValue;

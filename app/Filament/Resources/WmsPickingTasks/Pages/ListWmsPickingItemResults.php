@@ -4,19 +4,18 @@ namespace App\Filament\Resources\WmsPickingTasks\Pages;
 
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsPickingItemResults\WmsPickingItemResultResource;
-use App\Models\Sakemaru\ClientSetting;
+use App\Filament\Resources\WmsPickingTasks\Widgets\PickingTaskInfoWidget;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
-use App\Filament\Resources\WmsPickingTasks\Widgets\PickingTaskInfoWidget;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
 class ListWmsPickingItemResults extends ListRecords
 {
-    use ExposesTableToWidgets;
     use AdvancedTables;
+    use ExposesTableToWidgets;
     use HasWmsUserViews {
         HasWmsUserViews::getUserViews insteadof AdvancedTables;
         HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
@@ -28,6 +27,7 @@ class ListWmsPickingItemResults extends ListRecords
 
     // View labels as constants for reuse
     public const VIEW_LABEL_DEFAULT = '引き当て欠品あり';
+
     public const VIEW_LABEL_ALL = '全体';
 
     public function mount(): void
@@ -50,8 +50,8 @@ class ListWmsPickingItemResults extends ListRecords
         $activeView = $this->activeView ?? 'default';
 
         return match ($activeView) {
-            'default' => '「' . self::VIEW_LABEL_DEFAULT . '」のデータはありません',
-            'all' => '「' . self::VIEW_LABEL_ALL . '」のデータはありません',
+            'default' => '「'.self::VIEW_LABEL_DEFAULT.'」のデータはありません',
+            'all' => '「'.self::VIEW_LABEL_ALL.'」のデータはありません',
             default => 'データが見つかりません',
         };
     }
@@ -66,8 +66,8 @@ class ListWmsPickingItemResults extends ListRecords
     public function getPresetViews(): array
     {
         return [
-            'default' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query->where('has_soft_shortage', true))->favorite()->label(self::VIEW_LABEL_DEFAULT)->default(),
-            'all' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query)->favorite()->label(self::VIEW_LABEL_ALL),
+            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('has_soft_shortage', true))->favorite()->label(self::VIEW_LABEL_DEFAULT)->default(),
+            'all' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query)->favorite()->label(self::VIEW_LABEL_ALL),
         ];
     }
 

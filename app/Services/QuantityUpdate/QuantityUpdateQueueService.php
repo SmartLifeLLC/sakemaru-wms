@@ -12,16 +12,17 @@ class QuantityUpdateQueueService
     /**
      * 欠品承認時にquantity_update_queueレコードを作成
      *
-     * @param WmsShortage $shortage 承認された欠品レコード
+     * @param  WmsShortage  $shortage  承認された欠品レコード
      * @return QuantityUpdateQueue|null 作成されたレコード（スキップ時はnull）
      */
     public function createQueueForShortageApproval(WmsShortage $shortage): ?QuantityUpdateQueue
     {
         // source_pick_result_idが必須
-        if (!$shortage->source_pick_result_id) {
+        if (! $shortage->source_pick_result_id) {
             Log::warning('Cannot create quantity_update_queue: source_pick_result_id is null', [
                 'shortage_id' => $shortage->id,
             ]);
+
             return null;
         }
 
@@ -30,11 +31,12 @@ class QuantityUpdateQueueService
 
         // client_idを取得
         $clientId = $shortage->trade?->client_id;
-        if (!$clientId) {
+        if (! $clientId) {
             Log::warning('Cannot create quantity_update_queue: client_id not found', [
                 'shortage_id' => $shortage->id,
                 'trade_id' => $shortage->trade_id,
             ]);
+
             return null;
         }
 
@@ -51,6 +53,7 @@ class QuantityUpdateQueueService
                 'request_id' => $requestId,
                 'queue_id' => $existing->id,
             ]);
+
             return $existing;
         }
 
@@ -84,7 +87,7 @@ class QuantityUpdateQueueService
     /**
      * 複数の欠品を一括でキューに登録
      *
-     * @param iterable $shortages 承認された欠品レコードのコレクション
+     * @param  iterable  $shortages  承認された欠品レコードのコレクション
      * @return array 作成されたレコードの配列
      */
     public function createQueueForMultipleShortages(iterable $shortages): array

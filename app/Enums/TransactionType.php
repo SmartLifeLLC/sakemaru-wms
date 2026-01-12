@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -34,6 +32,7 @@ enum TransactionType: string
 
     case EXTERNAL_DATA_IMPORT_EARNING = 'EXTERNAL_DATA_IMPORT_EARNING';
     case EXTERNAL_DATA_IMPORT_EARNING_COMMENT = 'EXTERNAL_DATA_IMPORT_EARNING_COMMENT';
+
     public function name(): string
     {
         return match ($this) {
@@ -61,7 +60,7 @@ enum TransactionType: string
             self::MONTHLY_STOCK_OVERVIEW => '月次受払在庫',
             self::STOCK_TRANSFER => '倉庫移動',
             self::EXTERNAL_DATA_IMPORT_EARNING => '外部連携売上',
-            self::EXTERNAL_DATA_IMPORT_EARNING_COMMENT=>'売上コメントリスト',
+            self::EXTERNAL_DATA_IMPORT_EARNING_COMMENT => '売上コメントリスト',
         };
     }
 
@@ -106,7 +105,7 @@ enum TransactionType: string
                 PrintType::DEPOSIT_PLAN,
                 PrintType::INVOICE,
                 PrintType::INVOICE_FOR_PAYMENT_SLIP,
-                PrintType::PAYMENT_SLIP
+                PrintType::PAYMENT_SLIP,
             ],
             self::CLOSING_REBATE => [
                 PrintType::REBATE_INVOICE,
@@ -149,10 +148,10 @@ enum TransactionType: string
                 PrintType::STOCK_TRANSFER_CHECK,
             ],
             self::EXTERNAL_DATA_IMPORT_EARNING => [
-              PrintType::EXTERNAL_DATA_IMPORT_EARNING_CHECK
+                PrintType::EXTERNAL_DATA_IMPORT_EARNING_CHECK,
             ],
             self::EXTERNAL_DATA_IMPORT_EARNING_COMMENT => [
-                PrintType::EXTERNAL_DATA_IMPORT_EARNING_COMMENT_LIST
+                PrintType::EXTERNAL_DATA_IMPORT_EARNING_COMMENT_LIST,
             ],
             default => []
         };

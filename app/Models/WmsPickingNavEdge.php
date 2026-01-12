@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class WmsPickingNavEdge extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'wms_picking_nav_edges';
 
     protected $fillable = [

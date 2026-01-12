@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Traits;
-
 
 use Illuminate\Support\Arr;
 
@@ -20,12 +18,13 @@ trait EnumExtensionTrait
 
     public static function ids(): array
     {
-        return Arr::map(self::cases(), fn($case) => $case->getID());
+        return Arr::map(self::cases(), fn ($case) => $case->getID());
     }
 
     public static function getRandom(): self
     {
         $cases = self::cases();
+
         return Arr::random($cases);
     }
 
@@ -35,6 +34,7 @@ trait EnumExtensionTrait
         foreach (self::cases() as $case) {
             $array[$case->name] = $case->value;
         }
+
         return $array;
     }
 
@@ -44,58 +44,53 @@ trait EnumExtensionTrait
         foreach (self::cases() as $case) {
             $array[$case->value] = $case->name();
         }
+
         return $array;
     }
 
-    /**
-     * @param string $name
-     * @return static|null
-     */
-    public static function fromName(string $name): static|null
+    public static function fromName(string $name): ?static
     {
         foreach (self::cases() as $case) {
             if ($case->name == $name) {
                 return $case;
             }
         }
+
         return null;
     }
 
     /**
      * name()で指定した値から変換
-     * @param string $name
-     * @return static|null
      */
-    public static function fromLabelName(string $name): static|null
+    public static function fromLabelName(string $name): ?static
     {
         foreach (self::cases() as $case) {
             if ($case->name() == $name) {
                 return $case;
             }
         }
+
         return null;
     }
 
-    public static function fromId(mixed $id, $is_null_strict = false): static|null
+    public static function fromId(mixed $id, $is_null_strict = false): ?static
     {
 
-        //他の条件とはベッツにnullだけstrictチェックする
-        if ($is_null_strict && $id === null) return null;
+        // 他の条件とはベッツにnullだけstrictチェックする
+        if ($is_null_strict && $id === null) {
+            return null;
+        }
 
         foreach (self::cases() as $case) {
             if ($case->getID() == $id) {
                 return $case;
             }
         }
+
         return null;
     }
 
-    /**
-     * @param string|null $value
-     * @param $default
-     * @return static|null
-     */
-    public static function fromValue(?string $value, $default = null): static|null
+    public static function fromValue(?string $value, $default = null): ?static
     {
         foreach (self::cases() as $case) {
             if ($case->value == $value) {
@@ -106,6 +101,7 @@ trait EnumExtensionTrait
         if ($default) {
             return $default;
         }
+
         return null;
     }
 
@@ -130,6 +126,7 @@ trait EnumExtensionTrait
                 return true;
             }
         }
+
         return false;
     }
 
@@ -148,6 +145,7 @@ trait EnumExtensionTrait
         if ($with_unspecified) {
             $data = array_merge([$unspecified_id => '未指定'], $data);
         }
+
         return $data;
     }
 

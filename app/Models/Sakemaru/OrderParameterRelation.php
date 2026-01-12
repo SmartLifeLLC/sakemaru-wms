@@ -7,9 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class OrderParameterRelation extends CustomModel
 {
     protected $guarded = [];
+
     protected $casts = [];
 
-    public function warehouse() : BelongsTo
+    public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
     }

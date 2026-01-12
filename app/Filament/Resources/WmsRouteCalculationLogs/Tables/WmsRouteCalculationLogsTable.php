@@ -2,12 +2,12 @@
 
 namespace App\Filament\Resources\WmsRouteCalculationLogs\Tables;
 
+use App\Enums\PaginationOptions;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\ViewAction;
-use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Table;
 
 class WmsRouteCalculationLogsTable
 {

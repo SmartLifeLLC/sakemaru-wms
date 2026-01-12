@@ -3,7 +3,6 @@
 namespace App\Models\Sakemaru;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PartnerTimetable extends CustomModel
@@ -11,6 +10,7 @@ class PartnerTimetable extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     public function partner(): BelongsTo

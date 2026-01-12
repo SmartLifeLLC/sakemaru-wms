@@ -10,7 +10,9 @@ use Livewire\Component;
 class WmsItemDetail extends Component
 {
     public ?int $itemId = null;
+
     public ?Item $item = null;
+
     public array $stockInfo = [];
 
     #[On('item-selected')]
@@ -26,7 +28,7 @@ class WmsItemDetail extends Component
 
     private function loadStockInfo(): void
     {
-        if (!$this->item) {
+        if (! $this->item) {
             return;
         }
 
@@ -38,11 +40,8 @@ class WmsItemDetail extends Component
 
         $this->stockInfo = [
             'total_qty' => $stocks->sum('current_quantity'),
-            'reserved_qty' => $stocks->sum('wms_reserved_qty'),
-            'picking_qty' => $stocks->sum('wms_picking_qty'),
-            'available_qty' => $stocks->sum(function ($stock) {
-                return $stock->current_quantity - $stock->wms_reserved_qty - $stock->wms_picking_qty;
-            }),
+            'reserved_qty' => $stocks->sum('reserved_quantity'),
+            'available_qty' => $stocks->sum('available_quantity'),
             'locations' => $stocks->map(function ($stock) {
                 return [
                     'warehouse_name' => $stock->warehouse?->name,
@@ -50,9 +49,8 @@ class WmsItemDetail extends Component
                     'lot_no' => $stock->lot_no,
                     'expiration_date' => $stock->expiration_date?->format('Y-m-d'),
                     'current_qty' => $stock->current_quantity,
-                    'reserved_qty' => $stock->wms_reserved_qty,
-                    'picking_qty' => $stock->wms_picking_qty,
-                    'available_qty' => $stock->current_quantity - $stock->wms_reserved_qty - $stock->wms_picking_qty,
+                    'reserved_qty' => $stock->reserved_quantity,
+                    'available_qty' => $stock->available_quantity,
                 ];
             })->toArray(),
         ];

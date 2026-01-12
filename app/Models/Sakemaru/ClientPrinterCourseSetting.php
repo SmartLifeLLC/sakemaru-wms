@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ClientPrinterCourseSetting extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'client_printer_course_settings';
 
     protected $fillable = [

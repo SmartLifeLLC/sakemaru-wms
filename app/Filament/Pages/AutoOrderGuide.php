@@ -2,7 +2,6 @@
 
 namespace App\Filament\Pages;
 
-use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
 use BackedEnum;
 use Filament\Pages\Page;

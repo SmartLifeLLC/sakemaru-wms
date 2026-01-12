@@ -23,7 +23,7 @@ enum ETradeCandidateType: string
         };
     }
 
-    public function color(): BadgeColor|null
+    public function color(): ?BadgeColor
     {
         return match ($this) {
             self::HISTORY => BadgeColor::BLUE,

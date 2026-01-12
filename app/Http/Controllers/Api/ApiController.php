@@ -25,7 +25,6 @@ use Illuminate\Pagination\LengthAwarePaginator;
  *     name="X-API-Key",
  *     description="API Key for WMS API access (required for all endpoints)"
  * )
- *
  * @OA\SecurityScheme(
  *     securityScheme="sanctum",
  *     type="http",
@@ -39,11 +38,10 @@ class ApiController extends Controller
     /**
      * Return a success JSON response
      *
-     * @param mixed $data Response data (array, object, or paginator)
-     * @param string|null $message Optional message
-     * @param int $httpStatus HTTP status code
-     * @param string $code Application-specific code (default: 'SUCCESS')
-     * @return JsonResponse
+     * @param  mixed  $data  Response data (array, object, or paginator)
+     * @param  string|null  $message  Optional message
+     * @param  int  $httpStatus  HTTP status code
+     * @param  string  $code  Application-specific code (default: 'SUCCESS')
      */
     protected function success(
         $data = null,
@@ -87,11 +85,6 @@ class ApiController extends Controller
 
     /**
      * Return a success response with pagination
-     *
-     * @param LengthAwarePaginator $paginator
-     * @param string|null $message
-     * @param string $code
-     * @return JsonResponse
      */
     protected function successWithPagination(
         LengthAwarePaginator $paginator,
@@ -104,12 +97,11 @@ class ApiController extends Controller
     /**
      * Return an error JSON response
      *
-     * @param string $errorMessage User-facing error message
-     * @param int $httpStatus HTTP status code
-     * @param string $code Application-specific error code
-     * @param string|null $debugMessage Debug message (only in debug mode)
-     * @param mixed $errors Validation errors or additional error details
-     * @return JsonResponse
+     * @param  string  $errorMessage  User-facing error message
+     * @param  int  $httpStatus  HTTP status code
+     * @param  string  $code  Application-specific error code
+     * @param  string|null  $debugMessage  Debug message (only in debug mode)
+     * @param  mixed  $errors  Validation errors or additional error details
      */
     protected function error(
         string $errorMessage,
@@ -145,9 +137,8 @@ class ApiController extends Controller
     /**
      * Return a validation error response
      *
-     * @param array $errors Validation errors
-     * @param string $message Error message
-     * @return JsonResponse
+     * @param  array  $errors  Validation errors
+     * @param  string  $message  Error message
      */
     protected function validationError(array $errors, string $message = 'Validation failed'): JsonResponse
     {
@@ -163,8 +154,7 @@ class ApiController extends Controller
     /**
      * Return an unauthorized error response
      *
-     * @param string $message Error message
-     * @return JsonResponse
+     * @param  string  $message  Error message
      */
     protected function unauthorized(string $message = 'Unauthorized'): JsonResponse
     {
@@ -174,8 +164,7 @@ class ApiController extends Controller
     /**
      * Return a not found error response
      *
-     * @param string $message Error message
-     * @return JsonResponse
+     * @param  string  $message  Error message
      */
     protected function notFound(string $message = 'Resource not found'): JsonResponse
     {

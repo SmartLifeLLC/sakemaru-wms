@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WarehouseContractors\Tables;
 
+use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\BulkActionGroup;
@@ -11,7 +12,6 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 
 class WarehouseContractorsTable
 {

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsShortageAllocations\Tables;
 
+use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\Warehouse;
@@ -11,16 +12,12 @@ use App\Services\Shortage\StockTransferQueueService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
-use Filament\Schemas\Components\Section;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -63,9 +60,8 @@ class WmsShortageAllocationsTable
                 TextColumn::make('shortage.item.volume')
                     ->label('容量')
                     ->alignment('center')
-                    ->formatStateUsing(fn ($record) =>
-                        $record->shortage?->item?->volume && $record->shortage?->item?->volume_unit
-                            ? $record->shortage->item->volume . \App\Enums\EVolumeUnit::tryFrom($record->shortage->item->volume_unit)?->name()
+                    ->formatStateUsing(fn ($record) => $record->shortage?->item?->volume && $record->shortage?->item?->volume_unit
+                            ? $record->shortage->item->volume.\App\Enums\EVolumeUnit::tryFrom($record->shortage->item->volume_unit)?->name()
                             : ''
                     ),
 
@@ -97,8 +93,7 @@ class WmsShortageAllocationsTable
                     ->label('ピック数')
                     ->type('number')
                     ->rules(['required', 'integer', 'min:0'])
-                    ->disabled(fn (WmsShortageAllocation $record): bool =>
-                        !in_array($record->status, ['RESERVED', 'PICKING'])
+                    ->disabled(fn (WmsShortageAllocation $record): bool => ! in_array($record->status, ['RESERVED', 'PICKING'])
                     )
                     ->afterStateUpdated(function (WmsShortageAllocation $record, $state) {
                         // picked_qtyがassign_qtyを超えないようにチェック
@@ -108,13 +103,14 @@ class WmsShortageAllocationsTable
                                 ->body("ピック数は予定数（{$record->assign_qty}）を超えることはできません")
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 
                         $record->picked_qty = $state;
 
                         // ピック数量が入力されたらステータスをPICKINGに変更（完了していない場合）
-                        if ($state > 0 && !$record->is_finished) {
+                        if ($state > 0 && ! $record->is_finished) {
                             $record->status = 'PICKING';
                         }
 
@@ -197,13 +193,11 @@ class WmsShortageAllocationsTable
                     ->label('完了')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn (WmsShortageAllocation $record): bool =>
-                        !$record->is_finished && in_array($record->status, ['PICKING', 'RESERVED'])
+                    ->visible(fn (WmsShortageAllocation $record): bool => ! $record->is_finished && in_array($record->status, ['PICKING', 'RESERVED'])
                     )
                     ->requiresConfirmation()
                     ->modalHeading('横持ち出荷の完了確認')
-                    ->modalDescription(fn (WmsShortageAllocation $record): string =>
-                        "予定数: {$record->assign_qty}、ピック数: {$record->picked_qty}、欠品数: {$record->remaining_qty}"
+                    ->modalDescription(fn (WmsShortageAllocation $record): string => "予定数: {$record->assign_qty}、ピック数: {$record->picked_qty}、欠品数: {$record->remaining_qty}"
                     )
                     ->modalSubmitActionLabel('完了')
                     ->action(function (WmsShortageAllocation $record): void {
@@ -249,8 +243,7 @@ class WmsShortageAllocationsTable
                     ->label('追加横持ち出荷')
                     ->icon('heroicon-o-plus-circle')
                     ->color('info')
-                    ->visible(fn (WmsShortageAllocation $record): bool =>
-                        $record->remaining_qty > 0 && in_array($record->status, ['PICKING', 'RESERVED'])
+                    ->visible(fn (WmsShortageAllocation $record): bool => $record->remaining_qty > 0 && in_array($record->status, ['PICKING', 'RESERVED'])
                     )
                     ->modalHeading('追加の横持ち出荷指示')
                     ->modalSubmitActionLabel('確定')
@@ -291,12 +284,12 @@ class WmsShortageAllocationsTable
                                 })->toArray();
 
                                 $qtyType = QuantityType::tryFrom($record->assign_qty_type);
-                                
+
                                 // 容量
                                 $volumeValue = '-';
                                 if ($record->shortage->item->volume) {
                                     $unit = \App\Enums\EVolumeUnit::tryFrom($record->shortage->item->volume_unit);
-                                    $volumeValue = $record->shortage->item->volume . ($unit ? $unit->name() : '');
+                                    $volumeValue = $record->shortage->item->volume.($unit ? $unit->name() : '');
                                 }
 
                                 // 欠品内訳（このレコードのコンテキストに合わせて表示）
@@ -311,13 +304,13 @@ class WmsShortageAllocationsTable
                                     // Info Table Data
                                     'item_code' => $record->shortage->item->code ?? '-',
                                     'item_name' => $record->shortage->item->name ?? '-',
-                                    'capacity_case' => $record->shortage->item->capacity_case ? (string)$record->shortage->item->capacity_case : '-',
+                                    'capacity_case' => $record->shortage->item->capacity_case ? (string) $record->shortage->item->capacity_case : '-',
                                     'volume_value' => $volumeValue,
                                     'partner_code' => $record->shortage->trade->partner->code ?? '-',
                                     'partner_name' => $record->shortage->trade->partner->name ?? '-',
                                     'warehouse_name' => $record->shortage->warehouse->name ?? '-',
-                                    'order_qty' => (string)$record->assign_qty, // 横持ち出荷指示数
-                                    'picked_qty' => (string)$record->picked_qty, // ピッキング済み数
+                                    'order_qty' => (string) $record->assign_qty, // 横持ち出荷指示数
+                                    'picked_qty' => (string) $record->picked_qty, // ピッキング済み数
                                     'picked_qty_label' => 'ピック数',
                                     'shortage_details' => $shortageDetailsValue,
                                 ];
@@ -326,13 +319,14 @@ class WmsShortageAllocationsTable
                             ->rules([
                                 function (WmsShortageAllocation $record) {
                                     return function (string $attribute, $value, \Closure $fail) use ($record) {
-                                        if (!is_array($value)) {
+                                        if (! is_array($value)) {
                                             return;
                                         }
 
                                         $totalAllocated = collect($value)->sum(function ($item) {
                                             $qty = $item['assign_qty'] ?? 0;
-                                            return is_numeric($qty) ? (int)$qty : 0;
+
+                                            return is_numeric($qty) ? (int) $qty : 0;
                                         });
 
                                         if ($totalAllocated > $record->remaining_qty) {
@@ -348,7 +342,7 @@ class WmsShortageAllocationsTable
 
                                         // 現在の倉庫が含まれていないかチェック
                                         if (in_array($record->target_warehouse_id, $selectedWarehouses)) {
-                                            $fail("現在の出荷元倉庫と同じ倉庫は選択できません。");
+                                            $fail('現在の出荷元倉庫と同じ倉庫は選択できません。');
                                         }
 
                                         $counts = array_count_values($selectedWarehouses);
@@ -384,7 +378,7 @@ class WmsShortageAllocationsTable
                                         createdBy: auth()->id() ?? 0
                                     );
                                     $createdCount++;
-                                    $totalReallocatedQty += (int)$allocation['assign_qty'];
+                                    $totalReallocatedQty += (int) $allocation['assign_qty'];
                                 }
 
                                 if ($createdCount > 0) {
@@ -427,8 +421,7 @@ class WmsShortageAllocationsTable
                         ->color('success')
                         ->requiresConfirmation()
                         ->modalHeading('横持ち出荷の一括完了確認')
-                        ->modalDescription(fn (Collection $records): string =>
-                            "選択された {$records->count()} 件の横持ち出荷を完了します。"
+                        ->modalDescription(fn (Collection $records): string => "選択された {$records->count()} 件の横持ち出荷を完了します。"
                         )
                         ->modalSubmitActionLabel('完了')
                         ->action(function (Collection $records): void {
@@ -443,7 +436,7 @@ class WmsShortageAllocationsTable
 
                             foreach ($records as $record) {
                                 // 既に完了している、またはステータスがPICKING/RESERVED以外の場合はスキップ
-                                if ($record->is_finished || !in_array($record->status, ['PICKING', 'RESERVED'])) {
+                                if ($record->is_finished || ! in_array($record->status, ['PICKING', 'RESERVED'])) {
                                     continue;
                                 }
 

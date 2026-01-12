@@ -6,7 +6,6 @@ use App\Enums\EMenuCategory;
 use Filament\Facades\Filament;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
-use Illuminate\Support\Collection;
 use Livewire\Component;
 
 class MegaMenu extends Component
@@ -99,7 +98,7 @@ class MegaMenu extends Component
             foreach ($tab['categories'] as $category) {
                 // Find the Filament NavigationGroup that matches this Category's label
                 $categoryLabel = $category->label();
-                
+
                 // Filament::getNavigation returns array of NavigationGroup objects
                 foreach ($navigation as $navGroup) {
                     if ($navGroup instanceof NavigationGroup && $navGroup->getLabel() === $categoryLabel) {
@@ -109,7 +108,7 @@ class MegaMenu extends Component
                             $groupsForTab[] = [
                                 'label' => $categoryLabel,
                                 'icon' => $category->icon(), // Heroicon name from Enum
-                                'items' => collect($items)->map(fn(NavigationItem $item) => [
+                                'items' => collect($items)->map(fn (NavigationItem $item) => [
                                     'label' => $item->getLabel(),
                                     'url' => $item->getUrl(),
                                     'isActive' => $item->isActive(),
@@ -144,8 +143,8 @@ class MegaMenu extends Component
             $iconClass = $icon;
         }
 
-        if ($iconClass && (str_starts_with($iconClass, 'o-') || str_starts_with($iconClass, 's-')) && !str_starts_with($iconClass, 'heroicon-')) {
-            return 'heroicon-' . $iconClass;
+        if ($iconClass && (str_starts_with($iconClass, 'o-') || str_starts_with($iconClass, 's-')) && ! str_starts_with($iconClass, 'heroicon-')) {
+            return 'heroicon-'.$iconClass;
         }
 
         return $iconClass;

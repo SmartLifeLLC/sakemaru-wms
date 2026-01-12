@@ -22,7 +22,7 @@ enum ETransferParty: string
         };
     }
 
-    public static function forPartners() : array
+    public static function forPartners(): array
     {
         return [
             self::SUMA_ORDER,
@@ -31,7 +31,7 @@ enum ETransferParty: string
         ];
     }
 
-    public function key() : string
+    public function key(): string
     {
         return Str::lower($this->value);
     }

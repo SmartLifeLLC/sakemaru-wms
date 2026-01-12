@@ -2,7 +2,6 @@
 
 namespace App\Livewire\Wms;
 
-use App\Models\Sakemaru\Earning;
 use App\Models\WmsStockAvailable;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -10,12 +9,19 @@ use Livewire\Component;
 class WmsSearchResults extends Component
 {
     public array $filters = [];
+
     public int $perPage = 50;
+
     public int $currentPage = 1;
+
     public bool $hasMorePages = true;
+
     public array $loadedItems = [];
-    public int|null $selectedItemId = null;
+
+    public ?int $selectedItemId = null;
+
     public ?string $sortBy = null;
+
     public string $sortDir = 'asc';
 
     #[On('search-updated')]
@@ -42,7 +48,7 @@ class WmsSearchResults extends Component
     public function selectItem($itemId = null): void
     {
         if ($itemId) {
-            $this->dispatch('item-selected', itemId: (int)$itemId);
+            $this->dispatch('item-selected', itemId: (int) $itemId);
             $this->selectedItemId = $itemId;
         }
     }
@@ -52,10 +58,12 @@ class WmsSearchResults extends Component
         $allowed = [
             'item_code', 'item_name',
             'delivered_date', 'total_amount',
-            'available_qty'
+            'available_qty',
         ];
 
-        if (!in_array($by, $allowed, true)) return;
+        if (! in_array($by, $allowed, true)) {
+            return;
+        }
 
         if ($this->sortBy === $by) {
             $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
@@ -76,25 +84,25 @@ class WmsSearchResults extends Component
         $query = WmsStockAvailable::query()->with(['item', 'warehouse']);
 
         // Apply filters
-        if (!empty($this->filters['item_name'])) {
+        if (! empty($this->filters['item_name'])) {
             $query->whereHas('item', function ($q) {
-                $q->where('name', 'like', '%' . $this->filters['item_name'] . '%');
+                $q->where('name', 'like', '%'.$this->filters['item_name'].'%');
             });
         }
 
-        if (!empty($this->filters['item_code'])) {
+        if (! empty($this->filters['item_code'])) {
             $query->whereHas('item', function ($q) {
-                $q->where('code', 'like', '%' . $this->filters['item_code'] . '%');
+                $q->where('code', 'like', '%'.$this->filters['item_code'].'%');
             });
         }
 
-        if (!empty($this->filters['jancode'])) {
+        if (! empty($this->filters['jancode'])) {
             $query->whereHas('item', function ($q) {
-                $q->where('jancode', 'like', '%' . $this->filters['jancode'] . '%');
+                $q->where('jancode', 'like', '%'.$this->filters['jancode'].'%');
             });
         }
 
-        if (!empty($this->filters['warehouse_id'])) {
+        if (! empty($this->filters['warehouse_id'])) {
             $query->where('warehouse_id', $this->filters['warehouse_id']);
         }
 
@@ -132,7 +140,7 @@ class WmsSearchResults extends Component
     {
         return view('livewire.wms.wms-search-results', [
             'results' => collect($this->loadedItems)->map(function ($item) {
-                return (object)$item;
+                return (object) $item;
             }),
             'totalCount' => $this->getTotalCount(),
         ]);

@@ -29,7 +29,7 @@ class ApiKeyAuth
 
         $validApiKeys = config('api.keys', []);
 
-        if (!in_array($apiKey, $validApiKeys)) {
+        if (! in_array($apiKey, $validApiKeys)) {
             return response()->json([
                 'code' => 'API_KEY_INVALID',
                 'result' => [

@@ -3,9 +3,8 @@
 namespace Tests\Feature\Api;
 
 use App\Models\WmsPicker;
-use App\Models\WmsPickingTask;
 use App\Models\WmsPickingLog;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Models\WmsPickingTask;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -18,7 +17,7 @@ class PickingApiTest extends TestCase
     {
         // Get test picker
         $picker = WmsPicker::first();
-        if (!$picker) {
+        if (! $picker) {
             $this->markTestSkipped('No pickers found in database');
         }
 
@@ -27,10 +26,10 @@ class PickingApiTest extends TestCase
 
         // Get a pending task
         $task = WmsPickingTask::where('status', 'PENDING')->first();
-        if (!$task) {
+        if (! $task) {
             // Reset a task to pending
             $task = WmsPickingTask::first();
-            if (!$task) {
+            if (! $task) {
                 $this->markTestSkipped('No picking tasks found in database');
             }
             $task->update(['status' => 'PENDING', 'started_at' => null, 'completed_at' => null]);
@@ -39,7 +38,7 @@ class PickingApiTest extends TestCase
         // Call start API
         $response = $this->withHeaders([
             'X-API-Key' => config('api.keys')[0] ?? 'test-key',
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
             'Accept' => 'application/json',
         ])->postJson("/api/picking/tasks/{$task->id}/start");
 
@@ -69,7 +68,7 @@ class PickingApiTest extends TestCase
     {
         // Get test picker
         $picker = WmsPicker::first();
-        if (!$picker) {
+        if (! $picker) {
             $this->markTestSkipped('No pickers found in database');
         }
 
@@ -78,12 +77,12 @@ class PickingApiTest extends TestCase
 
         // Get a task with items
         $task = WmsPickingTask::whereHas('pickingItemResults')->first();
-        if (!$task) {
+        if (! $task) {
             $this->markTestSkipped('No picking tasks with items found in database');
         }
 
         $itemResult = $task->pickingItemResults()->first();
-        if (!$itemResult) {
+        if (! $itemResult) {
             $this->markTestSkipped('No picking item results found');
         }
 
@@ -99,7 +98,7 @@ class PickingApiTest extends TestCase
         // Call update API
         $response = $this->withHeaders([
             'X-API-Key' => config('api.keys')[0] ?? 'test-key',
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
             'Accept' => 'application/json',
         ])->postJson("/api/picking/tasks/{$itemResult->id}/update", [
             'picked_qty' => $pickedQty,
@@ -136,7 +135,7 @@ class PickingApiTest extends TestCase
     {
         // Get test picker
         $picker = WmsPicker::first();
-        if (!$picker) {
+        if (! $picker) {
             $this->markTestSkipped('No pickers found in database');
         }
 
@@ -145,10 +144,10 @@ class PickingApiTest extends TestCase
 
         // Get a task in PICKING status
         $task = WmsPickingTask::where('status', 'PICKING')->first();
-        if (!$task) {
+        if (! $task) {
             // Set a task to PICKING
             $task = WmsPickingTask::first();
-            if (!$task) {
+            if (! $task) {
                 $this->markTestSkipped('No picking tasks found in database');
             }
             $task->update(['status' => 'PICKING', 'completed_at' => null]);
@@ -159,7 +158,7 @@ class PickingApiTest extends TestCase
         // Call complete API
         $response = $this->withHeaders([
             'X-API-Key' => config('api.keys')[0] ?? 'test-key',
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
             'Accept' => 'application/json',
         ])->postJson("/api/picking/tasks/{$task->id}/complete");
 
@@ -190,7 +189,7 @@ class PickingApiTest extends TestCase
     public function test_picking_apis_require_authentication(): void
     {
         $task = WmsPickingTask::first();
-        if (!$task) {
+        if (! $task) {
             $this->markTestSkipped('No picking tasks found in database');
         }
 
@@ -216,7 +215,7 @@ class PickingApiTest extends TestCase
 
         // Get test picker
         $picker = WmsPicker::first();
-        if (!$picker) {
+        if (! $picker) {
             $this->markTestSkipped('No pickers found in database');
         }
 
@@ -225,7 +224,7 @@ class PickingApiTest extends TestCase
 
         // Get a task
         $task = WmsPickingTask::first();
-        if (!$task) {
+        if (! $task) {
             $this->markTestSkipped('No picking tasks found in database');
         }
 
@@ -235,7 +234,7 @@ class PickingApiTest extends TestCase
         // 1. Start task
         $this->withHeaders([
             'X-API-Key' => config('api.keys')[0] ?? 'test-key',
-            'Authorization' => 'Bearer ' . $token,
+            'Authorization' => 'Bearer '.$token,
             'Accept' => 'application/json',
         ])->postJson("/api/picking/tasks/{$task->id}/start");
 

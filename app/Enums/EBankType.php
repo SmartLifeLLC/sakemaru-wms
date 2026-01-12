@@ -11,7 +11,7 @@ enum EBankType: string
     case SAVING = 'SAVING';
     case CHECKING = 'CHECKING';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::SAVING => '普通',
@@ -19,7 +19,7 @@ enum EBankType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::SAVING => 0,
