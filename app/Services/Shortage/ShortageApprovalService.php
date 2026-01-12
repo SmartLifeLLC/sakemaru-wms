@@ -48,39 +48,63 @@ class ShortageApprovalService
             return;
         }
 
-        // このタスクに関連する全ての欠品を取得
-        // wms_shortages.source_pick_result_id = wms_picking_item_results.id
-        $pickingItemResultIds = DB::connection('sakemaru')
+        // このタスクのpicking_item_resultsを取得
+        $pickingItemResults = DB::connection('sakemaru')
             ->table('wms_picking_item_results')
             ->where('picking_task_id', $task->id)
-            ->pluck('id');
+            ->get();
 
+        $pickingItemResultIds = $pickingItemResults->pluck('id');
+
+        // 全てのpicking_item_resultsがCOMPLETEDまたはSHORTAGEであるかチェック
+        $incompleteItems = $pickingItemResults->filter(function ($item) {
+            return !in_array($item->status, [
+                WmsPickingItemResult::STATUS_COMPLETED,
+                WmsPickingItemResult::STATUS_SHORTAGE,
+            ]);
+        });
+
+        // まだピッキングが完了していないアイテムがある場合はスキップ
+        if ($incompleteItems->isNotEmpty()) {
+            Log::debug('Picking task has incomplete items', [
+                'task_id' => $task->id,
+                'incomplete_count' => $incompleteItems->count(),
+            ]);
+            return;
+        }
+
+        // このタスクに関連する欠品を取得
         $relatedShortageIds = DB::connection('sakemaru')
             ->table('wms_shortages')
             ->whereIn('source_pick_result_id', $pickingItemResultIds)
             ->pluck('id')
             ->unique();
 
-        // 欠品がない場合はスキップ
-        if ($relatedShortageIds->isEmpty()) {
-            return;
+        // 欠品がある場合、全て承認済みかチェック
+        if ($relatedShortageIds->isNotEmpty()) {
+            $allShortagesConfirmed = WmsShortage::whereIn('id', $relatedShortageIds)
+                ->where('is_confirmed', false)
+                ->doesntExist();
+
+            if (!$allShortagesConfirmed) {
+                Log::debug('Picking task has unconfirmed shortages', [
+                    'task_id' => $task->id,
+                    'shortage_ids' => $relatedShortageIds->toArray(),
+                ]);
+                return;
+            }
         }
 
-        // 全ての欠品が承認済みかチェック
-        $allShortagesConfirmed = WmsShortage::whereIn('id', $relatedShortageIds)
-            ->where('is_confirmed', false)
-            ->doesntExist();
+        // 全条件を満たした場合、タスクをCOMPLETEDに更新
+        $task->status = WmsPickingTask::STATUS_COMPLETED;
+        $task->completed_at = $task->completed_at ?? now();
+        $task->save();
 
-        if ($allShortagesConfirmed) {
-            $task->status = WmsPickingTask::STATUS_COMPLETED;
-            $task->completed_at = now();
-            $task->save();
-
-            Log::info('Picking task marked as COMPLETED after all shortages confirmed', [
-                'task_id' => $task->id,
-                'wave_id' => $task->wave_id,
-            ]);
-        }
+        Log::info('Picking task marked as COMPLETED', [
+            'task_id' => $task->id,
+            'wave_id' => $task->wave_id,
+            'had_shortages' => $relatedShortageIds->isNotEmpty(),
+        ]);
     }
 
     /**
@@ -89,7 +113,7 @@ class ShortageApprovalService
      * @param int $deliveryCourseId 配送コースID
      * @param string $shipmentDate 納品日
      * @param int|null $waveId ウェーブID (Optional)
-     * @return array ['can_print' => bool, 'error_message' => string|null]
+     * @return array ['can_print' => bool, 'error_message' => string|null, 'incomplete_items' => array, 'unsynced_shortages' => array]
      */
     public function checkPrintability(int $deliveryCourseId, string $shipmentDate, ?int $waveId = null): array
     {
@@ -101,14 +125,19 @@ class ShortageApprovalService
             $query->where('wave_id', $waveId);
         }
 
-        $tasks = $query->with(['pickingItemResults.shortage'])->get();
+        $tasks = $query->with(['pickingItemResults.shortage', 'pickingItemResults.item'])->get();
 
         if ($tasks->isEmpty()) {
             return [
                 'can_print' => false,
                 'error_message' => '対象のピッキングタスクが見つかりません。',
+                'incomplete_items' => [],
+                'unsynced_shortages' => [],
             ];
         }
+
+        $incompleteItems = [];
+        $unsyncedShortages = [];
 
         // チェック1: 全てのwms_picking_item_resultsがCOMPLETEDまたはSHORTAGEであるか
         foreach ($tasks as $task) {
@@ -119,35 +148,54 @@ class ShortageApprovalService
                     WmsPickingItemResult::STATUS_COMPLETED,
                     WmsPickingItemResult::STATUS_SHORTAGE,
                 ])) {
-                    return [
-                        'can_print' => false,
-                        'error_message' => '該当配送コースのピッキングが完了していません。',
+                    $incompleteItems[] = [
+                        'task_id' => $task->id,
+                        'item_result_id' => $itemResult->id,
+                        'item_name' => $itemResult->item?->name ?? '不明',
+                        'item_code' => $itemResult->item?->code ?? '-',
+                        'status' => $itemResult->status,
+                    ];
+                }
+
+                // チェック2: 欠品が全てis_synced=trueであるか
+                $shortage = $itemResult->shortage;
+                if ($shortage && !$shortage->is_synced) {
+                    $unsyncedShortages[] = [
+                        'task_id' => $task->id,
+                        'shortage_id' => $shortage->id,
+                        'item_name' => $itemResult->item?->name ?? '不明',
+                        'item_code' => $itemResult->item?->code ?? '-',
+                        'shortage_qty' => $shortage->shortage_qty,
+                        'is_confirmed' => $shortage->is_confirmed,
                     ];
                 }
             }
         }
 
-        // チェック2: 欠品が全てis_synced=trueであるか
-        foreach ($tasks as $task) {
-            $itemResults = $task->pickingItemResults()
-                ->with('shortage')
-                ->get();
+        // 結果を返す
+        if (!empty($incompleteItems)) {
+            return [
+                'can_print' => false,
+                'error_message' => '該当配送コースのピッキングが完了していません。',
+                'incomplete_items' => $incompleteItems,
+                'unsynced_shortages' => $unsyncedShortages,
+            ];
+        }
 
-            foreach ($itemResults as $itemResult) {
-                // このitem_resultに紐づく欠品があるかチェック
-                $shortage = $itemResult->shortage;
-                if ($shortage && !$shortage->is_synced) {
-                    return [
-                        'can_print' => false,
-                        'error_message' => '欠品対応が完了していません。在庫同期が完了するまでお待ちください。',
-                    ];
-                }
-            }
+        if (!empty($unsyncedShortages)) {
+            return [
+                'can_print' => false,
+                'error_message' => '欠品対応が完了していません。在庫同期が完了するまでお待ちください。',
+                'incomplete_items' => $incompleteItems,
+                'unsynced_shortages' => $unsyncedShortages,
+            ];
         }
 
         return [
             'can_print' => true,
             'error_message' => null,
+            'incomplete_items' => [],
+            'unsynced_shortages' => [],
         ];
     }
 }

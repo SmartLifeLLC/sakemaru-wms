@@ -9,9 +9,6 @@ use App\Services\Shortage\ShortageApprovalService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Notifications\Notification;
-use Filament\Tables\Columns\Layout\Panel;
-use Filament\Tables\Columns\Layout\Split;
-use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -31,150 +28,69 @@ class WmsShipmentSlipsTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
-                // 1. 常時表示される行のコンテンツ（ヘッダー部分）
-                Split::make([
-                    TextColumn::make('delivery_course_code')
-                        ->label('配送コード')
-                        ->searchable()
-                        ->sortable()
-                        ->weight('bold'),
+                TextColumn::make('delivery_course_code')
+                    ->label('配送コード')
+                    ->searchable()
+                    ->sortable()
+                    ->weight('bold'),
 
-                    TextColumn::make('deliveryCourse.name')
-                        ->label('配送コース名')
-                        ->searchable()
-                        ->sortable()
-                        ->grow(),
+                TextColumn::make('deliveryCourse.name')
+                    ->label('配送コース名')
+                    ->searchable()
+                    ->sortable()
+                    ->wrap()
+                    ->limit(20),
 
-                    Stack::make([
-                        TextColumn::make('wave.waveSetting.name')
-                            ->label('ウェーブ')
-                            ->icon('heroicon-m-arrow-path')
-                            ->size('sm'),
-                        TextColumn::make('wave.wave_no')
-                            ->label('Wave No')
-                            ->prefix('No.')
-                            ->size('sm')
-                            ->color('gray'),
-                    ])->space(1),
+                TextColumn::make('wave.wave_no')
+                    ->label('波動識別ID')
+                    ->description(fn ($record) => $record->wave?->waveSetting?->name),
 
-                    Stack::make([
-                        TextColumn::make('shipment_date')
-                            ->label('納品日')
-                            ->date('Y-m-d')
-                            ->icon('heroicon-m-calendar')
-                            ->size('sm'),
-                        TextColumn::make('warehouse.name')
-                            ->label('倉庫')
-                            ->size('sm')
-                            ->color('gray'),
-                    ])->space(1),
+                TextColumn::make('shipment_date')
+                    ->label('納品日')
+                    ->date('Y-m-d')
+                    ->sortable(),
 
-                    TextColumn::make('grouped_status')
-                        ->label('ステータス')
-                        ->badge()
-                        ->state(function ($record) {
-                            // グループ内の全タスクのステータスを集計
-                            $allCompleted = $record->grouped_tasks->every(fn ($task) => $task->status === 'COMPLETED');
-                            $anyPicking = $record->grouped_tasks->contains(fn ($task) => $task->status === 'PICKING');
+                TextColumn::make('warehouse.name')
+                    ->label('倉庫'),
 
-                            if ($allCompleted) {
-                                return 'COMPLETED';
-                            } elseif ($anyPicking) {
-                                return 'PICKING';
-                            }
+                TextColumn::make('grouped_status')
+                    ->label('ステータス')
+                    ->badge()
+                    ->state(function ($record) {
+                        $allCompleted = $record->grouped_tasks->every(fn ($task) => $task->status === 'COMPLETED');
+                        $anyPicking = $record->grouped_tasks->contains(fn ($task) => $task->status === 'PICKING');
 
-                            return 'PENDING';
-                        })
-                        ->color(fn (?string $state): string => match ($state) {
-                            'PENDING' => 'warning',
-                            'PICKING' => 'info',
-                            'COMPLETED' => 'success',
-                            default => 'gray',
-                        })
-                        ->formatStateUsing(fn (?string $state): string => match ($state) {
-                            'PENDING' => '待機中',
-                            'PICKING' => 'ピッキング中',
-                            'COMPLETED' => '完了',
-                            default => $state ?? '-',
-                        }),
+                        if ($allCompleted) {
+                            return 'COMPLETED';
+                        } elseif ($anyPicking) {
+                            return 'PICKING';
+                        }
 
-                    TextColumn::make('wave.print_count')
-                        ->label('印刷')
-                        ->icon('heroicon-m-printer')
-                        ->suffix('回')
-                        ->alignEnd(),
-                ]),
+                        return 'PENDING';
+                    })
+                    ->color(fn (?string $state): string => match ($state) {
+                        'PENDING' => 'warning',
+                        'PICKING' => 'info',
+                        'COMPLETED' => 'success',
+                        default => 'gray',
+                    })
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'PENDING' => '待機中',
+                        'PICKING' => 'ピッキング中',
+                        'COMPLETED' => '完了',
+                        default => $state ?? '-',
+                    }),
 
-                // 2. クリックで展開されるアコーディオン部分
-                Panel::make([
-                    Stack::make([
-                        TextColumn::make('grouped_tasks_summary')
-                            ->label('エリア別タスク')
-                            ->html()
-                            ->state(function ($record) {
-                                $tasks = $record->grouped_tasks;
+                TextColumn::make('wave.print_count')
+                    ->label('印刷回数')
+                    ->suffix('回')
+                    ->alignCenter(),
 
-                                if ($tasks->isEmpty()) {
-                                    return '<span class="text-gray-400">タスクなし</span>';
-                                }
-
-                                $html = '<div class="divide-y divide-gray-200 dark:divide-gray-700">';
-
-                                foreach ($tasks as $task) {
-                                    $floorName = $task->floor?->name ?? '-';
-                                    $areaName = $task->pickingArea?->name ?? '-';
-                                    $isRestricted = $task->is_restricted_area;
-                                    $status = $task->status;
-                                    $printCount = $task->print_requested_count ?? 0;
-
-                                    // ステータスバッジの色
-                                    $statusColor = match ($status) {
-                                        'PENDING' => 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
-                                        'PICKING' => 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-                                        'COMPLETED' => 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-                                        default => 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300',
-                                    };
-                                    $statusLabel = match ($status) {
-                                        'PENDING' => '待機中',
-                                        'PICKING' => 'ピッキング中',
-                                        'COMPLETED' => '完了',
-                                        default => $status ?? '-',
-                                    };
-
-                                    // 制限エリアバッジ
-                                    $restrictedBadge = $isRestricted
-                                        ? '<span class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900 dark:text-red-300 ml-2">制限エリア</span>'
-                                        : '';
-
-                                    $html .= <<<HTML
-                                    <div class="py-2 flex items-center justify-between gap-4">
-                                        <div class="flex items-center gap-3">
-                                            <span class="inline-flex items-center rounded-md bg-gray-100 px-2 py-1 text-sm font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
-                                                {$floorName}
-                                            </span>
-                                            <span class="inline-flex items-center rounded-md bg-primary-100 px-2 py-1 text-sm font-medium text-primary-700 dark:bg-primary-900 dark:text-primary-300">
-                                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                                                {$areaName}
-                                            </span>
-                                            {$restrictedBadge}
-                                        </div>
-                                        <div class="flex items-center gap-3">
-                                            <span class="text-sm text-gray-500 dark:text-gray-400">印刷: {$printCount}回</span>
-                                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {$statusColor}">
-                                                {$statusLabel}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    HTML;
-                                }
-
-                                $html .= '</div>';
-
-                                return $html;
-                            }),
-                    ])->space(2),
-                ])->collapsible(),
+                TextColumn::make('task_count')
+                    ->label('タスク数')
+                    ->state(fn ($record) => $record->grouped_tasks->count())
+                    ->suffix('件')
+                    ->alignCenter(),
             ])
             ->filters([
                 SelectFilter::make('warehouse_id')
@@ -256,7 +172,9 @@ class WmsShipmentSlipsTable
                         );
 
                         if (! $printability['can_print']) {
-                            return $printability['error_message']."\n\nピッキングや欠品対応が完了していない状態でも、現状のまま印刷します。本当に実行しますか？";
+                            return new \Illuminate\Support\HtmlString(
+                                self::buildPrintabilityErrorHtml($printability)
+                            );
                         }
 
                         return 'この配送コースの伝票を印刷します。';
@@ -332,6 +250,16 @@ class WmsShipmentSlipsTable
                             ->send();
                     }),
             ], position: RecordActionsPosition::BeforeColumns)
+            ->checkIfRecordIsSelectableUsing(function (WmsPickingTask $record): bool {
+                $systemDate = ClientSetting::systemDate();
+                $approvalService = app(ShortageApprovalService::class);
+                $printability = $approvalService->checkPrintability(
+                    $record->delivery_course_id,
+                    $systemDate->format('Y-m-d'),
+                    $record->wave_id
+                );
+                return $printability['can_print'];
+            })
             ->bulkActions([
                 BulkAction::make('bulkPrint')
                     ->label('一括印刷')
@@ -339,18 +267,103 @@ class WmsShipmentSlipsTable
                     ->color('primary')
                     ->requiresConfirmation()
                     ->modalHeading('一括印刷')
-                    ->modalDescription(fn (Collection $records): string => "選択された {$records->count()} 件の配送コースの伝票を印刷します。"
-                    )
+                    ->modalDescription(function (Collection $records): \Illuminate\Support\HtmlString|string {
+                        $systemDate = ClientSetting::systemDate();
+                        $approvalService = app(ShortageApprovalService::class);
+
+                        $printableCount = 0;
+                        $forcePrintRecords = [];
+
+                        foreach ($records as $record) {
+                            $printability = $approvalService->checkPrintability(
+                                $record->delivery_course_id,
+                                $systemDate->format('Y-m-d'),
+                                $record->wave_id
+                            );
+
+                            if ($printability['can_print']) {
+                                $printableCount++;
+                            } else {
+                                $forcePrintRecords[] = [
+                                    'course_code' => $record->delivery_course_code,
+                                    'course_name' => $record->deliveryCourse?->name ?? '-',
+                                    'error' => $printability['error_message'],
+                                ];
+                            }
+                        }
+
+                        if (empty($forcePrintRecords)) {
+                            return "選択された {$records->count()} 件の配送コースの伝票を印刷します。";
+                        }
+
+                        // 強制印刷が必要なものがある場合
+                        $html = '<div class="space-y-4">';
+
+                        if ($printableCount > 0) {
+                            $html .= '<div class="text-success-600 dark:text-success-400">';
+                            $html .= "印刷可能: {$printableCount} 件";
+                            $html .= '</div>';
+                        }
+
+                        $html .= '<div class="text-danger-600 dark:text-danger-400 font-medium">';
+                        $html .= '以下の配送コースは強制印刷が必要なため、一括印刷できません:';
+                        $html .= '</div>';
+
+                        $html .= '<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-40 overflow-y-auto">';
+                        $html .= '<table class="w-full text-sm">';
+                        $html .= '<thead><tr class="text-left text-gray-500 dark:text-gray-400">';
+                        $html .= '<th class="pb-2">コード</th><th class="pb-2">配送コース名</th><th class="pb-2">理由</th>';
+                        $html .= '</tr></thead><tbody>';
+
+                        foreach ($forcePrintRecords as $fp) {
+                            $html .= '<tr class="border-t border-gray-200 dark:border-gray-700">';
+                            $html .= '<td class="py-1">' . e($fp['course_code']) . '</td>';
+                            $html .= '<td class="py-1">' . e(mb_substr($fp['course_name'], 0, 15)) . '</td>';
+                            $html .= '<td class="py-1 text-danger-600">' . e(mb_substr($fp['error'], 0, 20)) . '</td>';
+                            $html .= '</tr>';
+                        }
+
+                        $html .= '</tbody></table>';
+                        $html .= '</div>';
+
+                        if ($printableCount > 0) {
+                            $html .= '<div class="text-sm text-gray-600 dark:text-gray-400">';
+                            $html .= "印刷可能な {$printableCount} 件のみ印刷されます。";
+                            $html .= '</div>';
+                        } else {
+                            $html .= '<div class="text-sm text-danger-600 dark:text-danger-400">';
+                            $html .= '印刷可能な配送コースがありません。';
+                            $html .= '</div>';
+                        }
+
+                        $html .= '</div>';
+
+                        return new \Illuminate\Support\HtmlString($html);
+                    })
                     ->modalSubmitActionLabel('一括印刷')
                     ->action(function (Collection $records): void {
                         $systemDate = ClientSetting::systemDate();
                         $printService = app(PrintRequestService::class);
+                        $approvalService = app(ShortageApprovalService::class);
                         $successCount = 0;
+                        $skippedCount = 0;
                         $errorCount = 0;
                         $totalEarnings = 0;
                         $totalTasks = 0;
 
                         foreach ($records as $record) {
+                            // 印刷可能かチェック（強制印刷が必要なものはスキップ）
+                            $printability = $approvalService->checkPrintability(
+                                $record->delivery_course_id,
+                                $systemDate->format('Y-m-d'),
+                                $record->wave_id
+                            );
+
+                            if (!$printability['can_print']) {
+                                $skippedCount++;
+                                continue;
+                            }
+
                             try {
                                 // 印刷依頼を作成
                                 $result = $printService->createPrintRequest(
@@ -392,7 +405,19 @@ class WmsShipmentSlipsTable
                             }
                         }
 
+                        if ($successCount === 0 && $skippedCount > 0) {
+                            Notification::make()
+                                ->title('印刷できません')
+                                ->body("選択された {$skippedCount} 件はすべて強制印刷が必要です。個別に強制印刷してください。")
+                                ->danger()
+                                ->send();
+                            return;
+                        }
+
                         $message = "印刷依頼完了: {$successCount}件成功";
+                        if ($skippedCount > 0) {
+                            $message .= "、{$skippedCount}件スキップ（強制印刷必要）";
+                        }
                         if ($errorCount > 0) {
                             $message .= "、{$errorCount}件失敗";
                         }
@@ -471,5 +496,78 @@ class WmsShipmentSlipsTable
             $key = $record->delivery_course_id.'-'.($record->wave_id ?? 'null');
             $record->grouped_tasks = $groupedTasks->get($key, collect());
         }
+    }
+
+    /**
+     * 印刷不可理由のHTMLを生成
+     */
+    protected static function buildPrintabilityErrorHtml(array $printability): string
+    {
+        $html = '<div class="space-y-4">';
+
+        // エラーメッセージ
+        $html .= '<div class="text-danger-600 dark:text-danger-400 font-medium">';
+        $html .= e($printability['error_message']);
+        $html .= '</div>';
+
+        // ピッキング未完了アイテム
+        if (!empty($printability['incomplete_items'])) {
+            $html .= '<div class="mt-4">';
+            $html .= '<div class="font-medium text-sm text-gray-700 dark:text-gray-300 mb-2">ピッキング未完了アイテム:</div>';
+            $html .= '<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-40 overflow-y-auto">';
+            $html .= '<table class="w-full text-sm">';
+            $html .= '<thead><tr class="text-left text-gray-500 dark:text-gray-400">';
+            $html .= '<th class="pb-2">商品コード</th><th class="pb-2">商品名</th><th class="pb-2">ステータス</th>';
+            $html .= '</tr></thead><tbody>';
+
+            foreach ($printability['incomplete_items'] as $item) {
+                $statusLabel = match ($item['status']) {
+                    'PENDING' => '未着手',
+                    'PICKING' => 'ピッキング中',
+                    default => $item['status'],
+                };
+                $html .= '<tr class="border-t border-gray-200 dark:border-gray-700">';
+                $html .= '<td class="py-1">' . e($item['item_code']) . '</td>';
+                $html .= '<td class="py-1">' . e(mb_substr($item['item_name'], 0, 20)) . '</td>';
+                $html .= '<td class="py-1"><span class="text-warning-600">' . e($statusLabel) . '</span></td>';
+                $html .= '</tr>';
+            }
+
+            $html .= '</tbody></table>';
+            $html .= '</div></div>';
+        }
+
+        // 在庫同期未完了の欠品
+        if (!empty($printability['unsynced_shortages'])) {
+            $html .= '<div class="mt-4">';
+            $html .= '<div class="font-medium text-sm text-gray-700 dark:text-gray-300 mb-2">在庫同期未完了の欠品:</div>';
+            $html .= '<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-40 overflow-y-auto">';
+            $html .= '<table class="w-full text-sm">';
+            $html .= '<thead><tr class="text-left text-gray-500 dark:text-gray-400">';
+            $html .= '<th class="pb-2">商品コード</th><th class="pb-2">商品名</th><th class="pb-2">欠品数</th><th class="pb-2">承認</th>';
+            $html .= '</tr></thead><tbody>';
+
+            foreach ($printability['unsynced_shortages'] as $shortage) {
+                $confirmedLabel = $shortage['is_confirmed'] ? '済' : '未';
+                $confirmedClass = $shortage['is_confirmed'] ? 'text-success-600' : 'text-danger-600';
+                $html .= '<tr class="border-t border-gray-200 dark:border-gray-700">';
+                $html .= '<td class="py-1">' . e($shortage['item_code']) . '</td>';
+                $html .= '<td class="py-1">' . e(mb_substr($shortage['item_name'], 0, 20)) . '</td>';
+                $html .= '<td class="py-1">' . e($shortage['shortage_qty']) . '</td>';
+                $html .= '<td class="py-1"><span class="' . $confirmedClass . '">' . e($confirmedLabel) . '</span></td>';
+                $html .= '</tr>';
+            }
+
+            $html .= '</tbody></table>';
+            $html .= '</div></div>';
+        }
+
+        $html .= '<div class="mt-4 text-sm text-gray-600 dark:text-gray-400">';
+        $html .= 'ピッキングや欠品対応が完了していない状態でも、現状のまま印刷します。本当に実行しますか？';
+        $html .= '</div>';
+
+        $html .= '</div>';
+
+        return $html;
     }
 }

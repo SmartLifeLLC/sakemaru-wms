@@ -3,6 +3,7 @@
 namespace App\Models\Sakemaru;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DeliveryCourse extends CustomModel
 {
@@ -13,6 +14,11 @@ class DeliveryCourse extends CustomModel
     public function warehouse(): belongsTo
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    public function earnings(): HasMany
+    {
+        return $this->hasMany(Earning::class);
     }
 
     public static function createUnknownDeliveryCourse($client_id, $code, $warehouse_code, $creator_id){

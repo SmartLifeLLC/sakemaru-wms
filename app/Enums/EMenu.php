@@ -138,7 +138,7 @@ enum EMenu: string
             self::WMS_PICKER_ATTENDANCE => 'ピッカー勤怠管理',
             self::WMS_PICKING_WAITINGS => 'ピッキング待機',
             self::PICKING_TASKS => 'ピッキングタスク',
-            self::WAVES => 'Wave管理',
+            self::WAVES => '波動管理',
             self::PICKING_ROUTE_VISUALIZATION => 'ピッキング経路確認',
             self::WMS_PICKING_ITEM_RESULTS => 'ピッキング商品リスト',
             self::DELIVERY_COURSE_CHANGE => '配送コース変更',
@@ -176,7 +176,7 @@ enum EMenu: string
             self::WMS_PICKING_LOGS => 'ピッキングログ',
             self::WMS_JX_TRANSMISSION_LOGS => 'JX送受信履歴',
 
-            self::WAVE_SETTINGS => 'Wave設定',
+            self::WAVE_SETTINGS => '波動設定',
 
             self::CLIENT_PRINTER_COURSE_SETTINGS => 'プリンター設定',
 

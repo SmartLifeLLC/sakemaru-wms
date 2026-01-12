@@ -6,6 +6,9 @@ use App\Enums\EWMSLogOperationType;
 use App\Enums\EWMSLogTargetType;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsAdminOperationLog;
+use App\Models\WmsPickingItemResult;
+use App\Models\WmsPickingTask;
+use App\Models\WmsShortage;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
@@ -16,6 +19,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use App\Enums\PaginationOptions;
 
 
@@ -575,7 +579,129 @@ class WmsPickingTasksTable
                 //                    ->visible(fn ($record) => !$isWaitingView && !$isCompletedView),
 
             ], position: RecordActionsPosition::BeforeColumns)
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->checkIfRecordIsSelectableUsing(fn ($record) => $record->status !== WmsPickingTask::STATUS_COMPLETED)
+            ->bulkActions([
+                BulkAction::make('forceComplete')
+                    ->label('強制完了')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('強制完了確認')
+                    ->modalDescription('選択したタスクを強制的に完了状態にします。ピッキング中のタスクは割当数量で出荷し、欠品は確定されます。この操作は取り消せません。')
+                    ->action(function (Collection $records) {
+                        $completedCount = 0;
+                        $shortageConfirmedCount = 0;
+                        $errors = [];
+
+                        DB::connection('sakemaru')->transaction(function () use ($records, &$completedCount, &$shortageConfirmedCount, &$errors) {
+                            foreach ($records as $task) {
+                                // 既にCOMPLETEDの場合はスキップ
+                                if ($task->status === WmsPickingTask::STATUS_COMPLETED) {
+                                    continue;
+                                }
+
+                                try {
+                                    // 1. ピッキングアイテム結果を処理
+                                    $pickingItemResults = $task->pickingItemResults;
+
+                                    foreach ($pickingItemResults as $itemResult) {
+                                        // ステータスがPENDINGまたはPICKINGの場合
+                                        if (in_array($itemResult->status, [
+                                            WmsPickingItemResult::STATUS_PENDING,
+                                            WmsPickingItemResult::STATUS_PICKING
+                                        ])) {
+                                            // picked_qty が null または 0 の場合は planned_qty を設定
+                                            $pickedQty = $itemResult->picked_qty ?? 0;
+                                            if ($pickedQty == 0) {
+                                                $pickedQty = $itemResult->planned_qty;
+                                            }
+
+                                            // shortage_qty を計算
+                                            $shortageQty = max(0, ($itemResult->planned_qty ?? 0) - $pickedQty);
+
+                                            // ステータスを決定
+                                            $newStatus = $shortageQty > 0
+                                                ? WmsPickingItemResult::STATUS_SHORTAGE
+                                                : WmsPickingItemResult::STATUS_COMPLETED;
+
+                                            $itemResult->update([
+                                                'picked_qty' => $pickedQty,
+                                                'picked_qty_type' => $itemResult->planned_qty_type,
+                                                'shortage_qty' => $shortageQty,
+                                                'status' => $newStatus,
+                                                'picked_at' => $itemResult->picked_at ?? now(),
+                                            ]);
+                                        }
+
+                                        // 関連する欠品を確定
+                                        $shortage = $itemResult->shortage;
+                                        if ($shortage && !$shortage->is_confirmed) {
+                                            $shortage->update([
+                                                'is_confirmed' => true,
+                                                'confirmed_at' => now(),
+                                                'status' => WmsShortage::STATUS_SHORTAGE,
+                                            ]);
+                                            $shortageConfirmedCount++;
+
+                                            Log::info('Shortage confirmed by force complete', [
+                                                'shortage_id' => $shortage->id,
+                                                'task_id' => $task->id,
+                                            ]);
+                                        }
+                                    }
+
+                                    // 2. タスクをCOMPLETEDに更新
+                                    $task->update([
+                                        'status' => WmsPickingTask::STATUS_COMPLETED,
+                                        'completed_at' => $task->completed_at ?? now(),
+                                    ]);
+
+                                    $completedCount++;
+
+                                    Log::info('Picking task force completed', [
+                                        'task_id' => $task->id,
+                                        'wave_id' => $task->wave_id,
+                                    ]);
+                                } catch (\Exception $e) {
+                                    $errors[] = "タスクID {$task->id}: {$e->getMessage()}";
+                                    Log::error('Force complete failed', [
+                                        'task_id' => $task->id,
+                                        'error' => $e->getMessage(),
+                                    ]);
+                                }
+                            }
+                        });
+
+                        if (!empty($errors)) {
+                            Notification::make()
+                                ->title('一部エラーが発生しました')
+                                ->body(implode("\n", $errors))
+                                ->danger()
+                                ->send();
+                        }
+
+                        if ($completedCount > 0) {
+                            $message = "{$completedCount}件のタスクを完了しました";
+                            if ($shortageConfirmedCount > 0) {
+                                $message .= "（{$shortageConfirmedCount}件の欠品を確定）";
+                            }
+
+                            Notification::make()
+                                ->title('強制完了しました')
+                                ->body($message)
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('完了対象なし')
+                                ->body('選択されたタスクは既に完了済みです')
+                                ->warning()
+                                ->send();
+                        }
+                    })
+                    ->deselectRecordsAfterCompletion(),
+            ]);
         //            ->toolbarActions([
         //                BulkAction::make('assignPicker')
         //                    ->label('担当者を割り当てる')
