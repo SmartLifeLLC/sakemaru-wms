@@ -182,22 +182,33 @@ class ListWaves extends ListRecords
                         ->where('id', $deliveryCourseId)
                         ->first();
 
-                    // Create wave
-                    $wave = Wave::create([
-                        'wms_wave_setting_id' => $waveSetting->id,
-                        'wave_no' => uniqid('TEMP_'),
-                        'shipping_date' => $shippingDate,
-                        'status' => 'PENDING',
-                    ]);
+                    // Check if wave already exists for this setting and date
+                    $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
+                        ->where('shipping_date', $shippingDate)
+                        ->first();
 
-                    // Generate wave_no
-                    $waveNo = Wave::generateWaveNo(
-                        $warehouse->code ?? 0,
-                        $course->code ?? 0,
-                        $shippingDate,
-                        $wave->id
-                    );
-                    $wave->update(['wave_no' => $waveNo]);
+                    if ($existingWave) {
+                        // Use existing wave instead of creating new one
+                        $wave = $existingWave;
+                        $waveNo = $existingWave->wave_no;
+                    } else {
+                        // Create wave
+                        $wave = Wave::create([
+                            'wms_wave_setting_id' => $waveSetting->id,
+                            'wave_no' => uniqid('TEMP_'),
+                            'shipping_date' => $shippingDate,
+                            'status' => 'PENDING',
+                        ]);
+
+                        // Generate wave_no
+                        $waveNo = Wave::generateWaveNo(
+                            $warehouse->code ?? 0,
+                            $course->code ?? 0,
+                            $shippingDate,
+                            $wave->id
+                        );
+                        $wave->update(['wave_no' => $waveNo]);
+                    }
 
                     // Process earnings
                     $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $shippingDate);
