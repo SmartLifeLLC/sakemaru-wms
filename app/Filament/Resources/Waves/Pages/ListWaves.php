@@ -129,11 +129,13 @@ class ListWaves extends ListRecords
         $shippingDate = $data['shipping_date'];
 
         // Get eligible earnings grouped by delivery_course_id
+        // delivery_course_id が未設定の伝票はスキップする
         $earnings = Earning::query()
             ->where('warehouse_id', $warehouseId)
             ->where('delivered_date', $shippingDate)
             ->where('is_delivered', 0)
             ->where('picking_status', 'BEFORE')
+            ->whereNotNull('delivery_course_id')
             ->get();
 
         if ($earnings->isEmpty()) {
