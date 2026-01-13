@@ -108,6 +108,8 @@ class GenerateStocksCommand extends Command
     /**
      * Generate stocks evenly distributed across all locations
      * Each item is assigned to locations in a round-robin fashion
+     *
+     * Note: 新スキーマでは real_stocks に基本情報、real_stock_lots にロット情報（location, expiration_date等）を格納
      */
     private function generateStocksEvenly($items, $locations): int
     {
@@ -127,42 +129,90 @@ class GenerateStocksCommand extends Command
             $location = $locations[$locationIndex % $locationCount];
             $locationIndex++;
 
-            // Check if stock already exists
-            $existing = DB::connection('sakemaru')
-                ->table('real_stocks')
-                ->where('warehouse_id', $this->warehouseId)
-                ->where('location_id', $location->id)
-                ->where('item_id', $item->id)
-                ->exists();
-
-            if ($existing) {
-                $skippedCount++;
-                $progressBar->advance();
-
-                continue;
-            }
-
             // Generate stock with expiration date (30-180 days from now)
             $expirationDate = now()->addDays(rand(30, 180))->format('Y-m-d');
             $currentQuantity = rand(50, 500);
+            $price = rand(100, 5000);
 
-            // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
-            DB::connection('sakemaru')->table('real_stocks')->insert([
-                'client_id' => $clientId,
-                'stock_allocation_id' => 1,
-                'warehouse_id' => $this->warehouseId,
-                'location_id' => $location->id,
-                'item_id' => $item->id,
-                'item_management_type' => 'STANDARD',
-                'expiration_date' => $expirationDate,
-                'current_quantity' => $currentQuantity,
-                'reserved_quantity' => 0,
-                'order_rank' => 'FIFO',
-                'price' => rand(100, 5000),
-                'wms_lock_version' => 0,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            // Check if real_stock already exists for this item/warehouse/stock_allocation
+            $existingStock = DB::connection('sakemaru')
+                ->table('real_stocks')
+                ->where('warehouse_id', $this->warehouseId)
+                ->where('item_id', $item->id)
+                ->where('stock_allocation_id', 1)
+                ->first();
+
+            if ($existingStock) {
+                // Check if lot already exists at this location
+                $existingLot = DB::connection('sakemaru')
+                    ->table('real_stock_lots')
+                    ->where('real_stock_id', $existingStock->id)
+                    ->where('location_id', $location->id)
+                    ->where('status', 'ACTIVE')
+                    ->exists();
+
+                if ($existingLot) {
+                    $skippedCount++;
+                    $progressBar->advance();
+
+                    continue;
+                }
+
+                // Add new lot to existing stock
+                DB::connection('sakemaru')->table('real_stock_lots')->insert([
+                    'real_stock_id' => $existingStock->id,
+                    'floor_id' => $this->floorId,
+                    'location_id' => $location->id,
+                    'expiration_date' => $expirationDate,
+                    'price' => $price,
+                    'content_amount' => 0,
+                    'container_amount' => 0,
+                    'initial_quantity' => $currentQuantity,
+                    'current_quantity' => $currentQuantity,
+                    'reserved_quantity' => 0,
+                    'status' => 'ACTIVE',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Update real_stocks total quantity
+                DB::connection('sakemaru')
+                    ->table('real_stocks')
+                    ->where('id', $existingStock->id)
+                    ->increment('current_quantity', $currentQuantity);
+            } else {
+                // Create new real_stock record (without location/expiration - those go to lots)
+                $realStockId = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
+                    'client_id' => $clientId,
+                    'stock_allocation_id' => 1,
+                    'warehouse_id' => $this->warehouseId,
+                    'item_id' => $item->id,
+                    'item_management_type' => 'STANDARD',
+                    'current_quantity' => $currentQuantity,
+                    'reserved_quantity' => 0,
+                    'order_rank' => 'FIFO',
+                    'wms_lock_version' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Create lot record with location and expiration info
+                DB::connection('sakemaru')->table('real_stock_lots')->insert([
+                    'real_stock_id' => $realStockId,
+                    'floor_id' => $this->floorId,
+                    'location_id' => $location->id,
+                    'expiration_date' => $expirationDate,
+                    'price' => $price,
+                    'content_amount' => 0,
+                    'container_amount' => 0,
+                    'initial_quantity' => $currentQuantity,
+                    'current_quantity' => $currentQuantity,
+                    'reserved_quantity' => 0,
+                    'status' => 'ACTIVE',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
 
             $createdCount++;
             $progressBar->advance();
@@ -172,7 +222,7 @@ class GenerateStocksCommand extends Command
         $this->newLine();
 
         if ($skippedCount > 0) {
-            $this->line("Skipped {$skippedCount} existing stock records");
+            $this->line("Skipped {$skippedCount} existing lot records");
         }
 
         return $createdCount;

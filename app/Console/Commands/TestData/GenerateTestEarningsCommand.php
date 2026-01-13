@@ -169,18 +169,19 @@ class GenerateTestEarningsCommand extends Command
         $query = DB::connection('sakemaru')
             ->table('items as i')
             ->join('real_stocks as rs', 'i.id', '=', 'rs.item_id')
-            ->join('locations as l', 'rs.location_id', '=', 'l.id')
+            ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
+            ->join('locations as l', 'rsl.location_id', '=', 'l.id')
             ->where('i.type', 'ALCOHOL')
             ->where('i.is_active', true)
             ->whereNull('i.end_of_sale_date')
             ->where('i.is_ended', false)
             ->where('rs.warehouse_id', $this->warehouseId)
-            ->whereNotNull('rs.location_id')
+            ->whereNotNull('rsl.location_id')
             ->where('rs.available_quantity', '>', 0);
 
         // Filter by specified locations if provided
         if (! empty($this->specifiedLocations)) {
-            $query->whereIn('rs.location_id', $this->specifiedLocations);
+            $query->whereIn('rsl.location_id', $this->specifiedLocations);
         }
 
         $items = $query->select(

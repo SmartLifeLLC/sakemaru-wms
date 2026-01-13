@@ -242,23 +242,37 @@ class GenerateWmsTestDataCommand extends Command
                 foreach ($locationsForItem as $location) {
                     $expiryDate = now()->addMonths(rand(1, 12))->format('Y-m-d');
                     $quantity = rand(10, 100);
+                    $price = rand(100, 5000);
 
                     // Each stock record gets unique stock_allocation_id to satisfy unique constraint
-                    // real_stocks unique key: (client_id, warehouse_id, stock_allocation_id, item_id)
-                    // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
-                    DB::connection('sakemaru')->table('real_stocks')->insert([
+                    // real_stocks unique key: (item_id, warehouse_id, stock_allocation_id)
+                    // Note: location_id, expiration_date, price are now in real_stock_lots
+                    $realStockId = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
                         'client_id' => $this->clientId,
                         'warehouse_id' => $this->warehouseId,
                         'stock_allocation_id' => $stockAllocationId++,
-                        'location_id' => $location->id,
                         'item_id' => $item->id,
                         'current_quantity' => $quantity,
                         'reserved_quantity' => 0,
-                        'expiration_date' => $expiryDate,
-                        'purchase_id' => null,
-                        'price' => rand(100, 5000),
                         'order_rank' => 'A',
                         'wms_lock_version' => 0,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                    // Create lot record with location and expiration info
+                    DB::connection('sakemaru')->table('real_stock_lots')->insert([
+                        'real_stock_id' => $realStockId,
+                        'floor_id' => $location->floor_id,
+                        'location_id' => $location->id,
+                        'expiration_date' => $expiryDate,
+                        'price' => $price,
+                        'content_amount' => 0,
+                        'container_amount' => 0,
+                        'initial_quantity' => $quantity,
+                        'current_quantity' => $quantity,
+                        'reserved_quantity' => 0,
+                        'status' => 'ACTIVE',
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);

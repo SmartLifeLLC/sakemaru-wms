@@ -117,8 +117,9 @@ class FloorPlanController extends Controller
             $shelves = [];
             foreach ($group['locations'] as $loc) {
                 $shelfStockCount = DB::connection('sakemaru')
-                    ->table('real_stocks')
+                    ->table('real_stock_lots')
                     ->where('location_id', $loc->id)
+                    ->where('status', 'ACTIVE')
                     ->sum('current_quantity');
 
                 $shelves[] = [
@@ -339,25 +340,28 @@ class FloorPlanController extends Controller
 
         $shelfStocks = [];
         foreach ($zoneLocations as $index => $loc) {
-            // Get stock data for this shelf
+            // Get stock data for this shelf via real_stock_lots
             $stocks = DB::connection('sakemaru')
-                ->table('real_stocks as rs')
+                ->table('real_stock_lots as rsl')
+                ->join('real_stocks as rs', 'rs.id', '=', 'rsl.real_stock_id')
                 ->leftJoin('items as i', 'rs.item_id', '=', 'i.id')
-                ->where('rs.location_id', $loc->id)
-                ->where('rs.current_quantity', '>', 0)
+                ->where('rsl.location_id', $loc->id)
+                ->where('rsl.status', 'ACTIVE')
+                ->where('rsl.current_quantity', '>', 0)
                 ->select([
                     'rs.id as real_stock_id',
+                    'rsl.id as lot_id',
                     'rs.item_id',
                     'i.code as item_code',
                     'i.name as item_name',
                     'i.capacity_case',
                     'i.volume',
                     'i.volume_unit',
-                    'rs.expiration_date',
-                    'rs.current_quantity as total_qty',
+                    'rsl.expiration_date',
+                    'rsl.current_quantity as total_qty',
                 ])
                 ->orderBy('i.name')
-                ->orderBy('rs.expiration_date')
+                ->orderBy('rsl.expiration_date')
                 ->get();
 
             $items = [];
@@ -422,11 +426,12 @@ class FloorPlanController extends Controller
 
             // Get stock for this location
             $stock = DB::connection('sakemaru')
-                ->table('real_stocks')
+                ->table('real_stock_lots')
                 ->where('location_id', $location->id)
+                ->where('status', 'ACTIVE')
                 ->select([
                     DB::raw('SUM(current_quantity) as current_qty'),
-                    DB::raw('SUM(available_quantity) as available_qty'),
+                    DB::raw('SUM(current_quantity - reserved_quantity) as available_qty'),
                 ])
                 ->first();
 

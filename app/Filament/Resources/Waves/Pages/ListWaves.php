@@ -322,8 +322,9 @@ class ListWaves extends ListRecords
             if ($pickingAreaId === null || $floorId === null) {
                 $itemLocation = DB::connection('sakemaru')
                     ->table('real_stocks as rs')
-                    ->join('wms_locations as wl', 'rs.location_id', '=', 'wl.location_id')
-                    ->join('locations as l', 'rs.location_id', '=', 'l.id')
+                    ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
+                    ->join('wms_locations as wl', 'rsl.location_id', '=', 'wl.location_id')
+                    ->join('locations as l', 'rsl.location_id', '=', 'l.id')
                     ->where('rs.warehouse_id', $waveSetting->warehouse_id)
                     ->where('rs.item_id', $tradeItem->item_id)
                     ->whereNotNull('wl.wms_picking_area_id')

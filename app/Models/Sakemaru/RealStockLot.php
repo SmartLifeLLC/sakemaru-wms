@@ -40,6 +40,16 @@ class RealStockLot extends SakemaruModel
         return $this->belongsTo(TradeItem::class);
     }
 
+    public function floor(): BelongsTo
+    {
+        return $this->belongsTo(Floor::class);
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
+    }
+
     public function lotEarnings(): HasMany
     {
         return $this->hasMany(RealStockLotEarning::class);

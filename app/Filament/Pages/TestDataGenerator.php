@@ -1008,6 +1008,7 @@ class TestDataGenerator extends Page
 
                     $stockRecords = [];
                     $now = now();
+                    $stockAllocationId = 1;
 
                     foreach ($items as $item) {
                         $itemTempType = $item->temperature_type ?? 'NORMAL';
@@ -1047,58 +1048,76 @@ class TestDataGenerator extends Page
                                 $caseQty = rand(5, 50);
                                 $pieceQty = $caseQty * $capacityCase;
 
-                                // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
+                                // Note: 新スキーマでは real_stocks + real_stock_lots に分離
                                 $stockRecords[] = [
-                                    'client_id' => $item->client_id ?? 1,
-                                    'warehouse_id' => $warehouseId,
-                                    'stock_allocation_id' => 1,
-                                    'floor_id' => $location->floor_id,
-                                    'location_id' => $location->id,
-                                    'item_id' => $item->id,
-                                    'purchase_id' => null,
-                                    'trade_item_id' => null,
-                                    'current_quantity' => $pieceQty,
-                                    'reserved_quantity' => 0,
-                                    'wms_lock_version' => 0,
-                                    'item_management_type' => $managementType,
-                                    'order_rank' => 'A',
-                                    'order_parameter' => null,
-                                    'expiration_date' => $expDate,
-                                    'price' => 0,
-                                    'content_amount' => null,
-                                    'container_amount' => null,
-                                    'created_at' => $now,
-                                    'updated_at' => $now,
-                                    'lock_version' => 0,
+                                    'stock' => [
+                                        'client_id' => $item->client_id ?? 1,
+                                        'warehouse_id' => $warehouseId,
+                                        'stock_allocation_id' => $stockAllocationId++,
+                                        'item_id' => $item->id,
+                                        'current_quantity' => $pieceQty,
+                                        'reserved_quantity' => 0,
+                                        'wms_lock_version' => 0,
+                                        'item_management_type' => $managementType,
+                                        'order_rank' => 'A',
+                                        'order_parameter' => null,
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                        'lock_version' => 0,
+                                    ],
+                                    'lot' => [
+                                        'floor_id' => $location->floor_id,
+                                        'location_id' => $location->id,
+                                        'expiration_date' => $expDate,
+                                        'price' => 0,
+                                        'content_amount' => 0,
+                                        'container_amount' => 0,
+                                        'initial_quantity' => $pieceQty,
+                                        'current_quantity' => $pieceQty,
+                                        'reserved_quantity' => 0,
+                                        'status' => 'ACTIVE',
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                    ],
+                                    'management_type' => $managementType,
                                 ];
                             }
 
                             if (($flags & 2) && ! ($flags & 1)) {
                                 $pieceQty = rand(5, 50);
 
-                                // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
+                                // Note: 新スキーマでは real_stocks + real_stock_lots に分離
                                 $stockRecords[] = [
-                                    'client_id' => $item->client_id ?? 1,
-                                    'warehouse_id' => $warehouseId,
-                                    'stock_allocation_id' => 1,
-                                    'floor_id' => $location->floor_id,
-                                    'location_id' => $location->id,
-                                    'item_id' => $item->id,
-                                    'purchase_id' => null,
-                                    'trade_item_id' => null,
-                                    'current_quantity' => $pieceQty,
-                                    'reserved_quantity' => 0,
-                                    'wms_lock_version' => 0,
-                                    'item_management_type' => $managementType,
-                                    'order_rank' => 'A',
-                                    'order_parameter' => null,
-                                    'expiration_date' => $expDate,
-                                    'price' => 0,
-                                    'content_amount' => null,
-                                    'container_amount' => null,
-                                    'created_at' => $now,
-                                    'updated_at' => $now,
-                                    'lock_version' => 0,
+                                    'stock' => [
+                                        'client_id' => $item->client_id ?? 1,
+                                        'warehouse_id' => $warehouseId,
+                                        'stock_allocation_id' => $stockAllocationId++,
+                                        'item_id' => $item->id,
+                                        'current_quantity' => $pieceQty,
+                                        'reserved_quantity' => 0,
+                                        'wms_lock_version' => 0,
+                                        'item_management_type' => $managementType,
+                                        'order_rank' => 'A',
+                                        'order_parameter' => null,
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                        'lock_version' => 0,
+                                    ],
+                                    'lot' => [
+                                        'floor_id' => $location->floor_id,
+                                        'location_id' => $location->id,
+                                        'expiration_date' => $expDate,
+                                        'price' => 0,
+                                        'content_amount' => 0,
+                                        'container_amount' => 0,
+                                        'initial_quantity' => $pieceQty,
+                                        'current_quantity' => $pieceQty,
+                                        'reserved_quantity' => 0,
+                                        'status' => 'ACTIVE',
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                    ],
+                                    'management_type' => $managementType,
                                 ];
                             }
                         }
@@ -1106,15 +1125,24 @@ class TestDataGenerator extends Page
 
                     $insertedCount = 0;
                     if (! empty($stockRecords)) {
-                        foreach (array_chunk($stockRecords, 500) as $chunk) {
-                            DB::connection('sakemaru')
+                        foreach ($stockRecords as $record) {
+                            // Insert real_stock record
+                            $realStockId = DB::connection('sakemaru')
                                 ->table('real_stocks')
-                                ->insertOrIgnore($chunk);
-                            $insertedCount += count($chunk);
+                                ->insertGetId($record['stock']);
+
+                            // Insert lot record with real_stock_id
+                            $lotData = $record['lot'];
+                            $lotData['real_stock_id'] = $realStockId;
+                            DB::connection('sakemaru')
+                                ->table('real_stock_lots')
+                                ->insert($lotData);
+
+                            $insertedCount++;
                         }
                     }
 
-                    $rareCount = collect($stockRecords)->where('item_management_type', 'RARE')->count();
+                    $rareCount = collect($stockRecords)->where('management_type', 'RARE')->count();
                     $standardCount = $insertedCount - $rareCount;
 
                     Notification::make()

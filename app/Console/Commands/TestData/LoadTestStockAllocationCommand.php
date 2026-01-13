@@ -175,6 +175,7 @@ class LoadTestStockAllocationCommand extends Command
             $this->testItemIds[] = $itemId;
 
             // Create stock records for this item
+            // Note: 新スキーマでは real_stocks + real_stock_lots に分離
             for ($s = 0; $s < $this->stocksPerItem; $s++) {
                 $location = $locations->random();
 
@@ -186,23 +187,36 @@ class LoadTestStockAllocationCommand extends Command
 
                 // Vary quantities (1000-5000 per stock) - larger quantities for load testing
                 $currentQuantity = rand(1000, 5000);
+                $price = rand(100, 5000);
 
-                // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
+                // Create real_stock record (without location/expiration - those go to lots)
                 $realStockId = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
                     'client_id' => $clientId,
                     'stock_allocation_id' => 1,
-                    'floor_id' => null,
                     'warehouse_id' => $this->warehouseId,
-                    'location_id' => $location->id,
-                    'purchase_id' => null,
                     'item_id' => $itemId,
                     'item_management_type' => 'STANDARD',
-                    'expiration_date' => $expirationDate,
                     'current_quantity' => $currentQuantity,
                     'reserved_quantity' => 0,
                     'order_rank' => 'FIFO',
-                    'price' => rand(100, 5000),
                     'wms_lock_version' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Create lot record with location and expiration info
+                DB::connection('sakemaru')->table('real_stock_lots')->insert([
+                    'real_stock_id' => $realStockId,
+                    'floor_id' => $location->floor_id,
+                    'location_id' => $location->id,
+                    'expiration_date' => $expirationDate,
+                    'price' => $price,
+                    'content_amount' => 0,
+                    'container_amount' => 0,
+                    'initial_quantity' => $currentQuantity,
+                    'current_quantity' => $currentQuantity,
+                    'reserved_quantity' => 0,
+                    'status' => 'ACTIVE',
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);

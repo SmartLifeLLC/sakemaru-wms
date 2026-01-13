@@ -1506,6 +1506,7 @@ class FloorPlanEditor extends Page
 
     /**
      * Execute stock transfer between locations
+     * Note: real_stock_lots経由でlocation移動を行う
      */
     public function executeStockTransfer(array $transferData): void
     {
@@ -1528,103 +1529,99 @@ class FloorPlanEditor extends Page
             $userId = auth()->id();
             $userName = auth()->user()?->name ?? 'Unknown';
 
+            // Get target location's floor_id
+            $targetLocation = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                ->table('locations')
+                ->where('id', $targetLocationId)
+                ->first();
+
             \Illuminate\Support\Facades\DB::connection('sakemaru')->transaction(function () use (
                 $sourceLocationId,
                 $targetLocationId,
+                $targetLocation,
                 $warehouseId,
                 $items,
                 $userId,
                 $userName
             ) {
                 foreach ($items as $item) {
+                    $lotId = $item['lot_id'] ?? null;
                     $realStockId = $item['real_stock_id'];
                     $itemId = $item['item_id'];
                     $transferQty = (int) $item['transfer_qty'];
                     $totalQty = (int) ($item['total_qty'] ?? $transferQty);
 
-                    // Get the source real_stock record
-                    $sourceStock = \Illuminate\Support\Facades\DB::connection('sakemaru')
-                        ->table('real_stocks')
-                        ->where('id', $realStockId)
+                    // Get the source lot record
+                    $sourceLot = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                        ->table('real_stock_lots')
+                        ->where('real_stock_id', $realStockId)
+                        ->where('location_id', $sourceLocationId)
+                        ->where('status', 'ACTIVE')
                         ->first();
 
-                    if (! $sourceStock) {
+                    if (! $sourceLot) {
                         continue;
                     }
 
-                    if ($transferQty >= $totalQty) {
-                        // Full transfer: just update the location_id
+                    if ($transferQty >= $sourceLot->current_quantity) {
+                        // Full transfer: just update the lot's location_id
                         \Illuminate\Support\Facades\DB::connection('sakemaru')
-                            ->table('real_stocks')
-                            ->where('id', $realStockId)
+                            ->table('real_stock_lots')
+                            ->where('id', $sourceLot->id)
                             ->update([
                                 'location_id' => $targetLocationId,
+                                'floor_id' => $targetLocation?->floor_id ?? $sourceLot->floor_id,
                                 'updated_at' => now(),
                             ]);
                     } else {
-                        // Partial transfer: reduce source and create/update target
-                        $remainingQty = $totalQty - $transferQty;
+                        // Partial transfer: reduce source lot and create/update target lot
+                        $remainingQty = $sourceLot->current_quantity - $transferQty;
 
-                        // Reduce quantity at source location
-                        // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
+                        // Reduce quantity at source lot
                         \Illuminate\Support\Facades\DB::connection('sakemaru')
-                            ->table('real_stocks')
-                            ->where('id', $realStockId)
+                            ->table('real_stock_lots')
+                            ->where('id', $sourceLot->id)
                             ->update([
                                 'current_quantity' => $remainingQty,
                                 'updated_at' => now(),
                             ]);
 
-                        // Check if there's an existing stock at target location with same item/expiration
-                        $existingTargetStock = \Illuminate\Support\Facades\DB::connection('sakemaru')
-                            ->table('real_stocks')
+                        // Check if there's an existing lot at target location with same properties
+                        $existingTargetLot = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                            ->table('real_stock_lots')
+                            ->where('real_stock_id', $realStockId)
                             ->where('location_id', $targetLocationId)
-                            ->where('item_id', $sourceStock->item_id)
-                            ->where('expiration_date', $sourceStock->expiration_date)
-                            ->where('client_id', $sourceStock->client_id)
+                            ->where('expiration_date', $sourceLot->expiration_date)
+                            ->where('status', 'ACTIVE')
                             ->first();
 
-                        if ($existingTargetStock) {
-                            // Add to existing stock at target
-                            // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
+                        if ($existingTargetLot) {
+                            // Add to existing lot at target
                             \Illuminate\Support\Facades\DB::connection('sakemaru')
-                                ->table('real_stocks')
-                                ->where('id', $existingTargetStock->id)
+                                ->table('real_stock_lots')
+                                ->where('id', $existingTargetLot->id)
                                 ->update([
-                                    'current_quantity' => $existingTargetStock->current_quantity + $transferQty,
+                                    'current_quantity' => $existingTargetLot->current_quantity + $transferQty,
                                     'updated_at' => now(),
                                 ]);
                         } else {
-                            // Get target location's floor_id
-                            $targetLocation = \Illuminate\Support\Facades\DB::connection('sakemaru')
-                                ->table('locations')
-                                ->where('id', $targetLocationId)
-                                ->first();
-
-                            // Create new stock record at target location
-                            // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
+                            // Create new lot at target location
                             \Illuminate\Support\Facades\DB::connection('sakemaru')
-                                ->table('real_stocks')
+                                ->table('real_stock_lots')
                                 ->insert([
-                                    'client_id' => $sourceStock->client_id,
-                                    'warehouse_id' => $sourceStock->warehouse_id,
-                                    'floor_id' => $targetLocation?->floor_id ?? $sourceStock->floor_id,
+                                    'real_stock_id' => $realStockId,
+                                    'purchase_id' => $sourceLot->purchase_id,
+                                    'trade_item_id' => $sourceLot->trade_item_id,
+                                    'floor_id' => $targetLocation?->floor_id ?? $sourceLot->floor_id,
                                     'location_id' => $targetLocationId,
-                                    'item_id' => $sourceStock->item_id,
-                                    'stock_allocation_id' => $sourceStock->stock_allocation_id,
-                                    'purchase_id' => $sourceStock->purchase_id,
-                                    'trade_item_id' => $sourceStock->trade_item_id,
-                                    'expiration_date' => $sourceStock->expiration_date,
-                                    'price' => $sourceStock->price,
-                                    'item_management_type' => $sourceStock->item_management_type,
-                                    'order_rank' => $sourceStock->order_rank ?? '',
-                                    'order_parameter' => $sourceStock->order_parameter,
-                                    'content_amount' => $sourceStock->content_amount,
-                                    'container_amount' => $sourceStock->container_amount,
+                                    'price' => $sourceLot->price,
+                                    'content_amount' => $sourceLot->content_amount,
+                                    'container_amount' => $sourceLot->container_amount,
+                                    'expiration_date' => $sourceLot->expiration_date,
+                                    'initial_quantity' => $transferQty,
                                     'current_quantity' => $transferQty,
                                     'reserved_quantity' => 0,
-                                    'wms_lock_version' => 0,
-                                    'lock_version' => 0,
+                                    'status' => 'ACTIVE',
                                     'created_at' => now(),
                                     'updated_at' => now(),
                                 ]);

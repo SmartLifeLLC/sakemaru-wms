@@ -108,10 +108,12 @@ class TransferCandidateApprovalService
 
         // 供給倉庫の利用可能在庫を取得（FEFO→FIFO順）
         // available_quantity = current_quantity - reserved_quantity（生成カラム）
+        // Note: expiration_dateはreal_stock_lotsに移動したため、activeLots経由でソート
         $stocks = RealStock::where('warehouse_id', $candidate->hub_warehouse_id)
             ->where('item_id', $candidate->item_id)
             ->where('available_quantity', '>', 0)
-            ->fefoFifo()         // FEFO→FIFO順
+            ->with('activeLots')
+            ->orderBy('id', 'asc')  // 基本的なFIFO（ID順）
             ->get();
 
         if ($stocks->isEmpty()) {

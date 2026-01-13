@@ -232,6 +232,7 @@ class StockAllocationService
 
     /**
      * Get candidate stocks for allocation
+     * real_stock_lots経由でlocation, expiration_date, price等を取得
      */
     protected function getCandidateStocks(
         int $warehouseId,
@@ -243,31 +244,35 @@ class StockAllocationService
     ): \Illuminate\Support\Collection {
         $query = DB::connection('sakemaru')
             ->table('real_stocks as rs')
-            ->join('locations as l', 'l.id', '=', 'rs.location_id')
+            ->join('real_stock_lots as rsl', function ($join) {
+                $join->on('rsl.real_stock_id', '=', 'rs.id')
+                    ->where('rsl.status', '=', 'ACTIVE')
+                    ->whereRaw('rsl.current_quantity > rsl.reserved_quantity');
+            })
+            ->join('locations as l', 'l.id', '=', 'rsl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
-            ->where('rs.available_quantity', '>', 0)
             ->whereRaw("(l.available_quantity_flags & {$quantityFlag->value}) != 0")
             ->select([
                 'rs.id as real_stock_id',
-                'rs.location_id',
-                'rs.purchase_id',
-                'rs.expiration_date',
-                'rs.price as unit_cost',
-                'rs.available_quantity',
+                'rsl.id as lot_id',
+                'rsl.location_id',
+                'rsl.purchase_id',
+                'rsl.expiration_date',
+                'rsl.price as unit_cost',
+                DB::raw('(rsl.current_quantity - rsl.reserved_quantity) as available_quantity'),
             ]);
 
         // Order by FEFO or FIFO
         if ($usesExpiration) {
-            $query->orderByRaw('rs.expiration_date IS NULL') // NULL last
-                ->orderBy('rs.expiration_date', 'asc');
+            $query->orderByRaw('rsl.expiration_date IS NULL') // NULL last
+                ->orderBy('rsl.expiration_date', 'asc');
         } else {
-            // FIFO: Order by creation date since received_at doesn't exist
-            $query->orderBy('rs.created_at', 'asc');
+            // FIFO: Order by creation date
+            $query->orderBy('rsl.created_at', 'asc');
         }
 
-        // Removed: walking_order sorting is no longer used. Sorting by location will be calculated based on x_pos, y_pos
-        $query->orderBy('rs.id', 'asc')
+        $query->orderBy('rsl.id', 'asc')
             ->limit($limit)
             ->offset($offset);
 

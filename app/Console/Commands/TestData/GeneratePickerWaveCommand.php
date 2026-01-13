@@ -233,22 +233,27 @@ class GeneratePickerWaveCommand extends Command
         // IMPORTANT: Only select items that have stock in locations (not just warehouse)
         // AND include location type information to match with order types
         // This ensures stock allocation can succeed during wave generation
+        // Note: location_id is now in real_stock_lots, not real_stocks
 
         $query = DB::connection('sakemaru')
             ->table('items as i')
             ->join('real_stocks as rs', 'i.id', '=', 'rs.item_id')
-            ->join('locations as l', 'rs.location_id', '=', 'l.id')
+            ->join('real_stock_lots as rsl', function ($join) {
+                $join->on('rsl.real_stock_id', '=', 'rs.id')
+                    ->where('rsl.status', '=', 'ACTIVE');
+            })
+            ->join('locations as l', 'rsl.location_id', '=', 'l.id')
             ->where('i.type', 'ALCOHOL')
             ->where('i.is_active', true)
             ->whereNull('i.end_of_sale_date')
             ->where('i.is_ended', false)
             ->where('rs.warehouse_id', $this->warehouseId)
-            ->whereNotNull('rs.location_id')
+            ->whereNotNull('rsl.location_id')
             ->where('rs.available_quantity', '>', 0);
 
         // Filter by specified locations if provided
         if (! empty($this->specifiedLocations)) {
-            $query->whereIn('rs.location_id', $this->specifiedLocations);
+            $query->whereIn('rsl.location_id', $this->specifiedLocations);
         }
 
         $items = $query->select(
@@ -578,43 +583,92 @@ class GeneratePickerWaveCommand extends Command
         $locationIndex = 0;
 
         // Distribute items evenly across specified locations
+        // Note: 新スキーマでは real_stocks + real_stock_lots に分離
         foreach ($items as $item) {
             $location = $locations[$locationIndex % $locationCount];
             $locationIndex++;
 
-            // Check if stock already exists
-            $existing = DB::connection('sakemaru')
-                ->table('real_stocks')
-                ->where('warehouse_id', $this->warehouseId)
-                ->where('location_id', $location->id)
-                ->where('item_id', $item->id)
-                ->exists();
-
-            if ($existing) {
-                continue;
-            }
-
-            // Generate stock
+            // Generate stock data
             $expirationDate = now()->addDays(rand(30, 180))->format('Y-m-d');
             $currentQuantity = rand(50, 500);
+            $price = rand(100, 5000);
 
-            // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
-            DB::connection('sakemaru')->table('real_stocks')->insert([
-                'client_id' => $clientId,
-                'stock_allocation_id' => 1,
-                'warehouse_id' => $this->warehouseId,
-                'location_id' => $location->id,
-                'item_id' => $item->id,
-                'item_management_type' => 'STANDARD',
-                'expiration_date' => $expirationDate,
-                'current_quantity' => $currentQuantity,
-                'reserved_quantity' => 0,
-                'order_rank' => 'FIFO',
-                'price' => rand(100, 5000),
-                'wms_lock_version' => 0,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            // Check if real_stock already exists for this item/warehouse
+            $existingStock = DB::connection('sakemaru')
+                ->table('real_stocks')
+                ->where('warehouse_id', $this->warehouseId)
+                ->where('item_id', $item->id)
+                ->where('stock_allocation_id', 1)
+                ->first();
+
+            if ($existingStock) {
+                // Check if lot already exists at this location
+                $existingLot = DB::connection('sakemaru')
+                    ->table('real_stock_lots')
+                    ->where('real_stock_id', $existingStock->id)
+                    ->where('location_id', $location->id)
+                    ->where('status', 'ACTIVE')
+                    ->exists();
+
+                if ($existingLot) {
+                    continue;
+                }
+
+                // Add new lot to existing stock
+                DB::connection('sakemaru')->table('real_stock_lots')->insert([
+                    'real_stock_id' => $existingStock->id,
+                    'floor_id' => $location->floor_id,
+                    'location_id' => $location->id,
+                    'expiration_date' => $expirationDate,
+                    'price' => $price,
+                    'content_amount' => 0,
+                    'container_amount' => 0,
+                    'initial_quantity' => $currentQuantity,
+                    'current_quantity' => $currentQuantity,
+                    'reserved_quantity' => 0,
+                    'status' => 'ACTIVE',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Update real_stocks total quantity
+                DB::connection('sakemaru')
+                    ->table('real_stocks')
+                    ->where('id', $existingStock->id)
+                    ->increment('current_quantity', $currentQuantity);
+            } else {
+                // Create new real_stock record
+                $realStockId = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
+                    'client_id' => $clientId,
+                    'stock_allocation_id' => 1,
+                    'warehouse_id' => $this->warehouseId,
+                    'item_id' => $item->id,
+                    'item_management_type' => 'STANDARD',
+                    'current_quantity' => $currentQuantity,
+                    'reserved_quantity' => 0,
+                    'order_rank' => 'FIFO',
+                    'wms_lock_version' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Create lot record with location and expiration info
+                DB::connection('sakemaru')->table('real_stock_lots')->insert([
+                    'real_stock_id' => $realStockId,
+                    'floor_id' => $location->floor_id,
+                    'location_id' => $location->id,
+                    'expiration_date' => $expirationDate,
+                    'price' => $price,
+                    'content_amount' => 0,
+                    'container_amount' => 0,
+                    'initial_quantity' => $currentQuantity,
+                    'current_quantity' => $currentQuantity,
+                    'reserved_quantity' => 0,
+                    'status' => 'ACTIVE',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
 
             $createdCount++;
         }
