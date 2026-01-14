@@ -218,12 +218,6 @@
                                         <td class="px-3 py-2"><a href="{{ route('filament.admin.resources.wms-warehouse-calendars.index') }}" class="text-primary-500 hover:underline">倉庫カレンダー</a></td>
                                     </tr>
                                     <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">wms_item_supply_settings</td>
-                                        <td class="px-3 py-2"><span class="text-danger-500">必須</span></td>
-                                        <td class="px-3 py-2">商品×倉庫の供給設定</td>
-                                        <td class="px-3 py-2"><a href="{{ route('filament.admin.resources.wms-item-supply-settings.index') }}" class="text-primary-500 hover:underline">供給設定</a></td>
-                                    </tr>
-                                    <tr>
                                         <td class="px-3 py-2 font-mono text-xs">wms_national_holidays</td>
                                         <td class="px-3 py-2"><span class="text-warning-500">推奨</span></td>
                                         <td class="px-3 py-2">祝日マスタ</td>
@@ -511,7 +505,7 @@ Level 1 (Hub):
                     <h4 class="font-bold text-gray-800 dark:text-gray-200 mt-4">内部移動の場合</h4>
                     <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                         <ol class="list-decimal list-inside space-y-2 text-sm">
-                            <li><strong>固定リードタイム使用</strong>: <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">wms_item_supply_settings.lead_time_days</code></li>
+                            <li><strong>固定リードタイム使用</strong>: 供給設定のリードタイム日数</li>
                             <li><strong>到着予定日計算</strong>: 発注日 + リードタイム日数</li>
                             <li><strong>倉庫休日スキップ</strong>: 到着予定日が倉庫の休日の場合、翌営業日にシフト</li>
                         </ol>
@@ -602,11 +596,6 @@ Level 1 (Hub):
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
-                            <tr>
-                                <td class="px-4 py-2 font-mono">wms_item_supply_settings</td>
-                                <td class="px-4 py-2">商品×倉庫ごとの供給設定</td>
-                                <td class="px-4 py-2"><a href="{{ route('filament.admin.resources.wms-item-supply-settings.index') }}" class="text-primary-500 hover:underline">供給設定</a></td>
-                            </tr>
                             <tr>
                                 <td class="px-4 py-2 font-mono">wms_warehouse_calendars</td>
                                 <td class="px-4 py-2">倉庫の休日設定</td>
