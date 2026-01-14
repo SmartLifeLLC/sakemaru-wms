@@ -14,7 +14,7 @@ enum EEndOfSaleType: string
     case SELF = 'SELF';
     case DIFFICULT = 'DIFFICULT';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::NORMAL => '通常',
@@ -25,7 +25,7 @@ enum EEndOfSaleType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::NORMAL => 0,
@@ -61,11 +61,11 @@ enum EEndOfSaleType: string
     public static function createFromMSDCode($code): EEndOfSaleType
     {
         return match ($code) {
-            0=>self::NORMAL,
-            1=>self::MANUFACTURER,
-            2=>self::MANUFACTURER_PLAN,
-            3=>self::SELF,
-            9=>self::DIFFICULT,
+            0 => self::NORMAL,
+            1 => self::MANUFACTURER,
+            2 => self::MANUFACTURER_PLAN,
+            3 => self::SELF,
+            9 => self::DIFFICULT,
         };
     }
 }

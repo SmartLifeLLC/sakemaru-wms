@@ -8,8 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ItemCategory extends CustomModel
 {
     use HasFactory;
-    protected $guarded = [];
 
+    protected $guarded = [];
 
     public function alcohol_tax_category(): BelongsTo
     {

@@ -3,8 +3,6 @@
 namespace App\Filament\Resources\Waves;
 
 use App\Enums\EMenu;
-use App\Filament\Resources\Waves\Pages\CreateWave;
-use App\Filament\Resources\Waves\Pages\EditWave;
 use App\Filament\Resources\Waves\Pages\ListWaves;
 use App\Filament\Resources\Waves\Schemas\WaveForm;
 use App\Filament\Resources\Waves\Tables\WavesTable;
@@ -59,8 +57,6 @@ class WaveResource extends Resource
     {
         return [
             'index' => ListWaves::route('/'),
-            'create' => CreateWave::route('/create'),
-            'edit' => EditWave::route('/{record}/edit'),
         ];
     }
 }

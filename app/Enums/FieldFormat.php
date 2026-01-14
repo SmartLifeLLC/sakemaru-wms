@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -65,7 +63,7 @@ enum FieldFormat: string
             self::NUMBER => numberOrNull($value, 2),
             self::NUMBER_SCALE_4 => numberOrNull($value, 4),
             self::INTEGER => numberOrNull($value),
-            self::BOOLEAN => (bool)$value,
+            self::BOOLEAN => (bool) $value,
             self::DATE => $value ? toCarbon($value)->toDateString() : null,
             default => $value,
         };

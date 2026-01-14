@@ -14,10 +14,9 @@ enum EItemManagementType: string
     case OUT_OF_STOCK = 'OUT_OF_STOCK';
     case DISCONTINUED = 'DISCONTINUED';
 
-    public function name() : string
+    public function name(): string
     {
-        return match($this)
-        {
+        return match ($this) {
             self::STANDARD => '定番品',
             self::CUSTOM => '受発注品',
             self::RARE => '希少品',
@@ -25,10 +24,10 @@ enum EItemManagementType: string
             self::DISCONTINUED => '終売',
         };
     }
-    public function getID() : int
+
+    public function getID(): int
     {
-        return match($this)
-        {
+        return match ($this) {
             self::STANDARD => 1,
             self::CUSTOM => 2,
             self::RARE => 3,

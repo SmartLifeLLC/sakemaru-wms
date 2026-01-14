@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -17,8 +15,7 @@ enum BillingType: string
     case DEFERRED = 'DEFERRED';
     case UNDEFINED = 'UNDEFINED';
 
-
-    public function paymentName() : string
+    public function paymentName(): string
     {
         return match ($this) {
             self::CASH => '現金',
@@ -27,7 +24,7 @@ enum BillingType: string
         };
     }
 
-    public function depositName() : string
+    public function depositName(): string
     {
         return match ($this) {
             self::CASH => '現金',
@@ -36,7 +33,7 @@ enum BillingType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::DEFERRED => 0,
@@ -45,31 +42,17 @@ enum BillingType: string
         };
     }
 
-    public static function generalCases() : array
+    public static function generalCases(): array
     {
         return Arr::where(self::cases(), function ($case) {
-            return !$case->isSameAs(self::UNDEFINED);
+            return ! $case->isSameAs(self::UNDEFINED);
         });
     }
 
-    public static function paymentNames($is_from_id = true, $included_undefined = false) : array
+    public static function paymentNames($is_from_id = true, $included_undefined = false): array
     {
         $cases = $included_undefined ? self::cases() : self::generalCases();
-        return Arr::mapWithKeys($cases, function ($case) use ($is_from_id) {
-            if ($is_from_id) {
-                $key = $case->getID();
-            } else {
-                $key = $case->value;
-            }
-            return [
-                $key => $case->paymentName()
-            ];
-        });
-    }
 
-    public static function depositNames($is_from_id = true, $included_undefined = false) : array
-    {
-        $cases = $included_undefined ? self::cases() : self::generalCases();
         return Arr::mapWithKeys($cases, function ($case) use ($is_from_id) {
             if ($is_from_id) {
                 $key = $case->getID();
@@ -78,13 +61,29 @@ enum BillingType: string
             }
 
             return [
-                $key => $case->depositName()
+                $key => $case->paymentName(),
             ];
         });
     }
 
+    public static function depositNames($is_from_id = true, $included_undefined = false): array
+    {
+        $cases = $included_undefined ? self::cases() : self::generalCases();
 
-    public function color(): BadgeColor|null
+        return Arr::mapWithKeys($cases, function ($case) use ($is_from_id) {
+            if ($is_from_id) {
+                $key = $case->getID();
+            } else {
+                $key = $case->value;
+            }
+
+            return [
+                $key => $case->depositName(),
+            ];
+        });
+    }
+
+    public function color(): ?BadgeColor
     {
         return match ($this) {
             self::CASH => BadgeColor::PINK,
@@ -92,5 +91,4 @@ enum BillingType: string
             self::UNDEFINED => BadgeColor::GRAY,
         };
     }
-
 }

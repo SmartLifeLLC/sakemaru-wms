@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Models\Sakemaru;
+
 use App\Enums\EPrintCreationType;
 use App\Enums\Partners\EMiscellaneousCollectionType;
 use App\Enums\Partners\EMiscellaneousCreationTiming;
@@ -16,16 +17,17 @@ class Buyer extends CustomModel
     protected bool $hasIsActiveColumn = false;
 
     protected $guarded = [];
+
     protected $casts = [];
 
-//    public static function find($id) :static | null
-//    {
-//        return static::query()
-//            ->select('buyers.*', 'partners.name as name', 'partners.code as code')
-//            ->where('buyers.id', $id)
-//            ->leftJoin('partners', 'buyers.partner_id', 'partners.id')
-//            ->first();
-//    }
+    //    public static function find($id) :static | null
+    //    {
+    //        return static::query()
+    //            ->select('buyers.*', 'partners.name as name', 'partners.code as code')
+    //            ->where('buyers.id', $id)
+    //            ->leftJoin('partners', 'buyers.partner_id', 'partners.id')
+    //            ->first();
+    //    }
 
     public function partner(): BelongsTo
     {
@@ -62,7 +64,6 @@ class Buyer extends CustomModel
         return $this->belongsTo(LocationCondition::class);
     }
 
-
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
@@ -72,6 +73,7 @@ class Buyer extends CustomModel
     {
         return $this->belongsTo(Area::class);
     }
+
     public function bill_department(): BelongsTo
     {
         return $this->belongsTo(BillDepartment::class);
@@ -81,23 +83,25 @@ class Buyer extends CustomModel
     {
         return $this->hasOne(PartnerDeliveryType::class);
     }
-    public function partnerName() : Attribute
+
+    public function partnerName(): Attribute
     {
         return Attribute::make(
-            fn() => $this->partner?->name,
+            fn () => $this->partner?->name,
         );
     }
 
-    public function partnerCode() : Attribute
+    public function partnerCode(): Attribute
     {
         return Attribute::make(
-            fn() => $this->partner?->code,
+            fn () => $this->partner?->code,
         );
     }
 
-    public function current_detail() : HasOne
+    public function current_detail(): HasOne
     {
         $system_date = ClientSetting::systemDate(true);
+
         return $this->hasOne(BuyerDetail::class)
             ->whereDate('start_date', '<=', $system_date)
             ->orderBy('start_date', 'desc');
@@ -111,17 +115,17 @@ class Buyer extends CustomModel
             ->first();
     }
 
-    public function miscellaneousCreationTiming() : EMiscellaneousCreationTiming
+    public function miscellaneousCreationTiming(): EMiscellaneousCreationTiming
     {
         return EMiscellaneousCreationTiming::from($this->miscellaneous_creation_timing);
     }
 
-    public function miscellaneousSlipType() : EPrintCreationType
+    public function miscellaneousSlipType(): EPrintCreationType
     {
         return EPrintCreationType::from($this->miscellaneous_slip_type);
     }
 
-    public function miscellaneousCollectionType() : EMiscellaneousCollectionType
+    public function miscellaneousCollectionType(): EMiscellaneousCollectionType
     {
         return EMiscellaneousCollectionType::from($this->miscellaneous_collection_type);
     }

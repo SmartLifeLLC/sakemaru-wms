@@ -18,10 +18,13 @@ class MasterDataController extends ApiController
      *     summary="Get warehouse master list",
      *     description="Retrieve all warehouses with id, code, name, kana_name, and out_of_stock_option",
      *     security={{"apiKey":{}, "sanctum":{}}},
+     *
      *     @OA\Response(
      *         response=200,
      *         description="Successful response",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -30,8 +33,10 @@ class MasterDataController extends ApiController
      *                 @OA\Property(
      *                     property="data",
      *                     type="array",
+     *
      *                     @OA\Items(
      *                         type="object",
+     *
      *                         @OA\Property(property="id", type="integer", example=991),
      *                         @OA\Property(property="code", type="string", example="991"),
      *                         @OA\Property(property="name", type="string", example="酒丸本社"),
@@ -42,10 +47,13 @@ class MasterDataController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(
      *         response=401,
      *         description="Unauthorized - Invalid or missing token",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=false),
      *             @OA\Property(property="code", type="string", example="UNAUTHORIZED"),
      *             @OA\Property(

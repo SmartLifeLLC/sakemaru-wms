@@ -13,17 +13,17 @@ enum EShortageStatus: string
     case REPLENISHED = 'REPLENISHED';
     case SKIPPED = 'SKIPPED';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
-            self::NO_SHORTAGE => "欠品無し",
-            self::SHORTAGE => "欠品中",
-            self::REPLENISHED => "引当済み",
-            self::SKIPPED => "キャンセル",
+            self::NO_SHORTAGE => '欠品無し',
+            self::SHORTAGE => '欠品中',
+            self::REPLENISHED => '引当済み',
+            self::SKIPPED => 'キャンセル',
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::NO_SHORTAGE => 0,
@@ -33,7 +33,7 @@ enum EShortageStatus: string
         };
     }
 
-    public function color(): BadgeColor|null
+    public function color(): ?BadgeColor
     {
         return match ($this) {
             self::NO_SHORTAGE => BadgeColor::BLUE,
@@ -43,10 +43,10 @@ enum EShortageStatus: string
         };
     }
 
-    public static function replenishStatuses() : array
+    public static function replenishStatuses(): array
     {
         return [
-            self::SHORTAGE, self::REPLENISHED, self::SKIPPED
+            self::SHORTAGE, self::REPLENISHED, self::SKIPPED,
         ];
     }
 }

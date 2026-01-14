@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsPickingTasks\Tables;
 
 use App\Enums\EWMSLogOperationType;
 use App\Enums\EWMSLogTargetType;
+use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsAdminOperationLog;
 use App\Models\WmsPickingItemResult;
@@ -20,8 +21,6 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Enums\PaginationOptions;
-
 
 class WmsPickingTasksTable
 {
@@ -609,7 +608,7 @@ class WmsPickingTasksTable
                                         // ステータスがPENDINGまたはPICKINGの場合
                                         if (in_array($itemResult->status, [
                                             WmsPickingItemResult::STATUS_PENDING,
-                                            WmsPickingItemResult::STATUS_PICKING
+                                            WmsPickingItemResult::STATUS_PICKING,
                                         ])) {
                                             // picked_qty が null または 0 の場合は planned_qty を設定
                                             $pickedQty = $itemResult->picked_qty ?? 0;
@@ -636,7 +635,7 @@ class WmsPickingTasksTable
 
                                         // 関連する欠品を確定
                                         $shortage = $itemResult->shortage;
-                                        if ($shortage && !$shortage->is_confirmed) {
+                                        if ($shortage && ! $shortage->is_confirmed) {
                                             $shortage->update([
                                                 'is_confirmed' => true,
                                                 'confirmed_at' => now(),
@@ -673,7 +672,7 @@ class WmsPickingTasksTable
                             }
                         });
 
-                        if (!empty($errors)) {
+                        if (! empty($errors)) {
                             Notification::make()
                                 ->title('一部エラーが発生しました')
                                 ->body(implode("\n", $errors))

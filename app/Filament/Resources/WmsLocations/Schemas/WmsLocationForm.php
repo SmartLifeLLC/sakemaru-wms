@@ -27,8 +27,9 @@ class WmsLocationForm
                                     ->mapWithKeys(function ($location) {
                                         $warehouseName = $location->warehouse?->name ?? '不明';
                                         $locationCode = trim("{$location->code1} {$location->code2} {$location->code3}");
+
                                         return [
-                                            $location->id => "{$warehouseName} - {$locationCode} ({$location->name})"
+                                            $location->id => "{$warehouseName} - {$locationCode} ({$location->name})",
                                         ];
                                     });
                             })

@@ -44,15 +44,16 @@ class ResetTestDataCommand extends Command
         }
 
         // If nothing specified, show error
-        if (!$deleteWaves && !$deleteEarnings && !$deleteStocks && !$deleteLocations && !$deleteFloors) {
+        if (! $deleteWaves && ! $deleteEarnings && ! $deleteStocks && ! $deleteLocations && ! $deleteFloors) {
             $this->error('Please specify what to delete using options: --waves, --earnings, --stocks, --locations, --floors, or --all');
+
             return 1;
         }
 
         if ($this->warehouseId) {
             $this->line("Scope: Warehouse ID {$this->warehouseId}");
         } else {
-            $this->line("Scope: All warehouses");
+            $this->line('Scope: All warehouses');
         }
         $this->newLine();
 
@@ -82,10 +83,12 @@ class ResetTestDataCommand extends Command
 
             $this->newLine();
             $this->info("✅ Deleted {$totalDeleted} records total");
+
             return 0;
         } catch (\Exception $e) {
-            $this->error('❌ Error resetting data: ' . $e->getMessage());
+            $this->error('❌ Error resetting data: '.$e->getMessage());
             $this->error($e->getTraceAsString());
+
             return 1;
         }
     }

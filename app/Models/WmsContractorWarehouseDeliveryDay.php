@@ -61,8 +61,7 @@ class WmsContractorWarehouseDeliveryDay extends WmsModel
     /**
      * 指定した曜日に納品可能かどうかを判定
      *
-     * @param int $dayOfWeek Carbon dayOfWeek (0=日曜, 1=月曜, ..., 6=土曜)
-     * @return bool
+     * @param  int  $dayOfWeek  Carbon dayOfWeek (0=日曜, 1=月曜, ..., 6=土曜)
      */
     public function canDeliverOn(int $dayOfWeek): bool
     {
@@ -86,13 +85,28 @@ class WmsContractorWarehouseDeliveryDay extends WmsModel
     public function getDeliveryDays(): array
     {
         $days = [];
-        if ($this->delivery_sun) $days[] = 0;
-        if ($this->delivery_mon) $days[] = 1;
-        if ($this->delivery_tue) $days[] = 2;
-        if ($this->delivery_wed) $days[] = 3;
-        if ($this->delivery_thu) $days[] = 4;
-        if ($this->delivery_fri) $days[] = 5;
-        if ($this->delivery_sat) $days[] = 6;
+        if ($this->delivery_sun) {
+            $days[] = 0;
+        }
+        if ($this->delivery_mon) {
+            $days[] = 1;
+        }
+        if ($this->delivery_tue) {
+            $days[] = 2;
+        }
+        if ($this->delivery_wed) {
+            $days[] = 3;
+        }
+        if ($this->delivery_thu) {
+            $days[] = 4;
+        }
+        if ($this->delivery_fri) {
+            $days[] = 5;
+        }
+        if ($this->delivery_sat) {
+            $days[] = 6;
+        }
+
         return $days;
     }
 

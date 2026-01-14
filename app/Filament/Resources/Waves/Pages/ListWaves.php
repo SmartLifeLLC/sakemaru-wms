@@ -3,13 +3,13 @@
 namespace App\Filament\Resources\Waves\Pages;
 
 use App\Filament\Resources\Waves\WaveResource;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Wave;
 use App\Models\WaveSetting;
 use App\Services\StockAllocationService;
 use Filament\Actions\Action;
-use Filament\Actions\CreateAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
@@ -38,12 +38,13 @@ class ListWaves extends ListRecords
                     Select::make('warehouse_id')
                         ->label('倉庫')
                         ->options(Warehouse::query()->pluck('name', 'id'))
+                        ->default(fn () => auth()->user()?->default_warehouse_id)
                         ->required()
                         ->live(),
 
                     DatePicker::make('shipping_date')
                         ->label('出荷日')
-                        ->default(now()->format('Y-m-d'))
+                        ->default(fn () => ClientSetting::systemDate()->format('Y-m-d'))
                         ->required()
                         ->live(),
 
@@ -53,7 +54,7 @@ class ListWaves extends ListRecords
                             $warehouseId = $get('warehouse_id');
                             $shippingDate = $get('shipping_date');
 
-                            if (!$warehouseId || !$shippingDate) {
+                            if (! $warehouseId || ! $shippingDate) {
                                 return new HtmlString('<div class="text-gray-500">倉庫と出荷日を選択してください</div>');
                             }
 
@@ -86,10 +87,10 @@ class ListWaves extends ListRecords
                             $html .= '</tr></thead><tbody>';
 
                             foreach ($summary as $row) {
-                                $html .= "<tr class=\"hover:bg-gray-50 dark:hover:bg-gray-700\">";
+                                $html .= '<tr class="hover:bg-gray-50 dark:hover:bg-gray-700">';
                                 $html .= "<td class=\"border px-3 py-2\">{$row->course_name}</td>";
                                 $html .= "<td class=\"border px-3 py-2 text-right\">{$row->count}件</td>";
-                                $html .= "</tr>";
+                                $html .= '</tr>';
                             }
 
                             $html .= '</tbody></table></div>';
@@ -97,7 +98,7 @@ class ListWaves extends ListRecords
                             // Total
                             $html .= '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">';
                             $html .= '<span class="font-medium">合計</span>';
-                            $html .= '<span class="text-lg font-bold text-blue-600 dark:text-blue-400">' . $totalCount . '件</span>';
+                            $html .= '<span class="text-lg font-bold text-blue-600 dark:text-blue-400">'.$totalCount.'件</span>';
                             $html .= '</div>';
 
                             // Warning for large volume
@@ -115,8 +116,6 @@ class ListWaves extends ListRecords
                 ->action(function (array $data): void {
                     $this->generateManualWave($data);
                 }),
-
-            CreateAction::make(),
         ];
     }
 
@@ -129,11 +128,13 @@ class ListWaves extends ListRecords
         $shippingDate = $data['shipping_date'];
 
         // Get eligible earnings grouped by delivery_course_id
+        // delivery_course_id が未設定の伝票はスキップする
         $earnings = Earning::query()
             ->where('warehouse_id', $warehouseId)
             ->where('delivered_date', $shippingDate)
             ->where('is_delivered', 0)
             ->where('picking_status', 'BEFORE')
+            ->whereNotNull('delivery_course_id')
             ->get();
 
         if ($earnings->isEmpty()) {
@@ -141,6 +142,7 @@ class ListWaves extends ListRecords
                 ->title('対象伝票がありません')
                 ->warning()
                 ->send();
+
             return;
         }
 
@@ -164,7 +166,7 @@ class ListWaves extends ListRecords
                         ->where('delivery_course_id', $deliveryCourseId)
                         ->first();
 
-                    if (!$waveSetting) {
+                    if (! $waveSetting) {
                         $waveSetting = WaveSetting::create([
                             'warehouse_id' => $warehouseId,
                             'delivery_course_id' => $deliveryCourseId,
@@ -181,22 +183,33 @@ class ListWaves extends ListRecords
                         ->where('id', $deliveryCourseId)
                         ->first();
 
-                    // Create wave
-                    $wave = Wave::create([
-                        'wms_wave_setting_id' => $waveSetting->id,
-                        'wave_no' => uniqid('TEMP_'),
-                        'shipping_date' => $shippingDate,
-                        'status' => 'PENDING',
-                    ]);
+                    // Check if wave already exists for this setting and date
+                    $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
+                        ->where('shipping_date', $shippingDate)
+                        ->first();
 
-                    // Generate wave_no
-                    $waveNo = Wave::generateWaveNo(
-                        $warehouse->code ?? 0,
-                        $course->code ?? 0,
-                        $shippingDate,
-                        $wave->id
-                    );
-                    $wave->update(['wave_no' => $waveNo]);
+                    if ($existingWave) {
+                        // Use existing wave instead of creating new one
+                        $wave = $existingWave;
+                        $waveNo = $existingWave->wave_no;
+                    } else {
+                        // Create wave
+                        $wave = Wave::create([
+                            'wms_wave_setting_id' => $waveSetting->id,
+                            'wave_no' => uniqid('TEMP_'),
+                            'shipping_date' => $shippingDate,
+                            'status' => 'PENDING',
+                        ]);
+
+                        // Generate wave_no
+                        $waveNo = Wave::generateWaveNo(
+                            $warehouse->code ?? 0,
+                            $course->code ?? 0,
+                            $shippingDate,
+                            $wave->id
+                        );
+                        $wave->update(['wave_no' => $waveNo]);
+                    }
 
                     // Process earnings
                     $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $shippingDate);
@@ -208,7 +221,7 @@ class ListWaves extends ListRecords
 
             Notification::make()
                 ->title('波動を生成しました')
-                ->body("生成数: " . count($createdWaves) . "件 (伝票数: {$totalEarnings}件)")
+                ->body('生成数: '.count($createdWaves)."件 (伝票数: {$totalEarnings}件)")
                 ->success()
                 ->send();
 
@@ -241,8 +254,9 @@ class ListWaves extends ListRecords
             ->whereIn('trade_id', $tradeIds)
             ->get();
 
-        // Create earning_id lookup
+        // Create earning_id and buyer_id lookup
         $tradeIdToEarningId = $earnings->pluck('id', 'trade_id')->toArray();
+        $tradeIdToBuyerId = $earnings->pluck('buyer_id', 'trade_id')->toArray();
 
         // Group items and allocate stock
         $itemsByGroup = [];
@@ -250,12 +264,13 @@ class ListWaves extends ListRecords
 
         foreach ($tradeItems as $tradeItem) {
             $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
-            if (!$earningId) {
+            $buyerId = $tradeIdToBuyerId[$tradeItem->trade_id] ?? null;
+            if (! $earningId) {
                 continue;
             }
 
             // Reserve stock
-            $allocationService = new StockAllocationService();
+            $allocationService = new StockAllocationService;
             $result = $allocationService->allocateForItem(
                 $wave->id,
                 $waveSetting->warehouse_id,
@@ -263,7 +278,8 @@ class ListWaves extends ListRecords
                 $tradeItem->quantity,
                 $tradeItem->quantity_type ?? 'PIECE',
                 $earningId,
-                'EARNING'
+                'EARNING',
+                $buyerId
             );
 
             // Get primary reservation
@@ -321,8 +337,9 @@ class ListWaves extends ListRecords
             if ($pickingAreaId === null || $floorId === null) {
                 $itemLocation = DB::connection('sakemaru')
                     ->table('real_stocks as rs')
-                    ->join('wms_locations as wl', 'rs.location_id', '=', 'wl.location_id')
-                    ->join('locations as l', 'rs.location_id', '=', 'l.id')
+                    ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
+                    ->join('wms_locations as wl', 'rsl.location_id', '=', 'wl.location_id')
+                    ->join('locations as l', 'rsl.location_id', '=', 'l.id')
                     ->where('rs.warehouse_id', $waveSetting->warehouse_id)
                     ->where('rs.item_id', $tradeItem->item_id)
                     ->whereNotNull('wl.wms_picking_area_id')
@@ -347,7 +364,7 @@ class ListWaves extends ListRecords
 
             // Group by floor_id
             $groupKey = ($floorId ?? 'null');
-            if (!isset($itemsByGroup[$groupKey])) {
+            if (! isset($itemsByGroup[$groupKey])) {
                 $itemsByGroup[$groupKey] = [
                     'floor_id' => $floorId,
                     'picking_area_id' => $pickingAreaId,
@@ -410,7 +427,7 @@ class ListWaves extends ListRecords
                 $reservationResult = $reservationResults[$tradeItem->id];
                 $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
 
-                if (!$tradeItem->quantity_type) {
+                if (! $tradeItem->quantity_type) {
                     throw new \RuntimeException(
                         "quantity_type must be specified for trade_item ID {$tradeItem->id}"
                     );

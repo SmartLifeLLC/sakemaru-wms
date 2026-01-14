@@ -2,13 +2,12 @@
 
 namespace App\Filament\Resources\WmsShortageAllocations\Tables;
 
-use App\Enums\QuantityType;
+use App\Enums\PaginationOptions;
 use App\Models\WmsShortageAllocation;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 
 class WmsShortageAllocationsFinishedTable
 {
@@ -49,9 +48,8 @@ class WmsShortageAllocationsFinishedTable
                 TextColumn::make('shortage.item.volume')
                     ->label('容量')
                     ->alignment('center')
-                    ->formatStateUsing(fn ($record) =>
-                        $record->shortage?->item?->volume && $record->shortage?->item?->volume_unit
-                            ? $record->shortage->item->volume . \App\Enums\EVolumeUnit::tryFrom($record->shortage->item->volume_unit)?->name()
+                    ->formatStateUsing(fn ($record) => $record->shortage?->item?->volume && $record->shortage?->item?->volume_unit
+                            ? $record->shortage->item->volume.\App\Enums\EVolumeUnit::tryFrom($record->shortage->item->volume_unit)?->name()
                             : ''
                     ),
 

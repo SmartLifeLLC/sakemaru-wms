@@ -3,7 +3,6 @@
 namespace App\Models\Sakemaru;
 
 use App\Enums\QuantityType;
-
 use App\Enums\TaxRate;
 use App\Enums\TaxType;
 use App\Enums\TradeCategory;
@@ -18,6 +17,7 @@ class TradeItem extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [
         'amount' => 'int',
         'container_amount' => 'int',
@@ -25,7 +25,7 @@ class TradeItem extends CustomModel
     ];
 
     public static array $generated_cols = [
-        'content_amount', 'has_shortage', 'shortage_status', 'total_piece_quantity'
+        'content_amount', 'has_shortage', 'shortage_status', 'total_piece_quantity',
     ];
 
     public function trade(): BelongsTo
@@ -47,68 +47,72 @@ class TradeItem extends CustomModel
     {
         return $this->belongsTo(TradeType::class);
     }
-    public function rebate_calculations() : BelongsToMany
+
+    public function rebate_calculations(): BelongsToMany
     {
         return $this->belongsToMany(RebateCalculation::class);
     }
-    public function rebate_prices() : BelongsToMany
+
+    public function rebate_prices(): BelongsToMany
     {
         return $this->belongsToMany(RebatePrice::class)
             ->withPivot('rebate_amount', 'rebate_recreation_amount')
             ->withTimestamps();
     }
 
-    public function pieceOrderQuantity() : Attribute
+    public function pieceOrderQuantity(): Attribute
     {
         return new Attribute(function () {
             return QuantityType::PIECE->isSameAs($this->order_quantity_type) ? $this->order_quantity : 0;
         });
     }
 
-    public function caseOrderQuantity() : Attribute
+    public function caseOrderQuantity(): Attribute
     {
         return new Attribute(function () {
             return QuantityType::CASE->isSameAs($this->order_quantity_type) ? $this->order_quantity : 0;
         });
     }
 
-    public function pieceQuantity() : Attribute
+    public function pieceQuantity(): Attribute
     {
         return new Attribute(function () {
             return QuantityType::PIECE->isSameAs($this->quantity_type) ? $this->quantity : 0;
         });
     }
 
-    public function caseQuantity() : Attribute
+    public function caseQuantity(): Attribute
     {
         return new Attribute(function () {
             return QuantityType::CASE->isSameAs($this->quantity_type) ? $this->quantity : 0;
         });
     }
 
-
-    public function taxExemptPrice(QuantityType $quantity_type, int $quantity) : float
+    public function taxExemptPrice(QuantityType $quantity_type, int $quantity): float
     {
         $item_price = $this->item?->item_price;
         $price = $item_price->{$quantity_type->taxExemptPriceCol()} ?? 0;
+
         return $price * $quantity;
     }
 
-    public function totalNumberOfUnits(): ?int {
+    public function totalNumberOfUnits(): ?int
+    {
         return $this->total_piece_quantity;
-//        $capacity = $this->item?->capacityOfQuantityType($this->quantity_type);
-//        if(is_null($capacity)) { return null; }
-//        return $this->quantity * $capacity;
+        //        $capacity = $this->item?->capacityOfQuantityType($this->quantity_type);
+        //        if(is_null($capacity)) { return null; }
+        //        return $this->quantity * $capacity;
     }
 
     // 仮税額
     public function estimatedTaxPrice(): float
     {
         switch ($this->tax_type) {
-            case TaxType::PRE_TAX;
+            case TaxType::PRE_TAX:
                 return $this->amount - $this->tax_excluded_amount;
             default:
                 $amount = $this->is_tax_exempt_container ? $this->content_amount : $this->amount;
+
                 return TaxRate::from($this->tax_rate)->calculate($amount);
         }
     }
@@ -116,8 +120,8 @@ class TradeItem extends CustomModel
     public static function calculateTotalTradeItemAmount(Collection $trade_items): int
     {
         return $trade_items->sum('amount') - $trade_items->sum(function ($item) {
-                return $item->is_container_included ? $item->container_amount : 0;
-            });
+            return $item->is_container_included ? $item->container_amount : 0;
+        });
     }
 
     public static function calculateTotalTradeItemQuantity(Collection $trade_items): int
@@ -131,12 +135,13 @@ class TradeItem extends CustomModel
         });
     }
 
-    public static function hasDuplicatedTradeItem(int $partner_id, int $item_id, ?string $process_date, ?string $delivered_date, ?int $current_id, TradeCategory $trade_category) : bool
+    public static function hasDuplicatedTradeItem(int $partner_id, int $item_id, ?string $process_date, ?string $delivered_date, ?int $current_id, TradeCategory $trade_category): bool
     {
         $base_table = match ($trade_category) {
             TradeCategory::EARNING => 'earnings',
             default => null,
         };
+
         return TradeItem::query()
             ->leftJoin('trades', 'trades.id', 'trade_items.trade_id')
             ->leftJoin('earnings', 'earnings.trade_id', 'trades.id')

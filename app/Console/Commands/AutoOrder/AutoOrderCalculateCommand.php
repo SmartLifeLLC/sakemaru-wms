@@ -24,7 +24,7 @@ class AutoOrderCalculateCommand extends Command
 
         try {
             // Phase 0: スナップショット生成
-            if (!$skipSnapshot) {
+            if (! $skipSnapshot) {
                 $this->info('Phase 0: 在庫スナップショット生成...');
                 $job = $snapshotService->generateAll();
                 $this->info("  完了: {$job->processed_records}件");
@@ -42,7 +42,8 @@ class AutoOrderCalculateCommand extends Command
             return self::SUCCESS;
 
         } catch (\Exception $e) {
-            $this->error('エラーが発生しました: ' . $e->getMessage());
+            $this->error('エラーが発生しました: '.$e->getMessage());
+
             return self::FAILURE;
         }
     }

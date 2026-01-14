@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 class WmsPickingArea extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'wms_picking_areas';
 
     protected $fillable = [

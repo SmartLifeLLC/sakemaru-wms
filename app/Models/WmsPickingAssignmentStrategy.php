@@ -46,7 +46,7 @@ class WmsPickingAssignmentStrategy extends Model
             }
 
             // creator_id と last_updater_id を自動設定
-            if (!$strategy->exists) {
+            if (! $strategy->exists) {
                 $strategy->creator_id = auth()->id() ?? 0;
             }
             $strategy->last_updater_id = auth()->id() ?? 0;

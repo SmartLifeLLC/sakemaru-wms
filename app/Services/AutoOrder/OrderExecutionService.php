@@ -21,8 +21,8 @@ class OrderExecutionService
     /**
      * 発注候補を確定し、入庫予定を作成
      *
-     * @param WmsOrderCandidate $candidate 発注候補
-     * @param int $executedBy 確定者ID
+     * @param  WmsOrderCandidate  $candidate  発注候補
+     * @param  int  $executedBy  確定者ID
      * @return WmsOrderIncomingSchedule 作成された入庫予定
      */
     public function executeCandidate(WmsOrderCandidate $candidate, int $executedBy): WmsOrderIncomingSchedule
@@ -73,8 +73,8 @@ class OrderExecutionService
     /**
      * バッチ単位で発注候補を確定
      *
-     * @param string $batchCode バッチコード
-     * @param int $executedBy 確定者ID
+     * @param  string  $batchCode  バッチコード
+     * @param  int  $executedBy  確定者ID
      * @return Collection 作成された入庫予定のコレクション
      */
     public function executeBatch(string $batchCode, int $executedBy): Collection
@@ -85,6 +85,7 @@ class OrderExecutionService
 
         if ($candidates->isEmpty()) {
             Log::info('No approved candidates to execute', ['batch_code' => $batchCode]);
+
             return collect();
         }
 
@@ -115,9 +116,8 @@ class OrderExecutionService
     /**
      * 手動発注から入庫予定を作成
      *
-     * @param array $data 発注データ
-     * @param int $createdBy 作成者ID
-     * @return WmsOrderIncomingSchedule
+     * @param  array  $data  発注データ
+     * @param  int  $createdBy  作成者ID
      */
     public function createManualIncomingSchedule(array $data, int $createdBy): WmsOrderIncomingSchedule
     {

@@ -11,7 +11,7 @@ enum EAcrossDateType: string
     case SAME_DAY = 'SAME_DAY';
     case NEXT_DAY = 'NEXT_DAY';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::SAME_DAY => '当日',
@@ -19,7 +19,7 @@ enum EAcrossDateType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::SAME_DAY => 0,

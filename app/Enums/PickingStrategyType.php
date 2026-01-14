@@ -5,7 +5,7 @@ namespace App\Enums;
 use Filament\Support\Contracts\HasColor;
 use Filament\Support\Contracts\HasLabel;
 
-enum PickingStrategyType: string implements HasLabel, HasColor
+enum PickingStrategyType: string implements HasColor, HasLabel
 {
     case EQUAL = 'equal';
     case SKILL_BASED = 'skill_based';

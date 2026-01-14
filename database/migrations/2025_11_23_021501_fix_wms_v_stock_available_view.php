@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -13,8 +12,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if(Schema::connection('sakemaru')->hasTable('real_stocks')){
-            DB::connection('sakemaru')->statement("
+        if (Schema::connection('sakemaru')->hasTable('real_stocks')) {
+            DB::connection('sakemaru')->statement('
             CREATE OR REPLACE VIEW wms_v_stock_available AS
             SELECT
                 rs.id AS real_stock_id,
@@ -32,7 +31,7 @@ return new class extends Migration
                 COALESCE(rs.wms_lock_version, 0) AS wms_lock_version,
                 rs.created_at
             FROM real_stocks rs
-        ");
+        ');
         }
     }
 
@@ -43,6 +42,6 @@ return new class extends Migration
     {
         // Revert to previous definition (assuming wms_real_stocks existed in previous version, but since it doesn't now, we can just drop or leave it)
         // For safety, we'll just drop it.
-        DB::connection('sakemaru')->statement("DROP VIEW IF EXISTS wms_v_stock_available");
+        DB::connection('sakemaru')->statement('DROP VIEW IF EXISTS wms_v_stock_available');
     }
 };

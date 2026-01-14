@@ -4,13 +4,13 @@ namespace App\Filament\Resources\WmsOrderCandidates\Tables;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -22,7 +22,6 @@ use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
-use App\Enums\PaginationOptions;
 
 class WmsOrderCandidatesTable
 {
@@ -168,7 +167,7 @@ class WmsOrderCandidatesTable
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(collect(CandidateStatus::cases())->mapWithKeys(fn ($status) => [
-                        $status->value => $status->label()
+                        $status->value => $status->label(),
                     ])),
 
                 SelectFilter::make('warehouse_id')
@@ -181,7 +180,7 @@ class WmsOrderCandidatesTable
                         ->orderBy('code')
                         ->get()
                         ->mapWithKeys(fn ($contractor) => [
-                            $contractor->id => "[{$contractor->code}]{$contractor->name}"
+                            $contractor->id => "[{$contractor->code}]{$contractor->name}",
                         ]))
                     ->searchable()
                     ->getSearchResultsUsing(function (string $search): array {
@@ -197,7 +196,7 @@ class WmsOrderCandidatesTable
                             ->limit(50)
                             ->get()
                             ->mapWithKeys(fn ($contractor) => [
-                                $contractor->id => "[{$contractor->code}]{$contractor->name}"
+                                $contractor->id => "[{$contractor->code}]{$contractor->name}",
                             ])
                             ->toArray();
                     }),
@@ -227,7 +226,7 @@ class WmsOrderCandidatesTable
                         'order_quantity' => $record->order_quantity,
                     ])
                     ->schema(function (?WmsOrderCandidate $record): array {
-                        if (!$record) {
+                        if (! $record) {
                             return [];
                         }
 
@@ -241,8 +240,12 @@ class WmsOrderCandidatesTable
                         $capacityText = '-';
                         if ($item) {
                             $parts = [];
-                            if ($item->capacity_case) $parts[] = "ケース: {$item->capacity_case}";
-                            if ($item->capacity_carton) $parts[] = "ボール: {$item->capacity_carton}";
+                            if ($item->capacity_case) {
+                                $parts[] = "ケース: {$item->capacity_case}";
+                            }
+                            if ($item->capacity_carton) {
+                                $parts[] = "ボール: {$item->capacity_carton}";
+                            }
                             $capacityText = implode(' / ', $parts) ?: '-';
                         }
 
@@ -271,7 +274,7 @@ class WmsOrderCandidatesTable
                                                     'selfShortageQty' => $record->self_shortage_qty ?? 0,
                                                     'satelliteDemandQty' => $record->satellite_demand_qty ?? 0,
                                                     'suggestedQuantity' => $record->suggested_quantity ?? 0,
-                                                    'hasCalculationLog' => !empty($details),
+                                                    'hasCalculationLog' => ! empty($details),
                                                     'formula' => $details['formula'] ?? '-',
                                                     'effectiveStock' => $details['effective_stock'] ?? 0,
                                                     'incomingStock' => $details['incoming_stock'] ?? 0,

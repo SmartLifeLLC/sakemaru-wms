@@ -25,6 +25,7 @@ class WmsLocationSeeder extends Seeder
 
         if ($pickingAreas->isEmpty()) {
             $this->command->error("No picking areas found for warehouse {$warehouseId}. Please run WmsPickingAreaSeeder first.");
+
             return;
         }
 
@@ -35,6 +36,7 @@ class WmsLocationSeeder extends Seeder
 
         if ($locations->isEmpty()) {
             $this->command->error("No locations found for warehouse {$warehouseId}. Please run RealStockSeeder first.");
+
             return;
         }
 
@@ -66,7 +68,7 @@ class WmsLocationSeeder extends Seeder
                 $level = $location->code3 ?? null;
 
                 // Determine picking_unit_type and available_quantity_flags based on area
-                [$pickingUnitType, $availableFlags] = match($area->code) {
+                [$pickingUnitType, $availableFlags] = match ($area->code) {
                     'A' => ['CASE', AvailableQuantityFlag::CASE->value], // Only CASE
                     'B' => ['PIECE', AvailableQuantityFlag::PIECE->value], // Only PIECE
                     'C' => ['BOTH', AvailableQuantityFlag::CASE->value | AvailableQuantityFlag::PIECE->value], // CASE + PIECE

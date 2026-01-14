@@ -1,17 +1,17 @@
 <?php
 
 namespace App\Models\Sakemaru;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use Illuminate\Database\Eloquent\Relations\MorphOne;
 
 class ClosingMonthly extends CustomModel
 {
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     public function trades(): HasMany
@@ -29,7 +29,7 @@ class ClosingMonthly extends CustomModel
         return $this->hasMany(MonthlyStockOverview::class);
     }
 
-    public function previousClosing(): null|self
+    public function previousClosing(): ?self
     {
         return ClosingMonthly::whereDate('closing_date', '<', $this->closing_date)
             ->orderBy('closing_date', 'desc')->first();
@@ -43,6 +43,7 @@ class ClosingMonthly extends CustomModel
             })
             ->orderBy('closing_date', 'desc')
             ->first();
+
         return $closing ? ClosingMonthly::cast($closing) : null;
     }
 }

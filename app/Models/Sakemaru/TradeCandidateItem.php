@@ -9,6 +9,7 @@ class TradeCandidateItem extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     public function partner()

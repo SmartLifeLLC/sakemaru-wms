@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RealStocks\Tables;
 
+use App\Enums\PaginationOptions;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -9,7 +10,6 @@ use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 
 class RealStocksTable
 {
@@ -25,10 +25,10 @@ class RealStocksTable
                     ->sortable()
                     ->searchable(),
 
-                TextColumn::make('location.code')
+                TextColumn::make('activeLots.location.code')
                     ->label('ロケーション')
-                    ->sortable()
-                    ->searchable(),
+                    ->listWithLineBreaks()
+                    ->limitList(3),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
@@ -46,10 +46,11 @@ class RealStocksTable
                     ->searchable()
                     ->toggleable(),
 
-                TextColumn::make('expiration_date')
+                TextColumn::make('activeLots.expiration_date')
                     ->label('賞味期限')
                     ->date('Y-m-d')
-                    ->sortable(),
+                    ->listWithLineBreaks()
+                    ->limitList(3),
 
                 TextColumn::make('current_quantity')
                     ->label('現在庫数')
@@ -57,25 +58,18 @@ class RealStocksTable
                     ->sortable()
                     ->alignEnd(),
 
-                TextColumn::make('available_quantity')
-                    ->label('利用可能数')
-                    ->numeric()
-                    ->sortable()
-                    ->alignEnd(),
-
-                TextColumn::make('wms_reserved_qty')
-                    ->label('WMS引当')
+                TextColumn::make('reserved_quantity')
+                    ->label('引当済')
                     ->numeric()
                     ->sortable()
                     ->alignEnd()
                     ->color(fn ($state) => $state > 0 ? 'warning' : null),
 
-                TextColumn::make('wms_picking_qty')
-                    ->label('WMSピッキング')
+                TextColumn::make('available_quantity')
+                    ->label('利用可能数')
                     ->numeric()
                     ->sortable()
-                    ->alignEnd()
-                    ->color(fn ($state) => $state > 0 ? 'info' : null),
+                    ->alignEnd(),
 
                 TextColumn::make('created_at')
                     ->label('登録日時')
@@ -83,10 +77,11 @@ class RealStocksTable
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('price')
+                TextColumn::make('activeLots.price')
                     ->label('単価')
                     ->money('JPY')
-                    ->sortable()
+                    ->listWithLineBreaks()
+                    ->limitList(3)
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([

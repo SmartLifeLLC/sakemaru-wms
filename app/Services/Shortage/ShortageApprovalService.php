@@ -2,7 +2,6 @@
 
 namespace App\Services\Shortage;
 
-use App\Models\Wave;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
@@ -15,15 +14,15 @@ class ShortageApprovalService
      * 欠品承認後にピッキングタスクのステータスを更新
      * 全ての欠品が承認済みの場合、タスクをCOMPLETEDに変更
      *
-     * @param WmsShortage $shortage 承認された欠品
-     * @return void
+     * @param  WmsShortage  $shortage  承認された欠品
      */
     public function updatePickingTaskStatusAfterApproval(WmsShortage $shortage): void
     {
         // 欠品が所属するwaveを取得
         $wave = $shortage->wave;
-        if (!$wave) {
+        if (! $wave) {
             Log::warning('Wave not found for shortage', ['shortage_id' => $shortage->id]);
+
             return;
         }
 
@@ -37,9 +36,6 @@ class ShortageApprovalService
 
     /**
      * ピッキングタスクのステータスをチェックし、必要に応じてCOMPLETEDに更新
-     *
-     * @param WmsPickingTask $task
-     * @return void
      */
     protected function checkAndUpdateTaskStatus(WmsPickingTask $task): void
     {
@@ -58,7 +54,7 @@ class ShortageApprovalService
 
         // 全てのpicking_item_resultsがCOMPLETEDまたはSHORTAGEであるかチェック
         $incompleteItems = $pickingItemResults->filter(function ($item) {
-            return !in_array($item->status, [
+            return ! in_array($item->status, [
                 WmsPickingItemResult::STATUS_COMPLETED,
                 WmsPickingItemResult::STATUS_SHORTAGE,
             ]);
@@ -70,6 +66,7 @@ class ShortageApprovalService
                 'task_id' => $task->id,
                 'incomplete_count' => $incompleteItems->count(),
             ]);
+
             return;
         }
 
@@ -86,11 +83,12 @@ class ShortageApprovalService
                 ->where('is_confirmed', false)
                 ->doesntExist();
 
-            if (!$allShortagesConfirmed) {
+            if (! $allShortagesConfirmed) {
                 Log::debug('Picking task has unconfirmed shortages', [
                     'task_id' => $task->id,
                     'shortage_ids' => $relatedShortageIds->toArray(),
                 ]);
+
                 return;
             }
         }
@@ -110,9 +108,9 @@ class ShortageApprovalService
     /**
      * 配送コースが印刷可能な状態かチェック
      *
-     * @param int $deliveryCourseId 配送コースID
-     * @param string $shipmentDate 納品日
-     * @param int|null $waveId ウェーブID (Optional)
+     * @param  int  $deliveryCourseId  配送コースID
+     * @param  string  $shipmentDate  納品日
+     * @param  int|null  $waveId  ウェーブID (Optional)
      * @return array ['can_print' => bool, 'error_message' => string|null, 'incomplete_items' => array, 'unsynced_shortages' => array]
      */
     public function checkPrintability(int $deliveryCourseId, string $shipmentDate, ?int $waveId = null): array
@@ -144,7 +142,7 @@ class ShortageApprovalService
             $itemResults = $task->pickingItemResults;
 
             foreach ($itemResults as $itemResult) {
-                if (!in_array($itemResult->status, [
+                if (! in_array($itemResult->status, [
                     WmsPickingItemResult::STATUS_COMPLETED,
                     WmsPickingItemResult::STATUS_SHORTAGE,
                 ])) {
@@ -159,7 +157,7 @@ class ShortageApprovalService
 
                 // チェック2: 欠品が全てis_synced=trueであるか
                 $shortage = $itemResult->shortage;
-                if ($shortage && !$shortage->is_synced) {
+                if ($shortage && ! $shortage->is_synced) {
                     $unsyncedShortages[] = [
                         'task_id' => $task->id,
                         'shortage_id' => $shortage->id,
@@ -173,7 +171,7 @@ class ShortageApprovalService
         }
 
         // 結果を返す
-        if (!empty($incompleteItems)) {
+        if (! empty($incompleteItems)) {
             return [
                 'can_print' => false,
                 'error_message' => '該当配送コースのピッキングが完了していません。',
@@ -182,7 +180,7 @@ class ShortageApprovalService
             ];
         }
 
-        if (!empty($unsyncedShortages)) {
+        if (! empty($unsyncedShortages)) {
             return [
                 'can_print' => false,
                 'error_message' => '欠品対応が完了していません。在庫同期が完了するまでお待ちください。',

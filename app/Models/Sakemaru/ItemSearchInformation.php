@@ -12,23 +12,27 @@ class ItemSearchInformation extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
-    public function item() : BelongsTo
+    public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
     }
 
-    public function dataTransferFromSDPData($client_id, $sdp_data){
-        //insert sdp to item
-        $this->where('client_id',$client_id)->where('is_created_from_data_transfer',true)->delete();
+    public function dataTransferFromSDPData($client_id, $sdp_data)
+    {
+        // insert sdp to item
+        $this->where('client_id', $client_id)->where('is_created_from_data_transfer', true)->delete();
         $code_type = EItemSearchCodeType::SDP->value;
-        $item_codes = (new  Item())->onOffIsActive(false)->where('client_id',$client_id)->pluck('id','code');
+        $item_codes = (new Item)->onOffIsActive(false)->where('client_id', $client_id)->pluck('id', 'code');
         $save_data = [];
-        foreach($sdp_data as $code => $data ){
+        foreach ($sdp_data as $code => $data) {
             $item_id = $item_codes[$code];
             $sdp_code = intval($data['SDP_CODE']);
-            if($sdp_code == 0)continue;
+            if ($sdp_code == 0) {
+                continue;
+            }
             $save_data[] = [
                 'client_id' => $client_id,
                 'item_id' => $item_id,
@@ -40,7 +44,7 @@ class ItemSearchInformation extends CustomModel
                 'search_string' => $sdp_code,
                 'is_created_from_data_transfer' => true,
             ];
-            if(count($save_data) > 3000) {
+            if (count($save_data) > 3000) {
                 $this->insert($save_data);
                 $save_data = [];
             }

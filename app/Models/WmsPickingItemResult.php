@@ -16,8 +16,11 @@ class WmsPickingItemResult extends Model
 
     // Status constants
     public const STATUS_PENDING = 'PENDING';
+
     public const STATUS_PICKING = 'PICKING';
+
     public const STATUS_COMPLETED = 'COMPLETED';
+
     public const STATUS_SHORTAGE = 'SHORTAGE';
 
     protected $fillable = [
@@ -75,9 +78,11 @@ class WmsPickingItemResult extends Model
         return $this->belongsTo(Earning::class, 'earning_id');
     }
 
-    public function picker(){
+    public function picker()
+    {
         return $this->belongsTo(WmsPicker::class, 'picker_id');
     }
+
     /**
      * このピッキング明細が属する取引（売上伝票）
      */
@@ -126,7 +131,7 @@ class WmsPickingItemResult extends Model
     public function scopeOrderedForPicking($query)
     {
         return $query->orderBy('walking_order', 'asc')
-                    ->orderBy('item_id', 'asc');
+            ->orderBy('item_id', 'asc');
     }
 
     /**
@@ -143,9 +148,10 @@ class WmsPickingItemResult extends Model
     public function getItemNameWithCodeAttribute(): string
     {
         $item = $this->item;
-        if (!$item) {
+        if (! $item) {
             return "Item {$this->item_id}";
         }
+
         return "[{$item->code}] {$item->name}";
     }
 
@@ -155,14 +161,14 @@ class WmsPickingItemResult extends Model
     public function getLocationDisplayAttribute(): string
     {
         $location = $this->location;
-        if (!$location) {
-            return "-";
+        if (! $location) {
+            return '-';
         }
 
         $locationCode = trim("{$location->code1} {$location->code2} {$location->code3}");
 
         // Add location name if available
-        if (!empty($location->name)) {
+        if (! empty($location->name)) {
             return "{$locationCode} - {$location->name}";
         }
 
@@ -239,6 +245,4 @@ class WmsPickingItemResult extends Model
     {
         return self::getQuantityTypeLabel($this->picked_qty_type ?? 'PIECE');
     }
-
-
 }

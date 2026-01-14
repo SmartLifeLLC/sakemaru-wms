@@ -11,7 +11,7 @@ enum EListPriceSale: string
     case TRUE = 'TRUE';
     case FALSE = 'FALSE';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::TRUE => 'する',
@@ -19,12 +19,11 @@ enum EListPriceSale: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::TRUE => 1,
             self::FALSE => 0,
         };
     }
-
 }

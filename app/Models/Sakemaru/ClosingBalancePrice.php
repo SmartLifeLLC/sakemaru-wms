@@ -1,12 +1,14 @@
 <?php
 
 namespace App\Models\Sakemaru;
+
 use App\ValueObjects\PriceBreakdownVO;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ClosingBalancePrice extends CustomModel
 {
     protected $guarded = [];
+
     protected $casts = [];
 
     public function closing_balance_overview(): BelongsTo
@@ -14,7 +16,7 @@ class ClosingBalancePrice extends CustomModel
         return $this->belongsTo(ClosingBalanceOverview::class);
     }
 
-    public static function prepareFromPriceBreakdown(PriceBreakdownVO $price_data, int $closing_balance_overview_id, bool $is_returned) : array
+    public static function prepareFromPriceBreakdown(PriceBreakdownVO $price_data, int $closing_balance_overview_id, bool $is_returned): array
     {
         return [
             'closing_balance_overview_id' => $closing_balance_overview_id,
@@ -33,7 +35,7 @@ class ClosingBalancePrice extends CustomModel
         ];
     }
 
-    public static function createFromPriceBreakdown(PriceBreakdownVO $price_data, int $closing_balance_overview_id, bool $is_returned) : self
+    public static function createFromPriceBreakdown(PriceBreakdownVO $price_data, int $closing_balance_overview_id, bool $is_returned): self
     {
         return ClosingBalancePrice::create(self::prepareFromPriceBreakdown($price_data, $closing_balance_overview_id, $is_returned));
     }

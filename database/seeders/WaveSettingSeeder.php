@@ -6,7 +6,6 @@ use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WaveSetting;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 
 class WaveSettingSeeder extends Seeder
 {
@@ -24,6 +23,7 @@ class WaveSettingSeeder extends Seeder
 
         if ($warehouses->isEmpty()) {
             $this->command->warn('No warehouses found. Please seed warehouses first.');
+
             return;
         }
 
@@ -51,6 +51,7 @@ class WaveSettingSeeder extends Seeder
             if ($deliveryCourses->isEmpty()) {
                 $warehouseName = $warehouse->name ?? 'N/A';
                 $this->command->warn("No delivery courses found for warehouse {$warehouse->id} ({$warehouseName})");
+
                 continue;
             }
 

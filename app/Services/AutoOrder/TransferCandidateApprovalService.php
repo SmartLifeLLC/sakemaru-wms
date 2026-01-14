@@ -7,7 +7,6 @@ use App\Enums\AutoOrder\JobProcessName;
 use App\Models\Sakemaru\RealStock;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsStockTransferCandidate;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -34,6 +33,7 @@ class TransferCandidateApprovalService
             if ($candidates->isEmpty()) {
                 Log::info('No pending transfer candidates to approve', ['batch_code' => $batchCode]);
                 $job->markAsSuccess(0);
+
                 return $job;
             }
 
@@ -99,30 +99,32 @@ class TransferCandidateApprovalService
      * 供給倉庫から在庫を引当
      *
      * FEFO (First Expiry First Out) → FIFO (First In First Out) の順で引当
+     *
+     * Note: 数量変更はSakemaru側で管理するため、WMS側では引当記録のみ
      */
     private function reserveStockFromHub(WmsStockTransferCandidate $candidate): void
     {
         $remainingQty = $candidate->transfer_quantity;
 
         // 供給倉庫の利用可能在庫を取得（FEFO→FIFO順）
-        // WMS有効在庫 = current_quantity - wms_reserved_qty - wms_picking_qty
+        // available_quantity = current_quantity - reserved_quantity（生成カラム）
+        // Note: expiration_dateはreal_stock_lotsに移動したため、activeLots経由でソート
         $stocks = RealStock::where('warehouse_id', $candidate->hub_warehouse_id)
             ->where('item_id', $candidate->item_id)
-            ->availableForWms()  // current_quantity > (wms_reserved_qty + wms_picking_qty)
-            ->fefoFifo()         // FEFO→FIFO順
+            ->where('available_quantity', '>', 0)
+            ->with('activeLots')
+            ->orderBy('id', 'asc')  // 基本的なFIFO（ID順）
             ->get();
 
         if ($stocks->isEmpty()) {
             throw new \RuntimeException(
-                "No available stock in hub warehouse {$candidate->hub_warehouse_id} " .
+                "No available stock in hub warehouse {$candidate->hub_warehouse_id} ".
                 "for item {$candidate->item_id}"
             );
         }
 
-        // WMS有効在庫を計算
-        $totalAvailable = $stocks->sum(function ($stock) {
-            return $stock->current_quantity - $stock->wms_reserved_qty - $stock->wms_picking_qty;
-        });
+        // 利用可能在庫を計算
+        $totalAvailable = $stocks->sum('available_quantity');
 
         if ($totalAvailable < $remainingQty) {
             Log::warning('Insufficient stock in hub warehouse', [
@@ -136,30 +138,15 @@ class TransferCandidateApprovalService
             $remainingQty = $totalAvailable;
         }
 
-        foreach ($stocks as $stock) {
-            if ($remainingQty <= 0) {
-                break;
-            }
-
-            // この在庫レコードのWMS有効在庫
-            $stockEffective = $stock->current_quantity - $stock->wms_reserved_qty - $stock->wms_picking_qty;
-            $allocateQty = min($remainingQty, $stockEffective);
-
-            if ($allocateQty <= 0) {
-                continue;
-            }
-
-            // wms_reserved_qty を増やす（論理的な引当）
-            $stock->increment('wms_reserved_qty', $allocateQty);
-
-            Log::debug('Stock reserved for transfer', [
-                'real_stock_id' => $stock->id,
-                'allocated_qty' => $allocateQty,
-                'new_reserved_qty' => $stock->wms_reserved_qty + $allocateQty,
-            ]);
-
-            $remainingQty -= $allocateQty;
-        }
+        // Note: 実際の在庫引当（reserved_quantity の増加）はSakemaru側で行う
+        // WMS側では引当可能かどうかの確認のみ
+        Log::info('Transfer stock allocation verified', [
+            'candidate_id' => $candidate->id,
+            'hub_warehouse_id' => $candidate->hub_warehouse_id,
+            'item_id' => $candidate->item_id,
+            'transfer_quantity' => $candidate->transfer_quantity,
+            'available_quantity' => $totalAvailable,
+        ]);
     }
 
     /**

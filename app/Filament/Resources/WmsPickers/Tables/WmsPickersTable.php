@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickers\Tables;
 
+use App\Enums\PaginationOptions;
 use App\Enums\PickerSkillLevel;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -12,8 +13,6 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
-
 
 class WmsPickersTable
 {
@@ -48,7 +47,7 @@ class WmsPickersTable
 
                 TextColumn::make('picking_speed_rate')
                     ->label('作業速度')
-                    ->formatStateUsing(fn ($state) => $state ? number_format($state, 2) . 'x' : '-')
+                    ->formatStateUsing(fn ($state) => $state ? number_format($state, 2).'x' : '-')
                     ->sortable()
                     ->alignCenter(),
 

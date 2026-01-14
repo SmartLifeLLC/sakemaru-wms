@@ -4,7 +4,6 @@ namespace Database\Seeders;
 
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
-use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -23,8 +22,9 @@ class RealStockSeeder extends Seeder
 
         // Get warehouse
         $warehouse = Warehouse::find($warehouseId);
-        if (!$warehouse) {
+        if (! $warehouse) {
             $this->command->error("Warehouse {$warehouseId} not found");
+
             return;
         }
 
@@ -46,6 +46,7 @@ class RealStockSeeder extends Seeder
 
         if ($items->isEmpty()) {
             $this->command->error('No items found for stock generation');
+
             return;
         }
 
@@ -94,11 +95,10 @@ class RealStockSeeder extends Seeder
                     'expiration_date' => $expirationDate,
                     'received_at' => now()->subDays(rand(1, 90)),
                     'current_quantity' => $currentQuantity,
-                    'available_quantity' => $availableQuantity,
+                    'reserved_quantity' => 0,
+                    // Note: available_quantity is a generated column (= current_quantity - reserved_quantity)
                     'order_rank' => 'FIFO', // Required field
                     'price' => rand(100, 5000),
-                    'wms_reserved_qty' => 0,
-                    'wms_picking_qty' => 0,
                     'wms_lock_version' => 0,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -125,7 +125,7 @@ class RealStockSeeder extends Seeder
         // Create 20 sample locations using code1, code2, code3 format
         for ($i = 1; $i <= 20; $i++) {
             $code1 = chr(65 + ($i - 1) / 5); // A, B, C, D
-            $code2 = (string)(($i - 1) % 5 + 1); // 1-5
+            $code2 = (string) (($i - 1) % 5 + 1); // 1-5
             $code3 = '1'; // Level 1
 
             $location = Location::create([

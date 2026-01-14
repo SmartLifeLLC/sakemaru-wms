@@ -3,16 +3,16 @@
 namespace App\Filament\Resources;
 
 use App\Enums\EMenu;
+use App\Enums\PaginationOptions;
 use App\Filament\Resources\DeliveryCourseChangeResource\Pages;
 use App\Models\Sakemaru\Trade;
 use App\Services\DeliveryCourseChangeService;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
-use Filament\Forms\Components\Select;
-use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -20,8 +20,6 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use App\Enums\PaginationOptions;
-
 
 class DeliveryCourseChangeResource extends Resource
 {
@@ -56,7 +54,7 @@ class DeliveryCourseChangeResource extends Resource
             ->where('id', $tradeId)
             ->first();
 
-        if (!$trade) {
+        if (! $trade) {
             return [];
         }
 
@@ -156,7 +154,7 @@ class DeliveryCourseChangeResource extends Resource
             ->leftJoin('buyers as b', 'p.id', '=', 'b.partner_id')
             ->leftJoin('buyer_details as bd', function ($join) {
                 $join->on('b.id', '=', 'bd.buyer_id')
-                     ->whereRaw('bd.id = (SELECT id FROM buyer_details WHERE buyer_id = b.id ORDER BY start_date DESC LIMIT 1)');
+                    ->whereRaw('bd.id = (SELECT id FROM buyer_details WHERE buyer_id = b.id ORDER BY start_date DESC LIMIT 1)');
             })
             ->leftJoin('users as u', 'bd.salesman_id', '=', 'u.id')
             ->where('pt.status', 'PENDING')
@@ -209,7 +207,7 @@ class DeliveryCourseChangeResource extends Resource
                 TextColumn::make('picking_status')
                     ->label('ステータス')
                     ->badge()
-                    ->color(fn(?string $state): string => match ($state) {
+                    ->color(fn (?string $state): string => match ($state) {
                         'PENDING' => 'gray',
                         'BEFORE_PICKING' => 'warning',
                         'PICKING' => 'info',
@@ -217,7 +215,7 @@ class DeliveryCourseChangeResource extends Resource
                         'CANCELLED' => 'danger',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn(?string $state): string => match ($state) {
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
                         'PENDING' => '未着手',
                         'BEFORE_PICKING' => 'ピッキング準備中',
                         'PICKING' => 'ピッキング中',
@@ -273,11 +271,13 @@ class DeliveryCourseChangeResource extends Resource
                     ])
                     ->query(function (Builder $query, array $data): Builder {
                         $date = $data['shipment_date'] ?? \App\Models\Sakemaru\ClientSetting::systemDateYMD();
+
                         return $query->whereDate('pt.shipment_date', $date);
                     })
                     ->indicateUsing(function (array $data): ?string {
                         $date = $data['shipment_date'] ?? \App\Models\Sakemaru\ClientSetting::systemDateYMD();
-                        return '出荷日: ' . \Carbon\Carbon::parse($date)->format('Y-m-d');
+
+                        return '出荷日: '.\Carbon\Carbon::parse($date)->format('Y-m-d');
                     })
                     ->default(['shipment_date' => \App\Models\Sakemaru\ClientSetting::systemDateYMD()]),
 
@@ -296,6 +296,7 @@ class DeliveryCourseChangeResource extends Resource
                         if ($warehouseId) {
                             return $query->where('pt.warehouse_id', $warehouseId);
                         }
+
                         return $query;
                     })
                     ->indicateUsing(function (array $data) {
@@ -304,7 +305,8 @@ class DeliveryCourseChangeResource extends Resource
                             return null;
                         }
                         $name = DB::connection('sakemaru')->table('warehouses')->where('id', $warehouseId)->value('name');
-                        return '倉庫: ' . $name;
+
+                        return '倉庫: '.$name;
                     }),
 
                 SelectFilter::make('partner_id')
@@ -374,11 +376,12 @@ class DeliveryCourseChangeResource extends Resource
                 Action::make('changeDeliveryCourse')
                     ->label('コース変更')
                     ->icon('heroicon-o-arrow-path')
-                    ->disabled(fn ($record) => !in_array($record->picking_status, ['BEFORE', 'BEFORE_PICKING']))
+                    ->disabled(fn ($record) => ! in_array($record->picking_status, ['BEFORE', 'BEFORE_PICKING']))
                     ->extraAttributes(function ($record) {
-                        if (!in_array($record->picking_status, ['BEFORE', 'BEFORE_PICKING'])) {
+                        if (! in_array($record->picking_status, ['BEFORE', 'BEFORE_PICKING'])) {
                             return ['class' => 'line-through opacity-60'];
                         }
+
                         return [];
                     })
                     ->form([
@@ -435,6 +438,7 @@ class DeliveryCourseChangeResource extends Resource
                     ->fillForm(function (Collection $records) {
                         // Use the first record's warehouse_id to pre-load courses
                         $firstWarehouseId = $records->first()?->warehouse_id;
+
                         return [
                             'warehouse_id' => $firstWarehouseId,
                         ];
@@ -450,7 +454,7 @@ class DeliveryCourseChangeResource extends Resource
                             ->label('変更先配送コース')
                             ->options(function ($get) {
                                 $warehouseId = $get('warehouse_id');
-                                if (!$warehouseId) {
+                                if (! $warehouseId) {
                                     return [];
                                 }
 
@@ -470,7 +474,7 @@ class DeliveryCourseChangeResource extends Resource
                     ])
                     ->action(function (Collection $records, array $data) {
                         $service = app(DeliveryCourseChangeService::class);
-                        
+
                         // Filter records that can be changed
                         $changeableRecords = $records->filter(function ($record) {
                             return in_array($record->picking_status, ['BEFORE', 'BEFORE_PICKING']);
@@ -482,6 +486,7 @@ class DeliveryCourseChangeResource extends Resource
                                 ->warning()
                                 ->body('選択された伝票の中に、配送コース変更可能な伝票（未着手またはピッキング準備中）がありません。')
                                 ->send();
+
                             return;
                         }
 

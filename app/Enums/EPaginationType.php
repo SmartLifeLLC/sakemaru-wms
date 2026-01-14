@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -18,8 +16,7 @@ enum EPaginationType: string
     case SIMPLE = 'SIMPLE';
     case SIMPLE_ASYNC = 'SIMPLE_ASYNC';
 
-
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::NORMAL => '通常',
@@ -29,7 +26,7 @@ enum EPaginationType: string
         };
     }
 
-    public function paginate(Builder $query, int $per_page, string $page_key) : mixed
+    public function paginate(Builder $query, int $per_page, string $page_key): mixed
     {
         return match ($this) {
             self::NORMAL => $query->paginate($per_page, ['*'], $page_key),

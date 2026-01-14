@@ -18,18 +18,19 @@ class Location extends CustomModel
     protected bool $hasIsActiveColumn = false;
 
     protected $guarded = [];
+
     protected $casts = [
         'available_quantity_flags' => 'integer',
         'temperature_type' => TemperatureType::class,
         'is_restricted_area' => 'boolean',
     ];
 
-    public function warehouse() : belongsTo
+    public function warehouse(): belongsTo
     {
         return $this->belongsTo(Warehouse::class);
     }
 
-    public function floor() : BelongsTo
+    public function floor(): BelongsTo
     {
         return $this->belongsTo(Floor::class);
     }
@@ -39,11 +40,11 @@ class Location extends CustomModel
         return $this->hasOne(\App\Models\WmsLocation::class, 'location_id', 'id');
     }
 
-    public function joinedLocation() : Attribute
+    public function joinedLocation(): Attribute
     {
         return Attribute::make(
-            get: function() {
-                return $this->code1 . " " . $this->code2 . " " . $this->code3;
+            get: function () {
+                return $this->code1.' '.$this->code2.' '.$this->code3;
             }
         );
     }
@@ -67,6 +68,7 @@ class Location extends CustomModel
         $user = auth()->user();
         $client_id = $client_id ?? $user?->client_id;
         $warehouse_id = $warehouse_id ?? $user?->warehouse?->id;
+
         return Location::firstOrCreate([
             'client_id' => $client_id,
             'warehouse_id' => $warehouse_id,
@@ -78,7 +80,7 @@ class Location extends CustomModel
         ]);
     }
 
-    public static function getDefaultBaseInfo() : array
+    public static function getDefaultBaseInfo(): array
     {
         return [
             'code1' => 'Z',
@@ -90,9 +92,6 @@ class Location extends CustomModel
 
     /**
      * Check if location supports given quantity type
-     *
-     * @param AvailableQuantityFlag $flag
-     * @return bool
      */
     public function supports(AvailableQuantityFlag $flag): bool
     {
@@ -102,14 +101,13 @@ class Location extends CustomModel
     /**
      * Set available quantity flags from array of AvailableQuantityFlag enums
      *
-     * @param array<AvailableQuantityFlag> $flags
-     * @return void
+     * @param  array<AvailableQuantityFlag>  $flags
      */
     public function setAvailableUnits(array $flags): void
     {
         $bitmask = AvailableQuantityFlag::toBitmask($flags);
 
-        if (!AvailableQuantityFlag::isValid($bitmask)) {
+        if (! AvailableQuantityFlag::isValid($bitmask)) {
             throw new \InvalidArgumentException('UNKNOWN flag cannot be combined with other flags');
         }
 

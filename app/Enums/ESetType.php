@@ -8,12 +8,11 @@ enum ESetType: string
 {
     use EnumExtensionTrait;
 
-
     case NONE = 'NONE';
     case OWNED = 'OWNED';
     case MAKER = 'MAKER';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::NONE => '-',
@@ -22,7 +21,7 @@ enum ESetType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::NONE => 0,
@@ -35,12 +34,13 @@ enum ESetType: string
     {
         $array = [];
         foreach (self::cases() as $case) {
-            if($case->value == self::NONE->value) {
+            if ($case->value == self::NONE->value) {
                 continue; // Skip NONE case
 
             }
             $array[$case->value] = $case->name();
         }
+
         return $array;
     }
 }

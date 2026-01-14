@@ -62,12 +62,12 @@ abstract class BaseWmsSearchFilters extends Component implements HasForms
                         Grid::make(2)->schema([
                             DatePicker::make('date_from')
                                 ->hiddenLabel()
-                                ->placeholder($this->getDateLabel() . '（開始）')
+                                ->placeholder($this->getDateLabel().'（開始）')
                                 ->live(),
 
                             DatePicker::make('date_to')
                                 ->hiddenLabel()
-                                ->placeholder($this->getDateLabel() . '（終了）')
+                                ->placeholder($this->getDateLabel().'（終了）')
                                 ->live(),
                         ])->columnSpan(2),
                     ], $this->getAdditionalFilters(), [
@@ -114,7 +114,7 @@ abstract class BaseWmsSearchFilters extends Component implements HasForms
             ->get(['id', 'code', 'name'])
             ->mapWithKeys(function ($warehouse) {
                 return [
-                    $warehouse->id => "({$warehouse->code}) {$warehouse->name}"
+                    $warehouse->id => "({$warehouse->code}) {$warehouse->name}",
                 ];
             })
             ->toArray();

@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class WmsShortage extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'wms_shortages';
 
     protected $fillable = [
@@ -63,8 +64,11 @@ class WmsShortage extends Model
 
     // Status constants
     public const STATUS_BEFORE = 'BEFORE';
+
     public const STATUS_REALLOCATING = 'REALLOCATING';
+
     public const STATUS_SHORTAGE = 'SHORTAGE';
+
     public const STATUS_PARTIAL_SHORTAGE = 'PARTIAL_SHORTAGE';
 
     // Status labels for UI
@@ -77,18 +81,25 @@ class WmsShortage extends Model
 
     // Deprecated status constants (for backward compatibility)
     public const STATUS_OPEN = 'BEFORE';  // Alias for BEFORE
+
     public const STATUS_CONFIRMED = 'SHORTAGE';  // Alias for SHORTAGE
 
     // Reason code constants
     public const REASON_NONE = 'NONE';
+
     public const REASON_NO_STOCK = 'NO_STOCK';
+
     public const REASON_DAMAGED = 'DAMAGED';
+
     public const REASON_MISSING_LOC = 'MISSING_LOC';
+
     public const REASON_OTHER = 'OTHER';
 
     // Quantity type constants
     public const QTY_TYPE_CASE = 'CASE';
+
     public const QTY_TYPE_PIECE = 'PIECE';
+
     public const QTY_TYPE_CARTON = 'CARTON';
 
     // Relationships
@@ -242,7 +253,7 @@ class WmsShortage extends Model
 
     public function needsSync(): bool
     {
-        return $this->is_confirmed && !$this->is_synced;
+        return $this->is_confirmed && ! $this->is_synced;
     }
 
     /**
@@ -315,7 +326,7 @@ class WmsShortage extends Model
      * 数量を表示用フォーマットに変換
      * 受注単位に応じて適切な表示を返す
      *
-     * @param int $qty 数量（受注単位ベース）
+     * @param  int  $qty  数量（受注単位ベース）
      * @return string フォーマットされた文字列（例: "2ケース", "15バラ"）
      */
     public function formatQuantity(int $qty): string
@@ -325,6 +336,7 @@ class WmsShortage extends Model
         }
 
         $unitLabel = \App\Enums\QuantityType::tryFrom($this->qty_type_at_order)?->name() ?? $this->qty_type_at_order;
+
         return "{$qty}{$unitLabel}";
     }
 }

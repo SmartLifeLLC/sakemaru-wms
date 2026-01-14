@@ -83,6 +83,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                             ->body('依頼倉庫と横持ち出荷倉庫を同じにすることはできません')
                             ->danger()
                             ->send();
+
                         return;
                     }
 
@@ -103,6 +104,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                             ->body('この倉庫・商品の組み合わせは既に移動候補に存在します')
                             ->danger()
                             ->send();
+
                         return;
                     }
 

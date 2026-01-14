@@ -11,6 +11,7 @@ class Payment extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     protected PrintType $checklist_print_type = PrintType::PAYMENT_CHECK;

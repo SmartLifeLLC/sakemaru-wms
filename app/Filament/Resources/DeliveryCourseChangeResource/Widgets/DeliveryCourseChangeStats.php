@@ -4,9 +4,9 @@ namespace App\Filament\Resources\DeliveryCourseChangeResource\Widgets;
 
 use App\Filament\Resources\DeliveryCourseChangeResource\Pages\ListDeliveryCourseChanges;
 use App\Models\Sakemaru\TradeItem;
+use Filament\Widgets\Concerns\InteractsWithPageTable;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
-use Filament\Widgets\Concerns\InteractsWithPageTable;
 
 class DeliveryCourseChangeStats extends BaseWidget
 {
@@ -43,10 +43,10 @@ class DeliveryCourseChangeStats extends BaseWidget
             ->count();
 
         return [
-            Stat::make('合計金額', number_format($totalAmount) . '円')->extraAttributes(['class' => 'text-center !py-1 !min-h-0']),
-            Stat::make('合計伝票数', number_format($tradeCount) . '件')->extraAttributes(['class' => 'text-center !py-1 !min-h-0']),
-            Stat::make('合計明細数', number_format($detailCount) . '行')->extraAttributes(['class' => 'text-center !py-1 !min-h-0']),
-            Stat::make('配送コース数', number_format($courseCount) . 'コース')->extraAttributes(['class' => 'text-center !py-1 !min-h-0']),
+            Stat::make('合計金額', number_format($totalAmount).'円')->extraAttributes(['class' => 'text-center !py-1 !min-h-0']),
+            Stat::make('合計伝票数', number_format($tradeCount).'件')->extraAttributes(['class' => 'text-center !py-1 !min-h-0']),
+            Stat::make('合計明細数', number_format($detailCount).'行')->extraAttributes(['class' => 'text-center !py-1 !min-h-0']),
+            Stat::make('配送コース数', number_format($courseCount).'コース')->extraAttributes(['class' => 'text-center !py-1 !min-h-0']),
         ];
     }
 }

@@ -18,8 +18,8 @@ class ContractorLeadTimeService
     /**
      * 発注先のリードタイムを考慮した到着予定日を計算
      *
-     * @param Contractor $contractor 発注先
-     * @param Carbon $orderDate 発注日
+     * @param  Contractor  $contractor  発注先
+     * @param  Carbon  $orderDate  発注日
      * @return array{
      *     arrival_date: Carbon,
      *     original_date: Carbon,
@@ -32,7 +32,7 @@ class ContractorLeadTimeService
     {
         $leadTime = $contractor->leadTime;
 
-        if (!$leadTime) {
+        if (! $leadTime) {
             // lead_time設定がない場合はデフォルト1日
             return $this->buildResult($orderDate->copy()->addDay(), $orderDate->copy()->addDay(), 1, 0);
         }
@@ -48,7 +48,7 @@ class ContractorLeadTimeService
 
         // 発注先の臨時休業をスキップ（最大30日まで）
         for ($i = 0; $i < 30; $i++) {
-            if (!WmsContractorHoliday::isHoliday($contractor->id, $arrivalDate)) {
+            if (! WmsContractorHoliday::isHoliday($contractor->id, $arrivalDate)) {
                 break;
             }
             $arrivalDate->addDay();
@@ -62,9 +62,7 @@ class ContractorLeadTimeService
     /**
      * 曜日に基づいてリードタイム日数を取得
      *
-     * @param LeadTime $leadTime
-     * @param int $dayOfWeek 0=日曜, 1=月曜, ..., 6=土曜
-     * @return int
+     * @param  int  $dayOfWeek  0=日曜, 1=月曜, ..., 6=土曜
      */
     private function getLeadTimeDaysByDayOfWeek(LeadTime $leadTime, int $dayOfWeek): int
     {
@@ -101,15 +99,12 @@ class ContractorLeadTimeService
 
     /**
      * 発注先の曜日別リードタイム情報を取得
-     *
-     * @param Contractor $contractor
-     * @return array|null
      */
     public function getLeadTimeInfo(Contractor $contractor): ?array
     {
         $leadTime = $contractor->leadTime;
 
-        if (!$leadTime) {
+        if (! $leadTime) {
             return null;
         }
 

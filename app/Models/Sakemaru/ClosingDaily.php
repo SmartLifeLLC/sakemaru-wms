@@ -1,20 +1,20 @@
 <?php
 
 namespace App\Models\Sakemaru;
+
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ClosingDaily extends CustomModel
 {
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
-    public function previousClosing(): null|self
+    public function previousClosing(): ?self
     {
         $prev_closing_daily = ClosingDaily::whereDate('closing_date', $this->closing_date)
             ->where('number', '<', $this->number)
@@ -29,17 +29,18 @@ class ClosingDaily extends CustomModel
 
     public static function lastClosing(?string $base_date = null): ?self
     {
-        $closing =  self::query()
+        $closing = self::query()
             ->when($base_date, function ($query, $base_date) {
                 $query->where('closing_date', '<=', $base_date);
             })
             ->orderBy('closing_date', 'desc')
             ->orderBy('number', 'desc')
             ->first();
+
         return $closing ? self::cast($closing) : null;
     }
 
-    public static function closingEndOfMonth(int $year, int $month) : ?self
+    public static function closingEndOfMonth(int $year, int $month): ?self
     {
         $date = Carbon::createFromDate($year, $month, 1)->endOfMonth()->toDateString();
         $closing = ClosingDaily::whereDate('closing_date', '<=', $date)
@@ -49,7 +50,6 @@ class ClosingDaily extends CustomModel
 
         return $closing ? ClosingDaily::cast($closing) : null;
     }
-
 
     public function stock_overviews(): HasMany
     {

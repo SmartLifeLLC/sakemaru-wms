@@ -2,14 +2,12 @@
 
 namespace App\Models\Sakemaru;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class RebateDeposit extends CustomModel
 {
     protected $guarded = [];
+
     protected $casts = [];
 
     public function trade(): belongsTo
@@ -21,7 +19,8 @@ class RebateDeposit extends CustomModel
     {
         return $this->belongsTo(Supplier::class);
     }
-    public function account_classification() : belongsTo
+
+    public function account_classification(): belongsTo
     {
         return $this->belongsTo(AccountClassification::class);
     }

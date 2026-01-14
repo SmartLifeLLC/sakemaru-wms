@@ -33,7 +33,7 @@ class JxServerController extends Controller
         $this->saveRequest($xmlData);
 
         try {
-            $doc = new DOMDocument();
+            $doc = new DOMDocument;
             $doc->loadXML($xmlData);
 
             $timestamp = getJxTimestamp('UTC');
@@ -57,11 +57,13 @@ class JxServerController extends Controller
             }
 
             Log::warning('JxServer: Unknown document type received');
+
             return response('Method not allowed', 405);
         } catch (\Exception $e) {
             Log::error('JxServer: Error processing request', [
                 'message' => $e->getMessage(),
             ]);
+
             return response('Internal Server Error', 500);
         }
     }
@@ -122,7 +124,7 @@ class JxServerController extends Controller
     {
         $pendingDir = 'jx-server/pending';
 
-        if (!Storage::disk('local')->exists($pendingDir)) {
+        if (! Storage::disk('local')->exists($pendingDir)) {
             return null;
         }
 
@@ -146,7 +148,7 @@ class JxServerController extends Controller
         $encodedData = base64_encode($content);
 
         // 配信済みに移動
-        $deliveredDir = 'jx-server/delivered/' . Carbon::today()->format('Y-m-d');
+        $deliveredDir = 'jx-server/delivered/'.Carbon::today()->format('Y-m-d');
         Storage::disk('local')->move($file, "{$deliveredDir}/{$filename}");
 
         return [

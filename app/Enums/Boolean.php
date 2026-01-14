@@ -12,7 +12,7 @@ enum Boolean: string
     case FALSE = '0';
     case TRUE = '1';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::FALSE => 'FALSE',

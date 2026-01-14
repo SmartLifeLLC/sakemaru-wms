@@ -18,8 +18,7 @@ enum BadgeColor: string
     case PINK = 'PINK';
     case ORANGE = 'ORANGE';
 
-
-    public function bg() : string
+    public function bg(): string
     {
         return match ($this) {
             self::PRIMARY => 'bg-primary-100',
@@ -38,7 +37,7 @@ enum BadgeColor: string
         };
     }
 
-    public function border() : string
+    public function border(): string
     {
         return match ($this) {
             self::PRIMARY => 'border-primary-400',
@@ -57,7 +56,7 @@ enum BadgeColor: string
         };
     }
 
-    public function text() : string
+    public function text(): string
     {
         return match ($this) {
             self::PRIMARY => 'text-primary-800',
@@ -76,7 +75,8 @@ enum BadgeColor: string
         };
     }
 
-    public function all() : string {
-        return $this->bg() . ' ' . $this->border() . ' ' . $this->text();
+    public function all(): string
+    {
+        return $this->bg().' '.$this->border().' '.$this->text();
     }
 }

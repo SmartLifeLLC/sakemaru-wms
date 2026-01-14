@@ -5,8 +5,8 @@ namespace App\Filament\Resources\WmsPickingTasks\Pages;
 use App\Enums\EWMSLogOperationType;
 use App\Enums\EWMSLogTargetType;
 use App\Filament\Concerns\HasWmsUserViews;
-use App\Filament\Resources\WmsPickingTasks\WmsPickingItemEditResource;
 use App\Filament\Resources\WmsPickingTasks\Widgets\PickingTaskInfoWidget;
+use App\Filament\Resources\WmsPickingTasks\WmsPickingItemEditResource;
 use App\Models\WmsAdminOperationLog;
 use App\Models\WmsPickingTask;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -21,8 +21,8 @@ use Livewire\Attributes\Url;
 
 class ListWmsPickingItemEdits extends ListRecords
 {
-    use ExposesTableToWidgets;
     use AdvancedTables;
+    use ExposesTableToWidgets;
     use HasWmsUserViews {
         HasWmsUserViews::getUserViews insteadof AdvancedTables;
         HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
@@ -34,6 +34,7 @@ class ListWmsPickingItemEdits extends ListRecords
 
     // View labels as constants for reuse
     public const VIEW_LABEL_DEFAULT = '引き当て欠品あり';
+
     public const VIEW_LABEL_ALL = '全体';
 
     // URLのクエリパラメータ ?picking_task_id=123 を自動的にこの変数にバインドします
@@ -137,6 +138,7 @@ class ListWmsPickingItemEdits extends ListRecords
                                 if ($warehouseFilter = $get('warehouse_filter')) {
                                     $query->where('default_warehouse_id', $warehouseFilter);
                                 }
+
                                 return $query->orderBy('code')->get()->pluck('display_name', 'id');
                             })
                             ->searchable(),
@@ -145,12 +147,13 @@ class ListWmsPickingItemEdits extends ListRecords
                 ->action(function (array $data) {
                     $task = WmsPickingTask::find($this->pickingTaskId);
 
-                    if (!$task) {
+                    if (! $task) {
                         Notification::make()
                             ->title('エラー')
                             ->body('タスクが見つかりません')
                             ->danger()
                             ->send();
+
                         return;
                     }
 
@@ -192,22 +195,24 @@ class ListWmsPickingItemEdits extends ListRecords
                     ->action(function () {
                         $task = WmsPickingTask::find($this->pickingTaskId);
 
-                        if (!$task) {
+                        if (! $task) {
                             Notification::make()
                                 ->title('エラー')
                                 ->body('タスクが見つかりません')
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 
                         // Validate conditions
-                        if (!$task->picker_id) {
+                        if (! $task->picker_id) {
                             Notification::make()
                                 ->title('エラー')
                                 ->body('担当者が割り当てられていません')
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 
@@ -217,6 +222,7 @@ class ListWmsPickingItemEdits extends ListRecords
                                 ->body('このタスクは既にピッキング準備完了または完了しています')
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 
@@ -262,12 +268,13 @@ class ListWmsPickingItemEdits extends ListRecords
                     ->action(function () {
                         $task = WmsPickingTask::find($this->pickingTaskId);
 
-                        if (!$task) {
+                        if (! $task) {
                             Notification::make()
                                 ->title('エラー')
                                 ->body('タスクが見つかりません')
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 
@@ -277,6 +284,7 @@ class ListWmsPickingItemEdits extends ListRecords
                                 ->body('準備完了状態のタスクのみ取り消しできます')
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 
@@ -323,7 +331,7 @@ class ListWmsPickingItemEdits extends ListRecords
         ];
     }
 
-    public function getHeaderWidgetsColumns(): int | array
+    public function getHeaderWidgetsColumns(): int|array
     {
         return 1;
     }
@@ -340,8 +348,8 @@ class ListWmsPickingItemEdits extends ListRecords
         $activeView = $this->activeView ?? 'default';
 
         return match ($activeView) {
-            'default' => '「' . self::VIEW_LABEL_DEFAULT . '」のデータはありません',
-            'all' => '「' . self::VIEW_LABEL_ALL . '」のデータはありません',
+            'default' => '「'.self::VIEW_LABEL_DEFAULT.'」のデータはありません',
+            'all' => '「'.self::VIEW_LABEL_ALL.'」のデータはありません',
             default => 'データが見つかりません',
         };
     }
@@ -349,8 +357,8 @@ class ListWmsPickingItemEdits extends ListRecords
     public function getPresetViews(): array
     {
         return [
-            'default' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query->where('has_soft_shortage', true))->favorite()->label(self::VIEW_LABEL_DEFAULT)->default(),
-            'all' => PresetView::make()->modifyQueryUsing(fn(Builder $query) => $query)->favorite()->label(self::VIEW_LABEL_ALL),
+            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('has_soft_shortage', true))->favorite()->label(self::VIEW_LABEL_DEFAULT)->default(),
+            'all' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query)->favorite()->label(self::VIEW_LABEL_ALL),
         ];
     }
 }

@@ -35,6 +35,7 @@ class StockSnapshotService
             if (empty($warehouseIds)) {
                 Log::info('No warehouses enabled for auto order');
                 $job->markAsSuccess(0);
+
                 return $job;
             }
 
@@ -157,7 +158,7 @@ class StockSnapshotService
      *
      * wms_order_incoming_schedules から PENDING/PARTIAL ステータスの残数量を取得
      *
-     * @param array $warehouseIds 倉庫ID配列
+     * @param  array  $warehouseIds  倉庫ID配列
      * @return array ['warehouse_id-item_id' => quantity]
      */
     public function getIncomingStocks(array $warehouseIds): array

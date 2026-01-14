@@ -6,10 +6,7 @@ use App\Enums\EMenu;
 use App\Enums\PickerSkillLevel;
 use App\Enums\TemperatureType;
 use App\Models\Sakemaru\DeliveryCourse;
-use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
-use App\Models\WmsContractorSetting;
-use App\Models\WmsNationalHoliday;
 use App\Models\WmsPicker;
 use App\Models\WmsWarehouseAutoOrderSetting;
 use App\Models\WmsWarehouseHolidaySetting;
@@ -22,11 +19,10 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Form;
-use Filament\Schemas\Components\Utilities\Get;
-use Filament\Schemas\Components\Utilities\Set;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -166,7 +162,7 @@ class TestDataGenerator extends Page
                 try {
                     $params = [];
 
-                    if (!empty($data['warehouse_id'])) {
+                    if (! empty($data['warehouse_id'])) {
                         $params['--warehouse-id'] = $data['warehouse_id'];
                     }
 
@@ -309,7 +305,7 @@ class TestDataGenerator extends Page
                 try {
                     $params = [];
 
-                    if (!empty($data['warehouse_id'])) {
+                    if (! empty($data['warehouse_id'])) {
                         $params['--warehouse-id'] = $data['warehouse_id'];
                     }
 
@@ -362,7 +358,7 @@ class TestDataGenerator extends Page
             ->action(function (array $data): void {
                 try {
                     $warehouse = Warehouse::find($data['warehouse_id']);
-                    if (!$warehouse) {
+                    if (! $warehouse) {
                         throw new \Exception('倉庫が見つかりません');
                     }
 
@@ -381,15 +377,16 @@ class TestDataGenerator extends Page
                         ->map(function ($picker) use ($warehouseCode) {
                             $code = $picker->code;
                             $seq = str_replace("{$warehouseCode}-", '', $code);
-                            return is_numeric($seq) ? (int)$seq : 0;
+
+                            return is_numeric($seq) ? (int) $seq : 0;
                         })
                         ->max() ?? 0;
 
                     $createdCount = 0;
                     foreach ($pickerConfigs as $index => $config) {
                         $seq = $existingMaxSeq + $index + 1;
-                        $code = "{$warehouseCode}-" . str_pad($seq, 3, '0', STR_PAD_LEFT);
-                        $name = $config['skill']->label() . ' ' . number_format($config['speed'], 1) . 'x';
+                        $code = "{$warehouseCode}-".str_pad($seq, 3, '0', STR_PAD_LEFT);
+                        $name = $config['skill']->label().' '.number_format($config['speed'], 1).'x';
 
                         WmsPicker::create([
                             'code' => $code,
@@ -463,7 +460,7 @@ class TestDataGenerator extends Page
                     ->searchable()
                     ->getSearchResultsUsing(function (?string $search, Get $get) {
                         $warehouseId = $get('warehouse_id');
-                        if (!$warehouseId) {
+                        if (! $warehouseId) {
                             return [];
                         }
 
@@ -471,7 +468,7 @@ class TestDataGenerator extends Page
                             ->table('locations')
                             ->where('warehouse_id', $warehouseId);
 
-                        if (!empty($search)) {
+                        if (! empty($search)) {
                             $query->where(function ($q) use ($search) {
                                 $q->where('code1', 'like', "%{$search}%")
                                     ->orWhere('code2', 'like', "%{$search}%")
@@ -484,8 +481,8 @@ class TestDataGenerator extends Page
                             ->orderBy('code2')
                             ->limit(500)
                             ->get()
-                            ->mapWithKeys(fn($loc) => [
-                                $loc->id => trim("{$loc->code1} {$loc->code2}") . " - {$loc->name}"
+                            ->mapWithKeys(fn ($loc) => [
+                                $loc->id => trim("{$loc->code1} {$loc->code2}")." - {$loc->name}",
                             ])
                             ->toArray();
                     })
@@ -493,12 +490,13 @@ class TestDataGenerator extends Page
                         if (empty($values)) {
                             return [];
                         }
+
                         return \Illuminate\Support\Facades\DB::connection('sakemaru')
                             ->table('locations')
                             ->whereIn('id', $values)
                             ->get()
-                            ->mapWithKeys(fn($loc) => [
-                                $loc->id => trim("{$loc->code1} {$loc->code2}") . " - {$loc->name}"
+                            ->mapWithKeys(fn ($loc) => [
+                                $loc->id => trim("{$loc->code1} {$loc->code2}")." - {$loc->name}",
                             ])
                             ->toArray();
                     }),
@@ -510,14 +508,15 @@ class TestDataGenerator extends Page
                             ->label('配送コース')
                             ->options(function (Get $get) {
                                 $warehouseId = $get('../../warehouse_id');
-                                if (!$warehouseId) {
+                                if (! $warehouseId) {
                                     return [];
                                 }
+
                                 return DeliveryCourse::where('warehouse_id', $warehouseId)
                                     ->orderBy('code')
                                     ->get()
-                                    ->mapWithKeys(fn($course) => [
-                                        $course->code => "[{$course->code}] {$course->name}"
+                                    ->mapWithKeys(fn ($course) => [
+                                        $course->code => "[{$course->code}] {$course->name}",
                                     ])
                                     ->toArray();
                             })
@@ -543,8 +542,10 @@ class TestDataGenerator extends Page
                     ->itemLabel(function (array $state): ?string {
                         if (isset($state['course_code'])) {
                             $count = $state['count'] ?? 0;
+
                             return "コース {$state['course_code']}: {$count}件";
                         }
+
                         return null;
                     }),
 
@@ -565,12 +566,12 @@ class TestDataGenerator extends Page
                         '--warehouse-id' => $data['warehouse_id'],
                         '--date' => $data['date'],
                         '--courses' => array_map(
-                            fn($c) => "{$c['course_code']}:{$c['count']}",
+                            fn ($c) => "{$c['course_code']}:{$c['count']}",
                             $data['courses']
                         ),
                     ];
 
-                    if (!empty($data['locations'])) {
+                    if (! empty($data['locations'])) {
                         $params['--locations'] = $data['locations'];
                     }
 
@@ -585,7 +586,7 @@ class TestDataGenerator extends Page
                         $totalEarnings = array_sum(array_column($data['courses'], 'count'));
                         Notification::make()
                             ->title('ピッカー別Waveを生成しました')
-                            ->body("伝票{$totalEarnings}件、配送コース" . count($data['courses']) . "件のWaveを生成しました。")
+                            ->body("伝票{$totalEarnings}件、配送コース".count($data['courses']).'件のWaveを生成しました。')
                             ->success()
                             ->send();
                     } else {
@@ -637,14 +638,15 @@ class TestDataGenerator extends Page
                     ->helperText('指定しない場合は全配送コースからランダム選択')
                     ->options(function (Get $get) {
                         $warehouseId = $get('warehouse_id');
-                        if (!$warehouseId) {
+                        if (! $warehouseId) {
                             return [];
                         }
+
                         return DeliveryCourse::where('warehouse_id', $warehouseId)
                             ->orderBy('code')
                             ->get()
-                            ->mapWithKeys(fn($course) => [
-                                $course->code => "[{$course->code}] {$course->name}"
+                            ->mapWithKeys(fn ($course) => [
+                                $course->code => "[{$course->code}] {$course->name}",
                             ])
                             ->toArray();
                     })
@@ -658,7 +660,7 @@ class TestDataGenerator extends Page
                     ->searchable()
                     ->getSearchResultsUsing(function (?string $search, Get $get) {
                         $warehouseId = $get('warehouse_id');
-                        if (!$warehouseId) {
+                        if (! $warehouseId) {
                             return [];
                         }
 
@@ -666,7 +668,7 @@ class TestDataGenerator extends Page
                             ->table('locations')
                             ->where('warehouse_id', $warehouseId);
 
-                        if (!empty($search)) {
+                        if (! empty($search)) {
                             $query->where(function ($q) use ($search) {
                                 $q->where('code1', 'like', "%{$search}%")
                                     ->orWhere('code2', 'like', "%{$search}%")
@@ -679,8 +681,8 @@ class TestDataGenerator extends Page
                             ->orderBy('code2')
                             ->limit(500)
                             ->get()
-                            ->mapWithKeys(fn($loc) => [
-                                $loc->id => trim("{$loc->code1} {$loc->code2}") . " - {$loc->name}"
+                            ->mapWithKeys(fn ($loc) => [
+                                $loc->id => trim("{$loc->code1} {$loc->code2}")." - {$loc->name}",
                             ])
                             ->toArray();
                     })
@@ -688,12 +690,13 @@ class TestDataGenerator extends Page
                         if (empty($values)) {
                             return [];
                         }
+
                         return \Illuminate\Support\Facades\DB::connection('sakemaru')
                             ->table('locations')
                             ->whereIn('id', $values)
                             ->get()
-                            ->mapWithKeys(fn($loc) => [
-                                $loc->id => trim("{$loc->code1} {$loc->code2}") . " - {$loc->name}"
+                            ->mapWithKeys(fn ($loc) => [
+                                $loc->id => trim("{$loc->code1} {$loc->code2}")." - {$loc->name}",
                             ])
                             ->toArray();
                     }),
@@ -705,11 +708,11 @@ class TestDataGenerator extends Page
                         '--warehouse-id' => $data['warehouse_id'],
                     ];
 
-                    if (!empty($data['courses'])) {
+                    if (! empty($data['courses'])) {
                         $params['--courses'] = $data['courses'];
                     }
 
-                    if (!empty($data['locations'])) {
+                    if (! empty($data['locations'])) {
                         $params['--locations'] = $data['locations'];
                     }
 
@@ -718,11 +721,11 @@ class TestDataGenerator extends Page
 
                     if ($exitCode === 0) {
                         $body = "{$data['count']}件のテストデータを生成しました。";
-                        if (!empty($data['courses'])) {
-                            $body .= " (配送コース: " . count($data['courses']) . "件指定)";
+                        if (! empty($data['courses'])) {
+                            $body .= ' (配送コース: '.count($data['courses']).'件指定)';
                         }
-                        if (!empty($data['locations'])) {
-                            $body .= " (ロケーション: " . count($data['locations']) . "件指定)";
+                        if (! empty($data['locations'])) {
+                            $body .= ' (ロケーション: '.count($data['locations']).'件指定)';
                         }
 
                         Notification::make()
@@ -832,7 +835,7 @@ class TestDataGenerator extends Page
                         '--piece-locations' => $data['piece_locations'],
                         '--both-locations' => $data['both_locations'],
                         '--floors' => array_map(
-                            fn($f) => "{$f['number']}|{$f['name']}",
+                            fn ($f) => "{$f['number']}|{$f['name']}",
                             $data['floors']
                         ),
                     ];
@@ -846,7 +849,7 @@ class TestDataGenerator extends Page
 
                         Notification::make()
                             ->title('WMSマスタデータを生成しました')
-                            ->body("フロア{$totalFloors}件、ロケーション約" . ($totalFloors * $totalLocationsPerFloor) . "件の生成が完了しました。")
+                            ->body("フロア{$totalFloors}件、ロケーション約".($totalFloors * $totalLocationsPerFloor).'件の生成が完了しました。')
                             ->success()
                             ->send();
                     } else {
@@ -905,7 +908,7 @@ class TestDataGenerator extends Page
                     }
 
                     $summary = collect($results)
-                        ->map(fn($count, $type) => TemperatureType::from($type)->label() . ": {$count}件")
+                        ->map(fn ($count, $type) => TemperatureType::from($type)->label().": {$count}件")
                         ->implode(', ');
 
                     Notification::make()
@@ -997,7 +1000,7 @@ class TestDataGenerator extends Page
                         $tempType = $loc->temperature_type ?? 'NORMAL';
                         $restricted = $loc->is_restricted_area ? 'restricted' : 'standard';
                         $key = "{$tempType}_{$restricted}";
-                        if (!isset($locationGroups[$key])) {
+                        if (! isset($locationGroups[$key])) {
                             $locationGroups[$key] = [];
                         }
                         $locationGroups[$key][] = $loc;
@@ -1005,6 +1008,7 @@ class TestDataGenerator extends Page
 
                     $stockRecords = [];
                     $now = now();
+                    $stockAllocationId = 1;
 
                     foreach ($items as $item) {
                         $itemTempType = $item->temperature_type ?? 'NORMAL';
@@ -1044,80 +1048,101 @@ class TestDataGenerator extends Page
                                 $caseQty = rand(5, 50);
                                 $pieceQty = $caseQty * $capacityCase;
 
+                                // Note: 新スキーマでは real_stocks + real_stock_lots に分離
                                 $stockRecords[] = [
-                                    'client_id' => $item->client_id ?? 1,
-                                    'warehouse_id' => $warehouseId,
-                                    'stock_allocation_id' => 1,
-                                    'floor_id' => $location->floor_id,
-                                    'location_id' => $location->id,
-                                    'item_id' => $item->id,
-                                    'purchase_id' => null,
-                                    'trade_item_id' => null,
-                                    'current_quantity' => $pieceQty,
-                                    'available_quantity' => $pieceQty,
-                                    'wms_reserved_qty' => 0,
-                                    'wms_picking_qty' => 0,
-                                    'wms_lock_version' => 0,
-                                    'item_management_type' => $managementType,
-                                    'order_rank' => 'A',
-                                    'order_parameter' => null,
-                                    'expiration_date' => $expDate,
-                                    'price' => 0,
-                                    'content_amount' => null,
-                                    'container_amount' => null,
-                                    'created_at' => $now,
-                                    'updated_at' => $now,
-                                    'reserved_quantity' => 0,
-                                    'picking_quantity' => 0,
-                                    'lock_version' => 0,
+                                    'stock' => [
+                                        'client_id' => $item->client_id ?? 1,
+                                        'warehouse_id' => $warehouseId,
+                                        'stock_allocation_id' => $stockAllocationId++,
+                                        'item_id' => $item->id,
+                                        'current_quantity' => $pieceQty,
+                                        'reserved_quantity' => 0,
+                                        'wms_lock_version' => 0,
+                                        'item_management_type' => $managementType,
+                                        'order_rank' => 'A',
+                                        'order_parameter' => null,
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                        'lock_version' => 0,
+                                    ],
+                                    'lot' => [
+                                        'floor_id' => $location->floor_id,
+                                        'location_id' => $location->id,
+                                        'expiration_date' => $expDate,
+                                        'price' => 0,
+                                        'content_amount' => 0,
+                                        'container_amount' => 0,
+                                        'initial_quantity' => $pieceQty,
+                                        'current_quantity' => $pieceQty,
+                                        'reserved_quantity' => 0,
+                                        'status' => 'ACTIVE',
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                    ],
+                                    'management_type' => $managementType,
                                 ];
                             }
 
-                            if (($flags & 2) && !($flags & 1)) {
+                            if (($flags & 2) && ! ($flags & 1)) {
                                 $pieceQty = rand(5, 50);
 
+                                // Note: 新スキーマでは real_stocks + real_stock_lots に分離
                                 $stockRecords[] = [
-                                    'client_id' => $item->client_id ?? 1,
-                                    'warehouse_id' => $warehouseId,
-                                    'stock_allocation_id' => 1,
-                                    'floor_id' => $location->floor_id,
-                                    'location_id' => $location->id,
-                                    'item_id' => $item->id,
-                                    'purchase_id' => null,
-                                    'trade_item_id' => null,
-                                    'current_quantity' => $pieceQty,
-                                    'available_quantity' => $pieceQty,
-                                    'wms_reserved_qty' => 0,
-                                    'wms_picking_qty' => 0,
-                                    'wms_lock_version' => 0,
-                                    'item_management_type' => $managementType,
-                                    'order_rank' => 'A',
-                                    'order_parameter' => null,
-                                    'expiration_date' => $expDate,
-                                    'price' => 0,
-                                    'content_amount' => null,
-                                    'container_amount' => null,
-                                    'created_at' => $now,
-                                    'updated_at' => $now,
-                                    'reserved_quantity' => 0,
-                                    'picking_quantity' => 0,
-                                    'lock_version' => 0,
+                                    'stock' => [
+                                        'client_id' => $item->client_id ?? 1,
+                                        'warehouse_id' => $warehouseId,
+                                        'stock_allocation_id' => $stockAllocationId++,
+                                        'item_id' => $item->id,
+                                        'current_quantity' => $pieceQty,
+                                        'reserved_quantity' => 0,
+                                        'wms_lock_version' => 0,
+                                        'item_management_type' => $managementType,
+                                        'order_rank' => 'A',
+                                        'order_parameter' => null,
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                        'lock_version' => 0,
+                                    ],
+                                    'lot' => [
+                                        'floor_id' => $location->floor_id,
+                                        'location_id' => $location->id,
+                                        'expiration_date' => $expDate,
+                                        'price' => 0,
+                                        'content_amount' => 0,
+                                        'container_amount' => 0,
+                                        'initial_quantity' => $pieceQty,
+                                        'current_quantity' => $pieceQty,
+                                        'reserved_quantity' => 0,
+                                        'status' => 'ACTIVE',
+                                        'created_at' => $now,
+                                        'updated_at' => $now,
+                                    ],
+                                    'management_type' => $managementType,
                                 ];
                             }
                         }
                     }
 
                     $insertedCount = 0;
-                    if (!empty($stockRecords)) {
-                        foreach (array_chunk($stockRecords, 500) as $chunk) {
-                            DB::connection('sakemaru')
+                    if (! empty($stockRecords)) {
+                        foreach ($stockRecords as $record) {
+                            // Insert real_stock record
+                            $realStockId = DB::connection('sakemaru')
                                 ->table('real_stocks')
-                                ->insertOrIgnore($chunk);
-                            $insertedCount += count($chunk);
+                                ->insertGetId($record['stock']);
+
+                            // Insert lot record with real_stock_id
+                            $lotData = $record['lot'];
+                            $lotData['real_stock_id'] = $realStockId;
+                            DB::connection('sakemaru')
+                                ->table('real_stock_lots')
+                                ->insert($lotData);
+
+                            $insertedCount++;
                         }
                     }
 
-                    $rareCount = collect($stockRecords)->where('item_management_type', 'RARE')->count();
+                    $rareCount = collect($stockRecords)->where('management_type', 'RARE')->count();
                     $standardCount = $insertedCount - $rareCount;
 
                     Notification::make()
@@ -1159,16 +1184,17 @@ class TestDataGenerator extends Page
                     ->helperText('選択したフロアの全ロケーションに在庫を均等に分布させます')
                     ->options(function (Get $get) {
                         $warehouseId = $get('warehouse_id');
-                        if (!$warehouseId) {
+                        if (! $warehouseId) {
                             return [];
                         }
+
                         return \Illuminate\Support\Facades\DB::connection('sakemaru')
                             ->table('floors')
                             ->where('warehouse_id', $warehouseId)
                             ->orderBy('code')
                             ->get()
-                            ->mapWithKeys(fn($floor) => [
-                                $floor->id => $floor->name
+                            ->mapWithKeys(fn ($floor) => [
+                                $floor->id => $floor->name,
                             ])
                             ->toArray();
                     })
@@ -1403,7 +1429,7 @@ class TestDataGenerator extends Page
                     $year = (int) $data['year'];
                     $includeNextYear = $data['include_next_year'] ?? true;
 
-                    $service = new CalendarGenerationService();
+                    $service = new CalendarGenerationService;
                     $count = $service->generateNationalHolidays($year);
 
                     if ($includeNextYear) {
@@ -1457,7 +1483,7 @@ class TestDataGenerator extends Page
                     $warehouseIds = $data['warehouse_ids'];
                     $months = (int) $data['months'];
 
-                    $service = new CalendarGenerationService();
+                    $service = new CalendarGenerationService;
                     $totalCount = 0;
 
                     foreach ($warehouseIds as $warehouseId) {
@@ -1476,7 +1502,7 @@ class TestDataGenerator extends Page
 
                     Notification::make()
                         ->title('営業日カレンダーを生成しました')
-                        ->body(count($warehouseIds) . "倉庫、合計{$totalCount}日分のカレンダーを生成しました。")
+                        ->body(count($warehouseIds)."倉庫、合計{$totalCount}日分のカレンダーを生成しました。")
                         ->success()
                         ->send();
                 } catch (\Exception $e) {
@@ -1541,19 +1567,19 @@ class TestDataGenerator extends Page
                         // 発注候補・移動候補・計算ログをリセット
                         if ($resetCandidates) {
                             $query = DB::connection('sakemaru')->table('wms_order_candidates');
-                            if (!empty($warehouseIds)) {
+                            if (! empty($warehouseIds)) {
                                 $query->whereIn('warehouse_id', $warehouseIds);
                             }
                             $deletedCounts['wms_order_candidates'] = $query->delete();
 
                             $query = DB::connection('sakemaru')->table('wms_stock_transfer_candidates');
-                            if (!empty($warehouseIds)) {
+                            if (! empty($warehouseIds)) {
                                 $query->whereIn('satellite_warehouse_id', $warehouseIds);
                             }
                             $deletedCounts['wms_stock_transfer_candidates'] = $query->delete();
 
                             $query = DB::connection('sakemaru')->table('wms_order_calculation_logs');
-                            if (!empty($warehouseIds)) {
+                            if (! empty($warehouseIds)) {
                                 $query->whereIn('warehouse_id', $warehouseIds);
                             }
                             $deletedCounts['wms_order_calculation_logs'] = $query->delete();
@@ -1562,7 +1588,7 @@ class TestDataGenerator extends Page
                         // カレンダーをリセット
                         if ($resetCalendars) {
                             $query = DB::connection('sakemaru')->table('wms_warehouse_calendars');
-                            if (!empty($warehouseIds)) {
+                            if (! empty($warehouseIds)) {
                                 $query->whereIn('warehouse_id', $warehouseIds);
                             }
                             $deletedCounts['wms_warehouse_calendars'] = $query->delete();
@@ -1571,13 +1597,13 @@ class TestDataGenerator extends Page
                         // 倉庫発注設定をリセット
                         if ($resetWarehouseSettings) {
                             $query = DB::connection('sakemaru')->table('wms_warehouse_auto_order_settings');
-                            if (!empty($warehouseIds)) {
+                            if (! empty($warehouseIds)) {
                                 $query->whereIn('warehouse_id', $warehouseIds);
                             }
                             $deletedCounts['wms_warehouse_auto_order_settings'] = $query->delete();
 
                             $query = DB::connection('sakemaru')->table('wms_warehouse_holiday_settings');
-                            if (!empty($warehouseIds)) {
+                            if (! empty($warehouseIds)) {
                                 $query->whereIn('warehouse_id', $warehouseIds);
                             }
                             $deletedCounts['wms_warehouse_holiday_settings'] = $query->delete();
@@ -1586,7 +1612,7 @@ class TestDataGenerator extends Page
 
                     $summary = collect($deletedCounts)
                         ->filter(fn ($count) => $count > 0)
-                        ->map(fn ($count, $table) => str_replace('wms_', '', $table) . ": {$count}件")
+                        ->map(fn ($count, $table) => str_replace('wms_', '', $table).": {$count}件")
                         ->implode(', ');
 
                     if (empty($summary)) {

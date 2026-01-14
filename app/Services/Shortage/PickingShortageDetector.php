@@ -23,9 +23,7 @@ class PickingShortageDetector
     /**
      * ピッキング完了時に欠品を検出して記録
      *
-     * @param WmsPickingItemResult $pickResult
-     * @param int|null $parentShortageId 横持ち出荷の場合の親欠品ID
-     * @return WmsShortage|null
+     * @param  int|null  $parentShortageId  横持ち出荷の場合の親欠品ID
      */
     public function detectAndRecord(
         WmsPickingItemResult $pickResult,
@@ -45,10 +43,11 @@ class PickingShortageDetector
         }
 
         $task = $pickResult->pickingTask;
-        if (!$task) {
+        if (! $task) {
             Log::warning('Picking task not found for pick result', [
                 'pick_result_id' => $pickResult->id,
             ]);
+
             return null;
         }
 
@@ -62,7 +61,7 @@ class PickingShortageDetector
             $parentShortageId
         ) {
             // picking_item_resultから受注単位とケース入数を取得
-            if (!$pickResult->ordered_qty_type) {
+            if (! $pickResult->ordered_qty_type) {
                 throw new \RuntimeException(
                     "ordered_qty_type must be specified for pick result ID {$pickResult->id}"
                 );

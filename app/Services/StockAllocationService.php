@@ -20,19 +20,19 @@ use Illuminate\Support\Facades\Log;
 class StockAllocationService
 {
     protected const BATCH_SIZE = 50;
+
     protected const MAX_PAGES = 2;
+
     protected const LOCK_TIMEOUT = 1; // seconds
 
     /**
      * Allocate stock for a specific item in a wave
      *
-     * @param int $waveId
-     * @param int $warehouseId
-     * @param int $itemId
-     * @param int $needQty Required quantity (in PIECE)
-     * @param string $quantityType Order quantity type (CASE|PIECE|CARTON)
-     * @param int $sourceId Source record ID (earning_id or trade_item_id)
-     * @param string $sourceType Source type (EARNING|TRADE_ITEM)
+     * @param  int  $needQty  Required quantity (in PIECE)
+     * @param  string  $quantityType  Order quantity type (CASE|PIECE|CARTON)
+     * @param  int  $sourceId  Source record ID (earning_id or trade_item_id)
+     * @param  string  $sourceType  Source type (EARNING|TRADE_ITEM)
+     * @param  int|null  $buyerId  Buyer ID for lot restriction check (null = no restriction)
      * @return array ['allocated' => int, 'shortage' => int, 'elapsed_ms' => float, 'race_count' => int]
      */
     public function allocateForItem(
@@ -42,13 +42,14 @@ class StockAllocationService
         int $needQty,
         string $quantityType,
         int $sourceId,
-        string $sourceType = 'EARNING'
+        string $sourceType = 'EARNING',
+        ?int $buyerId = null
     ): array {
         $startTime = microtime(true);
         $lockKey = "alloc:{$warehouseId}:{$itemId}";
 
         // Acquire named lock
-        if (!DbMutex::acquire($lockKey, self::LOCK_TIMEOUT, 'sakemaru')) {
+        if (! DbMutex::acquire($lockKey, self::LOCK_TIMEOUT, 'sakemaru')) {
             Log::warning('Stock allocation lock timeout', [
                 'warehouse_id' => $warehouseId,
                 'item_id' => $itemId,
@@ -73,7 +74,8 @@ class StockAllocationService
                 $quantityType,
                 $sourceId,
                 $sourceType,
-                $startTime
+                $startTime,
+                $buyerId
             );
         } finally {
             DbMutex::release($lockKey, 'sakemaru');
@@ -91,7 +93,8 @@ class StockAllocationService
         string $quantityType,
         int $sourceId,
         string $sourceType,
-        float $startTime
+        float $startTime,
+        ?int $buyerId = null
     ): array {
         $totalAllocated = 0;
         $raceCount = 0;
@@ -124,7 +127,8 @@ class StockAllocationService
                 $usesExpiration,
                 $quantityFlag,
                 self::BATCH_SIZE,
-                $offset
+                $offset,
+                $buyerId
             );
 
             if ($candidates->isEmpty()) {
@@ -137,31 +141,17 @@ class StockAllocationService
                     break;
                 }
 
-                $available = $stock->available_quantity - $stock->wms_reserved_qty - $stock->wms_picking_qty;
+                // available_quantity は生成カラム (= current_quantity - reserved_quantity)
+                // Sakemaru側で売上時に reserved_quantity が増加済み
+                $available = $stock->available_quantity;
                 if ($available <= 0) {
                     continue;
                 }
 
                 $takeQty = min($needQty - $totalAllocated, $available);
 
-                // Optimistic lock: Update real_stocks with lock_version check
-                $updated = DB::connection('sakemaru')
-                    ->table('real_stocks')
-                    ->where('id', $stock->real_stock_id)
-                    ->where('available_quantity', '>=', $takeQty)
-                    ->where('wms_lock_version', $stock->wms_lock_version)
-                    ->update([
-                        'available_quantity' => DB::raw('available_quantity - ' . $takeQty),
-                        'wms_reserved_qty' => DB::raw('wms_reserved_qty + ' . $takeQty),
-                        'wms_lock_version' => DB::raw('wms_lock_version + 1'),
-                        'updated_at' => now(),
-                    ]);
-
-                if ($updated === 0) {
-                    // Race condition or lock version mismatch
-                    $raceCount++;
-                    continue;
-                }
+                // Note: real_stocks の数量更新は行わない（Sakemaru側で管理）
+                // wms_reservations の作成のみ行う
 
                 // Success - record reservation
                 $reservations[] = [
@@ -191,7 +181,7 @@ class StockAllocationService
         }
 
         // Insert reservations in batch (if any)
-        if (!empty($reservations)) {
+        if (! empty($reservations)) {
             DB::connection('sakemaru')
                 ->table('wms_reservations')
                 ->insert($reservations);
@@ -247,14 +237,9 @@ class StockAllocationService
 
     /**
      * Get candidate stocks for allocation
+     * real_stock_lots経由でlocation, expiration_date, price等を取得
      *
-     * @param int $warehouseId
-     * @param int $itemId
-     * @param bool $usesExpiration
-     * @param AvailableQuantityFlag $quantityFlag
-     * @param int $limit
-     * @param int $offset
-     * @return \Illuminate\Support\Collection
+     * @param  int|null  $buyerId  Buyer ID for lot restriction check (null = no restriction)
      */
     protected function getCandidateStocks(
         int $warehouseId,
@@ -262,38 +247,60 @@ class StockAllocationService
         bool $usesExpiration,
         AvailableQuantityFlag $quantityFlag,
         int $limit,
-        int $offset
+        int $offset,
+        ?int $buyerId = null
     ): \Illuminate\Support\Collection {
         $query = DB::connection('sakemaru')
             ->table('real_stocks as rs')
-            ->join('locations as l', 'l.id', '=', 'rs.location_id')
+            ->join('real_stock_lots as rsl', function ($join) {
+                $join->on('rsl.real_stock_id', '=', 'rs.id')
+                    ->where('rsl.status', '=', 'ACTIVE')
+                    ->whereRaw('rsl.current_quantity > rsl.reserved_quantity');
+            })
+            ->join('locations as l', 'l.id', '=', 'rsl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
-            ->where('rs.available_quantity', '>', 0)
-            ->whereRaw("(l.available_quantity_flags & {$quantityFlag->value}) != 0")
-            ->select([
-                'rs.id as real_stock_id',
-                'rs.location_id',
-                'rs.purchase_id',
-                'rs.expiration_date',
-                'rs.price as unit_cost',
-                'rs.available_quantity',
-                'rs.wms_reserved_qty',
-                'rs.wms_picking_qty',
-                'rs.wms_lock_version',
-            ]);
+            ->whereRaw("(l.available_quantity_flags & {$quantityFlag->value}) != 0");
+
+        // Apply buyer restriction filter if buyerId is provided
+        if ($buyerId !== null) {
+            $query->where(function ($q) use ($buyerId) {
+                // ロットに制限がない場合は全得意先に販売可能
+                $q->whereNotExists(function ($subQuery) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('real_stock_lot_buyer_restrictions')
+                        ->whereColumn('real_stock_lot_buyer_restrictions.real_stock_lot_id', 'rsl.id');
+                })
+                // または制限があり、対象得意先が許可されている場合
+                    ->orWhereExists(function ($subQuery) use ($buyerId) {
+                        $subQuery->select(DB::raw(1))
+                            ->from('real_stock_lot_buyer_restrictions')
+                            ->whereColumn('real_stock_lot_buyer_restrictions.real_stock_lot_id', 'rsl.id')
+                            ->where('real_stock_lot_buyer_restrictions.buyer_id', $buyerId);
+                    });
+            });
+        }
+
+        $query->select([
+            'rs.id as real_stock_id',
+            'rsl.id as lot_id',
+            'rsl.location_id',
+            'rsl.purchase_id',
+            'rsl.expiration_date',
+            'rsl.price as unit_cost',
+            DB::raw('(rsl.current_quantity - rsl.reserved_quantity) as available_quantity'),
+        ]);
 
         // Order by FEFO or FIFO
         if ($usesExpiration) {
-            $query->orderByRaw('rs.expiration_date IS NULL') // NULL last
-                ->orderBy('rs.expiration_date', 'asc');
+            $query->orderByRaw('rsl.expiration_date IS NULL') // NULL last
+                ->orderBy('rsl.expiration_date', 'asc');
         } else {
-            // FIFO: Order by creation date since received_at doesn't exist
-            $query->orderBy('rs.created_at', 'asc');
+            // FIFO: Order by creation date
+            $query->orderBy('rsl.created_at', 'asc');
         }
 
-        // Removed: walking_order sorting is no longer used. Sorting by location will be calculated based on x_pos, y_pos
-        $query->orderBy('rs.id', 'asc')
+        $query->orderBy('rsl.id', 'asc')
             ->limit($limit)
             ->offset($offset);
 

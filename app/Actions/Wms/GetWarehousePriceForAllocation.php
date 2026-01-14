@@ -19,10 +19,10 @@ class GetWarehousePriceForAllocation
     /**
      * 倉庫単価と容器単価を取得
      *
-     * @param int $itemId 商品ID
-     * @param int $sourceWarehouseId 元倉庫ID（欠品発生倉庫）
-     * @param QuantityType $quantityType 数量タイプ (PIECE, CASE, CARTON)
-     * @param string|null $asOfDate 基準日 (null = 今日)
+     * @param  int  $itemId  商品ID
+     * @param  int  $sourceWarehouseId  元倉庫ID（欠品発生倉庫）
+     * @param  QuantityType  $quantityType  数量タイプ (PIECE, CASE, CARTON)
+     * @param  string|null  $asOfDate  基準日 (null = 今日)
      * @return array ['purchase_price' => float, 'tax_exempt_price' => float]
      */
     public static function execute(
@@ -78,12 +78,6 @@ class GetWarehousePriceForAllocation
 
     /**
      * item_partner_pricesから倉庫単価を取得
-     *
-     * @param int $itemId
-     * @param int $warehouseId
-     * @param QuantityType $quantityType
-     * @param string $date
-     * @return array|null
      */
     protected static function getFromItemPartnerPrices(
         int $itemId,
@@ -109,7 +103,7 @@ class GetWarehousePriceForAllocation
             ->orderBy('start_date', 'desc')
             ->first();
 
-        if (!$result) {
+        if (! $result) {
             return null;
         }
 
@@ -129,11 +123,6 @@ class GetWarehousePriceForAllocation
 
     /**
      * item_pricesから原価単価を取得
-     *
-     * @param int $itemId
-     * @param QuantityType $quantityType
-     * @param string $date
-     * @return array|null
      */
     protected static function getFromItemPrices(
         int $itemId,
@@ -156,7 +145,7 @@ class GetWarehousePriceForAllocation
             ->orderBy('start_date', 'desc')
             ->first();
 
-        if (!$result) {
+        if (! $result) {
             return null;
         }
 
@@ -177,7 +166,6 @@ class GetWarehousePriceForAllocation
     /**
      * 数量タイプに応じた item_partner_prices のフィールド名を返す
      *
-     * @param QuantityType $quantityType
      * @return array [purchase_field, tax_exempt_field]
      */
     protected static function getItemPartnerPriceFields(QuantityType $quantityType): array
@@ -192,7 +180,6 @@ class GetWarehousePriceForAllocation
     /**
      * 数量タイプに応じた item_prices のフィールド名を返す
      *
-     * @param QuantityType $quantityType
      * @return array [cost_field, tax_exempt_field]
      */
     protected static function getItemPriceFields(QuantityType $quantityType): array

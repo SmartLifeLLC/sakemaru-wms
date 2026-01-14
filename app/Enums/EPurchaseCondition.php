@@ -12,7 +12,7 @@ enum EPurchaseCondition: string
     case ARRIVAL_ONLY = 'ARRIVAL_ONLY';
     case DIRECT_DELIVERY_ONLY = 'DIRECT_DELIVERY_ONLY';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::ALL_PURCHASES => '全仕入',
@@ -21,7 +21,7 @@ enum EPurchaseCondition: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::ALL_PURCHASES => 0,

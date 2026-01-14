@@ -2,7 +2,6 @@
 
 namespace App\Models\Sakemaru;
 
-
 use Archilex\AdvancedTables\Concerns\HasViews;
 use Archilex\AdvancedTables\Support\Config;
 use Filament\Models\Contracts\FilamentUser;
@@ -18,11 +17,14 @@ class User extends Authenticatable implements FilamentUser
 {
     use HasViews;
 
-
     protected $connection = 'sakemaru';
+
     protected $table = 'users';
+
     protected $primaryKey = 'id';
+
     public $timestamps = false;
+
     /**
      * The attributes that are mass assignable.
      *
@@ -81,11 +83,13 @@ class User extends Authenticatable implements FilamentUser
     {
         return $this->belongsTo(Client::class);
     }
-    public function branch() : BelongsTo
+
+    public function branch(): BelongsTo
     {
-        return $this->belongsTo(Branch::class,'default_branch_id', 'id');
+        return $this->belongsTo(Branch::class, 'default_branch_id', 'id');
     }
-    public function warehouse() : BelongsTo
+
+    public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class, 'default_warehouse_id', 'id');
     }
@@ -103,6 +107,7 @@ class User extends Authenticatable implements FilamentUser
     protected function mainRole(): Attribute
     {
         $role = $this->roles->first()->display_name ?? '';
+
         return Attribute::make(
             get: fn () => $role ?: '',
         );
@@ -113,15 +118,16 @@ class User extends Authenticatable implements FilamentUser
         return with(new static)->getTable();
     }
 
-    public function newQuery() : Builder
+    public function newQuery(): Builder
     {
         $query = parent::newQuery();
-        $query = $query->where("users.is_active", true);
+        $query = $query->where('users.is_active', true);
+
         // 一時的に消す
-//        if (hasColumn($table_name, 'client_id') && !config('app.is_from_admin')) {
-//            $client_id = auth()->user()?->client_id;
-//            $query = $query->where("{$table_name}.client_id", $client_id);
-//        }
+        //        if (hasColumn($table_name, 'client_id') && !config('app.is_from_admin')) {
+        //            $client_id = auth()->user()?->client_id;
+        //            $query = $query->where("{$table_name}.client_id", $client_id);
+        //        }
         return $query;
     }
 
@@ -137,16 +143,16 @@ class User extends Authenticatable implements FilamentUser
 
     public static function deleteAllForClient($client_id): int
     {
-        \DB::table('model_has_roles')->whereIn('model_id',function($query) use ($client_id){
-            $query->select('id')->from('users')->where('client_id',$client_id);
+        \DB::table('model_has_roles')->whereIn('model_id', function ($query) use ($client_id) {
+            $query->select('id')->from('users')->where('client_id', $client_id);
         })->delete();
-        $query = \DB::table('users')->where('client_id',$client_id);
+        $query = \DB::table('users')->where('client_id', $client_id);
         $target_row_count = $query->count();
         $query->delete();
+
         return $target_row_count;
 
     }
-
 
     public function permissionShipRareItemAttribute($value): bool
     {
@@ -184,61 +190,61 @@ class User extends Authenticatable implements FilamentUser
         $managedDefaultViewsTable = 'wms_filament_filter_sets_managed_default_views';
 
         return Config::getUserView()::query()
-                ->select($columns)
-                ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
-                    // Use 'users' directly without prefix - users table doesn't have wms_ prefix
-                    $userTable = Config::getUserTable();
-                    $query->selectRaw('COUNT(' . $userTable . '.' . Config::getUserTableKeyColumn() . ')')
-                        ->from($pivotTable)
-                        ->join($userTable, $userTable . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
-                        ->whereColumn($pivotTable . '.filter_set_id', $userViewTable . '.id')
-                        ->where($pivotTable . '.user_id', Config::auth()->id());
-                }, 'is_managed_by_current_user')
-                ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
-                    $query->select('managed_user_views.id')
-                        ->from($pivotTable . ' as managed_user_views')
-                        ->whereColumn('managed_user_views.filter_set_id', $userViewTable . '.id')
-                        ->where('managed_user_views.user_id', Config::auth()->id())
+            ->select($columns)
+            ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
+                // Use 'users' directly without prefix - users table doesn't have wms_ prefix
+                $userTable = Config::getUserTable();
+                $query->selectRaw('COUNT('.$userTable.'.'.Config::getUserTableKeyColumn().')')
+                    ->from($pivotTable)
+                    ->join($userTable, $userTable.'.'.Config::getUserTableKeyColumn().'', '=', $pivotTable.'.user_id')
+                    ->whereColumn($pivotTable.'.filter_set_id', $userViewTable.'.id')
+                    ->where($pivotTable.'.user_id', Config::auth()->id());
+            }, 'is_managed_by_current_user')
+            ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
+                $query->select('managed_user_views.id')
+                    ->from($pivotTable.' as managed_user_views')
+                    ->whereColumn('managed_user_views.filter_set_id', $userViewTable.'.id')
+                    ->where('managed_user_views.user_id', Config::auth()->id())
+                    ->limit(1);
+            }, 'managed_by_current_user_id')
+            ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
+                $query->select('managed_user_views.sort_order')
+                    ->from($pivotTable.' as managed_user_views')
+                    ->whereColumn('managed_user_views.filter_set_id', $userViewTable.'.id')
+                    ->where('managed_user_views.user_id', Config::auth()->id())
+                    ->limit(1);
+            }, 'managed_by_current_user_sort_order')
+            ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
+                $query->select('managed_user_views.is_visible')
+                    ->from($pivotTable.' as managed_user_views')
+                    ->whereColumn('managed_user_views.filter_set_id', $userViewTable.'.id')
+                    ->where('managed_user_views.user_id', Config::auth()->id())
+                    ->limit(1);
+            }, 'managed_by_current_user_is_visible')
+            ->when(Config::managedDefaultViewsAreEnabled(), function ($query) use ($managedDefaultViewsTable, $userViewTable) {
+                $query->selectSub(function ($query) use ($managedDefaultViewsTable, $userViewTable) {
+                    $query->select('managed_default_views.id')
+                        ->from($managedDefaultViewsTable.' as managed_default_views')
+                        ->whereColumn('managed_default_views.view', $userViewTable.'.id')
+                        ->where('resource', $this->getResourceName())
+                        ->where('view_type', \Archilex\AdvancedTables\Enums\ViewType::UserView)
+                        ->where('managed_default_views.user_id', Config::auth()->id())
+                        ->when(Config::hasTenancy(), fn ($query) => $query->where('managed_default_views.tenant_id', Config::getTenantId()))
                         ->limit(1);
-                }, 'managed_by_current_user_id')
-                ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
-                    $query->select('managed_user_views.sort_order')
-                        ->from($pivotTable . ' as managed_user_views')
-                        ->whereColumn('managed_user_views.filter_set_id', $userViewTable . '.id')
-                        ->where('managed_user_views.user_id', Config::auth()->id())
-                        ->limit(1);
-                }, 'managed_by_current_user_sort_order')
-                ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
-                    $query->select('managed_user_views.is_visible')
-                        ->from($pivotTable . ' as managed_user_views')
-                        ->whereColumn('managed_user_views.filter_set_id', $userViewTable . '.id')
-                        ->where('managed_user_views.user_id', Config::auth()->id())
-                        ->limit(1);
-                }, 'managed_by_current_user_is_visible')
-                ->when(Config::managedDefaultViewsAreEnabled(), function ($query) use ($managedDefaultViewsTable, $userViewTable) {
-                    $query->selectSub(function ($query) use ($managedDefaultViewsTable, $userViewTable) {
-                        $query->select('managed_default_views.id')
-                            ->from($managedDefaultViewsTable . ' as managed_default_views')
-                            ->whereColumn('managed_default_views.view', $userViewTable . '.id')
-                            ->where('resource', $this->getResourceName())
-                            ->where('view_type', \Archilex\AdvancedTables\Enums\ViewType::UserView)
-                            ->where('managed_default_views.user_id', Config::auth()->id())
-                            ->when(Config::hasTenancy(), fn ($query) => $query->where('managed_default_views.tenant_id', Config::getTenantId()))
-                            ->limit(1);
-                    }, 'is_current_default');
-                })
-                ->where('resource', $this->getResourceName())
-                ->where(function ($query) {
-                    $query->managedByCurrentUser()
-                        ->orWhere(function ($query) {
-                            $query->global()->meetsMinimumStatus();
-                        })
-                        ->orWhere(function ($query) {
-                            $query->public()->meetsMinimumStatus();
-                        })
-                        ->orWhere('user_id', Config::auth()?->id());
-                })
-                ->get();
+                }, 'is_current_default');
+            })
+            ->where('resource', $this->getResourceName())
+            ->where(function ($query) {
+                $query->managedByCurrentUser()
+                    ->orWhere(function ($query) {
+                        $query->global()->meetsMinimumStatus();
+                    })
+                    ->orWhere(function ($query) {
+                        $query->public()->meetsMinimumStatus();
+                    })
+                    ->orWhere('user_id', Config::auth()?->id());
+            })
+            ->get();
     }
 
     /**
@@ -266,30 +272,30 @@ class User extends Authenticatable implements FilamentUser
             ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
                 // Use 'users' directly without prefix - users table doesn't have wms_ prefix
                 $userTable = Config::getUserTable();
-                $query->selectRaw('COUNT(' . $userTable . '.' . Config::getUserTableKeyColumn() . ')')
+                $query->selectRaw('COUNT('.$userTable.'.'.Config::getUserTableKeyColumn().')')
                     ->from($pivotTable)
-                    ->join($userTable, $userTable . '.' . Config::getUserTableKeyColumn() . '', '=', $pivotTable . '.user_id')
-                    ->whereColumn($pivotTable . '.filter_set_id', $userViewTable . '.id')
-                    ->where($pivotTable . '.user_id', Config::auth()->id());
+                    ->join($userTable, $userTable.'.'.Config::getUserTableKeyColumn().'', '=', $pivotTable.'.user_id')
+                    ->whereColumn($pivotTable.'.filter_set_id', $userViewTable.'.id')
+                    ->where($pivotTable.'.user_id', Config::auth()->id());
             }, 'is_managed_by_current_user')
             ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
                 $query->select('managed_user_views.id')
-                    ->from($pivotTable . ' as managed_user_views')
-                    ->whereColumn('managed_user_views.filter_set_id', $userViewTable . '.id')
+                    ->from($pivotTable.' as managed_user_views')
+                    ->whereColumn('managed_user_views.filter_set_id', $userViewTable.'.id')
                     ->where('managed_user_views.user_id', Config::auth()->id())
                     ->limit(1);
             }, 'managed_by_current_user_id')
             ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
                 $query->select('managed_user_views.sort_order')
-                    ->from($pivotTable . ' as managed_user_views')
-                    ->whereColumn('managed_user_views.filter_set_id', $userViewTable . '.id')
+                    ->from($pivotTable.' as managed_user_views')
+                    ->whereColumn('managed_user_views.filter_set_id', $userViewTable.'.id')
                     ->where('managed_user_views.user_id', Config::auth()->id())
                     ->limit(1);
             }, 'managed_by_current_user_sort_order')
             ->selectSub(function ($query) use ($pivotTable, $userViewTable) {
                 $query->select('managed_user_views.is_visible')
-                    ->from($pivotTable . ' as managed_user_views')
-                    ->whereColumn('managed_user_views.filter_set_id', $userViewTable . '.id')
+                    ->from($pivotTable.' as managed_user_views')
+                    ->whereColumn('managed_user_views.filter_set_id', $userViewTable.'.id')
                     ->where('managed_user_views.user_id', Config::auth()->id())
                     ->limit(1);
             }, 'managed_by_current_user_is_visible')
@@ -311,10 +317,8 @@ class User extends Authenticatable implements FilamentUser
             ->get();
     }
 
-
     public function canAccessPanel(\Filament\Panel $panel): bool
     {
         return true;
     }
-
 }

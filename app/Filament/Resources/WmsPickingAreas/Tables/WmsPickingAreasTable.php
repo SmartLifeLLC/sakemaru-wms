@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickingAreas\Tables;
 
+use App\Enums\PaginationOptions;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -9,7 +10,6 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 use Illuminate\Support\Facades\DB;
 
 class WmsPickingAreasTable
@@ -28,6 +28,7 @@ class WmsPickingAreasTable
                             ->table('warehouses')
                             ->where('id', $state)
                             ->first();
+
                         return $warehouse ? $warehouse->name : $state;
                     })
                     ->searchable()

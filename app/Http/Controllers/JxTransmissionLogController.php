@@ -21,8 +21,8 @@ class JxTransmissionLogController extends Controller
         // ディスクとパスを解析
         [$disk, $path] = $this->parseDiskAndPath($log);
 
-        if (!Storage::disk($disk)->exists($path)) {
-            abort(404, 'ファイルが見つかりません: ' . $path);
+        if (! Storage::disk($disk)->exists($path)) {
+            abort(404, 'ファイルが見つかりません: '.$path);
         }
 
         // ファイル名を生成

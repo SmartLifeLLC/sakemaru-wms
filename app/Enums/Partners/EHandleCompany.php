@@ -11,7 +11,7 @@ enum EHandleCompany: string
     case CLIENT = 'CLIENT';
     case PARTNER = 'PARTNER';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::CLIENT => '自社負担',
@@ -19,7 +19,7 @@ enum EHandleCompany: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::CLIENT => 0,

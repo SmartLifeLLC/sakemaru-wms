@@ -18,8 +18,11 @@ class WmsPickingTask extends Model
 
     // Status constants
     public const STATUS_PENDING = 'PENDING';
+
     public const STATUS_PICKING_READY = 'PICKING_READY';
+
     public const STATUS_PICKING = 'PICKING';
+
     public const STATUS_COMPLETED = 'COMPLETED';
 
     protected $fillable = [
@@ -56,7 +59,7 @@ class WmsPickingTask extends Model
     protected static function booted(): void
     {
         static::updated(function (WmsPickingTask $task) {
-            if (!$task->isDirty('status')) {
+            if (! $task->isDirty('status')) {
                 return;
             }
 
@@ -72,7 +75,7 @@ class WmsPickingTask extends Model
                     ->toArray();
 
                 // 取得したearningのpicking_statusをPICKINGに更新
-                if (!empty($earningIds)) {
+                if (! empty($earningIds)) {
                     DB::connection('sakemaru')
                         ->table('earnings')
                         ->whereIn('id', $earningIds)
@@ -124,7 +127,7 @@ class WmsPickingTask extends Model
                 }
 
                 // 全てのタスクが完了しているearningのpicking_statusをCOMPLETEDに更新
-                if (!empty($completableEarningIds)) {
+                if (! empty($completableEarningIds)) {
                     DB::connection('sakemaru')
                         ->table('earnings')
                         ->whereIn('id', $completableEarningIds)

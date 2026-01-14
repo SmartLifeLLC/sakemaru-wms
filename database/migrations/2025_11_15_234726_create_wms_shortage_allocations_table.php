@@ -29,7 +29,7 @@ return new class extends Migration
                 'PICKING',      // ピッキング中
                 'FULFILLED',    // 完了
                 'SHORTAGE',     // 代理側でも欠品
-                'CANCELLED'     // キャンセル
+                'CANCELLED',     // キャンセル
             ])->default('PENDING')->comment('代理出荷ステータス');
 
             $table->unsignedBigInteger('created_by')->default(0)->comment('作成者');

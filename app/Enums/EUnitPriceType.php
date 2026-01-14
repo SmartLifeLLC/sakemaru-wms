@@ -13,7 +13,7 @@ enum EUnitPriceType: string
     case PURCHASE_CASE_SALE_CASE = 'PURCHASE_CASE_SALE_CASE';
     case PURCHASE_UNIT_SALE_CASE = 'PURCHASE_UNIT_SALE_CASE';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::PURCHASE_UNIT_SALE_UNIT => '仕バラ_売バラ',
@@ -23,7 +23,7 @@ enum EUnitPriceType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::PURCHASE_UNIT_SALE_UNIT => 0,

@@ -12,10 +12,10 @@ class PrintRequestService
     /**
      * 配送コース別に伝票印刷依頼を作成
      *
-     * @param int $deliveryCourseId 配送コースID
-     * @param string $shipmentDate 納品日
-     * @param int $warehouseId 倉庫ID
-     * @param int|null $waveId ウェーブID (Optional)
+     * @param  int  $deliveryCourseId  配送コースID
+     * @param  string  $shipmentDate  納品日
+     * @param  int  $warehouseId  倉庫ID
+     * @param  int|null  $waveId  ウェーブID (Optional)
      * @return array ['success' => bool, 'message' => string, 'queue_id' => int|null]
      */
     public function createPrintRequest(int $deliveryCourseId, string $shipmentDate, int $warehouseId, ?int $waveId = null): array
@@ -29,7 +29,7 @@ class PrintRequestService
                 ->where('is_active', true)
                 ->first();
 
-            if (!$printerSetting) {
+            if (! $printerSetting) {
                 return [
                     'success' => false,
                     'message' => '配送コースにプリンターが設定されていません。',
@@ -62,7 +62,7 @@ class PrintRequestService
             $earningIds = [];
             foreach ($tasks as $task) {
                 foreach ($task->pickingItemResults as $itemResult) {
-                    if ($itemResult->earning_id && !in_array($itemResult->earning_id, $earningIds)) {
+                    if ($itemResult->earning_id && ! in_array($itemResult->earning_id, $earningIds)) {
                         $earningIds[] = $itemResult->earning_id;
                     }
                 }
@@ -82,7 +82,7 @@ class PrintRequestService
                 ->where('id', $earningIds[0])
                 ->value('client_id');
 
-            if (!$clientId) {
+            if (! $clientId) {
                 return [
                     'success' => false,
                     'message' => 'クライアントIDが取得できません。',
@@ -123,7 +123,7 @@ class PrintRequestService
 
             return [
                 'success' => false,
-                'message' => '印刷依頼の作成に失敗しました: ' . $e->getMessage(),
+                'message' => '印刷依頼の作成に失敗しました: '.$e->getMessage(),
                 'queue_id' => null,
             ];
         }

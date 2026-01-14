@@ -73,20 +73,35 @@ class WmsContractorSetting extends WmsModel
     public function getTransmissionDaysLabelAttribute(): string
     {
         $days = [];
-        if ($this->is_transmission_sun) $days[] = '日';
-        if ($this->is_transmission_mon) $days[] = '月';
-        if ($this->is_transmission_tue) $days[] = '火';
-        if ($this->is_transmission_wed) $days[] = '水';
-        if ($this->is_transmission_thu) $days[] = '木';
-        if ($this->is_transmission_fri) $days[] = '金';
-        if ($this->is_transmission_sat) $days[] = '土';
+        if ($this->is_transmission_sun) {
+            $days[] = '日';
+        }
+        if ($this->is_transmission_mon) {
+            $days[] = '月';
+        }
+        if ($this->is_transmission_tue) {
+            $days[] = '火';
+        }
+        if ($this->is_transmission_wed) {
+            $days[] = '水';
+        }
+        if ($this->is_transmission_thu) {
+            $days[] = '木';
+        }
+        if ($this->is_transmission_fri) {
+            $days[] = '金';
+        }
+        if ($this->is_transmission_sat) {
+            $days[] = '土';
+        }
 
         return empty($days) ? '-' : implode('・', $days);
     }
 
     /**
      * 指定された曜日に送信するかどうか
-     * @param int $dayOfWeek 0=日, 1=月, ..., 6=土
+     *
+     * @param  int  $dayOfWeek  0=日, 1=月, ..., 6=土
      */
     public function shouldTransmitOn(int $dayOfWeek): bool
     {

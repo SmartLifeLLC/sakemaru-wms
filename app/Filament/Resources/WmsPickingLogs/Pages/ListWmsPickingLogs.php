@@ -4,7 +4,6 @@ namespace App\Filament\Resources\WmsPickingLogs\Pages;
 
 use App\Filament\Resources\WmsPickingLogs\WmsPickingLogResource;
 use Filament\Resources\Pages\ListRecords;
-use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
 class ListWmsPickingLogs extends ListRecords

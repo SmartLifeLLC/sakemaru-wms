@@ -9,5 +9,6 @@ class PartnerSlip extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 }

@@ -6,7 +6,6 @@ use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WaveSetting;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 
 class GenerateWaveSettingsCommand extends Command
 {
@@ -35,12 +34,13 @@ class GenerateWaveSettingsCommand extends Command
         // Get warehouses
         $warehouses = Warehouse::query()
             ->where('is_active', true)
-            ->when($warehouseId, fn($q) => $q->where('id', $warehouseId))
+            ->when($warehouseId, fn ($q) => $q->where('id', $warehouseId))
             ->orderBy('code')
             ->get();
 
         if ($warehouses->isEmpty()) {
             $this->error('No active warehouses found!');
+
             return 1;
         }
 
@@ -70,6 +70,7 @@ class GenerateWaveSettingsCommand extends Command
 
             if ($courses->isEmpty()) {
                 $this->warn("  ⚠️  No active delivery courses found for warehouse {$warehouse->code}");
+
                 continue;
             }
 
@@ -86,6 +87,7 @@ class GenerateWaveSettingsCommand extends Command
 
                     if ($exists) {
                         $this->line("    ⏭️  Skipped: Course {$course->code} @ {$slot['start']} (already exists)");
+
                         continue;
                     }
 
@@ -108,7 +110,7 @@ class GenerateWaveSettingsCommand extends Command
             $this->newLine();
         }
 
-        $this->info("Wave settings generation completed!");
+        $this->info('Wave settings generation completed!');
         $this->info("Total created: {$totalCreated} settings");
 
         return 0;

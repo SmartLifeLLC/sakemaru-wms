@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\WmsPickingTask;
-use App\Models\WmsPickingItemResult;
-use App\Models\WmsWarehouseLayout;
 use App\Models\Sakemaru\Location;
+use App\Models\WmsPickingItemResult;
+use App\Models\WmsPickingTask;
+use App\Models\WmsWarehouseLayout;
 use App\Services\Picking\AStarGrid;
 use App\Services\Picking\FrontPointCalculator;
 use Illuminate\Http\Request;
@@ -17,7 +17,6 @@ class PickingRouteController extends Controller
     /**
      * Get picking route data for visualization
      *
-     * @param Request $request
      * @return \Illuminate\Http\JsonResponse
      */
     public function getPickingRoute(Request $request)
@@ -161,9 +160,7 @@ class PickingRouteController extends Controller
     /**
      * Calculate route paths between locations using A* algorithm
      *
-     * @param int $warehouseId
-     * @param int $floorId
-     * @param \Illuminate\Support\Collection $pickingItems
+     * @param  \Illuminate\Support\Collection  $pickingItems
      * @return array Array of path segments with coordinates
      */
     private function calculateRoutePaths(int $warehouseId, int $floorId, $pickingItems): array
@@ -173,7 +170,7 @@ class PickingRouteController extends Controller
             ->where('floor_id', $floorId)
             ->first();
 
-        if (!$layout) {
+        if (! $layout) {
             return [];
         }
 
@@ -197,6 +194,7 @@ class PickingRouteController extends Controller
 
         if (empty($orderedLocationIds)) {
             \Log::warning('Empty location IDs in calculateRoutePaths');
+
             return [];
         }
 
@@ -214,7 +212,7 @@ class PickingRouteController extends Controller
 
         // Create Walkable object from walkable_areas if available
         $walkable = null;
-        if (!empty($layout->walkable_areas)) {
+        if (! empty($layout->walkable_areas)) {
             $walkable = new \App\Services\Picking\Walkable($layout->walkable_areas);
             \Log::info('Using walkable_areas for pathfinding', [
                 'polygon_count' => count($layout->walkable_areas),
@@ -252,7 +250,7 @@ class PickingRouteController extends Controller
             $firstPoint = $frontPointCalculator->computeFrontPoint($firstLocation);
             $result = $aStar->shortest($startPoint, $firstPoint);
 
-            if (!empty($result['path'])) {
+            if (! empty($result['path'])) {
                 $paths[] = [
                     'from' => 'START',
                     'to' => $firstLocationId,
@@ -291,7 +289,7 @@ class PickingRouteController extends Controller
 
                 $result = $aStar->shortest($fromPoint, $toPoint);
 
-                if (!empty($result['path'])) {
+                if (! empty($result['path'])) {
                     $paths[] = [
                         'from' => $fromLocationId,
                         'to' => $toLocationId,
@@ -324,7 +322,7 @@ class PickingRouteController extends Controller
             $previousPoint) {
             $result = $aStar->shortest($previousPoint, $endPoint);
 
-            if (!empty($result['path'])) {
+            if (! empty($result['path'])) {
                 $lastLocationId = $orderedLocationIds[count($orderedLocationIds) - 1];
                 $paths[] = [
                     'from' => $lastLocationId,
@@ -355,7 +353,6 @@ class PickingRouteController extends Controller
     /**
      * Get walkable areas for visualization
      *
-     * @param Request $request
      * @return \Illuminate\Http\JsonResponse
      */
     public function getWalkableAreas(Request $request)
@@ -381,7 +378,7 @@ class PickingRouteController extends Controller
             ->where('floor_id', $floorId)
             ->first();
 
-        if (!$layout || empty($layout->walkable_areas)) {
+        if (! $layout || empty($layout->walkable_areas)) {
             return response()->json([
                 'success' => true,
                 'data' => [

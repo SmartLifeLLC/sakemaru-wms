@@ -10,7 +10,7 @@ enum UploadFileType: string
 
     case S3 = 'S3';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::S3 => 'S3'

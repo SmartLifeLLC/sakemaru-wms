@@ -2,13 +2,13 @@
 
 namespace App\Console\Commands;
 
-use App\Models\WmsShortage;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
 class GenerateTestShortages extends Command
 {
     protected $signature = 'test:generate-shortages {count=1000}';
+
     protected $description = 'Generate test shortage records for performance testing';
 
     public function handle()
@@ -25,14 +25,15 @@ class GenerateTestShortages extends Command
 
         if (empty($waveIds) || empty($warehouseIds) || empty($itemIds) || empty($tradeIds)) {
             $this->error('Not enough master data available!');
+
             return 1;
         }
 
         $this->info('Available data:');
-        $this->info("  Waves: " . count($waveIds));
-        $this->info("  Warehouses: " . count($warehouseIds));
-        $this->info("  Items: " . count($itemIds));
-        $this->info("  Trades: " . count($tradeIds));
+        $this->info('  Waves: '.count($waveIds));
+        $this->info('  Warehouses: '.count($warehouseIds));
+        $this->info('  Items: '.count($itemIds));
+        $this->info('  Trades: '.count($tradeIds));
 
         $bar = $this->output->createProgressBar($count);
         $bar->start();
@@ -75,7 +76,7 @@ class GenerateTestShortages extends Command
             }
 
             // Insert remaining records
-            if (!empty($records)) {
+            if (! empty($records)) {
                 DB::connection('sakemaru')->table('wms_shortages')->insert($records);
                 $bar->advance(count($records));
             }

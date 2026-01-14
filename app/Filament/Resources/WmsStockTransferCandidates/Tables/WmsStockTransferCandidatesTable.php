@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsStockTransferCandidates\Tables;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
@@ -20,7 +21,6 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 use Illuminate\Database\Eloquent\Collection;
 
 class WmsStockTransferCandidatesTable
@@ -154,7 +154,7 @@ class WmsStockTransferCandidatesTable
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(collect(CandidateStatus::cases())->mapWithKeys(fn ($status) => [
-                        $status->value => $status->label()
+                        $status->value => $status->label(),
                     ])),
 
                 SelectFilter::make('satellite_warehouse_id')
@@ -167,7 +167,7 @@ class WmsStockTransferCandidatesTable
                         ->orderBy('code')
                         ->get()
                         ->mapWithKeys(fn ($contractor) => [
-                            $contractor->id => "[{$contractor->code}]{$contractor->name}"
+                            $contractor->id => "[{$contractor->code}]{$contractor->name}",
                         ]))
                     ->searchable()
                     ->getSearchResultsUsing(function (string $search): array {
@@ -183,7 +183,7 @@ class WmsStockTransferCandidatesTable
                             ->limit(50)
                             ->get()
                             ->mapWithKeys(fn ($contractor) => [
-                                $contractor->id => "[{$contractor->code}]{$contractor->name}"
+                                $contractor->id => "[{$contractor->code}]{$contractor->name}",
                             ])
                             ->toArray();
                     }),
@@ -213,7 +213,7 @@ class WmsStockTransferCandidatesTable
                         'transfer_quantity' => $record->transfer_quantity,
                     ])
                     ->schema(function (?WmsStockTransferCandidate $record): array {
-                        if (!$record) {
+                        if (! $record) {
                             return [];
                         }
 
@@ -227,8 +227,12 @@ class WmsStockTransferCandidatesTable
                         $capacityText = '-';
                         if ($item) {
                             $parts = [];
-                            if ($item->capacity_case) $parts[] = "ケース: {$item->capacity_case}";
-                            if ($item->capacity_carton) $parts[] = "ボール: {$item->capacity_carton}";
+                            if ($item->capacity_case) {
+                                $parts[] = "ケース: {$item->capacity_case}";
+                            }
+                            if ($item->capacity_carton) {
+                                $parts[] = "ボール: {$item->capacity_carton}";
+                            }
                             $capacityText = implode(' / ', $parts) ?: '-';
                         }
 
@@ -256,7 +260,7 @@ class WmsStockTransferCandidatesTable
                                                 ->viewData([
                                                     'suggestedQuantity' => $record->suggested_quantity ?? 0,
                                                     'transferQuantity' => $record->transfer_quantity ?? 0,
-                                                    'hasCalculationLog' => !empty($details),
+                                                    'hasCalculationLog' => ! empty($details),
                                                     'formula' => $details['formula'] ?? '-',
                                                     'effectiveStock' => $details['effective_stock'] ?? 0,
                                                     'incomingStock' => $details['incoming_stock'] ?? 0,

@@ -34,7 +34,7 @@ class ClientPrinterCourseSettingForm
                                     ->where('is_active', true)
                                     ->where(function ($query) use ($search) {
                                         $query->where('name', 'like', "%{$search}%")
-                                              ->orWhere('code', 'like', "%{$search}%");
+                                            ->orWhere('code', 'like', "%{$search}%");
                                     })
                                     ->selectRaw("id, CONCAT(code, ' - ', name) as label")
                                     ->pluck('label', 'id')
@@ -75,7 +75,7 @@ class ClientPrinterCourseSettingForm
                                     ->where('warehouse_id', $warehouseId)
                                     ->where(function ($query) use ($search) {
                                         $query->where('name', 'like', "%{$search}%")
-                                              ->orWhere('code', 'like', "%{$search}%");
+                                            ->orWhere('code', 'like', "%{$search}%");
                                     })
                                     ->selectRaw("id, CONCAT(code, ' - ', name) as label")
                                     ->pluck('label', 'id')
@@ -115,7 +115,7 @@ class ClientPrinterCourseSettingForm
                                     ->where('is_active', true)
                                     ->where(function ($query) use ($search) {
                                         $query->where('name', 'like', "%{$search}%")
-                                              ->orWhere('code', 'like', "%{$search}%");
+                                            ->orWhere('code', 'like', "%{$search}%");
                                     })
                                     ->selectRaw("id, CONCAT(name, ' #', printer_index) as label")
                                     ->pluck('label', 'id')

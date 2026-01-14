@@ -3,13 +3,11 @@
 namespace App\Filament\Resources\WmsShipmentSlips;
 
 use App\Enums\EMenu;
-use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsShipmentSlips\Pages\ListWmsShipmentSlips;
 use App\Filament\Resources\WmsShipmentSlips\Tables\WmsShipmentSlipsTable;
 use App\Models\WmsPickingTask;
 use BackedEnum;
 use Filament\Resources\Resource;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
@@ -19,7 +17,7 @@ class WmsShipmentSlipsResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentText;
 
-    protected static ?string $navigationLabel = '出荷伝票管理';
+    protected static ?string $navigationLabel = '出荷確定/伝票出力';
 
     protected static ?string $modelLabel = '出荷伝票';
 

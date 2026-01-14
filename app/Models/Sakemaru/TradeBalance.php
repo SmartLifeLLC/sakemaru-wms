@@ -8,9 +8,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class TradeBalance extends CustomModel
 {
     use HasFactory;
+
     protected $guarded = [];
+
     protected $casts = [
-        'amount' => 'int'
+        'amount' => 'int',
     ];
 
     public function trade(): BelongsTo

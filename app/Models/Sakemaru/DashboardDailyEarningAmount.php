@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Models\Sakemaru;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+
 use Illuminate\Database\Eloquent\Model;
 
 class DashboardDailyEarningAmount extends Model
@@ -11,6 +11,6 @@ class DashboardDailyEarningAmount extends Model
     protected $fillable = [
         'client_id',
         'target_date',
-        'amount'
+        'amount',
     ];
 }

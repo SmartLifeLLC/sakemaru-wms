@@ -2,10 +2,9 @@
 
 namespace App\Enums;
 
-
 use App\Traits\EnumExtensionTrait;
 
-enum DocumentPrinterStatusType : string
+enum DocumentPrinterStatusType: string
 {
     use EnumExtensionTrait;
 
@@ -14,9 +13,9 @@ enum DocumentPrinterStatusType : string
     case END = 'END';
     case FAILURE = 'FAILURE';
 
-    public function name() : string
+    public function name(): string
     {
-        return match($this) {
+        return match ($this) {
             self::STANDBY => '待機',
             self::START => '開始',
             self::END => '終了',
@@ -26,7 +25,7 @@ enum DocumentPrinterStatusType : string
 
     public function color(): BadgeColor
     {
-        return match($this) {
+        return match ($this) {
             self::STANDBY => BadgeColor::INDIGO,
             self::START => BadgeColor::PRIMARY,
             self::END => BadgeColor::GREEN,

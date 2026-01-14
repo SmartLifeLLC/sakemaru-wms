@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsPickerAttendance\Tables;
 
+use App\Enums\PaginationOptions;
 use App\Enums\PickerSkillLevel;
 use App\Models\WmsPicker;
 use Filament\Actions\BulkAction;
@@ -16,8 +17,6 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
-use App\Enums\PaginationOptions;
-
 
 class WmsPickerAttendanceTable
 {
@@ -53,7 +52,7 @@ class WmsPickerAttendanceTable
 
                 TextColumn::make('picking_speed_rate')
                     ->label('作業速度')
-                    ->formatStateUsing(fn ($state) => $state ? number_format($state, 2) . 'x' : '-')
+                    ->formatStateUsing(fn ($state) => $state ? number_format($state, 2).'x' : '-')
                     ->sortable()
                     ->alignCenter(),
 
@@ -117,7 +116,7 @@ class WmsPickerAttendanceTable
 
                             Notification::make()
                                 ->title('出勤倉庫を設定しました')
-                                ->body($records->count() . '名のピッカーの出勤倉庫を設定し、稼働可にしました。')
+                                ->body($records->count().'名のピッカーの出勤倉庫を設定し、稼働可にしました。')
                                 ->success()
                                 ->send();
                         })
@@ -137,7 +136,7 @@ class WmsPickerAttendanceTable
 
                             Notification::make()
                                 ->title('稼働状況を更新しました')
-                                ->body($records->count() . '名のピッカーを稼働ONにしました。')
+                                ->body($records->count().'名のピッカーを稼働ONにしました。')
                                 ->success()
                                 ->send();
                         })
@@ -160,7 +159,7 @@ class WmsPickerAttendanceTable
 
                             Notification::make()
                                 ->title('稼働状況を更新しました')
-                                ->body($records->count() . '名のピッカーを稼働OFFにしました。')
+                                ->body($records->count().'名のピッカーを稼働OFFにしました。')
                                 ->success()
                                 ->send();
                         })

@@ -11,7 +11,7 @@ enum ECreditManagementControl: string
     case WARNING = 'WARNING';
     case PROHIBITION = 'PROHIBITION';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::WARNING => '警告',
@@ -19,7 +19,7 @@ enum ECreditManagementControl: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::WARNING => 1,

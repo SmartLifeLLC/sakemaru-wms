@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class PrintRequestQueue extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'print_request_queue';
 
     protected $fillable = [
@@ -29,11 +30,15 @@ class PrintRequestQueue extends Model
 
     // Status constants
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_PROCESSING = 'processing';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_FAILED = 'failed';
 
     // Print type constants
     public const PRINT_TYPE_CLIENT_SLIP = 'CLIENT_SLIP';
+
     public const PRINT_TYPE_CLIENT_SLIP_PRINTER = 'CLIENT_SLIP_PRINTER';
 }

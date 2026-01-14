@@ -2,7 +2,6 @@
 
 namespace App\Services\Shortage;
 
-use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
 use Illuminate\Support\Facades\DB;
@@ -17,8 +16,7 @@ class ShortageConfirmationCancelService
     /**
      * 欠品対応確定を取り消す
      *
-     * @param WmsShortage $shortage 欠品レコード
-     * @return void
+     * @param  WmsShortage  $shortage  欠品レコード
      */
     public function cancel(WmsShortage $shortage): void
     {
@@ -55,20 +53,17 @@ class ShortageConfirmationCancelService
      * ピッキングタスクのステータスを更新
      * 全アイテムがis_ready_to_shipment = falseの場合、
      * タスクのステータスをPICKINGに戻す
-     *
-     * @param WmsPickingTask|null $task
-     * @return void
      */
     protected function updatePickingTaskStatus(?WmsPickingTask $task): void
     {
-        if (!$task) {
+        if (! $task) {
             return;
         }
 
         // タスクに属する全てのピッキング結果を取得
         $allResults = $task->pickingItemResults;
 
-        if (!$allResults || $allResults->isEmpty()) {
+        if (! $allResults || $allResults->isEmpty()) {
             return;
         }
 

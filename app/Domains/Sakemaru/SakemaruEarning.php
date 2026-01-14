@@ -6,6 +6,6 @@ class SakemaruEarning extends SakemaruModel
 {
     protected static function postUrl(): string
     {
-        return static::baseUrl() . '/earnings';
+        return static::baseUrl().'/earnings';
     }
 }

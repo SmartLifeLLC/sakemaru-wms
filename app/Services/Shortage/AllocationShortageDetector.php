@@ -15,17 +15,11 @@ class AllocationShortageDetector
     /**
      * 引当処理後に欠品を検出して記録
      *
-     * @param int $waveId
-     * @param int $warehouseId
-     * @param int $itemId
-     * @param int $tradeId
-     * @param int $tradeItemId
-     * @param int $orderQty 受注数量（受注単位ベース）
-     * @param int $reservedQty 引当数量（受注単位ベース）
-     * @param string $qtyTypeAtOrder 受注単位 (CASE, PIECE, CARTON)
-     * @param int $caseSizeSnap ケース入数のスナップショット
-     * @param int|null $sourceReservationId 元引当レコードID（トレーサビリティ用）
-     * @return WmsShortage|null
+     * @param  int  $orderQty  受注数量（受注単位ベース）
+     * @param  int  $reservedQty  引当数量（受注単位ベース）
+     * @param  string  $qtyTypeAtOrder  受注単位 (CASE, PIECE, CARTON)
+     * @param  int  $caseSizeSnap  ケース入数のスナップショット
+     * @param  int|null  $sourceReservationId  元引当レコードID（トレーサビリティ用）
      */
     public function detectAndRecord(
         int $waveId,

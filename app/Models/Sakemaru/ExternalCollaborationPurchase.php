@@ -2,13 +2,14 @@
 
 namespace App\Models\Sakemaru;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ExternalCollaborationPurchase extends CustomModel
 {
     protected bool $is_active_activate = false;
+
     protected $guarded = [];
+
     protected $casts = [
         'log' => 'json',
     ];
@@ -33,7 +34,7 @@ class ExternalCollaborationPurchase extends CustomModel
         return $this->belongsTo(StockAllocation::class);
     }
 
-    public function trade() : BelongsTo
+    public function trade(): BelongsTo
     {
         return $this->belongsTo(Trade::class);
     }

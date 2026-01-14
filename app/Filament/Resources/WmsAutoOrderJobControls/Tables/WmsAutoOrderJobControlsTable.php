@@ -4,10 +4,10 @@ namespace App\Filament\Resources\WmsAutoOrderJobControls\Tables;
 
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\JobStatus;
+use App\Enums\PaginationOptions;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 
 class WmsAutoOrderJobControlsTable
 {

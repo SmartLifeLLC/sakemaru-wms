@@ -17,8 +17,11 @@ use Illuminate\Support\Facades\Storage;
 class JxDocumentReceiver
 {
     protected JxClient $client;
+
     protected WmsOrderJxSetting $setting;
+
     protected string $storageDisk = 's3';
+
     protected string $storageDirectory = 'jx-received';
 
     public function __construct(WmsOrderJxSetting $setting)
@@ -33,6 +36,7 @@ class JxDocumentReceiver
     public function setStorageDisk(string $disk): self
     {
         $this->storageDisk = $disk;
+
         return $this;
     }
 
@@ -42,6 +46,7 @@ class JxDocumentReceiver
     public function setStorageDirectory(string $directory): self
     {
         $this->storageDirectory = $directory;
+
         return $this;
     }
 
@@ -97,12 +102,14 @@ class JxDocumentReceiver
                 'error' => $getResult->error,
                 'message_id' => $getResult->messageId,
             ]);
+
             return null;
         }
 
         // 2. ドキュメントの有無を確認
-        if (!$getResult->hasDocument()) {
+        if (! $getResult->hasDocument()) {
             Log::info('JX GetDocument: No document available');
+
             return null;
         }
 
@@ -170,7 +177,7 @@ class JxDocumentReceiver
     protected function extractDocument(JxClientResult $result): JxReceivedDocument
     {
         $compressType = $result->getCompressType();
-        $shouldDecompress = !empty($compressType) && strtolower($compressType) === 'gzip';
+        $shouldDecompress = ! empty($compressType) && strtolower($compressType) === 'gzip';
 
         $data = $result->getDecodedAndDecompressedData($shouldDecompress);
 

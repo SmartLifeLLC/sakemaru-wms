@@ -3,22 +3,21 @@
 namespace App\Models\Sakemaru;
 
 use App\Enums\DeliveryStatus;
-use App\Enums\Partners\EMiscellaneousCollectionType;
 use App\Enums\PrintType;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Earning extends CustomModel
 {
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     protected PrintType $checklist_print_type = PrintType::EARNING_CHECK;
+
     protected PrintType $direct_checklist_print_type = PrintType::EARNING_DIRECT_CHECK;
 
     public function trade(): BelongsTo
@@ -46,12 +45,12 @@ class Earning extends CustomModel
         return $this->belongsTo(DeliveredType::class);
     }
 
-    public function direct_purchase() : BelongsTo
+    public function direct_purchase(): BelongsTo
     {
         return $this->belongsTo(Purchase::class, 'direct_purchase_id', 'id');
     }
 
-    public function deliveryStatus() : Attribute
+    public function deliveryStatus(): Attribute
     {
         return new Attribute(function () {
             return DeliveryStatus::getFromEarning($this)->name();

@@ -22,8 +22,9 @@ class CalendarGenerationService
     {
         $setting = WmsWarehouseHolidaySetting::where('warehouse_id', $warehouseId)->first();
 
-        if (!$setting) {
-            Log::warning("Holiday setting not found for warehouse", ['warehouse_id' => $warehouseId]);
+        if (! $setting) {
+            Log::warning('Holiday setting not found for warehouse', ['warehouse_id' => $warehouseId]);
+
             return 0;
         }
 
@@ -62,6 +63,7 @@ class CalendarGenerationService
                 // 手動変更がある場合はスキップ
                 if (isset($manualOverrides[$dateString])) {
                     $date->addDay();
+
                     continue;
                 }
 
@@ -75,7 +77,7 @@ class CalendarGenerationService
                 }
 
                 // 祝日チェック
-                if (!$isHoliday && $setting->is_national_holiday_closed && isset($nationalHolidays[$dateString])) {
+                if (! $isHoliday && $setting->is_national_holiday_closed && isset($nationalHolidays[$dateString])) {
                     $isHoliday = true;
                     $reason = $nationalHolidays[$dateString];
                 }
@@ -97,7 +99,7 @@ class CalendarGenerationService
             }
         });
 
-        Log::info("Calendar generated for warehouse", [
+        Log::info('Calendar generated for warehouse', [
             'warehouse_id' => $warehouseId,
             'processed_count' => $processedCount,
         ]);
@@ -148,7 +150,7 @@ class CalendarGenerationService
             $count++;
         }
 
-        Log::info("National holidays generated", [
+        Log::info('National holidays generated', [
             'year' => $year,
             'count' => $count,
         ]);
