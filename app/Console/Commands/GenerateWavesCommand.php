@@ -132,8 +132,9 @@ class GenerateWavesCommand extends Command
                     ->whereIn('trade_id', $tradeIds)
                     ->get();
 
-                // Create earning_id lookup for each trade_item
+                // Create earning_id and buyer_id lookup for each trade_item
                 $tradeIdToEarningId = $earnings->pluck('id', 'trade_id')->toArray();
+                $tradeIdToBuyerId = $earnings->pluck('buyer_id', 'trade_id')->toArray();
 
                 // Group trade items by (floor_id, picking_area_id)
                 // We determine the floor and picking area by reserving stock first
@@ -141,8 +142,9 @@ class GenerateWavesCommand extends Command
                 $reservationResults = [];
 
                 foreach ($tradeItems as $tradeItem) {
-                    // Get earning_id for this trade_item
+                    // Get earning_id and buyer_id for this trade_item
                     $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
+                    $buyerId = $tradeIdToBuyerId[$tradeItem->trade_id] ?? null;
                     if (! $earningId) {
                         continue; // Skip if no matching earning found
                     }
@@ -156,7 +158,8 @@ class GenerateWavesCommand extends Command
                         $tradeItem->quantity,
                         $tradeItem->quantity_type ?? 'PIECE',
                         $earningId,
-                        'EARNING'
+                        'EARNING',
+                        $buyerId
                     );
 
                     // Get primary location and real_stock from first reservation

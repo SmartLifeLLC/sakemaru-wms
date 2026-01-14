@@ -3,9 +3,6 @@
 namespace App\Filament\Resources\Waves\Tables;
 
 use App\Enums\PaginationOptions;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -20,25 +17,42 @@ class WavesTable
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('wave_no')
-                    ->label('Wave No')
+                    ->label('波動番号')
                     ->searchable()
                     ->sortable(),
 
-                TextColumn::make('waveSetting.warehouse_id')
-                    ->label('Warehouse')
+                TextColumn::make('waveSetting.warehouse.code')
+                    ->label('倉庫コード')
                     ->sortable(),
 
-                TextColumn::make('waveSetting.delivery_course_id')
-                    ->label('Delivery Course')
+                TextColumn::make('waveSetting.warehouse.name')
+                    ->label('倉庫名')
+                    ->sortable(),
+
+                TextColumn::make('waveSetting.deliveryCourse.code')
+                    ->label('配送コースコード')
+                    ->sortable(),
+
+                TextColumn::make('waveSetting.deliveryCourse.name')
+                    ->label('配送コース名')
                     ->sortable(),
 
                 TextColumn::make('shipping_date')
-                    ->label('Shipping Date')
-                    ->date()
+                    ->label('出荷日')
+                    ->date('Y年m月d日')
                     ->sortable(),
 
                 TextColumn::make('status')
+                    ->label('出荷状況')
                     ->badge()
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'PENDING' => '未出荷',
+                        'PICKING' => 'ピッキング中',
+                        'SHORTAGE' => '欠品あり',
+                        'COMPLETED' => '出荷完了',
+                        'CLOSED' => 'クローズ',
+                        default => $state,
+                    })
                     ->color(fn (string $state): string => match ($state) {
                         'PENDING' => 'gray',
                         'PICKING' => 'info',
@@ -50,34 +64,30 @@ class WavesTable
                     ->sortable(),
 
                 TextColumn::make('created_at')
-                    ->label('Created')
+                    ->label('作成日時')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('updated_at')
-                    ->label('Updated')
+                    ->label('更新日時')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('status')
+                    ->label('出荷状況')
                     ->options([
-                        'PENDING' => 'Pending',
-                        'PICKING' => 'Picking',
-                        'SHORTAGE' => 'Shortage',
-                        'COMPLETED' => 'Completed',
-                        'CLOSED' => 'Closed',
+                        'PENDING' => '未出荷',
+                        'PICKING' => 'ピッキング中',
+                        'SHORTAGE' => '欠品あり',
+                        'COMPLETED' => '出荷完了',
+                        'CLOSED' => 'クローズ',
                     ]),
             ])
             ->recordActions([
-                EditAction::make(),
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
+                // 編集・削除は不可
             ])
             ->defaultSort('created_at', 'desc');
     }

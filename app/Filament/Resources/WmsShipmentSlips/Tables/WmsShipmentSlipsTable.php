@@ -128,15 +128,9 @@ class WmsShipmentSlipsTable
             ->recordActions([
                 Action::make('print')
                     ->label(function (WmsPickingTask $record) {
-                        $systemDate = ClientSetting::systemDate();
-                        $approvalService = app(ShortageApprovalService::class);
-                        $printability = $approvalService->checkPrintability(
-                            $record->delivery_course_id,
-                            $systemDate->format('Y-m-d'),
-                            $record->wave_id
-                        );
+                        $printCount = $record->wave->print_count ?? 0;
 
-                        return $printability['can_print'] ? '印刷' : '強制印刷';
+                        return $printCount === 0 ? '出荷確定(伝票印刷)' : '伝票再印刷';
                     })
                     ->icon('heroicon-o-printer')
                     ->color(function (WmsPickingTask $record) {
@@ -152,15 +146,9 @@ class WmsShipmentSlipsTable
                     })
                     ->requiresConfirmation()
                     ->modalHeading(function (WmsPickingTask $record) {
-                        $systemDate = ClientSetting::systemDate();
-                        $approvalService = app(ShortageApprovalService::class);
-                        $printability = $approvalService->checkPrintability(
-                            $record->delivery_course_id,
-                            $systemDate->format('Y-m-d'),
-                            $record->wave_id
-                        );
+                        $printCount = $record->wave->print_count ?? 0;
 
-                        return $printability['can_print'] ? '出荷伝票印刷' : '強制印刷';
+                        return $printCount === 0 ? '出荷確定(伝票印刷)' : '伝票再印刷';
                     })
                     ->modalDescription(function (WmsPickingTask $record) {
                         $systemDate = ClientSetting::systemDate();
@@ -180,15 +168,9 @@ class WmsShipmentSlipsTable
                         return 'この配送コースの伝票を印刷します。';
                     })
                     ->modalSubmitActionLabel(function (WmsPickingTask $record) {
-                        $systemDate = ClientSetting::systemDate();
-                        $approvalService = app(ShortageApprovalService::class);
-                        $printability = $approvalService->checkPrintability(
-                            $record->delivery_course_id,
-                            $systemDate->format('Y-m-d'),
-                            $record->wave_id
-                        );
+                        $printCount = $record->wave->print_count ?? 0;
 
-                        return $printability['can_print'] ? '印刷' : '強制印刷';
+                        return $printCount === 0 ? '出荷確定(伝票印刷)' : '伝票再印刷';
                     })
                     ->action(function (WmsPickingTask $record) {
                         $systemDate = ClientSetting::systemDate();
@@ -235,9 +217,13 @@ class WmsShipmentSlipsTable
                             $task->increment('print_requested_count');
                         }
 
-                        // Waveの印刷回数をインクリメント
+                        // Waveの印刷回数をインクリメント、初回出荷確定時はstatusをCOMPLETEDに更新
                         if ($record->wave) {
+                            $isFirstPrint = $record->wave->print_count === 0;
                             $record->wave->increment('print_count');
+                            if ($isFirstPrint) {
+                                $record->wave->update(['status' => 'COMPLETED']);
+                            }
                         }
 
                         $title = $printability['can_print'] ? '印刷依頼' : '強制印刷依頼';
@@ -251,31 +237,39 @@ class WmsShipmentSlipsTable
                     }),
             ], position: RecordActionsPosition::BeforeColumns)
             ->checkIfRecordIsSelectableUsing(function (WmsPickingTask $record): bool {
-                $systemDate = ClientSetting::systemDate();
-                $approvalService = app(ShortageApprovalService::class);
-                $printability = $approvalService->checkPrintability(
-                    $record->delivery_course_id,
-                    $systemDate->format('Y-m-d'),
-                    $record->wave_id
-                );
+                // 印刷回数0のみチェックボックスを表示（出荷確定のみ一括処理可能）
+                $printCount = $record->wave->print_count ?? 0;
 
-                return $printability['can_print'];
+                return $printCount === 0;
             })
             ->bulkActions([
                 BulkAction::make('bulkPrint')
-                    ->label('一括印刷')
+                    ->label('一括出荷確定')
                     ->icon('heroicon-o-printer')
                     ->color('primary')
                     ->requiresConfirmation()
-                    ->modalHeading('一括印刷')
+                    ->modalHeading('一括出荷確定')
                     ->modalDescription(function (Collection $records): \Illuminate\Support\HtmlString|string {
                         $systemDate = ClientSetting::systemDate();
                         $approvalService = app(ShortageApprovalService::class);
 
                         $printableCount = 0;
+                        $alreadyPrintedRecords = [];
                         $forcePrintRecords = [];
 
                         foreach ($records as $record) {
+                            // 既に出荷確定済み（印刷回数1以上）はスキップ対象
+                            $printCount = $record->wave->print_count ?? 0;
+                            if ($printCount > 0) {
+                                $alreadyPrintedRecords[] = [
+                                    'course_code' => $record->delivery_course_code,
+                                    'course_name' => $record->deliveryCourse?->name ?? '-',
+                                    'print_count' => $printCount,
+                                ];
+
+                                continue;
+                            }
+
                             $printability = $approvalService->checkPrintability(
                                 $record->delivery_course_id,
                                 $systemDate->format('Y-m-d'),
@@ -293,47 +287,73 @@ class WmsShipmentSlipsTable
                             }
                         }
 
-                        if (empty($forcePrintRecords)) {
-                            return "選択された {$records->count()} 件の配送コースの伝票を印刷します。";
+                        if (empty($alreadyPrintedRecords) && empty($forcePrintRecords)) {
+                            return "選択された {$records->count()} 件の配送コースを出荷確定します。";
                         }
 
-                        // 強制印刷が必要なものがある場合
                         $html = '<div class="space-y-4">';
 
                         if ($printableCount > 0) {
                             $html .= '<div class="text-success-600 dark:text-success-400">';
-                            $html .= "印刷可能: {$printableCount} 件";
+                            $html .= "出荷確定可能: {$printableCount} 件";
                             $html .= '</div>';
                         }
 
-                        $html .= '<div class="text-danger-600 dark:text-danger-400 font-medium">';
-                        $html .= '以下の配送コースは強制印刷が必要なため、一括印刷できません:';
-                        $html .= '</div>';
+                        // 既に出荷確定済み
+                        if (! empty($alreadyPrintedRecords)) {
+                            $html .= '<div class="text-warning-600 dark:text-warning-400 font-medium">';
+                            $html .= '以下は既に出荷確定済みのため、対象外です（個別に再印刷してください）:';
+                            $html .= '</div>';
 
-                        $html .= '<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-40 overflow-y-auto">';
-                        $html .= '<table class="w-full text-sm">';
-                        $html .= '<thead><tr class="text-left text-gray-500 dark:text-gray-400">';
-                        $html .= '<th class="pb-2">コード</th><th class="pb-2">配送コース名</th><th class="pb-2">理由</th>';
-                        $html .= '</tr></thead><tbody>';
+                            $html .= '<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-32 overflow-y-auto">';
+                            $html .= '<table class="w-full text-sm">';
+                            $html .= '<thead><tr class="text-left text-gray-500 dark:text-gray-400">';
+                            $html .= '<th class="pb-2">コード</th><th class="pb-2">配送コース名</th><th class="pb-2">印刷回数</th>';
+                            $html .= '</tr></thead><tbody>';
 
-                        foreach ($forcePrintRecords as $fp) {
-                            $html .= '<tr class="border-t border-gray-200 dark:border-gray-700">';
-                            $html .= '<td class="py-1">'.e($fp['course_code']).'</td>';
-                            $html .= '<td class="py-1">'.e(mb_substr($fp['course_name'], 0, 15)).'</td>';
-                            $html .= '<td class="py-1 text-danger-600">'.e(mb_substr($fp['error'], 0, 20)).'</td>';
-                            $html .= '</tr>';
+                            foreach ($alreadyPrintedRecords as $ap) {
+                                $html .= '<tr class="border-t border-gray-200 dark:border-gray-700">';
+                                $html .= '<td class="py-1">'.e($ap['course_code']).'</td>';
+                                $html .= '<td class="py-1">'.e(mb_substr($ap['course_name'], 0, 15)).'</td>';
+                                $html .= '<td class="py-1">'.e($ap['print_count']).'回</td>';
+                                $html .= '</tr>';
+                            }
+
+                            $html .= '</tbody></table>';
+                            $html .= '</div>';
                         }
 
-                        $html .= '</tbody></table>';
-                        $html .= '</div>';
+                        // 強制印刷が必要なもの
+                        if (! empty($forcePrintRecords)) {
+                            $html .= '<div class="text-danger-600 dark:text-danger-400 font-medium">';
+                            $html .= '以下は強制印刷が必要なため、一括出荷確定できません:';
+                            $html .= '</div>';
+
+                            $html .= '<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-32 overflow-y-auto">';
+                            $html .= '<table class="w-full text-sm">';
+                            $html .= '<thead><tr class="text-left text-gray-500 dark:text-gray-400">';
+                            $html .= '<th class="pb-2">コード</th><th class="pb-2">配送コース名</th><th class="pb-2">理由</th>';
+                            $html .= '</tr></thead><tbody>';
+
+                            foreach ($forcePrintRecords as $fp) {
+                                $html .= '<tr class="border-t border-gray-200 dark:border-gray-700">';
+                                $html .= '<td class="py-1">'.e($fp['course_code']).'</td>';
+                                $html .= '<td class="py-1">'.e(mb_substr($fp['course_name'], 0, 15)).'</td>';
+                                $html .= '<td class="py-1 text-danger-600">'.e(mb_substr($fp['error'], 0, 20)).'</td>';
+                                $html .= '</tr>';
+                            }
+
+                            $html .= '</tbody></table>';
+                            $html .= '</div>';
+                        }
 
                         if ($printableCount > 0) {
                             $html .= '<div class="text-sm text-gray-600 dark:text-gray-400">';
-                            $html .= "印刷可能な {$printableCount} 件のみ印刷されます。";
+                            $html .= "出荷確定可能な {$printableCount} 件のみ処理されます。";
                             $html .= '</div>';
                         } else {
                             $html .= '<div class="text-sm text-danger-600 dark:text-danger-400">';
-                            $html .= '印刷可能な配送コースがありません。';
+                            $html .= '出荷確定可能な配送コースがありません。';
                             $html .= '</div>';
                         }
 
@@ -341,18 +361,27 @@ class WmsShipmentSlipsTable
 
                         return new \Illuminate\Support\HtmlString($html);
                     })
-                    ->modalSubmitActionLabel('一括印刷')
+                    ->modalSubmitActionLabel('一括出荷確定')
                     ->action(function (Collection $records): void {
                         $systemDate = ClientSetting::systemDate();
                         $printService = app(PrintRequestService::class);
                         $approvalService = app(ShortageApprovalService::class);
                         $successCount = 0;
                         $skippedCount = 0;
+                        $alreadyPrintedCount = 0;
                         $errorCount = 0;
                         $totalEarnings = 0;
                         $totalTasks = 0;
 
                         foreach ($records as $record) {
+                            // 既に出荷確定済み（印刷回数1以上）はスキップ
+                            $printCount = $record->wave->print_count ?? 0;
+                            if ($printCount > 0) {
+                                $alreadyPrintedCount++;
+
+                                continue;
+                            }
+
                             // 印刷可能かチェック（強制印刷が必要なものはスキップ）
                             $printability = $approvalService->checkPrintability(
                                 $record->delivery_course_id,
@@ -391,9 +420,13 @@ class WmsShipmentSlipsTable
                                         $task->increment('print_requested_count');
                                     }
 
-                                    // Waveの印刷回数をインクリメント
+                                    // Waveの印刷回数をインクリメント、初回出荷確定時はstatusをCOMPLETEDに更新
                                     if ($record->wave) {
+                                        $isFirstPrint = $record->wave->print_count === 0;
                                         $record->wave->increment('print_count');
+                                        if ($isFirstPrint) {
+                                            $record->wave->update(['status' => 'COMPLETED']);
+                                        }
                                     }
 
                                     $successCount++;
@@ -407,17 +440,30 @@ class WmsShipmentSlipsTable
                             }
                         }
 
-                        if ($successCount === 0 && $skippedCount > 0) {
+                        $totalSkipped = $skippedCount + $alreadyPrintedCount;
+
+                        if ($successCount === 0 && $totalSkipped > 0) {
+                            $reasons = [];
+                            if ($alreadyPrintedCount > 0) {
+                                $reasons[] = "{$alreadyPrintedCount}件は出荷確定済み";
+                            }
+                            if ($skippedCount > 0) {
+                                $reasons[] = "{$skippedCount}件は強制印刷が必要";
+                            }
+
                             Notification::make()
-                                ->title('印刷できません')
-                                ->body("選択された {$skippedCount} 件はすべて強制印刷が必要です。個別に強制印刷してください。")
+                                ->title('出荷確定できません')
+                                ->body('選択されたすべての配送コースが対象外です。'.implode('、', $reasons).'。')
                                 ->danger()
                                 ->send();
 
                             return;
                         }
 
-                        $message = "印刷依頼完了: {$successCount}件成功";
+                        $message = "出荷確定完了: {$successCount}件成功";
+                        if ($alreadyPrintedCount > 0) {
+                            $message .= "、{$alreadyPrintedCount}件スキップ（出荷確定済み）";
+                        }
                         if ($skippedCount > 0) {
                             $message .= "、{$skippedCount}件スキップ（強制印刷必要）";
                         }
@@ -427,7 +473,7 @@ class WmsShipmentSlipsTable
                         $message .= "（売上{$totalEarnings}件、タスク{$totalTasks}件）";
 
                         Notification::make()
-                            ->title('一括印刷')
+                            ->title('一括出荷確定')
                             ->body($message)
                             ->success()
                             ->send();

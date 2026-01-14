@@ -32,6 +32,7 @@ class StockAllocationService
      * @param  string  $quantityType  Order quantity type (CASE|PIECE|CARTON)
      * @param  int  $sourceId  Source record ID (earning_id or trade_item_id)
      * @param  string  $sourceType  Source type (EARNING|TRADE_ITEM)
+     * @param  int|null  $buyerId  Buyer ID for lot restriction check (null = no restriction)
      * @return array ['allocated' => int, 'shortage' => int, 'elapsed_ms' => float, 'race_count' => int]
      */
     public function allocateForItem(
@@ -41,7 +42,8 @@ class StockAllocationService
         int $needQty,
         string $quantityType,
         int $sourceId,
-        string $sourceType = 'EARNING'
+        string $sourceType = 'EARNING',
+        ?int $buyerId = null
     ): array {
         $startTime = microtime(true);
         $lockKey = "alloc:{$warehouseId}:{$itemId}";
@@ -72,7 +74,8 @@ class StockAllocationService
                 $quantityType,
                 $sourceId,
                 $sourceType,
-                $startTime
+                $startTime,
+                $buyerId
             );
         } finally {
             DbMutex::release($lockKey, 'sakemaru');
@@ -90,7 +93,8 @@ class StockAllocationService
         string $quantityType,
         int $sourceId,
         string $sourceType,
-        float $startTime
+        float $startTime,
+        ?int $buyerId = null
     ): array {
         $totalAllocated = 0;
         $raceCount = 0;
@@ -123,7 +127,8 @@ class StockAllocationService
                 $usesExpiration,
                 $quantityFlag,
                 self::BATCH_SIZE,
-                $offset
+                $offset,
+                $buyerId
             );
 
             if ($candidates->isEmpty()) {
@@ -233,6 +238,8 @@ class StockAllocationService
     /**
      * Get candidate stocks for allocation
      * real_stock_lots経由でlocation, expiration_date, price等を取得
+     *
+     * @param  int|null  $buyerId  Buyer ID for lot restriction check (null = no restriction)
      */
     protected function getCandidateStocks(
         int $warehouseId,
@@ -240,7 +247,8 @@ class StockAllocationService
         bool $usesExpiration,
         AvailableQuantityFlag $quantityFlag,
         int $limit,
-        int $offset
+        int $offset,
+        ?int $buyerId = null
     ): \Illuminate\Support\Collection {
         $query = DB::connection('sakemaru')
             ->table('real_stocks as rs')
@@ -252,16 +260,36 @@ class StockAllocationService
             ->join('locations as l', 'l.id', '=', 'rsl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
-            ->whereRaw("(l.available_quantity_flags & {$quantityFlag->value}) != 0")
-            ->select([
-                'rs.id as real_stock_id',
-                'rsl.id as lot_id',
-                'rsl.location_id',
-                'rsl.purchase_id',
-                'rsl.expiration_date',
-                'rsl.price as unit_cost',
-                DB::raw('(rsl.current_quantity - rsl.reserved_quantity) as available_quantity'),
-            ]);
+            ->whereRaw("(l.available_quantity_flags & {$quantityFlag->value}) != 0");
+
+        // Apply buyer restriction filter if buyerId is provided
+        if ($buyerId !== null) {
+            $query->where(function ($q) use ($buyerId) {
+                // ロットに制限がない場合は全得意先に販売可能
+                $q->whereNotExists(function ($subQuery) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('real_stock_lot_buyer_restrictions')
+                        ->whereColumn('real_stock_lot_buyer_restrictions.real_stock_lot_id', 'rsl.id');
+                })
+                // または制限があり、対象得意先が許可されている場合
+                    ->orWhereExists(function ($subQuery) use ($buyerId) {
+                        $subQuery->select(DB::raw(1))
+                            ->from('real_stock_lot_buyer_restrictions')
+                            ->whereColumn('real_stock_lot_buyer_restrictions.real_stock_lot_id', 'rsl.id')
+                            ->where('real_stock_lot_buyer_restrictions.buyer_id', $buyerId);
+                    });
+            });
+        }
+
+        $query->select([
+            'rs.id as real_stock_id',
+            'rsl.id as lot_id',
+            'rsl.location_id',
+            'rsl.purchase_id',
+            'rsl.expiration_date',
+            'rsl.price as unit_cost',
+            DB::raw('(rsl.current_quantity - rsl.reserved_quantity) as available_quantity'),
+        ]);
 
         // Order by FEFO or FIFO
         if ($usesExpiration) {

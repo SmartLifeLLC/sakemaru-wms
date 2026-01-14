@@ -17,7 +17,7 @@ class WmsShipmentSlipsResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentText;
 
-    protected static ?string $navigationLabel = '出荷伝票管理';
+    protected static ?string $navigationLabel = '出荷確定/伝票出力';
 
     protected static ?string $modelLabel = '出荷伝票';
 

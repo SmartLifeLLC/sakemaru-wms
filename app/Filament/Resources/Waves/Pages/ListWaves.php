@@ -3,13 +3,13 @@
 namespace App\Filament\Resources\Waves\Pages;
 
 use App\Filament\Resources\Waves\WaveResource;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Wave;
 use App\Models\WaveSetting;
 use App\Services\StockAllocationService;
 use Filament\Actions\Action;
-use Filament\Actions\CreateAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
@@ -38,12 +38,13 @@ class ListWaves extends ListRecords
                     Select::make('warehouse_id')
                         ->label('倉庫')
                         ->options(Warehouse::query()->pluck('name', 'id'))
+                        ->default(fn () => auth()->user()?->default_warehouse_id)
                         ->required()
                         ->live(),
 
                     DatePicker::make('shipping_date')
                         ->label('出荷日')
-                        ->default(now()->format('Y-m-d'))
+                        ->default(fn () => ClientSetting::systemDate()->format('Y-m-d'))
                         ->required()
                         ->live(),
 
@@ -115,8 +116,6 @@ class ListWaves extends ListRecords
                 ->action(function (array $data): void {
                     $this->generateManualWave($data);
                 }),
-
-            CreateAction::make(),
         ];
     }
 
@@ -255,8 +254,9 @@ class ListWaves extends ListRecords
             ->whereIn('trade_id', $tradeIds)
             ->get();
 
-        // Create earning_id lookup
+        // Create earning_id and buyer_id lookup
         $tradeIdToEarningId = $earnings->pluck('id', 'trade_id')->toArray();
+        $tradeIdToBuyerId = $earnings->pluck('buyer_id', 'trade_id')->toArray();
 
         // Group items and allocate stock
         $itemsByGroup = [];
@@ -264,6 +264,7 @@ class ListWaves extends ListRecords
 
         foreach ($tradeItems as $tradeItem) {
             $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
+            $buyerId = $tradeIdToBuyerId[$tradeItem->trade_id] ?? null;
             if (! $earningId) {
                 continue;
             }
@@ -277,7 +278,8 @@ class ListWaves extends ListRecords
                 $tradeItem->quantity,
                 $tradeItem->quantity_type ?? 'PIECE',
                 $earningId,
-                'EARNING'
+                'EARNING',
+                $buyerId
             );
 
             // Get primary reservation
