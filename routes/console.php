@@ -19,6 +19,14 @@ Artisan::command('inspire', function () {
 |
 */
 
+// 月別安全在庫の同期 (毎日 4:30)
+// ※ スナップショット前に実行し、当月の発注点を反映
+Schedule::command('wms:sync-monthly-safety-stocks')
+    ->dailyAt('04:30')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->appendOutputTo(storage_path('logs/auto-order-monthly-safety-stocks.log'));
+
 // 在庫スナップショット生成 (毎日 5:00)
 Schedule::command('wms:snapshot-stocks')
     ->dailyAt('05:00')

@@ -6,6 +6,7 @@ use App\Enums\EMenu;
 use App\Filament\Resources\RealStocks\Pages\CreateRealStock;
 use App\Filament\Resources\RealStocks\Pages\EditRealStock;
 use App\Filament\Resources\RealStocks\Pages\ListRealStocks;
+use App\Filament\Resources\RealStocks\Pages\ViewRealStock;
 use App\Filament\Resources\RealStocks\Schemas\RealStockForm;
 use App\Filament\Resources\RealStocks\Tables\RealStocksTable;
 use App\Models\Sakemaru\RealStock;
@@ -63,6 +64,7 @@ class RealStockResource extends Resource
         return [
             'index' => ListRealStocks::route('/'),
             'create' => CreateRealStock::route('/create'),
+            'view' => ViewRealStock::route('/{record}'),
             'edit' => EditRealStock::route('/{record}/edit'),
         ];
     }

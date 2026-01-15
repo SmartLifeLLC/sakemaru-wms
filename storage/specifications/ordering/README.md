@@ -2,7 +2,7 @@
 
 自動発注システム（Auto Ordering System）の統合仕様書
 
-**最終更新**: 2026-01-12
+**最終更新**: 2026-01-15
 
 ---
 
@@ -22,14 +22,14 @@ Multi-Echelon（多段階供給）構造に対応し、INTERNAL（倉庫間移�
    │              │
    ▼              ▼
 ┌────────┐    ┌────────┐
-│中央倉庫│    │ 地域   │     Level 2 (EXTERNAL発注)
-│  (本社)│    │センター│
+│中央倉庫 │     │ 地域   │     Level 2 (EXTERNAL発注)
+│  (本社) │    │センター │
 └───┬────┘    └───┬────┘
     │ INTERNAL    │
   ┌─┴─┐         ┌─┴─┐
   ▼   ▼         ▼   ▼
 ┌───┐┌───┐   ┌───┐┌───┐
-│東京││大阪│   │福岡││札幌│   Level 1 (INTERNAL移動)
+│東京││大阪│  │福岡││札幌│   Level 1 (INTERNAL移動)
 │DC ││DC │   │DC ││DC │
 └───┘└───┘   └───┘└───┘
 ```
@@ -40,6 +40,52 @@ Multi-Echelon（多段階供給）構造に対応し、INTERNAL（倉庫間移�
 |--------|------|--------|
 | INTERNAL | 倉庫間移動 | `wms_stock_transfer_candidates` |
 | EXTERNAL | 外部発注 | `wms_order_candidates` |
+
+### 2.3 仮想倉庫の在庫管理
+
+倉庫には実倉庫（`is_virtual=false`）と仮想倉庫（`is_virtual=true`）が存在する。
+仮想倉庫は `stock_warehouse_id` で親となる実倉庫を参照する。
+
+#### 基本方針
+
+1. **仮想倉庫も在庫を持てる**
+   - 仮想倉庫でも `real_stocks` に在庫レコードを持つことができる
+   - 在庫の引当・出荷は仮想倉庫単位で行われる
+
+2. **発注は実倉庫に集約**
+   - 発注計算時、仮想倉庫の発注需要は親の実倉庫に集約される
+   - 発注先への発注は実倉庫単位で行われる
+
+3. **入荷時の在庫振り分け**
+   - 物理的な入荷は実倉庫で行われる
+   - 発注内容に基づき、入荷在庫を仮想倉庫に振り分ける
+   - 発注確定後、入荷予定は仮想倉庫単位で作成される
+
+4. **HUB倉庫からの横持ち**
+   - HUB倉庫への移動依頼分は、入荷処理は拠点倉庫側で行う
+   - 移動候補の入荷予定は依頼元の仮想倉庫で作成
+
+#### 処理フロー
+
+```
+【発注計算時】
+仮想倉庫A (需要50) ─┐
+仮想倉庫B (需要30) ─┼→ 実倉庫X (集約需要80) → 発注候補80個
+仮想倉庫C (需要0)  ─┘
+
+【発注確定時】
+発注80個 (実倉庫X)
+    │
+    ├→ 入荷予定: 仮想倉庫A 50個
+    ├→ 入荷予定: 仮想倉庫B 30個
+    └→ (仮想倉庫Cは需要0のため対象外)
+
+【入荷時】
+実倉庫Xに80個入荷（物理）
+    │
+    ├→ 仮想倉庫A在庫 +50
+    └→ 仮想倉庫B在庫 +30
+```
 
 ---
 
@@ -212,7 +258,55 @@ php artisan wms:transmit-orders [--batch-code=] [--dry-run]
 
 ---
 
-## 11. 今後の課題
+## 11. 月別発注点管理
+
+季節変動に対応するため、発注点（安全在庫）を月別に管理する機能。
+
+### 11.1 テーブル
+
+| テーブル | 説明 |
+|---------|------|
+| `wms_monthly_safety_stocks` | 月別発注点設定 |
+| `item_contractors.use_safety_stock_auto_update` | 自動更新フラグ（trueのみ同期対象） |
+
+### 11.2 処理フロー
+
+```
+分析システム → CSVエクスポート → WMSにインポート → wms_monthly_safety_stocks
+                                                              ↓
+                                               日次バッチ(04:30)
+                                                              ↓
+                                               item_contractors.safety_stock更新
+                                                              ↓
+                                               発注計算(06:00)で使用
+```
+
+### 11.3 関連コマンド
+
+```bash
+# 月別発注点を item_contractors に同期
+php artisan wms:sync-monthly-safety-stocks
+
+# 特定月を指定して同期
+php artisan wms:sync-monthly-safety-stocks --month=1
+
+# ドライラン（更新なし）
+php artisan wms:sync-monthly-safety-stocks --dry-run
+```
+
+### 11.4 CSVフォーマット
+
+```csv
+item_code,warehouse_code,contractor_code,month,safety_stock
+10001,WH001,CNT001,1,100
+10001,WH001,CNT001,2,150
+```
+
+詳細は `csv-export-guide.md` を参照。
+
+---
+
+## 12. 今後の課題
 
 1. **Lotルール適用ロジック**
    - ケース単位切上げ
@@ -230,7 +324,7 @@ php artisan wms:transmit-orders [--batch-code=] [--dry-run]
 
 ---
 
-## 12. 旧仕様書
+## 13. 旧仕様書
 
 詳細な設計資料は `old/ordering/` に移動:
 - `2025-12-13-wms-auto-ordering-1.md` - 初期仕様書

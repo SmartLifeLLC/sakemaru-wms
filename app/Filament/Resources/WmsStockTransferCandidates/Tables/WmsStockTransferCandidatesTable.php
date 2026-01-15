@@ -90,6 +90,13 @@ class WmsStockTransferCandidatesTable
                     ->toggleable()
                     ->width('120px'),
 
+                TextColumn::make('safety_stock')
+                    ->label('発注点')
+                    ->state(fn ($record) => $record->safety_stock ?? '-')
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('60px'),
+
                 TextColumn::make('suggested_quantity')
                     ->label('算出数')
                     ->numeric()
@@ -261,12 +268,12 @@ class WmsStockTransferCandidatesTable
                                                     'suggestedQuantity' => $record->suggested_quantity ?? 0,
                                                     'transferQuantity' => $record->transfer_quantity ?? 0,
                                                     'hasCalculationLog' => ! empty($details),
-                                                    'formula' => $details['formula'] ?? '-',
-                                                    'effectiveStock' => $details['effective_stock'] ?? 0,
-                                                    'incomingStock' => $details['incoming_stock'] ?? 0,
-                                                    'safetyStock' => $details['safety_stock'] ?? 0,
-                                                    'calculatedAvailable' => $details['calculated_available'] ?? 0,
-                                                    'shortageQty' => $details['shortage_qty'] ?? 0,
+                                                    'formula' => $details['計算式'] ?? '-',
+                                                    'effectiveStock' => $details['有効在庫'] ?? 0,
+                                                    'incomingStock' => $details['入庫予定数'] ?? 0,
+                                                    'safetyStock' => $details['安全在庫'] ?? 0,
+                                                    'calculatedAvailable' => $details['利用可能在庫'] ?? 0,
+                                                    'shortageQty' => $details['不足数'] ?? 0,
                                                 ]),
 
                                             Section::make('移動数変更')

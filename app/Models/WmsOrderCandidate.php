@@ -74,6 +74,25 @@ class WmsOrderCandidate extends WmsModel
         return $this->belongsTo(Contractor::class);
     }
 
+    /**
+     * 計算ログを取得（複合キーのため手動取得）
+     */
+    public function getCalculationLogAttribute(): ?WmsOrderCalculationLog
+    {
+        return WmsOrderCalculationLog::where('batch_code', $this->batch_code)
+            ->where('warehouse_id', $this->warehouse_id)
+            ->where('item_id', $this->item_id)
+            ->first();
+    }
+
+    /**
+     * 発注点（安全在庫）を取得
+     */
+    public function getSafetyStockAttribute(): ?int
+    {
+        return $this->calculationLog?->calculation_details['安全在庫'] ?? null;
+    }
+
     public function scopeForBatch(Builder $query, string $batchCode): Builder
     {
         return $query->where('batch_code', $batchCode);

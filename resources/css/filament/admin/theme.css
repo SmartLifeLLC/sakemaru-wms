@@ -370,3 +370,74 @@ html.fi {
     width: 140px !important;
     min-width: 140px !important;
 }
+
+/* トップメニュー（トップバー）の高さを半分に */
+.fi-topbar {
+    height: 2.5rem !important;
+    min-height: 2.5rem !important;
+}
+
+.fi-topbar > nav {
+    height: 2.5rem !important;
+    min-height: 2.5rem !important;
+}
+
+.fi-topbar-item {
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+}
+
+/* ロゴサイズを調整 */
+.fi-topbar .fi-logo,
+.fi-topbar [class*="logo"] {
+    height: 1.5rem !important;
+    max-height: 1.5rem !important;
+}
+
+.fi-topbar .fi-logo img,
+.fi-topbar [class*="logo"] img {
+    height: 1.5rem !important;
+    max-height: 1.5rem !important;
+    width: auto !important;
+}
+
+/* トップバー内のテキストサイズを調整 */
+.fi-topbar .fi-brand,
+.fi-topbar a,
+.fi-topbar span,
+.fi-topbar button {
+    font-size: 0.75rem !important;
+    line-height: 1rem !important;
+}
+
+/* トップバー内のボタン・アイコンサイズを調整 */
+.fi-topbar button,
+.fi-topbar .fi-icon-btn {
+    padding: 0.25rem !important;
+}
+
+.fi-topbar svg {
+    width: 1rem !important;
+    height: 1rem !important;
+}
+
+/* ユーザーメニュー等のドロップダウントリガー調整 */
+.fi-topbar .fi-dropdown-trigger {
+    padding: 0.25rem 0.5rem !important;
+}
+
+/* サイドバーの開閉ボタン調整 */
+.fi-topbar .fi-sidebar-toggle {
+    padding: 0.25rem !important;
+}
+
+/* トップバーの内側余白調整 */
+.fi-topbar > nav > div {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+/* トップバー直下のメインコンテンツのマージン調整 */
+.fi-topbar ~ .fi-main-ctn {
+    padding-top: 2.5rem !important;
+}
