@@ -85,6 +85,13 @@ class WmsOrderCandidatesTable
                     ->toggleable()
                     ->width('120px'),
 
+                TextColumn::make('safety_stock')
+                    ->label('発注点')
+                    ->state(fn ($record) => $record->safety_stock ?? '-')
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('60px'),
+
                 TextColumn::make('self_shortage_qty')
                     ->label('倉庫不足')
                     ->numeric()
@@ -275,16 +282,16 @@ class WmsOrderCandidatesTable
                                                     'satelliteDemandQty' => $record->satellite_demand_qty ?? 0,
                                                     'suggestedQuantity' => $record->suggested_quantity ?? 0,
                                                     'hasCalculationLog' => ! empty($details),
-                                                    'formula' => $details['formula'] ?? '-',
-                                                    'effectiveStock' => $details['effective_stock'] ?? 0,
-                                                    'incomingStock' => $details['incoming_stock'] ?? 0,
-                                                    'hasTransferIncoming' => isset($details['transfer_incoming']),
-                                                    'transferIncoming' => $details['transfer_incoming'] ?? 0,
-                                                    'hasTransferOutgoing' => isset($details['transfer_outgoing']),
-                                                    'transferOutgoing' => $details['transfer_outgoing'] ?? 0,
-                                                    'safetyStock' => $details['safety_stock'] ?? 0,
-                                                    'calculatedAvailable' => $details['calculated_available'] ?? 0,
-                                                    'shortageQty' => $details['shortage_qty'] ?? 0,
+                                                    'formula' => $details['計算式'] ?? '-',
+                                                    'effectiveStock' => $details['有効在庫'] ?? 0,
+                                                    'incomingStock' => $details['入庫予定数'] ?? 0,
+                                                    'hasTransferIncoming' => isset($details['移動入庫予定']),
+                                                    'transferIncoming' => $details['移動入庫予定'] ?? 0,
+                                                    'hasTransferOutgoing' => isset($details['移動出庫予定']),
+                                                    'transferOutgoing' => $details['移動出庫予定'] ?? 0,
+                                                    'safetyStock' => $details['安全在庫'] ?? 0,
+                                                    'calculatedAvailable' => $details['利用可能在庫'] ?? 0,
+                                                    'shortageQty' => $details['不足数'] ?? 0,
                                                 ]),
 
                                             Section::make('発注数変更')

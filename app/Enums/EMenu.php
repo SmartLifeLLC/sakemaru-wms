@@ -41,6 +41,7 @@ enum EMenu: string
     case WAREHOUSE_CONTRACTORS = 'master.warehouse_contractors';
     case CONTRACTORS = 'master.contractors';
     case ITEM_CONTRACTORS = 'master.item_contractors';
+    case WMS_MONTHLY_SAFETY_STOCKS = 'master.wms_monthly_safety_stocks';
     case WMS_ITEM_SUPPLY_SETTINGS = 'master.wms_item_supply_settings';
     case WMS_WAREHOUSE_CALENDARS = 'master.wms_warehouse_calendars';
     case WMS_CONTRACTOR_HOLIDAYS = 'master.wms_contractor_holidays';
@@ -106,6 +107,7 @@ enum EMenu: string
             self::WAREHOUSE_CONTRACTORS,
             self::CONTRACTORS,
             self::ITEM_CONTRACTORS,
+            self::WMS_MONTHLY_SAFETY_STOCKS,
             self::WMS_ITEM_SUPPLY_SETTINGS,
             self::WMS_WAREHOUSE_CALENDARS,
             self::WMS_CONTRACTOR_HOLIDAYS,
@@ -160,6 +162,7 @@ enum EMenu: string
             self::WAREHOUSE_CONTRACTORS => '発注先別ロット条件',
             self::CONTRACTORS => '発注先',
             self::ITEM_CONTRACTORS => '商品発注先',
+            self::WMS_MONTHLY_SAFETY_STOCKS => '月別発注点',
             self::WMS_ITEM_SUPPLY_SETTINGS => '供給設定',
             self::WMS_WAREHOUSE_CALENDARS => '倉庫カレンダー',
             self::WMS_CONTRACTOR_HOLIDAYS => '発注先休日',
@@ -217,6 +220,7 @@ enum EMenu: string
             self::WAREHOUSE_CONTRACTORS => 'heroicon-o-building-storefront',
             self::CONTRACTORS => 'heroicon-o-truck',
             self::ITEM_CONTRACTORS => 'heroicon-o-document-text',
+            self::WMS_MONTHLY_SAFETY_STOCKS => 'heroicon-o-calendar-days',
             self::WMS_ITEM_SUPPLY_SETTINGS => 'heroicon-o-cog-6-tooth',
             self::WMS_WAREHOUSE_CALENDARS => 'heroicon-o-calendar-days',
             self::WMS_CONTRACTOR_HOLIDAYS => 'heroicon-o-calendar',
@@ -286,10 +290,11 @@ enum EMenu: string
             self::WAREHOUSE_CONTRACTORS => 1,
             self::CONTRACTORS => 2,
             self::ITEM_CONTRACTORS => 3,
-            self::WMS_ITEM_SUPPLY_SETTINGS => 4,
-            self::WMS_WAREHOUSE_CALENDARS => 5,
-            self::WMS_CONTRACTOR_HOLIDAYS => 6,
-            self::WMS_ORDER_JX_SETTINGS => 7,
+            self::WMS_MONTHLY_SAFETY_STOCKS => 4,
+            self::WMS_ITEM_SUPPLY_SETTINGS => 5,
+            self::WMS_WAREHOUSE_CALENDARS => 6,
+            self::WMS_CONTRACTOR_HOLIDAYS => 7,
+            self::WMS_ORDER_JX_SETTINGS => 8,
 
             // ピッキングマスタ
             self::WMS_PICKERS => 1,

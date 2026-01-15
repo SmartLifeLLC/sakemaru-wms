@@ -1,21 +1,19 @@
 <?php
 
-namespace App\Filament\Resources\RealStocks\Tables;
+namespace App\Filament\Resources\WmsItemStockSnapshots\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\RealStockLot;
 use Filament\Actions\Action;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
+use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\DB;
 
-class RealStocksTable
+class WmsItemStockSnapshotsTable
 {
     public static function configure(Table $table): Table
     {
@@ -24,102 +22,99 @@ class RealStocksTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
-                TextColumn::make('warehouse.name')
-                    ->label('倉庫')
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫コード')
                     ->sortable()
                     ->searchable(),
 
-                TextColumn::make('activeLots.location.code')
-                    ->label('ロケーション')
-                    ->listWithLineBreaks()
-                    ->limitList(3),
+                TextColumn::make('warehouse.name')
+                    ->label('倉庫名')
+                    ->sortable()
+                    ->searchable(),
+
+                TextColumn::make('item.code')
+                    ->label('商品コード')
+                    ->sortable()
+                    ->searchable()
+                    ->copyable(),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
                     ->sortable()
                     ->searchable()
-                    ->limit(50),
+                    ->limit(40),
 
-                TextColumn::make('item.code')
-                    ->label('商品コード')
-                    ->sortable()
-                    ->searchable(),
-
-                TextColumn::make('lot_no')
-                    ->label('ロット番号')
-                    ->searchable()
-                    ->toggleable(),
-
-                TextColumn::make('activeLots.expiration_date')
-                    ->label('賞味期限')
-                    ->date('Y-m-d')
-                    ->listWithLineBreaks()
-                    ->limitList(3),
-
-                TextColumn::make('current_quantity')
-                    ->label('現在庫数')
-                    ->numeric()
-                    ->sortable()
-                    ->alignEnd(),
-
-                TextColumn::make('reserved_quantity')
-                    ->label('引当済')
+                TextColumn::make('total_effective_piece')
+                    ->label('有効在庫(バラ)')
                     ->numeric()
                     ->sortable()
                     ->alignEnd()
-                    ->color(fn ($state) => $state > 0 ? 'warning' : null),
+                    ->summarize(Sum::make()->label('合計')),
 
-                TextColumn::make('available_quantity')
-                    ->label('利用可能数')
+                TextColumn::make('total_incoming_piece')
+                    ->label('入荷予定(バラ)')
                     ->numeric()
                     ->sortable()
-                    ->alignEnd(),
+                    ->alignEnd()
+                    ->color(fn ($state) => $state > 0 ? 'success' : null)
+                    ->summarize(Sum::make()->label('合計')),
 
-                TextColumn::make('created_at')
-                    ->label('登録日時')
-                    ->dateTime('Y-m-d H:i')
+                TextColumn::make('available_stock')
+                    ->label('利用可能(バラ)')
+                    ->numeric()
+                    ->sortable()
+                    ->alignEnd()
+                    ->color('primary')
+                    ->weight('bold'),
+
+                TextColumn::make('snapshot_at')
+                    ->label('スナップショット日時')
+                    ->dateTime('Y-m-d H:i:s')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('activeLots.price')
-                    ->label('単価')
-                    ->money('JPY')
-                    ->listWithLineBreaks()
-                    ->limitList(3)
+                TextColumn::make('created_at')
+                    ->label('作成日時')
+                    ->dateTime('Y-m-d H:i')
+                    ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
                     ->relationship('warehouse', 'name')
-                    ->preload(),
-
-                SelectFilter::make('item_id')
-                    ->label('商品')
-                    ->relationship('item', 'name')
-                    ->searchable()
-                    ->preload(),
+                    ->preload()
+                    ->searchable(),
             ])
             ->recordActions([
-                Action::make('view')
-                    ->label('詳細')
+                Action::make('view_stock')
+                    ->label('在庫詳細')
                     ->icon('heroicon-o-eye')
-                    ->modalHeading(fn (RealStock $record) => $record->item?->name ?? '在庫詳細')
+                    ->modalHeading(fn ($record) => $record->item?->name ?? '在庫詳細')
                     ->modalWidth('screen')
-                    ->modalContent(fn (RealStock $record): View => view(
-                        'filament.resources.real-stocks.modal.stock-detail',
-                        self::getModalData($record)
-                    ))
+                    ->modalContent(function ($record): ?View {
+                        $realStock = RealStock::where('warehouse_id', $record->warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->first();
+
+                        if (! $realStock) {
+                            return null;
+                        }
+
+                        return view(
+                            'filament.resources.real-stocks.modal.stock-detail',
+                            self::getModalData($realStock)
+                        );
+                    })
                     ->modalSubmitAction(false)
-                    ->modalCancelActionLabel('閉じる'),
-                EditAction::make(),
+                    ->modalCancelActionLabel('閉じる')
+                    ->visible(function ($record) {
+                        return RealStock::where('warehouse_id', $record->warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->exists();
+                    }),
             ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
-            ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('total_effective_piece', 'desc');
     }
 
     /**

@@ -479,6 +479,79 @@ Level 1 (Hub):
                     </div>
                 </div>
             </x-filament::section>
+
+            {{-- 仮想倉庫の在庫管理 --}}
+            <x-filament::section>
+                <x-slot name="heading">
+                    <div class="flex items-center gap-2">
+                        <x-heroicon-o-cube-transparent class="w-6 h-6 text-primary-500" />
+                        仮想倉庫の在庫管理
+                    </div>
+                </x-slot>
+                <div class="space-y-4">
+                    <div class="prose prose-sm max-w-none dark:prose-invert">
+                        <p>
+                            倉庫には<strong>実倉庫</strong>（<code>is_virtual=false</code>）と<strong>仮想倉庫</strong>（<code>is_virtual=true</code>）が存在します。
+                            仮想倉庫は <code>stock_warehouse_id</code> で親となる実倉庫を参照します。
+                        </p>
+                    </div>
+
+                    <h4 class="font-bold text-gray-800 dark:text-gray-200">基本方針</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
+                            <h5 class="font-bold text-purple-700 dark:text-purple-300 mb-2">1. 仮想倉庫も在庫を持てる</h5>
+                            <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
+                                <li>• 仮想倉庫でも <code class="text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">real_stocks</code> に在庫を持てる</li>
+                                <li>• 在庫引当・出荷は仮想倉庫単位で実行</li>
+                            </ul>
+                        </div>
+                        <div class="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-4 border border-indigo-200 dark:border-indigo-800">
+                            <h5 class="font-bold text-indigo-700 dark:text-indigo-300 mb-2">2. 発注は実倉庫に集約</h5>
+                            <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
+                                <li>• 仮想倉庫の需要は親の実倉庫に集約</li>
+                                <li>• 発注先への発注は実倉庫単位で実行</li>
+                            </ul>
+                        </div>
+                        <div class="bg-teal-50 dark:bg-teal-900/20 rounded-lg p-4 border border-teal-200 dark:border-teal-800">
+                            <h5 class="font-bold text-teal-700 dark:text-teal-300 mb-2">3. 入荷時の在庫振り分け</h5>
+                            <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
+                                <li>• 物理的な入荷は実倉庫で実施</li>
+                                <li>• 発注内容に基づき仮想倉庫に振り分け</li>
+                                <li>• 入荷予定は仮想倉庫単位で作成</li>
+                            </ul>
+                        </div>
+                        <div class="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 border border-amber-200 dark:border-amber-800">
+                            <h5 class="font-bold text-amber-700 dark:text-amber-300 mb-2">4. HUB倉庫からの横持ち</h5>
+                            <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
+                                <li>• HUB倉庫依頼分は拠点倉庫側で入荷</li>
+                                <li>• 移動候補の入荷予定は依頼元仮想倉庫で作成</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <h4 class="font-bold text-gray-800 dark:text-gray-200 mt-4">処理フロー</h4>
+                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                        <pre class="text-xs overflow-x-auto whitespace-pre">
+【発注計算時】
+仮想倉庫A (需要50) ─┐
+仮想倉庫B (需要30) ─┼→ 実倉庫X (集約需要80) → 発注候補80個
+仮想倉庫C (需要0)  ─┘
+
+【発注確定時】
+発注80個 (実倉庫X)
+    │
+    ├→ 入荷予定: 仮想倉庫A 50個
+    ├→ 入荷予定: 仮想倉庫B 30個
+    └→ (仮想倉庫Cは需要0のため対象外)
+
+【入荷時】
+実倉庫Xに80個入荷（物理）
+    │
+    ├→ 仮想倉庫A在庫 +50
+    └→ 仮想倉庫B在庫 +30</pre>
+                    </div>
+                </div>
+            </x-filament::section>
         </div>
 
         {{-- 計算ロジックタブ --}}
