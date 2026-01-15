@@ -1,7 +1,7 @@
-<x-filament-panels::page>
-    <div x-data="{ activeTab: 'overview' }" class="space-y-6">
+<div class="livewire-root"><x-filament-panels::page>
+    <div x-data="{ activeTab: 'overview' }" class="h-[calc(100vh-120px)] flex flex-col">
         {{-- タブナビゲーション --}}
-        <div class="border-b border-gray-200 dark:border-gray-700">
+        <div class="border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
             <nav class="-mb-px flex flex-wrap gap-x-8" aria-label="Tabs">
                 <button
                     @click="activeTab = 'overview'"
@@ -48,11 +48,20 @@
                     <x-heroicon-o-circle-stack class="w-5 h-5 inline-block mr-2 -mt-0.5" />
                     テーブル情報
                 </button>
+                <button
+                    @click="activeTab = 'commands'"
+                    type="button"
+                    :class="activeTab === 'commands' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'"
+                    class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200"
+                >
+                    <x-heroicon-o-command-line class="w-5 h-5 inline-block mr-2 -mt-0.5" />
+                    関連コマンド
+                </button>
             </nav>
         </div>
 
         {{-- 概要・準備タブ --}}
-        <div x-show="activeTab === 'overview'" x-cloak class="space-y-6">
+        <div x-show="activeTab === 'overview'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
             {{-- システム概要 --}}
             <x-filament::section>
                 <x-slot name="heading">
@@ -236,51 +245,10 @@
                 </div>
             </x-filament::section>
 
-            {{-- コマンド一覧 --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-command-line class="w-6 h-6 text-info-500" />
-                        関連コマンド
-                    </div>
-                </x-slot>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm">
-                        <thead class="bg-gray-100 dark:bg-gray-700">
-                            <tr>
-                                <th class="px-3 py-2 text-left">コマンド</th>
-                                <th class="px-3 py-2 text-left">説明</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
-                            <tr>
-                                <td class="px-3 py-2 font-mono text-xs">php artisan wms:auto-order-calculate</td>
-                                <td class="px-3 py-2">発注計算を実行（スナップショット + 多段階計算）</td>
-                            </tr>
-                            <tr>
-                                <td class="px-3 py-2 font-mono text-xs">php artisan wms:snapshot-stocks</td>
-                                <td class="px-3 py-2">在庫スナップショットのみ生成</td>
-                            </tr>
-                            <tr>
-                                <td class="px-3 py-2 font-mono text-xs">php artisan wms:generate-calendars</td>
-                                <td class="px-3 py-2">営業日カレンダー生成（--warehouse=ID --months=12）</td>
-                            </tr>
-                            <tr>
-                                <td class="px-3 py-2 font-mono text-xs">php artisan wms:import-holidays</td>
-                                <td class="px-3 py-2">祝日マスタをインポート</td>
-                            </tr>
-                            <tr>
-                                <td class="px-3 py-2 font-mono text-xs">php artisan wms:transmit-orders</td>
-                                <td class="px-3 py-2">承認済み発注をJX/FTP送信</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </x-filament::section>
         </div>
 
         {{-- 計算フロータブ --}}
-        <div x-show="activeTab === 'flow'" x-cloak class="space-y-6">
+        <div x-show="activeTab === 'flow'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
             {{-- Multi-Echelon計算フロー --}}
             <x-filament::section>
                 <x-slot name="heading">
@@ -421,7 +389,7 @@ Level 1 (Hub):
         </div>
 
         {{-- 供給タイプタブ --}}
-        <div x-show="activeTab === 'supply'" x-cloak class="space-y-6">
+        <div x-show="activeTab === 'supply'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
             <x-filament::section>
                 <x-slot name="heading">
                     <div class="flex items-center gap-2">
@@ -555,7 +523,7 @@ Level 1 (Hub):
         </div>
 
         {{-- 計算ロジックタブ --}}
-        <div x-show="activeTab === 'calculation'" x-cloak class="space-y-6">
+        <div x-show="activeTab === 'calculation'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
             {{-- リードタイム計算 --}}
             <x-filament::section>
                 <x-slot name="heading">
@@ -650,7 +618,7 @@ Level 1 (Hub):
         </div>
 
         {{-- テーブル情報タブ --}}
-        <div x-show="activeTab === 'tables'" x-cloak class="space-y-6">
+        <div x-show="activeTab === 'tables'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
             {{-- 関連テーブル --}}
             <x-filament::section>
                 <x-slot name="heading">
@@ -735,5 +703,220 @@ Level 1 (Hub):
                 </div>
             </x-filament::section>
         </div>
+
+        {{-- 関連コマンドタブ --}}
+        <div x-show="activeTab === 'commands'" x-cloak class="flex-1 overflow-y-auto space-y-8 pt-4">
+                {{-- コマンド概要 --}}
+                <div class="prose prose-sm max-w-none dark:prose-invert">
+                    <p>自動発注システムで使用する主要なコマンド一覧です。各コマンドはターミナルから <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">php artisan</code> で実行できます。</p>
+                </div>
+
+                {{-- メイン計算コマンド --}}
+                <div>
+                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
+                            <x-heroicon-o-play class="w-5 h-5 text-success-500" />
+                            メイン計算コマンド
+                        </h3>
+                        <div class="space-y-4">
+                            {{-- wms:auto-order-calculate --}}
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                <div class="flex items-start gap-3">
+                                    <span class="px-2 py-1 bg-success-100 dark:bg-success-900 text-success-700 dark:text-success-300 text-xs rounded font-bold">主要</span>
+                                    <div class="flex-1">
+                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:auto-order-calculate</h4>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">自動発注計算を実行（在庫スナップショット生成 + Multi-Echelon計算）</p>
+                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
+                                            <p class="text-gray-500 mb-1"># 基本実行</p>
+                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:auto-order-calculate</p>
+                                            <p class="text-gray-500 mb-1"># スナップショット生成をスキップ</p>
+                                            <p class="text-green-600 dark:text-green-400">php artisan wms:auto-order-calculate --skip-snapshot</p>
+                                        </div>
+                                        <div class="mt-3">
+                                            <span class="text-xs text-gray-500">オプション:</span>
+                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--skip-snapshot</code> : スナップショット生成をスキップ</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- wms:snapshot-stocks --}}
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                <div class="flex items-start gap-3">
+                                    <span class="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs rounded font-bold">補助</span>
+                                    <div class="flex-1">
+                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:snapshot-stocks</h4>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">自動発注用の在庫スナップショットのみを生成（計算は実行しない）</p>
+                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
+                                            <p class="text-green-600 dark:text-green-400">php artisan wms:snapshot-stocks</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- カレンダー・休日コマンド --}}
+                    <div>
+                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
+                            <x-heroicon-o-calendar-days class="w-5 h-5 text-warning-500" />
+                            カレンダー・休日コマンド
+                        </h3>
+                        <div class="space-y-4">
+                            {{-- wms:generate-calendars --}}
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                <div class="flex items-start gap-3">
+                                    <span class="px-2 py-1 bg-warning-100 dark:bg-warning-900 text-warning-700 dark:text-warning-300 text-xs rounded font-bold">設定</span>
+                                    <div class="flex-1">
+                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:generate-calendars</h4>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">倉庫別営業日カレンダーを生成。休日設定に基づいて営業日を計算。</p>
+                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
+                                            <p class="text-gray-500 mb-1"># 全倉庫のカレンダーを12ヶ月分生成</p>
+                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:generate-calendars</p>
+                                            <p class="text-gray-500 mb-1"># 特定倉庫のみ、6ヶ月分生成</p>
+                                            <p class="text-green-600 dark:text-green-400">php artisan wms:generate-calendars --warehouse=1 --months=6</p>
+                                        </div>
+                                        <div class="mt-3">
+                                            <span class="text-xs text-gray-500">オプション:</span>
+                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--warehouse=ID</code> : 特定の倉庫IDのみ生成</li>
+                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--months=N</code> : 生成する月数（デフォルト: 12）</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {{-- wms:import-holidays --}}
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                <div class="flex items-start gap-3">
+                                    <span class="px-2 py-1 bg-warning-100 dark:bg-warning-900 text-warning-700 dark:text-warning-300 text-xs rounded font-bold">設定</span>
+                                    <div class="flex-1">
+                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:import-holidays</h4>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">日本の祝日データをインポート。内閣府のデータに基づく。</p>
+                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
+                                            <p class="text-gray-500 mb-1"># 今年と来年の祝日をインポート</p>
+                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:import-holidays</p>
+                                            <p class="text-gray-500 mb-1"># 特定年のみインポート</p>
+                                            <p class="text-green-600 dark:text-green-400">php artisan wms:import-holidays 2026</p>
+                                        </div>
+                                        <div class="mt-3">
+                                            <span class="text-xs text-gray-500">引数:</span>
+                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">year</code> : 対象年（省略時は今年と来年）</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- 月別発注点コマンド --}}
+                    <div>
+                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
+                            <x-heroicon-o-arrow-path class="w-5 h-5 text-info-500" />
+                            月別発注点コマンド
+                        </h3>
+                        <div class="space-y-4">
+                            {{-- wms:sync-monthly-safety-stocks --}}
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                <div class="flex items-start gap-3">
+                                    <span class="px-2 py-1 bg-info-100 dark:bg-info-900 text-info-700 dark:text-info-300 text-xs rounded font-bold">同期</span>
+                                    <div class="flex-1">
+                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:sync-monthly-safety-stocks</h4>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">月別発注点設定を item_contractors.safety_stock に同期。毎日04:30に自動実行。</p>
+                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
+                                            <p class="text-gray-500 mb-1"># 現在の月のデータを同期</p>
+                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:sync-monthly-safety-stocks</p>
+                                            <p class="text-gray-500 mb-1"># 特定月のデータを同期</p>
+                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:sync-monthly-safety-stocks --month=4</p>
+                                            <p class="text-gray-500 mb-1"># 対象件数のみ確認（実際の更新は行わない）</p>
+                                            <p class="text-green-600 dark:text-green-400">php artisan wms:sync-monthly-safety-stocks --dry-run</p>
+                                        </div>
+                                        <div class="mt-3">
+                                            <span class="text-xs text-gray-500">オプション:</span>
+                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--month=N</code> : 対象月 (1-12)。省略時は現在の月</li>
+                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--dry-run</code> : 実際の更新を行わず、対象件数のみ表示</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- 発注送信コマンド --}}
+                    <div>
+                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
+                            <x-heroicon-o-paper-airplane class="w-5 h-5 text-danger-500" />
+                            発注送信コマンド
+                        </h3>
+                        <div class="space-y-4">
+                            {{-- wms:transmit-orders --}}
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                <div class="flex items-start gap-3">
+                                    <span class="px-2 py-1 bg-danger-100 dark:bg-danger-900 text-danger-700 dark:text-danger-300 text-xs rounded font-bold">送信</span>
+                                    <div class="flex-1">
+                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:transmit-orders</h4>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">承認済み発注候補をJX-FINET/FTPで送信。確認プロンプトあり。</p>
+                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
+                                            <p class="text-gray-500 mb-1"># 最新の承認済みバッチを送信</p>
+                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:transmit-orders</p>
+                                            <p class="text-gray-500 mb-1"># 特定バッチを送信</p>
+                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:transmit-orders --batch-code=20260115093000</p>
+                                            <p class="text-gray-500 mb-1"># 対象データを確認（実際の送信は行わない）</p>
+                                            <p class="text-green-600 dark:text-green-400">php artisan wms:transmit-orders --dry-run</p>
+                                        </div>
+                                        <div class="mt-3">
+                                            <span class="text-xs text-gray-500">オプション:</span>
+                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--batch-code=CODE</code> : 送信するバッチコード（省略時は最新の承認済みバッチ）</li>
+                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--dry-run</code> : 実際の送信は行わず、対象データのみ表示</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- スケジュール情報 --}}
+                    <div>
+                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
+                            <x-heroicon-o-clock class="w-5 h-5 text-gray-500" />
+                            スケジュール設定
+                        </h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-gray-100 dark:bg-gray-700">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left">コマンド</th>
+                                        <th class="px-4 py-2 text-left">スケジュール</th>
+                                        <th class="px-4 py-2 text-left">説明</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
+                                    <tr>
+                                        <td class="px-4 py-2 font-mono text-xs">wms:sync-monthly-safety-stocks</td>
+                                        <td class="px-4 py-2">毎日 04:30</td>
+                                        <td class="px-4 py-2">月別発注点の同期（在庫スナップショット前）</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="px-4 py-2 font-mono text-xs">wms:auto-order-calculate</td>
+                                        <td class="px-4 py-2">毎日 05:00</td>
+                                        <td class="px-4 py-2">発注候補計算</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mt-4 text-sm text-gray-600 dark:text-gray-400">
+                            <p>スケジュールは <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">routes/console.php</code> で管理されています。</p>
+                        </div>
+                    </div>
+                </div>
+        </div>
     </div>
-</x-filament-panels::page>
+</x-filament-panels::page></div>

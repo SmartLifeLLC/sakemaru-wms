@@ -5,9 +5,10 @@ namespace App\Filament\Resources\WmsMonthlySafetyStocks\Tables;
 use App\Enums\PaginationOptions;
 use App\Models\WmsMonthlySafetyStock;
 use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
@@ -49,21 +50,16 @@ class WmsMonthlySafetyStocksTable
 
                 TextColumn::make('month')
                     ->label('月')
-                    ->state(fn ($record) => $record->month . '月')
+                    ->state(fn ($record) => $record->month.'月')
                     ->sortable()
                     ->alignCenter(),
 
-                TextColumn::make('safety_stock')
+                TextInputColumn::make('safety_stock')
                     ->label('発注点')
-                    ->numeric()
+                    ->type('number')
+                    ->rules(['required', 'integer', 'min:0'])
                     ->sortable()
                     ->alignEnd(),
-
-                TextColumn::make('created_at')
-                    ->label('作成日時')
-                    ->dateTime('Y-m-d H:i')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('updated_at')
                     ->label('更新日時')
@@ -83,7 +79,8 @@ class WmsMonthlySafetyStocksTable
                     ->options(WmsMonthlySafetyStock::getMonthOptions()),
             ])
             ->recordActions([
-                EditAction::make(),
+                DeleteAction::make()
+                    ->iconButton(),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
