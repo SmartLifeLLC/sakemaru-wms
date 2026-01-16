@@ -25,11 +25,11 @@ enum EMenu: string
     case WMS_SHORTAGES = 'shortage.wms_shortages';
     case WMS_SHORTAGES_WAITING_APPROVALS = 'shortage.wms_shortages_waiting_approvals';
 
-    // 横持ち出荷
+    // 倉庫移動
     case WMS_SHORTAGE_ALLOCATIONS = 'horizontal_shipment.wms_shortage_allocations';
+    case WMS_STOCK_TRANSFER_CANDIDATES = 'horizontal_shipment.wms_stock_transfer_candidates';
 
     // 自動発注
-    case WMS_STOCK_TRANSFER_CANDIDATES = 'auto_order.wms_stock_transfer_candidates';
     case WMS_ORDER_CANDIDATES = 'auto_order.wms_order_candidates';
     case WMS_AUTO_ORDER_JOBS = 'auto_order.wms_auto_order_jobs';
 
@@ -89,9 +89,9 @@ enum EMenu: string
             self::WMS_SHORTAGES,
             self::WMS_SHORTAGES_WAITING_APPROVALS => EMenuCategory::SHORTAGE,
 
-            self::WMS_SHORTAGE_ALLOCATIONS => EMenuCategory::HORIZONTAL_SHIPMENT,
+            self::WMS_SHORTAGE_ALLOCATIONS,
+            self::WMS_STOCK_TRANSFER_CANDIDATES => EMenuCategory::HORIZONTAL_SHIPMENT,
 
-            self::WMS_STOCK_TRANSFER_CANDIDATES,
             self::WMS_ORDER_CANDIDATES,
             self::WMS_AUTO_ORDER_JOBS => EMenuCategory::AUTO_ORDER,
 
@@ -272,13 +272,13 @@ enum EMenu: string
             self::WMS_SHORTAGES => 1,
             self::WMS_SHORTAGES_WAITING_APPROVALS => 2,
 
-            // 横持ち出荷
+            // 倉庫移動
             self::WMS_SHORTAGE_ALLOCATIONS => 1,
+            self::WMS_STOCK_TRANSFER_CANDIDATES => 2,
 
             // 自動発注
-            self::WMS_STOCK_TRANSFER_CANDIDATES => 1,
-            self::WMS_ORDER_CANDIDATES => 2,
-            self::WMS_AUTO_ORDER_JOBS => 3,
+            self::WMS_ORDER_CANDIDATES => 1,
+            self::WMS_AUTO_ORDER_JOBS => 2,
 
             // 在庫管理
             self::REAL_STOCKS => 1,

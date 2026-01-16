@@ -25,6 +25,8 @@ class WmsOrderCandidate extends WmsModel
         'contractor_id',
         'self_shortage_qty',
         'satellite_demand_qty',
+        'demand_breakdown',
+        'origin_warehouse_ids',
         'suggested_quantity',
         'order_quantity',
         'quantity_type',
@@ -57,6 +59,7 @@ class WmsOrderCandidate extends WmsModel
         'quantity_type' => QuantityType::class,
         'is_manually_modified' => 'boolean',
         'lot_fee_amount' => 'decimal:2',
+        'demand_breakdown' => 'array',
     ];
 
     public function warehouse(): BelongsTo

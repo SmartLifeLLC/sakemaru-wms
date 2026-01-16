@@ -101,48 +101,128 @@ class WmsPickingTasksTable
                     })
                     ->toggleable(isToggledHiddenByDefault: true),
 
+                TextColumn::make('source_type')
+                    ->label('伝票種別')
+                    ->default('-')
+                    ->badge()
+                    ->formatStateUsing(function ($record) {
+                        // Check if any item is a stock_transfer
+                        $hasStockTransfer = $record->pickingItemResults
+                            ->contains(fn ($item) => $item->source_type === WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                        $hasEarning = $record->pickingItemResults
+                            ->contains(fn ($item) => $item->source_type === WmsPickingItemResult::SOURCE_TYPE_EARNING || $item->source_type === null);
+
+                        if ($hasStockTransfer && $hasEarning) {
+                            return '混合';
+                        } elseif ($hasStockTransfer) {
+                            return '移動';
+                        } else {
+                            return '売上';
+                        }
+                    })
+                    ->color(function ($record) {
+                        $hasStockTransfer = $record->pickingItemResults
+                            ->contains(fn ($item) => $item->source_type === WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                        $hasEarning = $record->pickingItemResults
+                            ->contains(fn ($item) => $item->source_type === WmsPickingItemResult::SOURCE_TYPE_EARNING || $item->source_type === null);
+
+                        if ($hasStockTransfer && $hasEarning) {
+                            return 'warning';
+                        } elseif ($hasStockTransfer) {
+                            return 'info';
+                        } else {
+                            return 'success';
+                        }
+                    })
+                    ->toggleable(isToggledHiddenByDefault: false),
+
                 TextColumn::make('partner_count')
-                    ->label('得意先数')
+                    ->label('得意先/移動先数')
                     ->default('-')
                     ->formatStateUsing(function ($record) {
                         // Use already eager-loaded relation
-                        $count = $record->pickingItemResults
+                        // Count unique partners for earnings
+                        $partnerCount = $record->pickingItemResults
                             ->pluck('earning.buyer.partner.id')
                             ->filter()
                             ->unique()
                             ->count();
 
-                        return $count > 0 ? "{$count}件" : '-';
+                        // Count unique destination warehouses for stock_transfers
+                        $warehouseCount = $record->pickingItemResults
+                            ->pluck('stockTransfer.to_warehouse.id')
+                            ->filter()
+                            ->unique()
+                            ->count();
+
+                        $total = $partnerCount + $warehouseCount;
+
+                        return $total > 0 ? "{$total}件" : '-';
                     })
                     ->alignCenter()
                     ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('partner_names')
-                    ->label('得意先名')
+                    ->label('得意先/移動先')
                     ->default('-')
                     ->formatStateUsing(function ($record) {
-                        // Use already eager-loaded relation
+                        $names = collect();
+
+                        // Collect partner names for earnings
                         $partnerNames = $record->pickingItemResults
+                            ->filter(fn ($item) => $item->earning_id !== null)
                             ->pluck('earning.buyer.partner.name')
                             ->filter()
-                            ->unique()
-                            ->sort()
-                            ->values();
+                            ->unique();
 
-                        if ($partnerNames->isEmpty()) {
+                        foreach ($partnerNames as $name) {
+                            $names->push($name);
+                        }
+
+                        // Collect warehouse names for stock_transfers
+                        $warehouseNames = $record->pickingItemResults
+                            ->filter(fn ($item) => $item->stock_transfer_id !== null)
+                            ->map(function ($item) {
+                                $warehouse = $item->stockTransfer?->to_warehouse;
+
+                                return $warehouse ? "[移動]{$warehouse->name}" : null;
+                            })
+                            ->filter()
+                            ->unique();
+
+                        foreach ($warehouseNames as $name) {
+                            $names->push($name);
+                        }
+
+                        if ($names->isEmpty()) {
                             return '-';
                         }
 
+                        // Sort and format
+                        $names = $names->sort()->values();
+
                         // 2件以上の場合は6文字で省略（...なし）
-                        if ($partnerNames->count() >= 2) {
-                            $partnerNames = $partnerNames->map(fn ($name) => mb_substr($name, 0, 6));
+                        if ($names->count() >= 2) {
+                            $names = $names->map(function ($name) {
+                                // [移動]プレフィックスは保持し、残りを省略
+                                if (str_starts_with($name, '[移動]')) {
+                                    return '[移動]'.mb_substr(str_replace('[移動]', '', $name), 0, 4);
+                                }
+
+                                return mb_substr($name, 0, 6);
+                            });
                         }
 
-                        return $partnerNames->implode(', ');
+                        return $names->implode(', ');
                     })
                     ->searchable(query: function ($query, $search) {
-                        return $query->whereHas('pickingItemResults.earning.buyer.partner', function ($q) use ($search) {
-                            $q->where('name', 'like', "%{$search}%");
+                        return $query->where(function ($q) use ($search) {
+                            $q->whereHas('pickingItemResults.earning.buyer.partner', function ($subQ) use ($search) {
+                                $subQ->where('name', 'like', "%{$search}%");
+                            })
+                                ->orWhereHas('pickingItemResults.stockTransfer.to_warehouse', function ($subQ) use ($search) {
+                                    $subQ->where('name', 'like', "%{$search}%");
+                                });
                         });
                     })
                     ->toggleable(isToggledHiddenByDefault: false),
@@ -273,6 +353,43 @@ class WmsPickingTasksTable
                             }),
                             'without_shortage' => $query->whereDoesntHave('pickingItemResults', function ($subQuery) {
                                 $subQuery->where('has_soft_shortage', true);
+                            }),
+                            default => $query,
+                        };
+                    }),
+
+                SelectFilter::make('source_type_filter')
+                    ->label('伝票種別')
+                    ->options([
+                        'earning' => '売上のみ',
+                        'stock_transfer' => '移動のみ',
+                        'mixed' => '混合',
+                    ])
+                    ->query(function ($query, $state) {
+                        return match ($state['value'] ?? null) {
+                            'earning' => $query->whereHas('pickingItemResults', function ($subQuery) {
+                                $subQuery->where(function ($q) {
+                                    $q->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
+                                        ->orWhereNull('source_type');
+                                });
+                            })->whereDoesntHave('pickingItemResults', function ($subQuery) {
+                                $subQuery->where('source_type', WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                            }),
+                            'stock_transfer' => $query->whereHas('pickingItemResults', function ($subQuery) {
+                                $subQuery->where('source_type', WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                            })->whereDoesntHave('pickingItemResults', function ($subQuery) {
+                                $subQuery->where(function ($q) {
+                                    $q->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
+                                        ->orWhereNull('source_type');
+                                });
+                            }),
+                            'mixed' => $query->whereHas('pickingItemResults', function ($subQuery) {
+                                $subQuery->where('source_type', WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                            })->whereHas('pickingItemResults', function ($subQuery) {
+                                $subQuery->where(function ($q) {
+                                    $q->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
+                                        ->orWhereNull('source_type');
+                                });
                             }),
                             default => $query,
                         };

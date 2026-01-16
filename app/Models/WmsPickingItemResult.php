@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
+use App\Models\Sakemaru\StockTransfer;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -23,9 +24,16 @@ class WmsPickingItemResult extends Model
 
     public const STATUS_SHORTAGE = 'SHORTAGE';
 
+    // Source type constants
+    public const SOURCE_TYPE_EARNING = 'EARNING';
+
+    public const SOURCE_TYPE_STOCK_TRANSFER = 'STOCK_TRANSFER';
+
     protected $fillable = [
         'picking_task_id',
         'earning_id',
+        'source_type',
+        'stock_transfer_id',
         'trade_id',
         'trade_item_id',
         'item_id',
@@ -76,6 +84,30 @@ class WmsPickingItemResult extends Model
     public function earning(): BelongsTo
     {
         return $this->belongsTo(Earning::class, 'earning_id');
+    }
+
+    /**
+     * このピッキング明細が属する倉庫間移動伝票
+     */
+    public function stockTransfer(): BelongsTo
+    {
+        return $this->belongsTo(StockTransfer::class, 'stock_transfer_id');
+    }
+
+    /**
+     * 伝票種別が EARNING かどうか
+     */
+    public function isEarning(): bool
+    {
+        return $this->source_type === self::SOURCE_TYPE_EARNING;
+    }
+
+    /**
+     * 伝票種別が STOCK_TRANSFER かどうか
+     */
+    public function isStockTransfer(): bool
+    {
+        return $this->source_type === self::SOURCE_TYPE_STOCK_TRANSFER;
     }
 
     public function picker()

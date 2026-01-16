@@ -73,7 +73,7 @@ class OrderTransmissionService
                     // 候補のステータス更新
                     $candidates->each(function ($candidate) use ($document) {
                         $candidate->update([
-                            'status' => CandidateStatus::TRANSMITTED,
+                            'status' => CandidateStatus::EXECUTED,
                             'transmission_status' => 'TRANSMITTED',
                             'transmitted_at' => now(),
                             'wms_order_jx_document_id' => $document->id,

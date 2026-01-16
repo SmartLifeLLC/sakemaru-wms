@@ -6,6 +6,7 @@ use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Earning;
 use App\Models\Wave;
 use App\Models\WaveSetting;
+use App\Models\WmsPickingItemResult;
 use App\Services\StockAllocationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -74,8 +75,16 @@ class GenerateWavesCommand extends Command
                 ->where('delivery_course_id', $setting->delivery_course_id)
                 ->count();
 
-            if ($earningsCount === 0) {
-                $this->line("No eligible earnings found for warehouse {$setting->warehouse_id}, course {$setting->delivery_course_id}. Skipping.");
+            // Check if there are eligible stock_transfers for this wave
+            // 仮想倉庫間移動は対象外（物理的ピッキング不要）
+            $stockTransfersCount = $this->getEligibleStockTransfersQuery(
+                $shippingDate,
+                $setting->warehouse_id,
+                $setting->delivery_course_id
+            )->count();
+
+            if ($earningsCount === 0 && $stockTransfersCount === 0) {
+                $this->line("No eligible earnings or stock_transfers found for warehouse {$setting->warehouse_id}, course {$setting->delivery_course_id}. Skipping.");
                 $skippedCount++;
 
                 continue;
@@ -338,6 +347,8 @@ class GenerateWavesCommand extends Command
                         DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
                             'picking_task_id' => $pickingTaskId,
                             'earning_id' => $earningId, // Added: earning_id now tracked at item level
+                            'source_type' => WmsPickingItemResult::SOURCE_TYPE_EARNING, // 伝票種別
+                            'stock_transfer_id' => null, // 倉庫間移動ではないのでnull
                             'trade_id' => $tradeItem->trade_id, // Added: trade_id now tracked at item level
                             'trade_item_id' => $tradeItem->id,
                             'item_id' => $tradeItem->item_id,
@@ -360,15 +371,189 @@ class GenerateWavesCommand extends Command
                 }
 
                 // Update all earnings picking_status to BEFORE_PICKING
-                DB::connection('sakemaru')
-                    ->table('earnings')
-                    ->whereIn('id', $earningIds)
-                    ->update([
-                        'picking_status' => 'BEFORE_PICKING',
-                        'updated_at' => now(),
-                    ]);
+                if (! empty($earningIds)) {
+                    DB::connection('sakemaru')
+                        ->table('earnings')
+                        ->whereIn('id', $earningIds)
+                        ->update([
+                            'picking_status' => 'BEFORE_PICKING',
+                            'updated_at' => now(),
+                        ]);
+                }
 
-                $this->info("Created wave {$waveNo} with {$earningsCount} earnings and picking tasks");
+                // ============================================================
+                // Stock Transfers Processing (倉庫間移動)
+                // ============================================================
+                $stockTransfers = $this->getEligibleStockTransfersQuery(
+                    $shippingDate,
+                    $setting->warehouse_id,
+                    $setting->delivery_course_id
+                )->get();
+
+                $stockTransferIds = [];
+                if ($stockTransfers->isNotEmpty()) {
+                    $stockTransferIds = $stockTransfers->pluck('id')->toArray();
+                    $stockTransferTradeIds = $stockTransfers->pluck('trade_id')->toArray();
+
+                    // Get trade_items for stock_transfers
+                    $stockTransferTradeItems = DB::connection('sakemaru')
+                        ->table('trade_items')
+                        ->whereIn('trade_id', $stockTransferTradeIds)
+                        ->where('is_deleted', false)
+                        ->get();
+
+                    // Create stock_transfer_id lookup from trade_id
+                    $tradeIdToStockTransferId = $stockTransfers->pluck('id', 'trade_id')->toArray();
+
+                    // Process stock_transfer trade items (same logic as earnings)
+                    foreach ($stockTransferTradeItems as $tradeItem) {
+                        $stockTransferId = $tradeIdToStockTransferId[$tradeItem->trade_id] ?? null;
+                        if (! $stockTransferId) {
+                            continue;
+                        }
+
+                        // Reserve stock for this trade item
+                        $allocationService = new StockAllocationService;
+                        $result = $allocationService->allocateForItem(
+                            $wave->id,
+                            $setting->warehouse_id,
+                            $tradeItem->item_id,
+                            $tradeItem->quantity,
+                            $tradeItem->quantity_type ?? 'PIECE',
+                            $stockTransferId,
+                            'STOCK_TRANSFER', // source_type
+                            null // buyer_id
+                        );
+
+                        // Get primary location and real_stock from first reservation
+                        $primaryReservation = DB::connection('sakemaru')
+                            ->table('wms_reservations')
+                            ->where('wave_id', $wave->id)
+                            ->where('item_id', $tradeItem->item_id)
+                            ->where('source_id', $stockTransferId)
+                            ->where('source_type', 'STOCK_TRANSFER')
+                            ->whereNotNull('location_id')
+                            ->orderBy('qty_each', 'desc')
+                            ->orderBy('id', 'asc')
+                            ->first();
+
+                        $reservationResult = [
+                            'allocated_qty' => $result['allocated'],
+                            'real_stock_id' => $primaryReservation->real_stock_id ?? null,
+                            'location_id' => $primaryReservation->location_id ?? null,
+                            'walking_order' => null,
+                        ];
+
+                        // Get walking_order from wms_locations
+                        if ($reservationResult['location_id']) {
+                            $wmsLocation = DB::connection('sakemaru')
+                                ->table('wms_locations')
+                                ->where('location_id', $reservationResult['location_id'])
+                                ->first();
+                            $reservationResult['walking_order'] = $wmsLocation->walking_order ?? null;
+                        }
+
+                        // Get picking area and floor
+                        $pickingAreaId = null;
+                        $floorId = null;
+
+                        if ($reservationResult['location_id']) {
+                            $location = DB::connection('sakemaru')
+                                ->table('locations')
+                                ->where('id', $reservationResult['location_id'])
+                                ->first();
+                            $floorId = $location->floor_id ?? null;
+
+                            $wmsLocation = DB::connection('sakemaru')
+                                ->table('wms_locations')
+                                ->where('location_id', $reservationResult['location_id'])
+                                ->first();
+                            $pickingAreaId = $wmsLocation->wms_picking_area_id ?? null;
+                        }
+
+                        // Default picking area if not found
+                        if ($pickingAreaId === null) {
+                            $defaultArea = DB::connection('sakemaru')
+                                ->table('wms_picking_areas')
+                                ->where('warehouse_id', $setting->warehouse_id)
+                                ->where('is_active', true)
+                                ->orderBy('display_order', 'asc')
+                                ->first();
+                            $pickingAreaId = $defaultArea->id ?? null;
+                        }
+
+                        // Find or create picking task for this floor
+                        $groupKey = 'ST_'.($floorId ?? 'null');
+                        $existingTask = DB::connection('sakemaru')
+                            ->table('wms_picking_tasks')
+                            ->where('wave_id', $wave->id)
+                            ->where('floor_id', $floorId)
+                            ->first();
+
+                        if ($existingTask) {
+                            $pickingTaskId = $existingTask->id;
+                        } else {
+                            $pickingTaskId = DB::connection('sakemaru')->table('wms_picking_tasks')->insertGetId([
+                                'wave_id' => $wave->id,
+                                'wms_picking_area_id' => $pickingAreaId,
+                                'warehouse_id' => $setting->warehouse_id,
+                                'warehouse_code' => $warehouse->code,
+                                'floor_id' => $floorId,
+                                'delivery_course_id' => $setting->delivery_course_id,
+                                'delivery_course_code' => $course->code,
+                                'shipment_date' => $shippingDate,
+                                'status' => 'PENDING',
+                                'task_type' => 'WAVE',
+                                'picker_id' => null,
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+                        }
+
+                        // Create picking item result for stock_transfer
+                        if (! $tradeItem->quantity_type) {
+                            throw new \RuntimeException(
+                                "quantity_type must be specified for trade_item ID {$tradeItem->id}"
+                            );
+                        }
+
+                        DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
+                            'picking_task_id' => $pickingTaskId,
+                            'earning_id' => null, // Not an earning
+                            'source_type' => WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER,
+                            'stock_transfer_id' => $stockTransferId,
+                            'trade_id' => $tradeItem->trade_id,
+                            'trade_item_id' => $tradeItem->id,
+                            'item_id' => $tradeItem->item_id,
+                            'real_stock_id' => $reservationResult['real_stock_id'],
+                            'location_id' => $reservationResult['location_id'],
+                            'walking_order' => $reservationResult['walking_order'],
+                            'ordered_qty' => $tradeItem->quantity,
+                            'ordered_qty_type' => $tradeItem->quantity_type,
+                            'planned_qty' => $reservationResult['allocated_qty'],
+                            'planned_qty_type' => $tradeItem->quantity_type,
+                            'picked_qty' => 0,
+                            'picked_qty_type' => $tradeItem->quantity_type,
+                            'shortage_qty' => 0,
+                            'status' => 'PENDING',
+                            'picker_id' => null,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    }
+
+                    // Update stock_transfers picking_status to BEFORE_PICKING
+                    DB::connection('sakemaru')
+                        ->table('stock_transfers')
+                        ->whereIn('id', $stockTransferIds)
+                        ->update([
+                            'picking_status' => 'BEFORE_PICKING',
+                            'updated_at' => now(),
+                        ]);
+                }
+
+                $totalCount = $earningsCount + count($stockTransferIds);
+                $this->info("Created wave {$waveNo} with {$earningsCount} earnings, ".count($stockTransferIds).' stock_transfers');
                 $createdCount++;
             });
         }
@@ -404,6 +589,7 @@ class GenerateWavesCommand extends Command
                         ->from('wms_picking_tasks')
                         ->whereIn('wave_id', $waveIds);
                 })
+                ->whereNotNull('earning_id')
                 ->pluck('earning_id')
                 ->unique()
                 ->toArray();
@@ -418,6 +604,31 @@ class GenerateWavesCommand extends Command
                         'updated_at' => now(),
                     ]);
                 $this->info("  ✓ Reset {$updatedEarnings} earnings to BEFORE status");
+            }
+
+            // 1b. Get stock_transfers that were part of these waves
+            $stockTransferIds = DB::connection('sakemaru')
+                ->table('wms_picking_item_results')
+                ->whereIn('picking_task_id', function ($query) use ($waveIds) {
+                    $query->select('id')
+                        ->from('wms_picking_tasks')
+                        ->whereIn('wave_id', $waveIds);
+                })
+                ->whereNotNull('stock_transfer_id')
+                ->pluck('stock_transfer_id')
+                ->unique()
+                ->toArray();
+
+            if (! empty($stockTransferIds)) {
+                // Reset stock_transfer status back to BEFORE
+                $updatedTransfers = DB::connection('sakemaru')
+                    ->table('stock_transfers')
+                    ->whereIn('id', $stockTransferIds)
+                    ->update([
+                        'picking_status' => 'BEFORE',
+                        'updated_at' => now(),
+                    ]);
+                $this->info("  ✓ Reset {$updatedTransfers} stock_transfers to BEFORE status");
             }
 
             // 2. Delete picking item results
@@ -478,5 +689,41 @@ class GenerateWavesCommand extends Command
                 $this->info("  ✓ Deleted {$deletedKeys} idempotency keys");
             }
         });
+    }
+
+    /**
+     * ピッキング対象の倉庫間移動伝票クエリを取得
+     *
+     * 仮想倉庫間移動（物理的ピッキング不要）は除外：
+     * - from_warehouse.is_virtual = true AND to_warehouse.is_virtual = true
+     * - from_warehouse.stock_warehouse_id == to_warehouse.stock_warehouse_id
+     */
+    protected function getEligibleStockTransfersQuery(
+        string $shippingDate,
+        int $warehouseId,
+        int $deliveryCourseId
+    ) {
+        return DB::connection('sakemaru')
+            ->table('stock_transfers as st')
+            ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
+            ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
+            ->where('st.delivered_date', $shippingDate)
+            ->where('st.is_active', true)
+            ->where('st.picking_status', 'BEFORE')
+            ->where('st.from_warehouse_id', $warehouseId)
+            ->where('st.delivery_course_id', $deliveryCourseId)
+            // 仮想倉庫間移動は対象外
+            ->where(function ($query) {
+                $query->where(function ($q) {
+                    // 両方が仮想倉庫の場合は対象外
+                    $q->where('fw.is_virtual', false)
+                        ->orWhere('tw.is_virtual', false);
+                })
+                    ->where(function ($q) {
+                        // 同じ実倉庫に紐づく仮想倉庫間の場合は対象外
+                        $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
+                    });
+            })
+            ->select('st.*');
     }
 }

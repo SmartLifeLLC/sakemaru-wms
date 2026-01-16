@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,6 +25,7 @@ class WmsStockTransferCandidate extends WmsModel
         'hub_warehouse_id',
         'item_id',
         'contractor_id',
+        'delivery_course_id',
         'suggested_quantity',
         'transfer_quantity',
         'quantity_type',
@@ -72,6 +74,11 @@ class WmsStockTransferCandidate extends WmsModel
     public function contractor(): BelongsTo
     {
         return $this->belongsTo(Contractor::class);
+    }
+
+    public function deliveryCourse(): BelongsTo
+    {
+        return $this->belongsTo(DeliveryCourse::class);
     }
 
     /**

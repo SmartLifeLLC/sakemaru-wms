@@ -15,17 +15,21 @@ use Illuminate\Support\Facades\Log;
  * 発注確定サービス
  *
  * 発注候補を確定（EXECUTED）し、入庫予定を作成する
+ * demand_breakdownがある場合は、各倉庫ごとに入庫予定を作成
  */
 class OrderExecutionService
 {
     /**
      * 発注候補を確定し、入庫予定を作成
      *
+     * demand_breakdownがある場合は倉庫ごとに分けて入庫予定を作成
+     * ない場合は従来通り発注元倉庫に入庫予定を作成
+     *
      * @param  WmsOrderCandidate  $candidate  発注候補
      * @param  int  $executedBy  確定者ID
-     * @return WmsOrderIncomingSchedule 作成された入庫予定
+     * @return Collection<WmsOrderIncomingSchedule> 作成された入庫予定のコレクション
      */
-    public function executeCandidate(WmsOrderCandidate $candidate, int $executedBy): WmsOrderIncomingSchedule
+    public function executeCandidate(WmsOrderCandidate $candidate, int $executedBy): Collection
     {
         if ($candidate->status !== CandidateStatus::APPROVED) {
             throw new \RuntimeException(
@@ -41,12 +45,77 @@ class OrderExecutionService
                 'modified_at' => now(),
             ]);
 
-            // 2. 入庫予定を作成
-            $incomingSchedule = WmsOrderIncomingSchedule::create([
+            // 2. 入庫予定を作成（demand_breakdownの有無で分岐）
+            $incomingSchedules = $this->createIncomingSchedulesFromCandidate($candidate);
+
+            Log::info('Order candidate executed and incoming schedules created', [
+                'candidate_id' => $candidate->id,
+                'schedule_count' => $incomingSchedules->count(),
+                'warehouse_id' => $candidate->warehouse_id,
+                'item_id' => $candidate->item_id,
+                'total_quantity' => $candidate->order_quantity,
+                'expected_arrival_date' => $candidate->expected_arrival_date,
+            ]);
+
+            return $incomingSchedules;
+        });
+    }
+
+    /**
+     * 発注候補から入庫予定を作成
+     *
+     * demand_breakdownがある場合は各倉庫ごとに作成
+     * ない場合は従来通り発注元倉庫に一括作成
+     *
+     * @param  WmsOrderCandidate  $candidate  発注候補
+     * @return Collection<WmsOrderIncomingSchedule>
+     */
+    private function createIncomingSchedulesFromCandidate(WmsOrderCandidate $candidate): Collection
+    {
+        $incomingSchedules = collect();
+        $supplierId = $this->getSupplierIdFromCandidate($candidate);
+
+        // demand_breakdownがある場合は各倉庫ごとに入庫予定を作成
+        if (! empty($candidate->demand_breakdown)) {
+            foreach ($candidate->demand_breakdown as $breakdown) {
+                $warehouseId = $breakdown['warehouse_id'];
+                $quantity = $breakdown['quantity'];
+
+                if ($quantity <= 0) {
+                    continue;
+                }
+
+                $schedule = WmsOrderIncomingSchedule::create([
+                    'warehouse_id' => $warehouseId,
+                    'item_id' => $candidate->item_id,
+                    'contractor_id' => $candidate->contractor_id,
+                    'supplier_id' => $supplierId,
+                    'order_candidate_id' => $candidate->id,
+                    'order_source' => OrderSource::AUTO,
+                    'expected_quantity' => $quantity,
+                    'received_quantity' => 0,
+                    'quantity_type' => $candidate->quantity_type,
+                    'order_date' => now()->format('Y-m-d'),
+                    'expected_arrival_date' => $candidate->expected_arrival_date,
+                    'status' => IncomingScheduleStatus::PENDING,
+                ]);
+
+                $incomingSchedules->push($schedule);
+
+                Log::debug('Incoming schedule created for warehouse breakdown', [
+                    'candidate_id' => $candidate->id,
+                    'schedule_id' => $schedule->id,
+                    'warehouse_id' => $warehouseId,
+                    'quantity' => $quantity,
+                ]);
+            }
+        } else {
+            // demand_breakdownがない場合は従来通り発注元倉庫に入庫予定を作成
+            $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,
                 'item_id' => $candidate->item_id,
                 'contractor_id' => $candidate->contractor_id,
-                'supplier_id' => $this->getSupplierIdFromCandidate($candidate),
+                'supplier_id' => $supplierId,
                 'order_candidate_id' => $candidate->id,
                 'order_source' => OrderSource::AUTO,
                 'expected_quantity' => $candidate->order_quantity,
@@ -57,17 +126,10 @@ class OrderExecutionService
                 'status' => IncomingScheduleStatus::PENDING,
             ]);
 
-            Log::info('Order candidate executed and incoming schedule created', [
-                'candidate_id' => $candidate->id,
-                'incoming_schedule_id' => $incomingSchedule->id,
-                'warehouse_id' => $candidate->warehouse_id,
-                'item_id' => $candidate->item_id,
-                'quantity' => $candidate->order_quantity,
-                'expected_arrival_date' => $candidate->expected_arrival_date,
-            ]);
+            $incomingSchedules->push($schedule);
+        }
 
-            return $incomingSchedule;
-        });
+        return $incomingSchedules;
     }
 
     /**
@@ -75,7 +137,7 @@ class OrderExecutionService
      *
      * @param  string  $batchCode  バッチコード
      * @param  int  $executedBy  確定者ID
-     * @return Collection 作成された入庫予定のコレクション
+     * @return Collection<WmsOrderIncomingSchedule> 作成された入庫予定のコレクション
      */
     public function executeBatch(string $batchCode, int $executedBy): Collection
     {
@@ -90,11 +152,13 @@ class OrderExecutionService
         }
 
         $incomingSchedules = collect();
+        $executedCandidateCount = 0;
 
         foreach ($candidates as $candidate) {
             try {
-                $schedule = $this->executeCandidate($candidate, $executedBy);
-                $incomingSchedules->push($schedule);
+                $schedules = $this->executeCandidate($candidate, $executedBy);
+                $incomingSchedules = $incomingSchedules->merge($schedules);
+                $executedCandidateCount++;
             } catch (\Exception $e) {
                 Log::error('Failed to execute candidate', [
                     'candidate_id' => $candidate->id,
@@ -106,8 +170,9 @@ class OrderExecutionService
 
         Log::info('Batch execution completed', [
             'batch_code' => $batchCode,
-            'executed_count' => $incomingSchedules->count(),
+            'executed_candidate_count' => $executedCandidateCount,
             'total_approved' => $candidates->count(),
+            'incoming_schedule_count' => $incomingSchedules->count(),
         ]);
 
         return $incomingSchedules;
