@@ -179,6 +179,7 @@ class OrderExecutionService
     {
         $incomingSchedules = collect();
         $supplierId = $this->getSupplierIdFromCandidate($candidate);
+        $searchCode = $this->getSearchCodeForItem($candidate->item_id);
 
         // demand_breakdownがある場合は各倉庫ごとに入庫予定を作成
         if (! empty($candidate->demand_breakdown)) {
@@ -193,6 +194,7 @@ class OrderExecutionService
                 $schedule = WmsOrderIncomingSchedule::create([
                     'warehouse_id' => $warehouseId,
                     'item_id' => $candidate->item_id,
+                    'search_code' => $searchCode,
                     'contractor_id' => $candidate->contractor_id,
                     'supplier_id' => $supplierId,
                     'order_candidate_id' => $candidate->id,
@@ -219,6 +221,7 @@ class OrderExecutionService
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,
                 'item_id' => $candidate->item_id,
+                'search_code' => $searchCode,
                 'contractor_id' => $candidate->contractor_id,
                 'supplier_id' => $supplierId,
                 'order_candidate_id' => $candidate->id,
@@ -291,9 +294,12 @@ class OrderExecutionService
      */
     public function createManualIncomingSchedule(array $data, int $createdBy): WmsOrderIncomingSchedule
     {
+        $searchCode = $this->getSearchCodeForItem($data['item_id']);
+
         $incomingSchedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $data['warehouse_id'],
             'item_id' => $data['item_id'],
+            'search_code' => $searchCode,
             'contractor_id' => $data['contractor_id'],
             'supplier_id' => $data['supplier_id'] ?? null,
             'manual_order_number' => $data['order_number'] ?? null,
@@ -332,5 +338,25 @@ class OrderExecutionService
             ->first();
 
         return $itemContractor?->supplier_id;
+    }
+
+    /**
+     * 商品IDから検索コードを取得
+     *
+     * item_search_information.search_string をカンマ区切りで連結
+     */
+    private function getSearchCodeForItem(int $itemId): ?string
+    {
+        $searchStrings = DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('item_id', $itemId)
+            ->orderBy('priority')
+            ->pluck('search_string')
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+
+        return ! empty($searchStrings) ? implode(',', $searchStrings) : null;
     }
 }

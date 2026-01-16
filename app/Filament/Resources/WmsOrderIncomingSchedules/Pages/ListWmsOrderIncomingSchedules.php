@@ -149,33 +149,25 @@ class ListWmsOrderIncomingSchedules extends ListRecords
     public function getPresetViews(): array
     {
         return [
+            'all' => PresetView::make()
+                ->favorite()
+                ->label('全て')
+                ->default(),
+
             'pending' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', IncomingScheduleStatus::PENDING))
                 ->favorite()
-                ->label('未入庫')
-                ->default(),
+                ->label('未入庫'),
 
             'partial' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', IncomingScheduleStatus::PARTIAL))
                 ->favorite()
                 ->label('一部入庫'),
 
-            'not_completed' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', [
-                    IncomingScheduleStatus::PENDING,
-                    IncomingScheduleStatus::PARTIAL,
-                ]))
+            'today' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereDate('expected_arrival_date', today()))
                 ->favorite()
-                ->label('未完了'),
-
-            'confirmed' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', IncomingScheduleStatus::CONFIRMED))
-                ->favorite()
-                ->label('入庫完了'),
-
-            'all' => PresetView::make()
-                ->favorite()
-                ->label('全て'),
+                ->label('本日予定'),
         ];
     }
 }

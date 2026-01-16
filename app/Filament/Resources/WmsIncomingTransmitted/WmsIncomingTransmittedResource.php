@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Filament\Resources\WmsOrderIncomingSchedules;
+namespace App\Filament\Resources\WmsIncomingTransmitted;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\EMenu;
-use App\Filament\Resources\WmsOrderIncomingSchedules\Pages\ListWmsOrderIncomingSchedules;
-use App\Filament\Resources\WmsOrderIncomingSchedules\Tables\WmsOrderIncomingSchedulesTable;
+use App\Filament\Resources\WmsIncomingTransmitted\Pages\ListWmsIncomingTransmitted;
+use App\Filament\Resources\WmsIncomingTransmitted\Tables\WmsIncomingTransmittedTable;
 use App\Models\WmsOrderIncomingSchedule;
 use BackedEnum;
 use Filament\Resources\Resource;
@@ -13,42 +13,44 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsOrderIncomingScheduleResource extends Resource
+class WmsIncomingTransmittedResource extends Resource
 {
     protected static ?string $model = WmsOrderIncomingSchedule::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedInboxArrowDown;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCloudArrowUp;
+
+    protected static ?string $slug = 'wms-incoming-transmitted';
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenu::WMS_ORDER_INCOMING_SCHEDULES->category()->label();
+        return EMenu::WMS_INCOMING_TRANSMITTED->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return EMenu::WMS_ORDER_INCOMING_SCHEDULES->label();
+        return EMenu::WMS_INCOMING_TRANSMITTED->label();
     }
 
     public static function getModelLabel(): string
     {
-        return '入庫予定';
+        return '仕入連携済み';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '入庫予定';
+        return '仕入連携済み';
     }
 
     public static function getNavigationSort(): ?int
     {
-        return EMenu::WMS_ORDER_INCOMING_SCHEDULES->sort();
+        return EMenu::WMS_INCOMING_TRANSMITTED->sort();
     }
 
     public static function getEloquentQuery(): Builder
     {
-        // 未入庫（PENDING）と一部入庫（PARTIAL）のみ表示
+        // 連携済み（TRANSMITTED）のみ表示
         return parent::getEloquentQuery()
-            ->whereIn('status', [IncomingScheduleStatus::PENDING, IncomingScheduleStatus::PARTIAL])
+            ->where('status', IncomingScheduleStatus::TRANSMITTED)
             ->with([
                 'warehouse',
                 'item',
@@ -59,7 +61,7 @@ class WmsOrderIncomingScheduleResource extends Resource
 
     public static function table(Table $table): Table
     {
-        return WmsOrderIncomingSchedulesTable::configure($table);
+        return WmsIncomingTransmittedTable::configure($table);
     }
 
     public static function getRelations(): array
@@ -72,7 +74,7 @@ class WmsOrderIncomingScheduleResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => ListWmsOrderIncomingSchedules::route('/'),
+            'index' => ListWmsIncomingTransmitted::route('/'),
         ];
     }
 }

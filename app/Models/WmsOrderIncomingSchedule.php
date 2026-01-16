@@ -25,6 +25,7 @@ class WmsOrderIncomingSchedule extends WmsModel
     protected $fillable = [
         'warehouse_id',
         'item_id',
+        'search_code',
         'contractor_id',
         'supplier_id',
         'order_candidate_id',
@@ -36,6 +37,7 @@ class WmsOrderIncomingSchedule extends WmsModel
         'order_date',
         'expected_arrival_date',
         'actual_arrival_date',
+        'expiration_date',
         'status',
         'confirmed_at',
         'confirmed_by',
@@ -48,6 +50,7 @@ class WmsOrderIncomingSchedule extends WmsModel
         'order_date' => 'date',
         'expected_arrival_date' => 'date',
         'actual_arrival_date' => 'date',
+        'expiration_date' => 'date',
         'confirmed_at' => 'datetime',
         'status' => IncomingScheduleStatus::class,
         'order_source' => OrderSource::class,

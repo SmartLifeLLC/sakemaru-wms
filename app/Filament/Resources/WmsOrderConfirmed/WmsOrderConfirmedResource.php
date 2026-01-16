@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Filament\Resources\WmsOrderConfirmationWaiting;
+namespace App\Filament\Resources\WmsOrderConfirmed;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\EMenu;
-use App\Filament\Resources\WmsOrderConfirmationWaiting\Pages\ListWmsOrderConfirmationWaiting;
-use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
+use App\Filament\Resources\WmsOrderConfirmed\Pages\ListWmsOrderConfirmed;
+use App\Filament\Resources\WmsOrderConfirmed\Tables\WmsOrderConfirmedTable;
 use App\Models\WmsOrderCandidate;
 use BackedEnum;
 use Filament\Resources\Resource;
@@ -13,45 +13,44 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsOrderConfirmationWaitingResource extends Resource
+class WmsOrderConfirmedResource extends Resource
 {
     protected static ?string $model = WmsOrderCandidate::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentCheck;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCheckBadge;
 
-    protected static ?string $slug = 'wms-order-confirmation-waiting';
+    protected static ?string $slug = 'wms-order-confirmed';
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenu::WMS_ORDER_CONFIRMATION_WAITING->category()->label();
+        return EMenu::WMS_ORDER_CONFIRMED->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return EMenu::WMS_ORDER_CONFIRMATION_WAITING->label();
+        return EMenu::WMS_ORDER_CONFIRMED->label();
     }
 
     public static function getModelLabel(): string
     {
-        return '発注確定待ち';
+        return '発注確定済み';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '発注確定待ち';
+        return '発注確定済み';
     }
 
     public static function getNavigationSort(): ?int
     {
-        return EMenu::WMS_ORDER_CONFIRMATION_WAITING->sort();
+        return EMenu::WMS_ORDER_CONFIRMED->sort();
     }
 
     public static function getEloquentQuery(): Builder
     {
-        // 承認済み（APPROVED）のみ表示
-        // 発注確定済み（CONFIRMED）は別画面、送信済み（EXECUTED）は表示しない
+        // 発注確定済み（CONFIRMED）と送信済み（EXECUTED）を表示
         return parent::getEloquentQuery()
-            ->where('status', CandidateStatus::APPROVED)
+            ->whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
             ->with([
                 'warehouse',
                 'item',
@@ -61,7 +60,7 @@ class WmsOrderConfirmationWaitingResource extends Resource
 
     public static function table(Table $table): Table
     {
-        return WmsOrderConfirmationWaitingTable::configure($table);
+        return WmsOrderConfirmedTable::configure($table);
     }
 
     public static function getRelations(): array
@@ -74,7 +73,7 @@ class WmsOrderConfirmationWaitingResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => ListWmsOrderConfirmationWaiting::route('/'),
+            'index' => ListWmsOrderConfirmed::route('/'),
         ];
     }
 }

@@ -67,6 +67,13 @@ class WmsOrderIncomingSchedulesTable
                     ->alignCenter()
                     ->width('100px'),
 
+                TextColumn::make('search_code')
+                    ->label('検索コード')
+                    ->searchable()
+                    ->limit(20)
+                    ->placeholder('-')
+                    ->width('120px'),
+
                 TextColumn::make('item.name')
                     ->label('商品名')
                     ->searchable()
@@ -135,6 +142,14 @@ class WmsOrderIncomingSchedulesTable
                     ->placeholder('-')
                     ->width('70px'),
 
+                TextColumn::make('expiration_date')
+                    ->label('賞味期限')
+                    ->date('Y/m/d')
+                    ->sortable()
+                    ->alignCenter()
+                    ->placeholder('-')
+                    ->width('90px'),
+
                 TextColumn::make('order_candidate_id')
                     ->label('発注候補ID')
                     ->alignCenter()
@@ -194,13 +209,14 @@ class WmsOrderIncomingSchedulesTable
             ])
             ->recordActions([
                 Action::make('confirm')
-                    ->label('入庫確定')
+                    ->label('入庫処理')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->visible(fn ($record) => in_array($record->status, [
                         IncomingScheduleStatus::PENDING,
                         IncomingScheduleStatus::PARTIAL,
                     ]))
+                    ->modalHeading('入庫処理')
                     ->schema([
                         TextInput::make('received_quantity')
                             ->label('入庫数量')
@@ -210,9 +226,14 @@ class WmsOrderIncomingSchedulesTable
                             ->helperText(fn ($record) => "残数: {$record->remaining_quantity}"),
 
                         DatePicker::make('actual_date')
-                            ->label('入庫日')
+                            ->label('入荷日')
                             ->default(now())
                             ->required(),
+
+                        DatePicker::make('expiration_date')
+                            ->label('賞味期限')
+                            ->default(fn ($record) => $record->expiration_date)
+                            ->helperText('商品の賞味期限を入力してください（任意）'),
                     ])
                     ->action(function ($record, array $data) {
                         $service = app(IncomingConfirmationService::class);
@@ -220,6 +241,7 @@ class WmsOrderIncomingSchedulesTable
                         try {
                             $receivedQty = (int) $data['received_quantity'];
                             $remainingQty = $record->remaining_quantity;
+                            $expirationDate = $data['expiration_date'] ?? null;
 
                             if ($receivedQty >= $remainingQty) {
                                 // 全量入庫
@@ -227,7 +249,8 @@ class WmsOrderIncomingSchedulesTable
                                     $record,
                                     auth()->id(),
                                     $record->expected_quantity,
-                                    $data['actual_date']
+                                    $data['actual_date'],
+                                    $expirationDate
                                 );
                                 Notification::make()
                                     ->title('入庫を確定しました')
@@ -239,7 +262,8 @@ class WmsOrderIncomingSchedulesTable
                                     $record,
                                     $receivedQty,
                                     auth()->id(),
-                                    $data['actual_date']
+                                    $data['actual_date'],
+                                    $expirationDate
                                 );
                                 Notification::make()
                                     ->title('一部入庫を記録しました')
@@ -332,6 +356,65 @@ class WmsOrderIncomingSchedulesTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    BulkAction::make('bulkUpdateDates')
+                        ->label('入荷日・賞味期限を更新')
+                        ->icon('heroicon-o-calendar')
+                        ->color('info')
+                        ->modalHeading('入荷日・賞味期限の一括更新')
+                        ->modalDescription('選択した入庫予定の入荷日・賞味期限を更新します（確定は行いません）')
+                        ->schema([
+                            DatePicker::make('actual_arrival_date')
+                                ->label('入荷日')
+                                ->helperText('空欄の場合は更新しません'),
+
+                            DatePicker::make('expiration_date')
+                                ->label('賞味期限')
+                                ->helperText('空欄の場合は更新しません'),
+                        ])
+                        ->action(function (Collection $records, array $data) {
+                            $validRecords = $records->filter(fn ($r) => in_array($r->status, [
+                                IncomingScheduleStatus::PENDING,
+                                IncomingScheduleStatus::PARTIAL,
+                            ]));
+
+                            if ($validRecords->isEmpty()) {
+                                Notification::make()
+                                    ->title('更新可能なレコードがありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $updateData = [];
+                            if (! empty($data['actual_arrival_date'])) {
+                                $updateData['actual_arrival_date'] = $data['actual_arrival_date'];
+                            }
+                            if (! empty($data['expiration_date'])) {
+                                $updateData['expiration_date'] = $data['expiration_date'];
+                            }
+
+                            if (empty($updateData)) {
+                                Notification::make()
+                                    ->title('更新する項目がありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $count = 0;
+                            foreach ($validRecords as $record) {
+                                $record->update($updateData);
+                                $count++;
+                            }
+
+                            Notification::make()
+                                ->title("{$count}件を更新しました")
+                                ->success()
+                                ->send();
+                        }),
+
                     BulkAction::make('bulkConfirm')
                         ->label('選択を入庫確定')
                         ->icon('heroicon-o-check-circle')

@@ -7,6 +7,8 @@ enum EMenu: string
     // 入荷管理
     case INBOUND_DASHBOARD = 'inbound.dashboard';
     case WMS_ORDER_INCOMING_SCHEDULES = 'inbound.wms_order_incoming_schedules';
+    case WMS_INCOMING_COMPLETED = 'inbound.wms_incoming_completed';
+    case WMS_INCOMING_TRANSMITTED = 'inbound.wms_incoming_transmitted';
     case PURCHASES = 'inbound.purchases';
     case RECEIPT_INSPECTIONS = 'inbound.receipt_inspections';
 
@@ -33,6 +35,7 @@ enum EMenu: string
     // 自動発注
     case WMS_ORDER_CANDIDATES = 'auto_order.wms_order_candidates';
     case WMS_ORDER_CONFIRMATION_WAITING = 'auto_order.wms_order_confirmation_waiting';
+    case WMS_ORDER_CONFIRMED = 'auto_order.wms_order_confirmed';
     case WMS_AUTO_ORDER_JOBS = 'auto_order.wms_auto_order_jobs';
 
     // 在庫管理
@@ -75,6 +78,8 @@ enum EMenu: string
         return match ($this) {
             self::INBOUND_DASHBOARD,
             self::WMS_ORDER_INCOMING_SCHEDULES,
+            self::WMS_INCOMING_COMPLETED,
+            self::WMS_INCOMING_TRANSMITTED,
             self::PURCHASES,
             self::RECEIPT_INSPECTIONS => EMenuCategory::INBOUND,
 
@@ -97,6 +102,7 @@ enum EMenu: string
 
             self::WMS_ORDER_CANDIDATES,
             self::WMS_ORDER_CONFIRMATION_WAITING,
+            self::WMS_ORDER_CONFIRMED,
             self::WMS_AUTO_ORDER_JOBS => EMenuCategory::AUTO_ORDER,
 
             self::REAL_STOCKS => EMenuCategory::INVENTORY,
@@ -140,6 +146,8 @@ enum EMenu: string
         return match ($this) {
             self::INBOUND_DASHBOARD => '入荷ダッシュボード',
             self::WMS_ORDER_INCOMING_SCHEDULES => '入庫予定',
+            self::WMS_INCOMING_COMPLETED => '入庫完了',
+            self::WMS_INCOMING_TRANSMITTED => '仕入連携済み',
             self::PURCHASES => '発注データ',
             self::RECEIPT_INSPECTIONS => '入荷検品',
 
@@ -162,6 +170,7 @@ enum EMenu: string
             self::WMS_STOCK_TRANSFER_CANDIDATES => '移動候補一覧',
             self::WMS_ORDER_CANDIDATES => '発注候補一覧',
             self::WMS_ORDER_CONFIRMATION_WAITING => '発注確定待ち',
+            self::WMS_ORDER_CONFIRMED => '発注確定済み',
             self::WMS_AUTO_ORDER_JOBS => 'ジョブ履歴',
 
             self::REAL_STOCKS => '在庫管理',
@@ -201,6 +210,8 @@ enum EMenu: string
         return match ($this) {
             self::INBOUND_DASHBOARD => 'heroicon-o-presentation-chart-line',
             self::WMS_ORDER_INCOMING_SCHEDULES => 'heroicon-o-inbox-arrow-down',
+            self::WMS_INCOMING_COMPLETED => 'heroicon-o-check-circle',
+            self::WMS_INCOMING_TRANSMITTED => 'heroicon-o-cloud-arrow-up',
             self::PURCHASES => 'heroicon-o-shopping-cart',
             self::RECEIPT_INSPECTIONS => 'heroicon-o-clipboard-document-check',
 
@@ -223,6 +234,7 @@ enum EMenu: string
             self::WMS_STOCK_TRANSFER_CANDIDATES => 'heroicon-o-arrows-right-left',
             self::WMS_ORDER_CANDIDATES => 'heroicon-o-shopping-cart',
             self::WMS_ORDER_CONFIRMATION_WAITING => 'heroicon-o-clipboard-document-check',
+            self::WMS_ORDER_CONFIRMED => 'heroicon-o-check-badge',
             self::WMS_AUTO_ORDER_JOBS => 'heroicon-o-queue-list',
 
             self::REAL_STOCKS => 'heroicon-o-cube-transparent',
@@ -262,8 +274,10 @@ enum EMenu: string
             // 入荷管理
             self::INBOUND_DASHBOARD => 1,
             self::WMS_ORDER_INCOMING_SCHEDULES => 2,
-            self::PURCHASES => 3,
-            self::RECEIPT_INSPECTIONS => 4,
+            self::WMS_INCOMING_COMPLETED => 3,
+            self::WMS_INCOMING_TRANSMITTED => 4,
+            self::PURCHASES => 5,
+            self::RECEIPT_INSPECTIONS => 6,
 
             // 出荷管理
             self::WMS_PICKER_ATTENDANCE => 1,
@@ -288,7 +302,8 @@ enum EMenu: string
             // 自動発注
             self::WMS_ORDER_CANDIDATES => 1,
             self::WMS_ORDER_CONFIRMATION_WAITING => 2,
-            self::WMS_AUTO_ORDER_JOBS => 3,
+            self::WMS_ORDER_CONFIRMED => 3,
+            self::WMS_AUTO_ORDER_JOBS => 4,
 
             // 在庫管理
             self::REAL_STOCKS => 1,

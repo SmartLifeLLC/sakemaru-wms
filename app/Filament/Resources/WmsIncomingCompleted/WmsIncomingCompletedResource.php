@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Filament\Resources\WmsOrderIncomingSchedules;
+namespace App\Filament\Resources\WmsIncomingCompleted;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\EMenu;
-use App\Filament\Resources\WmsOrderIncomingSchedules\Pages\ListWmsOrderIncomingSchedules;
-use App\Filament\Resources\WmsOrderIncomingSchedules\Tables\WmsOrderIncomingSchedulesTable;
+use App\Filament\Resources\WmsIncomingCompleted\Pages\ListWmsIncomingCompleted;
+use App\Filament\Resources\WmsIncomingCompleted\Tables\WmsIncomingCompletedTable;
 use App\Models\WmsOrderIncomingSchedule;
 use BackedEnum;
 use Filament\Resources\Resource;
@@ -13,42 +13,44 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsOrderIncomingScheduleResource extends Resource
+class WmsIncomingCompletedResource extends Resource
 {
     protected static ?string $model = WmsOrderIncomingSchedule::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedInboxArrowDown;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCheckCircle;
+
+    protected static ?string $slug = 'wms-incoming-completed';
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenu::WMS_ORDER_INCOMING_SCHEDULES->category()->label();
+        return EMenu::WMS_INCOMING_COMPLETED->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return EMenu::WMS_ORDER_INCOMING_SCHEDULES->label();
+        return EMenu::WMS_INCOMING_COMPLETED->label();
     }
 
     public static function getModelLabel(): string
     {
-        return '入庫予定';
+        return '入庫完了';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '入庫予定';
+        return '入庫完了';
     }
 
     public static function getNavigationSort(): ?int
     {
-        return EMenu::WMS_ORDER_INCOMING_SCHEDULES->sort();
+        return EMenu::WMS_INCOMING_COMPLETED->sort();
     }
 
     public static function getEloquentQuery(): Builder
     {
-        // 未入庫（PENDING）と一部入庫（PARTIAL）のみ表示
+        // 入庫完了（CONFIRMED）のみ表示
         return parent::getEloquentQuery()
-            ->whereIn('status', [IncomingScheduleStatus::PENDING, IncomingScheduleStatus::PARTIAL])
+            ->where('status', IncomingScheduleStatus::CONFIRMED)
             ->with([
                 'warehouse',
                 'item',
@@ -59,7 +61,7 @@ class WmsOrderIncomingScheduleResource extends Resource
 
     public static function table(Table $table): Table
     {
-        return WmsOrderIncomingSchedulesTable::configure($table);
+        return WmsIncomingCompletedTable::configure($table);
     }
 
     public static function getRelations(): array
@@ -72,7 +74,7 @@ class WmsOrderIncomingScheduleResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => ListWmsOrderIncomingSchedules::route('/'),
+            'index' => ListWmsIncomingCompleted::route('/'),
         ];
     }
 }
