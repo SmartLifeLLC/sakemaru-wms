@@ -441,3 +441,18 @@ html.fi {
 .fi-topbar ~ .fi-main-ctn {
     padding-top: 2.5rem !important;
 }
+
+/* 倉庫移動メニューの2列表示 */
+/* URLベースのセレクターで「倉庫移動」グループのドロップダウンをターゲット */
+.fi-topbar-nav .fi-dropdown-panel:has(a[href*="wms-shortage-allocations"]):has(a[href*="wms-stock-transfer-candidates"]) .fi-dropdown-list {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.25rem 1rem !important;
+    min-width: 400px !important;
+    padding: 0.5rem !important;
+}
+
+/* 各メニュー項目のスタイル調整 */
+.fi-topbar-nav .fi-dropdown-panel:has(a[href*="wms-shortage-allocations"]):has(a[href*="wms-stock-transfer-candidates"]) .fi-dropdown-list-item {
+    width: 100% !important;
+}

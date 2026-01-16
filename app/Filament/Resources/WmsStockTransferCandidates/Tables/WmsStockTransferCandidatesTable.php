@@ -6,11 +6,14 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -50,11 +53,17 @@ class WmsStockTransferCandidatesTable
                     ->width('140px'),
 
                 TextColumn::make('hubWarehouse.name')
-                    ->label('横持ち出荷倉庫')
+                    ->label('移動元倉庫')
                     ->state(fn ($record) => $record->hubWarehouse ? "[{$record->hubWarehouse->code}]{$record->hubWarehouse->name}" : '-')
                     ->searchable()
                     ->sortable()
                     ->width('140px'),
+
+                TextColumn::make('deliveryCourse.name')
+                    ->label('配送コース')
+                    ->state(fn ($record) => $record->deliveryCourse?->name ?? '-')
+                    ->sortable()
+                    ->width('100px'),
 
                 TextColumn::make('item.code')
                     ->label('商品コード')
@@ -103,23 +112,14 @@ class WmsStockTransferCandidatesTable
                     ->alignEnd()
                     ->width('60px'),
 
-                TextInputColumn::make('transfer_quantity')
+                TextColumn::make('transfer_quantity')
                     ->label('移動数')
-                    ->type('number')
-                    ->rules(['required', 'integer', 'min:0'])
+                    ->numeric()
                     ->alignEnd()
-                    ->width('70px')
-                    ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
-                    ->afterStateUpdated(function ($record, $state) {
-                        $record->update([
-                            'is_manually_modified' => true,
-                            'modified_by' => auth()->id(),
-                            'modified_at' => now(),
-                        ]);
-                    }),
+                    ->width('60px'),
 
                 TextColumn::make('expected_arrival_date')
-                    ->label('入荷予定')
+                    ->label('移動出荷日')
                     ->date('m/d')
                     ->sortable()
                     ->alignCenter()
@@ -168,6 +168,10 @@ class WmsStockTransferCandidatesTable
                     ->label('在庫依頼倉庫')
                     ->relationship('satelliteWarehouse', 'name'),
 
+                SelectFilter::make('hub_warehouse_id')
+                    ->label('移動元倉庫')
+                    ->relationship('hubWarehouse', 'name'),
+
                 SelectFilter::make('contractor_id')
                     ->label('発注先')
                     ->options(fn () => Contractor::query()
@@ -210,14 +214,33 @@ class WmsStockTransferCandidatesTable
                             ->send();
                     }),
 
-                Action::make('viewCalculation')
-                    ->label('詳細')
-                    ->icon('heroicon-o-eye')
+                Action::make('unapprove')
+                    ->label('承認解除')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('warning')
+                    ->visible(fn ($record) => $record->status === CandidateStatus::APPROVED)
+                    ->requiresConfirmation()
+                    ->modalHeading('承認を解除')
+                    ->modalDescription('この移動候補の承認を解除し、承認前の状態に戻します。')
+                    ->action(function ($record) {
+                        $record->update(['status' => CandidateStatus::PENDING]);
+                        Notification::make()
+                            ->title('承認を解除しました')
+                            ->warning()
+                            ->send();
+                    }),
+
+                Action::make('edit')
+                    ->label('変更')
+                    ->icon('heroicon-o-pencil')
                     ->color('gray')
-                    ->modalHeading('移動候補詳細')
+                    ->visible(fn ($record) => $record->status === CandidateStatus::PENDING)
+                    ->modalHeading('移動候補を変更')
                     ->modalWidth('6xl')
                     ->fillForm(fn ($record) => [
                         'transfer_quantity' => $record->transfer_quantity,
+                        'expected_arrival_date' => $record->expected_arrival_date,
+                        'delivery_course_id' => $record->delivery_course_id,
                     ])
                     ->schema(function (?WmsStockTransferCandidate $record): array {
                         if (! $record) {
@@ -276,13 +299,22 @@ class WmsStockTransferCandidatesTable
                                                     'shortageQty' => $details['不足数'] ?? 0,
                                                 ]),
 
-                                            Section::make('移動数変更')
+                                            Section::make('変更')
                                                 ->schema([
                                                     TextInput::make('transfer_quantity')
                                                         ->label('移動数')
                                                         ->numeric()
                                                         ->required()
                                                         ->minValue(0),
+                                                    DatePicker::make('expected_arrival_date')
+                                                        ->label('移動出荷日')
+                                                        ->required(),
+                                                    Select::make('delivery_course_id')
+                                                        ->label('配送コース')
+                                                        ->options(fn () => DeliveryCourse::query()
+                                                            ->orderBy('name')
+                                                            ->pluck('name', 'id'))
+                                                        ->searchable(),
                                                 ]),
                                         ])
                                         ->columnSpan(2),
@@ -290,15 +322,21 @@ class WmsStockTransferCandidatesTable
                         ];
                     })
                     ->action(function ($record, array $data) {
-                        if ($data['transfer_quantity'] != $record->transfer_quantity) {
+                        $hasChanges = $data['transfer_quantity'] != $record->transfer_quantity
+                            || $data['expected_arrival_date'] != $record->expected_arrival_date?->format('Y-m-d')
+                            || $data['delivery_course_id'] != $record->delivery_course_id;
+
+                        if ($hasChanges) {
                             $record->update([
                                 'transfer_quantity' => $data['transfer_quantity'],
+                                'expected_arrival_date' => $data['expected_arrival_date'],
+                                'delivery_course_id' => $data['delivery_course_id'],
                                 'is_manually_modified' => true,
                                 'modified_by' => auth()->id(),
                                 'modified_at' => now(),
                             ]);
                             Notification::make()
-                                ->title('移動数を更新しました')
+                                ->title('移動候補を更新しました')
                                 ->success()
                                 ->send();
                         }
@@ -364,6 +402,58 @@ class WmsStockTransferCandidatesTable
                             Notification::make()
                                 ->title("{$count}件を除外しました")
                                 ->warning()
+                                ->send();
+                        }),
+
+                    BulkAction::make('bulkUpdateCourseAndDate')
+                        ->label('配送コース・入荷日を一括変更')
+                        ->icon('heroicon-o-pencil-square')
+                        ->color('warning')
+                        ->modalHeading('配送コース・移動出荷日を一括変更')
+                        ->modalDescription('選択した承認前の移動候補の配送コースと移動出荷日を変更します。空欄の項目は変更されません。')
+                        ->schema([
+                            Select::make('delivery_course_id')
+                                ->label('配送コース')
+                                ->options(fn () => DeliveryCourse::query()
+                                    ->orderBy('name')
+                                    ->pluck('name', 'id'))
+                                ->searchable()
+                                ->placeholder('変更しない'),
+                            DatePicker::make('expected_arrival_date')
+                                ->label('移動出荷日'),
+                        ])
+                        ->action(function (Collection $records, array $data) {
+                            $updateData = [];
+
+                            if (! empty($data['delivery_course_id'])) {
+                                $updateData['delivery_course_id'] = $data['delivery_course_id'];
+                            }
+
+                            if (! empty($data['expected_arrival_date'])) {
+                                $updateData['expected_arrival_date'] = $data['expected_arrival_date'];
+                            }
+
+                            if (empty($updateData)) {
+                                Notification::make()
+                                    ->title('変更項目がありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $updateData['is_manually_modified'] = true;
+                            $updateData['modified_by'] = auth()->id();
+                            $updateData['modified_at'] = now();
+
+                            $count = $records
+                                ->where('status', CandidateStatus::PENDING)
+                                ->each(fn ($record) => $record->update($updateData))
+                                ->count();
+
+                            Notification::make()
+                                ->title("{$count}件を更新しました")
+                                ->success()
                                 ->send();
                         }),
                 ]),

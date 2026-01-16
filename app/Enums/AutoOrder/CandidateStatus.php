@@ -7,7 +7,7 @@ enum CandidateStatus: string
     case PENDING = 'PENDING';
     case APPROVED = 'APPROVED';
     case EXCLUDED = 'EXCLUDED';
-    case TRANSMITTED = 'TRANSMITTED';
+    case EXECUTED = 'EXECUTED';
 
     public function label(): string
     {
@@ -15,7 +15,7 @@ enum CandidateStatus: string
             self::PENDING => '承認前',
             self::APPROVED => '承認済',
             self::EXCLUDED => '除外',
-            self::TRANSMITTED => '実行完了',
+            self::EXECUTED => '実行完了',
         };
     }
 
@@ -25,7 +25,7 @@ enum CandidateStatus: string
             self::PENDING => 'gray',
             self::APPROVED => 'success',
             self::EXCLUDED => 'danger',
-            self::TRANSMITTED => 'info',
+            self::EXECUTED => 'info',
         };
     }
 }

@@ -13,9 +13,17 @@ class AutoOrderGuide extends Page
 
     protected static ?string $navigationLabel = '自動発注ガイド';
 
-    protected static ?string $title = '自動発注システム ガイド';
-
     protected static ?string $slug = 'auto-order-guide';
+
+    public function getTitle(): string
+    {
+        return '';
+    }
+
+    public function getHeading(): string
+    {
+        return '';
+    }
 
     protected static ?int $navigationSort = 99;
 

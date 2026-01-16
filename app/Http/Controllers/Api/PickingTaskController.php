@@ -61,8 +61,17 @@ class PickingTaskController extends Controller
             }
         }
 
+        // Get destination warehouse for stock_transfer
+        $destinationWarehouse = null;
+        if ($itemResult->source_type === 'STOCK_TRANSFER' && $itemResult->stockTransfer) {
+            $destinationWarehouse = $itemResult->stockTransfer->to_warehouse?->name ?? null;
+        }
+
         return [
             'wms_picking_item_result_id' => $itemResult->id,
+            'source_type' => $itemResult->source_type ?? 'EARNING',
+            'earning_id' => $itemResult->earning_id,
+            'stock_transfer_id' => $itemResult->stock_transfer_id,
             'item_id' => $itemResult->item_id,
             'item_name' => $item->name ?? 'Unknown Item',
             'jan_code' => $janCodes[0] ?? null,
@@ -72,11 +81,14 @@ class PickingTaskController extends Controller
             'packaging' => $item->packaging ?? null,
             'temperature_type' => $temperatureTypeLabel,
             'images' => $images,
+            'destination_warehouse' => $destinationWarehouse,
             'planned_qty_type' => $itemResult->planned_qty_type,
             'planned_qty' => $itemResult->planned_qty,
             'picked_qty' => $itemResult->picked_qty ?? 0,
             'status' => $itemResult->status,
-            'slip_number' => $itemResult->earning_id,
+            'slip_number' => $itemResult->source_type === 'STOCK_TRANSFER'
+                ? $itemResult->stock_transfer_id
+                : $itemResult->earning_id,
         ];
     }
 
@@ -234,6 +246,7 @@ class PickingTaskController extends Controller
             'deliveryCourse',
             'pickingItemResults.item.item_search_information',
             'pickingItemResults.earning',
+            'pickingItemResults.stockTransfer.to_warehouse',
         ])
             ->where('warehouse_id', $warehouseId)
             ->whereIn('status', ['PENDING', 'PICKING']);
@@ -350,6 +363,7 @@ class PickingTaskController extends Controller
             'deliveryCourse',
             'pickingItemResults.item.item_search_information',
             'pickingItemResults.earning',
+            'pickingItemResults.stockTransfer.to_warehouse',
         ])->find($id);
 
         if (! $task) {
@@ -926,6 +940,31 @@ class PickingTaskController extends Controller
             'status' => $finalStatus,
             'completed_at' => now(),
         ]);
+
+        // Update stock_transfers.picking_status for stock_transfer items
+        $stockTransferIds = $itemResults
+            ->where('source_type', 'STOCK_TRANSFER')
+            ->whereNotNull('stock_transfer_id')
+            ->pluck('stock_transfer_id')
+            ->unique()
+            ->toArray();
+
+        if (! empty($stockTransferIds)) {
+            $transferStatus = $hasShortage ? 'SHORTAGE' : 'COMPLETED';
+            DB::connection('sakemaru')
+                ->table('stock_transfers')
+                ->whereIn('id', $stockTransferIds)
+                ->update([
+                    'picking_status' => $transferStatus,
+                    'updated_at' => now(),
+                ]);
+
+            Log::info('Updated stock_transfers picking_status', [
+                'task_id' => $task->id,
+                'stock_transfer_ids' => $stockTransferIds,
+                'status' => $transferStatus,
+            ]);
+        }
 
         // Register to earning_delivery_queue for lot-level stock updates
         // This allows sakemaru Job to process lot allocation confirmation

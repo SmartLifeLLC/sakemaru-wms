@@ -7,6 +7,7 @@ use App\Enums\EWMSLogTargetType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsPickingTasks\Widgets\PickingTaskInfoWidget;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingItemEditResource;
+use App\Filament\Widgets\PendingTasksWidget;
 use App\Models\WmsAdminOperationLog;
 use App\Models\WmsPickingTask;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -33,9 +34,9 @@ class ListWmsPickingItemEdits extends ListRecords
     protected static ?string $title = 'ピッキング詳細';
 
     // View labels as constants for reuse
-    public const VIEW_LABEL_DEFAULT = '引き当て欠品あり';
-
     public const VIEW_LABEL_ALL = '全体';
+
+    public const VIEW_LABEL_SHORTAGE = '引き当て欠品あり';
 
     // URLのクエリパラメータ ?picking_task_id=123 を自動的にこの変数にバインドします
     #[Url(as: 'picking_task_id')]
@@ -113,103 +114,51 @@ class ListWmsPickingItemEdits extends ListRecords
         if ($this->pickingTaskId) {
             $task = WmsPickingTask::find($this->pickingTaskId);
 
-            $actions[] = \Filament\Actions\Action::make('assign_picker')
-                ->label('担当者割当')
-                ->icon('heroicon-o-user-plus')
-                ->color('primary')
-                ->fillForm(function () use ($task) {
-                    return [
-                        'warehouse_filter' => $task?->warehouse_id,
-                        'picker_id' => $task?->picker_id,
-                    ];
-                })
-                ->form(function () use ($task) {
-                    return [
-                        Select::make('warehouse_filter')
-                            ->label('倉庫で絞り込み')
-                            ->options(\App\Models\Sakemaru\Warehouse::where('is_active', true)->pluck('name', 'id'))
-                            ->default($task?->warehouse_id)
-                            ->live(),
-                        Select::make('picker_id')
-                            ->label('ピッカー')
-                            ->required()
-                            ->options(function ($get) {
-                                $query = \App\Models\WmsPicker::query();
-                                if ($warehouseFilter = $get('warehouse_filter')) {
-                                    $query->where('default_warehouse_id', $warehouseFilter);
-                                }
-
-                                return $query->orderBy('code')->get()->pluck('display_name', 'id');
-                            })
-                            ->searchable(),
-                    ];
-                })
-                ->action(function (array $data) {
-                    $task = WmsPickingTask::find($this->pickingTaskId);
-
-                    if (! $task) {
-                        Notification::make()
-                            ->title('エラー')
-                            ->body('タスクが見つかりません')
-                            ->danger()
-                            ->send();
-
-                        return;
-                    }
-
-                    $oldPickerId = $task->picker_id;
-                    $newPickerId = $data['picker_id'];
-
-                    // Update picker WITHOUT changing status
-                    $task->update(['picker_id' => $newPickerId]);
-
-                    // Log the operation
-                    WmsAdminOperationLog::log(
-                        EWMSLogOperationType::ASSIGN_PICKER,
-                        [
-                            'target_type' => EWMSLogTargetType::PICKING_TASK,
-                            'target_id' => $task->id,
-                            'picking_task_id' => $task->id,
-                            'wave_id' => $task->wave_id,
-                            'picker_id_before' => $oldPickerId,
-                            'picker_id_after' => $newPickerId,
-                        ]
-                    );
-
-                    Notification::make()
-                        ->title('担当者を割り当てました')
-                        ->success()
-                        ->send();
-                });
-
-            // Show "Picking Ready" button when status is PENDING, or "Cancel Preparation" when PICKING_READY
+            // PENDING状態: ピッキング準備完了モーダル（担当者選択 + ステータス変更）
             if ($task && $task->status === WmsPickingTask::STATUS_PENDING) {
-                $actions[] = \Filament\Actions\Action::make('start_picking')
+                $actions[] = \Filament\Actions\Action::make('picking_ready')
                     ->label('ピッキング準備完了')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->requiresConfirmation()
                     ->modalHeading('ピッキング準備完了')
-                    ->modalDescription('ピッキング準備を完了してもよろしいですか？')
-                    ->modalSubmitActionLabel('完了')
-                    ->action(function () {
+                    ->modalDescription('担当者を選択してピッキング準備を完了します')
+                    ->modalSubmitActionLabel('ピッキング準備完了')
+                    ->modalCancelActionLabel('キャンセル')
+                    ->fillForm(function () use ($task) {
+                        return [
+                            'warehouse_filter' => $task?->warehouse_id,
+                            'picker_id' => $task?->picker_id,
+                        ];
+                    })
+                    ->form(function () use ($task) {
+                        return [
+                            Select::make('warehouse_filter')
+                                ->label('倉庫で絞り込み')
+                                ->options(\App\Models\Sakemaru\Warehouse::where('is_active', true)->pluck('name', 'id'))
+                                ->default($task?->warehouse_id)
+                                ->live(),
+                            Select::make('picker_id')
+                                ->label('担当者')
+                                ->required()
+                                ->options(function ($get) {
+                                    $query = \App\Models\WmsPicker::query();
+                                    if ($warehouseFilter = $get('warehouse_filter')) {
+                                        $query->where('default_warehouse_id', $warehouseFilter);
+                                    }
+
+                                    return $query->orderBy('code')->get()->pluck('display_name', 'id');
+                                })
+                                ->searchable()
+                                ->helperText('ピッキングを担当するピッカーを選択してください'),
+                        ];
+                    })
+                    ->action(function (array $data) {
                         $task = WmsPickingTask::find($this->pickingTaskId);
 
                         if (! $task) {
                             Notification::make()
                                 ->title('エラー')
                                 ->body('タスクが見つかりません')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
-                        // Validate conditions
-                        if (! $task->picker_id) {
-                            Notification::make()
-                                ->title('エラー')
-                                ->body('担当者が割り当てられていません')
                                 ->danger()
                                 ->send();
 
@@ -226,10 +175,13 @@ class ListWmsPickingItemEdits extends ListRecords
                             return;
                         }
 
+                        $oldPickerId = $task->picker_id;
                         $oldStatus = $task->status;
+                        $newPickerId = $data['picker_id'];
 
-                        // Update status to PICKING_READY (not PICKING, not setting started_at yet)
+                        // Update picker AND status to PICKING_READY
                         $task->update([
+                            'picker_id' => $newPickerId,
                             'status' => WmsPickingTask::STATUS_PICKING_READY,
                         ]);
 
@@ -241,6 +193,8 @@ class ListWmsPickingItemEdits extends ListRecords
                                 'target_id' => $task->id,
                                 'picking_task_id' => $task->id,
                                 'wave_id' => $task->wave_id,
+                                'picker_id_before' => $oldPickerId,
+                                'picker_id_after' => $newPickerId,
                                 'status_before' => $oldStatus,
                                 'status_after' => WmsPickingTask::STATUS_PICKING_READY,
                                 'operation_note' => 'ピッキング準備完了',
@@ -253,17 +207,20 @@ class ListWmsPickingItemEdits extends ListRecords
                             ->send();
                     })
                     ->after(function () {
-                        // Reload page to show updated status and button
+                        // Reload page to show updated status and pending tasks widget
                         $this->js('window.location.reload()');
                     });
-            } elseif ($task && $task->status === WmsPickingTask::STATUS_PICKING_READY) {
+            }
+
+            // PICKING_READY状態: ピッキング準備取消ボタン
+            if ($task && $task->status === WmsPickingTask::STATUS_PICKING_READY) {
                 $actions[] = \Filament\Actions\Action::make('cancel_preparation')
                     ->label('ピッキング準備取消')
                     ->icon('heroicon-o-x-circle')
                     ->color('warning')
                     ->requiresConfirmation()
                     ->modalHeading('ピッキング準備取消')
-                    ->modalDescription('ピッキング準備を取り消してもよろしいですか？')
+                    ->modalDescription('ピッキング準備を取り消してもよろしいですか？担当者の割り当ては維持されます。')
                     ->modalSubmitActionLabel('取り消し')
                     ->action(function () {
                         $task = WmsPickingTask::find($this->pickingTaskId);
@@ -290,7 +247,7 @@ class ListWmsPickingItemEdits extends ListRecords
 
                         $oldStatus = $task->status;
 
-                        // Revert status back to PENDING
+                        // Revert status back to PENDING (keep picker_id)
                         $task->update([
                             'status' => WmsPickingTask::STATUS_PENDING,
                         ]);
@@ -336,6 +293,37 @@ class ListWmsPickingItemEdits extends ListRecords
         return 1;
     }
 
+    protected function getFooterWidgets(): array
+    {
+        if (! $this->pickingTaskId) {
+            return [];
+        }
+
+        $task = WmsPickingTask::find($this->pickingTaskId);
+
+        if (! $task) {
+            return [];
+        }
+
+        // Show pending tasks widget for PENDING and PICKING_READY statuses
+        // so users can navigate to next task after completing preparation
+        if (! in_array($task->status, [WmsPickingTask::STATUS_PENDING, WmsPickingTask::STATUS_PICKING_READY])) {
+            return [];
+        }
+
+        return [
+            PendingTasksWidget::make([
+                'warehouseId' => $task->warehouse_id,
+                'currentTaskId' => (int) $this->pickingTaskId,
+            ]),
+        ];
+    }
+
+    public function getFooterWidgetsColumns(): int|array
+    {
+        return 1;
+    }
+
     public function table(Table $table): Table
     {
         return parent::table($table)
@@ -348,8 +336,8 @@ class ListWmsPickingItemEdits extends ListRecords
         $activeView = $this->activeView ?? 'default';
 
         return match ($activeView) {
-            'default' => '「'.self::VIEW_LABEL_DEFAULT.'」のデータはありません',
-            'all' => '「'.self::VIEW_LABEL_ALL.'」のデータはありません',
+            'default' => '「'.self::VIEW_LABEL_ALL.'」のデータはありません',
+            'shortage' => '「'.self::VIEW_LABEL_SHORTAGE.'」のデータはありません',
             default => 'データが見つかりません',
         };
     }
@@ -357,8 +345,8 @@ class ListWmsPickingItemEdits extends ListRecords
     public function getPresetViews(): array
     {
         return [
-            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('has_soft_shortage', true))->favorite()->label(self::VIEW_LABEL_DEFAULT)->default(),
-            'all' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query)->favorite()->label(self::VIEW_LABEL_ALL),
+            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query)->favorite()->label(self::VIEW_LABEL_ALL)->default(),
+            'shortage' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('has_soft_shortage', true))->favorite()->label(self::VIEW_LABEL_SHORTAGE),
         ];
     }
 }

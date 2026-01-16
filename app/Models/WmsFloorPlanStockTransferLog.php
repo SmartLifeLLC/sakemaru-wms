@@ -6,14 +6,16 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\Warehouse;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class WmsStockTransfer extends Model
+/**
+ * フロアプラン棚替えログ
+ *
+ * 倉庫内ロケーション間の在庫移動（棚替え）履歴を記録
+ */
+class WmsFloorPlanStockTransferLog extends WmsModel
 {
-    protected $connection = 'sakemaru';
-
-    protected $table = 'wms_stock_transfers';
+    protected $table = 'wms_floor_plan_stock_transfer_logs';
 
     protected $fillable = [
         'item_id',

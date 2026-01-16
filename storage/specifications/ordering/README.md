@@ -138,6 +138,30 @@ $orderQty = ceil($shortageQty / $purchaseUnit) * $purchaseUnit;
 | `wms_item_stock_snapshots` | 在庫スナップショット |
 | `wms_auto_order_job_controls` | ジョブ管理 |
 
+### 5.1.1 wms_order_candidates 需要内訳フィールド
+
+仮想倉庫からの発注需要を追跡するためのフィールド:
+
+| カラム | 型 | 説明 |
+|--------|------|------|
+| `self_shortage_qty` | int | 自倉庫の不足数（サテライト需要を除く純粋な自倉庫分） |
+| `satellite_demand_qty` | int | サテライト倉庫からの需要合計（移動出庫予定数量） |
+| `demand_breakdown` | json | 需要内訳 `[{warehouse_id, quantity}, ...]` |
+| `origin_warehouse_ids` | varchar(500) | 需要元倉庫ID（カンマ区切り、検索/フィルタ用） |
+
+**demand_breakdown例**:
+```json
+[
+  {"warehouse_id": 1, "quantity": 40},  // 実倉庫自体の需要
+  {"warehouse_id": 5, "quantity": 20},  // 仮想倉庫Aの需要
+  {"warehouse_id": 6, "quantity": 15}   // 仮想倉庫Bの需要
+]
+```
+
+**入庫予定作成時の動作**:
+- `demand_breakdown` がある場合、各倉庫に対して個別の入庫予定を作成
+- 仮想倉庫分の入庫予定は仮想倉庫側に作成（実倉庫には作らない）
+
 ### 5.2 設定テーブル
 
 | テーブル | 説明 |
@@ -180,7 +204,37 @@ app/Services/AutoOrder/
 ├── CalendarGenerationService.php         # 営業日カレンダー生成
 ├── ContractorLeadTimeService.php         # リードタイム計算
 ├── TransferCandidateApprovalService.php  # 移動候補承認
+├── TransferCandidateExecutionService.php # 移動候補確定→stock_transfer_queue
 └── IncomingConfirmationService.php       # 入庫確定
+```
+
+### 6.1 移動候補確定フロー（TransferCandidateExecutionService）
+
+移動候補（INTERNAL）を確定し、基幹システムに移動指示を送信する。
+
+```
+wms_stock_transfer_candidates (APPROVED)
+        ↓ TransferCandidateExecutionService.executeCandidate()
+stock_transfer_queue (status: BEFORE)
+        ↓ sakemaru-ai-core
+stock_transfers (実際の移動伝票)
+```
+
+**stock_transfer_queue 登録内容:**
+```php
+[
+    'client_id' => config('app.client_id'),
+    'process_date' => $candidate->expected_arrival_date,
+    'delivered_date' => $candidate->expected_arrival_date,
+    'note' => "自動発注移動 バッチ:{$batchCode}",
+    'items' => json_encode([
+        ['item_code' => $item->code, 'quantity' => $transferQty, ...]
+    ]),
+    'from_warehouse_code' => $hubWarehouse->code,      // 移動元
+    'to_warehouse_code' => $satelliteWarehouse->code,  // 移動先
+    'request_id' => "transfer-{$candidate->id}",
+    'status' => 'BEFORE',
+]
 ```
 
 ---
@@ -252,6 +306,7 @@ php artisan wms:transmit-orders [--batch-code=] [--dry-run]
 | 発注候補UI | ✅ 完了 | 一覧・編集・手動追加 |
 | 移動候補UI | ✅ 完了 | 一覧・編集・手動追加 |
 | 発注確定→入庫予定 | ✅ 完了 | OrderExecutionService |
+| 移動候補確定→stock_transfer_queue | ✅ 完了 | TransferCandidateExecutionService |
 | JX-FINET送信 | ⚠️ 部分 | モック状態 |
 | Lotルール適用 | ⬜ 未実装 | ケース単位、混載等 |
 | 監視・通知 | ⬜ 未実装 | ダッシュボード等 |

@@ -11,9 +11,11 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
+use App\Services\AutoOrder\TransferCandidateExecutionService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -33,6 +35,9 @@ class ListWmsStockTransferCandidates extends ListRecords
 
     protected function getHeaderActions(): array
     {
+        // 承認済み件数を取得
+        $approvedCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
+
         return [
             Action::make('create')
                 ->label('移動追加')
@@ -51,7 +56,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                         ->required(),
 
                     Select::make('hub_warehouse_id')
-                        ->label('横持ち出荷倉庫')
+                        ->label('移動元倉庫')
                         ->options(fn () => Warehouse::query()
                             ->orderBy('code')
                             ->get()
@@ -74,13 +79,18 @@ class ListWmsStockTransferCandidates extends ListRecords
                         ->numeric()
                         ->required()
                         ->minValue(1),
+
+                    DatePicker::make('expected_arrival_date')
+                        ->label('移動出荷日')
+                        ->default(now()->addDay())
+                        ->required(),
                 ])
                 ->action(function (array $data) {
-                    // 依頼倉庫と横持ち出荷倉庫が同じ場合はエラー
+                    // 依頼倉庫と移動元倉庫が同じ場合はエラー
                     if ($data['satellite_warehouse_id'] === $data['hub_warehouse_id']) {
                         Notification::make()
                             ->title('エラー')
-                            ->body('依頼倉庫と横持ち出荷倉庫を同じにすることはできません')
+                            ->body('依頼倉庫と移動元倉庫を同じにすることはできません')
                             ->danger()
                             ->send();
 
@@ -117,8 +127,8 @@ class ListWmsStockTransferCandidates extends ListRecords
                         'contractor_id' => null,
                         'suggested_quantity' => $data['transfer_quantity'],
                         'transfer_quantity' => $data['transfer_quantity'],
-                        'expected_arrival_date' => now()->addDays(1),
-                        'original_arrival_date' => now()->addDays(1),
+                        'expected_arrival_date' => $data['expected_arrival_date'],
+                        'original_arrival_date' => $data['expected_arrival_date'],
                         'status' => CandidateStatus::PENDING,
                         'lot_status' => LotStatus::RAW,
                         'is_manually_modified' => true,
@@ -153,6 +163,41 @@ class ListWmsStockTransferCandidates extends ListRecords
                         ->success()
                         ->send();
                 }),
+
+            Action::make('executeAllApproved')
+                ->label("承認済み移動伝票生成 ({$approvedCount}件)")
+                ->icon('heroicon-o-paper-airplane')
+                ->color('primary')
+                ->disabled($approvedCount === 0)
+                ->requiresConfirmation()
+                ->modalHeading('承認済み移動候補から移動伝票を生成')
+                ->modalDescription('全ての承認済み移動候補から移動伝票を生成します。移動元倉庫＋移動先倉庫＋配送コースでグループ化して処理します。')
+                ->action(function () {
+                    $service = app(TransferCandidateExecutionService::class);
+                    $result = $service->executeAllApprovedGrouped(auth()->id());
+
+                    if ($result['candidate_count'] > 0) {
+                        Notification::make()
+                            ->title('移動伝票生成が完了しました')
+                            ->body("{$result['candidate_count']}件の移動候補から{$result['queue_count']}件の移動伝票を生成しました")
+                            ->success()
+                            ->send();
+                    } else {
+                        Notification::make()
+                            ->title('生成対象がありません')
+                            ->body('承認済みの移動候補がありません')
+                            ->warning()
+                            ->send();
+                    }
+
+                    if (! empty($result['errors'])) {
+                        Notification::make()
+                            ->title('一部エラーが発生しました')
+                            ->body(count($result['errors']).'件のグループで失敗しました')
+                            ->danger()
+                            ->send();
+                    }
+                }),
         ];
     }
 
@@ -163,6 +208,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ->with([
                     'satelliteWarehouse',
                     'hubWarehouse',
+                    'deliveryCourse',
                     'item',
                     'contractor',
                 ])
@@ -174,48 +220,31 @@ class ListWmsStockTransferCandidates extends ListRecords
 
     public function getPresetViews(): array
     {
-        // ユーザーのデフォルト倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        // ステータス別の件数を取得
+        $pendingCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+        $approvedCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
+        $executedCount = WmsStockTransferCandidate::where('status', CandidateStatus::EXECUTED)->count();
 
-        // 移動候補に存在する在庫依頼倉庫（satellite）を取得してタブを生成
-        $warehouseIds = WmsStockTransferCandidate::distinct()->pluck('satellite_warehouse_id')->toArray();
-        $warehouses = Warehouse::whereIn('id', $warehouseIds)->orderBy('name')->get();
-
-        // デフォルト倉庫が移動候補に存在するかチェック
-        $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
-        $defaultWarehouse = $hasDefaultWarehouse ? Warehouse::find($userDefaultWarehouseId) : null;
-
-        // デフォルトタブ：デフォルト倉庫があればその倉庫名とフィルタ、なければ「全て」
-        if ($defaultWarehouse) {
-            $views = [
-                'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $userDefaultWarehouseId))
-                    ->favorite()
-                    ->label($defaultWarehouse->name)
-                    ->default(),
-            ];
-        } else {
-            $views = [
-                'all' => PresetView::make()
-                    ->favorite()
-                    ->label('全て')
-                    ->default(),
-            ];
-        }
-
-        // 他の倉庫タブ（デフォルト倉庫は除外）
-        foreach ($warehouses as $warehouse) {
-            // デフォルト倉庫は既にdefaultタブで表示しているのでスキップ
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
-                continue;
-            }
-
-            $views["warehouse_{$warehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $warehouse->id))
+        return [
+            'default' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::PENDING))
                 ->favorite()
-                ->label($warehouse->name);
-        }
+                ->label("承認前 ({$pendingCount})")
+                ->default(),
 
-        return $views;
+            'approved' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::APPROVED))
+                ->favorite()
+                ->label("承認済 ({$approvedCount})"),
+
+            'executed' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::EXECUTED))
+                ->favorite()
+                ->label("実行完了 ({$executedCount})"),
+
+            'all' => PresetView::make()
+                ->favorite()
+                ->label('全て'),
+        ];
     }
 }

@@ -42,6 +42,7 @@ class WmsPickingWaitingResource extends Resource
                 'deliveryCourse',
                 'pickingItemResults.trade',
                 'pickingItemResults.earning.buyer.partner',
+                'pickingItemResults.stockTransfer.to_warehouse',
             ])
             ->withCount([
                 'pickingItemResults as soft_shortage_count' => function ($query) {

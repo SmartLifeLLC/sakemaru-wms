@@ -58,29 +58,32 @@ class PrintRequestService
                 ];
             }
 
-            // 全てのearning_idを収集
+            // earning_id と stock_transfer_id を収集
             $earningIds = [];
+            $stockTransferIds = [];
+
             foreach ($tasks as $task) {
                 foreach ($task->pickingItemResults as $itemResult) {
                     if ($itemResult->earning_id && ! in_array($itemResult->earning_id, $earningIds)) {
                         $earningIds[] = $itemResult->earning_id;
                     }
+                    if ($itemResult->stock_transfer_id && ! in_array($itemResult->stock_transfer_id, $stockTransferIds)) {
+                        $stockTransferIds[] = $itemResult->stock_transfer_id;
+                    }
                 }
             }
 
-            if (empty($earningIds)) {
+            // 売上も倉庫移動もない場合はエラー
+            if (empty($earningIds) && empty($stockTransferIds)) {
                 return [
                     'success' => false,
-                    'message' => '印刷対象の売上が見つかりません。',
+                    'message' => '印刷対象の売上・倉庫移動が見つかりません。',
                     'queue_id' => null,
                 ];
             }
 
-            // client_idを取得（最初のearningから）
-            $clientId = DB::connection('sakemaru')
-                ->table('earnings')
-                ->where('id', $earningIds[0])
-                ->value('client_id');
+            // client_idを取得（売上または倉庫移動から）
+            $clientId = $this->resolveClientId($earningIds, $stockTransferIds);
 
             if (! $clientId) {
                 return [
@@ -90,31 +93,66 @@ class PrintRequestService
                 ];
             }
 
-            // print_request_queueにレコードを作成
-            // printer_driver_idが指定されているため CLIENT_SLIP_PRINTER を使用
-            $queue = PrintRequestQueue::create([
-                'client_id' => $clientId,
-                'earning_ids' => $earningIds,
-                'print_type' => PrintRequestQueue::PRINT_TYPE_CLIENT_SLIP_PRINTER,
-                'group_by_delivery_course' => true,
-                'warehouse_id' => $warehouseId,
-                'printer_driver_id' => $printerDriverId,
-                'status' => PrintRequestQueue::STATUS_PENDING,
-            ]);
+            // トランザクション内で処理
+            return DB::connection('sakemaru')->transaction(function () use (
+                $clientId,
+                $earningIds,
+                $stockTransferIds,
+                $warehouseId,
+                $printerDriverId,
+                $deliveryCourseId
+            ) {
+                // print_request_queueにレコードを作成
+                // printer_driver_idが指定されているため CLIENT_SLIP_PRINTER を使用
+                $queue = PrintRequestQueue::create([
+                    'client_id' => $clientId,
+                    'earning_ids' => $earningIds,
+                    'stock_transfer_ids' => $stockTransferIds,
+                    'print_type' => PrintRequestQueue::PRINT_TYPE_CLIENT_SLIP_PRINTER,
+                    'group_by_delivery_course' => true,
+                    'warehouse_id' => $warehouseId,
+                    'printer_driver_id' => $printerDriverId,
+                    'status' => PrintRequestQueue::STATUS_PENDING,
+                ]);
 
-            Log::info('Print request created', [
-                'queue_id' => $queue->id,
-                'delivery_course_id' => $deliveryCourseId,
-                'earning_ids' => $earningIds,
-                'printer_driver_id' => $printerDriverId,
-            ]);
+                // 売上の picking_status を SHIPPED に更新
+                if (! empty($earningIds)) {
+                    DB::connection('sakemaru')
+                        ->table('earnings')
+                        ->whereIn('id', $earningIds)
+                        ->update([
+                            'picking_status' => 'SHIPPED',
+                            'updated_at' => now(),
+                        ]);
+                }
 
-            return [
-                'success' => true,
-                'message' => '印刷依頼を作成しました。',
-                'queue_id' => $queue->id,
-                'earning_count' => count($earningIds),
-            ];
+                // 倉庫移動の picking_status を SHIPPED に更新
+                if (! empty($stockTransferIds)) {
+                    DB::connection('sakemaru')
+                        ->table('stock_transfers')
+                        ->whereIn('id', $stockTransferIds)
+                        ->update([
+                            'picking_status' => 'SHIPPED',
+                            'updated_at' => now(),
+                        ]);
+                }
+
+                Log::info('Print request created and picking_status updated to SHIPPED', [
+                    'queue_id' => $queue->id,
+                    'delivery_course_id' => $deliveryCourseId,
+                    'earning_ids' => $earningIds,
+                    'stock_transfer_ids' => $stockTransferIds,
+                    'printer_driver_id' => $printerDriverId,
+                ]);
+
+                return [
+                    'success' => true,
+                    'message' => '印刷依頼を作成しました。',
+                    'queue_id' => $queue->id,
+                    'earning_count' => count($earningIds),
+                    'stock_transfer_count' => count($stockTransferIds),
+                ];
+            });
         } catch (\Exception $e) {
             Log::error('Failed to create print request', [
                 'delivery_course_id' => $deliveryCourseId,
@@ -127,5 +165,29 @@ class PrintRequestService
                 'queue_id' => null,
             ];
         }
+    }
+
+    /**
+     * client_id を取得（売上または倉庫移動から）
+     */
+    private function resolveClientId(array $earningIds, array $stockTransferIds): ?int
+    {
+        // 売上がある場合は売上から取得
+        if (! empty($earningIds)) {
+            return DB::connection('sakemaru')
+                ->table('earnings')
+                ->where('id', $earningIds[0])
+                ->value('client_id');
+        }
+
+        // 倉庫移動がある場合は倉庫移動から取得
+        if (! empty($stockTransferIds)) {
+            return DB::connection('sakemaru')
+                ->table('stock_transfers')
+                ->where('id', $stockTransferIds[0])
+                ->value('client_id');
+        }
+
+        return null;
     }
 }

@@ -1629,7 +1629,7 @@ class FloorPlanEditor extends Page
                     }
 
                     // Create transfer history record
-                    \App\Models\WmsStockTransfer::create([
+                    \App\Models\WmsFloorPlanStockTransferLog::create([
                         'item_id' => $itemId,
                         'real_stock_id' => $realStockId,
                         'transfer_qty' => $transferQty,

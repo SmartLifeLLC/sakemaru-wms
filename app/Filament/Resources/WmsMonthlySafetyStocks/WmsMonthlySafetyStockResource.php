@@ -3,15 +3,11 @@
 namespace App\Filament\Resources\WmsMonthlySafetyStocks;
 
 use App\Enums\EMenu;
-use App\Filament\Resources\WmsMonthlySafetyStocks\Pages\CreateWmsMonthlySafetyStock;
-use App\Filament\Resources\WmsMonthlySafetyStocks\Pages\EditWmsMonthlySafetyStock;
 use App\Filament\Resources\WmsMonthlySafetyStocks\Pages\ListWmsMonthlySafetyStocks;
-use App\Filament\Resources\WmsMonthlySafetyStocks\Schemas\WmsMonthlySafetyStockForm;
 use App\Filament\Resources\WmsMonthlySafetyStocks\Tables\WmsMonthlySafetyStocksTable;
 use App\Models\WmsMonthlySafetyStock;
 use BackedEnum;
 use Filament\Resources\Resource;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
@@ -46,11 +42,6 @@ class WmsMonthlySafetyStockResource extends Resource
         return '月別発注点';
     }
 
-    public static function form(Schema $schema): Schema
-    {
-        return WmsMonthlySafetyStockForm::configure($schema);
-    }
-
     public static function table(Table $table): Table
     {
         return WmsMonthlySafetyStocksTable::configure($table);
@@ -65,8 +56,6 @@ class WmsMonthlySafetyStockResource extends Resource
     {
         return [
             'index' => ListWmsMonthlySafetyStocks::route('/'),
-            'create' => CreateWmsMonthlySafetyStock::route('/create'),
-            'edit' => EditWmsMonthlySafetyStock::route('/{record}/edit'),
         ];
     }
 }

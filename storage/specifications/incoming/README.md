@@ -19,16 +19,21 @@
 ┌─────────────────┐     ┌──────────────────────────┐
 │  発注候補       │     │  手動発注                 │
 │ (APPROVED)      │     │                          │
+│ demand_breakdown│     │                          │
 └────────┬────────┘     └────────────┬─────────────┘
          │                           │
          │ OrderExecutionService     │ createManualIncomingSchedule()
          │ .executeCandidate()       │
+         │                           │
+         │  ※demand_breakdownがある場合は
+         │    各倉庫ごとに入庫予定を作成
          │                           │
          └───────────┬───────────────┘
                      ▼
          ┌───────────────────────────┐
          │ wms_order_incoming_schedules │
          │ status: PENDING           │
+         │ ※倉庫ごとに複数レコード    │
          └───────────┬───────────────┘
                      │
          ┌───────────┴───────────────┐
@@ -121,9 +126,17 @@ PENDING ──┬──> PARTIAL ──> CONFIRMED
 
 発注確定時に入庫予定を作成
 
+**demand_breakdownがある場合**:
+- 各倉庫ごとに入庫予定を作成（仮想倉庫の発注は仮想倉庫に入庫予定を作成）
+- 1つの発注候補から複数の入庫予定レコードが生成される可能性あり
+
+**demand_breakdownがない場合（従来動作）**:
+- 発注元倉庫に1つの入庫予定を作成
+
 ```php
 // 自動発注からの入庫予定作成
-$service->executeCandidate($candidate, $executedBy);
+// 返り値: Collection<WmsOrderIncomingSchedule>（複数レコード）
+$schedules = $service->executeCandidate($candidate, $executedBy);
 
 // 手動発注からの入庫予定作成
 $service->createManualIncomingSchedule([
@@ -135,7 +148,8 @@ $service->createManualIncomingSchedule([
 ], $createdBy);
 
 // バッチ単位で一括確定
-$service->executeBatch($batchCode, $executedBy);
+// 返り値: Collection<WmsOrderIncomingSchedule>
+$schedules = $service->executeBatch($batchCode, $executedBy);
 ```
 
 ### 4.2 IncomingConfirmationService

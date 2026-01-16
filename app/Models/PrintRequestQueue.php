@@ -13,6 +13,7 @@ class PrintRequestQueue extends Model
     protected $fillable = [
         'client_id',
         'earning_ids',
+        'stock_transfer_ids',
         'print_type',
         'group_by_delivery_course',
         'warehouse_id',
@@ -24,6 +25,7 @@ class PrintRequestQueue extends Model
 
     protected $casts = [
         'earning_ids' => 'array',
+        'stock_transfer_ids' => 'array',
         'group_by_delivery_course' => 'boolean',
         'processed_at' => 'datetime',
     ];

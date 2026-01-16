@@ -55,6 +55,9 @@ class OrderCandidateCalculationService
     /** @var array [supplier_id] => ['code' => ..., 'name' => ...] */
     private array $supplierMaster = [];
 
+    /** @var array [from_warehouse_id][to_warehouse_id] => delivery_course_id */
+    private array $transferDeliveryCourses = [];
+
     /**
      * 発注候補計算を実行
      */
@@ -230,6 +233,21 @@ class OrderCandidateCalculationService
         }
 
         Log::info('仕入先マスタをロード', ['count' => count($this->supplierMaster)]);
+
+        // 移動配送コース設定をメモリにロード
+        $transferCourses = DB::connection('sakemaru')
+            ->table('warehouse_stock_transfer_delivery_courses')
+            ->select('from_warehouse_id', 'to_warehouse_id', 'delivery_course_id')
+            ->get();
+
+        foreach ($transferCourses as $tc) {
+            if (! isset($this->transferDeliveryCourses[$tc->from_warehouse_id])) {
+                $this->transferDeliveryCourses[$tc->from_warehouse_id] = [];
+            }
+            $this->transferDeliveryCourses[$tc->from_warehouse_id][$tc->to_warehouse_id] = $tc->delivery_course_id;
+        }
+
+        Log::info('移動配送コース設定をロード', ['count' => count($transferCourses)]);
     }
 
     /**
@@ -300,12 +318,16 @@ class OrderCandidateCalculationService
             $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
             $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
 
+            // 配送コースIDを取得（移動元 → 移動先）
+            $deliveryCourseId = $this->transferDeliveryCourses[$supplyWarehouseId][$ic->warehouse_id] ?? null;
+
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'satellite_warehouse_id' => $ic->warehouse_id,
                 'hub_warehouse_id' => $supplyWarehouseId,
                 'item_id' => $ic->item_id,
                 'contractor_id' => $ic->contractor_id,
+                'delivery_course_id' => $deliveryCourseId,
                 'suggested_quantity' => $orderQty,
                 'transfer_quantity' => $orderQty,
                 'quantity_type' => QuantityType::PIECE->value,
@@ -380,7 +402,7 @@ class OrderCandidateCalculationService
     /**
      * 移動候補をメモリにロード
      *
-     * @return array [warehouse_id][item_id] => ['incoming' => qty, 'outgoing' => qty]
+     * @return array [warehouse_id][item_id] => ['incoming' => qty, 'outgoing' => qty, 'outgoing_breakdown' => [[warehouse_id, quantity], ...]]
      */
     private function loadTransferCandidatesToMemory(string $batchCode): array
     {
@@ -395,15 +417,21 @@ class OrderCandidateCalculationService
         foreach ($candidates as $c) {
             // 移動先（入庫）
             if (! isset($result[$c->satellite_warehouse_id][$c->item_id])) {
-                $result[$c->satellite_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0];
+                $result[$c->satellite_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0, 'outgoing_breakdown' => []];
             }
             $result[$c->satellite_warehouse_id][$c->item_id]['incoming'] += $c->transfer_quantity;
 
             // 移動元（出庫）
             if (! isset($result[$c->hub_warehouse_id][$c->item_id])) {
-                $result[$c->hub_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0];
+                $result[$c->hub_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0, 'outgoing_breakdown' => []];
             }
             $result[$c->hub_warehouse_id][$c->item_id]['outgoing'] += $c->transfer_quantity;
+
+            // 出庫先の内訳を記録（仮想倉庫ごとの需要）
+            $result[$c->hub_warehouse_id][$c->item_id]['outgoing_breakdown'][] = [
+                'warehouse_id' => $c->satellite_warehouse_id,
+                'quantity' => $c->transfer_quantity,
+            ];
         }
 
         return $result;
@@ -453,13 +481,38 @@ class OrderCandidateCalculationService
             $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
             $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
 
+            // 需要内訳を構築（自倉庫分 + サテライト倉庫分）
+            $demandBreakdown = [];
+            $originWarehouseIds = [];
+
+            // 自倉庫の不足分（サテライト需要を除く純粋な自倉庫分）
+            $selfShortageOnly = max(0, $shortageQty - $outgoingToTransfer);
+            if ($selfShortageOnly > 0) {
+                $demandBreakdown[] = [
+                    'warehouse_id' => $ic->warehouse_id,
+                    'quantity' => $selfShortageOnly,
+                ];
+                $originWarehouseIds[] = $ic->warehouse_id;
+            }
+
+            // サテライト倉庫からの需要（移動出庫の内訳）
+            $outgoingBreakdown = $transfer['outgoing_breakdown'] ?? [];
+            foreach ($outgoingBreakdown as $breakdown) {
+                $demandBreakdown[] = $breakdown;
+                if (! in_array($breakdown['warehouse_id'], $originWarehouseIds)) {
+                    $originWarehouseIds[] = $breakdown['warehouse_id'];
+                }
+            }
+
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
                 'item_id' => $ic->item_id,
                 'contractor_id' => $ic->contractor_id,
-                'self_shortage_qty' => $shortageQty,
+                'self_shortage_qty' => $selfShortageOnly,
                 'satellite_demand_qty' => $outgoingToTransfer,
+                'demand_breakdown' => ! empty($demandBreakdown) ? json_encode($demandBreakdown, JSON_UNESCAPED_UNICODE) : null,
+                'origin_warehouse_ids' => ! empty($originWarehouseIds) ? implode(',', $originWarehouseIds) : null,
                 'suggested_quantity' => $orderQty,
                 'order_quantity' => $orderQty,
                 'quantity_type' => QuantityType::PIECE->value,
