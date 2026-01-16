@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\QuantityType;
+use App\Models\Concerns\HasOptimisticLock;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
@@ -16,6 +17,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class WmsOrderCandidate extends WmsModel
 {
+    use HasOptimisticLock;
+
     protected $table = 'wms_order_candidates';
 
     protected $fillable = [
@@ -47,6 +50,7 @@ class WmsOrderCandidate extends WmsModel
         'transmission_status',
         'transmitted_at',
         'wms_order_jx_document_id',
+        'lock_version',
     ];
 
     protected $casts = [

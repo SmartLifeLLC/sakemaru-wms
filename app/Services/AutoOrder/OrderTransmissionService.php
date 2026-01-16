@@ -13,6 +13,7 @@ use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
 use App\Models\WmsOrderTransmissionLog;
+use App\Services\AutoOrder\OrderValidationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -21,29 +22,41 @@ use Illuminate\Support\Facades\Log;
  */
 class OrderTransmissionService
 {
+    public function __construct(
+        private readonly OrderValidationService $validationService
+    ) {}
+
     /**
-     * 承認済み発注候補を送信
+     * 確定済み発注候補を送信
+     *
+     * @throws \RuntimeException バリデーションエラー時
      */
-    public function transmitApprovedOrders(string $batchCode): WmsAutoOrderJobControl
+    public function transmitConfirmedOrders(string $batchCode): WmsAutoOrderJobControl
     {
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::ORDER_TRANSMISSION)) {
             throw new \RuntimeException('Order transmission job is already running');
+        }
+
+        // 送信前バリデーション: 全候補がCONFIRMED状態であることを確認
+        $validation = $this->validationService->validateBatchForTransmission($batchCode);
+        if (! $validation['valid']) {
+            throw new \RuntimeException($validation['message']);
         }
 
         $job = WmsAutoOrderJobControl::startJob(JobProcessName::ORDER_TRANSMISSION);
         $job->update(['batch_code' => $batchCode]);
 
         try {
-            // 承認済みの発注候補をグループ化
+            // 確定済みの発注候補をグループ化（APPROVED → CONFIRMED に変更）
             $candidateGroups = WmsOrderCandidate::where('batch_code', $batchCode)
-                ->where('status', CandidateStatus::APPROVED)
+                ->where('status', CandidateStatus::CONFIRMED)
                 ->whereNull('transmitted_at')
                 ->with(['warehouse', 'item', 'contractor'])
                 ->get()
                 ->groupBy(fn ($c) => "{$c->warehouse_id}_{$c->contractor_id}");
 
             if ($candidateGroups->isEmpty()) {
-                Log::info('No approved candidates to transmit', ['batch_code' => $batchCode]);
+                Log::info('No confirmed candidates to transmit', ['batch_code' => $batchCode]);
                 $job->markAsSuccess(0);
 
                 return $job;
