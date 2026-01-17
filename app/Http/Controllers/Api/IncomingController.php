@@ -241,13 +241,13 @@ class IncomingController extends ApiController
     /**
      * GET /api/incoming/work-items
      *
-     * 作業中データ一覧取得
+     * 作業データ一覧取得（作業中・履歴）
      *
      * @OA\Get(
      *     path="/api/incoming/work-items",
      *     tags={"Incoming"},
-     *     summary="作業中データ一覧取得",
-     *     description="指定倉庫の入荷作業中データを取得",
+     *     summary="作業データ一覧取得",
+     *     description="指定倉庫の入荷作業データを取得。statusパラメータで作業中・完了・キャンセル済みを絞り込み可能。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
@@ -263,6 +263,34 @@ class IncomingController extends ApiController
      *         required=false,
      *         description="作業者ID（指定時はその作業者のデータのみ）",
      *         @OA\Schema(type="integer")
+     *     ),
+     *     @OA\Parameter(
+     *         name="status",
+     *         in="query",
+     *         required=false,
+     *         description="ステータス（WORKING, COMPLETED, CANCELLED, all）。デフォルト: WORKING",
+     *         @OA\Schema(type="string", enum={"WORKING", "COMPLETED", "CANCELLED", "all"}, default="WORKING")
+     *     ),
+     *     @OA\Parameter(
+     *         name="from_date",
+     *         in="query",
+     *         required=false,
+     *         description="開始日（履歴絞り込み用、YYYY-MM-DD形式）",
+     *         @OA\Schema(type="string", format="date", example="2026-01-01")
+     *     ),
+     *     @OA\Parameter(
+     *         name="to_date",
+     *         in="query",
+     *         required=false,
+     *         description="終了日（履歴絞り込み用、YYYY-MM-DD形式）",
+     *         @OA\Schema(type="string", format="date", example="2026-01-31")
+     *     ),
+     *     @OA\Parameter(
+     *         name="limit",
+     *         in="query",
+     *         required=false,
+     *         description="取得件数（デフォルト: 100）",
+     *         @OA\Schema(type="integer", default=100)
      *     ),
      *
      *     @OA\Response(
@@ -289,21 +317,40 @@ class IncomingController extends ApiController
         $validator = Validator::make($request->all(), [
             'warehouse_id' => 'required|integer',
             'picker_id' => 'nullable|integer',
+            'status' => 'nullable|string|in:WORKING,COMPLETED,CANCELLED,all',
+            'from_date' => 'nullable|date',
+            'to_date' => 'nullable|date',
+            'limit' => 'nullable|integer|min:1|max:500',
         ]);
 
         if ($validator->fails()) {
             return $this->validationError($validator->errors()->toArray());
         }
 
-        $query = WmsIncomingWorkItem::with(['incomingSchedule', 'incomingSchedule.item', 'incomingSchedule.warehouse'])
-            ->where('warehouse_id', $request->input('warehouse_id'))
-            ->where('status', WmsIncomingWorkItem::STATUS_WORKING);
+        $query = WmsIncomingWorkItem::with(['incomingSchedule', 'incomingSchedule.item', 'incomingSchedule.warehouse', 'location'])
+            ->where('warehouse_id', $request->input('warehouse_id'));
 
+        // ステータス絞り込み
+        $status = $request->input('status', WmsIncomingWorkItem::STATUS_WORKING);
+        if ($status !== 'all') {
+            $query->where('status', $status);
+        }
+
+        // 作業者絞り込み
         if ($request->has('picker_id')) {
             $query->where('picker_id', $request->input('picker_id'));
         }
 
-        $workItems = $query->orderBy('created_at', 'desc')->get();
+        // 日付絞り込み（履歴用）
+        if ($request->has('from_date')) {
+            $query->whereDate('created_at', '>=', $request->input('from_date'));
+        }
+        if ($request->has('to_date')) {
+            $query->whereDate('created_at', '<=', $request->input('to_date'));
+        }
+
+        $limit = $request->input('limit', 100);
+        $workItems = $query->orderBy('created_at', 'desc')->limit($limit)->get();
 
         return $this->success($workItems->map(fn ($item) => $this->formatWorkItem($item)));
     }
