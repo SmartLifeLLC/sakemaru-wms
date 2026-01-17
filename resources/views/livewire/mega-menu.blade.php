@@ -5,13 +5,13 @@
     <!-- Main Navigation Bar -->
     <header class="bg-slate-800 sticky top-0 z-50 shadow-md">
         <div class="w-full px-4 md:px-6">
-            <div class="flex items-center justify-between h-16">
+            <div class="flex items-center justify-between h-10">
 
                 <!-- Logo & Nav (Left) -->
                 <div class="flex items-center gap-8">
                     <!-- Logo -->
                     <a href="/admin" class="flex items-center bg-white rounded-md px-2 py-1">
-                        <img src="/images/logo.png" alt="酒丸蔵" class="h-10 w-auto object-contain">
+                        <img src="/images/logo.png" alt="酒丸蔵" class="h-6 w-auto object-contain">
                     </a>
 
                     <!-- Desktop Nav Items -->
@@ -19,7 +19,7 @@
                         @forelse($menuStructure as $tab)
                             <button
                                 type="button"
-                                class="flex items-center gap-2 px-4 py-3 text-[21px] font-medium transition-colors duration-200 rounded-md"
+                                class="flex items-center gap-2 px-4 py-1 text-lg font-medium transition-colors duration-200 rounded-md"
                                 :class="openTab === '{{ $tab['id'] }}' ? 'text-white bg-slate-700' : 'text-slate-200 hover:text-white hover:bg-slate-700'"
                                 @click="openTab = openTab === '{{ $tab['id'] }}' ? null : '{{ $tab['id'] }}'"
                             >
@@ -56,7 +56,7 @@
             <div
                 x-show="openTab === '{{ $tab['id'] }}'"
                 class="fixed left-0 right-0 bg-white border-b border-slate-200 shadow-xl z-40"
-                style="top: 64px;"
+                style="top: 40px;"
                 x-cloak
             >
                 <div class="w-full px-16 py-6">
