@@ -4,7 +4,7 @@ namespace App\Models\Sakemaru;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class ItemWarehouseLocation extends SakemaruModel
+class ItemDefaultLocation extends SakemaruModel
 {
     protected $table = 'item_incoming_default_locations';
 

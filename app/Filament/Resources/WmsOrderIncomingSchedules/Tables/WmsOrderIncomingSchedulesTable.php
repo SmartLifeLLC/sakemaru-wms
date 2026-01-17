@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsOrderIncomingSchedules\Tables;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\PaginationOptions;
+use App\Models\Sakemaru\ItemDefaultLocation;
 use App\Services\AutoOrder\IncomingConfirmationService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -149,6 +150,26 @@ class WmsOrderIncomingSchedulesTable
                     ->alignCenter()
                     ->placeholder('-')
                     ->width('90px'),
+
+                TextColumn::make('default_location')
+                    ->label('デフォルトLOC')
+                    ->state(function ($record) {
+                        if (! $record->warehouse_id || ! $record->item_id) {
+                            return null;
+                        }
+                        $location = ItemDefaultLocation::getDefaultLocation(
+                            $record->warehouse_id,
+                            $record->item_id
+                        );
+                        if (! $location) {
+                            return null;
+                        }
+
+                        return "{$location->code1}-{$location->code2}-{$location->code3}";
+                    })
+                    ->placeholder('-')
+                    ->alignCenter()
+                    ->width('100px'),
 
                 TextColumn::make('order_candidate_id')
                     ->label('発注候補ID')
@@ -336,6 +357,19 @@ class WmsOrderIncomingSchedulesTable
                                     \Filament\Infolists\Components\TextEntry::make('contractor')
                                         ->label('発注先')
                                         ->state(fn () => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-'),
+                                    \Filament\Infolists\Components\TextEntry::make('default_location')
+                                        ->label('デフォルトロケーション')
+                                        ->state(function () use ($record) {
+                                            if (! $record->warehouse_id || ! $record->item_id) {
+                                                return '-';
+                                            }
+                                            $location = ItemDefaultLocation::getDefaultLocation(
+                                                $record->warehouse_id,
+                                                $record->item_id
+                                            );
+
+                                            return $location ? "{$location->code1}-{$location->code2}-{$location->code3}" : '-';
+                                        }),
                                 ]),
                             \Filament\Schemas\Components\Section::make('数量')
                                 ->schema([

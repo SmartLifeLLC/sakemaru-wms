@@ -6,7 +6,7 @@ use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\EItemSearchCodeType;
 use App\Enums\EVolumeUnit;
 use App\Enums\TemperatureType;
-use App\Models\Sakemaru\ItemWarehouseLocation;
+use App\Models\Sakemaru\ItemDefaultLocation;
 use App\Models\Sakemaru\Location;
 use App\Models\WmsIncomingWorkItem;
 use App\Models\WmsOrderIncomingSchedule;
@@ -1047,7 +1047,7 @@ class IncomingController extends ApiController
     private function getDefaultLocationId(int $warehouseId, int $itemId): ?int
     {
         // 1. 商品×倉庫のデフォルトロケーション
-        $itemLocation = ItemWarehouseLocation::getDefaultLocation($warehouseId, $itemId);
+        $itemLocation = ItemDefaultLocation::getDefaultLocation($warehouseId, $itemId);
         if ($itemLocation) {
             return $itemLocation->id;
         }
