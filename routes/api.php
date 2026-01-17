@@ -42,5 +42,6 @@ Route::middleware('api.key')->group(function () {
         Route::put('/incoming/work-items/{id}', [IncomingController::class, 'updateWork']);
         Route::post('/incoming/work-items/{id}/complete', [IncomingController::class, 'completeWork']);
         Route::delete('/incoming/work-items/{id}', [IncomingController::class, 'cancelWork']);
+        Route::get('/incoming/locations', [IncomingController::class, 'searchLocations']);
     });
 });

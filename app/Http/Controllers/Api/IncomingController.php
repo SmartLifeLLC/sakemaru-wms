@@ -6,9 +6,12 @@ use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\EItemSearchCodeType;
 use App\Enums\EVolumeUnit;
 use App\Enums\TemperatureType;
+use App\Models\Sakemaru\ItemWarehouseLocation;
+use App\Models\Sakemaru\Location;
 use App\Models\WmsIncomingWorkItem;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingConfirmationService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -378,12 +381,26 @@ class IncomingController extends ApiController
         }
 
         try {
+            $warehouseId = $request->input('warehouse_id');
+            $item = $schedule->item;
+
+            // デフォルトロケーション取得（優先順位に従う）
+            $locationId = $this->getDefaultLocationId($warehouseId, $schedule->item_id);
+
+            // デフォルト賞味期限計算（商品のdefault_expiration_daysから）
+            $defaultExpirationDate = null;
+            if ($item && $item->default_expiration_days) {
+                $defaultExpirationDate = Carbon::today()->addDays($item->default_expiration_days)->format('Y-m-d');
+            }
+
             $workItem = WmsIncomingWorkItem::create([
                 'incoming_schedule_id' => $schedule->id,
                 'picker_id' => $request->input('picker_id'),
-                'warehouse_id' => $request->input('warehouse_id'),
+                'warehouse_id' => $warehouseId,
+                'location_id' => $locationId,
                 'work_quantity' => $schedule->remaining_quantity,
                 'work_arrival_date' => now()->format('Y-m-d'),
+                'work_expiration_date' => $defaultExpirationDate,
                 'status' => WmsIncomingWorkItem::STATUS_WORKING,
                 'started_at' => now(),
             ]);
@@ -392,9 +409,11 @@ class IncomingController extends ApiController
                 'work_item_id' => $workItem->id,
                 'schedule_id' => $schedule->id,
                 'picker_id' => $request->input('picker_id'),
+                'location_id' => $locationId,
+                'default_expiration_date' => $defaultExpirationDate,
             ]);
 
-            $workItem->load(['incomingSchedule', 'incomingSchedule.item', 'incomingSchedule.warehouse']);
+            $workItem->load(['incomingSchedule', 'incomingSchedule.item', 'incomingSchedule.warehouse', 'location']);
 
             return $this->success($this->formatWorkItem($workItem), '作業を開始しました');
         } catch (\Exception $e) {
@@ -432,7 +451,8 @@ class IncomingController extends ApiController
      *         @OA\JsonContent(
      *             @OA\Property(property="work_quantity", type="integer", description="入荷数量"),
      *             @OA\Property(property="work_arrival_date", type="string", format="date", description="入荷日"),
-     *             @OA\Property(property="work_expiration_date", type="string", format="date", description="賞味期限")
+     *             @OA\Property(property="work_expiration_date", type="string", format="date", description="賞味期限"),
+     *             @OA\Property(property="location_id", type="integer", description="入庫ロケーションID")
      *         )
      *     ),
      *
@@ -460,6 +480,7 @@ class IncomingController extends ApiController
             'work_quantity' => 'nullable|integer|min:0',
             'work_arrival_date' => 'nullable|date',
             'work_expiration_date' => 'nullable|date',
+            'location_id' => 'nullable|integer',
         ]);
 
         if ($validator->fails()) {
@@ -488,6 +509,9 @@ class IncomingController extends ApiController
             if ($request->has('work_expiration_date')) {
                 $updateData['work_expiration_date'] = $request->input('work_expiration_date');
             }
+            if ($request->has('location_id')) {
+                $updateData['location_id'] = $request->input('location_id');
+            }
 
             $workItem->update($updateData);
 
@@ -496,7 +520,7 @@ class IncomingController extends ApiController
                 'update_data' => $updateData,
             ]);
 
-            $workItem->load(['incomingSchedule', 'incomingSchedule.item', 'incomingSchedule.warehouse']);
+            $workItem->load(['incomingSchedule', 'incomingSchedule.item', 'incomingSchedule.warehouse', 'location']);
 
             return $this->success($this->formatWorkItem($workItem), '更新しました');
         } catch (\Exception $e) {
@@ -660,9 +684,22 @@ class IncomingController extends ApiController
      *     @OA\Property(property="incoming_schedule_id", type="integer", description="入庫予定ID"),
      *     @OA\Property(property="picker_id", type="integer", description="作業者ID"),
      *     @OA\Property(property="warehouse_id", type="integer", description="倉庫ID"),
+     *     @OA\Property(property="location_id", type="integer", nullable=true, description="入庫ロケーションID"),
+     *     @OA\Property(
+     *         property="location",
+     *         type="object",
+     *         nullable=true,
+     *         description="ロケーション情報",
+     *         @OA\Property(property="id", type="integer"),
+     *         @OA\Property(property="code1", type="string"),
+     *         @OA\Property(property="code2", type="string"),
+     *         @OA\Property(property="code3", type="string"),
+     *         @OA\Property(property="name", type="string"),
+     *         @OA\Property(property="display_name", type="string", example="A 1 01")
+     *     ),
      *     @OA\Property(property="work_quantity", type="integer", description="作業数量"),
      *     @OA\Property(property="work_arrival_date", type="string", format="date", description="入荷日"),
-     *     @OA\Property(property="work_expiration_date", type="string", format="date", nullable=true, description="賞味期限"),
+     *     @OA\Property(property="work_expiration_date", type="string", format="date", nullable=true, description="賞味期限（デフォルト: 商品のdefault_expiration_daysから計算）"),
      *     @OA\Property(property="status", type="string", enum={"WORKING", "COMPLETED", "CANCELLED"}, description="ステータス"),
      *     @OA\Property(property="started_at", type="string", format="date-time", description="作業開始日時"),
      *     @OA\Property(
@@ -859,12 +896,22 @@ class IncomingController extends ApiController
     private function formatWorkItem($workItem): array
     {
         $schedule = $workItem->incomingSchedule;
+        $location = $workItem->location;
 
         return [
             'id' => $workItem->id,
             'incoming_schedule_id' => $workItem->incoming_schedule_id,
             'picker_id' => $workItem->picker_id,
             'warehouse_id' => $workItem->warehouse_id,
+            'location_id' => $workItem->location_id,
+            'location' => $location ? [
+                'id' => $location->id,
+                'code1' => $location->code1,
+                'code2' => $location->code2,
+                'code3' => $location->code3,
+                'name' => $location->name,
+                'display_name' => $location->code1.' '.$location->code2.' '.$location->code3,
+            ] : null,
             'work_quantity' => $workItem->work_quantity,
             'work_arrival_date' => $workItem->work_arrival_date?->format('Y-m-d'),
             'work_expiration_date' => $workItem->work_expiration_date?->format('Y-m-d'),
@@ -941,5 +988,153 @@ class IncomingController extends ApiController
         }
 
         return $images;
+    }
+
+    /**
+     * デフォルトロケーションIDを取得（優先順位に従う）
+     *
+     * 1. 商品×倉庫のデフォルトロケーション (item_warehouse_locations)
+     * 2. 同じ倉庫・商品の既存ロットのロケーション
+     * 3. 倉庫のデフォルトロケーション (Z-0-0)
+     */
+    private function getDefaultLocationId(int $warehouseId, int $itemId): ?int
+    {
+        // 1. 商品×倉庫のデフォルトロケーション
+        $itemLocation = ItemWarehouseLocation::getDefaultLocation($warehouseId, $itemId);
+        if ($itemLocation) {
+            return $itemLocation->id;
+        }
+
+        // 2. 既存ロットのロケーション（賞味期限が遠い順）
+        $existingLocationId = DB::connection('sakemaru')
+            ->table('real_stock_lots as rsl')
+            ->join('real_stocks as rs', 'rs.id', '=', 'rsl.real_stock_id')
+            ->where('rs.warehouse_id', $warehouseId)
+            ->where('rs.item_id', $itemId)
+            ->whereNotNull('rsl.location_id')
+            ->orderByRaw('rsl.expiration_date IS NULL')
+            ->orderByDesc('rsl.expiration_date')
+            ->orderByDesc('rsl.location_id')
+            ->value('rsl.location_id');
+
+        if ($existingLocationId) {
+            return $existingLocationId;
+        }
+
+        // 3. 倉庫のデフォルトロケーション (Z-0-0)
+        $defaultLocation = Location::where('warehouse_id', $warehouseId)
+            ->where('code1', 'Z')
+            ->where('code2', '0')
+            ->where('code3', '0')
+            ->first();
+
+        return $defaultLocation?->id;
+    }
+
+    /**
+     * GET /api/incoming/locations
+     *
+     * ロケーション検索
+     *
+     * @OA\Get(
+     *     path="/api/incoming/locations",
+     *     tags={"Incoming"},
+     *     summary="ロケーション検索",
+     *     description="倉庫内のロケーションを検索。code1, code2, code3, nameで検索可能。",
+     *     security={{"apiKey":{}, "sanctum":{}}},
+     *
+     *     @OA\Parameter(
+     *         name="warehouse_id",
+     *         in="query",
+     *         required=true,
+     *         description="倉庫ID",
+     *         @OA\Schema(type="integer")
+     *     ),
+     *     @OA\Parameter(
+     *         name="search",
+     *         in="query",
+     *         required=false,
+     *         description="検索キーワード（code1, code2, code3, nameで検索）",
+     *         @OA\Schema(type="string", example="A-1")
+     *     ),
+     *     @OA\Parameter(
+     *         name="limit",
+     *         in="query",
+     *         required=false,
+     *         description="取得件数（デフォルト: 50）",
+     *         @OA\Schema(type="integer", default=50)
+     *     ),
+     *
+     *     @OA\Response(
+     *         response=200,
+     *         description="成功",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="is_success", type="boolean", example=true),
+     *             @OA\Property(property="code", type="string", example="SUCCESS"),
+     *             @OA\Property(
+     *                 property="result",
+     *                 type="object",
+     *                 @OA\Property(
+     *                     property="data",
+     *                     type="array",
+     *                     @OA\Items(
+     *                         type="object",
+     *                         @OA\Property(property="id", type="integer"),
+     *                         @OA\Property(property="code1", type="string"),
+     *                         @OA\Property(property="code2", type="string"),
+     *                         @OA\Property(property="code3", type="string"),
+     *                         @OA\Property(property="name", type="string"),
+     *                         @OA\Property(property="display_name", type="string", example="A 1 01")
+     *                     )
+     *                 )
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(response=422, description="バリデーションエラー")
+     * )
+     */
+    public function searchLocations(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'warehouse_id' => 'required|integer',
+            'search' => 'nullable|string|max:100',
+            'limit' => 'nullable|integer|min:1|max:200',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $warehouseId = $request->input('warehouse_id');
+        $search = $request->input('search');
+        $limit = $request->input('limit', 50);
+
+        $query = Location::where('warehouse_id', $warehouseId);
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('code1', 'like', "%{$search}%")
+                    ->orWhere('code2', 'like', "%{$search}%")
+                    ->orWhere('code3', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%")
+                    ->orWhereRaw("CONCAT(code1, ' ', code2, ' ', code3) LIKE ?", ["%{$search}%"])
+                    ->orWhereRaw("CONCAT(code1, '-', code2, '-', code3) LIKE ?", ["%{$search}%"]);
+            });
+        }
+
+        $locations = $query->orderBy('code1')
+            ->orderBy('code2')
+            ->orderBy('code3')
+            ->limit($limit)
+            ->get();
+
+        return $this->success($locations->map(fn ($loc) => [
+            'id' => $loc->id,
+            'code1' => $loc->code1,
+            'code2' => $loc->code2,
+            'code3' => $loc->code3,
+            'name' => $loc->name,
+            'display_name' => $loc->code1.' '.$loc->code2.' '.$loc->code3,
+        ]));
     }
 }

@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ItemWarehouseLocation extends SakemaruModel
 {
+    protected $table = 'item_incoming_default_locations';
+
     protected $fillable = [
         'warehouse_id',
         'item_id',

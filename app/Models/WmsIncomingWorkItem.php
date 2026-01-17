@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -18,6 +19,7 @@ class WmsIncomingWorkItem extends WmsModel
         'incoming_schedule_id',
         'picker_id',
         'warehouse_id',
+        'location_id',
         'work_quantity',
         'work_arrival_date',
         'work_expiration_date',
@@ -55,6 +57,11 @@ class WmsIncomingWorkItem extends WmsModel
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 
     // Scopes
