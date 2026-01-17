@@ -13,37 +13,51 @@ use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
 use App\Models\WmsOrderTransmissionLog;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * 発注送信サービス
  */
 class OrderTransmissionService
 {
+    public function __construct(
+        private readonly OrderValidationService $validationService
+    ) {}
+
     /**
-     * 承認済み発注候補を送信
+     * 確定済み発注候補を送信
+     *
+     * @throws \RuntimeException バリデーションエラー時
      */
-    public function transmitApprovedOrders(string $batchCode): WmsAutoOrderJobControl
+    public function transmitConfirmedOrders(string $batchCode): WmsAutoOrderJobControl
     {
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::ORDER_TRANSMISSION)) {
             throw new \RuntimeException('Order transmission job is already running');
+        }
+
+        // 送信前バリデーション: 全候補がCONFIRMED状態であることを確認
+        $validation = $this->validationService->validateBatchForTransmission($batchCode);
+        if (! $validation['valid']) {
+            throw new \RuntimeException($validation['message']);
         }
 
         $job = WmsAutoOrderJobControl::startJob(JobProcessName::ORDER_TRANSMISSION);
         $job->update(['batch_code' => $batchCode]);
 
         try {
-            // 承認済みの発注候補をグループ化
+            // 確定済みの発注候補をグループ化（APPROVED → CONFIRMED に変更）
             $candidateGroups = WmsOrderCandidate::where('batch_code', $batchCode)
-                ->where('status', CandidateStatus::APPROVED)
+                ->where('status', CandidateStatus::CONFIRMED)
                 ->whereNull('transmitted_at')
                 ->with(['warehouse', 'item', 'contractor'])
                 ->get()
                 ->groupBy(fn ($c) => "{$c->warehouse_id}_{$c->contractor_id}");
 
             if ($candidateGroups->isEmpty()) {
-                Log::info('No approved candidates to transmit', ['batch_code' => $batchCode]);
+                Log::info('No confirmed candidates to transmit', ['batch_code' => $batchCode]);
                 $job->markAsSuccess(0);
 
                 return $job;
@@ -291,5 +305,164 @@ class OrderTransmissionService
             'confirmed' => true,
             'message' => 'Order confirmed by supplier',
         ];
+    }
+
+    /**
+     * 確定済み発注候補を purchase_create_queue にバッチ登録
+     *
+     * 仕様書: storage/specifications/inbound/purchase-create-queue-batching.md
+     *
+     * グルーピング基準:
+     * - warehouse_code (倉庫コード)
+     * - supplier_code (仕入先コード)
+     * - delivered_date (入荷日 = expected_arrival_date)
+     *
+     * @param  string  $batchCode  バッチコード
+     * @return array ['success' => bool, 'queue_count' => int, 'candidate_count' => int, 'errors' => array]
+     */
+    public function transmitToPurchaseQueue(string $batchCode): array
+    {
+        // 送信前バリデーション: 全候補がCONFIRMED状態であることを確認
+        $validation = $this->validationService->validateBatchForTransmission($batchCode);
+        if (! $validation['valid']) {
+            throw new \RuntimeException($validation['message']);
+        }
+
+        // 確定済みの発注候補を取得
+        $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->whereNull('transmitted_at')
+            ->with(['warehouse', 'item', 'contractor'])
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            Log::info('No confirmed candidates to transmit', ['batch_code' => $batchCode]);
+
+            return [
+                'success' => true,
+                'queue_count' => 0,
+                'candidate_count' => 0,
+                'errors' => [],
+            ];
+        }
+
+        // グルーピング: 倉庫 + 仕入先 + 入荷予定日
+        $grouped = $candidates->groupBy(function ($candidate) {
+            $warehouseCode = $candidate->warehouse?->code ?? 'UNKNOWN';
+            $contractorCode = $candidate->contractor?->code ?? '';
+            $deliveredDate = $candidate->expected_arrival_date?->format('Y-m-d') ?? now()->format('Y-m-d');
+
+            return "{$warehouseCode}_{$contractorCode}_{$deliveredDate}";
+        });
+
+        $queueCount = 0;
+        $candidateCount = 0;
+        $errors = [];
+
+        foreach ($grouped as $groupKey => $groupCandidates) {
+            try {
+                // 100件以下で分割（仕様推奨）
+                $chunks = $groupCandidates->chunk(100);
+
+                foreach ($chunks as $chunk) {
+                    $queueId = $this->createPurchaseQueueRecord($chunk);
+
+                    // 候補のステータスをEXECUTEDに更新
+                    foreach ($chunk as $candidate) {
+                        $candidate->update([
+                            'status' => CandidateStatus::EXECUTED,
+                            'transmitted_at' => now(),
+                        ]);
+                    }
+
+                    $queueCount++;
+                    $candidateCount += $chunk->count();
+
+                    Log::info('Purchase queue created', [
+                        'batch_code' => $batchCode,
+                        'group_key' => $groupKey,
+                        'queue_id' => $queueId,
+                        'candidate_count' => $chunk->count(),
+                    ]);
+                }
+            } catch (\Exception $e) {
+                $errors[] = [
+                    'group_key' => $groupKey,
+                    'error' => $e->getMessage(),
+                ];
+                Log::error('Failed to create purchase queue', [
+                    'batch_code' => $batchCode,
+                    'group_key' => $groupKey,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return [
+            'success' => empty($errors),
+            'queue_count' => $queueCount,
+            'candidate_count' => $candidateCount,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * purchase_create_queue にレコードを作成
+     *
+     * @param  Collection  $candidates  同一グループの発注候補
+     */
+    private function createPurchaseQueueRecord(Collection $candidates): int
+    {
+        $first = $candidates->first();
+
+        // マスタ情報を取得
+        $warehouse = $first->warehouse;
+        $contractor = $first->contractor;
+        $deliveredDate = $first->expected_arrival_date?->format('Y-m-d') ?? now()->format('Y-m-d');
+
+        // 明細を構築
+        $details = $candidates->map(function ($candidate) {
+            return [
+                'item_code' => $candidate->item?->code ?? '',
+                'quantity' => $candidate->order_quantity,
+                'quantity_type' => $candidate->quantity_type?->value ?? 'PIECE',
+            ];
+        })->toArray();
+
+        // 仕入データを構築
+        $purchaseData = [
+            'process_date' => $deliveredDate,
+            'delivered_date' => $deliveredDate,
+            'account_date' => $deliveredDate,
+            'supplier_code' => $contractor?->code ?? '',
+            'warehouse_code' => $warehouse?->code ?? '',
+            'note' => $this->buildBatchPurchaseNote($first),
+            'details' => $details,
+        ];
+
+        // キューに挿入
+        $queueId = DB::connection('sakemaru')->table('purchase_create_queue')->insertGetId([
+            'request_uuid' => Str::uuid()->toString(),
+            'delivered_date' => $deliveredDate,
+            'items' => json_encode($purchaseData, JSON_UNESCAPED_UNICODE),
+            'status' => 'BEFORE',
+            'retry_count' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $queueId;
+    }
+
+    /**
+     * バッチ送信用の仕入れ伝票備考を構築
+     */
+    private function buildBatchPurchaseNote(WmsOrderCandidate $candidate): string
+    {
+        $parts = [];
+        $parts[] = '自動発注';
+        $parts[] = "バッチ:{$candidate->batch_code}";
+
+        return implode(' / ', $parts);
     }
 }

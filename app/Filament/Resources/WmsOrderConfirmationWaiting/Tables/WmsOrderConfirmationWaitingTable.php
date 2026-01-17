@@ -1,20 +1,17 @@
 <?php
 
-namespace App\Filament\Resources\WmsOrderCandidates\Tables;
+namespace App\Filament\Resources\WmsOrderConfirmationWaiting\Tables;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
-use App\Models\Concerns\OptimisticLockException;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
-use App\Services\AutoOrder\OrderAuditService;
-use App\Services\AutoOrder\OrderValidationService;
+use App\Services\AutoOrder\OrderExecutionService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
@@ -26,7 +23,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 
-class WmsOrderCandidatesTable
+class WmsOrderConfirmationWaitingTable
 {
     public static function configure(Table $table): Table
     {
@@ -34,14 +31,21 @@ class WmsOrderCandidatesTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
-            ->extraAttributes(['class' => 'order-candidates-table'])
+            ->extraAttributes(['class' => 'order-confirmation-waiting-table'])
             ->columns([
                 TextColumn::make('batch_code')
                     ->label('計算時刻')
                     ->state(function ($record) {
-                        // batch_code は YmdHis 形式 (例: 20251227230547)
                         return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
                     })
+                    ->sortable()
+                    ->width('80px'),
+
+                TextColumn::make('status')
+                    ->label('状態')
+                    ->badge()
+                    ->formatStateUsing(fn (CandidateStatus $state): string => $state->label())
+                    ->color(fn (CandidateStatus $state): string => $state->color())
                     ->sortable()
                     ->width('80px'),
 
@@ -88,27 +92,6 @@ class WmsOrderCandidatesTable
                     ->toggleable()
                     ->width('120px'),
 
-                TextColumn::make('safety_stock')
-                    ->label('発注点')
-                    ->state(fn ($record) => $record->safety_stock ?? '-')
-                    ->numeric()
-                    ->alignEnd()
-                    ->width('60px'),
-
-                TextColumn::make('self_shortage_qty')
-                    ->label('倉庫不足')
-                    ->numeric()
-                    ->alignEnd()
-                    ->width('60px')
-                    ->toggleable(),
-
-                TextColumn::make('satellite_demand_qty')
-                    ->label('移動依頼')
-                    ->numeric()
-                    ->alignEnd()
-                    ->width('60px')
-                    ->toggleable(),
-
                 TextColumn::make('suggested_quantity')
                     ->label('算出数')
                     ->numeric()
@@ -122,41 +105,13 @@ class WmsOrderCandidatesTable
                     ->alignEnd()
                     ->width('70px')
                     ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
-                    // 承認前（PENDING）のみ編集可能
-                    ->disabled(fn ($record) => $record->status !== CandidateStatus::PENDING)
+                    ->disabled(fn ($record) => ! $record->status->isEditable())
                     ->afterStateUpdated(function ($record, $state) {
-                        // 承認後の編集は許可しない
-                        if ($record->status !== CandidateStatus::PENDING) {
-                            Notification::make()
-                                ->title('承認後は発注数量を変更できません')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
-                        try {
-                            $oldQuantity = $record->order_quantity;
-                            $newQuantity = (int) $state;
-
-                            $record->updateWithLock([
-                                'order_quantity' => $newQuantity,
-                                'is_manually_modified' => true,
-                                'modified_by' => auth()->id(),
-                                'modified_at' => now(),
-                            ]);
-
-                            // 監査ログ（数量が実際に変更された場合のみ）
-                            if ($oldQuantity !== $newQuantity) {
-                                app(OrderAuditService::class)->logQuantityChange($record, $oldQuantity, $newQuantity);
-                            }
-                        } catch (OptimisticLockException $e) {
-                            Notification::make()
-                                ->title('更新エラー')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
-                        }
+                        $record->update([
+                            'is_manually_modified' => true,
+                            'modified_by' => auth()->id(),
+                            'modified_at' => now(),
+                        ]);
                     }),
 
                 TextColumn::make('expected_arrival_date')
@@ -165,14 +120,6 @@ class WmsOrderCandidatesTable
                     ->sortable()
                     ->alignCenter()
                     ->width('70px'),
-
-                TextColumn::make('status')
-                    ->label('状態')
-                    ->badge()
-                    ->formatStateUsing(fn (CandidateStatus $state): string => $state->label())
-                    ->color(fn (CandidateStatus $state): string => $state->color())
-                    ->sortable()
-                    ->width('75px'),
 
                 TextColumn::make('lot_status')
                     ->label('ロット')
@@ -185,10 +132,6 @@ class WmsOrderCandidatesTable
                         default => 'gray',
                     })
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                TextColumn::make('transmission_status')
-                    ->label('送信')
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('is_manually_modified')
@@ -206,8 +149,8 @@ class WmsOrderCandidatesTable
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options([
-                        CandidateStatus::PENDING->value => CandidateStatus::PENDING->label(),
-                        CandidateStatus::EXCLUDED->value => CandidateStatus::EXCLUDED->label(),
+                        CandidateStatus::APPROVED->value => CandidateStatus::APPROVED->label(),
+                        CandidateStatus::CONFIRMED->value => CandidateStatus::CONFIRMED->label(),
                     ]),
 
                 SelectFilter::make('warehouse_id')
@@ -222,53 +165,36 @@ class WmsOrderCandidatesTable
                         ->mapWithKeys(fn ($contractor) => [
                             $contractor->id => "[{$contractor->code}]{$contractor->name}",
                         ]))
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search): array {
-                        // 全角英数字を半角に変換
-                        $search = mb_convert_kana($search, 'as');
-
-                        return Contractor::query()
-                            ->where(function ($query) use ($search) {
-                                $query->where('code', 'like', "%{$search}%")
-                                    ->orWhere('name', 'like', "%{$search}%");
-                            })
-                            ->orderBy('code')
-                            ->limit(50)
-                            ->get()
-                            ->mapWithKeys(fn ($contractor) => [
-                                $contractor->id => "[{$contractor->code}]{$contractor->name}",
-                            ])
-                            ->toArray();
-                    }),
+                    ->searchable(),
             ])
             ->recordActions([
-                Action::make('approve')
-                    ->label('承認')
-                    ->icon('heroicon-o-check')
+                Action::make('confirm')
+                    ->label('確定')
+                    ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn ($record) => $record->status === CandidateStatus::PENDING)
                     ->requiresConfirmation()
+                    ->modalHeading('発注確定')
+                    ->modalDescription('この発注候補を確定し、入庫予定を作成します。')
                     ->action(function ($record) {
+                        $service = app(OrderExecutionService::class);
+
                         try {
-                            $record->updateWithLock(['status' => CandidateStatus::APPROVED]);
-
-                            // 監査ログ
-                            app(OrderAuditService::class)->logApproval($record);
-
+                            $schedules = $service->confirmCandidate($record, auth()->id());
                             Notification::make()
-                                ->title('発注候補を承認しました')
+                                ->title('発注を確定しました')
+                                ->body("入庫予定 {$schedules->count()}件 を作成しました")
                                 ->success()
                                 ->send();
-                        } catch (OptimisticLockException $e) {
+                        } catch (\Exception $e) {
                             Notification::make()
-                                ->title('承認エラー')
+                                ->title('エラーが発生しました')
                                 ->body($e->getMessage())
                                 ->danger()
                                 ->send();
                         }
                     }),
 
-                Action::make('viewCalculation')
+                Action::make('viewDetail')
                     ->label('詳細')
                     ->icon('heroicon-o-eye')
                     ->color('gray')
@@ -346,13 +272,7 @@ class WmsOrderCandidatesTable
                                                         ->numeric()
                                                         ->required()
                                                         ->minValue(0)
-                                                        // 承認前（PENDING）のみ編集可能
-                                                        ->disabled($record->status !== CandidateStatus::PENDING)
-                                                        ->helperText(
-                                                            $record->status !== CandidateStatus::PENDING
-                                                                ? '承認後は発注数量を変更できません'
-                                                                : null
-                                                        ),
+                                                        ->disabled(! $record->status->isEditable()),
                                                 ]),
                                         ])
                                         ->columnSpan(2),
@@ -360,122 +280,108 @@ class WmsOrderCandidatesTable
                         ];
                     })
                     ->action(function ($record, array $data) {
-                        // 承認後の編集は許可しない
-                        if ($record->status !== CandidateStatus::PENDING) {
+                        if (! $record->status->isEditable()) {
                             Notification::make()
-                                ->title('承認後は発注数量を変更できません')
-                                ->danger()
+                                ->title('このステータスでは編集できません')
+                                ->warning()
                                 ->send();
 
                             return;
                         }
 
                         if ($data['order_quantity'] != $record->order_quantity) {
-                            try {
-                                $oldQuantity = $record->order_quantity;
-                                $newQuantity = $data['order_quantity'];
-
-                                $record->updateWithLock([
-                                    'order_quantity' => $newQuantity,
-                                    'is_manually_modified' => true,
-                                    'modified_by' => auth()->id(),
-                                    'modified_at' => now(),
-                                ]);
-
-                                // 監査ログ
-                                app(OrderAuditService::class)->logQuantityChange($record, $oldQuantity, $newQuantity);
-
-                                Notification::make()
-                                    ->title('発注数を更新しました')
-                                    ->success()
-                                    ->send();
-                            } catch (OptimisticLockException $e) {
-                                Notification::make()
-                                    ->title('更新エラー')
-                                    ->body($e->getMessage())
-                                    ->danger()
-                                    ->send();
-                            }
+                            $record->update([
+                                'order_quantity' => $data['order_quantity'],
+                                'is_manually_modified' => true,
+                                'modified_by' => auth()->id(),
+                                'modified_at' => now(),
+                            ]);
+                            Notification::make()
+                                ->title('発注数を更新しました')
+                                ->success()
+                                ->send();
                         }
                     }),
 
-                Action::make('exclude')
-                    ->label('除外')
+                Action::make('cancelApproval')
+                    ->label('承認取消')
                     ->icon('heroicon-o-x-mark')
                     ->color('danger')
-                    ->visible(fn ($record) => $record->status === CandidateStatus::PENDING)
-                    ->schema([
-                        Textarea::make('exclusion_reason')
-                            ->label('除外理由'),
-                    ])
-                    ->action(function ($record, array $data) {
-                        try {
-                            $reason = $data['exclusion_reason'] ?? null;
-                            $record->updateWithLock([
-                                'status' => CandidateStatus::EXCLUDED,
-                                'exclusion_reason' => $reason,
-                            ]);
-
-                            // 監査ログ
-                            app(OrderAuditService::class)->logExclusion($record, $reason);
-
-                            Notification::make()
-                                ->title('発注候補を除外しました')
-                                ->warning()
-                                ->send();
-                        } catch (OptimisticLockException $e) {
-                            Notification::make()
-                                ->title('除外エラー')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
-                        }
+                    ->visible(fn ($record) => $record->status === CandidateStatus::APPROVED)
+                    ->requiresConfirmation()
+                    ->modalHeading('承認取消')
+                    ->modalDescription('この発注候補の承認を取り消し、承認前に戻します。')
+                    ->action(function ($record) {
+                        $record->update([
+                            'status' => CandidateStatus::PENDING,
+                            'modified_by' => auth()->id(),
+                            'modified_at' => now(),
+                        ]);
+                        Notification::make()
+                            ->title('承認を取り消しました')
+                            ->warning()
+                            ->send();
                     }),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    BulkAction::make('bulkApprove')
-                        ->label('選択を承認')
+                    BulkAction::make('bulkConfirm')
+                        ->label('選択を発注確定')
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->requiresConfirmation()
+                        ->modalHeading('一括発注確定')
+                        ->modalDescription('選択した発注候補を確定し、入庫予定を作成します。')
                         ->action(function (Collection $records) {
-                            $count = $records
-                                ->where('status', CandidateStatus::PENDING)
-                                ->each(fn ($record) => $record->update(['status' => CandidateStatus::APPROVED]))
-                                ->count();
+                            $service = app(OrderExecutionService::class);
+                            $successCount = 0;
+                            $totalSchedules = 0;
+
+                            foreach ($records as $record) {
+                                if (! $record->status->canConfirm()) {
+                                    continue;
+                                }
+
+                                try {
+                                    $schedules = $service->confirmCandidate($record, auth()->id());
+                                    $successCount++;
+                                    $totalSchedules += $schedules->count();
+                                } catch (\Exception $e) {
+                                    // Skip errors
+                                }
+                            }
 
                             Notification::make()
-                                ->title("{$count}件を承認しました")
+                                ->title("{$successCount}件の発注を確定しました")
+                                ->body("入庫予定 {$totalSchedules}件 を作成しました")
                                 ->success()
                                 ->send();
                         }),
 
-                    BulkAction::make('bulkExclude')
-                        ->label('選択を除外')
+                    BulkAction::make('bulkCancelApproval')
+                        ->label('選択の承認取消')
                         ->icon('heroicon-o-x-circle')
                         ->color('danger')
                         ->requiresConfirmation()
-                        ->schema([
-                            Textarea::make('exclusion_reason')
-                                ->label('除外理由'),
-                        ])
-                        ->action(function (Collection $records, array $data) {
+                        ->modalHeading('一括承認取消')
+                        ->modalDescription('選択した発注候補の承認を取り消します。')
+                        ->action(function (Collection $records) {
                             $count = $records
-                                ->where('status', CandidateStatus::PENDING)
+                                ->filter(fn ($r) => $r->status === CandidateStatus::APPROVED)
                                 ->each(fn ($record) => $record->update([
-                                    'status' => CandidateStatus::EXCLUDED,
-                                    'exclusion_reason' => $data['exclusion_reason'] ?? null,
+                                    'status' => CandidateStatus::PENDING,
+                                    'modified_by' => auth()->id(),
+                                    'modified_at' => now(),
                                 ]))
                                 ->count();
 
                             Notification::make()
-                                ->title("{$count}件を除外しました")
+                                ->title("{$count}件の承認を取り消しました")
                                 ->warning()
                                 ->send();
                         }),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('batch_code', 'desc');
     }
 }
