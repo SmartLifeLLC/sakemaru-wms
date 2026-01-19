@@ -851,7 +851,9 @@ class IncomingController extends ApiController
                     'item_name' => $schedule->item?->name,
                     'search_code' => $schedule->search_code,
                     'jan_codes' => $this->getJanCodes($schedule->item),
-                    'volume' => $this->getVolumeDisplay($schedule->item),
+                    'volume' => $schedule->item?->volume,
+                    'volume_unit' => $this->getVolumeUnitLabel($schedule->item),
+                    'capacity_case' => $schedule->item?->capacity_case,
                     'temperature_type' => $this->getTemperatureTypeLabel($schedule->item),
                     'images' => $this->getImages($schedule->item),
                     'total_expected_quantity' => 0,
@@ -1004,6 +1006,17 @@ class IncomingController extends ApiController
         $volumeUnit = EVolumeUnit::tryFrom($item->volume_unit);
 
         return $item->volume.($volumeUnit ? $volumeUnit->name() : '');
+    }
+
+    private function getVolumeUnitLabel($item): ?string
+    {
+        if (! $item || ! $item->volume_unit) {
+            return null;
+        }
+
+        $volumeUnit = EVolumeUnit::tryFrom($item->volume_unit);
+
+        return $volumeUnit?->name();
     }
 
     private function getTemperatureTypeLabel($item): ?string
