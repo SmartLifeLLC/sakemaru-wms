@@ -16,8 +16,8 @@
         /* BHT-M60 3.2インチ WVGA (480x800) 最適化 - フォント拡大版 */
         :root {
             --handy-width: 480px;
-            --handy-height: 800px;
             --header-height: 56px;
+            --footer-height: 40px;
             --font-xs: 19px;
             --font-sm: 21px;
             --font-base: 24px;
@@ -51,7 +51,7 @@
             -webkit-tap-highlight-color: transparent;
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
         }
 
         .no-scrollbar::-webkit-scrollbar {
@@ -74,9 +74,8 @@
         /* Handy specific overrides */
         .handy-container {
             width: 480px;
-            height: 800px;
+            height: 100vh;
             max-width: 480px;
-            max-height: 800px;
         }
 
         .handy-header {
@@ -85,7 +84,7 @@
         }
 
         .handy-main {
-            height: calc(800px - var(--header-height));
+            height: calc(100vh - var(--header-height) - var(--footer-height));
         }
 
         /* Typography */
