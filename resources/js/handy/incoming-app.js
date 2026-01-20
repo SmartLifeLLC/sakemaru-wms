@@ -54,7 +54,10 @@ const api = {
                 || json.error
                 || `API Error (${response.status})`;
             console.error('API Error:', { url, method, status: response.status, response: json });
-            throw new Error(errorMsg);
+            const error = new Error(errorMsg);
+            error.code = json.code;
+            error.data = json.result?.data;
+            throw error;
         }
 
         return json;
@@ -91,6 +94,7 @@ window.handyIncomingApp = function() {
         // Pagination (infinite scroll)
         displayCount: 50,  // Number of items currently displayed
         perPage: 50,       // Items to load per scroll
+        selectedProductIndex: 0,  // Currently selected product in list (for keyboard navigation)
 
         // Input Form
         inputForm: {
@@ -99,6 +103,7 @@ window.handyIncomingApp = function() {
             location_search: '',
             location_id: null,
             expiration_date: '',
+            arrival_date: '',
         },
         searchQuery: '',
 
@@ -106,6 +111,7 @@ window.handyIncomingApp = function() {
         schedulesToProcess: [],      // All schedules for current item
         currentScheduleIndex: 0,     // Current index (0-based)
         selectedScheduleIndex: 0,    // Currently selected schedule in list (for keyboard navigation)
+        selectedHistoryIndex: 0,     // Currently selected history in list (for keyboard navigation)
 
         // State
         isLoading: false,
@@ -214,12 +220,26 @@ window.handyIncomingApp = function() {
                 // Refresh working status
                 this.loadWorkingScheduleIds();
             } else if (this.currentScreen === 'input') {
-                this.currentScreen = 'process';
-                this.editingWorkItem = null;
+                this.goBackFromInput();
             } else if (this.currentScreen === 'result') {
                 this.currentScreen = 'list';
             } else if (this.currentScreen === 'history') {
                 this.currentScreen = 'list';
+            }
+        },
+
+        // Go back from input screen - returns to history if editing completed item
+        goBackFromInput() {
+            const wasEditingCompleted = this.editingWorkItem?.status === 'COMPLETED';
+            this.editingWorkItem = null;
+
+            if (wasEditingCompleted) {
+                // Came from history, go back to history
+                this.loadHistory();
+                this.currentScreen = 'history';
+            } else {
+                // Came from process (normal flow), go back to process
+                this.currentScreen = 'process';
             }
         },
 
@@ -375,6 +395,7 @@ window.handyIncomingApp = function() {
             this.isLoading = true;
             this.loadingMessage = '商品を検索中...';
             this.displayCount = this.perPage;  // Reset display count on new search
+            this.selectedProductIndex = 0;     // Reset selection on new search
 
             try {
                 let endpoint = `/incoming/schedules?warehouse_id=${this.selectedWarehouse.id}`;
@@ -394,6 +415,43 @@ window.handyIncomingApp = function() {
             } finally {
                 this.isLoading = false;
                 this.loadingMessage = '';
+            }
+        },
+
+        // Move product selection with keyboard (up/down arrows)
+        moveProductSelection(direction) {
+            const maxIndex = this.products.length - 1;
+            if (maxIndex < 0) return;
+
+            let newIndex = this.selectedProductIndex + direction;
+
+            // Wrap around
+            if (newIndex < 0) newIndex = maxIndex;
+            if (newIndex > maxIndex) newIndex = 0;
+
+            this.selectedProductIndex = newIndex;
+
+            // Load more if approaching end
+            if (newIndex > this.displayCount - 5 && this.hasMore) {
+                this.loadMore();
+            }
+
+            // Scroll selected item into view
+            this.$nextTick(() => {
+                const list = this.$refs.productList;
+                if (list) {
+                    const selectedEl = list.querySelector(`[data-product-index="${newIndex}"]`);
+                    if (selectedEl) {
+                        selectedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    }
+                }
+            });
+        },
+
+        // Select product by keyboard (Enter)
+        selectProductByKeyboard() {
+            if (this.products.length > 0 && this.selectedProductIndex < this.products.length) {
+                this.selectProduct(this.products[this.selectedProductIndex]);
             }
         },
 
@@ -427,8 +485,11 @@ window.handyIncomingApp = function() {
             this.currentItem = item;
             this.editingWorkItem = null;
 
-            // Set up all schedules for this item
-            this.schedulesToProcess = item.schedules || [];
+            // Set up all schedules for this item (PENDING/PARTIAL のみ)
+            const workableSchedules = (item.schedules || []).filter(s =>
+                !s.status || s.status === 'PENDING' || s.status === 'PARTIAL'
+            );
+            this.schedulesToProcess = workableSchedules;
             this.currentScheduleIndex = 0;
             this.selectedScheduleIndex = 0;
 
@@ -481,7 +542,7 @@ window.handyIncomingApp = function() {
             const date = new Date(dateStr);
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
-            return `${month}/${day}`;
+            return `${month}月${day}日`;
         },
 
         // Get row class based on schedule status
@@ -520,17 +581,33 @@ window.handyIncomingApp = function() {
                 return;
             }
 
-            // Reset form for this schedule
+            // CONFIRMED - 履歴から修正
+            if (schedule.status === 'CONFIRMED') {
+                this.showNotification('完了済みです。履歴から修正してください', 'info');
+                await this.loadHistory();
+                this.currentScreen = 'history';
+                return;
+            }
+
+            // TRANSMITTED/CANCELLED - 作業不可
+            if (schedule.status === 'TRANSMITTED' || schedule.status === 'CANCELLED') {
+                this.showNotification('この入庫予定は作業できません', 'error');
+                return;
+            }
+
+            // Reset form for this schedule (DB変更なしで入力画面へ)
+            this.editingWorkItem = null;  // Clear any previous work item
             this.inputForm = {
                 schedule_id: schedule.id,
-                qty: schedule.remaining_quantity || 0,
+                qty: schedule.expected_quantity || 0,
                 location_search: '',
                 location_id: null,
                 expiration_date: '',
+                arrival_date: new Date().toISOString().split('T')[0],  // Today's date
             };
 
-            // Start work for this schedule
-            await this.startWork();
+            // Go directly to input screen (no DB change until submit)
+            this.currentScreen = 'input';
         },
 
         async startWork() {
@@ -564,12 +641,22 @@ window.handyIncomingApp = function() {
                     this.showNotification(response.message || '作業開始に失敗しました', 'error');
                 }
             } catch (error) {
-                console.error('startWork error:', error.message);
+                console.error('startWork error:', error.message, error.code, error.data);
 
-                // Check if already working - try to resume existing work
-                if (error.message && error.message.includes('既に作業中')) {
+                // Check if already working - use returned work item data
+                if (error.code === 'ALREADY_WORKING' && error.data) {
+                    console.log('Schedule already has active work, resuming with data:', error.data);
+                    this.setWorkItemData(error.data);
+                    this.currentScreen = 'input';
+                } else if (error.message && error.message.includes('既に作業中')) {
+                    // Fallback: try to fetch existing work
                     console.log('Schedule already has active work, trying to resume...');
                     await this.resumeExistingWork();
+                } else if (error.message && error.message.includes('作業できません')) {
+                    // Schedule status changed (likely CONFIRMED) - refresh and go to history
+                    this.showNotification('入庫完了済みです。履歴から修正してください', 'info');
+                    await this.loadHistory();
+                    this.currentScreen = 'history';
                 } else {
                     this.showNotification(error.message || '作業開始に失敗しました', 'error');
                 }
@@ -673,7 +760,10 @@ window.handyIncomingApp = function() {
         },
 
         get canSubmit() {
-            return this.inputForm.qty > 0 && this.editingWorkItem;
+            const schedule = this.currentSchedule;
+            if (!schedule) return false;
+            // qty > 0 かつ 予定数以下
+            return this.inputForm.qty > 0 && this.inputForm.qty <= schedule.expected_quantity;
         },
 
         // ==================== Submit ====================
@@ -682,10 +772,46 @@ window.handyIncomingApp = function() {
             if (!this.canSubmit) return;
 
             this.isLoading = true;
-            this.loadingMessage = '入庫処理中...';
+            const isEditing = this.editingWorkItem?.status === 'COMPLETED';
+            this.loadingMessage = isEditing ? '更新中...' : '入庫処理中...';
 
             try {
-                // First update work item
+                let workItemId = this.editingWorkItem?.id;
+
+                // Create work item if not exists
+                if (!workItemId) {
+                    console.log('Creating work item:', {
+                        schedule_id: this.inputForm.schedule_id,
+                        picker_id: this.picker?.id,
+                        warehouse_id: this.selectedWarehouse?.id,
+                    });
+
+                    if (!this.inputForm.schedule_id || !this.picker?.id || !this.selectedWarehouse?.id) {
+                        this.showNotification('必要な情報が不足しています', 'error');
+                        console.error('Missing data:', {
+                            schedule_id: this.inputForm.schedule_id,
+                            picker: this.picker,
+                            warehouse: this.selectedWarehouse,
+                        });
+                        return;
+                    }
+
+                    const createResponse = await api.post('/incoming/work-items', {
+                        incoming_schedule_id: this.inputForm.schedule_id,
+                        picker_id: this.picker.id,
+                        warehouse_id: this.selectedWarehouse.id,
+                    });
+
+                    console.log('createResponse:', createResponse);
+
+                    if (!createResponse.is_success || !createResponse.result?.data?.id) {
+                        this.showNotification(createResponse.result?.message || createResponse.message || '作業開始に失敗しました', 'error');
+                        return;
+                    }
+                    workItemId = createResponse.result.data.id;
+                }
+
+                // Update work item
                 const updateData = {
                     work_quantity: this.inputForm.qty,
                 };
@@ -695,31 +821,63 @@ window.handyIncomingApp = function() {
                 if (this.inputForm.expiration_date) {
                     updateData.work_expiration_date = this.inputForm.expiration_date;
                 }
-
-                await api.put(`/incoming/work-items/${this.editingWorkItem.id}`, updateData);
-
-                // Then complete work
-                const response = await api.post(`/incoming/work-items/${this.editingWorkItem.id}/complete`);
-
-                if (response.is_success) {
-                    // Mark current schedule as completed locally
-                    if (this.currentSchedule) {
-                        this.currentSchedule.status = 'COMPLETED';
-                    }
-
-                    // Go back to process screen (schedule list)
-                    this.editingWorkItem = null;
-                    this.currentScreen = 'process';
-
-                    // Refresh working status
-                    await this.loadWorkingScheduleIds();
-
-                    this.showNotification('入庫が完了しました', 'success');
-                } else {
-                    this.showNotification(response.message || '入庫処理に失敗しました', 'error');
+                if (this.inputForm.arrival_date) {
+                    updateData.work_arrival_date = this.inputForm.arrival_date;
                 }
+
+                const updateResponse = await api.put(`/incoming/work-items/${workItemId}`, updateData);
+
+                if (!updateResponse.is_success) {
+                    this.showNotification(updateResponse.message || '更新に失敗しました', 'error');
+                    return;
+                }
+
+                // Only call complete for WORKING status (not for editing COMPLETED items)
+                if (!isEditing) {
+                    const response = await api.post(`/incoming/work-items/${workItemId}/complete`);
+
+                    if (!response.is_success) {
+                        this.showNotification(response.message || '入庫処理に失敗しました', 'error');
+                        return;
+                    }
+                }
+
+                // Clear work item data but keep current product info
+                this.editingWorkItem = null;
+                const currentItemCode = this.currentItem?.item_code;
+
+                console.log('After submit - currentItemCode:', currentItemCode);
+                console.log('After submit - searchQuery:', this.searchQuery);
+
+                // Refresh product list from server
+                await this.searchProducts();
+
+                console.log('After searchProducts - allProducts count:', this.allProducts.length);
+                console.log('After searchProducts - allProducts:', this.allProducts.map(p => ({ item_code: p.item_code, schedules: p.schedules?.length })));
+
+                // Find current product and go to process screen
+                if (currentItemCode) {
+                    const product = this.allProducts.find(p => p.item_code === currentItemCode);
+                    console.log('Found product:', product ? { item_code: product.item_code, schedules: product.schedules?.length } : 'NOT FOUND');
+                    if (product) {
+                        this.selectProduct(product);
+                    } else {
+                        // Product no longer has workable schedules, go to list
+                        console.log('Product not found, going to list screen');
+                        this.currentItem = null;
+                        this.schedulesToProcess = [];
+                        this.currentScreen = 'list';
+                    }
+                } else {
+                    // Fallback: go to list screen
+                    this.currentItem = null;
+                    this.schedulesToProcess = [];
+                    this.currentScreen = 'list';
+                }
+
+                this.showNotification(isEditing ? '更新しました' : '入庫が完了しました', 'success');
             } catch (error) {
-                this.showNotification(error.message || '入庫処理に失敗しました', 'error');
+                this.showNotification(error.message || '処理に失敗しました', 'error');
             } finally {
                 this.isLoading = false;
                 this.loadingMessage = '';
@@ -741,6 +899,7 @@ window.handyIncomingApp = function() {
 
             this.isLoading = true;
             this.loadingMessage = '履歴を取得中...';
+            this.selectedHistoryIndex = 0;  // Reset selection
 
             try {
                 const today = new Date().toISOString().split('T')[0];
@@ -758,17 +917,61 @@ window.handyIncomingApp = function() {
             }
         },
 
+        // Move history selection with keyboard (up/down arrows)
+        moveHistorySelection(direction) {
+            const maxIndex = this.history.length - 1;
+            if (maxIndex < 0) return;
+
+            let newIndex = this.selectedHistoryIndex + direction;
+
+            // Wrap around
+            if (newIndex < 0) newIndex = maxIndex;
+            if (newIndex > maxIndex) newIndex = 0;
+
+            this.selectedHistoryIndex = newIndex;
+
+            // Scroll selected item into view
+            this.$nextTick(() => {
+                const list = this.$refs.historyList;
+                if (list) {
+                    const selectedEl = list.querySelector(`[data-history-index="${newIndex}"]`);
+                    if (selectedEl) {
+                        selectedEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    }
+                }
+            });
+        },
+
+        // Edit history by keyboard (Enter)
+        editHistoryByKeyboard() {
+            if (this.history.length > 0 && this.selectedHistoryIndex < this.history.length) {
+                this.editHistory(this.history[this.selectedHistoryIndex]);
+            }
+        },
+
         async editHistory(hist) {
-            if (hist.status !== 'WORKING') return;
+            // WORKING または COMPLETED のみ編集可能
+            if (!['WORKING', 'COMPLETED'].includes(hist.status)) return;
+
+            // スケジュールが TRANSMITTED の場合は編集不可
+            if (hist.schedule?.status === 'TRANSMITTED') {
+                this.showNotification('連携済みのため編集できません', 'error');
+                return;
+            }
 
             this.editingWorkItem = hist;
             this.currentItem = {
                 item_id: hist.schedule?.item_id,
                 item_code: hist.schedule?.item_code,
                 item_name: hist.schedule?.item_name,
+                jan_codes: hist.schedule?.jan_codes || [],
                 total_remaining_quantity: hist.schedule?.remaining_quantity,
                 schedules: [hist.schedule],
             };
+
+            // Set up schedule for input screen
+            this.schedulesToProcess = [hist.schedule];
+            this.currentScheduleIndex = 0;
 
             this.inputForm = {
                 schedule_id: hist.incoming_schedule_id,
@@ -776,9 +979,11 @@ window.handyIncomingApp = function() {
                 location_search: hist.location?.display_name || '',
                 location_id: hist.location_id,
                 expiration_date: hist.work_expiration_date || '',
+                arrival_date: hist.work_arrival_date || new Date().toISOString().split('T')[0],
             };
 
-            this.currentScreen = 'process';
+            // Go directly to input screen for editing
+            this.currentScreen = 'input';
         },
 
         formatTime(isoString) {

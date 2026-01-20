@@ -13,18 +13,23 @@
     @vite(['resources/css/app.css', 'resources/js/handy/incoming-app.js'])
 
     <style>
-        /* BHT-M60 3.2インチ WVGA (480x800) 最適化 - フォント拡大版 */
+        /* BHT-M60 3.2インチ WVGA (480x800) 最適化 */
         :root {
+            /* Layout */
             --handy-width: 480px;
-            --header-height: 56px;
+            --header-height: 40px;
             --footer-height: 40px;
-            --font-xs: 19px;
-            --font-sm: 21px;
-            --font-base: 24px;
-            --font-lg: 28px;
-            --font-xl: 32px;
-            --font-2xl: 38px;
-            --font-3xl: 44px;
+
+            /* Font sizes (adjust here to change all font sizes) */
+            --font-xs: 13px;
+            --font-sm: 15px;
+            --font-base: 17px;
+            --font-lg: 20px;
+            --font-xl: 22px;
+            --font-2xl: 27px;
+            --font-3xl: 31px;
+
+            /* Spacing */
             --spacing-1: 4px;
             --spacing-2: 8px;
             --spacing-3: 12px;
@@ -80,7 +85,7 @@
 
         .handy-header {
             height: var(--header-height);
-            padding: var(--spacing-2) var(--spacing-3);
+            padding: var(--spacing-1) var(--spacing-3);
         }
 
         .handy-main {
@@ -114,6 +119,16 @@
             height: 44px;
             padding: var(--spacing-2) var(--spacing-3);
             font-size: var(--font-lg);
+        }
+
+        .handy-input-sm {
+            height: 36px;
+            padding: var(--spacing-1) var(--spacing-2);
+            font-size: var(--font-xs);
+        }
+
+        .handy-input-sm::placeholder {
+            font-size: var(--font-xs);
         }
 
         .handy-input-lg {
