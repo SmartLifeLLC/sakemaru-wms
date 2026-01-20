@@ -30,6 +30,12 @@ class LocationsTable
                     ->searchable()
                     ->sortable(),
 
+                TextColumn::make('floor.name')
+                    ->label('フロア')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('-'),
+
                 TextColumn::make('code1')
                     ->label('コード1')
                     ->searchable()

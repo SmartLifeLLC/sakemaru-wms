@@ -667,8 +667,6 @@ class FloorPlanEditor extends Page
                 'x2_pos' => 460,
                 'y2_pos' => 340,
                 'available_quantity_flags' => 3,
-                'creator_id' => 0,
-                'last_updater_id' => 0,
             ]);
 
             // Reload zones and dispatch
@@ -875,7 +873,9 @@ class FloorPlanEditor extends Page
                 'x2_pos' => $zone['x2_pos'],
                 'y2_pos' => $zone['y2_pos'],
                 'available_quantity_flags' => $zone['available_quantity_flags'],
-                'levels' => $zone['levels'],
+                'temperature_type' => $zone['temperature_type'] ?? null,
+                'is_restricted_area' => $zone['is_restricted_area'] ?? false,
+                'shelf_count' => $zone['shelf_count'] ?? 1,
             ];
         })->values()->toArray();
 
@@ -983,8 +983,8 @@ class FloorPlanEditor extends Page
                             'x2_pos' => $zoneData['x2_pos'],
                             'y2_pos' => $zoneData['y2_pos'],
                             'available_quantity_flags' => $zoneData['available_quantity_flags'],
-                            'creator_id' => 0,
-                            'last_updater_id' => 0,
+                            'temperature_type' => $zoneData['temperature_type'] ?? null,
+                            'is_restricted_area' => $zoneData['is_restricted_area'] ?? false,
                         ]
                     );
                 }
