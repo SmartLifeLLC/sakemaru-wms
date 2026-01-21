@@ -211,7 +211,7 @@ class WmsOrderCandidatesTable
                     ]),
 
                 SelectFilter::make('warehouse_id')
-                    ->label('在庫拠点倉庫')
+                    ->label('発注倉庫')
                     ->relationship('warehouse', 'name'),
 
                 SelectFilter::make('contractor_id')
