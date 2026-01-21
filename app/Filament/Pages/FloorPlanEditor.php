@@ -217,21 +217,9 @@ class FloorPlanEditor extends Page
                 $zoneGroups[$zoneKey] = [
                     'locations' => [],
                     'first_location' => $location,
-                    'max_x1' => 0,
-                    'max_y1' => 0,
-                    'max_x2' => 0,
-                    'max_y2' => 0,
                 ];
             }
             $zoneGroups[$zoneKey]['locations'][] = $location;
-
-            // Track best position (non-zero)
-            if ($location->x1_pos > 0 || $location->y1_pos > 0) {
-                $zoneGroups[$zoneKey]['max_x1'] = max($zoneGroups[$zoneKey]['max_x1'], (int) $location->x1_pos);
-                $zoneGroups[$zoneKey]['max_y1'] = max($zoneGroups[$zoneKey]['max_y1'], (int) $location->y1_pos);
-                $zoneGroups[$zoneKey]['max_x2'] = max($zoneGroups[$zoneKey]['max_x2'], (int) $location->x2_pos);
-                $zoneGroups[$zoneKey]['max_y2'] = max($zoneGroups[$zoneKey]['max_y2'], (int) $location->y2_pos);
-            }
         }
 
         // Build zones array - one entry per code1+code2 group
@@ -241,11 +229,21 @@ class FloorPlanEditor extends Page
             $firstLoc = $group['first_location'];
             $locationIds = collect($group['locations'])->pluck('id')->toArray();
 
-            // Use stored position or auto-generate
-            $x1 = $group['max_x1'];
-            $y1 = $group['max_y1'];
-            $x2 = $group['max_x2'];
-            $y2 = $group['max_y2'];
+            // Use first location's position (all locations in zone should have same position)
+            // Find the first location with a non-zero position
+            $x1 = 0;
+            $y1 = 0;
+            $x2 = 0;
+            $y2 = 0;
+            foreach ($group['locations'] as $loc) {
+                if ($loc->x1_pos > 0 || $loc->y1_pos > 0) {
+                    $x1 = (int) $loc->x1_pos;
+                    $y1 = (int) $loc->y1_pos;
+                    $x2 = (int) $loc->x2_pos;
+                    $y2 = (int) $loc->y2_pos;
+                    break;  // Use first non-zero position found
+                }
+            }
 
             // Auto-generate position if none set
             if ($x1 == 0 && $y1 == 0) {
@@ -667,8 +665,6 @@ class FloorPlanEditor extends Page
                 'x2_pos' => 460,
                 'y2_pos' => 340,
                 'available_quantity_flags' => 3,
-                'creator_id' => 0,
-                'last_updater_id' => 0,
             ]);
 
             // Reload zones and dispatch
@@ -700,17 +696,22 @@ class FloorPlanEditor extends Page
 
     /**
      * Update zone position
+     * Updates ALL locations in the zone group (same code1+code2)
      */
     public function updateZonePosition(int $zoneId, int $x1, int $y1, int $x2, int $y2): void
     {
         $location = Location::find($zoneId);
         if ($location) {
-            $location->update([
-                'x1_pos' => $x1,
-                'y1_pos' => $y1,
-                'x2_pos' => $x2,
-                'y2_pos' => $y2,
-            ]);
+            // Update all locations with the same code1+code2 (entire zone group)
+            Location::where('floor_id', $location->floor_id)
+                ->where('code1', $location->code1)
+                ->where('code2', $location->code2)
+                ->update([
+                    'x1_pos' => $x1,
+                    'y1_pos' => $y1,
+                    'x2_pos' => $x2,
+                    'y2_pos' => $y2,
+                ]);
         }
     }
 
@@ -752,20 +753,26 @@ class FloorPlanEditor extends Page
         }
 
         // Update only changed zones positions in database
+        // Update ALL locations in the zone group, not just the first one
         foreach ($changedZones as $zoneData) {
             // Skip temp IDs (new zones are handled separately)
             if (is_string($zoneData['id']) && str_starts_with($zoneData['id'], 'temp_')) {
                 continue;
             }
-            $location = Location::find($zoneData['id']);
-            if ($location) {
-                $location->update([
-                    'x1_pos' => $zoneData['x1_pos'],
-                    'y1_pos' => $zoneData['y1_pos'],
-                    'x2_pos' => $zoneData['x2_pos'],
-                    'y2_pos' => $zoneData['y2_pos'],
-                ]);
-            }
+
+            // Get all location IDs in this zone group from the zones collection
+            // since frontend doesn't pass location_ids
+            $zoneId = $zoneData['id'];
+            $zone = $this->zones->firstWhere('id', $zoneId);
+            $locationIds = $zone['location_ids'] ?? [$zoneId];
+
+            // Update all locations in the zone group with the same position
+            Location::whereIn('id', $locationIds)->update([
+                'x1_pos' => $zoneData['x1_pos'],
+                'y1_pos' => $zoneData['y1_pos'],
+                'x2_pos' => $zoneData['x2_pos'],
+                'y2_pos' => $zoneData['y2_pos'],
+            ]);
         }
 
         // Create new zones
@@ -875,7 +882,9 @@ class FloorPlanEditor extends Page
                 'x2_pos' => $zone['x2_pos'],
                 'y2_pos' => $zone['y2_pos'],
                 'available_quantity_flags' => $zone['available_quantity_flags'],
-                'levels' => $zone['levels'],
+                'temperature_type' => $zone['temperature_type'] ?? null,
+                'is_restricted_area' => $zone['is_restricted_area'] ?? false,
+                'shelf_count' => $zone['shelf_count'] ?? 1,
             ];
         })->values()->toArray();
 
@@ -983,8 +992,8 @@ class FloorPlanEditor extends Page
                             'x2_pos' => $zoneData['x2_pos'],
                             'y2_pos' => $zoneData['y2_pos'],
                             'available_quantity_flags' => $zoneData['available_quantity_flags'],
-                            'creator_id' => 0,
-                            'last_updater_id' => 0,
+                            'temperature_type' => $zoneData['temperature_type'] ?? null,
+                            'is_restricted_area' => $zoneData['is_restricted_area'] ?? false,
                         ]
                     );
                 }

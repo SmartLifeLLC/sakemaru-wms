@@ -142,7 +142,7 @@ class IncomingController extends ApiController
         // Get warehouse IDs including virtual warehouses
         $warehouseIds = $this->getWarehouseIdsWithVirtual($warehouseId);
 
-        // Build query
+        // Build query (PENDING/PARTIAL のみ - 作業可能なスケジュール)
         $query = WmsOrderIncomingSchedule::query()
             ->whereIn('warehouse_id', $warehouseIds)
             ->whereIn('status', [
@@ -414,8 +414,9 @@ class IncomingController extends ApiController
             return $this->notFound('入庫予定が見つかりません');
         }
 
+        // PENDING/PARTIAL のみ新規作業可能（CONFIRMED は履歴から修正）
         if (! in_array($schedule->status, [IncomingScheduleStatus::PENDING, IncomingScheduleStatus::PARTIAL])) {
-            return $this->error('この入庫予定は作業できません', 400);
+            return $this->error('この入庫予定は作業できません（完了済みは履歴から修正してください）', 400);
         }
 
         // Check if already working
@@ -424,7 +425,9 @@ class IncomingController extends ApiController
             ->first();
 
         if ($existingWork) {
-            return $this->error('この入庫予定は既に作業中です', 400);
+            // Return existing work item data so frontend can resume
+            $existingWork->load(['incomingSchedule', 'incomingSchedule.item', 'incomingSchedule.warehouse', 'location']);
+            return $this->success($this->formatWorkItem($existingWork), '既存の作業を再開しました');
         }
 
         try {
@@ -534,21 +537,30 @@ class IncomingController extends ApiController
             return $this->validationError($validator->errors()->toArray());
         }
 
-        $workItem = WmsIncomingWorkItem::find($id);
+        $workItem = WmsIncomingWorkItem::with('incomingSchedule')->find($id);
 
         if (! $workItem) {
             return $this->notFound('作業データが見つかりません');
         }
 
-        if ($workItem->status !== WmsIncomingWorkItem::STATUS_WORKING) {
+        // WORKING または COMPLETED のみ編集可能
+        if (! in_array($workItem->status, [WmsIncomingWorkItem::STATUS_WORKING, WmsIncomingWorkItem::STATUS_COMPLETED])) {
             return $this->error('この作業データは編集できません', 400);
+        }
+
+        // スケジュールが TRANSMITTED の場合は編集不可
+        $schedule = $workItem->incomingSchedule;
+        if ($schedule && $schedule->status === \App\Enums\AutoOrder\IncomingScheduleStatus::TRANSMITTED) {
+            return $this->error('連携済みのため編集できません', 400);
         }
 
         try {
             $updateData = [];
+            $oldQuantity = $workItem->work_quantity;
+            $newQuantity = $request->has('work_quantity') ? $request->input('work_quantity') : $oldQuantity;
 
             if ($request->has('work_quantity')) {
-                $updateData['work_quantity'] = $request->input('work_quantity');
+                $updateData['work_quantity'] = $newQuantity;
             }
             if ($request->has('work_arrival_date')) {
                 $updateData['work_arrival_date'] = $request->input('work_arrival_date');
@@ -560,7 +572,30 @@ class IncomingController extends ApiController
                 $updateData['location_id'] = $request->input('location_id');
             }
 
-            $workItem->update($updateData);
+            DB::connection('sakemaru')->transaction(function () use ($workItem, $updateData, $schedule, $oldQuantity, $newQuantity) {
+                // 完了済みの場合、スケジュールの received_quantity も更新
+                if ($workItem->status === WmsIncomingWorkItem::STATUS_COMPLETED && $schedule && isset($updateData['work_quantity'])) {
+                    $quantityDiff = $newQuantity - $oldQuantity;
+                    $newReceivedQty = max(0, $schedule->received_quantity + $quantityDiff);
+
+                    // ステータス再計算
+                    $newStatus = $schedule->status;
+                    if ($newReceivedQty >= $schedule->expected_quantity) {
+                        $newStatus = \App\Enums\AutoOrder\IncomingScheduleStatus::CONFIRMED;
+                    } elseif ($newReceivedQty > 0) {
+                        $newStatus = \App\Enums\AutoOrder\IncomingScheduleStatus::PARTIAL;
+                    } else {
+                        $newStatus = \App\Enums\AutoOrder\IncomingScheduleStatus::PENDING;
+                    }
+
+                    $schedule->update([
+                        'received_quantity' => $newReceivedQty,
+                        'status' => $newStatus,
+                    ]);
+                }
+
+                $workItem->update($updateData);
+            });
 
             Log::info('Incoming work updated', [
                 'work_item_id' => $workItem->id,
@@ -851,7 +886,9 @@ class IncomingController extends ApiController
                     'item_name' => $schedule->item?->name,
                     'search_code' => $schedule->search_code,
                     'jan_codes' => $this->getJanCodes($schedule->item),
-                    'volume' => $this->getVolumeDisplay($schedule->item),
+                    'volume' => $schedule->item?->volume,
+                    'volume_unit' => $this->getVolumeUnitLabel($schedule->item),
+                    'capacity_case' => $schedule->item?->capacity_case,
                     'temperature_type' => $this->getTemperatureTypeLabel($schedule->item),
                     'images' => $this->getImages($schedule->item),
                     'total_expected_quantity' => 0,
@@ -969,12 +1006,15 @@ class IncomingController extends ApiController
                 'item_id' => $schedule->item_id,
                 'item_code' => $schedule->item?->code,
                 'item_name' => $schedule->item?->name,
+                'jan_codes' => $this->getJanCodes($schedule->item),
                 'warehouse_id' => $schedule->warehouse_id,
                 'warehouse_name' => $schedule->warehouse?->name,
                 'expected_quantity' => $schedule->expected_quantity,
                 'received_quantity' => $schedule->received_quantity,
                 'remaining_quantity' => $schedule->remaining_quantity,
                 'quantity_type' => $schedule->quantity_type?->value,
+                'expected_arrival_date' => $schedule->expected_arrival_date?->format('Y-m-d'),
+                'status' => $schedule->status?->value,
             ] : null,
         ];
     }
@@ -1004,6 +1044,17 @@ class IncomingController extends ApiController
         $volumeUnit = EVolumeUnit::tryFrom($item->volume_unit);
 
         return $item->volume.($volumeUnit ? $volumeUnit->name() : '');
+    }
+
+    private function getVolumeUnitLabel($item): ?string
+    {
+        if (! $item || ! $item->volume_unit) {
+            return null;
+        }
+
+        $volumeUnit = EVolumeUnit::tryFrom($item->volume_unit);
+
+        return $volumeUnit?->name();
     }
 
     private function getTemperatureTypeLabel($item): ?string

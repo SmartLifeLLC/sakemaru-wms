@@ -97,6 +97,13 @@ class WmsIncomingCompletedTable
                     ->alignCenter()
                     ->width('60px'),
 
+                TextColumn::make('expected_arrival_date')
+                    ->label('入庫予定日')
+                    ->date('m/d')
+                    ->sortable()
+                    ->alignCenter()
+                    ->width('80px'),
+
                 TextColumn::make('actual_arrival_date')
                     ->label('入庫日')
                     ->date('m/d')
@@ -169,6 +176,9 @@ class WmsIncomingCompletedTable
                                     \Filament\Infolists\Components\TextEntry::make('received_quantity')
                                         ->label('入庫数量')
                                         ->state(fn () => $record->received_quantity),
+                                    \Filament\Infolists\Components\TextEntry::make('expected_arrival_date')
+                                        ->label('入庫予定日')
+                                        ->state(fn () => $record->expected_arrival_date?->format('Y/m/d') ?? '-'),
                                     \Filament\Infolists\Components\TextEntry::make('actual_arrival_date')
                                         ->label('入庫日')
                                         ->state(fn () => $record->actual_arrival_date?->format('Y/m/d') ?? '-'),
