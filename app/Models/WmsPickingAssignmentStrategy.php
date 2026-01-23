@@ -4,10 +4,9 @@ namespace App\Models;
 
 use App\Enums\PickingStrategyType;
 use App\Models\Sakemaru\Warehouse;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class WmsPickingAssignmentStrategy extends Model
+class WmsPickingAssignmentStrategy extends WmsModel
 {
     protected $table = 'wms_picking_assignment_strategies';
 

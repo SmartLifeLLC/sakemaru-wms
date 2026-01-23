@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\FloorPlanController;
 use App\Http\Controllers\Api\PickingRouteController;
+use App\Http\Controllers\Handy\HandyController;
 use App\Http\Controllers\Handy\HandyIncomingController;
 use App\Http\Controllers\JxServerController;
 use App\Http\Controllers\JxTransmissionLogController;
@@ -12,8 +13,14 @@ Route::get('/', function () {
 });
 
 // Handy Terminal Web Apps
+Route::get('/handy/login', [HandyController::class, 'login'])
+    ->name('handy.login');
+Route::get('/handy/home', [HandyController::class, 'home'])
+    ->name('handy.home');
 Route::get('/handy/incoming', [HandyIncomingController::class, 'index'])
     ->name('handy.incoming');
+Route::get('/handy/outgoing', [HandyController::class, 'outgoing'])
+    ->name('handy.outgoing');
 
 // Floor plan API routes (accessible from admin panel without API key)
 Route::prefix('api')->middleware(['web'])->group(function () {

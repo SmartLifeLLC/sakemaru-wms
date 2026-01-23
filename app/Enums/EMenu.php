@@ -84,7 +84,6 @@ enum EMenu: string
             self::RECEIPT_INSPECTIONS => EMenuCategory::INBOUND,
 
             self::OUTBOUND_DASHBOARD,
-            self::WMS_PICKER_ATTENDANCE,
             self::WMS_PICKING_WAITINGS,
             self::PICKING_TASKS,
             self::WAVES,
@@ -126,6 +125,7 @@ enum EMenu: string
 
             // ピッキングマスタ
             self::WMS_PICKERS,
+            self::WMS_PICKER_ATTENDANCE,
             self::WMS_PICKING_ASSIGNMENT_STRATEGIES => EMenuCategory::MASTER_PICKING,
 
             self::EARNINGS => EMenuCategory::STATISTICS,
@@ -155,7 +155,7 @@ enum EMenu: string
             self::WMS_PICKER_ATTENDANCE => 'ピッカー勤怠管理',
             self::WMS_PICKING_WAITINGS => 'ピッキング待機',
             self::PICKING_TASKS => 'ピッキングタスク',
-            self::WAVES => '波動管理',
+            self::WAVES => '出荷波動管理',
             self::PICKING_ROUTE_VISUALIZATION => 'ピッキング経路確認',
             self::WMS_PICKING_ITEM_RESULTS => 'ピッキング商品リスト',
             self::DELIVERY_COURSE_CHANGE => '配送コース変更',
@@ -187,7 +187,7 @@ enum EMenu: string
             self::LOCATIONS => 'ロケーション',
             self::WMS_LOCATIONS => 'WMSロケーション',
             self::WMS_PICKING_AREAS => 'ピッキングエリア',
-            self::WMS_PICKERS => 'ピッカー',
+            self::WMS_PICKERS => 'ピッカー管理',
             self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 'ピッキング割当戦略',
             self::FLOOR_PLAN_EDITOR => 'フロア図エディタ',
 
@@ -280,8 +280,8 @@ enum EMenu: string
             self::RECEIPT_INSPECTIONS => 6,
 
             // 出荷管理
-            self::WMS_PICKER_ATTENDANCE => 1,
-            self::DELIVERY_COURSE_CHANGE => 2,
+            self::WAVES => 0,
+            self::DELIVERY_COURSE_CHANGE => 1,
             self::WMS_PICKING_WAITINGS => 3,
             self::PICKING_ROUTE_VISUALIZATION => 4,
             self::PICKING_TASKS => 5,
@@ -289,7 +289,6 @@ enum EMenu: string
             self::SHIPMENT_INSPECTIONS => 8,
             self::WMS_SHIPMENT_SLIPS => 10,
             self::OUTBOUND_DASHBOARD => 11,
-            self::WAVES => 12,
 
             // 欠品管理
             self::WMS_SHORTAGES => 1,
@@ -327,7 +326,8 @@ enum EMenu: string
 
             // ピッキングマスタ
             self::WMS_PICKERS => 1,
-            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 2,
+            self::WMS_PICKER_ATTENDANCE => 2,
+            self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 3,
 
             // 統計データ
             self::EARNINGS => 1,

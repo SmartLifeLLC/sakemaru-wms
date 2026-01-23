@@ -64,10 +64,9 @@ class WavesTable
                     ->sortable(),
 
                 TextColumn::make('created_at')
-                    ->label('作成日時')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->label('波動生成時刻')
+                    ->dateTime('Y-m-d H:i:s')
+                    ->sortable(),
 
                 TextColumn::make('updated_at')
                     ->label('更新日時')

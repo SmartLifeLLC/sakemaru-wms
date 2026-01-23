@@ -36,6 +36,16 @@ class WaveResource extends Resource
         return EMenu::WAVES->sort();
     }
 
+    public static function getModelLabel(): string
+    {
+        return '波動';
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return '波動管理';
+    }
+
     public static function form(Schema $schema): Schema
     {
         return WaveForm::configure($schema);

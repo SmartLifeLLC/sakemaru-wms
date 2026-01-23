@@ -33,10 +33,10 @@ class ListWaves extends ListRecords
     {
         return [
             Action::make('generateWave')
-                ->label('波動生成')
+                ->label('出荷波動生成')
                 ->icon('heroicon-o-plus-circle')
                 ->color('primary')
-                ->modalHeading('波動生成')
+                ->modalHeading('出荷波動生成')
                 ->modalDescription('対象伝票を選択して波動を生成します。同じ時間帯に既存の波動がある場合でも、新規波動として生成されます。')
                 ->modalSubmitActionLabel('波動を生成')
                 ->modalWidth('4xl')

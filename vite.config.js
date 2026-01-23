@@ -9,7 +9,10 @@ export default defineConfig({
                 'resources/css/app.css',
                 'resources/js/app.js',
                 'resources/css/filament/admin/theme.css',
-                'resources/js/handy/incoming-app.js'
+                'resources/js/handy/incoming-app.js',
+                'resources/js/handy/login-app.js',
+                'resources/js/handy/home-app.js',
+                'resources/js/handy/outgoing-app.js'
             ],
             refresh: true,
         }),
