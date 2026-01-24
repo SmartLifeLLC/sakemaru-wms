@@ -58,6 +58,15 @@ class OrderCandidateCalculationService
     /** @var array [from_warehouse_id][to_warehouse_id] => delivery_course_id */
     private array $transferDeliveryCourses = [];
 
+    /** @var array [contractor_id] => lead_time_days */
+    private array $contractorLeadTimes = [];
+
+    /** @var array [contractor_id][warehouse_id] => delivery_day_setting */
+    private array $deliveryDaySettings = [];
+
+    /** @var array [warehouse_id][date_string] => true */
+    private array $warehouseHolidays = [];
+
     /**
      * 発注候補計算を実行
      */
@@ -248,6 +257,60 @@ class OrderCandidateCalculationService
         }
 
         Log::info('移動配送コース設定をロード', ['count' => count($transferCourses)]);
+
+        // 発注先リードタイムをプリロード（contractors.lead_time_id → lead_times）
+        $contractorsWithLeadTime = DB::connection('sakemaru')
+            ->table('contractors as c')
+            ->join('lead_times as lt', 'c.lead_time_id', '=', 'lt.id')
+            ->select('c.id as contractor_id', 'lt.lead_time_mon as lead_time')
+            ->get();
+
+        foreach ($contractorsWithLeadTime as $c) {
+            $this->contractorLeadTimes[$c->contractor_id] = $c->lead_time;
+        }
+
+        Log::info('発注先リードタイムをロード', ['count' => count($this->contractorLeadTimes)]);
+
+        // 納品可能曜日をプリロード（発注先×倉庫）
+        $deliveryDays = DB::connection('sakemaru')
+            ->table('wms_contractor_warehouse_delivery_days')
+            ->get();
+
+        foreach ($deliveryDays as $dd) {
+            if (! isset($this->deliveryDaySettings[$dd->contractor_id])) {
+                $this->deliveryDaySettings[$dd->contractor_id] = [];
+            }
+            $this->deliveryDaySettings[$dd->contractor_id][$dd->warehouse_id] = [
+                'mon' => (bool) $dd->delivery_mon,
+                'tue' => (bool) $dd->delivery_tue,
+                'wed' => (bool) $dd->delivery_wed,
+                'thu' => (bool) $dd->delivery_thu,
+                'fri' => (bool) $dd->delivery_fri,
+                'sat' => (bool) $dd->delivery_sat,
+                'sun' => (bool) $dd->delivery_sun,
+            ];
+        }
+
+        Log::info('納品可能曜日をロード', ['count' => count($deliveryDays)]);
+
+        // 倉庫休日をプリロード（今後30日分）
+        $startDate = now()->format('Y-m-d');
+        $endDate = now()->addDays(30)->format('Y-m-d');
+
+        $holidays = DB::connection('sakemaru')
+            ->table('wms_warehouse_calendars')
+            ->where('is_holiday', true)
+            ->whereBetween('target_date', [$startDate, $endDate])
+            ->get();
+
+        foreach ($holidays as $h) {
+            if (! isset($this->warehouseHolidays[$h->warehouse_id])) {
+                $this->warehouseHolidays[$h->warehouse_id] = [];
+            }
+            $this->warehouseHolidays[$h->warehouse_id][$h->target_date] = true;
+        }
+
+        Log::info('倉庫休日をロード', ['count' => count($holidays)]);
     }
 
     /**
@@ -281,8 +344,6 @@ class OrderCandidateCalculationService
             ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit')
             ->get();
 
-        $leadTimeDays = 1; // 内部移動は1日と仮定
-        $arrivalDate = $now->copy()->addDays($leadTimeDays)->format('Y-m-d');
         $insertData = [];
 
         foreach ($itemContractors as $ic) {
@@ -321,6 +382,17 @@ class OrderCandidateCalculationService
             // 配送コースIDを取得（移動元 → 移動先）
             $deliveryCourseId = $this->transferDeliveryCourses[$supplyWarehouseId][$ic->warehouse_id] ?? null;
 
+            // 到着予定日を計算（リードタイム + 納品曜日 + 倉庫休日）
+            $arrivalInfo = $this->calculateArrivalDate(
+                $ic->contractor_id,
+                $ic->warehouse_id,
+                $now,
+                isInternal: true
+            );
+            $arrivalDate = $arrivalInfo['arrival_date']->format('Y-m-d');
+            $originalArrivalDate = $now->copy()->addDays($arrivalInfo['lead_time_days'])->format('Y-m-d');
+            $leadTimeDays = $arrivalInfo['lead_time_days'];
+
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'satellite_warehouse_id' => $ic->warehouse_id,
@@ -332,7 +404,7 @@ class OrderCandidateCalculationService
                 'transfer_quantity' => $orderQty,
                 'quantity_type' => QuantityType::PIECE->value,
                 'expected_arrival_date' => $arrivalDate,
-                'original_arrival_date' => $arrivalDate,
+                'original_arrival_date' => $originalArrivalDate,
                 'status' => CandidateStatus::PENDING->value,
                 'lot_status' => LotStatus::RAW->value,
                 'created_at' => $now,
@@ -383,6 +455,8 @@ class OrderCandidateCalculationService
                     '単位調整説明' => $purchaseUnit > 1
                         ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}"
                         : '最小仕入単位が1のため調整なし',
+                    '到着日調整' => $arrivalInfo['shifted_days'],
+                    '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
                 ], JSON_UNESCAPED_UNICODE),
             ];
         }
@@ -452,8 +526,6 @@ class OrderCandidateCalculationService
             ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit')
             ->get();
 
-        $defaultLeadTime = 3;
-        $arrivalDate = $now->copy()->addDays($defaultLeadTime)->format('Y-m-d');
         $insertData = [];
 
         foreach ($itemContractors as $ic) {
@@ -504,6 +576,17 @@ class OrderCandidateCalculationService
                 }
             }
 
+            // 到着予定日を計算（リードタイム + 納品曜日 + 倉庫休日）
+            $arrivalInfo = $this->calculateArrivalDate(
+                $ic->contractor_id,
+                $ic->warehouse_id,
+                $now,
+                isInternal: false
+            );
+            $arrivalDate = $arrivalInfo['arrival_date']->format('Y-m-d');
+            $originalArrivalDate = $now->copy()->addDays($arrivalInfo['lead_time_days'])->format('Y-m-d');
+            $leadTimeDays = $arrivalInfo['lead_time_days'];
+
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
@@ -517,7 +600,7 @@ class OrderCandidateCalculationService
                 'order_quantity' => $orderQty,
                 'quantity_type' => QuantityType::PIECE->value,
                 'expected_arrival_date' => $arrivalDate,
-                'original_arrival_date' => $arrivalDate,
+                'original_arrival_date' => $originalArrivalDate,
                 'status' => CandidateStatus::PENDING->value,
                 'lot_status' => LotStatus::RAW->value,
                 'created_at' => $now,
@@ -541,7 +624,7 @@ class OrderCandidateCalculationService
                 'current_effective_stock' => $effectiveStock,
                 'incoming_quantity' => $incomingStock,
                 'safety_stock_setting' => $ic->safety_stock,
-                'lead_time_days' => $defaultLeadTime,
+                'lead_time_days' => $leadTimeDays,
                 'calculated_shortage_qty' => $shortageQty,
                 'calculated_order_quantity' => $orderQty,
                 'calculation_details' => json_encode([
@@ -567,6 +650,8 @@ class OrderCandidateCalculationService
                     '単位調整説明' => $purchaseUnit > 1
                         ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}"
                         : '最小仕入単位が1のため調整なし',
+                    '到着日調整' => $arrivalInfo['shifted_days'],
+                    '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
                 ], JSON_UNESCAPED_UNICODE),
             ];
         }
@@ -598,6 +683,93 @@ class OrderCandidateCalculationService
         }
 
         Log::info('計算ログを保存', ['count' => count($this->calculationLogs)]);
+    }
+
+    /**
+     * 到着予定日を計算（リードタイム + 納品可能曜日 + 倉庫休日を考慮）
+     *
+     * @param  int  $contractorId  発注先ID
+     * @param  int  $warehouseId  倉庫ID
+     * @param  Carbon  $orderDate  発注日
+     * @param  bool  $isInternal  内部移動かどうか
+     * @return array{arrival_date: Carbon, lead_time_days: int, shifted_days: int, shift_reasons: array}
+     */
+    private function calculateArrivalDate(
+        int $contractorId,
+        int $warehouseId,
+        Carbon $orderDate,
+        bool $isInternal = false
+    ): array {
+        // Step 1: リードタイム取得（発注先単位）
+        $leadTimeDays = $this->contractorLeadTimes[$contractorId]
+            ?? ($isInternal ? 1 : 3);  // デフォルト値
+
+        // Step 2: 仮到着予定日
+        $arrivalDate = $orderDate->copy()->addDays($leadTimeDays);
+        $shiftedDays = 0;
+        $shiftReasons = [];
+
+        // Step 3: 納品可能曜日チェック（最大14日）
+        $deliverySetting = $this->deliveryDaySettings[$contractorId][$warehouseId] ?? null;
+        if ($deliverySetting) {
+            $hasDeliveryDays = array_filter($deliverySetting, fn ($v) => $v === true);
+            if (! empty($hasDeliveryDays)) {
+                $deliveryShift = 0;
+                for ($i = 0; $i < 14; $i++) {
+                    if ($this->canDeliverOn($deliverySetting, $arrivalDate->dayOfWeek)) {
+                        break;
+                    }
+                    $arrivalDate->addDay();
+                    $deliveryShift++;
+                }
+                if ($deliveryShift > 0) {
+                    $shiftedDays += $deliveryShift;
+                    $shiftReasons[] = "納品可能曜日調整(+{$deliveryShift}日)";
+                }
+            }
+        }
+
+        // Step 4: 倉庫休日チェック（最大14日）
+        $warehouseShift = 0;
+        for ($i = 0; $i < 14; $i++) {
+            $dateStr = $arrivalDate->format('Y-m-d');
+            if (! isset($this->warehouseHolidays[$warehouseId][$dateStr])) {
+                break;
+            }
+            $arrivalDate->addDay();
+            $warehouseShift++;
+        }
+        if ($warehouseShift > 0) {
+            $shiftedDays += $warehouseShift;
+            $shiftReasons[] = "倉庫休日(+{$warehouseShift}日)";
+        }
+
+        return [
+            'arrival_date' => $arrivalDate,
+            'lead_time_days' => $leadTimeDays,
+            'shifted_days' => $shiftedDays,
+            'shift_reasons' => $shiftReasons,
+        ];
+    }
+
+    /**
+     * 指定した曜日に納品可能かどうかを判定
+     *
+     * @param  array  $setting  納品曜日設定
+     * @param  int  $dayOfWeek  曜日（0=日曜, 1=月曜, ..., 6=土曜）
+     */
+    private function canDeliverOn(array $setting, int $dayOfWeek): bool
+    {
+        return match ($dayOfWeek) {
+            0 => $setting['sun'] ?? false,
+            1 => $setting['mon'] ?? false,
+            2 => $setting['tue'] ?? false,
+            3 => $setting['wed'] ?? false,
+            4 => $setting['thu'] ?? false,
+            5 => $setting['fri'] ?? false,
+            6 => $setting['sat'] ?? false,
+            default => false,
+        };
     }
 
     /**
