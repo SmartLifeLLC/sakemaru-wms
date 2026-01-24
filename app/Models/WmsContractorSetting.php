@@ -19,6 +19,7 @@ class WmsContractorSetting extends WmsModel
 
     protected $fillable = [
         'contractor_id',
+        'transmission_contractor_id',
         'transmission_type',
         'wms_order_jx_setting_id',
         'wms_order_ftp_setting_id',
@@ -50,6 +51,29 @@ class WmsContractorSetting extends WmsModel
     public function contractor(): BelongsTo
     {
         return $this->belongsTo(Contractor::class);
+    }
+
+    /**
+     * 発注データ送信先の発注先
+     */
+    public function transmissionContractor(): BelongsTo
+    {
+        return $this->belongsTo(Contractor::class, 'transmission_contractor_id');
+    }
+
+    /**
+     * 実際の送信設定を取得（自身 or 送信先発注先の設定）
+     */
+    public function getEffectiveTransmissionSettings(): self
+    {
+        if ($this->transmission_contractor_id) {
+            $transmissionContractorSetting = self::where('contractor_id', $this->transmission_contractor_id)->first();
+            if ($transmissionContractorSetting) {
+                return $transmissionContractorSetting;
+            }
+        }
+
+        return $this;
     }
 
     public function jxSetting(): BelongsTo

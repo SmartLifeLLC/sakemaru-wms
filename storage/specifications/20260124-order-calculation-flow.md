@@ -17,12 +17,13 @@
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Step 0: 月別発注点の同期（月初のみ）                                 │
+│  Step 0: 月別発注点の同期（毎月末日）                                 │
 │                                                                     │
 │  wms:sync-monthly-safety-stocks                                     │
-│  wms_monthly_safety_stocks → item_contractors.safety_stock          │
+│  wms_monthly_safety_stocks(翌月分) → item_contractors.safety_stock  │
 │                                                                     │
 │  ※ use_safety_stock_auto_update = true の商品のみ更新              │
+│  ※ 翌日から届く発注に翌月の発注点を適用するため月末に実行           │
 └─────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -83,20 +84,22 @@
 
 ### Step 0: 月別発注点の同期
 
-**実行タイミング**: 月初（1日）
+**実行タイミング**: 毎月末日 04:30
 **コマンド**: `php artisan wms:sync-monthly-safety-stocks`
 
 ```
 wms_monthly_safety_stocks
     │
-    ▼ (month = 現在月)
+    ▼ (month = 翌月)
 item_contractors.safety_stock を更新
     │
     ▼ (条件: use_safety_stock_auto_update = true)
-発注計算で使用する発注点が最新化される
+翌月の発注点が事前に設定される
 ```
 
 **ポイント**:
+- 月末に実行し、翌月の発注点を事前に同期
+- 翌日（翌月1日）から届く発注に新しい発注点が適用される
 - 発注計算時には既に`item_contractors.safety_stock`が最新化されている前提
 - 発注計算処理内では月別発注点を参照しない
 
@@ -272,22 +275,22 @@ GROUP BY warehouse_id, item_id
 
 ## 5. バッチ実行順序
 
-### 月初（1日）
+### 毎月末日
 
 ```bash
-# 1. 月別発注点を同期
+# 04:30 翌月の発注点を同期
 php artisan wms:sync-monthly-safety-stocks
-
-# 2. 通常の発注計算を実行
-# (以下のJob or Commandで)
+# → 翌日（翌月1日）から届く発注に新しい発注点が適用される
 ```
 
 ### 日次
 
 ```bash
-# 1. 在庫スナップショット作成
-# 2. 発注候補計算
-# (発注計算Jobが両方を実行)
+# 05:00 在庫スナップショット作成
+php artisan wms:snapshot-stocks
+
+# 06:00 発注候補計算
+php artisan wms:auto-order-calculate --skip-snapshot
 ```
 
 ---

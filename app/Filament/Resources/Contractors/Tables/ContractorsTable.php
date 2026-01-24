@@ -37,7 +37,7 @@ class ContractorsTable
                     ->sortable()
                     ->toggleable(),
 
-                TextColumn::make('supplier.name')
+                TextColumn::make('supplier.partner.name')
                     ->label('仕入先')
                     ->sortable()
                     ->toggleable(),

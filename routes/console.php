@@ -19,10 +19,11 @@ Artisan::command('inspire', function () {
 |
 */
 
-// 月別安全在庫の同期 (毎日 4:30)
-// ※ スナップショット前に実行し、当月の発注点を反映
+// 月別安全在庫の同期 (毎月末日 4:30)
+// ※ 翌月の発注点を事前に同期（翌日から適用されるため）
 Schedule::command('wms:sync-monthly-safety-stocks')
     ->dailyAt('04:30')
+    ->when(fn () => now()->isLastOfMonth())
     ->withoutOverlapping()
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/auto-order-monthly-safety-stocks.log'));

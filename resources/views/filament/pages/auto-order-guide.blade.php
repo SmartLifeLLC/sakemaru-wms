@@ -10,7 +10,7 @@
                     class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200"
                 >
                     <x-heroicon-o-information-circle class="w-5 h-5 inline-block mr-2 -mt-0.5" />
-                    概要・準備
+                    概要
                 </button>
                 <button
                     @click="activeTab = 'flow'"
@@ -22,22 +22,13 @@
                     計算フロー
                 </button>
                 <button
-                    @click="activeTab = 'supply'"
+                    @click="activeTab = 'arrival'"
                     type="button"
-                    :class="activeTab === 'supply' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'"
+                    :class="activeTab === 'arrival' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'"
                     class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200"
                 >
-                    <x-heroicon-o-arrows-right-left class="w-5 h-5 inline-block mr-2 -mt-0.5" />
-                    供給タイプ
-                </button>
-                <button
-                    @click="activeTab = 'calculation'"
-                    type="button"
-                    :class="activeTab === 'calculation' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'"
-                    class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200"
-                >
-                    <x-heroicon-o-calculator class="w-5 h-5 inline-block mr-2 -mt-0.5" />
-                    計算ロジック
+                    <x-heroicon-o-calendar class="w-5 h-5 inline-block mr-2 -mt-0.5" />
+                    到着日計算
                 </button>
                 <button
                     @click="activeTab = 'tables'"
@@ -46,7 +37,7 @@
                     class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200"
                 >
                     <x-heroicon-o-circle-stack class="w-5 h-5 inline-block mr-2 -mt-0.5" />
-                    テーブル情報
+                    テーブル
                 </button>
                 <button
                     @click="activeTab = 'commands'"
@@ -55,868 +46,842 @@
                     class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200"
                 >
                     <x-heroicon-o-command-line class="w-5 h-5 inline-block mr-2 -mt-0.5" />
-                    関連コマンド
+                    コマンド
                 </button>
             </nav>
         </div>
 
-        {{-- 概要・準備タブ --}}
-        <div x-show="activeTab === 'overview'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
+        {{-- 概要タブ --}}
+        <div x-show="activeTab === 'overview'" x-cloak class="flex-1 overflow-y-auto pt-4">
             {{-- システム概要 --}}
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-information-circle class="w-5 h-5 text-primary-500" />
+                            システム概要
+                        </div>
+                    </x-slot>
+                    <div class="text-sm text-gray-700 dark:text-gray-300 space-y-3">
+                        <p>在庫が発注点を下回った商品に対し、自動的に発注候補・移動候補を作成するシステムです。</p>
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                            <div class="font-semibold mb-2">主な機能</div>
+                            <ul class="space-y-1 text-gray-600 dark:text-gray-400">
+                                <li>• 在庫スナップショットの自動生成</li>
+                                <li>• 発注点ベースの不足数計算</li>
+                                <li>• リードタイム・納品曜日・休日を考慮した到着日計算</li>
+                                <li>• 外部発注候補（EXTERNAL）と内部移動候補（INTERNAL）の分離</li>
+                            </ul>
+                        </div>
+                    </div>
+                </x-filament::section>
+
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-arrows-right-left class="w-5 h-5 text-primary-500" />
+                            発注タイプ
+                        </div>
+                    </x-slot>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
+                            <div class="font-bold text-blue-700 dark:text-blue-300 mb-2 text-sm">INTERNAL</div>
+                            <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                <p>ハブ倉庫 → サテライト倉庫</p>
+                                <p class="text-blue-600 dark:text-blue-400">wms_stock_transfer_candidates</p>
+                            </div>
+                        </div>
+                        <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 border border-green-200 dark:border-green-800">
+                            <div class="font-bold text-green-700 dark:text-green-300 mb-2 text-sm">EXTERNAL</div>
+                            <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                <p>外部発注先への発注</p>
+                                <p class="text-green-600 dark:text-green-400">wms_order_candidates</p>
+                            </div>
+                        </div>
+                    </div>
+                </x-filament::section>
+            </div>
+
+            {{-- 計算フロー概要 --}}
             <x-filament::section>
                 <x-slot name="heading">
                     <div class="flex items-center gap-2">
-                        <x-heroicon-o-information-circle class="w-6 h-6 text-primary-500" />
-                        システム概要
+                        <x-heroicon-o-play class="w-5 h-5 text-success-500" />
+                        計算フロー概要
                     </div>
                 </x-slot>
-                <div class="prose prose-sm max-w-none dark:prose-invert">
-                    <p>
-                        本システムは<strong>Multi-Echelon（多段階）供給ネットワーク</strong>に対応した自動発注システムです。
-                        サテライト倉庫とハブ倉庫間の在庫移動、および外部発注先への発注を自動計算します。
-                    </p>
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                    {{-- Step 0 --}}
+                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border-l-4 border-gray-400">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="w-6 h-6 rounded-full bg-gray-500 text-white text-xs flex items-center justify-center font-bold">0</span>
+                            <span class="font-semibold text-sm">月別発注点同期</span>
+                        </div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400">
+                            <p class="mb-1">毎月末日 04:30 実行</p>
+                            <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-xs">wms_monthly_safety_stocks</code>
+                            <p class="mt-1">→ 翌月分を item_contractors に同期</p>
+                        </div>
+                    </div>
+
+                    {{-- Step 1 --}}
+                    <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border-l-4 border-blue-500">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold">1</span>
+                            <span class="font-semibold text-sm">スナップショット</span>
+                        </div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400">
+                            <p class="mb-1">有効在庫・入荷予定を集計</p>
+                            <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-xs">wms_item_stock_snapshots</code>
+                        </div>
+                    </div>
+
+                    {{-- Step 2 --}}
+                    <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border-l-4 border-green-500">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="w-6 h-6 rounded-full bg-green-500 text-white text-xs flex items-center justify-center font-bold">2</span>
+                            <span class="font-semibold text-sm">発注候補計算</span>
+                        </div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400">
+                            <p class="mb-1">不足数・到着予定日を計算</p>
+                            <p>INTERNAL → 移動候補</p>
+                            <p>EXTERNAL → 発注候補</p>
+                        </div>
+                    </div>
+
+                    {{-- Step 3 --}}
+                    <div class="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 border-l-4 border-purple-500">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="w-6 h-6 rounded-full bg-purple-500 text-white text-xs flex items-center justify-center font-bold">3</span>
+                            <span class="font-semibold text-sm">結果出力</span>
+                        </div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400">
+                            <p>wms_order_candidates</p>
+                            <p>wms_stock_transfer_candidates</p>
+                            <p>wms_order_calculation_logs</p>
+                        </div>
+                    </div>
                 </div>
             </x-filament::section>
 
-            {{-- 発注計算テストの流れ --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-clipboard-document-check class="w-6 h-6 text-success-500" />
-                        発注計算テストの流れ
-                    </div>
-                </x-slot>
-                <div class="space-y-4">
-                    <ol class="list-decimal list-inside space-y-3 text-sm text-gray-700 dark:text-gray-300">
-                        <li>
-                            <strong>マスタデータ確認</strong>（基幹システム）
-                            <ul class="list-disc list-inside ml-6 mt-1 space-y-1 text-gray-600 dark:text-gray-400">
-                                <li>倉庫マスタ（Hub + Satellite構成）</li>
-                                <li>商品マスタ</li>
-                                <li>発注先マスタ + 仕入れ契約</li>
-                                <li>リードタイム（曜日別）</li>
-                            </ul>
-                        </li>
-                        <li>
-                            <strong>WMS設定</strong>
-                            <ul class="list-disc list-inside ml-6 mt-1 space-y-1 text-gray-600 dark:text-gray-400">
-                                <li>倉庫自動発注設定（有効化）</li>
-                                <li>倉庫休日設定（定休日・祝日）</li>
-                                <li>カレンダー生成</li>
-                                <li>供給設定（商品×倉庫）</li>
-                            </ul>
-                        </li>
-                        <li>
-                            <strong>在庫データ準備</strong>
-                            <ul class="list-disc list-inside ml-6 mt-1 space-y-1 text-gray-600 dark:text-gray-400">
-                                <li>real_stocks に在庫を登録</li>
-                                <li>安全在庫を下回る状態を作成</li>
-                            </ul>
-                        </li>
-                        <li>
-                            <strong>計算実行</strong>
-                            <ul class="list-disc list-inside ml-6 mt-1 space-y-1 text-gray-600 dark:text-gray-400">
-                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">php artisan wms:auto-order-calculate</code></li>
-                            </ul>
-                        </li>
-                        <li>
-                            <strong>結果確認</strong>
-                            <ul class="list-disc list-inside ml-6 mt-1 space-y-1 text-gray-600 dark:text-gray-400">
-                                <li>発注候補一覧</li>
-                                <li>移動候補一覧</li>
-                                <li>計算ログ</li>
-                            </ul>
-                        </li>
-                    </ol>
-                </div>
-            </x-filament::section>
-
-            {{-- 必要なデータ一覧 --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-table-cells class="w-6 h-6 text-warning-500" />
-                        必要なデータ一覧
-                    </div>
-                </x-slot>
-                <div class="space-y-6">
-                    {{-- 基幹システムデータ --}}
-                    <div>
-                        <h4 class="font-bold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
-                            <span class="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs rounded">基幹システム</span>
+            {{-- 必要データ --}}
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs rounded">基幹</span>
                             マスタデータ
-                        </h4>
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full text-sm">
-                                <thead class="bg-gray-100 dark:bg-gray-700">
-                                    <tr>
-                                        <th class="px-3 py-2 text-left">テーブル</th>
-                                        <th class="px-3 py-2 text-left">必須</th>
-                                        <th class="px-3 py-2 text-left">説明</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">warehouses</td>
-                                        <td class="px-3 py-2"><span class="text-danger-500">必須</span></td>
-                                        <td class="px-3 py-2">倉庫マスタ（Hub/Satellite構成）</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">items</td>
-                                        <td class="px-3 py-2"><span class="text-danger-500">必須</span></td>
-                                        <td class="px-3 py-2">商品マスタ</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">contractors</td>
-                                        <td class="px-3 py-2"><span class="text-danger-500">必須</span></td>
-                                        <td class="px-3 py-2">発注先マスタ</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">item_contractors</td>
-                                        <td class="px-3 py-2"><span class="text-danger-500">必須</span></td>
-                                        <td class="px-3 py-2">商品×発注先の仕入れ契約</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">lead_times</td>
-                                        <td class="px-3 py-2"><span class="text-warning-500">推奨</span></td>
-                                        <td class="px-3 py-2">曜日別リードタイム（外部発注時）</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">real_stocks</td>
-                                        <td class="px-3 py-2"><span class="text-danger-500">必須</span></td>
-                                        <td class="px-3 py-2">在庫データ</td>
-                                    </tr>
-                                </tbody>
-                            </table>
                         </div>
+                    </x-slot>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-xs">
+                            <thead class="bg-gray-100 dark:bg-gray-700">
+                                <tr>
+                                    <th class="px-2 py-1.5 text-left">テーブル</th>
+                                    <th class="px-2 py-1.5 text-left">用途</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">item_contractors</td>
+                                    <td class="px-2 py-1.5">発注点、仕入単位、自動発注フラグ</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">contractors</td>
+                                    <td class="px-2 py-1.5">発注先マスタ（lead_time_id）</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">lead_times</td>
+                                    <td class="px-2 py-1.5">リードタイム設定（曜日別）</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">real_stocks</td>
+                                    <td class="px-2 py-1.5">実在庫（ロット単位）</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
+                </x-filament::section>
 
-                    {{-- WMS設定データ --}}
-                    <div>
-                        <h4 class="font-bold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
-                            <span class="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded">WMS</span>
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded">WMS</span>
                             設定データ
-                        </h4>
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full text-sm">
-                                <thead class="bg-gray-100 dark:bg-gray-700">
-                                    <tr>
-                                        <th class="px-3 py-2 text-left">テーブル</th>
-                                        <th class="px-3 py-2 text-left">必須</th>
-                                        <th class="px-3 py-2 text-left">説明</th>
-                                        <th class="px-3 py-2 text-left">管理画面</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">wms_warehouse_auto_order_settings</td>
-                                        <td class="px-3 py-2"><span class="text-danger-500">必須</span></td>
-                                        <td class="px-3 py-2">倉庫の自動発注ON/OFF</td>
-                                        <td class="px-3 py-2"><span class="text-gray-500">（リソース未作成）</span></td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">wms_warehouse_holiday_settings</td>
-                                        <td class="px-3 py-2"><span class="text-danger-500">必須</span></td>
-                                        <td class="px-3 py-2">定休日・祝日休業設定</td>
-                                        <td class="px-3 py-2"><span class="text-gray-500">（リソース未作成）</span></td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">wms_warehouse_calendars</td>
-                                        <td class="px-3 py-2"><span class="text-danger-500">必須</span></td>
-                                        <td class="px-3 py-2">営業日カレンダー（生成必要）</td>
-                                        <td class="px-3 py-2"><a href="{{ route('filament.admin.resources.wms-warehouse-calendars.index') }}" class="text-primary-500 hover:underline">倉庫カレンダー</a></td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">wms_national_holidays</td>
-                                        <td class="px-3 py-2"><span class="text-warning-500">推奨</span></td>
-                                        <td class="px-3 py-2">祝日マスタ</td>
-                                        <td class="px-3 py-2"><span class="text-gray-500">（リソース未作成）</span></td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-3 py-2 font-mono text-xs">wms_contractor_holidays</td>
-                                        <td class="px-3 py-2"><span class="text-gray-500">任意</span></td>
-                                        <td class="px-3 py-2">発注先の臨時休業</td>
-                                        <td class="px-3 py-2"><a href="{{ route('filament.admin.resources.wms-contractor-holidays.index') }}" class="text-primary-500 hover:underline">発注先休日</a></td>
-                                    </tr>
-                                </tbody>
-                            </table>
                         </div>
+                    </x-slot>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-xs">
+                            <thead class="bg-gray-100 dark:bg-gray-700">
+                                <tr>
+                                    <th class="px-2 py-1.5 text-left">テーブル</th>
+                                    <th class="px-2 py-1.5 text-left">用途</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_contractor_warehouse_delivery_days</td>
+                                    <td class="px-2 py-1.5">納品可能曜日（発注先×倉庫）</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_warehouse_calendars</td>
+                                    <td class="px-2 py-1.5">倉庫休日カレンダー</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_monthly_safety_stocks</td>
+                                    <td class="px-2 py-1.5">月別発注点</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_order_incoming_schedules</td>
+                                    <td class="px-2 py-1.5">入荷予定</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
-                </div>
-            </x-filament::section>
-
+                </x-filament::section>
+            </div>
         </div>
 
         {{-- 計算フロータブ --}}
-        <div x-show="activeTab === 'flow'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
-            {{-- Multi-Echelon計算フロー --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-arrow-path class="w-6 h-6 text-primary-500" />
-                        Multi-Echelon 計算フロー
+        <div x-show="activeTab === 'flow'" x-cloak class="flex-1 overflow-y-auto pt-4">
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                {{-- 不足数計算 --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-calculator class="w-5 h-5 text-primary-500" />
+                            不足数計算
+                        </div>
+                    </x-slot>
+                    <div class="space-y-4">
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                            <div class="font-mono text-sm bg-white dark:bg-gray-900 p-3 rounded border mb-4">
+                                <p class="font-bold mb-2">不足数 =</p>
+                                <p class="ml-4 text-primary-600 dark:text-primary-400">発注点</p>
+                                <p class="ml-4">- 有効在庫</p>
+                                <p class="ml-4">- 入荷予定</p>
+                            </div>
+                            <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                <p><strong>発注点:</strong> item_contractors.safety_stock（月別発注点で更新）</p>
+                                <p><strong>有効在庫:</strong> wms_item_stock_snapshots.total_effective_piece</p>
+                                <p><strong>入荷予定:</strong> wms_item_stock_snapshots.total_incoming_piece</p>
+                            </div>
+                        </div>
+                        <div class="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-3 border border-warning-200 dark:border-warning-700">
+                            <p class="text-sm text-warning-700 dark:text-warning-300">
+                                <strong>発注条件:</strong> 不足数 > 0 の場合のみ候補を作成
+                            </p>
+                        </div>
                     </div>
-                </x-slot>
-                <div class="space-y-4">
-                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <pre class="text-xs overflow-x-auto whitespace-pre">
-┌──────────────────────────────────────────────────────────────────┐
-│                    Multi-Echelon 計算フロー                        │
-└──────────────────────────────────────────────────────────────────┘
+                </x-filament::section>
 
-Level 0 (最下流: サテライト倉庫)
-    │
-    ├─→ 在庫チェック → 不足発見 → 移動候補作成
-    │                              │
-    │                              ▼
-    │                    内部移動需要として上位へ伝播
-    │
-Level 1 (ハブ倉庫)
-    │
-    ├─→ 在庫チェック + 下位からの需要 → 不足発見 → 発注候補作成
+                {{-- 発注数量計算 --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-cube class="w-5 h-5 text-primary-500" />
+                            発注数量計算
+                        </div>
+                    </x-slot>
+                    <div class="space-y-4">
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                            <div class="font-mono text-sm bg-white dark:bg-gray-900 p-3 rounded border mb-4">
+                                <p class="font-bold mb-2">発注数量 =</p>
+                                <p class="ml-4">ceil(不足数 / 仕入単位) × 仕入単位</p>
+                            </div>
+                            <div class="text-xs text-gray-600 dark:text-gray-400">
+                                <p><strong>仕入単位:</strong> item_contractors.purchase_unit</p>
+                                <p class="mt-2">例: 不足数=25, 仕入単位=12 → ceil(25/12)×12 = 36</p>
+                            </div>
+                        </div>
+                    </div>
+                </x-filament::section>
+
+                {{-- 詳細実行フロー --}}
+                <x-filament::section class="xl:col-span-2">
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-queue-list class="w-5 h-5 text-primary-500" />
+                            詳細実行フロー
+                        </div>
+                    </x-slot>
+                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 overflow-x-auto">
+                        <pre class="text-xs whitespace-pre font-mono">
+wms:auto-order-calculate
     │
     ▼
-最終的な発注候補・移動候補が確定</pre>
-                    </div>
-                </div>
-            </x-filament::section>
-
-            {{-- 詳細実行フロー --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-queue-list class="w-6 h-6 text-primary-500" />
-                        詳細実行フロー
-                    </div>
-                </x-slot>
-                <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                    <pre class="text-xs overflow-x-auto whitespace-pre">
-wms:auto-order-calculate [--skip-snapshot]
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Phase 0: StockSnapshotService::generateAll()                                                         │
+├─────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  1. wms_v_stock_available から有効在庫を集計                                                          │
+│  2. wms_order_incoming_schedules から入荷予定を集計                                                   │
+│  3. wms_item_stock_snapshots に保存                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
     │
     ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Phase 0: StockSnapshotService::generateAll()                │
-├─────────────────────────────────────────────────────────────┤
-│  1. WmsWarehouseAutoOrderSetting::enabled() で有効倉庫取得   │
-│  2. wms_v_stock_available から倉庫×商品別に集計             │
-│  3. WmsWarehouseItemTotalStock に UPSERT                    │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Phase 1: MultiEchelonCalculationService::calculateAll()     │
-├─────────────────────────────────────────────────────────────┤
-│  for (level = 0 to maxLevel)                                │
-│    └─ calculateLevel($level)                                │
-│        └─ WmsItemSupplySetting::enabled()->atLevel($level)  │
-│            └─ for each setting                              │
-│                ├─ 在庫取得: WmsWarehouseItemTotalStock      │
-│                ├─ 内部需要取得: getInternalDemand()         │
-│                ├─ 到着日計算: calculateArrivalDate()        │
-│                ├─ 必要数計算                                │
-│                │                                            │
-│                ├─ if (INTERNAL) → 移動候補作成              │
-│                │               → 需要を上位へ伝播           │
-│                └─ if (EXTERNAL) → 発注候補作成              │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 結果出力                                                     │
-├─────────────────────────────────────────────────────────────┤
-│  • wms_order_candidates (外部発注候補)                       │
-│  • wms_stock_transfer_candidates (倉庫間移動候補)            │
-│  • wms_order_calculation_logs (計算ログ)                     │
-└─────────────────────────────────────────────────────────────┘</pre>
-                </div>
-            </x-filament::section>
-
-            {{-- 需要伝播の仕組み --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-arrows-pointing-out class="w-6 h-6 text-primary-500" />
-                        内部需要の伝播（Multi-Echelonの核心）
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Phase 1: OrderCandidateCalculationService::calculate()                                               │
+├─────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│  1. データプリロード                                                                                   │
+│     ├─ 在庫スナップショット                    [warehouse_id][item_id] => {effective, incoming}       │
+│     ├─ 発注先リードタイム（contractors→lead_times） [contractor_id] => lead_time_days                │
+│     ├─ 納品可能曜日                            [contractor_id][warehouse_id] => {mon,tue,...,sun}    │
+│     └─ 倉庫休日                                [warehouse_id][date] => true                         │
+│                                                                                                      │
+│  2. INTERNAL発注先 → wms_stock_transfer_candidates                                                   │
+│  3. EXTERNAL発注先 → wms_order_candidates                                                            │
+│  4. 計算ログ → wms_order_calculation_logs                                                            │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘</pre>
                     </div>
-                </x-slot>
-                <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                    <pre class="text-xs overflow-x-auto whitespace-pre">
-┌─────────────────────────────────────────────────────────────┐
-│ 例: Satellite A (Level 0) が Hub (Level 1) から補充する場合  │
-└─────────────────────────────────────────────────────────────┘
+                </x-filament::section>
 
-Level 0 (Satellite A):
-    有効在庫: 50
-    安全在庫: 100
-    必要数 = 100 - 50 = 50
+                {{-- 候補ステータス --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-tag class="w-5 h-5 text-primary-500" />
+                            候補ステータス
+                        </div>
+                    </x-slot>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <div class="font-semibold text-sm mb-2">CandidateStatus</div>
+                            <div class="space-y-1 text-xs">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-gray-400"></span>
+                                    <code>PENDING</code> - 未承認
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                                    <code>APPROVED</code> - 承認済
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                                    <code>EXCLUDED</code> - 除外
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                                    <code>EXECUTED</code> - 実行済
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-sm mb-2">LotStatus</div>
+                            <div class="space-y-1 text-xs">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-gray-400"></span>
+                                    <code>RAW</code> - 未適用
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-yellow-500"></span>
+                                    <code>ADJUSTED</code> - 調整済
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                                    <code>BLOCKED</code> - ブロック
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                                    <code>NEED_APPROVAL</code> - 要承認
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </x-filament::section>
 
-    → TransferCandidate(qty=50) 作成
-    → addInternalDemand(Hub, item, 50)  ← 需要を記録
-
-                    │
-                    ▼
-
-Level 1 (Hub):
-    有効在庫: 200
-    安全在庫: 150
-    internalDemand = 50  ← Satelliteからの需要
-
-    total_required = 150 + 50 - 200 = 0
-
-    → 発注不要（在庫で賄える）
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Level 0 (Satellite A):
-    有効在庫: 50
-    安全在庫: 100
-    必要数 = 100 - 50 = 50
-
-    → TransferCandidate(qty=50) 作成
-    → addInternalDemand(Hub, item, 50)
-
-Level 1 (Hub):
-    有効在庫: 80
-    安全在庫: 100
-    internalDemand = 50
-    self_shortage = 100 - 80 = 20
-
-    total_required = 20 + 50 = 70
-
-    → OrderCandidate(qty=70) 作成</pre>
-                </div>
-            </x-filament::section>
+                {{-- 計算ログ --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-document-text class="w-5 h-5 text-primary-500" />
+                            計算ログ
+                        </div>
+                    </x-slot>
+                    <div class="text-sm text-gray-700 dark:text-gray-300 space-y-2">
+                        <p><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-xs">wms_order_calculation_logs</code> に計算過程を記録</p>
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-xs">
+                            <p class="font-semibold mb-1">calculation_details (JSON)</p>
+                            <ul class="space-y-0.5 text-gray-600 dark:text-gray-400">
+                                <li>• 有効在庫、入荷予定、発注点</li>
+                                <li>• リードタイム日数</li>
+                                <li>• 到着日調整日数と理由</li>
+                                <li>• 仕入単位調整の説明</li>
+                            </ul>
+                        </div>
+                    </div>
+                </x-filament::section>
+            </div>
         </div>
 
-        {{-- 供給タイプタブ --}}
-        <div x-show="activeTab === 'supply'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-arrows-right-left class="w-6 h-6 text-primary-500" />
-                        供給タイプ
-                    </div>
-                </x-slot>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-                        <h4 class="font-bold text-blue-700 dark:text-blue-300 mb-2">INTERNAL（内部移動）</h4>
-                        <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
-                            <li>• ハブ倉庫からサテライト倉庫への移動</li>
-                            <li>• 固定リードタイム（日数）を使用</li>
-                            <li>• 倉庫休日のみ考慮</li>
-                        </ul>
-                        <div class="mt-3 pt-3 border-t border-blue-200 dark:border-blue-700">
-                            <p class="text-xs text-blue-600 dark:text-blue-400">
-                                <strong>出力:</strong> wms_stock_transfer_candidates
-                            </p>
+        {{-- 到着日計算タブ --}}
+        <div x-show="activeTab === 'arrival'" x-cloak class="flex-1 overflow-y-auto pt-4">
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                {{-- 到着日計算フロー --}}
+                <x-filament::section class="xl:col-span-2">
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-calendar class="w-5 h-5 text-primary-500" />
+                            到着予定日計算フロー
                         </div>
-                    </div>
-                    <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
-                        <h4 class="font-bold text-green-700 dark:text-green-300 mb-2">EXTERNAL（外部発注）</h4>
-                        <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
-                            <li>• 発注先（問屋等）への発注</li>
-                            <li>• 曜日別リードタイムを使用</li>
-                            <li>• 発注先臨時休業 + 倉庫休日を考慮</li>
-                        </ul>
-                        <div class="mt-3 pt-3 border-t border-green-200 dark:border-green-700">
-                            <p class="text-xs text-green-600 dark:text-green-400">
-                                <strong>出力:</strong> wms_order_candidates
-                            </p>
+                    </x-slot>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+                            <div class="flex items-center gap-2 mb-3">
+                                <span class="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold">1</span>
+                                <span class="font-semibold text-sm">リードタイム</span>
+                            </div>
+                            <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                <p>発注日 + リードタイム日数</p>
+                                <div class="mt-2 bg-white dark:bg-gray-900 rounded p-2">
+                                    <p class="font-mono">contractors.lead_time_id</p>
+                                    <p class="font-mono">→ lead_times.lead_time_xxx</p>
+                                </div>
+                                <p class="mt-2 text-gray-500">デフォルト: 1日</p>
+                            </div>
                         </div>
-                    </div>
-                </div>
-            </x-filament::section>
 
-            {{-- 階層レベルの説明 --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-building-office-2 class="w-6 h-6 text-primary-500" />
-                        階層レベル（Hierarchy Level）
-                    </div>
-                </x-slot>
-                <div class="space-y-4">
-                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <ul class="space-y-2 text-sm">
-                            <li><strong>Level 0</strong>: 最下流（Satellite倉庫）- 内部移動で補充される倉庫</li>
-                            <li><strong>Level 1+</strong>: 上流（Hub倉庫）- 外部発注で補充される倉庫</li>
-                        </ul>
-                    </div>
-                    <div class="text-sm text-gray-600 dark:text-gray-400">
-                        <p><strong>自動計算:</strong> 供給設定保存時に <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">recalculateHierarchyLevels()</code> が実行され、階層レベルが自動設定されます。</p>
-                    </div>
-                </div>
-            </x-filament::section>
+                        <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
+                            <div class="flex items-center gap-2 mb-3">
+                                <span class="w-6 h-6 rounded-full bg-green-500 text-white text-xs flex items-center justify-center font-bold">2</span>
+                                <span class="font-semibold text-sm">納品可能曜日</span>
+                            </div>
+                            <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                <p>発注先×倉庫の納品可能曜日をチェック</p>
+                                <div class="mt-2 bg-white dark:bg-gray-900 rounded p-2">
+                                    <p class="font-mono text-xs">wms_contractor_warehouse_delivery_days</p>
+                                </div>
+                                <p class="mt-2 text-gray-500">不可曜日 → 次の可能日へ</p>
+                            </div>
+                        </div>
 
-            {{-- 仮想倉庫の在庫管理 --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-cube-transparent class="w-6 h-6 text-primary-500" />
-                        仮想倉庫の在庫管理
-                    </div>
-                </x-slot>
-                <div class="space-y-4">
-                    <div class="prose prose-sm max-w-none dark:prose-invert">
-                        <p>
-                            倉庫には<strong>実倉庫</strong>（<code>is_virtual=false</code>）と<strong>仮想倉庫</strong>（<code>is_virtual=true</code>）が存在します。
-                            仮想倉庫は <code>stock_warehouse_id</code> で親となる実倉庫を参照します。
-                        </p>
-                    </div>
+                        <div class="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-4 border border-orange-200 dark:border-orange-800">
+                            <div class="flex items-center gap-2 mb-3">
+                                <span class="w-6 h-6 rounded-full bg-orange-500 text-white text-xs flex items-center justify-center font-bold">3</span>
+                                <span class="font-semibold text-sm">倉庫休日</span>
+                            </div>
+                            <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                <p>倉庫の休日をチェック</p>
+                                <div class="mt-2 bg-white dark:bg-gray-900 rounded p-2">
+                                    <p class="font-mono">wms_warehouse_calendars</p>
+                                    <p class="font-mono">is_holiday = true</p>
+                                </div>
+                                <p class="mt-2 text-gray-500">休日 → 次の営業日へ</p>
+                            </div>
+                        </div>
 
-                    <h4 class="font-bold text-gray-800 dark:text-gray-200">基本方針</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
-                            <h5 class="font-bold text-purple-700 dark:text-purple-300 mb-2">1. 仮想倉庫も在庫を持てる</h5>
-                            <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
-                                <li>• 仮想倉庫でも <code class="text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">real_stocks</code> に在庫を持てる</li>
-                                <li>• 在庫引当・出荷は仮想倉庫単位で実行</li>
-                            </ul>
-                        </div>
-                        <div class="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-4 border border-indigo-200 dark:border-indigo-800">
-                            <h5 class="font-bold text-indigo-700 dark:text-indigo-300 mb-2">2. 発注は実倉庫に集約</h5>
-                            <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
-                                <li>• 仮想倉庫の需要は親の実倉庫に集約</li>
-                                <li>• 発注先への発注は実倉庫単位で実行</li>
-                            </ul>
-                        </div>
-                        <div class="bg-teal-50 dark:bg-teal-900/20 rounded-lg p-4 border border-teal-200 dark:border-teal-800">
-                            <h5 class="font-bold text-teal-700 dark:text-teal-300 mb-2">3. 入荷時の在庫振り分け</h5>
-                            <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
-                                <li>• 物理的な入荷は実倉庫で実施</li>
-                                <li>• 発注内容に基づき仮想倉庫に振り分け</li>
-                                <li>• 入荷予定は仮想倉庫単位で作成</li>
-                            </ul>
-                        </div>
-                        <div class="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 border border-amber-200 dark:border-amber-800">
-                            <h5 class="font-bold text-amber-700 dark:text-amber-300 mb-2">4. HUB倉庫からの横持ち</h5>
-                            <ul class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
-                                <li>• HUB倉庫依頼分は拠点倉庫側で入荷</li>
-                                <li>• 移動候補の入荷予定は依頼元仮想倉庫で作成</li>
-                            </ul>
+                            <div class="flex items-center gap-2 mb-3">
+                                <span class="w-6 h-6 rounded-full bg-purple-500 text-white text-xs flex items-center justify-center font-bold">4</span>
+                                <span class="font-semibold text-sm">到着日確定</span>
+                            </div>
+                            <div class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                <p>最終的な到着予定日</p>
+                                <div class="mt-2 bg-white dark:bg-gray-900 rounded p-2">
+                                    <p class="font-mono">expected_arrival_date</p>
+                                    <p class="font-mono">original_arrival_date</p>
+                                </div>
+                                <p class="mt-2 text-gray-500">調整日数・理由をログに記録</p>
+                            </div>
                         </div>
                     </div>
+                </x-filament::section>
 
-                    <h4 class="font-bold text-gray-800 dark:text-gray-200 mt-4">処理フロー</h4>
-                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <pre class="text-xs overflow-x-auto whitespace-pre">
-【発注計算時】
-仮想倉庫A (需要50) ─┐
-仮想倉庫B (需要30) ─┼→ 実倉庫X (集約需要80) → 発注候補80個
-仮想倉庫C (需要0)  ─┘
-
-【発注確定時】
-発注80個 (実倉庫X)
-    │
-    ├→ 入荷予定: 仮想倉庫A 50個
-    ├→ 入荷予定: 仮想倉庫B 30個
-    └→ (仮想倉庫Cは需要0のため対象外)
-
-【入荷時】
-実倉庫Xに80個入荷（物理）
-    │
-    ├→ 仮想倉庫A在庫 +50
-    └→ 仮想倉庫B在庫 +30</pre>
-                    </div>
-                </div>
-            </x-filament::section>
-        </div>
-
-        {{-- 計算ロジックタブ --}}
-        <div x-show="activeTab === 'calculation'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
-            {{-- リードタイム計算 --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-clock class="w-6 h-6 text-primary-500" />
-                        リードタイム計算
-                    </div>
-                </x-slot>
-                <div class="space-y-4">
-                    <h4 class="font-bold text-gray-800 dark:text-gray-200">外部発注の場合</h4>
-                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <ol class="list-decimal list-inside space-y-2 text-sm">
-                            <li><strong>曜日別リードタイム取得</strong>: 発注先の <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">lead_times</code> テーブルから発注日の曜日に対応するリードタイムを取得</li>
-                            <li><strong>到着予定日計算</strong>: 発注日 + リードタイム日数</li>
-                            <li><strong>発注先休業日スキップ</strong>: 到着予定日が発注先の臨時休業日の場合、翌日にシフト</li>
-                            <li><strong>倉庫休日スキップ</strong>: 到着予定日が倉庫の休日の場合、翌営業日にシフト</li>
-                        </ol>
-                    </div>
-
-                    <h4 class="font-bold text-gray-800 dark:text-gray-200 mt-4">内部移動の場合</h4>
-                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <ol class="list-decimal list-inside space-y-2 text-sm">
-                            <li><strong>固定リードタイム使用</strong>: 供給設定のリードタイム日数</li>
-                            <li><strong>到着予定日計算</strong>: 発注日 + リードタイム日数</li>
-                            <li><strong>倉庫休日スキップ</strong>: 到着予定日が倉庫の休日の場合、翌営業日にシフト</li>
-                        </ol>
-                    </div>
-
-                    <h4 class="font-bold text-gray-800 dark:text-gray-200 mt-4">日付シフト時の消費加算</h4>
-                    <div class="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-4 border border-warning-200 dark:border-warning-700">
-                        <p class="text-sm text-warning-700 dark:text-warning-300">
-                            到着日がシフトした場合、シフト日数分の追加消費を必要数に加算します。
-                        </p>
-                        <div class="mt-2 font-mono text-xs bg-white dark:bg-gray-900 p-2 rounded">
-                            additional = daily_consumption_qty × (final_date - original_date)
+                {{-- 計算例 --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-light-bulb class="w-5 h-5 text-warning-500" />
+                            計算例
+                        </div>
+                    </x-slot>
+                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 text-xs">
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <p class="font-semibold mb-1">前提条件</p>
+                                <ul class="space-y-0.5 text-gray-600 dark:text-gray-400">
+                                    <li>発注日: 2026-01-24（金）</li>
+                                    <li>リードタイム: 1日</li>
+                                    <li>納品可能曜日: 火・金のみ</li>
+                                    <li>倉庫休日: なし</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <p class="font-semibold mb-1">計算</p>
+                                <ul class="space-y-0.5 text-gray-600 dark:text-gray-400">
+                                    <li>基準日: 1/24 + 1日 = 1/25（土）</li>
+                                    <li>土曜: 納品不可 → 1/26（日）</li>
+                                    <li>日曜: 納品不可 → 1/27（月）</li>
+                                    <li>月曜: 納品不可 → 1/28（火）</li>
+                                    <li class="font-bold text-primary-600 dark:text-primary-400">確定: 2026-01-28（火）</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </x-filament::section>
+                </x-filament::section>
 
-            {{-- 必要数計算式 --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-calculator class="w-6 h-6 text-primary-500" />
-                        必要数計算式
+                {{-- リードタイム設定 --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-clock class="w-5 h-5 text-primary-500" />
+                            リードタイム設定
+                        </div>
+                    </x-slot>
+                    <div class="text-sm space-y-3">
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                            <p class="font-semibold text-xs mb-2">参照経路</p>
+                            <div class="font-mono text-xs space-y-1 text-gray-600 dark:text-gray-400">
+                                <p>item_contractors.contractor_id</p>
+                                <p class="ml-4">→ contractors.lead_time_id</p>
+                                <p class="ml-8">→ lead_times.lead_time_xxx</p>
+                            </div>
+                        </div>
+                        <div class="text-xs text-gray-500">
+                            ※ 未設定時のデフォルト: 1日
+                        </div>
                     </div>
-                </x-slot>
-                <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                    <div class="font-mono text-sm bg-white dark:bg-gray-900 p-4 rounded border">
-                        <p class="mb-2"><strong>必要数 = </strong></p>
-                        <p class="ml-4">(安全在庫 + リードタイム中消費予測 + 下位階層からの需要)</p>
-                        <p class="ml-4">- (有効在庫 + 入荷予定数)</p>
-                    </div>
-                    <div class="mt-4 text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                        <p><strong>リードタイム中消費予測</strong> = daily_consumption_qty × lead_time_days</p>
-                        <p><strong>下位階層からの需要</strong> = Satellite倉庫からHub倉庫への移動需要（Multi-Echelon）</p>
-                        <p><strong>発注条件</strong>: 必要数 > 0 の場合のみ候補を作成</p>
-                    </div>
-                </div>
-            </x-filament::section>
+                </x-filament::section>
 
-            {{-- ステータス説明 --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-tag class="w-6 h-6 text-primary-500" />
-                        候補ステータス
+                {{-- 納品可能曜日 --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-calendar-days class="w-5 h-5 text-primary-500" />
+                            納品可能曜日
+                        </div>
+                    </x-slot>
+                    <div class="text-sm space-y-3">
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                            <p class="font-semibold text-xs mb-2">テーブル</p>
+                            <code class="text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">wms_contractor_warehouse_delivery_days</code>
+                            <div class="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                                <p>発注先×倉庫ごとに曜日別の納品可否を設定</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-1 justify-center">
+                            @foreach(['日', '月', '火', '水', '木', '金', '土'] as $day)
+                            <span class="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs">{{ $day }}</span>
+                            @endforeach
+                        </div>
                     </div>
-                </x-slot>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <h4 class="font-bold text-gray-800 dark:text-gray-200 mb-2">CandidateStatus</h4>
-                        <ul class="text-sm space-y-1">
-                            <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">PENDING</code> - 未承認</li>
-                            <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">APPROVED</code> - 承認済</li>
-                            <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">EXCLUDED</code> - 除外</li>
-                            <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">EXECUTED</code> - 実行済</li>
-                        </ul>
+                </x-filament::section>
+
+                {{-- 倉庫休日 --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-x-circle class="w-5 h-5 text-danger-500" />
+                            倉庫休日
+                        </div>
+                    </x-slot>
+                    <div class="text-sm space-y-3">
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                            <p class="font-semibold text-xs mb-2">テーブル</p>
+                            <code class="text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">wms_warehouse_calendars</code>
+                            <div class="mt-2 text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                                <p><strong>target_date:</strong> 対象日付</p>
+                                <p><strong>is_holiday:</strong> 休日フラグ</p>
+                                <p><strong>holiday_reason:</strong> 休日理由（定休日、祝日など）</p>
+                            </div>
+                        </div>
+                        <div class="text-xs text-gray-500">
+                            ※ 今後30日分のデータをプリロードして使用
+                        </div>
                     </div>
-                    <div>
-                        <h4 class="font-bold text-gray-800 dark:text-gray-200 mb-2">LotStatus</h4>
-                        <ul class="text-sm space-y-1">
-                            <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">RAW</code> - 未適用</li>
-                            <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">ADJUSTED</code> - 調整済</li>
-                            <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">BLOCKED</code> - ブロック</li>
-                            <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">NEED_APPROVAL</code> - 要承認</li>
-                        </ul>
-                    </div>
-                </div>
-            </x-filament::section>
+                </x-filament::section>
+            </div>
         </div>
 
         {{-- テーブル情報タブ --}}
-        <div x-show="activeTab === 'tables'" x-cloak class="flex-1 overflow-y-auto space-y-6 pt-4">
-            {{-- 関連テーブル --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-circle-stack class="w-6 h-6 text-primary-500" />
-                        関連テーブル
+        <div x-show="activeTab === 'tables'" x-cloak class="flex-1 overflow-y-auto pt-4">
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                {{-- マスタ系テーブル --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs rounded">マスタ</span>
+                            参照テーブル
+                        </div>
+                    </x-slot>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-xs">
+                            <thead class="bg-gray-100 dark:bg-gray-700">
+                                <tr>
+                                    <th class="px-2 py-1.5 text-left">テーブル</th>
+                                    <th class="px-2 py-1.5 text-left">用途</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">item_contractors</td>
+                                    <td class="px-2 py-1.5">商品×倉庫×発注先の設定</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">contractors</td>
+                                    <td class="px-2 py-1.5">発注先マスタ（lead_time_id）</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">lead_times</td>
+                                    <td class="px-2 py-1.5">リードタイム（曜日別）</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_contractor_warehouse_delivery_days</td>
+                                    <td class="px-2 py-1.5">納品可能曜日（発注先×倉庫）</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_warehouse_calendars</td>
+                                    <td class="px-2 py-1.5">倉庫休日カレンダー</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_monthly_safety_stocks</td>
+                                    <td class="px-2 py-1.5">月別発注点</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
-                </x-slot>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm">
-                        <thead class="bg-gray-100 dark:bg-gray-700">
-                            <tr>
-                                <th class="px-4 py-2 text-left">テーブル</th>
-                                <th class="px-4 py-2 text-left">用途</th>
-                                <th class="px-4 py-2 text-left">管理画面</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
-                            <tr>
-                                <td class="px-4 py-2 font-mono">wms_warehouse_calendars</td>
-                                <td class="px-4 py-2">倉庫の休日設定</td>
-                                <td class="px-4 py-2"><a href="{{ route('filament.admin.resources.wms-warehouse-calendars.index') }}" class="text-primary-500 hover:underline">倉庫カレンダー</a></td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-2 font-mono">wms_contractor_holidays</td>
-                                <td class="px-4 py-2">発注先の臨時休業日</td>
-                                <td class="px-4 py-2"><a href="{{ route('filament.admin.resources.wms-contractor-holidays.index') }}" class="text-primary-500 hover:underline">発注先休日</a></td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-2 font-mono">lead_times</td>
-                                <td class="px-4 py-2">発注先の曜日別リードタイム</td>
-                                <td class="px-4 py-2"><span class="text-gray-500">基幹システム管理</span></td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-2 font-mono">wms_order_candidates</td>
-                                <td class="px-4 py-2">発注候補（計算結果）</td>
-                                <td class="px-4 py-2"><a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-primary-500 hover:underline">発注候補一覧</a></td>
-                            </tr>
-                            <tr>
-                                <td class="px-4 py-2 font-mono">wms_stock_transfer_candidates</td>
-                                <td class="px-4 py-2">移動候補（計算結果）</td>
-                                <td class="px-4 py-2"><a href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}" class="text-primary-500 hover:underline">移動候補一覧</a></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </x-filament::section>
+                </x-filament::section>
 
-            {{-- 計算結果の確認 --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-document-magnifying-glass class="w-6 h-6 text-primary-500" />
-                        計算結果の確認
+                {{-- トランザクション系テーブル --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 text-xs rounded">出力</span>
+                            結果テーブル
+                        </div>
+                    </x-slot>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-xs">
+                            <thead class="bg-gray-100 dark:bg-gray-700">
+                                <tr>
+                                    <th class="px-2 py-1.5 text-left">テーブル</th>
+                                    <th class="px-2 py-1.5 text-left">用途</th>
+                                    <th class="px-2 py-1.5 text-left">リンク</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_item_stock_snapshots</td>
+                                    <td class="px-2 py-1.5">在庫スナップショット</td>
+                                    <td class="px-2 py-1.5">-</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_order_candidates</td>
+                                    <td class="px-2 py-1.5">外部発注候補</td>
+                                    <td class="px-2 py-1.5"><a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-primary-500 hover:underline">一覧</a></td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_stock_transfer_candidates</td>
+                                    <td class="px-2 py-1.5">内部移動候補</td>
+                                    <td class="px-2 py-1.5"><a href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}" class="text-primary-500 hover:underline">一覧</a></td>
+                                </tr>
+                                <tr>
+                                    <td class="px-2 py-1.5 font-mono">wms_order_calculation_logs</td>
+                                    <td class="px-2 py-1.5">計算ログ</td>
+                                    <td class="px-2 py-1.5">-</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
-                </x-slot>
-                <div class="prose prose-sm max-w-none dark:prose-invert">
-                    <p>計算結果は <code>wms_order_calculation_logs</code> テーブルに記録されます。</p>
-                    <ul>
-                        <li><strong>calculation_details</strong> カラムに詳細情報が JSON 形式で保存</li>
-                        <li>休日によるシフト日数、シフト理由なども記録</li>
-                        <li>階層レベル、内部需要の情報も含む</li>
-                    </ul>
-                </div>
-            </x-filament::section>
+                </x-filament::section>
 
-            {{-- ジョブ管理 --}}
-            <x-filament::section>
-                <x-slot name="heading">
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-cog-6-tooth class="w-6 h-6 text-primary-500" />
-                        ジョブ管理
+                {{-- データフロー図 --}}
+                <x-filament::section class="xl:col-span-2">
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-arrow-path class="w-5 h-5 text-primary-500" />
+                            データフロー
+                        </div>
+                    </x-slot>
+                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 overflow-x-auto">
+                        <pre class="text-xs whitespace-pre font-mono">
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                          マスタデータ                                                 │
+├─────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ item_contractors                 発注点、仕入単位、自動発注フラグ                                      │
+│   └─ safety_stock              ← wms_monthly_safety_stocks から同期                                │
+│                                                                                                      │
+│ contractors                      発注先マスタ                                                         │
+│   └─ lead_time_id              → lead_times（リードタイム）                                          │
+│                                                                                                      │
+│ wms_contractor_warehouse_delivery_days    納品可能曜日（発注先×倉庫）                                 │
+│ wms_warehouse_calendars                   倉庫カレンダー（休日設定）                                   │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                          在庫データ                                                   │
+├─────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ real_stocks                      実在庫（ロット単位）                                                  │
+│   └─ wms_v_stock_available     有効在庫ビュー                                                        │
+│                                                                                                      │
+│ wms_order_incoming_schedules     入荷予定                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                      スナップショット                                                  │
+├─────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ wms_item_stock_snapshots                                                                             │
+│   ├─ total_effective_piece     有効在庫                                                              │
+│   └─ total_incoming_piece      入荷予定数                                                            │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                        発注候補                                                       │
+├─────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ wms_stock_transfer_candidates    内部移動候補（INTERNAL発注先）                                        │
+│ wms_order_candidates             外部発注候補（EXTERNAL発注先）                                        │
+│ wms_order_calculation_logs       計算ログ                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘</pre>
                     </div>
-                </x-slot>
-                <div class="prose prose-sm max-w-none dark:prose-invert">
-                    <p>バッチ実行は <code>wms_auto_order_job_controls</code> テーブルで管理されます。</p>
-                    <ul>
-                        <li><strong>process_name</strong>: STOCK_SNAPSHOT, SATELLITE_CALC, HUB_CALC, ORDER_TRANSMISSION</li>
-                        <li><strong>batch_code</strong>: YYYYMMDDHHmmss形式の一意コード</li>
-                        <li><strong>status</strong>: PENDING → RUNNING → SUCCESS/FAILED</li>
-                    </ul>
-                </div>
-            </x-filament::section>
+                </x-filament::section>
+            </div>
         </div>
 
-        {{-- 関連コマンドタブ --}}
-        <div x-show="activeTab === 'commands'" x-cloak class="flex-1 overflow-y-auto space-y-8 pt-4">
-                {{-- コマンド概要 --}}
-                <div class="prose prose-sm max-w-none dark:prose-invert">
-                    <p>自動発注システムで使用する主要なコマンド一覧です。各コマンドはターミナルから <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">php artisan</code> で実行できます。</p>
-                </div>
-
+        {{-- コマンドタブ --}}
+        <div x-show="activeTab === 'commands'" x-cloak class="flex-1 overflow-y-auto pt-4">
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 {{-- メイン計算コマンド --}}
-                <div>
-                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
                             <x-heroicon-o-play class="w-5 h-5 text-success-500" />
                             メイン計算コマンド
-                        </h3>
-                        <div class="space-y-4">
-                            {{-- wms:auto-order-calculate --}}
-                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                <div class="flex items-start gap-3">
-                                    <span class="px-2 py-1 bg-success-100 dark:bg-success-900 text-success-700 dark:text-success-300 text-xs rounded font-bold">主要</span>
-                                    <div class="flex-1">
-                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:auto-order-calculate</h4>
-                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">自動発注計算を実行（在庫スナップショット生成 + Multi-Echelon計算）</p>
-                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
-                                            <p class="text-gray-500 mb-1"># 基本実行</p>
-                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:auto-order-calculate</p>
-                                            <p class="text-gray-500 mb-1"># スナップショット生成をスキップ</p>
-                                            <p class="text-green-600 dark:text-green-400">php artisan wms:auto-order-calculate --skip-snapshot</p>
-                                        </div>
-                                        <div class="mt-3">
-                                            <span class="text-xs text-gray-500">オプション:</span>
-                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
-                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--skip-snapshot</code> : スナップショット生成をスキップ</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
+                        </div>
+                    </x-slot>
+                    <div class="space-y-4">
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-0.5 bg-success-100 dark:bg-success-900 text-success-700 dark:text-success-300 text-xs rounded font-bold">主要</span>
+                                <code class="font-mono text-sm font-bold">wms:auto-order-calculate</code>
                             </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">在庫スナップショット生成 + 発注候補計算</p>
+                            <div class="bg-white dark:bg-gray-900 rounded p-2 font-mono text-xs">
+                                <p class="text-green-600 dark:text-green-400">php artisan wms:auto-order-calculate</p>
+                                <p class="text-gray-500 mt-1"># --skip-snapshot でスナップショット生成をスキップ</p>
+                            </div>
+                        </div>
 
-                            {{-- wms:snapshot-stocks --}}
-                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                <div class="flex items-start gap-3">
-                                    <span class="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs rounded font-bold">補助</span>
-                                    <div class="flex-1">
-                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:snapshot-stocks</h4>
-                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">自動発注用の在庫スナップショットのみを生成（計算は実行しない）</p>
-                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
-                                            <p class="text-green-600 dark:text-green-400">php artisan wms:snapshot-stocks</p>
-                                        </div>
-                                    </div>
-                                </div>
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs rounded font-bold">補助</span>
+                                <code class="font-mono text-sm font-bold">wms:snapshot-stocks</code>
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">在庫スナップショットのみ生成</p>
+                            <div class="bg-white dark:bg-gray-900 rounded p-2 font-mono text-xs">
+                                <p class="text-green-600 dark:text-green-400">php artisan wms:snapshot-stocks</p>
                             </div>
                         </div>
                     </div>
+                </x-filament::section>
 
-                    {{-- カレンダー・休日コマンド --}}
-                    <div>
-                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
-                            <x-heroicon-o-calendar-days class="w-5 h-5 text-warning-500" />
-                            カレンダー・休日コマンド
-                        </h3>
-                        <div class="space-y-4">
-                            {{-- wms:generate-calendars --}}
-                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                <div class="flex items-start gap-3">
-                                    <span class="px-2 py-1 bg-warning-100 dark:bg-warning-900 text-warning-700 dark:text-warning-300 text-xs rounded font-bold">設定</span>
-                                    <div class="flex-1">
-                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:generate-calendars</h4>
-                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">倉庫別営業日カレンダーを生成。休日設定に基づいて営業日を計算。</p>
-                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
-                                            <p class="text-gray-500 mb-1"># 全倉庫のカレンダーを12ヶ月分生成</p>
-                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:generate-calendars</p>
-                                            <p class="text-gray-500 mb-1"># 特定倉庫のみ、6ヶ月分生成</p>
-                                            <p class="text-green-600 dark:text-green-400">php artisan wms:generate-calendars --warehouse=1 --months=6</p>
-                                        </div>
-                                        <div class="mt-3">
-                                            <span class="text-xs text-gray-500">オプション:</span>
-                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
-                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--warehouse=ID</code> : 特定の倉庫IDのみ生成</li>
-                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--months=N</code> : 生成する月数（デフォルト: 12）</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {{-- wms:import-holidays --}}
-                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                <div class="flex items-start gap-3">
-                                    <span class="px-2 py-1 bg-warning-100 dark:bg-warning-900 text-warning-700 dark:text-warning-300 text-xs rounded font-bold">設定</span>
-                                    <div class="flex-1">
-                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:import-holidays</h4>
-                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">日本の祝日データをインポート。内閣府のデータに基づく。</p>
-                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
-                                            <p class="text-gray-500 mb-1"># 今年と来年の祝日をインポート</p>
-                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:import-holidays</p>
-                                            <p class="text-gray-500 mb-1"># 特定年のみインポート</p>
-                                            <p class="text-green-600 dark:text-green-400">php artisan wms:import-holidays 2026</p>
-                                        </div>
-                                        <div class="mt-3">
-                                            <span class="text-xs text-gray-500">引数:</span>
-                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
-                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">year</code> : 対象年（省略時は今年と来年）</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {{-- 月別発注点コマンド --}}
-                    <div>
-                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
+                {{-- 月別発注点コマンド --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
                             <x-heroicon-o-arrow-path class="w-5 h-5 text-info-500" />
-                            月別発注点コマンド
-                        </h3>
-                        <div class="space-y-4">
-                            {{-- wms:sync-monthly-safety-stocks --}}
-                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                <div class="flex items-start gap-3">
-                                    <span class="px-2 py-1 bg-info-100 dark:bg-info-900 text-info-700 dark:text-info-300 text-xs rounded font-bold">同期</span>
-                                    <div class="flex-1">
-                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:sync-monthly-safety-stocks</h4>
-                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">月別発注点設定を item_contractors.safety_stock に同期。毎日04:30に自動実行。</p>
-                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
-                                            <p class="text-gray-500 mb-1"># 現在の月のデータを同期</p>
-                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:sync-monthly-safety-stocks</p>
-                                            <p class="text-gray-500 mb-1"># 特定月のデータを同期</p>
-                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:sync-monthly-safety-stocks --month=4</p>
-                                            <p class="text-gray-500 mb-1"># 対象件数のみ確認（実際の更新は行わない）</p>
-                                            <p class="text-green-600 dark:text-green-400">php artisan wms:sync-monthly-safety-stocks --dry-run</p>
-                                        </div>
-                                        <div class="mt-3">
-                                            <span class="text-xs text-gray-500">オプション:</span>
-                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
-                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--month=N</code> : 対象月 (1-12)。省略時は現在の月</li>
-                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--dry-run</code> : 実際の更新を行わず、対象件数のみ表示</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
+                            月別発注点同期
+                        </div>
+                    </x-slot>
+                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="px-2 py-0.5 bg-info-100 dark:bg-info-900 text-info-700 dark:text-info-300 text-xs rounded font-bold">同期</span>
+                            <code class="font-mono text-sm font-bold">wms:sync-monthly-safety-stocks</code>
+                        </div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">翌月の発注点を item_contractors.safety_stock に同期（毎月末日実行）</p>
+                        <div class="bg-white dark:bg-gray-900 rounded p-2 font-mono text-xs space-y-1">
+                            <p class="text-green-600 dark:text-green-400">php artisan wms:sync-monthly-safety-stocks</p>
+                            <p class="text-gray-500"># --month=4 で特定月を指定（省略時は翌月）</p>
+                            <p class="text-gray-500"># --dry-run で確認のみ</p>
+                        </div>
+                    </div>
+                </x-filament::section>
+
+                {{-- カレンダーコマンド --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <x-heroicon-o-calendar-days class="w-5 h-5 text-warning-500" />
+                            カレンダー・休日
+                        </div>
+                    </x-slot>
+                    <div class="space-y-3">
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                            <code class="font-mono text-sm font-bold">wms:generate-calendars</code>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">倉庫別営業日カレンダーを生成</p>
+                            <div class="bg-white dark:bg-gray-900 rounded p-2 font-mono text-xs mt-2">
+                                <p class="text-green-600 dark:text-green-400">php artisan wms:generate-calendars</p>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                            <code class="font-mono text-sm font-bold">wms:import-holidays</code>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">日本の祝日データをインポート</p>
+                            <div class="bg-white dark:bg-gray-900 rounded p-2 font-mono text-xs mt-2">
+                                <p class="text-green-600 dark:text-green-400">php artisan wms:import-holidays 2026</p>
                             </div>
                         </div>
                     </div>
+                </x-filament::section>
 
-                    {{-- 発注送信コマンド --}}
-                    <div>
-                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
+                {{-- 発注送信コマンド --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
                             <x-heroicon-o-paper-airplane class="w-5 h-5 text-danger-500" />
-                            発注送信コマンド
-                        </h3>
-                        <div class="space-y-4">
-                            {{-- wms:transmit-orders --}}
-                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                <div class="flex items-start gap-3">
-                                    <span class="px-2 py-1 bg-danger-100 dark:bg-danger-900 text-danger-700 dark:text-danger-300 text-xs rounded font-bold">送信</span>
-                                    <div class="flex-1">
-                                        <h4 class="font-mono text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">wms:transmit-orders</h4>
-                                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">承認済み発注候補をJX-FINET/FTPで送信。確認プロンプトあり。</p>
-                                        <div class="bg-white dark:bg-gray-900 rounded p-3 font-mono text-xs">
-                                            <p class="text-gray-500 mb-1"># 最新の承認済みバッチを送信</p>
-                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:transmit-orders</p>
-                                            <p class="text-gray-500 mb-1"># 特定バッチを送信</p>
-                                            <p class="text-green-600 dark:text-green-400 mb-2">php artisan wms:transmit-orders --batch-code=20260115093000</p>
-                                            <p class="text-gray-500 mb-1"># 対象データを確認（実際の送信は行わない）</p>
-                                            <p class="text-green-600 dark:text-green-400">php artisan wms:transmit-orders --dry-run</p>
-                                        </div>
-                                        <div class="mt-3">
-                                            <span class="text-xs text-gray-500">オプション:</span>
-                                            <ul class="mt-1 text-xs text-gray-600 dark:text-gray-400 space-y-1">
-                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--batch-code=CODE</code> : 送信するバッチコード（省略時は最新の承認済みバッチ）</li>
-                                                <li><code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">--dry-run</code> : 実際の送信は行わず、対象データのみ表示</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            発注送信
+                        </div>
+                    </x-slot>
+                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="px-2 py-0.5 bg-danger-100 dark:bg-danger-900 text-danger-700 dark:text-danger-300 text-xs rounded font-bold">送信</span>
+                            <code class="font-mono text-sm font-bold">wms:transmit-orders</code>
+                        </div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">承認済み発注候補をJX-FINET/FTPで送信</p>
+                        <div class="bg-white dark:bg-gray-900 rounded p-2 font-mono text-xs space-y-1">
+                            <p class="text-green-600 dark:text-green-400">php artisan wms:transmit-orders</p>
+                            <p class="text-gray-500"># --batch-code=CODE で特定バッチを指定</p>
+                            <p class="text-gray-500"># --dry-run で確認のみ</p>
                         </div>
                     </div>
+                </x-filament::section>
 
-                    {{-- スケジュール情報 --}}
-                    <div>
-                        <h3 class="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-white mb-4">
+                {{-- スケジュール --}}
+                <x-filament::section class="xl:col-span-2">
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
                             <x-heroicon-o-clock class="w-5 h-5 text-gray-500" />
                             スケジュール設定
-                        </h3>
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full text-sm">
-                                <thead class="bg-gray-100 dark:bg-gray-700">
-                                    <tr>
-                                        <th class="px-4 py-2 text-left">コマンド</th>
-                                        <th class="px-4 py-2 text-left">スケジュール</th>
-                                        <th class="px-4 py-2 text-left">説明</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
-                                    <tr>
-                                        <td class="px-4 py-2 font-mono text-xs">wms:sync-monthly-safety-stocks</td>
-                                        <td class="px-4 py-2">毎日 04:30</td>
-                                        <td class="px-4 py-2">月別発注点の同期（在庫スナップショット前）</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="px-4 py-2 font-mono text-xs">wms:auto-order-calculate</td>
-                                        <td class="px-4 py-2">毎日 05:00</td>
-                                        <td class="px-4 py-2">発注候補計算</td>
-                                    </tr>
-                                </tbody>
-                            </table>
                         </div>
-                        <div class="mt-4 text-sm text-gray-600 dark:text-gray-400">
-                            <p>スケジュールは <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">routes/console.php</code> で管理されています。</p>
-                        </div>
+                    </x-slot>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-xs">
+                            <thead class="bg-gray-100 dark:bg-gray-700">
+                                <tr>
+                                    <th class="px-3 py-2 text-left">コマンド</th>
+                                    <th class="px-3 py-2 text-left">スケジュール</th>
+                                    <th class="px-3 py-2 text-left">説明</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
+                                <tr>
+                                    <td class="px-3 py-2 font-mono">wms:sync-monthly-safety-stocks</td>
+                                    <td class="px-3 py-2">毎月末日 04:30</td>
+                                    <td class="px-3 py-2">翌月の発注点を同期</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-3 py-2 font-mono">wms:auto-order-calculate</td>
+                                    <td class="px-3 py-2">毎日 05:00</td>
+                                    <td class="px-3 py-2">発注候補計算</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
-                </div>
+                    <div class="mt-3 text-xs text-gray-500">
+                        スケジュールは <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">routes/console.php</code> で管理
+                    </div>
+                </x-filament::section>
+            </div>
         </div>
     </div>
 </x-filament-panels::page></div>

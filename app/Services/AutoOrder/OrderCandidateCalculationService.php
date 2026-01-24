@@ -702,7 +702,7 @@ class OrderCandidateCalculationService
     ): array {
         // Step 1: リードタイム取得（発注先単位）
         $leadTimeDays = $this->contractorLeadTimes[$contractorId]
-            ?? ($isInternal ? 1 : 3);  // デフォルト値
+            ?? 1;  // デフォルト値: 1日
 
         // Step 2: 仮到着予定日
         $arrivalDate = $orderDate->copy()->addDays($leadTimeDays);

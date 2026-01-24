@@ -13,18 +13,21 @@ use Illuminate\Support\Facades\Log;
  *
  * 月別安全在庫テーブルから該当月のデータを取得し、
  * item_contractors.safety_stock に反映する。
+ *
+ * 毎月末日に実行し、翌月の発注点を同期する。
  */
 class SyncMonthlySafetyStocksCommand extends Command
 {
     protected $signature = 'wms:sync-monthly-safety-stocks
-                            {--month= : 対象月 (1-12)。省略時は現在の月}
+                            {--month= : 対象月 (1-12)。省略時は翌月}
                             {--dry-run : 実際の更新を行わず、対象件数のみ表示}';
 
-    protected $description = '月別安全在庫設定を item_contractors に同期';
+    protected $description = '月別安全在庫設定を item_contractors に同期（翌月分）';
 
     public function handle(): int
     {
-        $month = $this->option('month') ?? Carbon::now()->month;
+        // デフォルトは翌月（月末に実行して翌月の発注点を事前設定）
+        $month = $this->option('month') ?? Carbon::now()->addMonth()->month;
         $dryRun = $this->option('dry-run');
 
         $this->info("月別安全在庫の同期を開始します... (対象月: {$month}月)");
