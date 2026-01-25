@@ -2,6 +2,7 @@
 
 namespace App\Services\AutoOrder;
 
+use App\Contracts\OrderFileGeneratorInterface;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
@@ -13,9 +14,11 @@ use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
 use App\Models\WmsOrderTransmissionLog;
+use App\Services\JX\JxClient;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -464,5 +467,327 @@ class OrderTransmissionService
         $parts[] = "バッチ:{$candidate->batch_code}";
 
         return implode(' / ', $parts);
+    }
+
+    // ========================================
+    // JX送信用ファイル生成・送信機能
+    // ========================================
+
+    /**
+     * 発注送信ファイルを生成
+     *
+     * @param  string  $batchCode  バッチコード
+     * @return array{success: bool, files: array, errors: array}
+     */
+    public function generateOrderFiles(string $batchCode): array
+    {
+        $generator = $this->getOrderFileGenerator();
+
+        if (! $generator) {
+            return [
+                'success' => false,
+                'files' => [],
+                'errors' => ['発注ファイル生成クラスが設定されていません'],
+            ];
+        }
+
+        // EXECUTED状態（確定済み）で未送信の発注候補を取得
+        $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
+            ->where('status', CandidateStatus::EXECUTED)
+            ->whereNull('wms_order_jx_document_id')
+            ->with(['warehouse', 'item', 'contractor'])
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            return [
+                'success' => true,
+                'files' => [],
+                'errors' => [],
+                'message' => '生成対象の発注候補がありません',
+            ];
+        }
+
+        $results = [];
+        $errors = [];
+
+        try {
+            // Generatorでファイル生成
+            $files = $generator->generate($candidates);
+
+            foreach ($files as $file) {
+                // S3に保存
+                $s3Path = $this->saveOrderFileToS3($batchCode, $file);
+
+                // この送信先に属する候補からwarehouse_idを取得
+                $mapping = $generator->getTransmissionContractorMapping();
+                $fileCandidates = $candidates->filter(function ($c) use ($file, $mapping) {
+                    $transmissionId = $mapping[$c->contractor_id] ?? $c->contractor_id;
+
+                    return $transmissionId === $file['contractor_id'];
+                });
+                $warehouseId = $fileCandidates->first()?->warehouse_id;
+
+                // wms_order_jx_documentsに記録
+                $document = $this->createOrderDocument($batchCode, $file, $s3Path, $warehouseId);
+
+                // 発注候補とドキュメントを紐付け
+                $this->linkCandidatesToDocument($candidates, $file['contractor_id'], $document);
+
+                $results[] = [
+                    'contractor_id' => $file['contractor_id'],
+                    'contractor_code' => $file['contractor_code'] ?? null,
+                    'filename' => $file['filename'],
+                    's3_path' => $s3Path,
+                    'document_id' => $document->id,
+                    'record_count' => $file['record_count'],
+                    'order_count' => $file['order_count'],
+                ];
+
+                Log::info('Order file generated', [
+                    'batch_code' => $batchCode,
+                    'contractor_id' => $file['contractor_id'],
+                    'filename' => $file['filename'],
+                ]);
+            }
+        } catch (\Exception $e) {
+            $errors[] = $e->getMessage();
+            Log::error('Order file generation failed', [
+                'batch_code' => $batchCode,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return [
+            'success' => empty($errors),
+            'files' => $results,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * 発注ファイルをJX-FINETで送信
+     *
+     * @param  string  $batchCode  バッチコード
+     * @return array{success: bool, transmitted: array, errors: array}
+     */
+    public function transmitOrderFilesViaJx(string $batchCode): array
+    {
+        // PENDING状態のドキュメントを取得
+        $documents = WmsOrderJxDocument::where('batch_code', $batchCode)
+            ->where('status', TransmissionDocumentStatus::PENDING)
+            ->get();
+
+        if ($documents->isEmpty()) {
+            return [
+                'success' => true,
+                'transmitted' => [],
+                'errors' => [],
+                'message' => '送信対象のドキュメントがありません',
+            ];
+        }
+
+        $transmitted = [];
+        $errors = [];
+
+        foreach ($documents as $document) {
+            try {
+                $result = $this->transmitDocumentViaJx($document);
+
+                if ($result['success']) {
+                    $transmitted[] = [
+                        'document_id' => $document->id,
+                        'contractor_id' => $document->contractor_id,
+                        'message_id' => $result['message_id'] ?? null,
+                    ];
+                } else {
+                    $errors[] = [
+                        'document_id' => $document->id,
+                        'error' => $result['error'] ?? '送信失敗',
+                    ];
+                }
+            } catch (\Exception $e) {
+                $errors[] = [
+                    'document_id' => $document->id,
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'success' => empty($errors),
+            'transmitted' => $transmitted,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * 発注ファイル生成クラスを取得
+     */
+    private function getOrderFileGenerator(): ?OrderFileGeneratorInterface
+    {
+        return OrderServiceFactory::generator();
+    }
+
+    /**
+     * 発注ファイルをS3に保存
+     *
+     * 注: AWS_BUCKET_PREFIXがfilesystems.phpで設定されているため、
+     * ここでは追加のprefixを付けない
+     */
+    private function saveOrderFileToS3(string $batchCode, array $file): string
+    {
+        $date = now()->format('Y-m-d');
+        $path = "jx-orders/{$date}/{$file['filename']}";
+
+        Storage::disk('s3')->put($path, $file['content']);
+
+        Log::info('Order file saved to S3', [
+            'batch_code' => $batchCode,
+            'path' => $path,
+        ]);
+
+        return $path;
+    }
+
+    /**
+     * 発注ドキュメントを作成
+     */
+    private function createOrderDocument(string $batchCode, array $file, string $s3Path, ?int $warehouseId = null): WmsOrderJxDocument
+    {
+        return WmsOrderJxDocument::create([
+            'batch_code' => $batchCode,
+            'wms_order_jx_setting_id' => $file['jx_setting_id'],
+            'warehouse_id' => $warehouseId,
+            'contractor_id' => $file['contractor_id'],
+            'document_type' => TransmissionDocumentType::PURCHASE,
+            'status' => TransmissionDocumentStatus::PENDING,
+            'file_path' => $s3Path,
+            'file_size' => strlen($file['content']),
+            'record_count' => $file['record_count'],
+            'order_count' => $file['order_count'],
+            'encoding' => $file['encoding'],
+        ]);
+    }
+
+    /**
+     * 発注候補とドキュメントを紐付け
+     */
+    private function linkCandidatesToDocument(Collection $candidates, int $contractorId, WmsOrderJxDocument $document): void
+    {
+        // transmission_contractor_idを考慮して紐付け
+        $generator = $this->getOrderFileGenerator();
+        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
+
+        $candidates->each(function ($candidate) use ($contractorId, $document, $mapping) {
+            // この候補が送信先発注先と一致するか確認
+            $candidateTransmissionId = $mapping[$candidate->contractor_id] ?? $candidate->contractor_id;
+
+            if ($candidateTransmissionId === $contractorId) {
+                $candidate->update([
+                    'wms_order_jx_document_id' => $document->id,
+                ]);
+            }
+        });
+    }
+
+    /**
+     * ドキュメントをJX-FINETで送信
+     */
+    private function transmitDocumentViaJx(WmsOrderJxDocument $document): array
+    {
+        // JX設定を取得
+        $jxSetting = null;
+        if ($document->wms_order_jx_setting_id) {
+            $jxSetting = WmsOrderJxSetting::find($document->wms_order_jx_setting_id);
+        }
+        if (! $jxSetting && $document->contractor_id) {
+            $jxSetting = WmsOrderJxSetting::findByContractorId($document->contractor_id);
+        }
+
+        if (! $jxSetting) {
+            $document->update([
+                'status' => TransmissionDocumentStatus::ERROR,
+                'error_message' => 'JX設定が見つかりません',
+            ]);
+
+            return ['success' => false, 'error' => 'JX設定が見つかりません'];
+        }
+
+        // ファイル内容を取得
+        $fileContent = Storage::disk('s3')->get($document->file_path);
+        if (! $fileContent) {
+            $document->update([
+                'status' => TransmissionDocumentStatus::ERROR,
+                'error_message' => 'ファイルが見つかりません',
+            ]);
+
+            return ['success' => false, 'error' => 'ファイルが見つかりません'];
+        }
+
+        // JX送信実行
+        $client = new JxClient($jxSetting);
+        $result = $client->putDocumentWithWrapper(
+            $fileContent,
+            $jxSetting->send_document_type ?? '91',
+            'SecondGenEDI'
+        );
+
+        if ($result->succeeded()) {
+            // バックアップをS3に保存
+            $this->saveBackupToS3($document, $fileContent);
+
+            $document->update([
+                'status' => TransmissionDocumentStatus::TRANSMITTED,
+                'transmitted_at' => now(),
+                'transmitted_by' => auth()->id(),
+                'jx_message_id' => $result->messageId,
+                'jx_response_data' => [
+                    'message_id' => $result->messageId,
+                    'timestamp' => now()->toIso8601String(),
+                ],
+            ]);
+
+            Log::info('JX transmission succeeded', [
+                'document_id' => $document->id,
+                'message_id' => $result->messageId,
+            ]);
+
+            return ['success' => true, 'message_id' => $result->messageId];
+        } else {
+            $document->update([
+                'status' => TransmissionDocumentStatus::ERROR,
+                'error_message' => $result->error,
+            ]);
+
+            Log::error('JX transmission failed', [
+                'document_id' => $document->id,
+                'error' => $result->error,
+            ]);
+
+            return ['success' => false, 'error' => $result->error];
+        }
+    }
+
+    /**
+     * 送信済みファイルのバックアップをS3に保存
+     *
+     * 注: AWS_BUCKET_PREFIXがfilesystems.phpで設定されているため、
+     * ここでは追加のprefixを付けない
+     */
+    private function saveBackupToS3(WmsOrderJxDocument $document, string $content): void
+    {
+        $date = now()->format('Y-m-d');
+        $timestamp = now()->format('His');
+        $filename = pathinfo($document->file_path, PATHINFO_FILENAME);
+        $extension = pathinfo($document->file_path, PATHINFO_EXTENSION);
+
+        $backupPath = "jx-backup/{$date}/{$filename}_{$timestamp}.{$extension}";
+
+        Storage::disk('s3')->put($backupPath, $content);
+
+        Log::info('Backup saved to S3', [
+            'document_id' => $document->id,
+            'path' => $backupPath,
+        ]);
     }
 }

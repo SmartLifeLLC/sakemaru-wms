@@ -16,6 +16,7 @@ use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\ContractorLeadTimeService;
+use App\Services\AutoOrder\OrderTransmissionService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -511,13 +512,13 @@ class ListWmsOrderCandidates extends ListRecords
                     $this->redirect(static::getResource()::getUrl('index'));
                 }),
 
-            Action::make('transmitOrders')
-                ->label('発注送信')
-                ->icon('heroicon-o-paper-airplane')
-                ->color('primary')
+            Action::make('generateOrderFiles')
+                ->label('発注送信データ作成')
+                ->icon('heroicon-o-document-text')
+                ->color('info')
                 ->requiresConfirmation()
-                ->modalHeading('発注データの送信')
-                ->modalDescription('承認済みの発注候補をJX-FINETまたはFTPで送信します。')
+                ->modalHeading('発注送信データの作成')
+                ->modalDescription('承認済みの発注候補から発注ファイルを生成し、S3にアップロードします。')
                 ->schema([
                     Select::make('batch_code')
                         ->label('バッチコード')
@@ -529,11 +530,63 @@ class ListWmsOrderCandidates extends ListRecords
                         ->required(),
                 ])
                 ->action(function (array $data) {
-                    // TODO: Phase 5で実装
-                    Notification::make()
-                        ->title('発注送信機能は Phase 5 で実装予定です')
-                        ->warning()
-                        ->send();
+                    $service = app(OrderTransmissionService::class);
+                    $result = $service->generateOrderFiles($data['batch_code']);
+
+                    if ($result['success']) {
+                        $fileCount = count($result['files'] ?? []);
+                        $totalOrders = $result['total_orders'] ?? 0;
+                        Notification::make()
+                            ->title('発注送信データを作成しました')
+                            ->body("{$fileCount}件のファイル（発注 {$totalOrders}件）を生成しました。")
+                            ->success()
+                            ->send();
+                    } else {
+                        Notification::make()
+                            ->title('発注送信データの作成に失敗しました')
+                            ->body($result['message'] ?? 'エラーが発生しました')
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
+            Action::make('transmitOrdersViaJx')
+                ->label('発注データ送信')
+                ->icon('heroicon-o-paper-airplane')
+                ->color('primary')
+                ->requiresConfirmation()
+                ->modalHeading('発注データの送信')
+                ->modalDescription('作成済みの発注ファイルをJX-FINETで送信します。')
+                ->schema([
+                    Select::make('batch_code')
+                        ->label('バッチコード')
+                        ->options(function () {
+                            // 送信待ちのドキュメントがあるバッチを取得
+                            return \App\Models\WmsOrderJxDocument::where('status', \App\Enums\AutoOrder\TransmissionDocumentStatus::PENDING)
+                                ->distinct()
+                                ->pluck('batch_code', 'batch_code');
+                        })
+                        ->required(),
+                ])
+                ->action(function (array $data) {
+                    $service = app(OrderTransmissionService::class);
+                    $result = $service->transmitOrderFilesViaJx($data['batch_code']);
+
+                    if ($result['success']) {
+                        $successCount = count(array_filter($result['results'] ?? [], fn ($r) => $r['success']));
+                        $totalCount = count($result['results'] ?? []);
+                        Notification::make()
+                            ->title('発注データを送信しました')
+                            ->body("{$totalCount}件中 {$successCount}件の送信が完了しました。")
+                            ->success()
+                            ->send();
+                    } else {
+                        Notification::make()
+                            ->title('発注データの送信に失敗しました')
+                            ->body($result['message'] ?? 'エラーが発生しました')
+                            ->danger()
+                            ->send();
+                    }
                 }),
         ];
     }

@@ -88,6 +88,13 @@ class WmsOrderCandidatesTable
                     ->toggleable()
                     ->width('120px'),
 
+                TextColumn::make('ordering_code')
+                    ->label('発注コード')
+                    ->searchable()
+                    ->sortable()
+                    ->alignCenter()
+                    ->width('120px'),
+
                 TextColumn::make('safety_stock')
                     ->label('発注点')
                     ->state(fn ($record) => $record->safety_stock ?? '-')

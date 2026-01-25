@@ -67,6 +67,9 @@ class OrderCandidateCalculationService
     /** @var array [warehouse_id][date_string] => true */
     private array $warehouseHolidays = [];
 
+    /** @var array [item_id] => ordering_code (13桁ゼロパディング済み) */
+    private array $orderingCodes = [];
+
     /**
      * 発注候補計算を実行
      */
@@ -311,6 +314,21 @@ class OrderCandidateCalculationService
         }
 
         Log::info('倉庫休日をロード', ['count' => count($holidays)]);
+
+        // 発注コードをプリロード（is_used_for_ordering=trueのもの）
+        $orderingCodes = DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->select('item_id', 'search_string')
+            ->get();
+
+        foreach ($orderingCodes as $oc) {
+            // 13桁にゼロパディング
+            $this->orderingCodes[$oc->item_id] = str_pad($oc->search_string, 13, '0', STR_PAD_LEFT);
+        }
+
+        Log::info('発注コードをロード', ['count' => count($this->orderingCodes)]);
     }
 
     /**
@@ -587,11 +605,15 @@ class OrderCandidateCalculationService
             $originalArrivalDate = $now->copy()->addDays($arrivalInfo['lead_time_days'])->format('Y-m-d');
             $leadTimeDays = $arrivalInfo['lead_time_days'];
 
+            // 発注コードを取得
+            $orderingCode = $this->orderingCodes[$ic->item_id] ?? null;
+
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
                 'item_id' => $ic->item_id,
                 'contractor_id' => $ic->contractor_id,
+                'ordering_code' => $orderingCode,
                 'self_shortage_qty' => $selfShortageOnly,
                 'satellite_demand_qty' => $outgoingToTransfer,
                 'demand_breakdown' => ! empty($demandBreakdown) ? json_encode($demandBreakdown, JSON_UNESCAPED_UNICODE) : null,
@@ -631,6 +653,7 @@ class OrderCandidateCalculationService
                     '商品コード' => $itemInfo['code'] ?? null,
                     '商品名' => $itemInfo['name'] ?? null,
                     '規格' => $itemInfo['packaging'] ?? null,
+                    '発注コード' => $orderingCode,
                     '仕入先コード' => $supplierInfo['code'] ?? null,
                     '仕入先名' => $supplierInfo['name'] ?? null,
                     '発注先コード' => $contractorInfo['code'] ?? null,

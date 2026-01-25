@@ -26,6 +26,7 @@ class WmsOrderCandidate extends WmsModel
         'warehouse_id',
         'item_id',
         'contractor_id',
+        'ordering_code',
         'self_shortage_qty',
         'satellite_demand_qty',
         'demand_breakdown',
