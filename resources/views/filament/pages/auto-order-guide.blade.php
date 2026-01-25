@@ -159,13 +159,14 @@
                         </div>
                         <p class="text-xs text-gray-600 dark:text-gray-400">倉庫の休日設定を管理</p>
                     </a>
-                    <a href="{{ route('filament.admin.resources.wms-contractor-warehouse-delivery-days.index') }}" class="block p-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                    <div class="block p-4 bg-gray-50 dark:bg-gray-800 rounded-lg opacity-60">
                         <div class="flex items-center gap-3 mb-2">
                             <x-heroicon-o-calendar-days class="w-6 h-6 text-teal-500" />
                             <span class="font-semibold">納品可能曜日</span>
+                            <span class="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded">準備中</span>
                         </div>
                         <p class="text-xs text-gray-600 dark:text-gray-400">発注先×倉庫ごとの納品曜日を設定</p>
-                    </a>
+                    </div>
                 </div>
             </x-filament::section>
         </div>
@@ -527,10 +528,11 @@
                             <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
                                 発注先と倉庫の組み合わせごとに、納品可能な曜日を設定できます。設定された曜日以外には納品されないよう、到着予定日が自動調整されます。
                             </p>
-                            <a href="{{ route('filament.admin.resources.wms-contractor-warehouse-delivery-days.index') }}" class="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline">
+                            <span class="inline-flex items-center gap-2 text-gray-500">
                                 <x-heroicon-o-calendar-days class="w-5 h-5" />
                                 設定 → 納品可能曜日
-                            </a>
+                                <span class="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded">準備中</span>
+                            </span>
                         </div>
                         <div class="flex gap-2 justify-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                             @foreach(['日', '月', '火', '水', '木', '金', '土'] as $index => $day)
