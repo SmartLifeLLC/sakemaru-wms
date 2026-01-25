@@ -242,7 +242,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
      * 43-57: 店名 X(15) - 発注倉庫名（半角カナ、右寄せ）
      * 58-67: 納品場所 X(10) - 入庫倉庫名（半角カナ、右寄せ）
      * 68-92: G（備考） X(25) - 空白
-     * 93-94: 直送区分 X(02) - "01" 固定
+     * 93-94: 直送区分 X(02) - "00" 固定
      * 95-128: FILLER X(34)
      */
     private function generateBRecord($candidate, int $seq): string
@@ -273,7 +273,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
         $record .= $this->padToByteLengthRight($warehouse?->kana_name ?? '', 15); // 43-57: 店名（半角カナ、右寄せ）
         $record .= $this->padToByteLengthRight($warehouse?->kana_name ?? '', 10); // 58-67: 納品場所（半角カナ、右寄せ）
         $record .= str_pad('', 25);                                  // 68-92: G（備考）
-        $record .= '01';                                             // 93-94: 直送区分（固定）
+        $record .= '00';                                             // 93-94: 直送区分（00固定）
         $record .= str_pad('', 34);                                  // 95-128: FILLER
 
         return $this->ensureRecordLength($record);
