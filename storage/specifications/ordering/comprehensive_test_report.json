@@ -1,0 +1,414 @@
+{
+    "test_date": "2026-01-25 04:10:07",
+    "summary": {
+        "total_files": 211,
+        "total_a_records": 211,
+        "total_b_records": 26313,
+        "total_d_records": 44868,
+        "jan_code_in_db": 44864,
+        "jan_code_not_in_db": 4,
+        "is_used_for_ordering_match": 41907,
+        "is_used_for_ordering_mismatch": 2957,
+        "record_length_valid": 71405,
+        "record_length_invalid": 0,
+        "unique_items_count": 3176,
+        "unique_warehouses_count": 15,
+        "jan_code_match_rate": 99.99,
+        "ordering_flag_match_rate": 93.41
+    },
+    "by_contractor": {
+        "1017": {
+            "contractor_code": 1017,
+            "file_count": 29,
+            "a_records": 29,
+            "b_records": 421,
+            "d_records": 566,
+            "jan_in_db": 566,
+            "jan_not_in_db": 0,
+            "ordering_flag_match": 561,
+            "ordering_flag_mismatch": 5,
+            "date_range": {
+                "min": "20250901",
+                "max": "20251001"
+            },
+            "unique_items_count": 61,
+            "unique_warehouses_count": 13
+        },
+        "1021": {
+            "contractor_code": 1021,
+            "file_count": 61,
+            "a_records": 61,
+            "b_records": 13843,
+            "d_records": 26196,
+            "jan_in_db": 26194,
+            "jan_not_in_db": 2,
+            "ordering_flag_match": 24262,
+            "ordering_flag_mismatch": 1932,
+            "date_range": {
+                "min": "20250801",
+                "max": "20251001"
+            },
+            "unique_items_count": 1852,
+            "unique_warehouses_count": 15
+        },
+        "1202": {
+            "contractor_code": 1202,
+            "file_count": 60,
+            "a_records": 60,
+            "b_records": 5983,
+            "d_records": 8675,
+            "jan_in_db": 8673,
+            "jan_not_in_db": 2,
+            "ordering_flag_match": 8334,
+            "ordering_flag_mismatch": 339,
+            "date_range": {
+                "min": "20250802",
+                "max": "20251001"
+            },
+            "unique_items_count": 709,
+            "unique_warehouses_count": 15
+        },
+        "1330": {
+            "contractor_code": 1330,
+            "file_count": 61,
+            "a_records": 61,
+            "b_records": 6066,
+            "d_records": 9431,
+            "jan_in_db": 9431,
+            "jan_not_in_db": 0,
+            "ordering_flag_match": 8750,
+            "ordering_flag_mismatch": 681,
+            "date_range": {
+                "min": "20250801",
+                "max": "20251001"
+            },
+            "unique_items_count": 562,
+            "unique_warehouses_count": 14
+        }
+    },
+    "jan_code_not_found_items": [
+        {
+            "contractor": 1021,
+            "item_id": 132740,
+            "jan_code": "5060716145384"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 132740,
+            "jan_code": "5060716145384"
+        },
+        {
+            "contractor": 1202,
+            "item_id": 154947,
+            "jan_code": "4901880881931"
+        },
+        {
+            "contractor": 1202,
+            "item_id": 154947,
+            "jan_code": "4901880881931"
+        }
+    ],
+    "is_used_for_ordering_mismatches": [
+        {
+            "contractor": 1017,
+            "item_id": 215162,
+            "sample_jan": "4902102119443",
+            "ordering_code": "4902102119450"
+        },
+        {
+            "contractor": 1017,
+            "item_id": 215027,
+            "sample_jan": "4902102112109",
+            "ordering_code": "0000002152059"
+        },
+        {
+            "contractor": 1017,
+            "item_id": 215162,
+            "sample_jan": "4902102119443",
+            "ordering_code": "4902102119450"
+        },
+        {
+            "contractor": 1017,
+            "item_id": 215162,
+            "sample_jan": "4902102119443",
+            "ordering_code": "4902102119450"
+        },
+        {
+            "contractor": 1017,
+            "item_id": 215027,
+            "sample_jan": "4902102112109",
+            "ordering_code": "0000002152059"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 181103,
+            "sample_jan": "4904230074007",
+            "ordering_code": "4904230073536"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184242,
+            "sample_jan": "4901777252622",
+            "ordering_code": "4901777201439"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 143009,
+            "sample_jan": "4901004037428",
+            "ordering_code": "0000049893588"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 181200,
+            "sample_jan": "4570040880369",
+            "ordering_code": "4570040880574"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184242,
+            "sample_jan": "4901777252622",
+            "ordering_code": "4901777201439"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 211899,
+            "sample_jan": "4904230073086",
+            "ordering_code": "4904230073079"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 113894,
+            "sample_jan": "4981268212106",
+            "ordering_code": "4981268116039"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 143009,
+            "sample_jan": "4901004037428",
+            "ordering_code": "0000049893588"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147085,
+            "sample_jan": "4901777230194",
+            "ordering_code": "4901777230170"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147199,
+            "sample_jan": "4901004034427",
+            "ordering_code": "4901004034373"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 181103,
+            "sample_jan": "4904230074007",
+            "ordering_code": "4904230073536"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 181105,
+            "sample_jan": "4904230074021",
+            "ordering_code": "4904230073574"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184242,
+            "sample_jan": "4901777252622",
+            "ordering_code": "4901777201439"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184476,
+            "sample_jan": "4901777323926",
+            "ordering_code": "4901777192782"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184533,
+            "sample_jan": "4901777270701",
+            "ordering_code": "4901777197114"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 211096,
+            "sample_jan": "4904230030010",
+            "ordering_code": "4904230029991"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 113894,
+            "sample_jan": "4981268212106",
+            "ordering_code": "4981268116039"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147045,
+            "sample_jan": "4901777217201",
+            "ordering_code": "4901777217188"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147199,
+            "sample_jan": "4901004034427",
+            "ordering_code": "4901004034373"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 142339,
+            "sample_jan": "4901004060488",
+            "ordering_code": "4901004064820"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 113892,
+            "sample_jan": "4981268210003",
+            "ordering_code": "4981268116015"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 143009,
+            "sample_jan": "4901004037428",
+            "ordering_code": "0000049893588"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147044,
+            "sample_jan": "4901004005755",
+            "ordering_code": "4901004005700"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147199,
+            "sample_jan": "4901004034427",
+            "ordering_code": "4901004034373"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 181103,
+            "sample_jan": "4904230074007",
+            "ordering_code": "4904230073536"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184242,
+            "sample_jan": "4901777252622",
+            "ordering_code": "4901777201439"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 211899,
+            "sample_jan": "4904230073086",
+            "ordering_code": "4904230073079"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 113750,
+            "sample_jan": "4981268157100",
+            "ordering_code": "4981268115025"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 113892,
+            "sample_jan": "4981268210003",
+            "ordering_code": "4981268116015"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147044,
+            "sample_jan": "4901004005755",
+            "ordering_code": "4901004005700"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 181103,
+            "sample_jan": "4904230074007",
+            "ordering_code": "4904230073536"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184242,
+            "sample_jan": "4901777252622",
+            "ordering_code": "4901777201439"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184476,
+            "sample_jan": "4901777323926",
+            "ordering_code": "4901777192782"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184533,
+            "sample_jan": "4901777270701",
+            "ordering_code": "4901777197114"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 211899,
+            "sample_jan": "4904230073086",
+            "ordering_code": "4904230073079"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 142104,
+            "sample_jan": "4901004039835",
+            "ordering_code": "4901004039774"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184533,
+            "sample_jan": "4901777270701",
+            "ordering_code": "4901777197114"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 113884,
+            "sample_jan": "4981268395007",
+            "ordering_code": "4981268117012"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147199,
+            "sample_jan": "4901004034427",
+            "ordering_code": "4901004034373"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 184242,
+            "sample_jan": "4901777252622",
+            "ordering_code": "4901777201439"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 185558,
+            "sample_jan": "4901777364479",
+            "ordering_code": "4901777361621"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 211096,
+            "sample_jan": "4904230030010",
+            "ordering_code": "4904230029991"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 143009,
+            "sample_jan": "4901004037428",
+            "ordering_code": "0000049893588"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147085,
+            "sample_jan": "4901777230194",
+            "ordering_code": "4901777230170"
+        },
+        {
+            "contractor": 1021,
+            "item_id": 147199,
+            "sample_jan": "4901004034427",
+            "ordering_code": "4901004034373"
+        }
+    ],
+    "record_format_issues": []
+}
