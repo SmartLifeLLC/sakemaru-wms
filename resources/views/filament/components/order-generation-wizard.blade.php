@@ -59,10 +59,20 @@
                 <span class="text-gray-600 dark:text-gray-400">{{ $progressMessage }}</span>
                 <span class="text-gray-600 dark:text-gray-400">処理中...</span>
             </div>
-            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
-                <div class="bg-primary-500 h-2.5 rounded-full transition-all duration-300 animate-pulse" style="width: 100%"></div>
+            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                {{-- インデターミネート（不定）プログレスバー --}}
+                <div class="bg-primary-500 h-2.5 rounded-full w-1/3 animate-indeterminate"></div>
             </div>
         </div>
+        <style>
+            @keyframes indeterminate {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(400%); }
+            }
+            .animate-indeterminate {
+                animation: indeterminate 1.5s ease-in-out infinite;
+            }
+        </style>
     @endif
 
     {{-- ステップ0: 削除確認 --}}

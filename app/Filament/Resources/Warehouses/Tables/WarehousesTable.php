@@ -19,6 +19,7 @@ class WarehousesTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
+            ->modifyQueryUsing(fn ($query) => $query->with('autoOrderSetting'))
             ->columns([
                 TextColumn::make('code')
                     ->label('コード')
@@ -46,6 +47,15 @@ class WarehousesTable
                     ->searchable()
                     ->sortable()
                     ->default('-'),
+
+                IconColumn::make('autoOrderSetting.is_auto_order_enabled')
+                    ->label('自動発注')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-check-circle')
+                    ->falseIcon('heroicon-o-x-circle')
+                    ->trueColor('success')
+                    ->falseColor('gray')
+                    ->default(false),
 
                 TextColumn::make('out_of_stock_option')
                     ->label('売上登録時在庫確認')

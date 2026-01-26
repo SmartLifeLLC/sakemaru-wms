@@ -3,9 +3,11 @@
 namespace App\Models\Sakemaru;
 
 use App\Models\WmsContractorWarehouseDeliveryDay;
+use App\Models\WmsWarehouseAutoOrderSetting;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Warehouse extends CustomModel
 {
@@ -55,5 +57,13 @@ class Warehouse extends CustomModel
     public function contractorDeliveryDays(): HasMany
     {
         return $this->hasMany(WmsContractorWarehouseDeliveryDay::class, 'warehouse_id');
+    }
+
+    /**
+     * 自動発注設定
+     */
+    public function autoOrderSetting(): HasOne
+    {
+        return $this->hasOne(WmsWarehouseAutoOrderSetting::class, 'warehouse_id');
     }
 }
