@@ -28,8 +28,13 @@ class WmsWarehouseCalendarsTable
             ->paginationPageOptions(PaginationOptions::all())
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['warehouse'])->orderBy('target_date', 'desc'))
             ->columns([
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫コード')
+                    ->searchable()
+                    ->sortable(),
+
                 TextColumn::make('warehouse.name')
-                    ->label('倉庫')
+                    ->label('倉庫名')
                     ->searchable()
                     ->sortable(),
 
@@ -80,7 +85,7 @@ class WmsWarehouseCalendarsTable
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),
-            ], position: RecordActionsPosition::BeforeColumns)
+            ], position: RecordActionsPosition::AfterColumns)
             ->toolbarActions([
                 CreateAction::make(),
             ])

@@ -36,7 +36,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 ->label('発注生成プロセス')
                 ->icon('heroicon-o-sparkles')
                 ->color('primary')
-                ->modalWidth('xl')
+                ->modalWidth('4xl')
                 ->modalHeading('発注生成プロセス')
                 ->modalSubmitAction(false)
                 ->modalCancelAction(false)
