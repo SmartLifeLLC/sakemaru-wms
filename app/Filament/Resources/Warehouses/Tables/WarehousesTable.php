@@ -32,10 +32,9 @@ class WarehousesTable
                     ->weight('bold'),
 
                 TextColumn::make('kana_name')
-                    ->label('カナ名')
+                    ->label('カナ名称')
                     ->searchable()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->sortable(),
 
                 TextColumn::make('abbreviation')
                     ->label('略称')
