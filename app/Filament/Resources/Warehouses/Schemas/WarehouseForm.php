@@ -73,6 +73,15 @@ class WarehouseForm
                             ->columnSpanFull(),
                     ])
                     ->collapsible(),
+
+                Section::make('自動発注設定')
+                    ->schema([
+                        Toggle::make('auto_order_enabled')
+                            ->label('自動発注対象')
+                            ->helperText('この倉庫を自動発注計算の対象にする')
+                            ->columnSpanFull(),
+                    ])
+                    ->collapsible(),
             ]);
     }
 }
