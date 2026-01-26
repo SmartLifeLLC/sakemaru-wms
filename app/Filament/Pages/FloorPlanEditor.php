@@ -76,7 +76,7 @@ class FloorPlanEditor extends Page
 
     public static function getNavigationLabel(): string
     {
-        return '倉庫フロアプラン';
+        return EMenu::FLOOR_PLAN_EDITOR->label();
     }
 
     public static function getNavigationSort(): ?int
