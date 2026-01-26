@@ -128,31 +128,39 @@ class WmsOrderCandidate extends WmsModel
             return;
         }
 
-        // 複合キーの組み合わせを収集
-        $keys = $candidates->map(fn ($c) => [
-            'batch_code' => $c->batch_code,
-            'warehouse_id' => $c->warehouse_id,
-            'item_id' => $c->item_id,
-        ])->unique(fn ($k) => "{$k['batch_code']}_{$k['warehouse_id']}_{$k['item_id']}");
+        // batch_code + warehouse_id でグループ化し、item_id を WHERE IN で取得
+        $grouped = $candidates->groupBy(fn ($c) => "{$c->batch_code}_{$c->warehouse_id}");
 
-        // 一括でログを取得
-        $query = WmsOrderCalculationLog::query();
-        $keys->each(function ($key, $index) use ($query) {
-            $method = $index === 0 ? 'where' : 'orWhere';
-            $query->$method(function ($q) use ($key) {
-                $q->where('batch_code', $key['batch_code'])
-                    ->where('warehouse_id', $key['warehouse_id'])
-                    ->where('item_id', $key['item_id']);
-            });
-        });
+        $logs = collect();
 
-        $logs = $query->get()->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");
+        foreach ($grouped as $groupKey => $group) {
+            $first = $group->first();
+            $itemIds = $group->pluck('item_id')->unique()->values()->toArray();
+
+            $groupLogs = WmsOrderCalculationLog::where('batch_code', $first->batch_code)
+                ->where('warehouse_id', $first->warehouse_id)
+                ->whereIn('item_id', $itemIds)
+                ->get();
+
+            $logs = $logs->merge($groupLogs);
+        }
+
+        // キーでインデックス化
+        $logsIndexed = $logs->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");
 
         // 各候補にログをセット
-        $candidates->each(function ($candidate) use ($logs) {
+        $candidates->each(function ($candidate) use ($logsIndexed) {
             $key = "{$candidate->batch_code}_{$candidate->warehouse_id}_{$candidate->item_id}";
-            $candidate->setPreloadedCalculationLog($logs->get($key));
+            $candidate->setPreloadedCalculationLog($logsIndexed->get($key));
         });
+    }
+
+    /**
+     * 現在庫（有効在庫）を取得
+     */
+    public function getCurrentStockAttribute(): ?int
+    {
+        return $this->calculationLog?->current_effective_stock;
     }
 
     /**

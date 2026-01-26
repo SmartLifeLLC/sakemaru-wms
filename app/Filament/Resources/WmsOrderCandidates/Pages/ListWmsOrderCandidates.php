@@ -23,9 +23,9 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Components\Grid;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Schemas\Components\Grid;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
@@ -70,12 +70,14 @@ class ListWmsOrderCandidates extends ListRecords
                             if (! $state) {
                                 $set('incoming_warehouse_html', null);
                                 $set('incoming_warehouse_id', null);
+
                                 return;
                             }
                             $warehouse = Warehouse::find($state);
                             if (! $warehouse) {
                                 $set('incoming_warehouse_html', null);
                                 $set('incoming_warehouse_id', null);
+
                                 return;
                             }
                             // 仮想倉庫の場合、実倉庫（stock_warehouse_id）を取得
@@ -133,6 +135,7 @@ class ListWmsOrderCandidates extends ListRecords
                             if (! $html) {
                                 return new HtmlString("<span class='text-gray-400'>発注倉庫を選択してください</span>");
                             }
+
                             return new HtmlString("<span class='font-bold text-blue-600'>{$html}</span>");
                         }),
 
@@ -168,18 +171,22 @@ class ListWmsOrderCandidates extends ListRecords
                                     if ($jan) {
                                         $label .= " ({$jan})";
                                     }
+
                                     return [$item->id => $label];
                                 })
                                 ->toArray();
                         })
                         ->getOptionLabelUsing(function ($value): ?string {
                             $item = Item::with('piece_jan_code_information')->find($value);
-                            if (! $item) return null;
+                            if (! $item) {
+                                return null;
+                            }
                             $jan = $item->piece_jan_code_information?->search_string;
                             $label = "[{$item->code}] {$item->name}";
                             if ($jan) {
                                 $label .= " ({$jan})";
                             }
+
                             return $label;
                         })
                         ->afterStateUpdated(function ($set, $get, $state) {
@@ -193,12 +200,14 @@ class ListWmsOrderCandidates extends ListRecords
                             if (! $state) {
                                 $set('item_details_html', null);
                                 $set('capacity_case', 1);
+
                                 return;
                             }
                             $item = Item::with('piece_jan_code_information')->find($state);
                             if (! $item) {
                                 $set('item_details_html', null);
                                 $set('capacity_case', 1);
+
                                 return;
                             }
                             $capacityCase = $item->capacity_case ?? 1;
@@ -255,6 +264,7 @@ class ListWmsOrderCandidates extends ListRecords
                             if (! empty($data['contractor_code']) && ! empty($data['contractor_name'])) {
                                 $contractorDisplay = "[{$data['contractor_code']}] {$data['contractor_name']}";
                             }
+
                             return new HtmlString("
                                 <div class='grid grid-cols-2 gap-x-4 gap-y-1 text-sm'>
                                     <div><span class='text-gray-500'>商品コード:</span> <span class='font-medium'>{$data['code']}</span></div>
@@ -279,6 +289,7 @@ class ListWmsOrderCandidates extends ListRecords
                             if (! $error) {
                                 return '';
                             }
+
                             return new HtmlString("
                                 <div class='p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800'>
                                     <div class='flex items-center gap-2'>
@@ -354,6 +365,7 @@ class ListWmsOrderCandidates extends ListRecords
                                     if ($error) {
                                         return new HtmlString("<div><span class='text-lg font-bold text-red-600'>{$total}</span><div class='text-xs text-red-500 mt-1'>{$error}</div></div>");
                                     }
+
                                     return new HtmlString("<span class='text-lg font-bold text-green-600'>{$total}</span>");
                                 }),
                         ]),
@@ -604,6 +616,22 @@ class ListWmsOrderCandidates extends ListRecords
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')
             );
+    }
+
+    /**
+     * テーブルレコード取得後に計算ログをプリロード（N+1対策）
+     */
+    protected function paginateTableQuery(Builder $query): \Illuminate\Contracts\Pagination\Paginator
+    {
+        $paginator = parent::paginateTableQuery($query);
+
+        // 計算ログを一括プリロード
+        $items = $paginator->getCollection();
+        if ($items->isNotEmpty()) {
+            WmsOrderCandidate::preloadCalculationLogs($items);
+        }
+
+        return $paginator;
     }
 
     public function getPresetViews(): array

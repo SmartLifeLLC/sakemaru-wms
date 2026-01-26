@@ -218,6 +218,22 @@ class ListWmsStockTransferCandidates extends ListRecords
             );
     }
 
+    /**
+     * テーブルレコード取得後に計算ログをプリロード（N+1対策）
+     */
+    protected function paginateTableQuery(Builder $query): \Illuminate\Contracts\Pagination\Paginator
+    {
+        $paginator = parent::paginateTableQuery($query);
+
+        // 計算ログを一括プリロード
+        $items = $paginator->getCollection();
+        if ($items->isNotEmpty()) {
+            WmsStockTransferCandidate::preloadCalculationLogs($items);
+        }
+
+        return $paginator;
+    }
+
     public function getPresetViews(): array
     {
         // ステータス別の件数を取得

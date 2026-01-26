@@ -5,12 +5,11 @@ namespace App\Filament\Resources\WmsOrderCandidates\Tables;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
-use App\Models\Sakemaru\Contractor;
 use App\Models\Concerns\OptimisticLockException;
+use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\OrderAuditService;
-use App\Services\AutoOrder\OrderValidationService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -95,6 +94,13 @@ class WmsOrderCandidatesTable
                     ->alignCenter()
                     ->width('120px'),
 
+                TextColumn::make('current_stock')
+                    ->label('現在庫')
+                    ->state(fn ($record) => $record->current_stock ?? '-')
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('60px'),
+
                 TextColumn::make('safety_stock')
                     ->label('発注点')
                     ->state(fn ($record) => $record->safety_stock ?? '-')
@@ -106,8 +112,7 @@ class WmsOrderCandidatesTable
                     ->label('倉庫不足')
                     ->numeric()
                     ->alignEnd()
-                    ->width('60px')
-                    ->toggleable(),
+                    ->width('60px'),
 
                 TextColumn::make('satellite_demand_qty')
                     ->label('移動依頼')

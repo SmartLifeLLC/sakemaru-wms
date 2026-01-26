@@ -19,6 +19,13 @@ class WmsStockTransferCandidate extends WmsModel
 {
     protected $table = 'wms_stock_transfer_candidates';
 
+    /**
+     * 手動でセットされた計算ログ（N+1対策）
+     */
+    protected ?WmsOrderCalculationLog $preloadedCalculationLog = null;
+
+    protected bool $calculationLogPreloaded = false;
+
     protected $fillable = [
         'batch_code',
         'satellite_warehouse_id',
@@ -82,14 +89,69 @@ class WmsStockTransferCandidate extends WmsModel
     }
 
     /**
-     * 計算ログを取得（複合キーのため手動取得）
+     * 計算ログを事前にセット（N+1対策）
+     */
+    public function setPreloadedCalculationLog(?WmsOrderCalculationLog $log): self
+    {
+        $this->preloadedCalculationLog = $log;
+        $this->calculationLogPreloaded = true;
+
+        return $this;
+    }
+
+    /**
+     * 計算ログを取得（プリロード済みの場合はキャッシュを使用）
      */
     public function getCalculationLogAttribute(): ?WmsOrderCalculationLog
     {
+        // プリロード済みの場合はキャッシュを返す
+        if ($this->calculationLogPreloaded) {
+            return $this->preloadedCalculationLog;
+        }
+
+        // プリロードされていない場合はクエリを実行
         return WmsOrderCalculationLog::where('batch_code', $this->batch_code)
             ->where('warehouse_id', $this->satellite_warehouse_id)
             ->where('item_id', $this->item_id)
             ->first();
+    }
+
+    /**
+     * コレクションに対して計算ログを一括プリロード
+     *
+     * @param  \Illuminate\Database\Eloquent\Collection<int, self>  $candidates
+     */
+    public static function preloadCalculationLogs($candidates): void
+    {
+        if ($candidates->isEmpty()) {
+            return;
+        }
+
+        // batch_code + satellite_warehouse_id でグループ化し、item_id を WHERE IN で取得
+        $grouped = $candidates->groupBy(fn ($c) => "{$c->batch_code}_{$c->satellite_warehouse_id}");
+
+        $logs = collect();
+
+        foreach ($grouped as $groupKey => $group) {
+            $first = $group->first();
+            $itemIds = $group->pluck('item_id')->unique()->values()->toArray();
+
+            $groupLogs = WmsOrderCalculationLog::where('batch_code', $first->batch_code)
+                ->where('warehouse_id', $first->satellite_warehouse_id)
+                ->whereIn('item_id', $itemIds)
+                ->get();
+
+            $logs = $logs->merge($groupLogs);
+        }
+
+        // キーでインデックス化
+        $logsIndexed = $logs->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");
+
+        // 各候補にログをセット
+        $candidates->each(function ($candidate) use ($logsIndexed) {
+            $key = "{$candidate->batch_code}_{$candidate->satellite_warehouse_id}_{$candidate->item_id}";
+            $candidate->setPreloadedCalculationLog($logsIndexed->get($key));
+        });
     }
 
     /**
