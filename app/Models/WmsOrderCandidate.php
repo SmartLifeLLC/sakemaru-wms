@@ -36,6 +36,7 @@ class WmsOrderCandidate extends WmsModel
         'ordering_code',
         'self_shortage_qty',
         'satellite_demand_qty',
+        'incoming_quantity_override',
         'demand_breakdown',
         'origin_warehouse_ids',
         'suggested_quantity',
@@ -164,11 +165,57 @@ class WmsOrderCandidate extends WmsModel
     }
 
     /**
+     * 入庫予定数を取得（オーバーライドがあればそちらを使用）
+     */
+    public function getIncomingQuantityAttribute(): ?int
+    {
+        // オーバーライドが設定されていればそちらを使用
+        if ($this->incoming_quantity_override !== null) {
+            return $this->incoming_quantity_override;
+        }
+
+        return $this->calculationLog?->incoming_quantity;
+    }
+
+    /**
+     * 元の入庫予定数（計算ログから）を取得
+     */
+    public function getOriginalIncomingQuantityAttribute(): ?int
+    {
+        return $this->calculationLog?->incoming_quantity;
+    }
+
+    /**
+     * 計算後在庫（利用可能在庫）を取得
+     * オーバーライドがある場合は再計算
+     */
+    public function getCalculatedAvailableAttribute(): ?int
+    {
+        // オーバーライドがある場合は再計算
+        if ($this->incoming_quantity_override !== null) {
+            $currentStock = $this->current_stock ?? 0;
+            $incomingQty = $this->incoming_quantity_override;
+
+            return $currentStock + $incomingQty;
+        }
+
+        return $this->calculationLog?->calculation_details['利用可能在庫'] ?? null;
+    }
+
+    /**
      * 発注点（安全在庫）を取得
      */
     public function getSafetyStockAttribute(): ?int
     {
         return $this->calculationLog?->calculation_details['安全在庫'] ?? null;
+    }
+
+    /**
+     * 不足数を取得
+     */
+    public function getShortageQtyAttribute(): ?int
+    {
+        return $this->calculationLog?->calculated_shortage_qty;
     }
 
     public function scopeForBatch(Builder $query, string $batchCode): Builder

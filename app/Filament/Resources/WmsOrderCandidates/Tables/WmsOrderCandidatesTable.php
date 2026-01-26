@@ -72,13 +72,6 @@ class WmsOrderCandidatesTable
                     ->toggleable()
                     ->width('100px'),
 
-                TextColumn::make('item.capacity_case')
-                    ->label('入数')
-                    ->numeric()
-                    ->alignCenter()
-                    ->toggleable()
-                    ->width('50px'),
-
                 TextColumn::make('contractor.name')
                     ->label('発注先')
                     ->state(fn ($record) => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-')
@@ -94,38 +87,89 @@ class WmsOrderCandidatesTable
                     ->alignCenter()
                     ->width('120px'),
 
+                // 在庫・発注関連カラム（順序: 現在庫→移動依頼→入庫予定→計算後在庫→発注点→不足分→入数→発注数）
                 TextColumn::make('current_stock')
                     ->label('現在庫')
                     ->state(fn ($record) => $record->current_stock ?? '-')
                     ->numeric()
                     ->alignEnd()
-                    ->width('60px'),
+                    ->width('55px'),
+
+                TextColumn::make('satellite_demand_qty')
+                    ->label('移動依頼')
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('55px'),
+
+                TextInputColumn::make('incoming_quantity_override')
+                    ->label('入庫予定')
+                    ->type('number')
+                    ->rules(['nullable', 'integer', 'min:0'])
+                    ->alignEnd()
+                    ->width('65px')
+                    ->extraInputAttributes(['style' => 'width: 60px; text-align: right;'])
+                    ->placeholder(fn ($record) => $record->original_incoming_quantity ?? '-')
+                    ->disabled(fn ($record) => $record->status !== CandidateStatus::PENDING)
+                    ->afterStateUpdated(function ($record, $state) {
+                        if ($record->status !== CandidateStatus::PENDING) {
+                            Notification::make()
+                                ->title('承認後は入庫予定を変更できません')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        try {
+                            $newValue = $state !== '' && $state !== null ? (int) $state : null;
+
+                            $record->updateWithLock([
+                                'incoming_quantity_override' => $newValue,
+                                'is_manually_modified' => true,
+                                'modified_by' => auth()->id(),
+                                'modified_at' => now(),
+                            ]);
+
+                            Notification::make()
+                                ->title('入庫予定を更新しました')
+                                ->success()
+                                ->send();
+                        } catch (OptimisticLockException $e) {
+                            Notification::make()
+                                ->title('更新エラー')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+
+                TextColumn::make('calculated_available')
+                    ->label('計算後在庫')
+                    ->state(fn ($record) => $record->calculated_available ?? '-')
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('65px'),
 
                 TextColumn::make('safety_stock')
                     ->label('発注点')
                     ->state(fn ($record) => $record->safety_stock ?? '-')
                     ->numeric()
                     ->alignEnd()
-                    ->width('60px'),
+                    ->width('55px'),
 
-                TextColumn::make('self_shortage_qty')
-                    ->label('倉庫不足')
+                TextColumn::make('shortage_qty')
+                    ->label('不足分')
+                    ->state(fn ($record) => $record->shortage_qty ?? '-')
                     ->numeric()
                     ->alignEnd()
-                    ->width('60px'),
+                    ->width('55px')
+                    ->color(fn ($record) => ($record->shortage_qty ?? 0) > 0 ? 'danger' : null),
 
-                TextColumn::make('satellite_demand_qty')
-                    ->label('移動依頼')
+                TextColumn::make('item.capacity_case')
+                    ->label('入数')
                     ->numeric()
-                    ->alignEnd()
-                    ->width('60px')
-                    ->toggleable(),
-
-                TextColumn::make('suggested_quantity')
-                    ->label('算出数')
-                    ->numeric()
-                    ->alignEnd()
-                    ->width('60px'),
+                    ->alignCenter()
+                    ->width('50px'),
 
                 TextInputColumn::make('order_quantity')
                     ->label('発注数')

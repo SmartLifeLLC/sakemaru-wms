@@ -600,6 +600,28 @@ class ListWmsOrderCandidates extends ListRecords
                             ->send();
                     }
                 }),
+
+            Action::make('deleteAllPending')
+                ->label('承認前を全削除')
+                ->icon('heroicon-o-trash')
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalHeading('承認前の発注候補を全削除')
+                ->modalDescription(function () {
+                    $count = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
+
+                    return "承認前（PENDING）の発注候補 {$count}件 を全て削除します。この操作は取り消せません。";
+                })
+                ->modalSubmitActionLabel('全削除')
+                ->action(function () {
+                    $deleted = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->delete();
+
+                    Notification::make()
+                        ->title('承認前の発注候補を削除しました')
+                        ->body("{$deleted}件 を削除しました。")
+                        ->success()
+                        ->send();
+                }),
         ];
     }
 

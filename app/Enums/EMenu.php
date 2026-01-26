@@ -52,6 +52,7 @@ enum EMenu: string
     case WMS_CONTRACTOR_HOLIDAYS = 'master.wms_contractor_holidays';
     case WMS_ORDER_JX_SETTINGS = 'master.wms_order_jx_settings';
     case LOCATIONS = 'master.locations';
+    case FLOORS = 'master.floors';
     case WMS_PICKING_AREAS = 'master.wms_picking_areas';
     case WMS_PICKERS = 'master.wms_pickers';
     case WMS_PICKING_ASSIGNMENT_STRATEGIES = 'master.wms_picking_assignment_strategies';
@@ -107,9 +108,11 @@ enum EMenu: string
 
             // 倉庫マスタ
             self::WAREHOUSES,
+            self::WMS_WAREHOUSE_CALENDARS,
+            self::FLOORS,
             self::LOCATIONS,
-            self::WMS_PICKING_AREAS,
-            self::FLOOR_PLAN_EDITOR => EMenuCategory::MASTER_WAREHOUSE,
+            self::FLOOR_PLAN_EDITOR,
+            self::WMS_PICKING_AREAS => EMenuCategory::MASTER_WAREHOUSE,
 
             // 発注マスタ
             self::WAREHOUSE_CONTRACTORS,
@@ -117,7 +120,6 @@ enum EMenu: string
             self::ITEM_CONTRACTORS,
             self::WMS_MONTHLY_SAFETY_STOCKS,
             self::WMS_ITEM_SUPPLY_SETTINGS,
-            self::WMS_WAREHOUSE_CALENDARS,
             self::WMS_CONTRACTOR_HOLIDAYS,
             self::WMS_ORDER_JX_SETTINGS => EMenuCategory::MASTER_ORDER,
 
@@ -183,6 +185,7 @@ enum EMenu: string
             self::WMS_CONTRACTOR_HOLIDAYS => '発注先休日',
             self::WMS_ORDER_JX_SETTINGS => 'JX接続設定',
             self::LOCATIONS => 'ロケーション',
+            self::FLOORS => 'フロア管理',
             self::WMS_PICKING_AREAS => 'ピッキングエリア',
             self::WMS_PICKERS => 'ピッカー管理',
             self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 'ピッキング割当戦略',
@@ -246,6 +249,7 @@ enum EMenu: string
             self::WMS_CONTRACTOR_HOLIDAYS => 'heroicon-o-calendar',
             self::WMS_ORDER_JX_SETTINGS => 'heroicon-o-server',
             self::LOCATIONS => 'heroicon-o-map-pin',
+            self::FLOORS => 'heroicon-o-rectangle-stack',
             self::WMS_PICKING_AREAS => 'heroicon-o-squares-plus',
             self::WMS_PICKERS => 'heroicon-o-user-group',
             self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 'heroicon-o-adjustments-horizontal',
@@ -305,9 +309,11 @@ enum EMenu: string
 
             // 倉庫マスタ
             self::WAREHOUSES => 1,
-            self::LOCATIONS => 2,
-            self::WMS_PICKING_AREAS => 3,
-            self::FLOOR_PLAN_EDITOR => 4,
+            self::WMS_WAREHOUSE_CALENDARS => 2,
+            self::FLOORS => 3,
+            self::LOCATIONS => 4,
+            self::FLOOR_PLAN_EDITOR => 5,
+            self::WMS_PICKING_AREAS => 6,
 
             // 発注マスタ
             self::WAREHOUSE_CONTRACTORS => 1,
@@ -315,9 +321,8 @@ enum EMenu: string
             self::ITEM_CONTRACTORS => 3,
             self::WMS_MONTHLY_SAFETY_STOCKS => 4,
             self::WMS_ITEM_SUPPLY_SETTINGS => 5,
-            self::WMS_WAREHOUSE_CALENDARS => 6,
-            self::WMS_CONTRACTOR_HOLIDAYS => 7,
-            self::WMS_ORDER_JX_SETTINGS => 8,
+            self::WMS_CONTRACTOR_HOLIDAYS => 6,
+            self::WMS_ORDER_JX_SETTINGS => 7,
 
             // ピッキングマスタ
             self::WMS_PICKERS => 1,
