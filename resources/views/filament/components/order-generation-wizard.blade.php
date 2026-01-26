@@ -68,28 +68,45 @@
                 </div>
                 <div class="flex-1">
                     <h3 class="text-lg font-medium text-gray-900 dark:text-white">未承認の発注候補を削除</h3>
-                    <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                        現在 <span class="font-bold text-warning-600 dark:text-warning-400">{{ $pendingCount }}件</span> の未承認発注候補があります。
-                    </p>
-                    <p class="mt-2 text-sm text-gray-500 dark:text-gray-500">
-                        新しい発注候補を生成する前に、既存の未承認データを削除することをお勧めします。
-                    </p>
+                    @if ($pendingCount > 0)
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                            現在 <span class="font-bold text-warning-600 dark:text-warning-400">{{ $pendingCount }}件</span> の未承認発注候補があります。
+                        </p>
+                        <p class="mt-2 text-sm text-gray-500 dark:text-gray-500">
+                            新しい発注候補を生成する前に、既存の未承認データを削除することをお勧めします。
+                        </p>
+                    @else
+                        <p class="mt-1 text-sm text-success-600 dark:text-success-400">
+                            未承認の発注候補はありません。
+                        </p>
+                        <p class="mt-2 text-sm text-gray-500 dark:text-gray-500">
+                            次のステップに進んでください。
+                        </p>
+                    @endif
                 </div>
             </div>
             <div class="mt-6 flex justify-end gap-3">
-                <x-filament::button
-                    color="gray"
-                    wire:click="skipStep1Delete"
-                >
-                    スキップ
-                </x-filament::button>
-                <x-filament::button
-                    color="danger"
-                    wire:click="executeStep1Delete"
-                    :disabled="$pendingCount === 0"
-                >
-                    削除して続行
-                </x-filament::button>
+                @if ($pendingCount > 0)
+                    <x-filament::button
+                        color="gray"
+                        wire:click="skipStep1Delete"
+                    >
+                        スキップ
+                    </x-filament::button>
+                    <x-filament::button
+                        color="danger"
+                        wire:click="executeStep1Delete"
+                    >
+                        削除して続行
+                    </x-filament::button>
+                @else
+                    <x-filament::button
+                        color="primary"
+                        wire:click="skipStep1Delete"
+                    >
+                        続行
+                    </x-filament::button>
+                @endif
             </div>
         </div>
     @endif
