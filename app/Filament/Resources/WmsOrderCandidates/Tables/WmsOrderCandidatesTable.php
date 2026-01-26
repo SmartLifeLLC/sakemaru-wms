@@ -13,6 +13,7 @@ use App\Services\AutoOrder\OrderAuditService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -332,6 +333,7 @@ class WmsOrderCandidatesTable
                     ->modalWidth('6xl')
                     ->fillForm(fn ($record) => [
                         'order_quantity' => $record->order_quantity,
+                        'expected_arrival_date' => $record->expected_arrival_date,
                     ])
                     ->schema(function (?WmsOrderCandidate $record): array {
                         if (! $record) {
@@ -357,10 +359,14 @@ class WmsOrderCandidatesTable
                             $capacityText = implode(' / ', $parts) ?: '-';
                         }
 
+                        // 入荷予定日の算出理由
+                        $leadTimeDays = $log?->lead_time_days ?? 0;
+                        $arrivalDateAdjustment = $details['到着日調整'] ?? 0;
+
                         return [
                             Grid::make(3)
                                 ->schema([
-                                    View::make('filament.components.order-candidate-left-panel')
+                                    View::make('filament.components.order-candidate-left-panel-with-arrival')
                                         ->viewData([
                                             'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
                                             'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
@@ -368,6 +374,11 @@ class WmsOrderCandidatesTable
                                             'expectedArrivalDate' => $record->expected_arrival_date
                                                 ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
                                                 : '-',
+                                            'originalArrivalDate' => $record->original_arrival_date
+                                                ? \Carbon\Carbon::parse($record->original_arrival_date)->format('Y/m/d')
+                                                : '-',
+                                            'leadTimeDays' => $leadTimeDays,
+                                            'arrivalDateAdjustment' => $arrivalDateAdjustment,
                                             'itemCode' => $item?->code ?? '-',
                                             'itemName' => $item?->name ?? '-',
                                             'packaging' => $item?->packaging ?? '-',
@@ -394,24 +405,36 @@ class WmsOrderCandidatesTable
                                                     'calculatedAvailable' => $details['利用可能在庫'] ?? 0,
                                                     'shortageQty' => $details['不足数'] ?? 0,
                                                     'purchaseUnit' => $details['最小仕入単位'] ?? 1,
-                                                    'purchaseUnitAdjustment' => $details['仕入単位調整'] ?? null,
+                                                    'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,
                                                     'orderQuantity' => $record->order_quantity ?? 0,
                                                 ]),
 
-                                            Section::make('発注数変更')
+                                            Section::make('発注数・入荷予定日変更')
                                                 ->schema([
-                                                    TextInput::make('order_quantity')
-                                                        ->label('発注数')
-                                                        ->numeric()
-                                                        ->required()
-                                                        ->minValue(0)
-                                                        // 承認前（PENDING）のみ編集可能
-                                                        ->disabled($record->status !== CandidateStatus::PENDING)
-                                                        ->helperText(
-                                                            $record->status !== CandidateStatus::PENDING
-                                                                ? '承認後は発注数量を変更できません'
-                                                                : null
-                                                        ),
+                                                    Grid::make(2)
+                                                        ->schema([
+                                                            TextInput::make('order_quantity')
+                                                                ->label('発注数')
+                                                                ->numeric()
+                                                                ->required()
+                                                                ->minValue(0)
+                                                                ->disabled($record->status !== CandidateStatus::PENDING)
+                                                                ->helperText(
+                                                                    $record->status !== CandidateStatus::PENDING
+                                                                        ? '承認後は変更できません'
+                                                                        : null
+                                                                ),
+
+                                                            DatePicker::make('expected_arrival_date')
+                                                                ->label('入荷予定日')
+                                                                ->required()
+                                                                ->disabled($record->status !== CandidateStatus::PENDING)
+                                                                ->helperText(
+                                                                    $record->status !== CandidateStatus::PENDING
+                                                                        ? '承認後は変更できません'
+                                                                        : null
+                                                                ),
+                                                        ]),
                                                 ]),
                                         ])
                                         ->columnSpan(2),
@@ -422,30 +445,49 @@ class WmsOrderCandidatesTable
                         // 承認後の編集は許可しない
                         if ($record->status !== CandidateStatus::PENDING) {
                             Notification::make()
-                                ->title('承認後は発注数量を変更できません')
+                                ->title('承認後は変更できません')
                                 ->danger()
                                 ->send();
 
                             return;
                         }
 
+                        $updated = false;
+                        $updateData = [
+                            'is_manually_modified' => true,
+                            'modified_by' => auth()->id(),
+                            'modified_at' => now(),
+                        ];
+
                         if ($data['order_quantity'] != $record->order_quantity) {
+                            $oldQuantity = $record->order_quantity;
+                            $updateData['order_quantity'] = $data['order_quantity'];
+                            $updated = true;
+                        }
+
+                        $newArrivalDate = $data['expected_arrival_date'] instanceof \Carbon\Carbon
+                            ? $data['expected_arrival_date']->format('Y-m-d')
+                            : $data['expected_arrival_date'];
+                        $currentArrivalDate = $record->expected_arrival_date
+                            ? $record->expected_arrival_date->format('Y-m-d')
+                            : null;
+
+                        if ($newArrivalDate !== $currentArrivalDate) {
+                            $updateData['expected_arrival_date'] = $newArrivalDate;
+                            $updated = true;
+                        }
+
+                        if ($updated) {
                             try {
-                                $oldQuantity = $record->order_quantity;
-                                $newQuantity = $data['order_quantity'];
+                                $record->updateWithLock($updateData);
 
-                                $record->updateWithLock([
-                                    'order_quantity' => $newQuantity,
-                                    'is_manually_modified' => true,
-                                    'modified_by' => auth()->id(),
-                                    'modified_at' => now(),
-                                ]);
-
-                                // 監査ログ
-                                app(OrderAuditService::class)->logQuantityChange($record, $oldQuantity, $newQuantity);
+                                // 監査ログ（発注数が変更された場合のみ）
+                                if (isset($oldQuantity)) {
+                                    app(OrderAuditService::class)->logQuantityChange($record, $oldQuantity, $data['order_quantity']);
+                                }
 
                                 Notification::make()
-                                    ->title('発注数を更新しました')
+                                    ->title('発注候補を更新しました')
                                     ->success()
                                     ->send();
                             } catch (OptimisticLockException $e) {

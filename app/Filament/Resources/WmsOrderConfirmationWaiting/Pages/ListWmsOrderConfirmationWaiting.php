@@ -8,6 +8,7 @@ use App\Filament\Resources\WmsOrderConfirmationWaiting\WmsOrderConfirmationWaiti
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\OrderExecutionService;
+use App\Services\AutoOrder\OrderTransmissionService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -30,12 +31,64 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('generateOrderFiles')
+                ->label('発注送信データ生成')
+                ->icon('heroicon-o-document-text')
+                ->color('info')
+                ->modalHeading('発注送信データの生成')
+                ->modalDescription('承認済みの発注候補から発注ファイルを生成します（テスト用）。確定後に再度生成されます。')
+                ->schema([
+                    Select::make('batch_code')
+                        ->label('バッチコード')
+                        ->options(function () {
+                            return WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
+                                ->distinct()
+                                ->orderBy('batch_code', 'desc')
+                                ->pluck('batch_code')
+                                ->mapWithKeys(fn ($code) => [
+                                    $code => \Carbon\Carbon::createFromFormat('YmdHis', $code)->format('Y/m/d H:i:s'),
+                                ]);
+                        })
+                        ->required()
+                        ->helperText('ファイルを生成するバッチを選択してください'),
+                ])
+                ->action(function (array $data) {
+                    $service = app(OrderTransmissionService::class);
+
+                    try {
+                        $result = $service->generateOrderFilesForApproved($data['batch_code']);
+
+                        if ($result['success']) {
+                            $fileCount = count($result['files']);
+                            $totalOrders = $result['total_orders'];
+                            Notification::make()
+                                ->title('発注送信データを生成しました')
+                                ->body("{$fileCount}件のファイル（発注 {$totalOrders}件）を生成しました。発注送信ファイル画面で確認・ダウンロードできます。")
+                                ->success()
+                                ->send();
+                        } else {
+                            $errorMsg = implode(', ', $result['errors']);
+                            Notification::make()
+                                ->title('生成に失敗しました')
+                                ->body($errorMsg ?: '対象がありません')
+                                ->danger()
+                                ->send();
+                        }
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('エラーが発生しました')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
             Action::make('confirmAll')
                 ->label('発注確定')
                 ->icon('heroicon-o-check-circle')
                 ->color('success')
                 ->modalHeading('発注確定')
-                ->modalDescription('承認済みの発注候補を確定し、入庫予定を作成します。')
+                ->modalDescription('承認済みの発注候補を確定し、入庫予定を作成します。同時に発注送信データも生成されます。')
                 ->schema([
                     Select::make('batch_code')
                         ->label('バッチコード')
@@ -53,10 +106,12 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                         ->helperText('確定するバッチを選択してください'),
                 ])
                 ->action(function (array $data) {
-                    $service = app(OrderExecutionService::class);
+                    $executionService = app(OrderExecutionService::class);
+                    $transmissionService = app(OrderTransmissionService::class);
 
                     try {
-                        $schedules = $service->confirmBatch($data['batch_code'], auth()->id());
+                        // 1. 発注確定
+                        $schedules = $executionService->confirmBatch($data['batch_code'], auth()->id());
 
                         if ($schedules->isEmpty()) {
                             Notification::make()
@@ -68,9 +123,13 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                             return;
                         }
 
+                        // 2. 発注送信データ生成
+                        $result = $transmissionService->generateOrderFiles($data['batch_code']);
+                        $fileCount = count($result['files'] ?? []);
+
                         Notification::make()
                             ->title('発注を確定しました')
-                            ->body("入庫予定 {$schedules->count()}件 を作成しました")
+                            ->body("入庫予定 {$schedules->count()}件 を作成しました。発注送信ファイル {$fileCount}件 を生成しました。")
                             ->success()
                             ->send();
                     } catch (\Exception $e) {

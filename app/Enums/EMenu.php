@@ -35,8 +35,11 @@ enum EMenu: string
     // 発注処理
     case WMS_ORDER_CANDIDATES = 'auto_order.wms_order_candidates';
     case WMS_ORDER_CONFIRMATION_WAITING = 'auto_order.wms_order_confirmation_waiting';
-    case WMS_ORDER_CONFIRMED = 'auto_order.wms_order_confirmed';
     case WMS_AUTO_ORDER_JOBS = 'auto_order.wms_auto_order_jobs';
+    case WMS_ORDER_DOCUMENTS = 'auto_order.wms_order_documents';
+
+    // 発注履歴
+    case WMS_ORDER_CONFIRMED = 'order_history.wms_order_confirmed';
 
     // 在庫管理
     case REAL_STOCKS = 'inventory.real_stocks';
@@ -101,8 +104,10 @@ enum EMenu: string
 
             self::WMS_ORDER_CANDIDATES,
             self::WMS_ORDER_CONFIRMATION_WAITING,
-            self::WMS_ORDER_CONFIRMED,
-            self::WMS_AUTO_ORDER_JOBS => EMenuCategory::AUTO_ORDER,
+            self::WMS_AUTO_ORDER_JOBS,
+            self::WMS_ORDER_DOCUMENTS => EMenuCategory::AUTO_ORDER,
+
+            self::WMS_ORDER_CONFIRMED => EMenuCategory::ORDER_HISTORY,
 
             self::REAL_STOCKS => EMenuCategory::INVENTORY,
 
@@ -172,6 +177,7 @@ enum EMenu: string
             self::WMS_ORDER_CONFIRMATION_WAITING => '発注確定待ち',
             self::WMS_ORDER_CONFIRMED => '発注確定済み',
             self::WMS_AUTO_ORDER_JOBS => '発注候補生成',
+            self::WMS_ORDER_DOCUMENTS => '発注送信ファイル',
 
             self::REAL_STOCKS => '在庫管理',
 
@@ -236,6 +242,7 @@ enum EMenu: string
             self::WMS_ORDER_CONFIRMATION_WAITING => 'heroicon-o-clipboard-document-check',
             self::WMS_ORDER_CONFIRMED => 'heroicon-o-check-badge',
             self::WMS_AUTO_ORDER_JOBS => 'heroicon-o-queue-list',
+            self::WMS_ORDER_DOCUMENTS => 'heroicon-o-document-arrow-down',
 
             self::REAL_STOCKS => 'heroicon-o-cube-transparent',
 
@@ -302,7 +309,10 @@ enum EMenu: string
             self::WMS_AUTO_ORDER_JOBS => 0,
             self::WMS_ORDER_CANDIDATES => 1,
             self::WMS_ORDER_CONFIRMATION_WAITING => 2,
-            self::WMS_ORDER_CONFIRMED => 3,
+            self::WMS_ORDER_DOCUMENTS => 3,
+
+            // 発注履歴
+            self::WMS_ORDER_CONFIRMED => 1,
 
             // 在庫管理
             self::REAL_STOCKS => 1,
