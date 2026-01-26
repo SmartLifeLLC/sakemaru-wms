@@ -184,12 +184,12 @@ enum EMenu: string
             self::WMS_WAREHOUSE_CALENDARS => '倉庫カレンダー',
             self::WMS_CONTRACTOR_HOLIDAYS => '発注先休日',
             self::WMS_ORDER_JX_SETTINGS => 'JX接続設定',
-            self::LOCATIONS => 'ロケーション',
-            self::FLOORS => 'フロア管理',
+            self::LOCATIONS => '倉庫ロケーション',
+            self::FLOORS => '倉庫フロア',
             self::WMS_PICKING_AREAS => 'ピッキングエリア',
             self::WMS_PICKERS => 'ピッカー管理',
             self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 'ピッキング割当戦略',
-            self::FLOOR_PLAN_EDITOR => 'フロア図エディタ',
+            self::FLOOR_PLAN_EDITOR => '倉庫レイアウト',
 
             self::EARNINGS => '売上データ',
 
