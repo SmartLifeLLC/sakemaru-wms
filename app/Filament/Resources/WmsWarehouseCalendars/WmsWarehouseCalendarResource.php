@@ -4,7 +4,6 @@ namespace App\Filament\Resources\WmsWarehouseCalendars;
 
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsWarehouseCalendars\Pages\CreateWmsWarehouseCalendar;
-use App\Filament\Resources\WmsWarehouseCalendars\Pages\EditWmsWarehouseCalendar;
 use App\Filament\Resources\WmsWarehouseCalendars\Pages\ListWmsWarehouseCalendars;
 use App\Filament\Resources\WmsWarehouseCalendars\Schemas\WmsWarehouseCalendarForm;
 use App\Filament\Resources\WmsWarehouseCalendars\Tables\WmsWarehouseCalendarsTable;
@@ -64,7 +63,6 @@ class WmsWarehouseCalendarResource extends Resource
         return [
             'index' => ListWmsWarehouseCalendars::route('/'),
             'create' => CreateWmsWarehouseCalendar::route('/create'),
-            'edit' => EditWmsWarehouseCalendar::route('/{record}/edit'),
         ];
     }
 }
