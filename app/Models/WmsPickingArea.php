@@ -6,7 +6,6 @@ use App\Models\Sakemaru\Location;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class WmsPickingArea extends Model
 {
@@ -37,26 +36,11 @@ class WmsPickingArea extends Model
     ];
 
     /**
-     * このピッキングエリアに属するWmsLocation
+     * このエリアに含まれるロケーション
      */
-    public function wmsLocations(): HasMany
+    public function locations(): HasMany
     {
-        return $this->hasMany(WmsLocation::class, 'wms_picking_area_id');
-    }
-
-    /**
-     * このエリアに含まれるLocations（WmsLocation経由）
-     */
-    public function locations(): HasManyThrough
-    {
-        return $this->hasManyThrough(
-            Location::class,
-            WmsLocation::class,
-            'wms_picking_area_id', // wms_locations.wms_picking_area_id
-            'id',                   // locations.id
-            'id',                   // wms_picking_areas.id
-            'location_id'           // wms_locations.location_id
-        );
+        return $this->hasMany(Location::class, 'wms_picking_area_id');
     }
 
     /**
@@ -64,9 +48,9 @@ class WmsPickingArea extends Model
      */
     public function applySettingsToLocations(): int
     {
-        $locationIds = $this->wmsLocations()->pluck('location_id');
+        $count = $this->locations()->count();
 
-        if ($locationIds->isEmpty()) {
+        if ($count === 0) {
             return 0;
         }
 
@@ -87,7 +71,9 @@ class WmsPickingArea extends Model
             return 0;
         }
 
-        return Location::whereIn('id', $locationIds)->update($updateData);
+        $this->locations()->update($updateData);
+
+        return $count;
     }
 
     /**

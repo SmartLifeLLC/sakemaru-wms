@@ -21,6 +21,13 @@ class WmsOrderCandidate extends WmsModel
 
     protected $table = 'wms_order_candidates';
 
+    /**
+     * 手動でセットされた計算ログ（N+1対策）
+     */
+    protected ?WmsOrderCalculationLog $preloadedCalculationLog = null;
+
+    protected bool $calculationLogPreloaded = false;
+
     protected $fillable = [
         'batch_code',
         'warehouse_id',
@@ -83,14 +90,69 @@ class WmsOrderCandidate extends WmsModel
     }
 
     /**
-     * 計算ログを取得（複合キーのため手動取得）
+     * 計算ログを事前にセット（N+1対策）
+     */
+    public function setPreloadedCalculationLog(?WmsOrderCalculationLog $log): self
+    {
+        $this->preloadedCalculationLog = $log;
+        $this->calculationLogPreloaded = true;
+
+        return $this;
+    }
+
+    /**
+     * 計算ログを取得（プリロード済みの場合はキャッシュを使用）
      */
     public function getCalculationLogAttribute(): ?WmsOrderCalculationLog
     {
+        // プリロード済みの場合はキャッシュを返す
+        if ($this->calculationLogPreloaded) {
+            return $this->preloadedCalculationLog;
+        }
+
+        // プリロードされていない場合はクエリを実行
         return WmsOrderCalculationLog::where('batch_code', $this->batch_code)
             ->where('warehouse_id', $this->warehouse_id)
             ->where('item_id', $this->item_id)
             ->first();
+    }
+
+    /**
+     * コレクションに対して計算ログを一括プリロード
+     *
+     * @param  \Illuminate\Database\Eloquent\Collection<int, self>  $candidates
+     */
+    public static function preloadCalculationLogs($candidates): void
+    {
+        if ($candidates->isEmpty()) {
+            return;
+        }
+
+        // 複合キーの組み合わせを収集
+        $keys = $candidates->map(fn ($c) => [
+            'batch_code' => $c->batch_code,
+            'warehouse_id' => $c->warehouse_id,
+            'item_id' => $c->item_id,
+        ])->unique(fn ($k) => "{$k['batch_code']}_{$k['warehouse_id']}_{$k['item_id']}");
+
+        // 一括でログを取得
+        $query = WmsOrderCalculationLog::query();
+        $keys->each(function ($key, $index) use ($query) {
+            $method = $index === 0 ? 'where' : 'orWhere';
+            $query->$method(function ($q) use ($key) {
+                $q->where('batch_code', $key['batch_code'])
+                    ->where('warehouse_id', $key['warehouse_id'])
+                    ->where('item_id', $key['item_id']);
+            });
+        });
+
+        $logs = $query->get()->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");
+
+        // 各候補にログをセット
+        $candidates->each(function ($candidate) use ($logs) {
+            $key = "{$candidate->batch_code}_{$candidate->warehouse_id}_{$candidate->item_id}";
+            $candidate->setPreloadedCalculationLog($logs->get($key));
+        });
     }
 
     /**

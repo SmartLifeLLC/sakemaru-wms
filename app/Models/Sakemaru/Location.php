@@ -4,6 +4,7 @@ namespace App\Models\Sakemaru;
 
 use App\Enums\AvailableQuantityFlag;
 use App\Enums\TemperatureType;
+use App\Models\WmsPickingArea;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -35,9 +36,12 @@ class Location extends CustomModel
         return $this->belongsTo(Floor::class);
     }
 
-    public function wmsLocation()
+    /**
+     * このロケーションが属するピッキングエリア
+     */
+    public function pickingArea(): BelongsTo
     {
-        return $this->hasOne(\App\Models\WmsLocation::class, 'location_id', 'id');
+        return $this->belongsTo(WmsPickingArea::class, 'wms_picking_area_id');
     }
 
     public function joinedLocation(): Attribute

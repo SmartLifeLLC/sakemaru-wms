@@ -52,7 +52,6 @@ enum EMenu: string
     case WMS_CONTRACTOR_HOLIDAYS = 'master.wms_contractor_holidays';
     case WMS_ORDER_JX_SETTINGS = 'master.wms_order_jx_settings';
     case LOCATIONS = 'master.locations';
-    case WMS_LOCATIONS = 'master.wms_locations';
     case WMS_PICKING_AREAS = 'master.wms_picking_areas';
     case WMS_PICKERS = 'master.wms_pickers';
     case WMS_PICKING_ASSIGNMENT_STRATEGIES = 'master.wms_picking_assignment_strategies';
@@ -109,7 +108,6 @@ enum EMenu: string
             // 倉庫マスタ
             self::WAREHOUSES,
             self::LOCATIONS,
-            self::WMS_LOCATIONS,
             self::WMS_PICKING_AREAS,
             self::FLOOR_PLAN_EDITOR => EMenuCategory::MASTER_WAREHOUSE,
 
@@ -185,7 +183,6 @@ enum EMenu: string
             self::WMS_CONTRACTOR_HOLIDAYS => '発注先休日',
             self::WMS_ORDER_JX_SETTINGS => 'JX接続設定',
             self::LOCATIONS => 'ロケーション',
-            self::WMS_LOCATIONS => 'WMSロケーション',
             self::WMS_PICKING_AREAS => 'ピッキングエリア',
             self::WMS_PICKERS => 'ピッカー管理',
             self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 'ピッキング割当戦略',
@@ -249,7 +246,6 @@ enum EMenu: string
             self::WMS_CONTRACTOR_HOLIDAYS => 'heroicon-o-calendar',
             self::WMS_ORDER_JX_SETTINGS => 'heroicon-o-server',
             self::LOCATIONS => 'heroicon-o-map-pin',
-            self::WMS_LOCATIONS => 'heroicon-o-squares-2x2',
             self::WMS_PICKING_AREAS => 'heroicon-o-squares-plus',
             self::WMS_PICKERS => 'heroicon-o-user-group',
             self::WMS_PICKING_ASSIGNMENT_STRATEGIES => 'heroicon-o-adjustments-horizontal',
@@ -310,9 +306,8 @@ enum EMenu: string
             // 倉庫マスタ
             self::WAREHOUSES => 1,
             self::LOCATIONS => 2,
-            self::WMS_LOCATIONS => 3,
-            self::WMS_PICKING_AREAS => 4,
-            self::FLOOR_PLAN_EDITOR => 5,
+            self::WMS_PICKING_AREAS => 3,
+            self::FLOOR_PLAN_EDITOR => 4,
 
             // 発注マスタ
             self::WAREHOUSE_CONTRACTORS => 1,

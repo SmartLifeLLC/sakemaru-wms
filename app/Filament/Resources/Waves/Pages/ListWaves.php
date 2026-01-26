@@ -406,18 +406,9 @@ class ListWaves extends ListRecords
                 'walking_order' => null,
             ];
 
-            // Get walking_order
-            if ($reservationResult['location_id']) {
-                $wmsLocation = DB::connection('sakemaru')
-                    ->table('wms_locations')
-                    ->where('location_id', $reservationResult['location_id'])
-                    ->first();
-                $reservationResult['walking_order'] = $wmsLocation->walking_order ?? null;
-            }
-
             $reservationResults[$tradeItem->id] = $reservationResult;
 
-            // Get picking area and floor info
+            // Get picking area and floor info from locations table
             $pickingAreaId = null;
             $floorId = null;
             $temperatureType = null;
@@ -431,12 +422,7 @@ class ListWaves extends ListRecords
                 $floorId = $location->floor_id ?? null;
                 $temperatureType = $location->temperature_type ?? null;
                 $isRestrictedArea = $location->is_restricted_area ?? false;
-
-                $wmsLocation = DB::connection('sakemaru')
-                    ->table('wms_locations')
-                    ->where('location_id', $reservationResult['location_id'])
-                    ->first();
-                $pickingAreaId = $wmsLocation->wms_picking_area_id ?? null;
+                $pickingAreaId = $location->wms_picking_area_id ?? null;
             }
 
             // Fallback for items without location
@@ -444,12 +430,11 @@ class ListWaves extends ListRecords
                 $itemLocation = DB::connection('sakemaru')
                     ->table('real_stocks as rs')
                     ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
-                    ->join('wms_locations as wl', 'rsl.location_id', '=', 'wl.location_id')
                     ->join('locations as l', 'rsl.location_id', '=', 'l.id')
                     ->where('rs.warehouse_id', $waveSetting->warehouse_id)
                     ->where('rs.item_id', $tradeItem->item_id)
-                    ->whereNotNull('wl.wms_picking_area_id')
-                    ->select('wl.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
+                    ->whereNotNull('l.wms_picking_area_id')
+                    ->select('l.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
                     ->first();
 
                 if ($itemLocation) {
@@ -637,16 +622,7 @@ class ListWaves extends ListRecords
                 'walking_order' => null,
             ];
 
-            // Get walking_order from wms_locations
-            if ($reservationResult['location_id']) {
-                $wmsLocation = DB::connection('sakemaru')
-                    ->table('wms_locations')
-                    ->where('location_id', $reservationResult['location_id'])
-                    ->first();
-                $reservationResult['walking_order'] = $wmsLocation->walking_order ?? null;
-            }
-
-            // Get picking area and floor
+            // Get picking area and floor from locations table
             $pickingAreaId = null;
             $floorId = null;
 
@@ -656,12 +632,7 @@ class ListWaves extends ListRecords
                     ->where('id', $reservationResult['location_id'])
                     ->first();
                 $floorId = $location->floor_id ?? null;
-
-                $wmsLocation = DB::connection('sakemaru')
-                    ->table('wms_locations')
-                    ->where('location_id', $reservationResult['location_id'])
-                    ->first();
-                $pickingAreaId = $wmsLocation->wms_picking_area_id ?? null;
+                $pickingAreaId = $location->wms_picking_area_id ?? null;
             }
 
             // Default picking area if not found

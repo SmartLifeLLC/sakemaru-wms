@@ -49,9 +49,9 @@ class WmsPickingAreasTable
                     ->label('有効')
                     ->boolean()
                     ->sortable(),
-                TextColumn::make('wms_locations_count')
+                TextColumn::make('locations_count')
                     ->label('ロケーション数')
-                    ->counts('wmsLocations')
+                    ->counts('locations')
                     ->sortable(),
                 TextColumn::make('created_at')
                     ->label('作成日時')

@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
-use App\Models\WmsLocation;
 use App\Models\WmsPickingArea;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -96,10 +95,6 @@ class GenerateWmsTestDataCommand extends Command
                 ->where('warehouse_id', $this->warehouseId)
                 ->delete();
 
-            // Clean wms_locations for warehouse 991
-            $locationIds = Location::where('warehouse_id', $this->warehouseId)->pluck('id');
-            WmsLocation::whereIn('location_id', $locationIds)->delete();
-
             // Clean locations for warehouse 991
             Location::where('warehouse_id', $this->warehouseId)->delete();
 
@@ -129,7 +124,7 @@ class GenerateWmsTestDataCommand extends Command
         $unitTypes = ['CASE', 'PIECE', 'BOTH'];
         $walkingOrder = 1000;
 
-        DB::connection('sakemaru')->transaction(function () use ($zones, $unitTypes, &$walkingOrder) {
+        DB::connection('sakemaru')->transaction(function () use ($zones, &$walkingOrder) {
             foreach ($zones as $zoneIndex => $zone) {
                 // Create picking area for each zone
                 $pickingArea = WmsPickingArea::create([
@@ -154,18 +149,8 @@ class GenerateWmsTestDataCommand extends Command
                             'last_updater_id' => 0,
                         ]);
 
-                        // Create WMS location attributes with picking area
-                        $unitType = $unitTypes[($rack + $level) % 3];
-
-                        WmsLocation::create([
-                            'location_id' => $location->id,
-                            'wms_picking_area_id' => $pickingArea->id,
-                            'picking_unit_type' => $unitType,
-                            // 'walking_order' => $walkingOrder, // Removed: walking_order is no longer used
-                            'aisle' => $zone['prefix'],
-                            'rack' => (string) $rack,
-                            'level' => (string) $level,
-                        ]);
+                        // Assign location to picking area
+                        $location->update(['wms_picking_area_id' => $pickingArea->id]);
 
                         $this->testLocations[] = [
                             'id' => $location->id,
@@ -173,8 +158,6 @@ class GenerateWmsTestDataCommand extends Command
                             'name' => $location->name,
                             'zone' => $zone['code'],
                             'picking_area' => $zone['name'],
-                            'unit_type' => $unitType,
-                            // 'walking_order' => $walkingOrder, // Removed: walking_order is no longer used
                         ];
 
                         // $walkingOrder += 100; // Removed: walking_order is no longer used
@@ -325,12 +308,12 @@ class GenerateWmsTestDataCommand extends Command
 
         // Locations
         $locationCount = Location::where('warehouse_id', $this->warehouseId)->count();
-        $wmsLocationCount = WmsLocation::whereHas('location', function ($query) {
-            $query->where('warehouse_id', $this->warehouseId);
-        })->count();
+        $locationsWithArea = Location::where('warehouse_id', $this->warehouseId)
+            ->whereNotNull('wms_picking_area_id')
+            ->count();
 
         $this->line("\n📍 Locations: {$locationCount}");
-        $this->line("   WMS Attributes: {$wmsLocationCount}");
+        $this->line("   With Picking Area: {$locationsWithArea}");
 
         // Pickers
         $pickerCount = DB::connection('sakemaru')->table('wms_pickers')
@@ -341,7 +324,7 @@ class GenerateWmsTestDataCommand extends Command
         if (! empty($this->testLocations)) {
             $this->line("\n   Sample locations:");
             foreach (array_slice($this->testLocations, 0, 5) as $loc) {
-                $this->line("   - {$loc['code']} | {$loc['zone']} | {$loc['unit_type']}");
+                $this->line("   - {$loc['code']} | {$loc['zone']}");
             }
         }
 

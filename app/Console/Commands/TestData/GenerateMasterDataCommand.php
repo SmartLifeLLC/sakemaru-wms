@@ -248,19 +248,6 @@ class GenerateMasterDataCommand extends Command
                     'updated_at' => now(),
                 ]);
 
-                // Create WMS location record with walking_order for route optimization
-                DB::connection('sakemaru')->table('wms_locations')->insert([
-                    'location_id' => $locationId,
-                    'wms_picking_area_id' => null, // Can be set later via floor plan editor
-                    'picking_unit_type' => $type['unit_type'],
-                    'walking_order' => $walkingOrder++, // Sequential order for now
-                    'aisle' => $code1, // Use code1 as aisle
-                    'rack' => $code2, // Use code2 as rack
-                    'level' => '1', // Default level
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
                 $totalCreated++;
             }
         }

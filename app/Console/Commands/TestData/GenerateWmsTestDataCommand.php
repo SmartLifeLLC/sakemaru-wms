@@ -6,7 +6,6 @@ use Database\Seeders\AssignPickersToTasksSeeder;
 use Database\Seeders\FloorSeeder;
 use Database\Seeders\LocationSeeder;
 use Database\Seeders\RealStockSeeder;
-use Database\Seeders\WmsLocationSeeder;
 use Database\Seeders\WmsPickerSeeder;
 use Database\Seeders\WmsPickingAreaSeeder;
 use Illuminate\Console\Command;
@@ -16,9 +15,8 @@ class GenerateWmsTestDataCommand extends Command
     protected $signature = 'testdata:wms
                             {--warehouse-id=991 : Warehouse ID}
                             {--item-count=30 : Number of items to generate stock for}
-                            {--all : Generate all WMS test data (picking areas, locations, stocks, pickers)}
+                            {--all : Generate all WMS test data (picking areas, stocks, pickers)}
                             {--picking-areas : Generate picking areas only}
-                            {--locations : Generate WMS locations only}
                             {--stocks : Generate stock data only}
                             {--pickers : Generate pickers only}
                             {--assign-pickers : Assign pickers to existing tasks only}';
@@ -32,13 +30,12 @@ class GenerateWmsTestDataCommand extends Command
 
         $all = $this->option('all');
         $pickingAreas = $this->option('picking-areas');
-        $locations = $this->option('locations');
         $stocks = $this->option('stocks');
         $pickers = $this->option('pickers');
         $assignPickers = $this->option('assign-pickers');
 
         // If no specific option is set, generate all
-        if (! $all && ! $pickingAreas && ! $locations && ! $stocks && ! $pickers && ! $assignPickers) {
+        if (! $all && ! $pickingAreas && ! $stocks && ! $pickers && ! $assignPickers) {
             $all = true;
         }
 
@@ -84,16 +81,7 @@ class GenerateWmsTestDataCommand extends Command
                 $this->newLine();
             }
 
-            // 3. Generate WMS location mappings
-            if ($all || $locations) {
-                $this->info('🗺️  Generating WMS location mappings...');
-                $seeder = new WmsLocationSeeder;
-                $seeder->setCommand($this);
-                $seeder->run();
-                $this->newLine();
-            }
-
-            // 4. Generate WMS pickers
+            // 3. Generate WMS pickers
             if ($all || $pickers) {
                 $this->info('👤 Generating WMS pickers...');
                 $seeder = new WmsPickerSeeder;

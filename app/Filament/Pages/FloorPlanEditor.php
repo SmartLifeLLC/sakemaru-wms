@@ -8,7 +8,6 @@ use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsFloorObject;
-use App\Models\WmsLocation;
 use App\Models\WmsPicker;
 use App\Models\WmsPickingArea;
 use App\Models\WmsWarehouseLayout;
@@ -1120,11 +1119,7 @@ class FloorPlanEditor extends Page
             $centerY = ($location->y1_pos + $location->y2_pos) / 2;
 
             if ($this->isPointInPolygon($centerX, $centerY, $polygon)) {
-                // Update WmsLocation
-                \App\Models\WmsLocation::updateOrCreate(
-                    ['location_id' => $location->id],
-                    ['wms_picking_area_id' => $area->id]
-                );
+                $location->update(['wms_picking_area_id' => $area->id]);
                 $count++;
             }
         }
@@ -1144,7 +1139,7 @@ class FloorPlanEditor extends Page
         }
 
         // Clear existing assignments for this area
-        WmsLocation::where('wms_picking_area_id', $area->id)->update(['wms_picking_area_id' => null]);
+        Location::where('wms_picking_area_id', $area->id)->update(['wms_picking_area_id' => null]);
 
         $locations = Location::where('floor_id', $area->floor_id)->get();
         $count = 0;
@@ -1155,11 +1150,7 @@ class FloorPlanEditor extends Page
             $centerY = ($location->y1_pos + $location->y2_pos) / 2;
 
             if ($this->isPointInPolygon($centerX, $centerY, $polygon)) {
-                // Update WmsLocation
-                WmsLocation::updateOrCreate(
-                    ['location_id' => $location->id],
-                    ['wms_picking_area_id' => $area->id]
-                );
+                $location->update(['wms_picking_area_id' => $area->id]);
                 $count++;
             }
         }
@@ -1202,12 +1193,9 @@ class FloorPlanEditor extends Page
             if ($area) {
                 // Unassign locations and delete area in transaction
                 \Illuminate\Support\Facades\DB::transaction(function () use ($area) {
-                    // Use Location model as WmsLocation is deprecated
-                    \App\Models\Sakemaru\Location::whereHas('wmsLocation', function ($query) use ($area) {
-                        $query->where('wms_picking_area_id', $area->id);
-                    })->with('wmsLocation')->get()->each(function ($location) {
-                        $location->wmsLocation()->update(['wms_picking_area_id' => null]);
-                    });
+                    // Clear wms_picking_area_id from locations
+                    Location::where('wms_picking_area_id', $area->id)
+                        ->update(['wms_picking_area_id' => null]);
 
                     $area->delete();
                 });
@@ -1247,7 +1235,7 @@ class FloorPlanEditor extends Page
      */
     public function getAreaLocationCount(int $areaId): int
     {
-        return WmsLocation::where('wms_picking_area_id', $areaId)->count();
+        return Location::where('wms_picking_area_id', $areaId)->count();
     }
 
     /**

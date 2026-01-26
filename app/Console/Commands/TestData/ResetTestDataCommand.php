@@ -201,16 +201,6 @@ class ResetTestDataCommand extends Command
         $this->line('🗑️  Deleting locations...');
         $count = 0;
 
-        // Delete wms_locations first
-        $query = DB::connection('sakemaru')->table('wms_locations as wl')
-            ->join('locations as l', 'wl.location_id', '=', 'l.id');
-        if ($this->warehouseId) {
-            $query->where('l.warehouse_id', $this->warehouseId);
-        }
-        $deleted = $query->delete();
-        $count += $deleted;
-        $this->line("  Deleted {$deleted} wms_locations");
-
         // Delete locations
         $query = DB::connection('sakemaru')->table('locations');
         if ($this->warehouseId) {
