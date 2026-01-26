@@ -40,6 +40,20 @@ class ListWmsOrderCandidates extends ListRecords
 
     protected static string $resource = WmsOrderCandidateResource::class;
 
+    public function mount(): void
+    {
+        parent::mount();
+
+        // 発注候補生成からのリダイレクト時に通知を表示
+        if ($result = session('order_generation_result')) {
+            Notification::make()
+                ->title('発注候補を生成しました')
+                ->body("バッチコード: {$result['batchCode']} / {$result['calculated']}件")
+                ->success()
+                ->send();
+        }
+    }
+
     protected function getHeaderActions(): array
     {
         return [
@@ -634,6 +648,8 @@ class ListWmsOrderCandidates extends ListRecords
                     'item',
                     'contractor',
                 ])
+                // デフォルトでPENDINGのみ表示（大幅な高速化）
+                ->where('status', CandidateStatus::PENDING)
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')
@@ -661,8 +677,11 @@ class ListWmsOrderCandidates extends ListRecords
         // ユーザーのデフォルト倉庫を取得
         $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
 
-        // 発注候補に存在する倉庫を取得してタブを生成
-        $warehouseIds = WmsOrderCandidate::distinct()->pluck('warehouse_id')->toArray();
+        // PENDING の発注候補に存在する倉庫のみ取得（高速化）
+        $warehouseIds = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+            ->distinct()
+            ->pluck('warehouse_id')
+            ->toArray();
         $warehouses = Warehouse::whereIn('id', $warehouseIds)->orderBy('name')->get();
 
         // デフォルト倉庫が発注候補に存在するかチェック

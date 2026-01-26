@@ -129,22 +129,20 @@ class WmsOrderCandidate extends WmsModel
             return;
         }
 
-        // batch_code + warehouse_id でグループ化し、item_id を WHERE IN で取得
-        $grouped = $candidates->groupBy(fn ($c) => "{$c->batch_code}_{$c->warehouse_id}");
+        // 単一クエリで全ての計算ログを取得（複合インデックス idx_batch_warehouse_item を使用）
+        // (batch_code, warehouse_id, item_id) のタプルでフィルタ
+        $tuples = $candidates->map(fn ($c) => [
+            $c->batch_code,
+            $c->warehouse_id,
+            $c->item_id,
+        ])->unique()->values();
 
-        $logs = collect();
-
-        foreach ($grouped as $groupKey => $group) {
-            $first = $group->first();
-            $itemIds = $group->pluck('item_id')->unique()->values()->toArray();
-
-            $groupLogs = WmsOrderCalculationLog::where('batch_code', $first->batch_code)
-                ->where('warehouse_id', $first->warehouse_id)
-                ->whereIn('item_id', $itemIds)
-                ->get();
-
-            $logs = $logs->merge($groupLogs);
-        }
+        // WHERE (batch_code, warehouse_id, item_id) IN ((...), (...), ...) 形式
+        $logs = WmsOrderCalculationLog::whereRaw(
+            '(batch_code, warehouse_id, item_id) IN ('.
+            $tuples->map(fn () => '(?, ?, ?)')->implode(', ').')',
+            $tuples->flatten()->toArray()
+        )->get();
 
         // キーでインデックス化
         $logsIndexed = $logs->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");

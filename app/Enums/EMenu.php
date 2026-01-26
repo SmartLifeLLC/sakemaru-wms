@@ -32,7 +32,7 @@ enum EMenu: string
     case WMS_SHORTAGE_ALLOCATIONS = 'horizontal_shipment.wms_shortage_allocations';
     case WMS_STOCK_TRANSFER_CANDIDATES = 'horizontal_shipment.wms_stock_transfer_candidates';
 
-    // 自動発注
+    // 発注処理
     case WMS_ORDER_CANDIDATES = 'auto_order.wms_order_candidates';
     case WMS_ORDER_CONFIRMATION_WAITING = 'auto_order.wms_order_confirmation_waiting';
     case WMS_ORDER_CONFIRMED = 'auto_order.wms_order_confirmed';
@@ -171,7 +171,7 @@ enum EMenu: string
             self::WMS_ORDER_CANDIDATES => '発注候補一覧',
             self::WMS_ORDER_CONFIRMATION_WAITING => '発注確定待ち',
             self::WMS_ORDER_CONFIRMED => '発注確定済み',
-            self::WMS_AUTO_ORDER_JOBS => 'ジョブ履歴',
+            self::WMS_AUTO_ORDER_JOBS => '発注候補生成',
 
             self::REAL_STOCKS => '在庫管理',
 
@@ -298,11 +298,11 @@ enum EMenu: string
             self::WMS_SHORTAGE_ALLOCATIONS => 1,
             self::WMS_STOCK_TRANSFER_CANDIDATES => 2,
 
-            // 自動発注
+            // 発注処理
+            self::WMS_AUTO_ORDER_JOBS => 0,
             self::WMS_ORDER_CANDIDATES => 1,
             self::WMS_ORDER_CONFIRMATION_WAITING => 2,
             self::WMS_ORDER_CONFIRMED => 3,
-            self::WMS_AUTO_ORDER_JOBS => 4,
 
             // 在庫管理
             self::REAL_STOCKS => 1,

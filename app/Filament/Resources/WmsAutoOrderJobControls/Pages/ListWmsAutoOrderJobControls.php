@@ -10,7 +10,6 @@ use App\Services\AutoOrder\StockSnapshotService;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\View;
-use Livewire\Attributes\Computed;
 
 class ListWmsAutoOrderJobControls extends ListRecords
 {
@@ -29,27 +28,36 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
     public ?string $errorMessage = null;
 
+    public int $pendingCount = 0;
+
+    public function mount(): void
+    {
+        parent::mount();
+        // ページ表示時にカウントを取得
+        $this->pendingCount = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
+    }
+
     protected function getHeaderActions(): array
     {
         return [
             Action::make('orderGenerationWizard')
-                ->label('発注生成プロセス')
+                ->label('発注候補生成')
                 ->icon('heroicon-o-sparkles')
                 ->color('primary')
                 ->modalWidth('4xl')
-                ->modalHeading('発注生成プロセス')
+                ->modalHeading('発注候補生成')
                 ->modalSubmitAction(false)
                 ->modalCancelAction(false)
                 ->schema([
                     View::make('filament.components.order-generation-wizard')
-                        ->viewData([
+                        ->viewData(fn () => [
                             'step' => $this->wizardStep,
                             'isProcessing' => $this->isProcessing,
                             'progress' => $this->progress,
                             'progressMessage' => $this->progressMessage,
                             'results' => $this->results,
                             'errorMessage' => $this->errorMessage,
-                            'pendingCount' => $this->getPendingCount(),
+                            'pendingCount' => $this->pendingCount,
                         ]),
                 ])
                 ->action(fn () => null)
@@ -57,12 +65,6 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     $this->resetWizard();
                 }),
         ];
-    }
-
-    #[Computed]
-    public function getPendingCount(): int
-    {
-        return WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
     }
 
     public function resetWizard(): void
@@ -73,6 +75,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
         $this->progressMessage = '';
         $this->results = [];
         $this->errorMessage = null;
+        // ウィザード開始時のみカウントを取得（毎回のレンダリングで実行しない）
+        $this->pendingCount = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
     }
 
     public function executeStep1Delete(): void
@@ -100,10 +104,14 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
     public function executeStep2Snapshot(): void
     {
+        // プログレスバーを表示（実際の処理はAlpine x-initで発火）
         $this->isProcessing = true;
         $this->progress = 0;
         $this->progressMessage = 'スナップショットを生成中...';
+    }
 
+    public function runSnapshot(): void
+    {
         try {
             $service = app(StockSnapshotService::class);
             $job = $service->generateAll();
@@ -120,29 +128,29 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
     public function executeStep3Calculate(): void
     {
+        // プログレスバーを表示（実際の処理はAlpine x-initで発火）
         $this->isProcessing = true;
         $this->progress = 0;
         $this->progressMessage = '発注候補を生成中...';
+    }
 
+    public function runCalculation(): void
+    {
         try {
             $service = app(OrderCandidateCalculationService::class);
             $job = $service->calculate();
 
-            $this->results['batchCode'] = $job->batch_code;
-            $this->results['calculated'] = $job->processed_records;
+            // 計算完了後、結果をセッションに保存してリダイレクト
+            session()->flash('order_generation_result', [
+                'batchCode' => $job->batch_code,
+                'calculated' => $job->processed_records,
+            ]);
 
-            // 倉庫別の件数を取得
-            $this->results['byWarehouse'] = WmsOrderCandidate::where('batch_code', $job->batch_code)
-                ->join('warehouses', 'wms_order_candidates.warehouse_id', '=', 'warehouses.id')
-                ->selectRaw('warehouses.name as warehouse_name, COUNT(*) as count')
-                ->groupBy('warehouses.id', 'warehouses.name')
-                ->orderBy('warehouses.name')
-                ->get()
-                ->toArray();
-
-            $this->progress = 100;
-            $this->wizardStep = 3;
-            $this->isProcessing = false;
+            // 発注候補一覧へ直接リダイレクト
+            $this->redirect(
+                route('filament.admin.resources.wms-order-candidates.index'),
+                navigate: true
+            );
         } catch (\Exception $e) {
             $this->errorMessage = $e->getMessage();
             $this->isProcessing = false;

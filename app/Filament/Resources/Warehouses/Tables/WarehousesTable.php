@@ -49,7 +49,7 @@ class WarehousesTable
                     ->default('-'),
 
                 TextColumn::make('out_of_stock_option')
-                    ->label('在庫切れ動作')
+                    ->label('売上登録時在庫確認')
                     ->formatStateUsing(fn (string $state): string => match ($state) {
                         'IGNORE_STOCK' => '在庫無視',
                         'UP_TO_STOCK' => '在庫制限',
@@ -89,7 +89,7 @@ class WarehousesTable
                     ]),
 
                 SelectFilter::make('out_of_stock_option')
-                    ->label('在庫切れ動作')
+                    ->label('売上登録時在庫確認')
                     ->options([
                         'IGNORE_STOCK' => '在庫無視',
                         'UP_TO_STOCK' => '在庫制限',

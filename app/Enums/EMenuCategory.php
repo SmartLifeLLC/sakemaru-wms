@@ -25,7 +25,7 @@ enum EMenuCategory: string
             self::OUTBOUND => '出荷管理',
             self::SHORTAGE => '欠品管理',
             self::HORIZONTAL_SHIPMENT => '倉庫移動',
-            self::AUTO_ORDER => '自動発注',
+            self::AUTO_ORDER => '発注処理',
             self::INVENTORY => '在庫管理',
             self::MASTER_WAREHOUSE => '倉庫マスタ',
             self::MASTER_ORDER => '発注マスタ',

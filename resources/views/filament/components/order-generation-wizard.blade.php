@@ -1,4 +1,4 @@
-<div class="space-y-6" wire:poll.500ms="$refresh">
+<div class="space-y-6">
     {{-- ステップインジケーター --}}
     <div class="flex items-center justify-center space-x-4">
         @foreach ([
@@ -48,7 +48,13 @@
 
     {{-- プログレスバー --}}
     @if ($isProcessing)
-        <div class="space-y-2">
+        <div class="space-y-2"
+            @if($progressMessage === 'スナップショットを生成中...')
+                x-init="setTimeout(() => $wire.runSnapshot(), 100)"
+            @elseif($progressMessage === '発注候補を生成中...')
+                x-init="setTimeout(() => $wire.runCalculation(), 100)"
+            @endif
+        >
             <div class="flex items-center justify-between text-sm">
                 <span class="text-gray-600 dark:text-gray-400">{{ $progressMessage }}</span>
                 <span class="text-gray-600 dark:text-gray-400">処理中...</span>
