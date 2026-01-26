@@ -344,6 +344,9 @@ class WmsOrderCandidatesTable
                                                     'safetyStock' => $details['安全在庫'] ?? 0,
                                                     'calculatedAvailable' => $details['利用可能在庫'] ?? 0,
                                                     'shortageQty' => $details['不足数'] ?? 0,
+                                                    'purchaseUnit' => $details['最小仕入単位'] ?? 1,
+                                                    'purchaseUnitAdjustment' => $details['仕入単位調整'] ?? null,
+                                                    'orderQuantity' => $record->order_quantity ?? 0,
                                                 ]),
 
                                             Section::make('発注数変更')

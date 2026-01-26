@@ -61,6 +61,30 @@
                 <dd class="modal-value-danger">{{ number_format($shortageQty) }}</dd>
             </div>
         </div>
+
+        {{-- 入り数切り上げ情報 --}}
+        @if(isset($purchaseUnit) && $purchaseUnit > 1)
+        <div class="mt-4 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+            <h5 class="text-sm font-medium text-orange-700 dark:text-orange-300 mb-2">入り数による切り上げ</h5>
+            <div class="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                    <dt class="text-xs text-gray-500 dark:text-gray-400">不足数</dt>
+                    <dd class="font-medium">{{ number_format($shortageQty) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-gray-500 dark:text-gray-400">仕入単位（入り数）</dt>
+                    <dd class="font-medium">{{ number_format($purchaseUnit) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs text-gray-500 dark:text-gray-400">発注数（切り上げ後）</dt>
+                    <dd class="font-bold text-orange-600 dark:text-orange-400">{{ number_format($orderQuantity) }}</dd>
+                </div>
+            </div>
+            @if(isset($purchaseUnitAdjustment) && $purchaseUnitAdjustment)
+            <p class="mt-2 text-xs text-gray-600 dark:text-gray-400">{{ $purchaseUnitAdjustment }}</p>
+            @endif
+        </div>
+        @endif
     </div>
     @else
     <div class="modal-warning-box">

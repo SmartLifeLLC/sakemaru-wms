@@ -86,8 +86,8 @@
                         <div class="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                             <span class="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold">1</span>
                             <div>
-                                <div class="font-semibold text-sm">自動計算（毎朝5:00）</div>
-                                <div class="text-xs text-gray-600 dark:text-gray-400">発注候補が自動で作成されます</div>
+                                <div class="font-semibold text-sm">発注候補計算（手動実施）</div>
+                                <div class="text-xs text-gray-600 dark:text-gray-400">朝の出荷完了後に実施</div>
                             </div>
                         </div>
                         <div class="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
@@ -194,7 +194,7 @@
                                 </a>
                             </p>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                                 <div class="font-semibold text-sm mb-2">確認する内容</div>
                                 <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
@@ -210,6 +210,16 @@
                                     <li>・ 倉庫で絞り込み</li>
                                     <li>・ ステータスで絞り込み</li>
                                 </ul>
+                            </div>
+                            <div class="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-4 border border-orange-200 dark:border-orange-800">
+                                <div class="font-semibold text-sm mb-2 text-orange-700 dark:text-orange-300">発注数量の計算</div>
+                                <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                                    不足数を<strong>仕入単位（入り数）</strong>で切り上げて発注数量を算出します。
+                                </p>
+                                <div class="text-xs bg-white dark:bg-gray-900 rounded p-2">
+                                    <p class="text-gray-500">例: 不足25個、入り数12個</p>
+                                    <p class="font-semibold">→ 36個（3ケース）発注</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -334,8 +344,8 @@
 
         {{-- 発注送信タブ --}}
         <div x-show="activeTab === 'transmission'" x-cloak class="flex-1 overflow-y-auto pt-4">
-            <div class="space-y-6">
-                {{-- 送信の流れ --}}
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {{-- 左カラム: 送信の流れ --}}
                 <x-filament::section>
                     <x-slot name="heading">
                         <div class="flex items-center gap-2">
@@ -343,264 +353,189 @@
                             発注送信の流れ
                         </div>
                     </x-slot>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-                            <div class="flex items-center gap-2 mb-3">
-                                <span class="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold">1</span>
-                                <span class="font-semibold">送信データ作成</span>
-                            </div>
-                            <div class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                                <p>「発注送信データ作成」ボタンをクリック</p>
-                                <p class="text-xs bg-white dark:bg-gray-900 p-2 rounded">確定済みの発注から送信用ファイルを生成します</p>
-                            </div>
-                        </div>
-                        <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
-                            <div class="flex items-center gap-2 mb-3">
-                                <span class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center font-bold">2</span>
-                                <span class="font-semibold">内容確認</span>
-                            </div>
-                            <div class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                                <p>生成されたファイルの内容を確認</p>
-                                <p class="text-xs bg-white dark:bg-gray-900 p-2 rounded">発注先ごとにファイルが作成されます</p>
-                            </div>
-                        </div>
-                        <div class="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-800">
-                            <div class="flex items-center gap-2 mb-3">
-                                <span class="w-8 h-8 rounded-full bg-purple-500 text-white flex items-center justify-center font-bold">3</span>
-                                <span class="font-semibold">送信実行</span>
-                            </div>
-                            <div class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                                <p>「発注データ送信」ボタンをクリック</p>
-                                <p class="text-xs bg-white dark:bg-gray-900 p-2 rounded">問屋のシステムへデータを送信します</p>
-                            </div>
-                        </div>
-                    </div>
-                </x-filament::section>
-
-                {{-- 操作画面 --}}
-                <x-filament::section>
-                    <x-slot name="heading">
-                        <div class="flex items-center gap-2">
-                            <x-heroicon-o-cursor-arrow-rays class="w-5 h-5 text-primary-500" />
-                            操作画面
-                        </div>
-                    </x-slot>
-                    <div class="space-y-4">
-                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                            <div class="flex items-center gap-2 mb-3">
-                                <x-heroicon-o-map-pin class="w-5 h-5 text-blue-500" />
-                                <span class="font-semibold">発注候補一覧画面から操作</span>
-                            </div>
-                            <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                                <a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-blue-600 dark:text-blue-400 hover:underline">
-                                    発注 → 発注候補一覧
-                                </a>
-                            </p>
-                            <div class="flex flex-wrap gap-2">
-                                <span class="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full text-sm">
-                                    <x-heroicon-o-document-text class="w-4 h-4" />
-                                    発注送信データ作成
-                                </span>
-                                <span class="inline-flex items-center gap-1 px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-sm">
-                                    <x-heroicon-o-paper-airplane class="w-4 h-4" />
-                                    発注データ送信
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </x-filament::section>
-
-                {{-- 送信先 --}}
-                <x-filament::section>
-                    <x-slot name="heading">
-                        <div class="flex items-center gap-2">
-                            <x-heroicon-o-building-office class="w-5 h-5 text-primary-500" />
-                            送信先（問屋）
-                        </div>
-                    </x-slot>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                            <div class="font-semibold text-sm mb-2">JX-FINET経由で送信</div>
-                            <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                                <li>・ カナカン</li>
-                                <li>・ 三菱食品</li>
-                                <li>・ 北陸コカ・コーラ</li>
-                                <li>・ 国分中部</li>
-                            </ul>
-                        </div>
-                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                            <div class="font-semibold text-sm mb-2">送信設定の確認</div>
-                            <p class="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                                送信設定は以下の画面で確認できます：
-                            </p>
-                            <a href="{{ route('filament.admin.resources.wms-order-jx-settings.index') }}" class="text-blue-600 dark:text-blue-400 hover:underline text-sm">
-                                発注 → JX送信設定
-                            </a>
-                        </div>
-                    </div>
-                </x-filament::section>
-
-                {{-- 送信履歴 --}}
-                <x-filament::section>
-                    <x-slot name="heading">
-                        <div class="flex items-center gap-2">
-                            <x-heroicon-o-clock class="w-5 h-5 text-primary-500" />
-                            送信履歴の確認
-                        </div>
-                    </x-slot>
-                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                            過去の送信履歴は以下の画面で確認できます：
-                        </p>
-                        <a href="{{ route('filament.admin.resources.wms-order-jx-settings.index') }}" class="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline">
-                            <x-heroicon-o-paper-airplane class="w-5 h-5" />
-                            発注 → JX送信設定 → 送信履歴タブ
-                        </a>
-                        <div class="mt-3 text-xs text-gray-500">
-                            送信日時、送信結果、送信ファイルの内容などを確認できます。
-                        </div>
-                    </div>
-                </x-filament::section>
-
-                {{-- 注意事項 --}}
-                <x-filament::section>
-                    <x-slot name="heading">
-                        <div class="flex items-center gap-2">
-                            <x-heroicon-o-exclamation-triangle class="w-5 h-5 text-warning-500" />
-                            注意事項
-                        </div>
-                    </x-slot>
                     <div class="space-y-3">
-                        <div class="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-3 border border-warning-200 dark:border-warning-700">
-                            <div class="text-sm text-warning-700 dark:text-warning-300">
-                                <strong>送信前の確認：</strong>送信データ作成後、送信前に必ず内容を確認してください。送信後の取り消しはできません。
+                        <div class="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                            <span class="w-7 h-7 rounded-full bg-blue-500 text-white text-sm flex items-center justify-center font-bold flex-shrink-0">1</span>
+                            <div>
+                                <div class="font-semibold text-sm">送信データ作成</div>
+                                <div class="text-xs text-gray-600 dark:text-gray-400">「発注送信データ作成」ボタンで送信用ファイルを生成</div>
                             </div>
                         </div>
-                        <div class="bg-info-50 dark:bg-info-900/20 rounded-lg p-3 border border-info-200 dark:border-info-700">
-                            <div class="text-sm text-info-700 dark:text-info-300">
-                                <strong>送信タイミング：</strong>問屋の受付時間内に送信してください。受付時間外の送信は翌営業日の処理になる場合があります。
+                        <div class="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                            <span class="w-7 h-7 rounded-full bg-green-500 text-white text-sm flex items-center justify-center font-bold flex-shrink-0">2</span>
+                            <div>
+                                <div class="font-semibold text-sm">内容確認</div>
+                                <div class="text-xs text-gray-600 dark:text-gray-400">生成されたファイルの内容を確認</div>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                            <span class="w-7 h-7 rounded-full bg-purple-500 text-white text-sm flex items-center justify-center font-bold flex-shrink-0">3</span>
+                            <div>
+                                <div class="font-semibold text-sm">送信実行</div>
+                                <div class="text-xs text-gray-600 dark:text-gray-400">「発注データ送信」ボタンで問屋へ送信</div>
                             </div>
                         </div>
                     </div>
+                    {{-- 操作画面 --}}
+                    <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        <div class="flex items-center gap-2 mb-2">
+                            <x-heroicon-o-map-pin class="w-4 h-4 text-blue-500" />
+                            <span class="font-semibold text-sm">操作画面</span>
+                        </div>
+                        <p class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                            <a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-blue-600 dark:text-blue-400 hover:underline">
+                                発注 → 発注候補一覧
+                            </a>
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded text-xs">
+                                <x-heroicon-o-document-text class="w-3 h-3" />
+                                発注送信データ作成
+                            </span>
+                            <span class="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded text-xs">
+                                <x-heroicon-o-paper-airplane class="w-3 h-3" />
+                                発注データ送信
+                            </span>
+                        </div>
+                    </div>
                 </x-filament::section>
+
+                {{-- 右カラム: 送信先・履歴・注意事項 --}}
+                <div class="space-y-6">
+                    <x-filament::section>
+                        <x-slot name="heading">
+                            <div class="flex items-center gap-2">
+                                <x-heroicon-o-building-office class="w-5 h-5 text-primary-500" />
+                                送信先・履歴
+                            </div>
+                        </x-slot>
+                        <div class="space-y-4">
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                                <div class="font-semibold text-sm mb-2">JX-FINET経由で送信</div>
+                                <div class="text-xs text-gray-600 dark:text-gray-400">カナカン / 三菱食品 / 北陸コカ・コーラ / 国分中部</div>
+                            </div>
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                                <div class="font-semibold text-sm mb-2">送信設定・履歴の確認</div>
+                                <a href="{{ route('filament.admin.resources.wms-order-jx-settings.index') }}" class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline text-sm">
+                                    <x-heroicon-o-cog-6-tooth class="w-4 h-4" />
+                                    発注 → JX送信設定
+                                </a>
+                            </div>
+                        </div>
+                    </x-filament::section>
+
+                    <x-filament::section>
+                        <x-slot name="heading">
+                            <div class="flex items-center gap-2">
+                                <x-heroicon-o-exclamation-triangle class="w-5 h-5 text-warning-500" />
+                                注意事項
+                            </div>
+                        </x-slot>
+                        <div class="space-y-2">
+                            <div class="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-2 border border-warning-200 dark:border-warning-700">
+                                <div class="text-xs text-warning-700 dark:text-warning-300">
+                                    <strong>送信前確認：</strong>送信後の取り消しはできません
+                                </div>
+                            </div>
+                            <div class="bg-info-50 dark:bg-info-900/20 rounded-lg p-2 border border-info-200 dark:border-info-700">
+                                <div class="text-xs text-info-700 dark:text-info-300">
+                                    <strong>送信タイミング：</strong>問屋の受付時間内に送信
+                                </div>
+                            </div>
+                        </div>
+                    </x-filament::section>
+                </div>
             </div>
         </div>
 
         {{-- 設定タブ --}}
         <div x-show="activeTab === 'settings'" x-cloak class="flex-1 overflow-y-auto pt-4">
-            <div class="space-y-6">
-                {{-- 月別発注点 --}}
-                <x-filament::section>
-                    <x-slot name="heading">
-                        <div class="flex items-center gap-2">
-                            <x-heroicon-o-chart-bar class="w-5 h-5 text-orange-500" />
-                            月別発注点の設定
-                        </div>
-                    </x-slot>
-                    <div class="space-y-4">
-                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                            <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                                商品ごとに月別の発注点（在庫がこの数量を下回ったら発注）を設定できます。
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {{-- 左カラム --}}
+                <div class="space-y-6">
+                    {{-- 月別発注点 --}}
+                    <x-filament::section>
+                        <x-slot name="heading">
+                            <div class="flex items-center gap-2">
+                                <x-heroicon-o-chart-bar class="w-5 h-5 text-orange-500" />
+                                月別発注点
+                            </div>
+                        </x-slot>
+                        <div class="space-y-3">
+                            <p class="text-sm text-gray-700 dark:text-gray-300">
+                                商品ごとに月別の発注点を設定。毎月末日に自動反映。
                             </p>
-                            <a href="{{ route('filament.admin.resources.wms-monthly-safety-stocks.index') }}" class="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline">
-                                <x-heroicon-o-chart-bar class="w-5 h-5" />
+                            <a href="{{ route('filament.admin.resources.wms-monthly-safety-stocks.index') }}" class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline text-sm">
+                                <x-heroicon-o-arrow-top-right-on-square class="w-4 h-4" />
                                 発注 → 月別発注点
                             </a>
                         </div>
-                        <div class="bg-info-50 dark:bg-info-900/20 rounded-lg p-3 border border-info-200 dark:border-info-700">
-                            <div class="text-sm text-info-700 dark:text-info-300">
-                                <strong>自動同期：</strong>毎月末日に、翌月の発注点が自動的に反映されます。
+                    </x-filament::section>
+
+                    {{-- 倉庫休日 --}}
+                    <x-filament::section>
+                        <x-slot name="heading">
+                            <div class="flex items-center gap-2">
+                                <x-heroicon-o-calendar class="w-5 h-5 text-red-500" />
+                                倉庫カレンダー
                             </div>
-                        </div>
-                    </div>
-                </x-filament::section>
-
-                {{-- 納品可能曜日 --}}
-                <x-filament::section>
-                    <x-slot name="heading">
-                        <div class="flex items-center gap-2">
-                            <x-heroicon-o-calendar-days class="w-5 h-5 text-teal-500" />
-                            納品可能曜日の設定
-                        </div>
-                    </x-slot>
-                    <div class="space-y-4">
-                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                            <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                                発注先と倉庫の組み合わせごとに、納品可能な曜日を設定できます。設定された曜日以外には納品されないよう、到着予定日が自動調整されます。
+                        </x-slot>
+                        <div class="space-y-3">
+                            <p class="text-sm text-gray-700 dark:text-gray-300">
+                                倉庫の休日設定。休日は次の営業日に自動調整。
                             </p>
-                            <span class="inline-flex items-center gap-2 text-gray-500">
-                                <x-heroicon-o-calendar-days class="w-5 h-5" />
-                                設定 → 納品可能曜日
-                                <span class="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded">準備中</span>
-                            </span>
-                        </div>
-                        <div class="flex gap-2 justify-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                            @foreach(['日', '月', '火', '水', '木', '金', '土'] as $index => $day)
-                            <span class="w-10 h-10 rounded-full {{ in_array($index, [2, 5]) ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500' }} flex items-center justify-center text-sm font-medium">{{ $day }}</span>
-                            @endforeach
-                        </div>
-                        <p class="text-xs text-center text-gray-500">例：火曜・金曜のみ納品可能</p>
-                    </div>
-                </x-filament::section>
-
-                {{-- 倉庫休日 --}}
-                <x-filament::section>
-                    <x-slot name="heading">
-                        <div class="flex items-center gap-2">
-                            <x-heroicon-o-calendar class="w-5 h-5 text-red-500" />
-                            倉庫休日の設定
-                        </div>
-                    </x-slot>
-                    <div class="space-y-4">
-                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                            <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                                倉庫の休日（定休日、祝日など）を設定します。休日には納品されないよう、到着予定日が自動調整されます。
-                            </p>
-                            <a href="{{ route('filament.admin.resources.wms-warehouse-calendars.index') }}" class="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline">
-                                <x-heroicon-o-calendar class="w-5 h-5" />
+                            <a href="{{ route('filament.admin.resources.wms-warehouse-calendars.index') }}" class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline text-sm">
+                                <x-heroicon-o-arrow-top-right-on-square class="w-4 h-4" />
                                 設定 → 倉庫カレンダー
                             </a>
+                            <div class="text-xs text-gray-500">定休日・祝日・臨時休業</div>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
-                                <div class="font-semibold text-sm text-red-700 dark:text-red-300 mb-1">休日の種類</div>
-                                <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-                                    <li>・ 定休日（毎週日曜など）</li>
-                                    <li>・ 祝日</li>
-                                    <li>・ 臨時休業</li>
-                                </ul>
-                            </div>
-                            <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
-                                <div class="font-semibold text-sm text-green-700 dark:text-green-300 mb-1">自動調整</div>
-                                <p class="text-xs text-gray-600 dark:text-gray-400">
-                                    休日に当たる場合は、次の営業日に自動で調整されます。
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </x-filament::section>
+                    </x-filament::section>
+                </div>
 
-                {{-- JX送信設定 --}}
-                <x-filament::section>
-                    <x-slot name="heading">
-                        <div class="flex items-center gap-2">
-                            <x-heroicon-o-cog-6-tooth class="w-5 h-5 text-purple-500" />
-                            JX送信設定
+                {{-- 右カラム --}}
+                <div class="space-y-6">
+                    {{-- 納品可能曜日 --}}
+                    <x-filament::section>
+                        <x-slot name="heading">
+                            <div class="flex items-center gap-2">
+                                <x-heroicon-o-calendar-days class="w-5 h-5 text-teal-500" />
+                                納品可能曜日
+                                <span class="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded">準備中</span>
+                            </div>
+                        </x-slot>
+                        <div class="space-y-3">
+                            <p class="text-sm text-gray-700 dark:text-gray-300">
+                                発注先×倉庫ごとの納品曜日を設定。対象外の曜日は自動調整。
+                            </p>
+                            <div class="flex gap-1 justify-center">
+                                @foreach(['日', '月', '火', '水', '木', '金', '土'] as $index => $day)
+                                <span class="w-8 h-8 rounded-full {{ in_array($index, [2, 5]) ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500' }} flex items-center justify-center text-xs font-medium">{{ $day }}</span>
+                                @endforeach
+                            </div>
                         </div>
-                    </x-slot>
-                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                        <p class="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                            問屋への送信接続設定を管理します。接続テストや送信履歴の確認もこちらから行えます。
-                        </p>
-                        <a href="{{ route('filament.admin.resources.wms-order-jx-settings.index') }}" class="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline">
-                            <x-heroicon-o-paper-airplane class="w-5 h-5" />
-                            発注 → JX送信設定
-                        </a>
-                        <div class="mt-3 text-xs text-gray-500">
-                            ※ 設定変更は管理者にお問い合わせください。
+                    </x-filament::section>
+
+                    {{-- JX送信設定 --}}
+                    <x-filament::section>
+                        <x-slot name="heading">
+                            <div class="flex items-center gap-2">
+                                <x-heroicon-o-cog-6-tooth class="w-5 h-5 text-purple-500" />
+                                JX送信設定
+                            </div>
+                        </x-slot>
+                        <div class="space-y-3">
+                            <p class="text-sm text-gray-700 dark:text-gray-300">
+                                問屋への送信接続設定・履歴確認。
+                            </p>
+                            <a href="{{ route('filament.admin.resources.wms-order-jx-settings.index') }}" class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline text-sm">
+                                <x-heroicon-o-arrow-top-right-on-square class="w-4 h-4" />
+                                発注 → JX送信設定
+                            </a>
+                            <div class="text-xs text-gray-500">※ 設定変更は管理者へ</div>
                         </div>
-                    </div>
-                </x-filament::section>
+                    </x-filament::section>
+                </div>
             </div>
         </div>
     </div>

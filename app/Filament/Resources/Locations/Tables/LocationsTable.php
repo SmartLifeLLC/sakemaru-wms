@@ -79,6 +79,27 @@ class LocationsTable
                     ->formatStateUsing(fn (bool $state): string => $state ? '制限' : '通常')
                     ->sortable(),
 
+                TextColumn::make('available_quantity_flags')
+                    ->label('数量タイプ')
+                    ->badge()
+                    ->formatStateUsing(fn (int $state): string => match ($state) {
+                        1 => 'ケース',
+                        2 => 'バラ',
+                        3 => 'ケース+バラ',
+                        4 => 'ボール',
+                        8 => '無し',
+                        default => (string) $state,
+                    })
+                    ->color(fn (int $state): string => match ($state) {
+                        1 => 'info',
+                        2 => 'success',
+                        3 => 'warning',
+                        4 => 'primary',
+                        8 => 'danger',
+                        default => 'gray',
+                    })
+                    ->sortable(),
+
                 TextColumn::make('created_at')
                     ->label('作成日時')
                     ->dateTime('Y-m-d H:i')
