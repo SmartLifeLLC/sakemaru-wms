@@ -13,6 +13,7 @@ use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsStockTransferCandidate;
+use App\Models\WmsWarehouseAutoOrderSetting;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -79,6 +80,12 @@ class OrderCandidateCalculationService
             throw new \RuntimeException('Order calculation job is already running');
         }
 
+        // 発注確定待ち（APPROVED）の候補がある場合は計算不可
+        $approvedCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
+        if ($approvedCount > 0) {
+            throw new \RuntimeException("発注確定待ちの候補が {$approvedCount}件 あります。先に発注確定を行ってください。");
+        }
+
         $job = WmsAutoOrderJobControl::startJob(JobProcessName::ORDER_CALC);
 
         try {
@@ -112,7 +119,10 @@ class OrderCandidateCalculationService
             $this->insertCalculationLogs();
 
             $job->updateProgress(4, 4);
-            $job->markAsSuccess($transferCount + $orderCount);
+
+            // Step 6: 結果データを収集
+            $resultData = $this->buildResultData($batchCode, $transferCount, $orderCount);
+            $job->markAsSuccess($transferCount + $orderCount, $resultData);
 
             Log::info('Order candidate calculation completed', [
                 'batch_code' => $batchCode,
@@ -137,14 +147,20 @@ class OrderCandidateCalculationService
      */
     private function loadAllDataToMemory(): void
     {
-        // 実倉庫（is_virtual=false）のIDをロード
+        // 自動発注有効な実倉庫のIDをロード
+        // wms_warehouse_auto_order_settings で is_auto_order_enabled = true の倉庫のみ
+        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
+            ->pluck('warehouse_id')
+            ->toArray();
+
         $this->realWarehouseIds = DB::connection('sakemaru')
             ->table('warehouses')
             ->where('is_virtual', false)
+            ->whereIn('id', $enabledWarehouseIds)
             ->pluck('id')
             ->toArray();
 
-        Log::info('実倉庫をロード', ['count' => count($this->realWarehouseIds)]);
+        Log::info('自動発注有効な実倉庫をロード', ['count' => count($this->realWarehouseIds)]);
 
         // JOINでsafety_stock > 0の商品のスナップショットのみを取得（実倉庫のみ）
         $snapshots = DB::connection('sakemaru')
@@ -572,11 +588,16 @@ class OrderCandidateCalculationService
             $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
 
             // 需要内訳を構築（自倉庫分 + サテライト倉庫分）
+            // 注意: shortageQtyは既に移動出庫を考慮した値なので、
+            //       satellite_demand_qtyはshortageQtyを超えないようにする
             $demandBreakdown = [];
             $originWarehouseIds = [];
 
-            // 自倉庫の不足分（サテライト需要を除く純粋な自倉庫分）
-            $selfShortageOnly = max(0, $shortageQty - $outgoingToTransfer);
+            // サテライト需要（移動出庫のうち、不足数に含まれる分）
+            $satelliteDemandQty = min($outgoingToTransfer, $shortageQty);
+
+            // 自倉庫の不足分（純粋な自倉庫分）
+            $selfShortageOnly = max(0, $shortageQty - $satelliteDemandQty);
             if ($selfShortageOnly > 0) {
                 $demandBreakdown[] = [
                     'warehouse_id' => $ic->warehouse_id,
@@ -585,12 +606,22 @@ class OrderCandidateCalculationService
                 $originWarehouseIds[] = $ic->warehouse_id;
             }
 
-            // サテライト倉庫からの需要（移動出庫の内訳）
+            // サテライト倉庫からの需要（移動出庫の内訳を按分）
             $outgoingBreakdown = $transfer['outgoing_breakdown'] ?? [];
-            foreach ($outgoingBreakdown as $breakdown) {
-                $demandBreakdown[] = $breakdown;
-                if (! in_array($breakdown['warehouse_id'], $originWarehouseIds)) {
-                    $originWarehouseIds[] = $breakdown['warehouse_id'];
+            if ($satelliteDemandQty > 0 && $outgoingToTransfer > 0) {
+                // 移動出庫の比率でサテライト需要を按分
+                $ratio = $satelliteDemandQty / $outgoingToTransfer;
+                foreach ($outgoingBreakdown as $breakdown) {
+                    $adjustedQty = (int) round($breakdown['quantity'] * $ratio);
+                    if ($adjustedQty > 0) {
+                        $demandBreakdown[] = [
+                            'warehouse_id' => $breakdown['warehouse_id'],
+                            'quantity' => $adjustedQty,
+                        ];
+                        if (! in_array($breakdown['warehouse_id'], $originWarehouseIds)) {
+                            $originWarehouseIds[] = $breakdown['warehouse_id'];
+                        }
+                    }
                 }
             }
 
@@ -615,7 +646,7 @@ class OrderCandidateCalculationService
                 'contractor_id' => $ic->contractor_id,
                 'ordering_code' => $orderingCode,
                 'self_shortage_qty' => $selfShortageOnly,
-                'satellite_demand_qty' => $outgoingToTransfer,
+                'satellite_demand_qty' => $satelliteDemandQty,
                 'demand_breakdown' => ! empty($demandBreakdown) ? json_encode($demandBreakdown, JSON_UNESCAPED_UNICODE) : null,
                 'origin_warehouse_ids' => ! empty($originWarehouseIds) ? implode(',', $originWarehouseIds) : null,
                 'suggested_quantity' => $orderQty,
@@ -809,5 +840,77 @@ class OrderCandidateCalculationService
         }
 
         return (int) ceil($quantity / $unit) * $unit;
+    }
+
+    /**
+     * 発注候補生成結果データを構築
+     */
+    private function buildResultData(string $batchCode, int $transferCount, int $orderCount): array
+    {
+        // 生成された候補を集計
+        $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
+            ->with(['warehouse', 'contractor'])
+            ->get();
+
+        // サマリー
+        $totalQuantity = $candidates->sum('order_quantity');
+
+        // 倉庫別集計（コード順でソート）
+        $byWarehouse = $candidates->groupBy('warehouse_id')->map(function ($group) {
+            $warehouse = $group->first()->warehouse;
+
+            return [
+                'warehouse_id' => $group->first()->warehouse_id,
+                'warehouse_code' => $warehouse?->code ?? '',
+                'warehouse_name' => $warehouse?->name ?? '不明',
+                'count' => $group->count(),
+                'quantity' => $group->sum('order_quantity'),
+            ];
+        })->sortBy('warehouse_code')->values()->toArray();
+
+        // 発注先別集計（コード順でソート）
+        $byContractor = $candidates->groupBy('contractor_id')->map(function ($group) {
+            $contractor = $group->first()->contractor;
+
+            return [
+                'contractor_id' => $group->first()->contractor_id,
+                'contractor_code' => $contractor?->code ?? '',
+                'contractor_name' => $contractor?->name ?? '不明',
+                'count' => $group->count(),
+                'quantity' => $group->sum('order_quantity'),
+            ];
+        })->sortBy('contractor_code')->values()->toArray();
+
+        // 倉庫×発注先クロス集計
+        $crossSummary = $candidates->groupBy(function ($c) {
+            return "{$c->warehouse_id}_{$c->contractor_id}";
+        })->map(function ($group) {
+            $first = $group->first();
+
+            return [
+                'warehouse_code' => $first->warehouse?->code ?? '',
+                'warehouse_name' => $first->warehouse?->name ?? '不明',
+                'contractor_code' => $first->contractor?->code ?? '',
+                'contractor_name' => $first->contractor?->name ?? '不明',
+                'count' => $group->count(),
+                'quantity' => $group->sum('order_quantity'),
+            ];
+        })->sortBy(['warehouse_code', 'contractor_code'])->values()->toArray();
+
+        return [
+            'batch_code' => $batchCode,
+            'summary' => [
+                'total_candidates' => $transferCount + $orderCount,
+                'internal_candidates' => $transferCount,
+                'external_candidates' => $orderCount,
+                'total_quantity' => $totalQuantity,
+                'warehouse_count' => count($byWarehouse),
+                'contractor_count' => count($byContractor),
+            ],
+            'by_warehouse' => $byWarehouse,
+            'by_contractor' => $byContractor,
+            'cross_summary' => $crossSummary,
+            'generated_at' => now()->toIso8601String(),
+        ];
     }
 }

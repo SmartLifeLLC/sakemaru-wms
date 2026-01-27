@@ -78,6 +78,8 @@ class StockSnapshotService
 
         // 入荷予定数を含めたスナップショット生成
         // wms_order_incoming_schedules から PENDING/PARTIAL ステータスの残数量を集計
+        // 注意: wms_v_stock_available はロット毎に行が複製されるため、
+        //       real_stock_id で重複排除してから集計する
         $sql = "
             INSERT INTO wms_item_stock_snapshots
                 (warehouse_id, item_id, snapshot_at, total_effective_piece, total_non_effective_piece, total_incoming_piece, created_at, updated_at)
@@ -91,13 +93,20 @@ class StockSnapshotService
                 '{$snapshotAt}' as created_at,
                 '{$snapshotAt}' as updated_at
             FROM (
-                -- 現在の有効在庫を集計
+                -- 現在の有効在庫を集計（real_stock_id毎に重複排除してから集計）
                 SELECT
                     warehouse_id,
                     item_id,
-                    SUM(available_for_wms) as total_effective
-                FROM wms_v_stock_available
-                WHERE warehouse_id IN ({$warehouseIdsList})
+                    SUM(stock_qty) as total_effective
+                FROM (
+                    SELECT DISTINCT
+                        warehouse_id,
+                        item_id,
+                        real_stock_id,
+                        available_for_wms as stock_qty
+                    FROM wms_v_stock_available
+                    WHERE warehouse_id IN ({$warehouseIdsList})
+                ) dedup
                 GROUP BY warehouse_id, item_id
             ) s
             LEFT JOIN (

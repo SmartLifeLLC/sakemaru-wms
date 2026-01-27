@@ -8,6 +8,7 @@ use App\Models\WmsOrderJxSetting;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * ハナ様向け発注ファイル生成クラス
@@ -66,19 +67,51 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
     private array $janCodeCache = [];
 
     /**
+     * 発注先ID => WmsContractorSetting のキャッシュ
+     */
+    private array $contractorSettingCache = [];
+
+    /**
+     * 商品ID => 現在仕入単価 のキャッシュ
+     */
+    private array $costPriceCache = [];
+
+    /**
      * 発注ファイルを生成
      */
     public function generate(Collection $orderCandidates): array
     {
+        $startTime = microtime(true);
+        Log::info('[HanaOrderFileGenerator] generate開始', ['candidate_count' => $orderCandidates->count()]);
+
         $results = [];
 
+        // 商品IDを取得して仕入単価をプリロード
+        $preloadStart = microtime(true);
+        $itemIds = $orderCandidates->pluck('item_id')->unique()->toArray();
+        $this->preloadCostPrices($itemIds);
+        Log::info('[HanaOrderFileGenerator] プリロード完了', [
+            'item_count' => count($itemIds),
+            'elapsed_ms' => round((microtime(true) - $preloadStart) * 1000),
+        ]);
+
         // 送信先別にグルーピング
+        $groupStart = microtime(true);
         $grouped = $this->groupByTransmissionContractor($orderCandidates);
+        Log::info('[HanaOrderFileGenerator] グルーピング完了', [
+            'group_count' => $grouped->count(),
+            'elapsed_ms' => round((microtime(true) - $groupStart) * 1000),
+        ]);
 
         foreach ($grouped as $transmissionContractorCode => $candidates) {
+            $fileStart = microtime(true);
+
             $jxSetting = $this->getJxSettingByContractorCode($transmissionContractorCode);
 
+            $contentStart = microtime(true);
             $content = $this->generateFileContent($transmissionContractorCode, $candidates, $jxSetting);
+            $contentElapsed = round((microtime(true) - $contentStart) * 1000);
+
             $filename = $this->generateFilename($transmissionContractorCode);
 
             $results[] = [
@@ -91,7 +124,19 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
                 'record_count' => $this->countRecords($candidates),
                 'order_count' => $candidates->count(),
             ];
+
+            Log::info('[HanaOrderFileGenerator] ファイル生成完了', [
+                'contractor_code' => $transmissionContractorCode,
+                'candidate_count' => $candidates->count(),
+                'content_ms' => $contentElapsed,
+                'total_ms' => round((microtime(true) - $fileStart) * 1000),
+            ]);
         }
+
+        Log::info('[HanaOrderFileGenerator] generate完了', [
+            'file_count' => count($results),
+            'total_ms' => round((microtime(true) - $startTime) * 1000),
+        ]);
 
         return $results;
     }
@@ -101,11 +146,15 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
      */
     private function groupByTransmissionContractor(Collection $candidates): Collection
     {
+        // 全ての発注先IDを取得してWmsContractorSettingをプリロード
+        $contractorIds = $candidates->pluck('contractor_id')->unique()->toArray();
+        $this->preloadContractorSettings($contractorIds);
+
         return $candidates->groupBy(function ($candidate) {
             $contractorCode = $candidate->contractor?->code;
 
-            // transmission_contractor_idがあればその発注先コードを使用
-            $setting = WmsContractorSetting::where('contractor_id', $candidate->contractor_id)->first();
+            // キャッシュから設定を取得
+            $setting = $this->contractorSettingCache[$candidate->contractor_id] ?? null;
             if ($setting?->transmission_contractor_id) {
                 $transmissionContractor = $setting->transmissionContractor;
                 if ($transmissionContractor) {
@@ -120,6 +169,25 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
 
             return $contractorCode;
         });
+    }
+
+    /**
+     * WmsContractorSettingをプリロード
+     */
+    private function preloadContractorSettings(array $contractorIds): void
+    {
+        $settings = WmsContractorSetting::whereIn('contractor_id', $contractorIds)
+            ->with('transmissionContractor')
+            ->get();
+
+        foreach ($settings as $setting) {
+            $this->contractorSettingCache[$setting->contractor_id] = $setting;
+        }
+
+        Log::info('[HanaOrderFileGenerator] ContractorSettings プリロード完了', [
+            'requested' => count($contractorIds),
+            'loaded' => count($settings),
+        ]);
     }
 
     /**
@@ -176,7 +244,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
         }
 
         // レコードを連結（改行なし）+ 末尾にCRLF
-        $content = implode('', $records) . self::LINE_ENDING;
+        $content = implode('', $records).self::LINE_ENDING;
 
         // Shift_JISに変換
         return mb_convert_encoding($content, self::ENCODING, 'UTF-8');
@@ -197,10 +265,10 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
      * 46-60: 社名 X(15)
      * 61-128: FILLER X(68)
      *
-     * @param int $contractorCode 発注先コード（フォールバック用）
-     * @param int $totalRecordCount レコード件数（A+B+D合計）
-     * @param int $slipCount 伝票枚数（Bレコード数）
-     * @param WmsOrderJxSetting|null $jxSetting JX設定
+     * @param  int  $contractorCode  発注先コード（フォールバック用）
+     * @param  int  $totalRecordCount  レコード件数（A+B+D合計）
+     * @param  int  $slipCount  伝票枚数（Bレコード数）
+     * @param  WmsOrderJxSetting|null  $jxSetting  JX設定
      */
     private function generateARecord(int $contractorCode, int $totalRecordCount, int $slipCount, ?WmsOrderJxSetting $jxSetting = null): string
     {
@@ -254,7 +322,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
 
         // 伝票番号を生成（YYYYMMDD + 連番3桁）
         // 例: 20260125001, 20260125002, ...
-        $slipNumber = $orderDate->format('Ymd') . str_pad($seq, 3, '0', STR_PAD_LEFT);
+        $slipNumber = $orderDate->format('Ymd').str_pad($seq, 3, '0', STR_PAD_LEFT);
 
         // 入庫倉庫コード（0埋め4桁）
         $warehouseCode = str_pad((string) ($warehouse?->code ?? ''), 4, '0', STR_PAD_LEFT);
@@ -322,7 +390,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
         $record .= 'D';                                              // 1: レコード区分
         $record .= '01';                                             // 2-3: データ種別
         $record .= $this->padNumber($seq, 2);                        // 4-5: 伝票行番号
-        $record .= $this->padProductName($item?->name_main ?? '', 62) . '  '; // 6-69: 品名（62バイト+2空白）
+        $record .= $this->padProductName($item?->name_main ?? '', 62).'  '; // 6-69: 品名（62バイト+2空白）
         $record .= str_pad($orderingCode, 13);                       // 70-82: 発注コード
         $record .= str_pad(substr($item?->code ?? '', 0, 6), 6);     // 83-88: 自社コード
         $record .= $this->padNumber($capacityCase, 6);               // 89-94: 仕入入数
@@ -358,7 +426,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
     {
         $timestamp = Carbon::now()->format('YmdHis');
 
-        return "{$contractorCode}_order_{$timestamp}." . self::FILE_EXTENSION;
+        return "{$contractorCode}_order_{$timestamp}.".self::FILE_EXTENSION;
     }
 
     /**
@@ -524,10 +592,10 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
         $padding = str_repeat($pad, $padLength);
 
         if ($padType === STR_PAD_LEFT) {
-            return $padding . $result;
+            return $padding.$result;
         }
 
-        return $result . $padding;
+        return $result.$padding;
     }
 
     /**
@@ -572,7 +640,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
         // 左側に空白パディングを追加（右寄せ）
         $padLength = $length - $currentByteLength;
 
-        return str_repeat(' ', $padLength) . $result;
+        return str_repeat(' ', $padLength).$result;
     }
 
     /**
@@ -606,7 +674,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
         // 残りを空白でパディング
         $padLength = $length - $currentByteLength;
 
-        return $result . str_repeat(' ', $padLength);
+        return $result.str_repeat(' ', $padLength);
     }
 
     /**
@@ -625,13 +693,20 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
             return 0.0;
         }
 
-        $price = DB::connection('sakemaru')
-            ->table('item_prices')
-            ->where('item_id', $itemId)
-            ->where('is_active', true)
-            ->where('start_date', '<=', now()->toDateString())
-            ->orderBy('start_date', 'desc')
-            ->first();
+        // キャッシュから取得
+        if (isset($this->costPriceCache[$itemId])) {
+            $price = $this->costPriceCache[$itemId];
+        } else {
+            $price = DB::connection('sakemaru')
+                ->table('item_prices')
+                ->where('item_id', $itemId)
+                ->where('is_active', true)
+                ->where('start_date', '<=', now()->toDateString())
+                ->orderBy('start_date', 'desc')
+                ->first();
+
+            $this->costPriceCache[$itemId] = $price;
+        }
 
         if (! $price) {
             return 0.0;
@@ -643,6 +718,45 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
         }
 
         return (float) ($price->cost_case_price ?? 0);
+    }
+
+    /**
+     * 商品の仕入単価をプリロード
+     */
+    public function preloadCostPrices(array $itemIds): void
+    {
+        if (empty($itemIds)) {
+            return;
+        }
+
+        $today = now()->toDateString();
+
+        // サブクエリで各商品の最新start_dateを取得
+        $latestDates = DB::connection('sakemaru')
+            ->table('item_prices')
+            ->select('item_id', DB::raw('MAX(start_date) as max_start_date'))
+            ->whereIn('item_id', $itemIds)
+            ->where('is_active', true)
+            ->where('start_date', '<=', $today)
+            ->groupBy('item_id');
+
+        $prices = DB::connection('sakemaru')
+            ->table('item_prices as ip')
+            ->joinSub($latestDates, 'latest', function ($join) {
+                $join->on('ip.item_id', '=', 'latest.item_id')
+                    ->on('ip.start_date', '=', 'latest.max_start_date');
+            })
+            ->where('ip.is_active', true)
+            ->get();
+
+        foreach ($prices as $price) {
+            $this->costPriceCache[$price->item_id] = $price;
+        }
+
+        Log::info('[HanaOrderFileGenerator] CostPrices プリロード完了', [
+            'requested' => count($itemIds),
+            'loaded' => count($prices),
+        ]);
     }
 
     // ========================================

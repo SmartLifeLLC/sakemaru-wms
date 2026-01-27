@@ -8,7 +8,6 @@ use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
-use App\Services\AutoOrder\OrderExecutionService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -169,32 +168,6 @@ class WmsOrderConfirmationWaitingTable
                     ->searchable(),
             ])
             ->recordActions([
-                Action::make('confirm')
-                    ->label('確定')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->modalHeading('発注確定')
-                    ->modalDescription('この発注候補を確定し、入庫予定を作成します。')
-                    ->action(function ($record) {
-                        $service = app(OrderExecutionService::class);
-
-                        try {
-                            $schedules = $service->confirmCandidate($record, auth()->id());
-                            Notification::make()
-                                ->title('発注を確定しました')
-                                ->body("入庫予定 {$schedules->count()}件 を作成しました")
-                                ->success()
-                                ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->title('エラーが発生しました')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
-                        }
-                    }),
-
                 Action::make('viewDetail')
                     ->label('詳細')
                     ->icon('heroicon-o-eye')
@@ -368,39 +341,6 @@ class WmsOrderConfirmationWaitingTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    BulkAction::make('bulkConfirm')
-                        ->label('選択を発注確定')
-                        ->icon('heroicon-o-check-circle')
-                        ->color('success')
-                        ->requiresConfirmation()
-                        ->modalHeading('一括発注確定')
-                        ->modalDescription('選択した発注候補を確定し、入庫予定を作成します。')
-                        ->action(function (Collection $records) {
-                            $service = app(OrderExecutionService::class);
-                            $successCount = 0;
-                            $totalSchedules = 0;
-
-                            foreach ($records as $record) {
-                                if (! $record->status->canConfirm()) {
-                                    continue;
-                                }
-
-                                try {
-                                    $schedules = $service->confirmCandidate($record, auth()->id());
-                                    $successCount++;
-                                    $totalSchedules += $schedules->count();
-                                } catch (\Exception $e) {
-                                    // Skip errors
-                                }
-                            }
-
-                            Notification::make()
-                                ->title("{$successCount}件の発注を確定しました")
-                                ->body("入庫予定 {$totalSchedules}件 を作成しました")
-                                ->success()
-                                ->send();
-                        }),
-
                     BulkAction::make('bulkCancelApproval')
                         ->label('選択の承認取消')
                         ->icon('heroicon-o-x-circle')
@@ -409,14 +349,28 @@ class WmsOrderConfirmationWaitingTable
                         ->modalHeading('一括承認取消')
                         ->modalDescription('選択した発注候補の承認を取り消します。')
                         ->action(function (Collection $records) {
-                            $count = $records
+                            // APPROVED状態のIDのみ抽出
+                            $approvedIds = $records
                                 ->filter(fn ($r) => $r->status === CandidateStatus::APPROVED)
-                                ->each(fn ($record) => $record->update([
+                                ->pluck('id')
+                                ->toArray();
+
+                            if (empty($approvedIds)) {
+                                Notification::make()
+                                    ->title('承認済みのレコードがありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            // 一括更新
+                            $count = WmsOrderCandidate::whereIn('id', $approvedIds)
+                                ->update([
                                     'status' => CandidateStatus::PENDING,
                                     'modified_by' => auth()->id(),
                                     'modified_at' => now(),
-                                ]))
-                                ->count();
+                                ]);
 
                             Notification::make()
                                 ->title("{$count}件の承認を取り消しました")

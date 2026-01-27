@@ -5,12 +5,14 @@ namespace App\Services\AutoOrder;
 use App\Contracts\OrderFileGeneratorInterface;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\JobProcessName;
+use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionDocumentType;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
+use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
 use App\Models\WmsOrderTransmissionLog;
@@ -474,13 +476,16 @@ class OrderTransmissionService
     // ========================================
 
     /**
-     * 承認済み発注候補から発注送信ファイルを生成（テスト用・確定前）
+     * 承認済み発注候補からテスト用発注ファイルを生成（JX送信不可）
      *
      * @param  string  $batchCode  バッチコード
      * @return array{success: bool, files: array, total_orders: int, errors: array}
      */
-    public function generateOrderFilesForApproved(string $batchCode): array
+    public function generateTestOrderFiles(string $batchCode): array
     {
+        $startTime = microtime(true);
+        Log::info('[generateTestOrderFiles] 開始', ['batch_code' => $batchCode]);
+
         $generator = $this->getOrderFileGenerator();
 
         if (! $generator) {
@@ -493,10 +498,16 @@ class OrderTransmissionService
         }
 
         // APPROVED状態の発注候補を取得
+        $queryStart = microtime(true);
         $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
             ->where('status', CandidateStatus::APPROVED)
             ->with(['warehouse', 'item', 'contractor'])
             ->get();
+        Log::info('[generateTestOrderFiles] 候補取得完了', [
+            'batch_code' => $batchCode,
+            'count' => $candidates->count(),
+            'elapsed_ms' => round((microtime(true) - $queryStart) * 1000),
+        ]);
 
         if ($candidates->isEmpty()) {
             return [
@@ -508,16 +519,112 @@ class OrderTransmissionService
             ];
         }
 
-        // 既存のDRAFTドキュメントを削除
+        // 既存のTESTドキュメントとデータファイルを削除
+        $deleteStart = microtime(true);
         WmsOrderJxDocument::where('batch_code', $batchCode)
-            ->where('status', TransmissionDocumentStatus::DRAFT)
+            ->where('status', TransmissionDocumentStatus::TEST)
             ->delete();
+        WmsOrderDataFile::where('batch_code', $batchCode)
+            ->where('file_path', 'like', 'jx-orders-test/%')
+            ->delete();
+        Log::info('[generateTestOrderFiles] 既存ドキュメント削除完了', [
+            'batch_code' => $batchCode,
+            'elapsed_ms' => round((microtime(true) - $deleteStart) * 1000),
+        ]);
 
-        return $this->doGenerateOrderFiles($batchCode, $candidates, TransmissionDocumentStatus::DRAFT, false);
+        $result = $this->doGenerateOrderFiles($batchCode, $candidates, TransmissionDocumentStatus::TEST, false);
+
+        Log::info('[generateTestOrderFiles] 完了', [
+            'batch_code' => $batchCode,
+            'total_elapsed_ms' => round((microtime(true) - $startTime) * 1000),
+        ]);
+
+        return $result;
     }
 
     /**
-     * 確定済み発注候補から発注送信ファイルを生成
+     * 承認済み発注候補から進捗コールバック付きでテスト用発注ファイルを生成
+     *
+     * 全てのAPPROVED状態の発注候補を対象とし、ファイル生成後にコールバックを呼び出す。
+     * コールバックには各ファイルの結果（order_count等）が渡される。
+     *
+     * @param  callable  $progressCallback  ファイル生成後に呼び出されるコールバック
+     * @return array{success: bool, files: array, total_orders: int, errors: array}
+     */
+    public function generateTestOrderFilesWithProgress(callable $progressCallback): array
+    {
+        $startTime = microtime(true);
+        Log::info('[generateTestOrderFilesWithProgress] 開始');
+
+        $generator = $this->getOrderFileGenerator();
+
+        if (! $generator) {
+            return [
+                'success' => false,
+                'files' => [],
+                'total_orders' => 0,
+                'errors' => ['発注ファイル生成クラスが設定されていません'],
+            ];
+        }
+
+        // 全てのAPPROVED状態の発注候補を取得（バッチコード不問）
+        $queryStart = microtime(true);
+        $candidates = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
+            ->with(['warehouse', 'item', 'contractor'])
+            ->get();
+        Log::info('[generateTestOrderFilesWithProgress] 候補取得完了', [
+            'count' => $candidates->count(),
+            'elapsed_ms' => round((microtime(true) - $queryStart) * 1000),
+        ]);
+
+        if ($candidates->isEmpty()) {
+            return [
+                'success' => true,
+                'files' => [],
+                'total_orders' => 0,
+                'errors' => [],
+                'message' => '生成対象の承認済み発注候補がありません',
+            ];
+        }
+
+        // バッチコードを取得（代表値を使用）
+        $batchCode = $candidates->first()->batch_code;
+
+        // 既存のTESTドキュメントとデータファイルを全削除
+        $deleteStart = microtime(true);
+        WmsOrderJxDocument::where('status', TransmissionDocumentStatus::TEST)->delete();
+        WmsOrderDataFile::where('file_path', 'like', 'jx-orders-test/%')->delete();
+        Log::info('[generateTestOrderFilesWithProgress] 既存ドキュメント削除完了', [
+            'elapsed_ms' => round((microtime(true) - $deleteStart) * 1000),
+        ]);
+
+        // 進捗コールバック付きでファイル生成
+        $result = $this->doGenerateOrderFilesWithProgress($batchCode, $candidates, TransmissionDocumentStatus::TEST, false, $progressCallback);
+
+        Log::info('[generateTestOrderFilesWithProgress] 完了', [
+            'total_files' => count($result['files']),
+            'total_orders' => $result['total_orders'],
+            'total_elapsed_ms' => round((microtime(true) - $startTime) * 1000),
+        ]);
+
+        return $result;
+    }
+
+    /**
+     * 承認済み発注候補から発注送信ファイルを生成（テスト用・確定前）
+     *
+     * @deprecated generateTestOrderFiles を使用してください
+     *
+     * @param  string  $batchCode  バッチコード
+     * @return array{success: bool, files: array, total_orders: int, errors: array}
+     */
+    public function generateOrderFilesForApproved(string $batchCode): array
+    {
+        return $this->generateTestOrderFiles($batchCode);
+    }
+
+    /**
+     * 確定済み発注候補から発注送信ファイルを生成（JX対象のみ）
      *
      * @param  string  $batchCode  バッチコード
      * @return array{success: bool, files: array, total_orders: int, errors: array}
@@ -535,10 +642,33 @@ class OrderTransmissionService
             ];
         }
 
-        // EXECUTED状態（確定済み）で未送信の発注候補を取得
+        // JX送信対象の発注先IDを取得
+        $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        // Generatorの送信先マッピングを考慮（複数発注先→1つのJX代表発注先）
+        $mapping = $generator->getTransmissionContractorMapping();
+        $mappedContractorIds = array_keys($mapping);
+
+        // JX対象発注先 = 直接JX設定がある OR マッピングされている発注先
+        $targetContractorIds = array_unique(array_merge($jxContractorIds, $mappedContractorIds));
+
+        if (empty($targetContractorIds)) {
+            return [
+                'success' => true,
+                'files' => [],
+                'total_orders' => 0,
+                'errors' => [],
+                'message' => 'JX送信対象の発注先がありません',
+            ];
+        }
+
+        // CONFIRMED状態（確定済み）でファイル未生成のJX対象発注候補を取得
         $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
-            ->where('status', CandidateStatus::EXECUTED)
+            ->where('status', CandidateStatus::CONFIRMED)
             ->whereNull('wms_order_jx_document_id')
+            ->whereIn('contractor_id', $targetContractorIds)
             ->with(['warehouse', 'item', 'contractor'])
             ->get();
 
@@ -548,7 +678,7 @@ class OrderTransmissionService
                 'files' => [],
                 'total_orders' => 0,
                 'errors' => [],
-                'message' => '生成対象の発注候補がありません',
+                'message' => '生成対象のJX送信発注候補がありません',
             ];
         }
 
@@ -564,6 +694,33 @@ class OrderTransmissionService
         TransmissionDocumentStatus $status,
         bool $linkCandidates
     ): array {
+        return $this->doGenerateOrderFilesWithProgress($batchCode, $candidates, $status, $linkCandidates, null);
+    }
+
+    /**
+     * 発注送信ファイルを生成（進捗コールバック付き）
+     *
+     * @param  string  $batchCode  バッチコード
+     * @param  Collection  $candidates  発注候補
+     * @param  TransmissionDocumentStatus  $status  ドキュメントステータス
+     * @param  bool  $linkCandidates  候補とドキュメントを紐付けるか
+     * @param  callable|null  $progressCallback  ファイル生成後に呼び出されるコールバック
+     */
+    private function doGenerateOrderFilesWithProgress(
+        string $batchCode,
+        Collection $candidates,
+        TransmissionDocumentStatus $status,
+        bool $linkCandidates,
+        ?callable $progressCallback
+    ): array {
+        $methodStart = microtime(true);
+        Log::info('[doGenerateOrderFiles] 開始', [
+            'batch_code' => $batchCode,
+            'candidate_count' => $candidates->count(),
+            'status' => $status->value,
+            'has_progress_callback' => $progressCallback !== null,
+        ]);
+
         $generator = $this->getOrderFileGenerator();
         $results = [];
         $errors = [];
@@ -571,11 +728,21 @@ class OrderTransmissionService
 
         try {
             // Generatorでファイル生成
+            $generatorStart = microtime(true);
             $files = $generator->generate($candidates);
+            Log::info('[doGenerateOrderFiles] Generator完了', [
+                'batch_code' => $batchCode,
+                'file_count' => count($files),
+                'elapsed_ms' => round((microtime(true) - $generatorStart) * 1000),
+            ]);
 
-            foreach ($files as $file) {
-                // S3に保存
-                $s3Path = $this->saveOrderFileToS3($batchCode, $file, $status === TransmissionDocumentStatus::DRAFT);
+            foreach ($files as $fileIndex => $file) {
+                $fileStart = microtime(true);
+
+                // S3に保存（.datファイル）
+                $s3Start = microtime(true);
+                $s3Path = $this->saveOrderFileToS3($batchCode, $file, $status);
+                $s3Elapsed = round((microtime(true) - $s3Start) * 1000);
 
                 // この送信先に属する候補からwarehouse_idを取得
                 $mapping = $generator->getTransmissionContractorMapping();
@@ -586,31 +753,52 @@ class OrderTransmissionService
                 });
                 $warehouseId = $fileCandidates->first()?->warehouse_id;
 
+                // 入荷予定日を取得（同一グループは同じ日付のはず）
+                $expectedArrivalDate = $fileCandidates->first()?->expected_arrival_date;
+
+                // 確認用CSVファイルも生成・保存
+                $csvStart = microtime(true);
+                $csvPath = $this->generateAndSaveCsvFile($batchCode, $file, $fileCandidates, $status);
+                $csvElapsed = round((microtime(true) - $csvStart) * 1000);
+
                 // wms_order_jx_documentsに記録
-                $document = $this->createOrderDocument($batchCode, $file, $s3Path, $warehouseId, $status);
+                $dbStart = microtime(true);
+                $document = $this->createOrderDocument($batchCode, $file, $s3Path, $warehouseId, $status, $expectedArrivalDate, $csvPath);
+                $dbElapsed = round((microtime(true) - $dbStart) * 1000);
 
                 // 発注候補とドキュメントを紐付け（確定済みの場合のみ）
                 if ($linkCandidates) {
                     $this->linkCandidatesToDocument($candidates, $file['contractor_id'], $document);
                 }
 
-                $results[] = [
+                $fileResult = [
                     'contractor_id' => $file['contractor_id'],
                     'contractor_code' => $file['contractor_code'] ?? null,
                     'filename' => $file['filename'],
                     's3_path' => $s3Path,
+                    'csv_path' => $csvPath,
                     'document_id' => $document->id,
                     'record_count' => $file['record_count'],
                     'order_count' => $file['order_count'],
                 ];
 
+                $results[] = $fileResult;
                 $totalOrders += $file['order_count'];
 
-                Log::info('Order file generated', [
+                // 進捗コールバックを呼び出し
+                if ($progressCallback !== null) {
+                    $progressCallback($fileResult);
+                }
+
+                Log::info('[doGenerateOrderFiles] ファイル処理完了', [
                     'batch_code' => $batchCode,
+                    'file_index' => $fileIndex + 1,
                     'contractor_id' => $file['contractor_id'],
                     'filename' => $file['filename'],
-                    'status' => $status->value,
+                    's3_ms' => $s3Elapsed,
+                    'csv_ms' => $csvElapsed,
+                    'db_ms' => $dbElapsed,
+                    'total_ms' => round((microtime(true) - $fileStart) * 1000),
                 ]);
             }
         } catch (\Exception $e) {
@@ -627,6 +815,99 @@ class OrderTransmissionService
             'total_orders' => $totalOrders,
             'errors' => $errors,
         ];
+    }
+
+    /**
+     * 確認用CSVファイルを生成・保存
+     *
+     * S3にCSVファイルを保存し、wms_order_data_filesにも記録する
+     */
+    private function generateAndSaveCsvFile(
+        string $batchCode,
+        array $file,
+        Collection $candidates,
+        TransmissionDocumentStatus $status
+    ): ?string {
+        if ($candidates->isEmpty()) {
+            return null;
+        }
+
+        // CSVヘッダー
+        $headers = [
+            '発注先コード',
+            '発注先名',
+            '倉庫コード',
+            '倉庫名',
+            '商品コード',
+            '商品名',
+            '発注コード',
+            '発注数量',
+            '入荷予定日',
+            '発注日',
+        ];
+
+        // CSVデータ
+        $rows = [];
+        $rows[] = $headers;
+
+        foreach ($candidates as $candidate) {
+            $rows[] = [
+                $candidate->contractor?->code ?? '',
+                $candidate->contractor?->name ?? '',
+                $candidate->warehouse?->code ?? '',
+                $candidate->warehouse?->name ?? '',
+                $candidate->item?->code ?? '',
+                $candidate->item?->name ?? '',
+                $candidate->ordering_code ?? '',
+                $candidate->order_quantity,
+                $candidate->expected_arrival_date?->format('Y-m-d') ?? '',
+                now()->format('Y-m-d'),
+            ];
+        }
+
+        // CSV生成
+        $stream = fopen('php://temp', 'r+');
+        // BOM付きUTF-8
+        fwrite($stream, "\xEF\xBB\xBF");
+        foreach ($rows as $row) {
+            fputcsv($stream, $row);
+        }
+        rewind($stream);
+        $csvContent = stream_get_contents($stream);
+        fclose($stream);
+
+        // S3に保存
+        $folder = $status === TransmissionDocumentStatus::TEST ? 'jx-orders-test' : 'jx-orders';
+        $date = now()->format('Y-m-d');
+        $timestamp = now()->format('YmdHis');
+        $contractorCode = $file['contractor_code'] ?? $file['contractor_id'];
+        $csvFilename = "{$contractorCode}_order_{$timestamp}.csv";
+        $csvPath = "{$folder}/{$date}/{$csvFilename}";
+
+        Storage::disk('s3')->put($csvPath, $csvContent);
+
+        // wms_order_data_filesにも記録（重複時は更新）
+        $firstCandidate = $candidates->first();
+        WmsOrderDataFile::updateOrCreate(
+            [
+                'batch_code' => $batchCode,
+                'warehouse_id' => $firstCandidate?->warehouse_id,
+                'contractor_id' => $file['contractor_id'],
+            ],
+            [
+                'order_date' => now()->toDateString(),
+                'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
+                'file_path' => $csvPath,
+                'file_size' => strlen($csvContent),
+                'order_count' => $candidates->count(),
+                'total_quantity' => $candidates->sum('order_quantity'),
+                'status' => OrderDataFileStatus::GENERATED,
+                'downloaded_at' => null,
+                'downloaded_by' => null,
+            ]
+        );
+
+        return $csvPath;
     }
 
     /**
@@ -727,10 +1008,17 @@ class OrderTransmissionService
      * 注: AWS_BUCKET_PREFIXがfilesystems.phpで設定されているため、
      * ここでは追加のprefixを付けない
      */
-    private function saveOrderFileToS3(string $batchCode, array $file, bool $isDraft = false): string
+    private function saveOrderFileToS3(string $batchCode, array $file, TransmissionDocumentStatus $status): string
     {
         $date = now()->format('Y-m-d');
-        $folder = $isDraft ? 'jx-orders-draft' : 'jx-orders';
+
+        // ステータスに応じてフォルダを分ける
+        $folder = match ($status) {
+            TransmissionDocumentStatus::TEST => 'jx-orders-test',
+            TransmissionDocumentStatus::DRAFT => 'jx-orders-draft',
+            default => 'jx-orders',
+        };
+
         $path = "{$folder}/{$date}/{$file['filename']}";
 
         Storage::disk('s3')->put($path, $file['content']);
@@ -738,7 +1026,7 @@ class OrderTransmissionService
         Log::info('Order file saved to S3', [
             'batch_code' => $batchCode,
             'path' => $path,
-            'is_draft' => $isDraft,
+            'status' => $status->value,
         ]);
 
         return $path;
@@ -752,16 +1040,21 @@ class OrderTransmissionService
         array $file,
         string $s3Path,
         ?int $warehouseId = null,
-        TransmissionDocumentStatus $status = TransmissionDocumentStatus::PENDING
+        TransmissionDocumentStatus $status = TransmissionDocumentStatus::PENDING,
+        $expectedArrivalDate = null,
+        ?string $csvPath = null
     ): WmsOrderJxDocument {
         return WmsOrderJxDocument::create([
             'batch_code' => $batchCode,
             'wms_order_jx_setting_id' => $file['jx_setting_id'] ?? null,
             'warehouse_id' => $warehouseId,
             'contractor_id' => $file['contractor_id'],
+            'order_date' => now()->toDateString(),
+            'expected_arrival_date' => $expectedArrivalDate,
             'document_type' => TransmissionDocumentType::PURCHASE,
             'status' => $status,
             'file_path' => $s3Path,
+            'csv_path' => $csvPath,
             'file_size' => strlen($file['content']),
             'record_count' => $file['record_count'],
             'order_count' => $file['order_count'],

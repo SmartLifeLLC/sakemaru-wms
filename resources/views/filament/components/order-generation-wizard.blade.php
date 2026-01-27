@@ -3,9 +3,8 @@
     <div class="flex items-center justify-center space-x-4">
         @foreach ([
             ['num' => 1, 'label' => '削除確認'],
-            ['num' => 2, 'label' => 'スナップショット'],
-            ['num' => 3, 'label' => '発注生成'],
-            ['num' => 4, 'label' => '完了'],
+            ['num' => 2, 'label' => '生成処理'],
+            ['num' => 3, 'label' => '完了'],
         ] as $s)
             <div class="flex items-center">
                 <div @class([
@@ -43,40 +42,70 @@
                 <span class="font-medium">エラーが発生しました</span>
             </div>
             <p class="mt-2 text-sm text-danger-600 dark:text-danger-400">{{ $errorMessage }}</p>
+            <div class="mt-4 flex justify-end">
+                <x-filament::button
+                    color="gray"
+                    wire:click="closeWizard"
+                >
+                    閉じる
+                </x-filament::button>
+            </div>
         </div>
     @endif
 
-    {{-- プログレスバー --}}
+    {{-- プログレスバー（%表示付き） --}}
     @if ($isProcessing)
         <div class="space-y-2"
-            @if($progressMessage === 'スナップショットを生成中...')
-                x-init="setTimeout(() => $wire.runSnapshot(), 100)"
-            @elseif($progressMessage === '発注候補を生成中...')
-                x-init="setTimeout(() => $wire.runCalculation(), 100)"
-            @endif
+            wire:poll.1s="pollJobProgress"
         >
             <div class="flex items-center justify-between text-sm">
                 <span class="text-gray-600 dark:text-gray-400">{{ $progressMessage }}</span>
-                <span class="text-gray-600 dark:text-gray-400">処理中...</span>
+                <span class="text-gray-600 dark:text-gray-400 font-mono">{{ $progress }}%</span>
             </div>
-            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
-                {{-- インデターミネート（不定）プログレスバー --}}
-                <div class="bg-primary-500 h-2.5 rounded-full w-1/3 animate-indeterminate"></div>
+            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                <div
+                    class="bg-primary-500 h-3 rounded-full transition-all duration-300 ease-out"
+                    style="width: {{ $progress }}%"
+                ></div>
             </div>
         </div>
-        <style>
-            @keyframes indeterminate {
-                0% { transform: translateX(-100%); }
-                100% { transform: translateX(400%); }
-            }
-            .animate-indeterminate {
-                animation: indeterminate 1.5s ease-in-out infinite;
-            }
-        </style>
     @endif
 
+    {{-- 発注確定待ちがある場合のブロック表示 --}}
+    @if ($approvedCount > 0 && !$errorMessage)
+        <div class="p-6 bg-danger-50 dark:bg-danger-900/20 border border-danger-200 dark:border-danger-800 rounded-lg">
+            <div class="flex items-start gap-4">
+                <div class="p-3 bg-danger-100 dark:bg-danger-900/30 rounded-full">
+                    <x-heroicon-o-exclamation-triangle class="w-6 h-6 text-danger-600 dark:text-danger-400" />
+                </div>
+                <div class="flex-1">
+                    <h3 class="text-lg font-medium text-danger-800 dark:text-danger-200">発注候補の生成ができません</h3>
+                    <p class="mt-1 text-sm text-danger-700 dark:text-danger-300">
+                        現在 <span class="font-bold">{{ $approvedCount }}件</span> の発注確定待ちがあります。
+                    </p>
+                    <p class="mt-2 text-sm text-danger-600 dark:text-danger-400">
+                        新しい発注候補を生成する前に、発注確定待ちの処理を完了してください。
+                    </p>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end gap-3">
+                <x-filament::button
+                    color="gray"
+                    wire:click="closeWizard"
+                >
+                    閉じる
+                </x-filament::button>
+                <x-filament::button
+                    color="primary"
+                    tag="a"
+                    href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}"
+                >
+                    発注確定待ちへ
+                </x-filament::button>
+            </div>
+        </div>
+    @elseif ($step === 0 && !$isProcessing && !$errorMessage)
     {{-- ステップ0: 削除確認 --}}
-    @if ($step === 0 && !$isProcessing)
         <div class="p-6 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <div class="flex items-start gap-4">
                 <div class="p-3 bg-warning-100 dark:bg-warning-900/30 rounded-full">
@@ -127,75 +156,74 @@
         </div>
     @endif
 
-    {{-- ステップ1: スナップショット作成 --}}
-    @if ($step === 1 && !$isProcessing)
+    {{-- ステップ1: 生成開始確認 --}}
+    @if ($step === 1 && !$isProcessing && !$errorMessage)
         <div class="p-6 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <div class="flex items-start gap-4">
-                <div class="p-3 bg-info-100 dark:bg-info-900/30 rounded-full">
-                    <x-heroicon-o-camera class="w-6 h-6 text-info-600 dark:text-info-400" />
+                <div class="p-3 bg-success-100 dark:bg-success-900/30 rounded-full">
+                    <x-heroicon-o-sparkles class="w-6 h-6 text-success-600 dark:text-success-400" />
                 </div>
                 <div class="flex-1">
-                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">在庫スナップショットの作成</h3>
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">発注候補を生成</h3>
                     <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                        現在の在庫データのスナップショットを生成します。
+                        在庫スナップショットの作成と発注候補の計算を実行します。
                     </p>
-                    @if (isset($results['deleted']))
+                    @if (isset($results['deleted']) && $results['deleted'] > 0)
                         <p class="mt-2 text-sm text-success-600 dark:text-success-400">
                             ✓ {{ $results['deleted'] }}件の未承認発注候補を削除しました
                         </p>
                     @endif
+                    <div class="mt-4 p-3 bg-info-50 dark:bg-info-900/20 rounded-lg border border-info-200 dark:border-info-800">
+                        <p class="text-sm text-info-700 dark:text-info-300">
+                            <x-heroicon-o-information-circle class="w-4 h-4 inline-block mr-1" />
+                            この処理はバックグラウンドで実行されます。処理中は進捗が表示されます。
+                        </p>
+                    </div>
                 </div>
             </div>
             <div class="mt-6 flex justify-end gap-3">
                 <x-filament::button
-                    color="primary"
-                    wire:click="executeStep2Snapshot"
+                    color="gray"
+                    wire:click="closeWizard"
                 >
-                    スナップショット実行
+                    キャンセル
+                </x-filament::button>
+                <x-filament::button
+                    color="success"
+                    wire:click="startGenerationJob"
+                >
+                    生成を開始
                 </x-filament::button>
             </div>
         </div>
     @endif
 
-    {{-- ステップ2: 発注候補生成 --}}
-    @if ($step === 2 && !$isProcessing)
+    {{-- ステップ2: 処理中（プログレスバーが表示される） --}}
+    @if ($step === 2 && $isProcessing && !$errorMessage)
         <div class="p-6 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <div class="flex items-start gap-4">
-                <div class="p-3 bg-success-100 dark:bg-success-900/30 rounded-full">
-                    <x-heroicon-o-calculator class="w-6 h-6 text-success-600 dark:text-success-400" />
+                <div class="p-3 bg-info-100 dark:bg-info-900/30 rounded-full">
+                    <x-heroicon-o-arrow-path class="w-6 h-6 text-info-600 dark:text-info-400 animate-spin" />
                 </div>
                 <div class="flex-1">
-                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">発注候補の生成</h3>
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">発注候補を生成中...</h3>
                     <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                        スナップショットを基に発注候補を計算・生成します。
+                        処理が完了するまでお待ちください。このモーダルを閉じても処理は継続されます。
                     </p>
-                    @if (isset($results['snapshot']))
-                        <p class="mt-2 text-sm text-success-600 dark:text-success-400">
-                            ✓ {{ $results['snapshot'] }}件のスナップショットを作成しました
-                        </p>
-                    @endif
                 </div>
-            </div>
-            <div class="mt-6 flex justify-end gap-3">
-                <x-filament::button
-                    color="success"
-                    wire:click="executeStep3Calculate"
-                >
-                    発注候補を生成
-                </x-filament::button>
             </div>
         </div>
     @endif
 
     {{-- ステップ3: 完了 --}}
-    @if ($step === 3 && !$isProcessing)
+    @if ($step === 3 && !$isProcessing && !$errorMessage)
         <div class="p-6 bg-success-50 dark:bg-success-900/20 rounded-lg">
             <div class="flex items-start gap-4">
                 <div class="p-3 bg-success-100 dark:bg-success-900/30 rounded-full">
                     <x-heroicon-o-check-circle class="w-6 h-6 text-success-600 dark:text-success-400" />
                 </div>
                 <div class="flex-1">
-                    <h3 class="text-lg font-medium text-success-800 dark:text-success-200">発注生成が完了しました</h3>
+                    <h3 class="text-lg font-medium text-success-800 dark:text-success-200">発注候補の生成が完了しました</h3>
                     <p class="mt-1 text-sm text-success-700 dark:text-success-300">
                         バッチコード: <span class="font-mono font-bold">{{ $results['batchCode'] ?? '-' }}</span>
                     </p>
