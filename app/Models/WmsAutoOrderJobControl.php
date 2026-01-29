@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Builder;
  * @property int|null $total_records
  * @property int|null $processed_records
  * @property string|null $error_details
+ * @property array|null $result_data
  */
 class WmsAutoOrderJobControl extends WmsModel
 {
@@ -34,12 +35,14 @@ class WmsAutoOrderJobControl extends WmsModel
         'total_records',
         'processed_records',
         'error_details',
+        'result_data',
     ];
 
     protected $casts = [
         'started_at' => 'datetime',
         'finished_at' => 'datetime',
         'target_scope' => 'array',
+        'result_data' => 'array',
         'status' => JobStatus::class,
         'process_name' => JobProcessName::class,
     ];
@@ -69,13 +72,19 @@ class WmsAutoOrderJobControl extends WmsModel
     /**
      * ジョブを成功で完了
      */
-    public function markAsSuccess(int $processedRecords = 0): void
+    public function markAsSuccess(int $processedRecords = 0, ?array $resultData = null): void
     {
-        $this->update([
+        $data = [
             'status' => JobStatus::SUCCESS,
             'finished_at' => now(),
             'processed_records' => $processedRecords,
-        ]);
+        ];
+
+        if ($resultData !== null) {
+            $data['result_data'] = $resultData;
+        }
+
+        $this->update($data);
     }
 
     /**

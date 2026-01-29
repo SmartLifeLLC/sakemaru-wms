@@ -54,6 +54,8 @@ class MegaMenu extends Component
                 'icon' => 'fa-cart-shopping',
                 'categories' => [
                     EMenuCategory::AUTO_ORDER,
+                    EMenuCategory::ORDER_HISTORY,
+                    EMenuCategory::ORDER_SETTINGS,
                 ],
             ],
             'inventory' => [

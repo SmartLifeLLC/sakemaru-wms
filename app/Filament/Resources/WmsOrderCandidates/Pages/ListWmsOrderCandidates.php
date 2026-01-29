@@ -537,6 +537,32 @@ class ListWmsOrderCandidates extends ListRecords
                     $this->redirect(static::getResource()::getUrl('index'));
                 }),
 
+            Action::make('approveAll')
+                ->label('全て承認')
+                ->icon('heroicon-o-check-circle')
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading('発注候補を全て承認')
+                ->modalDescription(function () {
+                    $count = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
+
+                    return "承認前（PENDING）の発注候補 {$count}件 を全て承認します。";
+                })
+                ->modalSubmitActionLabel('全て承認')
+                ->action(function () {
+                    $updated = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                        ->update([
+                            'status' => CandidateStatus::APPROVED,
+                            'updated_at' => now(),
+                        ]);
+
+                    Notification::make()
+                        ->title('発注候補を全て承認しました')
+                        ->body("{$updated}件 を承認しました。")
+                        ->success()
+                        ->send();
+                }),
+
             Action::make('deleteAllPending')
                 ->label('承認前を全削除')
                 ->icon('heroicon-o-trash')
@@ -599,11 +625,14 @@ class ListWmsOrderCandidates extends ListRecords
         // ユーザーのデフォルト倉庫を取得
         $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
 
-        // PENDING の発注候補に存在する倉庫のみ取得（高速化）
-        $warehouseIds = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
-            ->distinct()
-            ->pluck('warehouse_id')
-            ->toArray();
+        // PENDING の発注候補に存在する倉庫のみ取得（キャッシュして重複クエリを防止）
+        $cacheKey = 'order_candidates_pending_warehouses_'.auth()->id();
+        $warehouseIds = cache()->remember($cacheKey, 30, function () {
+            return WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                ->distinct()
+                ->pluck('warehouse_id')
+                ->toArray();
+        });
         $warehouses = Warehouse::whereIn('id', $warehouseIds)->orderBy('name')->get();
 
         // デフォルト倉庫が発注候補に存在するかチェック

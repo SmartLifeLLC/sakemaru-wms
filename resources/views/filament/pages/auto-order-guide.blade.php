@@ -54,13 +54,17 @@
                         </div>
                     </x-slot>
                     <div class="text-sm text-gray-700 dark:text-gray-300 space-y-3">
-                        <p>在庫が発注点を下回った商品を自動で検出し、発注候補を作成するシステムです。</p>
+                        <p>在庫が発注点を下回った商品を自動で検出し、<strong>倉庫間移動候補</strong>と<strong>発注候補</strong>を作成するシステムです。</p>
                         <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                             <div class="font-semibold mb-3">主な機能</div>
                             <ul class="space-y-2 text-gray-600 dark:text-gray-400">
                                 <li class="flex items-start gap-2">
                                     <x-heroicon-o-check-circle class="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-                                    <span>毎朝、在庫状況をチェックして発注候補を自動作成</span>
+                                    <span>在庫状況をチェックして移動候補・発注候補を自動作成</span>
+                                </li>
+                                <li class="flex items-start gap-2">
+                                    <x-heroicon-o-check-circle class="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+                                    <span>Hub倉庫からSatellite倉庫への倉庫間移動を自動計算</span>
                                 </li>
                                 <li class="flex items-start gap-2">
                                     <x-heroicon-o-check-circle class="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
@@ -68,7 +72,7 @@
                                 </li>
                                 <li class="flex items-start gap-2">
                                     <x-heroicon-o-check-circle class="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
-                                    <span>確認・承認後に問屋へデータを送信</span>
+                                    <span>確認・承認後に移動伝票生成と問屋へのデータ送信</span>
                                 </li>
                             </ul>
                         </div>
@@ -86,26 +90,33 @@
                         <div class="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                             <span class="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold">1</span>
                             <div>
-                                <div class="font-semibold text-sm">発注候補計算（手動実施）</div>
+                                <div class="font-semibold text-sm">候補計算（手動実施）</div>
                                 <div class="text-xs text-gray-600 dark:text-gray-400">朝の出荷完了後に実施</div>
                             </div>
                         </div>
-                        <div class="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                            <span class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center font-bold">2</span>
+                        <div class="flex items-center gap-3 p-3 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg">
+                            <span class="w-8 h-8 rounded-full bg-cyan-500 text-white flex items-center justify-center font-bold">2</span>
                             <div>
-                                <div class="font-semibold text-sm">確認・承認</div>
+                                <div class="font-semibold text-sm">移動候補の確認・承認</div>
+                                <div class="text-xs text-gray-600 dark:text-gray-400">移動候補一覧で内容を確認し承認</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                            <span class="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center font-bold">3</span>
+                            <div>
+                                <div class="font-semibold text-sm">発注候補の確認・承認</div>
                                 <div class="text-xs text-gray-600 dark:text-gray-400">発注候補一覧で内容を確認し承認</div>
                             </div>
                         </div>
                         <div class="flex items-center gap-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
-                            <span class="w-8 h-8 rounded-full bg-orange-500 text-white flex items-center justify-center font-bold">3</span>
+                            <span class="w-8 h-8 rounded-full bg-orange-500 text-white flex items-center justify-center font-bold">4</span>
                             <div>
-                                <div class="font-semibold text-sm">発注確定</div>
-                                <div class="text-xs text-gray-600 dark:text-gray-400">承認した候補を確定して入荷予定を作成</div>
+                                <div class="font-semibold text-sm">移動・発注確定</div>
+                                <div class="text-xs text-gray-600 dark:text-gray-400">承認した候補を一括確定</div>
                             </div>
                         </div>
                         <div class="flex items-center gap-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                            <span class="w-8 h-8 rounded-full bg-purple-500 text-white flex items-center justify-center font-bold">4</span>
+                            <span class="w-8 h-8 rounded-full bg-purple-500 text-white flex items-center justify-center font-bold">5</span>
                             <div>
                                 <div class="font-semibold text-sm">発注送信</div>
                                 <div class="text-xs text-gray-600 dark:text-gray-400">問屋へ発注データを送信</div>
@@ -114,6 +125,59 @@
                     </div>
                 </x-filament::section>
             </div>
+
+            {{-- 移動と発注の関係 --}}
+            <x-filament::section class="mb-6">
+                <x-slot name="heading">
+                    <div class="flex items-center gap-2">
+                        <x-heroicon-o-arrows-right-left class="w-5 h-5 text-primary-500" />
+                        移動候補と発注候補の関係
+                    </div>
+                </x-slot>
+                <div class="space-y-4">
+                    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="text-center p-3 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg">
+                                <x-heroicon-o-building-office-2 class="w-8 h-8 text-cyan-500 mx-auto mb-2" />
+                                <div class="font-semibold text-sm">Satellite倉庫</div>
+                                <div class="text-xs text-gray-500">在庫不足を検出</div>
+                            </div>
+                            <div class="flex items-center justify-center">
+                                <x-heroicon-o-arrow-right class="w-8 h-8 text-gray-400" />
+                            </div>
+                            <div class="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                                <x-heroicon-o-building-office class="w-8 h-8 text-blue-500 mx-auto mb-2" />
+                                <div class="font-semibold text-sm">Hub倉庫</div>
+                                <div class="text-xs text-gray-500">在庫を供給</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="bg-cyan-50 dark:bg-cyan-900/20 rounded-lg p-4 border border-cyan-200 dark:border-cyan-800">
+                            <div class="flex items-center gap-2 mb-2">
+                                <x-heroicon-o-truck class="w-5 h-5 text-cyan-500" />
+                                <span class="font-semibold text-cyan-700 dark:text-cyan-300">移動候補（INTERNAL）</span>
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400">Hub倉庫からSatellite倉庫への倉庫間移動。Hub倉庫の在庫を使用。</p>
+                        </div>
+                        <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
+                            <div class="flex items-center gap-2 mb-2">
+                                <x-heroicon-o-shopping-cart class="w-5 h-5 text-green-500" />
+                                <span class="font-semibold text-green-700 dark:text-green-300">発注候補（EXTERNAL）</span>
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400">問屋からの外部発注。Hub倉庫の不足分 + Satellite需要分を発注。</p>
+                        </div>
+                    </div>
+                    <div class="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-3 border border-warning-200 dark:border-warning-700">
+                        <div class="flex items-start gap-2">
+                            <x-heroicon-o-exclamation-triangle class="w-5 h-5 text-warning-500 flex-shrink-0 mt-0.5" />
+                            <div class="text-sm text-warning-700 dark:text-warning-300">
+                                <strong>重要：</strong>移動候補の数量を変更すると、関連する発注候補の数量も自動的に再計算されます。移動候補を先に確認・承認してから、発注候補を承認してください。
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </x-filament::section>
 
             {{-- 画面一覧 --}}
             <x-filament::section>
@@ -124,19 +188,33 @@
                     </div>
                 </x-slot>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <a href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}" class="block p-4 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg hover:bg-cyan-100 dark:hover:bg-cyan-900/30 transition-colors border border-cyan-200 dark:border-cyan-800">
+                        <div class="flex items-center gap-3 mb-2">
+                            <x-heroicon-o-truck class="w-6 h-6 text-cyan-500" />
+                            <span class="font-semibold">移動候補一覧</span>
+                        </div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400">倉庫間移動候補の確認・承認を行う画面</p>
+                    </a>
                     <a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="block p-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                         <div class="flex items-center gap-3 mb-2">
                             <x-heroicon-o-clipboard-document-list class="w-6 h-6 text-blue-500" />
                             <span class="font-semibold">発注候補一覧</span>
                         </div>
-                        <p class="text-xs text-gray-600 dark:text-gray-400">発注候補の確認・承認・確定を行う画面</p>
+                        <p class="text-xs text-gray-600 dark:text-gray-400">発注候補の確認・承認を行う画面</p>
+                    </a>
+                    <a href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}" class="block p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors border border-orange-200 dark:border-orange-800">
+                        <div class="flex items-center gap-3 mb-2">
+                            <x-heroicon-o-check-circle class="w-6 h-6 text-orange-500" />
+                            <span class="font-semibold">移動・発注確定待ち</span>
+                        </div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400">承認済み候補を一括確定する画面</p>
                     </a>
                     <a href="{{ route('filament.admin.resources.wms-order-incoming-schedules.index') }}" class="block p-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                         <div class="flex items-center gap-3 mb-2">
-                            <x-heroicon-o-truck class="w-6 h-6 text-green-500" />
+                            <x-heroicon-o-inbox-arrow-down class="w-6 h-6 text-green-500" />
                             <span class="font-semibold">入荷予定一覧</span>
                         </div>
-                        <p class="text-xs text-gray-600 dark:text-gray-400">確定済み発注の入荷予定を確認</p>
+                        <p class="text-xs text-gray-600 dark:text-gray-400">確定済みの入荷予定を確認</p>
                     </a>
                     <a href="{{ route('filament.admin.resources.wms-order-jx-settings.index') }}" class="block p-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                         <div class="flex items-center gap-3 mb-2">
@@ -152,21 +230,6 @@
                         </div>
                         <p class="text-xs text-gray-600 dark:text-gray-400">月ごとの発注点を設定</p>
                     </a>
-                    <a href="{{ route('filament.admin.resources.wms-warehouse-calendars.index') }}" class="block p-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                        <div class="flex items-center gap-3 mb-2">
-                            <x-heroicon-o-calendar class="w-6 h-6 text-red-500" />
-                            <span class="font-semibold">倉庫カレンダー</span>
-                        </div>
-                        <p class="text-xs text-gray-600 dark:text-gray-400">倉庫の休日設定を管理</p>
-                    </a>
-                    <div class="block p-4 bg-gray-50 dark:bg-gray-800 rounded-lg opacity-60">
-                        <div class="flex items-center gap-3 mb-2">
-                            <x-heroicon-o-calendar-days class="w-6 h-6 text-teal-500" />
-                            <span class="font-semibold">納品可能曜日</span>
-                            <span class="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded">準備中</span>
-                        </div>
-                        <p class="text-xs text-gray-600 dark:text-gray-400">発注先×倉庫ごとの納品曜日を設定</p>
-                    </div>
                 </div>
             </x-filament::section>
         </div>
@@ -174,12 +237,12 @@
         {{-- 日常業務タブ --}}
         <div x-show="activeTab === 'daily'" x-cloak class="flex-1 overflow-y-auto pt-4">
             <div class="space-y-6">
-                {{-- 発注候補の確認 --}}
+                {{-- 候補計算 --}}
                 <x-filament::section>
                     <x-slot name="heading">
                         <div class="flex items-center gap-2">
                             <span class="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center font-bold">1</span>
-                            発注候補の確認
+                            候補計算の実行
                         </div>
                     </x-slot>
                     <div class="space-y-4">
@@ -189,7 +252,84 @@
                                 <span class="font-semibold">画面</span>
                             </div>
                             <p class="text-sm">
-                                <a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-blue-600 dark:text-blue-400 hover:underline font-semibold">
+                                <a href="{{ route('filament.admin.resources.wms-auto-order-job-controls.index') }}" class="text-blue-600 dark:text-blue-400 hover:underline font-semibold">
+                                    発注 → 自動発注ジョブ管理
+                                </a>
+                            </p>
+                        </div>
+                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                            <div class="font-semibold text-sm mb-2">計算で生成されるデータ</div>
+                            <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                                <li>・ <strong class="text-cyan-600">移動候補（INTERNAL）</strong>：Hub倉庫からSatellite倉庫への移動</li>
+                                <li>・ <strong class="text-green-600">発注候補（EXTERNAL）</strong>：問屋への発注（移動出庫分を考慮）</li>
+                            </ul>
+                        </div>
+                    </div>
+                </x-filament::section>
+
+                {{-- 移動候補の確認 --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <span class="w-6 h-6 rounded-full bg-cyan-500 text-white text-xs flex items-center justify-center font-bold">2</span>
+                            移動候補の確認・承認
+                        </div>
+                    </x-slot>
+                    <div class="space-y-4">
+                        <div class="bg-cyan-50 dark:bg-cyan-900/20 rounded-lg p-4">
+                            <div class="flex items-center gap-2 mb-2">
+                                <x-heroicon-o-map-pin class="w-5 h-5 text-cyan-500" />
+                                <span class="font-semibold">画面</span>
+                            </div>
+                            <p class="text-sm">
+                                <a href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}" class="text-cyan-600 dark:text-cyan-400 hover:underline font-semibold">
+                                    発注 → 移動候補一覧
+                                </a>
+                            </p>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                                <div class="font-semibold text-sm mb-2">確認する内容</div>
+                                <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                                    <li>・ 移動数量が適切か</li>
+                                    <li>・ 移動出荷日が問題ないか</li>
+                                    <li>・ 配送コースが正しいか</li>
+                                </ul>
+                            </div>
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                                <div class="font-semibold text-sm mb-2">操作</div>
+                                <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                                    <li>・ <span class="text-green-600 font-semibold">承認</span>：移動を実行</li>
+                                    <li>・ <span class="text-red-600 font-semibold">除外</span>：移動しない</li>
+                                    <li>・ <span class="text-gray-600 font-semibold">変更</span>：数量を修正</li>
+                                </ul>
+                            </div>
+                            <div class="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-4 border border-warning-200 dark:border-warning-800">
+                                <div class="font-semibold text-sm mb-2 text-warning-700 dark:text-warning-300">数量変更時の注意</div>
+                                <p class="text-xs text-gray-600 dark:text-gray-400">
+                                    移動数量を変更すると、関連する発注候補の数量も自動再計算されます。
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </x-filament::section>
+
+                {{-- 発注候補の確認 --}}
+                <x-filament::section>
+                    <x-slot name="heading">
+                        <div class="flex items-center gap-2">
+                            <span class="w-6 h-6 rounded-full bg-green-500 text-white text-xs flex items-center justify-center font-bold">3</span>
+                            発注候補の確認・承認
+                        </div>
+                    </x-slot>
+                    <div class="space-y-4">
+                        <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
+                            <div class="flex items-center gap-2 mb-2">
+                                <x-heroicon-o-map-pin class="w-5 h-5 text-green-500" />
+                                <span class="font-semibold">画面</span>
+                            </div>
+                            <p class="text-sm">
+                                <a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-green-600 dark:text-green-400 hover:underline font-semibold">
                                     発注 → 発注候補一覧
                                 </a>
                             </p>
@@ -204,79 +344,43 @@
                                 </ul>
                             </div>
                             <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                                <div class="font-semibold text-sm mb-2">フィルター機能</div>
+                                <div class="font-semibold text-sm mb-2">操作</div>
                                 <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                                    <li>・ 発注先で絞り込み</li>
-                                    <li>・ 倉庫で絞り込み</li>
-                                    <li>・ ステータスで絞り込み</li>
+                                    <li>・ <span class="text-green-600 font-semibold">承認</span>：発注を実行</li>
+                                    <li>・ <span class="text-red-600 font-semibold">除外</span>：発注しない</li>
+                                    <li>・ <span class="text-gray-600 font-semibold">変更</span>：数量を修正</li>
                                 </ul>
                             </div>
-                            <div class="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-4 border border-orange-200 dark:border-orange-800">
-                                <div class="font-semibold text-sm mb-2 text-orange-700 dark:text-orange-300">発注数量の計算</div>
-                                <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                                    不足数を<strong>仕入単位（入り数）</strong>で切り上げて発注数量を算出します。
+                            <div class="bg-danger-50 dark:bg-danger-900/20 rounded-lg p-4 border border-danger-200 dark:border-danger-800">
+                                <div class="font-semibold text-sm mb-2 text-danger-700 dark:text-danger-300">承認の制約</div>
+                                <p class="text-xs text-gray-600 dark:text-gray-400">
+                                    移動候補に未承認データがある場合、発注候補の承認はブロックされます。先に移動候補を処理してください。
                                 </p>
-                                <div class="text-xs bg-white dark:bg-gray-900 rounded p-2">
-                                    <p class="text-gray-500">例: 不足25個、入り数12個</p>
-                                    <p class="font-semibold">→ 36個（3ケース）発注</p>
-                                </div>
                             </div>
                         </div>
                     </div>
                 </x-filament::section>
 
-                {{-- 承認・除外 --}}
+                {{-- 移動・発注確定 --}}
                 <x-filament::section>
                     <x-slot name="heading">
                         <div class="flex items-center gap-2">
-                            <span class="w-6 h-6 rounded-full bg-green-500 text-white text-xs flex items-center justify-center font-bold">2</span>
-                            承認・除外
+                            <span class="w-6 h-6 rounded-full bg-orange-500 text-white text-xs flex items-center justify-center font-bold">4</span>
+                            移動・発注確定
                         </div>
                     </x-slot>
                     <div class="space-y-4">
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 border border-green-200 dark:border-green-800">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <x-heroicon-o-check-circle class="w-5 h-5 text-green-500" />
-                                    <span class="font-semibold text-green-700 dark:text-green-300">承認</span>
-                                </div>
-                                <p class="text-xs text-gray-600 dark:text-gray-400">発注する候補を選択して承認ボタンをクリック</p>
+                        <div class="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-4">
+                            <div class="flex items-center gap-2 mb-2">
+                                <x-heroicon-o-map-pin class="w-5 h-5 text-orange-500" />
+                                <span class="font-semibold">画面</span>
                             </div>
-                            <div class="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 border border-red-200 dark:border-red-800">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <x-heroicon-o-x-circle class="w-5 h-5 text-red-500" />
-                                    <span class="font-semibold text-red-700 dark:text-red-300">除外</span>
-                                </div>
-                                <p class="text-xs text-gray-600 dark:text-gray-400">発注しない候補を選択して除外ボタンをクリック</p>
-                            </div>
-                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                <div class="flex items-center gap-2 mb-2">
-                                    <x-heroicon-o-pencil class="w-5 h-5 text-gray-500" />
-                                    <span class="font-semibold">数量変更</span>
-                                </div>
-                                <p class="text-xs text-gray-600 dark:text-gray-400">編集ボタンで発注数量を変更可能</p>
-                            </div>
+                            <p class="text-sm">
+                                <a href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}" class="text-orange-600 dark:text-orange-400 hover:underline font-semibold">
+                                    発注 → 移動・発注確定待ち
+                                </a>
+                            </p>
                         </div>
-                        <div class="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-3 border border-warning-200 dark:border-warning-700">
-                            <div class="flex items-start gap-2">
-                                <x-heroicon-o-exclamation-triangle class="w-5 h-5 text-warning-500 flex-shrink-0 mt-0.5" />
-                                <div class="text-sm text-warning-700 dark:text-warning-300">
-                                    <strong>ヒント：</strong>一括操作を使うと、複数の候補をまとめて承認・除外できます。チェックボックスで選択後、上部のアクションボタンをクリックしてください。
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </x-filament::section>
-
-                {{-- 発注確定 --}}
-                <x-filament::section>
-                    <x-slot name="heading">
-                        <div class="flex items-center gap-2">
-                            <span class="w-6 h-6 rounded-full bg-orange-500 text-white text-xs flex items-center justify-center font-bold">3</span>
-                            発注確定
-                        </div>
-                    </x-slot>
-                    <div class="space-y-4">
                         <div class="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-4">
                             <div class="flex items-center gap-2 mb-3">
                                 <x-heroicon-o-cursor-arrow-rays class="w-5 h-5 text-orange-500" />
@@ -285,11 +389,11 @@
                             <ol class="text-sm text-gray-700 dark:text-gray-300 space-y-2">
                                 <li class="flex items-start gap-2">
                                     <span class="w-5 h-5 rounded-full bg-orange-200 dark:bg-orange-800 text-orange-800 dark:text-orange-200 text-xs flex items-center justify-center flex-shrink-0">1</span>
-                                    <span>画面上部の<strong>「発注確定」</strong>ボタンをクリック</span>
+                                    <span>画面上部の<strong>「移動・発注確定」</strong>ボタンをクリック</span>
                                 </li>
                                 <li class="flex items-start gap-2">
                                     <span class="w-5 h-5 rounded-full bg-orange-200 dark:bg-orange-800 text-orange-800 dark:text-orange-200 text-xs flex items-center justify-center flex-shrink-0">2</span>
-                                    <span>確認ダイアログで内容を確認</span>
+                                    <span>確認ダイアログで内容を確認（移動件数・発注件数）</span>
                                 </li>
                                 <li class="flex items-start gap-2">
                                     <span class="w-5 h-5 rounded-full bg-orange-200 dark:bg-orange-800 text-orange-800 dark:text-orange-200 text-xs flex items-center justify-center flex-shrink-0">3</span>
@@ -297,13 +401,31 @@
                                 </li>
                             </ol>
                         </div>
-                        <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                            <div class="font-semibold text-sm mb-2">確定後の状態</div>
-                            <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                                <li>・ 発注候補のステータスが「実行済」に変更</li>
-                                <li>・ 入荷予定データが自動作成</li>
-                                <li>・ 発注送信の準備が完了</li>
-                            </ul>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-cyan-50 dark:bg-cyan-900/20 rounded-lg p-4">
+                                <div class="font-semibold text-sm mb-2 text-cyan-700 dark:text-cyan-300">移動候補の確定後</div>
+                                <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                                    <li>・ 移動伝票（stock_transfer）が作成</li>
+                                    <li>・ Satellite倉庫の入荷予定が作成</li>
+                                    <li>・ ステータスが「実行済」に変更</li>
+                                </ul>
+                            </div>
+                            <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
+                                <div class="font-semibold text-sm mb-2 text-green-700 dark:text-green-300">発注候補の確定後</div>
+                                <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                                    <li>・ 入荷予定データが作成</li>
+                                    <li>・ 発注送信用ファイルが生成</li>
+                                    <li>・ ステータスが「実行済」に変更</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="bg-danger-50 dark:bg-danger-900/20 rounded-lg p-3 border border-danger-200 dark:border-danger-700">
+                            <div class="flex items-start gap-2">
+                                <x-heroicon-o-exclamation-triangle class="w-5 h-5 text-danger-500 flex-shrink-0 mt-0.5" />
+                                <div class="text-sm text-danger-700 dark:text-danger-300">
+                                    <strong>確定の制約：</strong>移動候補または発注候補に未承認データがある場合、確定処理はブロックされます。全ての候補を承認または除外してから確定してください。
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </x-filament::section>
@@ -330,7 +452,7 @@
                         <div class="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
                             <span class="inline-block w-3 h-3 rounded-full bg-red-500 mb-2"></span>
                             <div class="font-semibold text-sm">除外</div>
-                            <div class="text-xs text-gray-500">発注しない</div>
+                            <div class="text-xs text-gray-500">実行しない</div>
                         </div>
                         <div class="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                             <span class="inline-block w-3 h-3 rounded-full bg-blue-500 mb-2"></span>

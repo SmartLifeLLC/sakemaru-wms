@@ -7,11 +7,10 @@ use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Sakemaru\WarehouseStockTransferDeliveryCourse;
 use Filament\Actions\Action;
+use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
-use Filament\Tables\Actions\Action as TableAction;
-use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -123,7 +122,7 @@ class ListWarehouseStockTransferDeliveryCourses extends ListRecords
             ])
             ->defaultSort('from_warehouse_id', 'asc')
             ->recordActions([
-                TableAction::make('edit')
+                Action::make('edit')
                     ->label('編集')
                     ->icon('heroicon-o-pencil')
                     ->color('gray')

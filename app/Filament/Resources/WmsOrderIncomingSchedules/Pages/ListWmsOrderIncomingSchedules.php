@@ -8,6 +8,7 @@ use App\Filament\Resources\WmsOrderIncomingSchedules\WmsOrderIncomingScheduleRes
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\OrderExecutionService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
@@ -148,26 +149,54 @@ class ListWmsOrderIncomingSchedules extends ListRecords
 
     public function getPresetViews(): array
     {
-        return [
-            'all' => PresetView::make()
+        // ユーザーのデフォルト倉庫を取得
+        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+
+        // 入庫予定（PENDING/PARTIAL）に存在する倉庫を取得
+        $cacheKey = 'incoming_schedules_warehouses_'.auth()->id();
+        $warehouseData = cache()->remember($cacheKey, 30, function () {
+            $warehouseIds = WmsOrderIncomingSchedule::whereIn('status', [
+                IncomingScheduleStatus::PENDING,
+                IncomingScheduleStatus::PARTIAL,
+            ])
+                ->distinct()
+                ->pluck('warehouse_id')
+                ->toArray();
+
+            $warehouses = Warehouse::whereIn('id', $warehouseIds)
+                ->orderBy('code')
+                ->get(['id', 'name', 'code']);
+
+            return [
+                'ids' => $warehouseIds,
+                'warehouses' => $warehouses,
+            ];
+        });
+
+        $warehouseIds = $warehouseData['ids'];
+        $warehouses = $warehouseData['warehouses'];
+
+        // デフォルト倉庫が入庫予定に存在するかチェック
+        $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+
+        // プリセットビュー構築
+        $views = [
+            'default' => PresetView::make()
                 ->favorite()
                 ->label('全て')
-                ->default(),
-
-            'pending' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', IncomingScheduleStatus::PENDING))
-                ->favorite()
-                ->label('未入庫'),
-
-            'partial' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', IncomingScheduleStatus::PARTIAL))
-                ->favorite()
-                ->label('一部入庫'),
-
-            'today' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereDate('expected_arrival_date', today()))
-                ->favorite()
-                ->label('本日予定'),
+                ->default(! $hasDefaultWarehouse),
         ];
+
+        // 倉庫別タブを追加
+        foreach ($warehouses as $warehouse) {
+            $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
+            $views["default_{$warehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
+                ->favorite()
+                ->label($warehouse->name)
+                ->default($isDefault);
+        }
+
+        return $views;
     }
 }

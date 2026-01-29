@@ -9,6 +9,7 @@ use App\Models\Concerns\OptimisticLockException;
 use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
+use App\Models\WmsStockTransferCandidate;
 use App\Services\AutoOrder\OrderAuditService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -64,7 +65,6 @@ class WmsOrderCandidatesTable
                     ->label('商品名')
                     ->searchable()
                     ->sortable()
-                    ->wrap()
                     ->grow(),
 
                 TextColumn::make('item.packaging')
@@ -305,7 +305,27 @@ class WmsOrderCandidatesTable
                     ->color('success')
                     ->visible(fn ($record) => $record->status === CandidateStatus::PENDING)
                     ->requiresConfirmation()
+                    ->modalDescription(function () {
+                        $pendingTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+                        if ($pendingTransferCount > 0) {
+                            return "⚠️ 移動候補に未承認のデータが {$pendingTransferCount}件 あります。先に移動候補を承認してください。";
+                        }
+
+                        return 'この発注候補を承認しますか？';
+                    })
                     ->action(function ($record) {
+                        // 移動候補にPENDINGが残っている場合は承認不可
+                        $pendingTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+                        if ($pendingTransferCount > 0) {
+                            Notification::make()
+                                ->title('発注承認不可')
+                                ->body("移動候補に未承認のデータが {$pendingTransferCount}件 あります。先に移動候補を承認してください。")
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
                         try {
                             $record->updateWithLock(['status' => CandidateStatus::APPROVED]);
 
@@ -540,11 +560,41 @@ class WmsOrderCandidatesTable
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->requiresConfirmation()
+                        ->modalDescription(function () {
+                            $pendingTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+                            if ($pendingTransferCount > 0) {
+                                return "⚠️ 移動候補に未承認のデータが {$pendingTransferCount}件 あります。先に移動候補を承認してください。";
+                            }
+
+                            return '選択した発注候補を承認しますか？';
+                        })
                         ->action(function (Collection $records) {
-                            $count = $records
+                            // 移動候補にPENDINGが残っている場合は承認不可
+                            $pendingTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+                            if ($pendingTransferCount > 0) {
+                                Notification::make()
+                                    ->title('発注承認不可')
+                                    ->body("移動候補に未承認のデータが {$pendingTransferCount}件 あります。先に移動候補を承認してください。")
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            // 一括UPDATEで高速化（N+1問題を解消）
+                            $pendingIds = $records
                                 ->where('status', CandidateStatus::PENDING)
-                                ->each(fn ($record) => $record->update(['status' => CandidateStatus::APPROVED]))
-                                ->count();
+                                ->pluck('id')
+                                ->toArray();
+
+                            if (! empty($pendingIds)) {
+                                WmsOrderCandidate::whereIn('id', $pendingIds)->update([
+                                    'status' => CandidateStatus::APPROVED,
+                                    'updated_at' => now(),
+                                ]);
+                            }
+
+                            $count = count($pendingIds);
 
                             Notification::make()
                                 ->title("{$count}件を承認しました")
@@ -562,13 +612,21 @@ class WmsOrderCandidatesTable
                                 ->label('除外理由'),
                         ])
                         ->action(function (Collection $records, array $data) {
-                            $count = $records
+                            // 一括UPDATEで高速化（N+1問題を解消）
+                            $pendingIds = $records
                                 ->where('status', CandidateStatus::PENDING)
-                                ->each(fn ($record) => $record->update([
+                                ->pluck('id')
+                                ->toArray();
+
+                            if (! empty($pendingIds)) {
+                                WmsOrderCandidate::whereIn('id', $pendingIds)->update([
                                     'status' => CandidateStatus::EXCLUDED,
                                     'exclusion_reason' => $data['exclusion_reason'] ?? null,
-                                ]))
-                                ->count();
+                                    'updated_at' => now(),
+                                ]);
+                            }
+
+                            $count = count($pendingIds);
 
                             Notification::make()
                                 ->title("{$count}件を除外しました")

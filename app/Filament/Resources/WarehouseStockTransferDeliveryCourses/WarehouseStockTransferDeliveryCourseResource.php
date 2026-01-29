@@ -18,7 +18,7 @@ class WarehouseStockTransferDeliveryCourseResource extends Resource
 
     protected static ?string $pluralModelLabel = '移動配送コース設定';
 
-    protected static \UnitEnum|string|null $navigationGroup = EMenuCategory::AUTO_ORDER;
+    protected static \UnitEnum|string|null $navigationGroup = EMenuCategory::MASTER_WAREHOUSE;
 
     protected static ?int $navigationSort = 60;
 

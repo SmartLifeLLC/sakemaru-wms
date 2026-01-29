@@ -29,6 +29,9 @@ class WmsOrderIncomingSchedule extends WmsModel
         'contractor_id',
         'supplier_id',
         'order_candidate_id',
+        'transfer_candidate_id',
+        'source_warehouse_id',
+        'stock_transfer_id',
         'manual_order_number',
         'order_source',
         'expected_quantity',
@@ -84,6 +87,16 @@ class WmsOrderIncomingSchedule extends WmsModel
         return $this->belongsTo(WmsOrderCandidate::class, 'order_candidate_id');
     }
 
+    public function transferCandidate(): BelongsTo
+    {
+        return $this->belongsTo(WmsStockTransferCandidate::class, 'transfer_candidate_id');
+    }
+
+    public function sourceWarehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class, 'source_warehouse_id');
+    }
+
     public function confirmedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'confirmed_by');
@@ -132,6 +145,11 @@ class WmsOrderIncomingSchedule extends WmsModel
     public function scopeFromManualOrder(Builder $query): Builder
     {
         return $query->where('order_source', OrderSource::MANUAL);
+    }
+
+    public function scopeFromTransfer(Builder $query): Builder
+    {
+        return $query->where('order_source', OrderSource::TRANSFER);
     }
 
     // Accessors

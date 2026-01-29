@@ -2,7 +2,7 @@
 
 namespace App\Filament\Resources\WmsItemStockSnapshots;
 
-use App\Enums\EMenuCategory;
+use App\Enums\EMenu;
 use App\Filament\Resources\WmsItemStockSnapshots\Pages\ListWmsItemStockSnapshots;
 use App\Filament\Resources\WmsItemStockSnapshots\Tables\WmsItemStockSnapshotsTable;
 use App\Models\WmsItemStockSnapshot;
@@ -19,22 +19,22 @@ class WmsItemStockSnapshotResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenuCategory::AUTO_ORDER->label();
+        return EMenu::WMS_ITEM_STOCK_SNAPSHOTS->category()->label();
     }
 
     public static function getNavigationLabel(): string
     {
-        return '在庫スナップショット';
+        return EMenu::WMS_ITEM_STOCK_SNAPSHOTS->label();
     }
 
     public static function getModelLabel(): string
     {
-        return '在庫スナップショット';
+        return EMenu::WMS_ITEM_STOCK_SNAPSHOTS->label();
     }
 
     public static function getNavigationSort(): ?int
     {
-        return 50;
+        return EMenu::WMS_ITEM_STOCK_SNAPSHOTS->sort();
     }
 
     public static function table(Table $table): Table

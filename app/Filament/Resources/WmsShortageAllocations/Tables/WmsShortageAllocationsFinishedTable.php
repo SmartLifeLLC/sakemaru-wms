@@ -42,8 +42,7 @@ class WmsShortageAllocationsFinishedTable
                 TextColumn::make('shortage.item.name')
                     ->label('商品名')
                     ->searchable()
-                    ->alignment('center')
-                    ->wrap(),
+                    ->alignment('center'),
 
                 TextColumn::make('shortage.item.volume')
                     ->label('容量')

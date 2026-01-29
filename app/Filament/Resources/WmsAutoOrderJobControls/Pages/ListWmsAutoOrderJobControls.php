@@ -7,6 +7,7 @@ use App\Filament\Resources\WmsAutoOrderJobControls\WmsAutoOrderJobControlResourc
 use App\Jobs\ProcessOrderCandidateGenerationJob;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
+use App\Models\WmsStockTransferCandidate;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\View;
@@ -30,6 +31,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
     public int $pendingCount = 0;
 
+    public int $pendingTransferCount = 0;
+
     public int $approvedCount = 0;
 
     // Queue進捗管理
@@ -40,6 +43,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
         parent::mount();
         // ページ表示時にカウントを取得
         $this->pendingCount = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
+        $this->pendingTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
         $this->approvedCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
     }
 
@@ -47,11 +51,11 @@ class ListWmsAutoOrderJobControls extends ListRecords
     {
         return [
             Action::make('orderGenerationWizard')
-                ->label('発注候補生成')
+                ->label('発注・移動候補生成')
                 ->icon('heroicon-o-sparkles')
                 ->color('primary')
                 ->modalWidth('4xl')
-                ->modalHeading('発注候補生成')
+                ->modalHeading('発注・移動候補生成')
                 ->modalSubmitAction(false)
                 ->modalCancelAction(false)
                 ->schema([
@@ -64,6 +68,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                             'results' => $this->results,
                             'errorMessage' => $this->errorMessage,
                             'pendingCount' => $this->pendingCount,
+                            'pendingTransferCount' => $this->pendingTransferCount,
                             'approvedCount' => $this->approvedCount,
                             'currentJobId' => $this->currentJobId,
                         ]),
@@ -86,18 +91,22 @@ class ListWmsAutoOrderJobControls extends ListRecords
         $this->currentJobId = null;
         // ウィザード開始時のみカウントを取得（毎回のレンダリングで実行しない）
         $this->pendingCount = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
+        $this->pendingTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
         $this->approvedCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
     }
 
     public function executeStep1Delete(): void
     {
         $this->isProcessing = true;
-        $this->progressMessage = '未承認の発注候補を削除中...';
+        $this->progressMessage = '未承認の発注・移動候補を削除中...';
 
         try {
-            $deleted = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->delete();
-            $this->results['deleted'] = $deleted;
+            $deletedOrders = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->delete();
+            $deletedTransfers = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->delete();
+            $this->results['deleted'] = $deletedOrders;
+            $this->results['deletedTransfers'] = $deletedTransfers;
             $this->pendingCount = 0;
+            $this->pendingTransferCount = 0;
             $this->wizardStep = 1;
             $this->isProcessing = false;
             $this->progress = 0;

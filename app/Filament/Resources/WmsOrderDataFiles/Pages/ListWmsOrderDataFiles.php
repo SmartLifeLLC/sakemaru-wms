@@ -51,18 +51,18 @@ class ListWmsOrderDataFiles extends ListRecords
         // デフォルト倉庫が発注データファイルに存在するかチェック
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
 
-        // プリセットビュー構築
+        // プリセットビュー構築（データがなくても「全て」タブは常に表示）
         $views = [
-            'all' => PresetView::make()
+            'default' => PresetView::make()
                 ->favorite()
                 ->label('全て')
-                ->default(! $hasDefaultWarehouse),
+                ->default(! $hasDefaultWarehouse || empty($warehouses)),
         ];
 
-        // 全ての倉庫タブを追加
+        // 倉庫タブを追加（データがある場合のみ）
         foreach ($warehouses as $warehouse) {
             $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
-            $views["warehouse_{$warehouse->id}"] = PresetView::make()
+            $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
                 ->label($warehouse->name)

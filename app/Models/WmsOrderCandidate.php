@@ -41,6 +41,11 @@ class WmsOrderCandidate extends WmsModel
         'origin_warehouse_ids',
         'suggested_quantity',
         'order_quantity',
+        'current_effective_stock',
+        'incoming_quantity',
+        'safety_stock',
+        'calculated_shortage_qty',
+        'purchase_unit',
         'quantity_type',
         'expected_arrival_date',
         'original_arrival_date',
@@ -73,6 +78,11 @@ class WmsOrderCandidate extends WmsModel
         'is_manually_modified' => 'boolean',
         'lot_fee_amount' => 'decimal:2',
         'demand_breakdown' => 'array',
+        'current_effective_stock' => 'integer',
+        'incoming_quantity' => 'integer',
+        'safety_stock' => 'integer',
+        'calculated_shortage_qty' => 'integer',
+        'purchase_unit' => 'integer',
     ];
 
     public function warehouse(): BelongsTo
@@ -156,30 +166,48 @@ class WmsOrderCandidate extends WmsModel
 
     /**
      * 現在庫（有効在庫）を取得
+     * 直接カラムから取得、なければcalculationLogにフォールバック
      */
     public function getCurrentStockAttribute(): ?int
     {
+        // 直接カラムがあればそちらを使用
+        if ($this->attributes['current_effective_stock'] ?? null !== null) {
+            return $this->attributes['current_effective_stock'];
+        }
+
         return $this->calculationLog?->current_effective_stock;
     }
 
     /**
      * 入庫予定数を取得（オーバーライドがあればそちらを使用）
+     * 直接カラムから取得、なければcalculationLogにフォールバック
      */
-    public function getIncomingQuantityAttribute(): ?int
+    public function getEffectiveIncomingQuantityAttribute(): ?int
     {
         // オーバーライドが設定されていればそちらを使用
         if ($this->incoming_quantity_override !== null) {
             return $this->incoming_quantity_override;
         }
 
+        // 直接カラムがあればそちらを使用
+        if (($this->attributes['incoming_quantity'] ?? null) !== null) {
+            return $this->attributes['incoming_quantity'];
+        }
+
         return $this->calculationLog?->incoming_quantity;
     }
 
     /**
-     * 元の入庫予定数（計算ログから）を取得
+     * 元の入庫予定数を取得
+     * 直接カラムから取得、なければcalculationLogにフォールバック
      */
     public function getOriginalIncomingQuantityAttribute(): ?int
     {
+        // 直接カラムがあればそちらを使用
+        if (($this->attributes['incoming_quantity'] ?? null) !== null) {
+            return $this->attributes['incoming_quantity'];
+        }
+
         return $this->calculationLog?->incoming_quantity;
     }
 
@@ -197,22 +225,41 @@ class WmsOrderCandidate extends WmsModel
             return $currentStock + $incomingQty;
         }
 
+        // 直接カラムから計算
+        $currentStock = $this->attributes['current_effective_stock'] ?? null;
+        $incomingQty = $this->attributes['incoming_quantity'] ?? null;
+        if ($currentStock !== null && $incomingQty !== null) {
+            return $currentStock + $incomingQty;
+        }
+
         return $this->calculationLog?->calculation_details['利用可能在庫'] ?? null;
     }
 
     /**
      * 発注点（安全在庫）を取得
+     * 直接カラムから取得、なければcalculationLogにフォールバック
      */
-    public function getSafetyStockAttribute(): ?int
+    public function getEffectiveSafetyStockAttribute(): ?int
     {
+        // 直接カラムがあればそちらを使用
+        if (($this->attributes['safety_stock'] ?? null) !== null) {
+            return $this->attributes['safety_stock'];
+        }
+
         return $this->calculationLog?->calculation_details['安全在庫'] ?? null;
     }
 
     /**
      * 不足数を取得
+     * 直接カラムから取得、なければcalculationLogにフォールバック
      */
     public function getShortageQtyAttribute(): ?int
     {
+        // 直接カラムがあればそちらを使用
+        if (($this->attributes['calculated_shortage_qty'] ?? null) !== null) {
+            return $this->attributes['calculated_shortage_qty'];
+        }
+
         return $this->calculationLog?->calculated_shortage_qty;
     }
 

@@ -347,16 +347,12 @@ class OrderExecutionService
      */
     private function getSearchCodeForItem(int $itemId): ?string
     {
-        $searchStrings = DB::connection('sakemaru')
+        // 発注用コード（is_used_for_ordering=true）のみを取得
+        return DB::connection('sakemaru')
             ->table('item_search_information')
             ->where('item_id', $itemId)
-            ->orderBy('priority')
-            ->pluck('search_string')
-            ->filter()
-            ->unique()
-            ->values()
-            ->toArray();
-
-        return ! empty($searchStrings) ? implode(',', $searchStrings) : null;
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->value('search_string');
     }
 }

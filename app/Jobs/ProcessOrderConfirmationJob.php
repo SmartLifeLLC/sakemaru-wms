@@ -5,9 +5,11 @@ namespace App\Jobs;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
+use App\Models\WmsStockTransferCandidate;
 use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\OrderExecutionService;
 use App\Services\AutoOrder\OrderTransmissionService;
+use App\Services\AutoOrder\TransferCandidateExecutionService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -16,9 +18,9 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
 /**
- * 発注確定ジョブ
+ * 移動・発注確定ジョブ
  *
- * 承認済み発注候補を確定し、入庫予定・CSVファイル・JXファイルを生成
+ * 承認済みの移動候補と発注候補を確定し、入庫予定・CSVファイル・JXファイルを生成
  */
 class ProcessOrderConfirmationJob implements ShouldQueue
 {
@@ -45,6 +47,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
     }
 
     public function handle(
+        TransferCandidateExecutionService $transferExecutionService,
         OrderExecutionService $executionService,
         OrderDataFileService $dataFileService,
         OrderTransmissionService $transmissionService
@@ -58,14 +61,19 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         }
 
         try {
-            // 全ての承認済みバッチを取得
+            // 承認済み移動候補の件数を取得
+            $transferApprovedCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
+
+            // 全ての承認済み発注バッチを取得
             $batchCodes = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
                 ->distinct()
                 ->pluck('batch_code')
                 ->toArray();
 
-            if (empty($batchCodes)) {
+            if (empty($batchCodes) && $transferApprovedCount === 0) {
                 $progress->markAsCompleted([
+                    'total_transfer_queues' => 0,
+                    'total_transfer_candidates' => 0,
                     'total_schedules' => 0,
                     'total_csv_files' => 0,
                     'total_jx_files' => 0,
@@ -74,20 +82,47 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 return;
             }
 
-            // バッチ数を総数として使用（各バッチ3ステップ: 確定、CSV、JX）
+            // ステップ数を計算
+            // 移動候補処理: 1ステップ
+            // 発注バッチ処理: 各バッチ3ステップ (確定、CSV、JX)
             $totalBatches = count($batchCodes);
-            $totalSteps = $totalBatches * 3;
+            $hasTransfers = $transferApprovedCount > 0;
+            $totalSteps = ($hasTransfers ? 1 : 0) + ($totalBatches * 3);
 
-            $progress->markAsProcessing($totalSteps, '発注確定処理を開始しています...');
+            $progress->markAsProcessing($totalSteps, '移動・発注確定処理を開始しています...');
 
+            $currentStep = 0;
+            $totalTransferQueues = 0;
+            $totalTransferCandidates = 0;
             $totalSchedules = 0;
             $totalCsvFiles = 0;
             $totalJxFiles = 0;
 
-            foreach ($batchCodes as $index => $batchCode) {
-                $baseStep = $index * 3;
+            // 1. 移動候補の確定処理（先に実行）
+            if ($hasTransfers) {
+                $progress->updateProgress(
+                    $currentStep,
+                    "移動候補を確定処理中... ({$transferApprovedCount}件)"
+                );
 
-                // 1. 発注確定（入庫予定作成）
+                $transferResult = $transferExecutionService->executeAllApprovedGrouped($this->userId);
+                $totalTransferQueues = $transferResult['queue_count'];
+                $totalTransferCandidates = $transferResult['candidate_count'];
+
+                Log::info('Transfer candidates executed in job', [
+                    'queue_count' => $totalTransferQueues,
+                    'candidate_count' => $totalTransferCandidates,
+                    'errors' => $transferResult['errors'],
+                ]);
+
+                $currentStep++;
+            }
+
+            // 2. 発注候補の確定処理
+            foreach ($batchCodes as $index => $batchCode) {
+                $baseStep = $currentStep + ($index * 3);
+
+                // 2-1. 発注確定（入庫予定作成）
                 $progress->updateProgress(
                     $baseStep,
                     "バッチ {$batchCode} の発注確定処理中... (".($index + 1)."/{$totalBatches})"
@@ -96,7 +131,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 $schedules = $executionService->confirmBatch($batchCode, $this->userId);
                 $totalSchedules += $schedules->count();
 
-                // 2. 共通CSVファイル生成
+                // 2-2. 共通CSVファイル生成
                 $progress->updateProgress(
                     $baseStep + 1,
                     "バッチ {$batchCode} のCSVファイル生成中... (".($index + 1)."/{$totalBatches})"
@@ -105,7 +140,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 $csvResult = $dataFileService->generateCsvFiles($batchCode);
                 $totalCsvFiles += $csvResult['total_files'] ?? 0;
 
-                // 3. JX送信ファイル生成
+                // 2-3. JX送信ファイル生成
                 $progress->updateProgress(
                     $baseStep + 2,
                     "バッチ {$batchCode} のJXファイル生成中... (".($index + 1)."/{$totalBatches})"
@@ -128,14 +163,37 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 ]);
             }
 
+            // 完了メッセージを構築
+            $completionMessages = [];
+            if ($totalTransferCandidates > 0) {
+                $completionMessages[] = "移動伝票 {$totalTransferQueues}件（{$totalTransferCandidates}商品）";
+            }
+            if ($totalSchedules > 0) {
+                $completionMessages[] = "入庫予定 {$totalSchedules}件";
+            }
+            if ($totalCsvFiles > 0) {
+                $completionMessages[] = "CSVファイル {$totalCsvFiles}件";
+            }
+            if ($totalJxFiles > 0) {
+                $completionMessages[] = "JXファイル {$totalJxFiles}件";
+            }
+
+            $completionMessage = ! empty($completionMessages)
+                ? implode('、', $completionMessages).'を生成しました。'
+                : '処理が完了しました。';
+
             $progress->markAsCompleted([
+                'total_transfer_queues' => $totalTransferQueues,
+                'total_transfer_candidates' => $totalTransferCandidates,
                 'total_schedules' => $totalSchedules,
                 'total_csv_files' => $totalCsvFiles,
                 'total_jx_files' => $totalJxFiles,
-            ], "入庫予定 {$totalSchedules}件、CSVファイル {$totalCsvFiles}件、JXファイル {$totalJxFiles}件 を生成しました。");
+            ], $completionMessage);
 
             Log::info('Order confirmation job completed', [
                 'progress_id' => $this->progressId,
+                'total_transfer_queues' => $totalTransferQueues,
+                'total_transfer_candidates' => $totalTransferCandidates,
                 'total_schedules' => $totalSchedules,
                 'total_csv_files' => $totalCsvFiles,
                 'total_jx_files' => $totalJxFiles,
@@ -159,10 +217,10 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         $progress = WmsQueueProgress::findByJobId($this->progressId);
 
         if ($progress) {
-            $progress->markAsFailed('ジョブが失敗しました: '.$exception->getMessage());
+            $progress->markAsFailed('移動・発注確定ジョブが失敗しました: '.$exception->getMessage());
         }
 
-        Log::error('Order confirmation job failed', [
+        Log::error('Transfer/Order confirmation job failed', [
             'progress_id' => $this->progressId,
             'error' => $exception->getMessage(),
         ]);

@@ -10,6 +10,7 @@ enum EMenuCategory: string
     case HORIZONTAL_SHIPMENT = 'horizontal_shipment';
     case AUTO_ORDER = 'auto_order';
     case ORDER_HISTORY = 'order_history';
+    case ORDER_SETTINGS = 'order_settings';
     case INVENTORY = 'inventory';
     case MASTER_WAREHOUSE = 'master_warehouse';
     case MASTER_ORDER = 'master_order';
@@ -28,6 +29,7 @@ enum EMenuCategory: string
             self::HORIZONTAL_SHIPMENT => '倉庫移動',
             self::AUTO_ORDER => '発注処理',
             self::ORDER_HISTORY => '発注履歴',
+            self::ORDER_SETTINGS => '発注解説',
             self::INVENTORY => '在庫管理',
             self::MASTER_WAREHOUSE => '倉庫マスタ',
             self::MASTER_ORDER => '発注マスタ',
@@ -48,6 +50,7 @@ enum EMenuCategory: string
             self::HORIZONTAL_SHIPMENT => 'heroicon-o-truck',
             self::AUTO_ORDER => 'heroicon-o-clipboard-document-check',
             self::ORDER_HISTORY => 'heroicon-o-clock',
+            self::ORDER_SETTINGS => 'heroicon-o-cog-6-tooth',
             self::INVENTORY => 'heroicon-o-cube',
             self::MASTER_WAREHOUSE => 'heroicon-o-building-office-2',
             self::MASTER_ORDER => 'heroicon-o-shopping-cart',
@@ -68,11 +71,12 @@ enum EMenuCategory: string
             self::HORIZONTAL_SHIPMENT => 4,
             self::AUTO_ORDER => 5,
             self::ORDER_HISTORY => 6,
-            self::INVENTORY => 7,
-            self::MASTER_WAREHOUSE => 8,
-            self::MASTER_ORDER => 9,
-            self::MASTER_PICKING => 10,
-            self::STATISTICS => 11,
+            self::ORDER_SETTINGS => 7,
+            self::INVENTORY => 8,
+            self::MASTER_WAREHOUSE => 9,
+            self::MASTER_ORDER => 10,
+            self::MASTER_PICKING => 11,
+            self::STATISTICS => 12,
             self::LOGS => 97,
             self::SETTINGS => 98,
             self::TEST_DATA => 99, // Last

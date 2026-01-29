@@ -30,16 +30,20 @@ enum EMenu: string
 
     // 倉庫移動
     case WMS_SHORTAGE_ALLOCATIONS = 'horizontal_shipment.wms_shortage_allocations';
-    case WMS_STOCK_TRANSFER_CANDIDATES = 'horizontal_shipment.wms_stock_transfer_candidates';
 
     // 発注処理
+    case WMS_AUTO_ORDER_JOBS = 'auto_order.wms_auto_order_jobs';
+    case WMS_STOCK_TRANSFER_CANDIDATES = 'auto_order.wms_stock_transfer_candidates';
     case WMS_ORDER_CANDIDATES = 'auto_order.wms_order_candidates';
     case WMS_ORDER_CONFIRMATION_WAITING = 'auto_order.wms_order_confirmation_waiting';
-    case WMS_AUTO_ORDER_JOBS = 'auto_order.wms_auto_order_jobs';
-    case WMS_ORDER_DOCUMENTS = 'auto_order.wms_order_documents';
 
     // 発注履歴
     case WMS_ORDER_CONFIRMED = 'order_history.wms_order_confirmed';
+    case WMS_ORDER_DATA_FILES = 'order_history.wms_order_data_files';
+    case WMS_ORDER_DOCUMENTS = 'order_history.wms_order_documents';
+
+    // 発注解説
+    case WMS_ITEM_STOCK_SNAPSHOTS = 'order_settings.wms_item_stock_snapshots';
 
     // 在庫管理
     case REAL_STOCKS = 'inventory.real_stocks';
@@ -99,15 +103,18 @@ enum EMenu: string
             self::WMS_SHORTAGES,
             self::WMS_SHORTAGES_WAITING_APPROVALS => EMenuCategory::SHORTAGE,
 
-            self::WMS_SHORTAGE_ALLOCATIONS,
-            self::WMS_STOCK_TRANSFER_CANDIDATES => EMenuCategory::HORIZONTAL_SHIPMENT,
+            self::WMS_SHORTAGE_ALLOCATIONS => EMenuCategory::HORIZONTAL_SHIPMENT,
 
-            self::WMS_ORDER_CANDIDATES,
-            self::WMS_ORDER_CONFIRMATION_WAITING,
             self::WMS_AUTO_ORDER_JOBS,
-            self::WMS_ORDER_DOCUMENTS => EMenuCategory::AUTO_ORDER,
+            self::WMS_STOCK_TRANSFER_CANDIDATES,
+            self::WMS_ORDER_CANDIDATES,
+            self::WMS_ORDER_CONFIRMATION_WAITING => EMenuCategory::AUTO_ORDER,
 
-            self::WMS_ORDER_CONFIRMED => EMenuCategory::ORDER_HISTORY,
+            self::WMS_ORDER_CONFIRMED,
+            self::WMS_ORDER_DATA_FILES,
+            self::WMS_ORDER_DOCUMENTS => EMenuCategory::ORDER_HISTORY,
+
+            self::WMS_ITEM_STOCK_SNAPSHOTS => EMenuCategory::ORDER_SETTINGS,
 
             self::REAL_STOCKS => EMenuCategory::INVENTORY,
 
@@ -174,10 +181,13 @@ enum EMenu: string
 
             self::WMS_STOCK_TRANSFER_CANDIDATES => '移動候補一覧',
             self::WMS_ORDER_CANDIDATES => '発注候補一覧',
-            self::WMS_ORDER_CONFIRMATION_WAITING => '発注確定待ち',
+            self::WMS_ORDER_CONFIRMATION_WAITING => '移動・発注確定待ち',
             self::WMS_ORDER_CONFIRMED => '発注確定済み',
-            self::WMS_AUTO_ORDER_JOBS => '発注候補生成',
-            self::WMS_ORDER_DOCUMENTS => '発注送信ファイル',
+            self::WMS_ORDER_DATA_FILES => '発注データファイル',
+            self::WMS_AUTO_ORDER_JOBS => '発注・移動候補生成',
+            self::WMS_ORDER_DOCUMENTS => 'JX送信ファイル',
+
+            self::WMS_ITEM_STOCK_SNAPSHOTS => '在庫スナップショット',
 
             self::REAL_STOCKS => '在庫管理',
 
@@ -241,8 +251,11 @@ enum EMenu: string
             self::WMS_ORDER_CANDIDATES => 'heroicon-o-shopping-cart',
             self::WMS_ORDER_CONFIRMATION_WAITING => 'heroicon-o-clipboard-document-check',
             self::WMS_ORDER_CONFIRMED => 'heroicon-o-check-badge',
+            self::WMS_ORDER_DATA_FILES => 'heroicon-o-document-text',
             self::WMS_AUTO_ORDER_JOBS => 'heroicon-o-queue-list',
             self::WMS_ORDER_DOCUMENTS => 'heroicon-o-document-arrow-down',
+
+            self::WMS_ITEM_STOCK_SNAPSHOTS => 'heroicon-o-camera',
 
             self::REAL_STOCKS => 'heroicon-o-cube-transparent',
 
@@ -303,16 +316,20 @@ enum EMenu: string
 
             // 倉庫移動
             self::WMS_SHORTAGE_ALLOCATIONS => 1,
-            self::WMS_STOCK_TRANSFER_CANDIDATES => 2,
 
             // 発注処理
             self::WMS_AUTO_ORDER_JOBS => 0,
-            self::WMS_ORDER_CANDIDATES => 1,
-            self::WMS_ORDER_CONFIRMATION_WAITING => 2,
-            self::WMS_ORDER_DOCUMENTS => 3,
+            self::WMS_STOCK_TRANSFER_CANDIDATES => 1,
+            self::WMS_ORDER_CANDIDATES => 2,
+            self::WMS_ORDER_CONFIRMATION_WAITING => 3,
 
             // 発注履歴
             self::WMS_ORDER_CONFIRMED => 1,
+            self::WMS_ORDER_DATA_FILES => 2,
+            self::WMS_ORDER_DOCUMENTS => 3,
+
+            // 発注解説
+            self::WMS_ITEM_STOCK_SNAPSHOTS => 1,
 
             // 在庫管理
             self::REAL_STOCKS => 1,

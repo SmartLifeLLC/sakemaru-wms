@@ -37,6 +37,16 @@ class WmsOrderDocumentsTable
                     ->color(fn (TransmissionDocumentStatus $state): string => $state->color())
                     ->sortable(),
 
+                TextColumn::make('order_date')
+                    ->label('発注日')
+                    ->date('m/d')
+                    ->sortable(),
+
+                TextColumn::make('expected_arrival_date')
+                    ->label('入荷日')
+                    ->date('m/d')
+                    ->sortable(),
+
                 TextColumn::make('contractor.name')
                     ->label('発注先')
                     ->state(fn ($record) => $record->contractor
@@ -101,7 +111,7 @@ class WmsOrderDocumentsTable
             ])
             ->recordActions([
                 Action::make('download')
-                    ->label('ダウンロード')
+                    ->label('DAT')
                     ->icon('heroicon-o-arrow-down-tray')
                     ->color('primary')
                     ->action(function (WmsOrderJxDocument $record) {
@@ -131,11 +141,52 @@ class WmsOrderDocumentsTable
                         return redirect($url);
                     }),
 
+                Action::make('downloadCsv')
+                    ->label('CSV')
+                    ->icon('heroicon-o-document-text')
+                    ->color('info')
+                    ->visible(fn ($record) => ! empty($record->csv_path))
+                    ->action(function (WmsOrderJxDocument $record) {
+                        if (! $record->csv_path) {
+                            Notification::make()
+                                ->title('CSVファイルが見つかりません')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        // S3から直接ダウンロード用のURLを生成
+                        $url = Storage::disk('s3')->temporaryUrl(
+                            $record->csv_path,
+                            now()->addHour()
+                        );
+
+                        if (! $url) {
+                            Notification::make()
+                                ->title('ダウンロードURLの生成に失敗しました')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        return redirect($url);
+                    }),
+
                 Action::make('transmit')
                     ->label('JX送信')
                     ->icon('heroicon-o-paper-airplane')
                     ->color('success')
-                    ->visible(fn ($record) => $record->status === TransmissionDocumentStatus::PENDING)
+                    ->visible(function ($record) {
+                        if (! $record->status->canTransmit()) {
+                            return false;
+                        }
+                        // JX送信設定がある発注先のみ
+                        $setting = \App\Models\WmsContractorSetting::where('contractor_id', $record->contractor_id)->first();
+
+                        return $setting?->transmission_type === \App\Enums\AutoOrder\TransmissionType::JX_FINET;
+                    })
                     ->requiresConfirmation()
                     ->modalHeading('JX-FINET送信')
                     ->modalDescription('このファイルをJX-FINETで送信しますか？')
@@ -162,7 +213,10 @@ class WmsOrderDocumentsTable
                     ->label('削除')
                     ->icon('heroicon-o-trash')
                     ->color('danger')
-                    ->visible(fn ($record) => $record->status === TransmissionDocumentStatus::DRAFT)
+                    ->visible(fn ($record) => in_array($record->status, [
+                        TransmissionDocumentStatus::DRAFT,
+                        TransmissionDocumentStatus::TEST,
+                    ]))
                     ->requiresConfirmation()
                     ->action(function (WmsOrderJxDocument $record) {
                         // S3からファイル削除

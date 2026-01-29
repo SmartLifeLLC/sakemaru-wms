@@ -11,7 +11,6 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
-use App\Services\AutoOrder\TransferCandidateExecutionService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -35,10 +34,55 @@ class ListWmsStockTransferCandidates extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        // 承認済み件数を取得
-        $approvedCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
-
         return [
+            Action::make('approveAll')
+                ->label('全て承認')
+                ->icon('heroicon-o-check-circle')
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading('移動候補を全て承認')
+                ->modalDescription(function () {
+                    $count = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+
+                    return "承認前（PENDING）の移動候補 {$count}件 を全て承認します。";
+                })
+                ->modalSubmitActionLabel('全て承認')
+                ->action(function () {
+                    $updated = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                        ->update([
+                            'status' => CandidateStatus::APPROVED,
+                            'updated_at' => now(),
+                        ]);
+
+                    Notification::make()
+                        ->title('移動候補を全て承認しました')
+                        ->body("{$updated}件 を承認しました。")
+                        ->success()
+                        ->send();
+                }),
+
+            Action::make('deleteAllPending')
+                ->label('承認前を全削除')
+                ->icon('heroicon-o-trash')
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalHeading('承認前の移動候補を全削除')
+                ->modalDescription(function () {
+                    $count = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+
+                    return "承認前（PENDING）の移動候補 {$count}件 を全て削除します。この操作は取り消せません。";
+                })
+                ->modalSubmitActionLabel('全削除')
+                ->action(function () {
+                    $deleted = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->delete();
+
+                    Notification::make()
+                        ->title('承認前の移動候補を削除しました')
+                        ->body("{$deleted}件 を削除しました。")
+                        ->success()
+                        ->send();
+                }),
+
             Action::make('create')
                 ->label('移動追加')
                 ->icon('heroicon-o-plus')
@@ -66,13 +110,50 @@ class ListWmsStockTransferCandidates extends ListRecords
 
                     Select::make('item_id')
                         ->label('商品')
-                        ->options(fn () => Item::query()
-                            ->orderBy('code')
-                            ->limit(500)
-                            ->get()
-                            ->mapWithKeys(fn ($i) => [$i->id => "[{$i->code}]{$i->name}"]))
                         ->searchable()
-                        ->required(),
+                        ->required()
+                        ->getSearchResultsUsing(function (string $search): array {
+                            if (strlen($search) < 2) {
+                                return [];
+                            }
+                            $search = mb_convert_kana($search, 'as');
+
+                            return Item::query()
+                                ->with('piece_jan_code_information')
+                                ->where(function ($query) use ($search) {
+                                    $query->where('code', 'like', "%{$search}%")
+                                        ->orWhere('name', 'like', "%{$search}%")
+                                        ->orWhereHas('piece_jan_code_information', function ($q) use ($search) {
+                                            $q->where('search_string', 'like', "%{$search}%");
+                                        });
+                                })
+                                ->orderBy('code')
+                                ->limit(50)
+                                ->get()
+                                ->mapWithKeys(function ($item) {
+                                    $jan = $item->piece_jan_code_information?->search_string;
+                                    $label = "[{$item->code}] {$item->name}";
+                                    if ($jan) {
+                                        $label .= " ({$jan})";
+                                    }
+
+                                    return [$item->id => $label];
+                                })
+                                ->toArray();
+                        })
+                        ->getOptionLabelUsing(function ($value): ?string {
+                            $item = Item::with('piece_jan_code_information')->find($value);
+                            if (! $item) {
+                                return null;
+                            }
+                            $jan = $item->piece_jan_code_information?->search_string;
+                            $label = "[{$item->code}] {$item->name}";
+                            if ($jan) {
+                                $label .= " ({$jan})";
+                            }
+
+                            return $label;
+                        }),
 
                     TextInput::make('transfer_quantity')
                         ->label('移動数')
@@ -163,41 +244,6 @@ class ListWmsStockTransferCandidates extends ListRecords
                         ->success()
                         ->send();
                 }),
-
-            Action::make('executeAllApproved')
-                ->label("承認済み移動伝票生成 ({$approvedCount}件)")
-                ->icon('heroicon-o-paper-airplane')
-                ->color('primary')
-                ->disabled($approvedCount === 0)
-                ->requiresConfirmation()
-                ->modalHeading('承認済み移動候補から移動伝票を生成')
-                ->modalDescription('全ての承認済み移動候補から移動伝票を生成します。移動元倉庫＋移動先倉庫＋配送コースでグループ化して処理します。')
-                ->action(function () {
-                    $service = app(TransferCandidateExecutionService::class);
-                    $result = $service->executeAllApprovedGrouped(auth()->id());
-
-                    if ($result['candidate_count'] > 0) {
-                        Notification::make()
-                            ->title('移動伝票生成が完了しました')
-                            ->body("{$result['candidate_count']}件の移動候補から{$result['queue_count']}件の移動伝票を生成しました")
-                            ->success()
-                            ->send();
-                    } else {
-                        Notification::make()
-                            ->title('生成対象がありません')
-                            ->body('承認済みの移動候補がありません')
-                            ->warning()
-                            ->send();
-                    }
-
-                    if (! empty($result['errors'])) {
-                        Notification::make()
-                            ->title('一部エラーが発生しました')
-                            ->body(count($result['errors']).'件のグループで失敗しました')
-                            ->danger()
-                            ->send();
-                    }
-                }),
         ];
     }
 
@@ -212,6 +258,8 @@ class ListWmsStockTransferCandidates extends ListRecords
                     'item',
                     'contractor',
                 ])
+                // デフォルトでPENDINGのみ表示
+                ->where('status', CandidateStatus::PENDING)
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('satellite_warehouse_id')
                 ->orderBy('item_id')
@@ -236,31 +284,54 @@ class ListWmsStockTransferCandidates extends ListRecords
 
     public function getPresetViews(): array
     {
-        // ステータス別の件数を取得
-        $pendingCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
-        $approvedCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
-        $executedCount = WmsStockTransferCandidate::where('status', CandidateStatus::EXECUTED)->count();
+        // ユーザーのデフォルト倉庫を取得
+        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
 
-        return [
-            'default' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::PENDING))
-                ->favorite()
-                ->label("承認前 ({$pendingCount})")
-                ->default(),
+        // PENDING の移動候補に存在する依頼倉庫（satellite_warehouse）のみ取得
+        $cacheKey = 'transfer_candidates_pending_warehouses_'.auth()->id();
+        $warehouseIds = cache()->remember($cacheKey, 30, function () {
+            return WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                ->distinct()
+                ->pluck('satellite_warehouse_id')
+                ->toArray();
+        });
+        $warehouses = Warehouse::whereIn('id', $warehouseIds)->orderBy('name')->get();
 
-            'approved' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::APPROVED))
-                ->favorite()
-                ->label("承認済 ({$approvedCount})"),
+        // デフォルト倉庫が移動候補に存在するかチェック
+        $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+        $defaultWarehouse = $hasDefaultWarehouse ? Warehouse::find($userDefaultWarehouseId) : null;
 
-            'executed' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::EXECUTED))
-                ->favorite()
-                ->label("実行完了 ({$executedCount})"),
+        // デフォルトタブ：デフォルト倉庫があればその倉庫名とフィルタ、なければ「全て」
+        if ($defaultWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $userDefaultWarehouseId))
+                    ->favorite()
+                    ->label($defaultWarehouse->name)
+                    ->default(),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
 
-            'all' => PresetView::make()
+        // 他の倉庫タブ（デフォルト倉庫は除外）
+        foreach ($warehouses as $warehouse) {
+            // デフォルト倉庫は既にdefaultタブで表示しているのでスキップ
+            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                continue;
+            }
+
+            $views["default_{$warehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $warehouse->id))
                 ->favorite()
-                ->label('全て'),
-        ];
+                ->label($warehouse->name);
+        }
+
+        return $views;
     }
 }

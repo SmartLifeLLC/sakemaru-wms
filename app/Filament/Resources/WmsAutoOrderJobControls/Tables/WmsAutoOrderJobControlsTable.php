@@ -5,9 +5,11 @@ namespace App\Filament\Resources\WmsAutoOrderJobControls\Tables;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\JobStatus;
 use App\Enums\PaginationOptions;
+use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Contracts\View\View;
 
 class WmsAutoOrderJobControlsTable
 {
@@ -59,23 +61,15 @@ class WmsAutoOrderJobControlsTable
                     ->sortable()
                     ->alignEnd(),
 
-                TextColumn::make('progress_current')
-                    ->label('進捗')
-                    ->state(fn ($record) => $record->progress_total > 0
-                        ? "{$record->progress_current}/{$record->progress_total}"
-                        : '-')
-                    ->alignEnd(),
-
                 TextColumn::make('started_at')
                     ->label('開始日時')
                     ->dateTime('Y-m-d H:i:s')
                     ->sortable(),
 
-                TextColumn::make('ended_at')
+                TextColumn::make('finished_at')
                     ->label('終了日時')
                     ->dateTime('Y-m-d H:i:s')
-                    ->sortable()
-                    ->toggleable(),
+                    ->sortable(),
 
                 TextColumn::make('error_message')
                     ->label('エラー')
@@ -91,6 +85,21 @@ class WmsAutoOrderJobControlsTable
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(JobStatus::class),
+            ])
+            ->recordActions([
+                Action::make('viewResult')
+                    ->label('結果')
+                    ->icon('heroicon-o-document-magnifying-glass')
+                    ->color('info')
+                    ->visible(fn ($record) => ! empty($record->result_data))
+                    ->modalHeading(fn ($record) => "発注候補生成結果 - {$record->batch_code}")
+                    ->modalWidth('5xl')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('閉じる')
+                    ->modalContent(fn ($record): View => view(
+                        'filament.resources.wms-auto-order-job-controls.result-modal',
+                        ['result' => $record->result_data ?? []]
+                    )),
             ])
             ->defaultSort('started_at', 'desc');
     }

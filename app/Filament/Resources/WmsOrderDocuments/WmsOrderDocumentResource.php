@@ -21,12 +21,27 @@ class WmsOrderDocumentResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenu::WMS_ORDER_CANDIDATES->category()->label();
+        return EMenu::WMS_ORDER_DOCUMENTS->category()->label();
     }
 
     public static function getNavigationSort(): ?int
     {
         return EMenu::WMS_ORDER_DOCUMENTS->sort();
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return EMenu::WMS_ORDER_DOCUMENTS->label();
+    }
+
+    public static function getModelLabel(): string
+    {
+        return '発注データファイル';
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return '発注データファイル';
     }
 
     public static function table(Table $table): Table

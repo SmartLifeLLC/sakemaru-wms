@@ -5,7 +5,9 @@ namespace App\Filament\Resources\WmsOrderIncomingSchedules\Tables;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\PaginationOptions;
+use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\ItemDefaultLocation;
+use App\Models\Sakemaru\Warehouse;
 use App\Services\AutoOrder\IncomingConfirmationService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -27,6 +29,7 @@ class WmsOrderIncomingSchedulesTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
+            ->extraAttributes(['class' => 'incoming-schedules-table sticky-actions'])
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -42,34 +45,53 @@ class WmsOrderIncomingSchedulesTable
                     ->width('90px'),
 
                 TextColumn::make('order_source')
-                    ->label('発注元')
+                    ->label('入庫区分')
                     ->badge()
                     ->formatStateUsing(fn (OrderSource $state): string => match ($state) {
-                        OrderSource::AUTO => '自動',
+                        OrderSource::AUTO => '発注',
                         OrderSource::MANUAL => '手動',
+                        OrderSource::TRANSFER => '移動',
                     })
                     ->color(fn (OrderSource $state): string => match ($state) {
                         OrderSource::AUTO => 'info',
                         OrderSource::MANUAL => 'gray',
+                        OrderSource::TRANSFER => 'warning',
                     })
                     ->width('60px'),
 
-                TextColumn::make('warehouse.name')
-                    ->label('倉庫')
-                    ->state(fn ($record) => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-')
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫CD')
                     ->searchable()
-                    ->sortable()
-                    ->width('150px'),
+                    ->alignCenter()
+                    ->width('50px'),
+
+                TextColumn::make('warehouse.name')
+                    ->label('倉庫名')
+                    ->searchable()
+                    ->width('120px'),
+
+                TextColumn::make('contractor.code')
+                    ->label('発注先CD')
+                    ->searchable()
+                    ->alignCenter()
+                    ->toggleable()
+                    ->width('50px'),
+
+                TextColumn::make('contractor.name')
+                    ->label('発注先名')
+                    ->searchable()
+                    ->toggleable()
+                    ->width('100px'),
 
                 TextColumn::make('item.code')
-                    ->label('商品コード')
+                    ->label('商品CD')
                     ->searchable()
                     ->sortable()
                     ->alignCenter()
-                    ->width('100px'),
+                    ->width('70px'),
 
                 TextColumn::make('search_code')
-                    ->label('検索コード')
+                    ->label('検索CD')
                     ->searchable()
                     ->limit(20)
                     ->placeholder('-')
@@ -79,16 +101,7 @@ class WmsOrderIncomingSchedulesTable
                     ->label('商品名')
                     ->searchable()
                     ->sortable()
-                    ->wrap()
                     ->grow(),
-
-                TextColumn::make('contractor.name')
-                    ->label('発注先')
-                    ->state(fn ($record) => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-')
-                    ->searchable()
-                    ->sortable()
-                    ->toggleable()
-                    ->width('120px'),
 
                 TextColumn::make('expected_quantity')
                     ->label('予定数')
@@ -210,23 +223,59 @@ class WmsOrderIncomingSchedulesTable
                     ])),
 
                 SelectFilter::make('order_source')
-                    ->label('発注元')
+                    ->label('入庫区分')
                     ->options([
-                        'AUTO' => '自動発注',
-                        'MANUAL' => '手動発注',
+                        'AUTO' => '発注',
+                        'MANUAL' => '手動',
+                        'TRANSFER' => '移動',
                     ]),
 
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
-                    ->relationship('warehouse', 'name')
+                    ->options(fn () => Warehouse::query()
+                        ->where('is_active', true)
+                        ->orderBy('code')
+                        ->get()
+                        ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"]))
                     ->searchable()
-                    ->preload(),
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(function ($query) use ($search) {
+                                $query->where('code', 'like', "%{$search}%")
+                                    ->orWhere('name', 'like', "%{$search}%");
+                            })
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    }),
 
                 SelectFilter::make('contractor_id')
                     ->label('発注先')
-                    ->relationship('contractor', 'name')
+                    ->multiple()
+                    ->options(fn () => Contractor::query()
+                        ->orderBy('code')
+                        ->get()
+                        ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"]))
                     ->searchable()
-                    ->preload(),
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Contractor::query()
+                            ->where(function ($query) use ($search) {
+                                $query->where('code', 'like', "%{$search}%")
+                                    ->orWhere('name', 'like', "%{$search}%");
+                            })
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"])
+                            ->toArray();
+                    }),
             ])
             ->recordActions([
                 Action::make('confirm')

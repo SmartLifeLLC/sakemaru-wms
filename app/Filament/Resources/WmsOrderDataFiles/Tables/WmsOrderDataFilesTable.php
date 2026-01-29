@@ -4,6 +4,8 @@ namespace App\Filament\Resources\WmsOrderDataFiles\Tables;
 
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\PaginationOptions;
+use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderDataFile;
 use App\Services\AutoOrder\OrderDataFileService;
 use Filament\Actions\Action;
@@ -20,12 +22,10 @@ class WmsOrderDataFilesTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
+            ->extraAttributes(['class' => 'order-data-files-table sticky-actions'])
             ->columns([
                 TextColumn::make('batch_code')
                     ->label('バッチコード')
-                    ->state(function ($record) {
-                        return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
-                    })
                     ->sortable()
                     ->searchable(),
 
@@ -46,22 +46,27 @@ class WmsOrderDataFilesTable
                     ->date('m/d')
                     ->sortable(),
 
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫CD')
+                    ->searchable()
+                    ->alignCenter()
+                    ->width('50px'),
+
                 TextColumn::make('warehouse.name')
-                    ->label('倉庫')
-                    ->state(fn ($record) => $record->warehouse
-                        ? "[{$record->warehouse->code}]{$record->warehouse->name}"
-                        : '-')
-                    ->sortable()
-                    ->searchable(),
+                    ->label('倉庫名')
+                    ->searchable()
+                    ->width('120px'),
+
+                TextColumn::make('contractor.code')
+                    ->label('発注先CD')
+                    ->searchable()
+                    ->alignCenter()
+                    ->width('50px'),
 
                 TextColumn::make('contractor.name')
-                    ->label('発注先')
-                    ->state(fn ($record) => $record->contractor
-                        ? "[{$record->contractor->code}]{$record->contractor->name}"
-                        : '-')
+                    ->label('発注先名')
                     ->searchable()
-                    ->sortable()
-                    ->wrap(),
+                    ->grow(),
 
                 TextColumn::make('order_count')
                     ->label('発注数')
@@ -106,11 +111,50 @@ class WmsOrderDataFilesTable
 
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
-                    ->relationship('warehouse', 'name'),
+                    ->options(fn () => Warehouse::query()
+                        ->where('is_active', true)
+                        ->orderBy('code')
+                        ->get()
+                        ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"]))
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(function ($query) use ($search) {
+                                $query->where('code', 'like', "%{$search}%")
+                                    ->orWhere('name', 'like', "%{$search}%");
+                            })
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    }),
 
                 SelectFilter::make('contractor_id')
                     ->label('発注先')
-                    ->relationship('contractor', 'name'),
+                    ->multiple()
+                    ->options(fn () => Contractor::query()
+                        ->orderBy('code')
+                        ->get()
+                        ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"]))
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Contractor::query()
+                            ->where(function ($query) use ($search) {
+                                $query->where('code', 'like', "%{$search}%")
+                                    ->orWhere('name', 'like', "%{$search}%");
+                            })
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"])
+                            ->toArray();
+                    }),
             ])
             ->recordActions([
                 Action::make('download')

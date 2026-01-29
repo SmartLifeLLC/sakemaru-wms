@@ -676,7 +676,9 @@ class GenerateWavesCommand extends Command
             ->table('stock_transfers as st')
             ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
             ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
-            ->where('st.delivered_date', $shippingDate)
+            // picking_date を使用（picking_date = ピッキング予定日）
+            // ※ picking_date が NULL の場合は delivered_date を使用（後方互換性）
+            ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
             ->where('st.is_active', true)
             ->where('st.picking_status', 'BEFORE')
             ->where('st.from_warehouse_id', $warehouseId)

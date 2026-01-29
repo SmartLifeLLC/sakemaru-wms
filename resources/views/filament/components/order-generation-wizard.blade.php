@@ -79,12 +79,12 @@
                     <x-heroicon-o-exclamation-triangle class="w-6 h-6 text-danger-600 dark:text-danger-400" />
                 </div>
                 <div class="flex-1">
-                    <h3 class="text-lg font-medium text-danger-800 dark:text-danger-200">発注候補の生成ができません</h3>
+                    <h3 class="text-lg font-medium text-danger-800 dark:text-danger-200">発注・移動候補の生成ができません</h3>
                     <p class="mt-1 text-sm text-danger-700 dark:text-danger-300">
                         現在 <span class="font-bold">{{ $approvedCount }}件</span> の発注確定待ちがあります。
                     </p>
                     <p class="mt-2 text-sm text-danger-600 dark:text-danger-400">
-                        新しい発注候補を生成する前に、発注確定待ちの処理を完了してください。
+                        新しい発注・移動候補を生成する前に、発注確定待ちの処理を完了してください。
                     </p>
                 </div>
             </div>
@@ -112,17 +112,26 @@
                     <x-heroicon-o-trash class="w-6 h-6 text-warning-600 dark:text-warning-400" />
                 </div>
                 <div class="flex-1">
-                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">未承認の発注候補を削除</h3>
-                    @if ($pendingCount > 0)
-                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                            現在 <span class="font-bold text-warning-600 dark:text-warning-400">{{ $pendingCount }}件</span> の未承認発注候補があります。
-                        </p>
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">未承認の発注・移動候補を削除</h3>
+                    @if ($pendingCount > 0 || $pendingTransferCount > 0)
+                        <div class="mt-2 space-y-1">
+                            @if ($pendingCount > 0)
+                                <p class="text-sm text-gray-600 dark:text-gray-400">
+                                    発注候補: <span class="font-bold text-warning-600 dark:text-warning-400">{{ $pendingCount }}件</span>
+                                </p>
+                            @endif
+                            @if ($pendingTransferCount > 0)
+                                <p class="text-sm text-gray-600 dark:text-gray-400">
+                                    移動候補: <span class="font-bold text-warning-600 dark:text-warning-400">{{ $pendingTransferCount }}件</span>
+                                </p>
+                            @endif
+                        </div>
                         <p class="mt-2 text-sm text-gray-500 dark:text-gray-500">
-                            新しい発注候補を生成する前に、既存の未承認データを削除することをお勧めします。
+                            新しい発注・移動候補を生成する前に、既存の未承認データを削除することをお勧めします。
                         </p>
                     @else
                         <p class="mt-1 text-sm text-success-600 dark:text-success-400">
-                            未承認の発注候補はありません。
+                            未承認の発注・移動候補はありません。
                         </p>
                         <p class="mt-2 text-sm text-gray-500 dark:text-gray-500">
                             次のステップに進んでください。
@@ -131,7 +140,7 @@
                 </div>
             </div>
             <div class="mt-6 flex justify-end gap-3">
-                @if ($pendingCount > 0)
+                @if ($pendingCount > 0 || $pendingTransferCount > 0)
                     <x-filament::button
                         color="gray"
                         wire:click="skipStep1Delete"
@@ -164,14 +173,23 @@
                     <x-heroicon-o-sparkles class="w-6 h-6 text-success-600 dark:text-success-400" />
                 </div>
                 <div class="flex-1">
-                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">発注候補を生成</h3>
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">発注・移動候補を生成</h3>
                     <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                        在庫スナップショットの作成と発注候補の計算を実行します。
+                        在庫スナップショットの作成と発注・移動候補の計算を実行します。
                     </p>
-                    @if (isset($results['deleted']) && $results['deleted'] > 0)
-                        <p class="mt-2 text-sm text-success-600 dark:text-success-400">
-                            ✓ {{ $results['deleted'] }}件の未承認発注候補を削除しました
-                        </p>
+                    @if ((isset($results['deleted']) && $results['deleted'] > 0) || (isset($results['deletedTransfers']) && $results['deletedTransfers'] > 0))
+                        <div class="mt-2 space-y-1">
+                            @if (isset($results['deleted']) && $results['deleted'] > 0)
+                                <p class="text-sm text-success-600 dark:text-success-400">
+                                    ✓ {{ $results['deleted'] }}件の未承認発注候補を削除しました
+                                </p>
+                            @endif
+                            @if (isset($results['deletedTransfers']) && $results['deletedTransfers'] > 0)
+                                <p class="text-sm text-success-600 dark:text-success-400">
+                                    ✓ {{ $results['deletedTransfers'] }}件の未承認移動候補を削除しました
+                                </p>
+                            @endif
+                        </div>
                     @endif
                     <div class="mt-4 p-3 bg-info-50 dark:bg-info-900/20 rounded-lg border border-info-200 dark:border-info-800">
                         <p class="text-sm text-info-700 dark:text-info-300">
@@ -206,7 +224,7 @@
                     <x-heroicon-o-arrow-path class="w-6 h-6 text-info-600 dark:text-info-400 animate-spin" />
                 </div>
                 <div class="flex-1">
-                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">発注候補を生成中...</h3>
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white">発注・移動候補を生成中...</h3>
                     <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
                         処理が完了するまでお待ちください。このモーダルを閉じても処理は継続されます。
                     </p>
@@ -223,7 +241,7 @@
                     <x-heroicon-o-check-circle class="w-6 h-6 text-success-600 dark:text-success-400" />
                 </div>
                 <div class="flex-1">
-                    <h3 class="text-lg font-medium text-success-800 dark:text-success-200">発注候補の生成が完了しました</h3>
+                    <h3 class="text-lg font-medium text-success-800 dark:text-success-200">発注・移動候補の生成が完了しました</h3>
                     <p class="mt-1 text-sm text-success-700 dark:text-success-300">
                         バッチコード: <span class="font-mono font-bold">{{ $results['batchCode'] ?? '-' }}</span>
                     </p>
@@ -231,18 +249,29 @@
             </div>
 
             {{-- 結果サマリー --}}
-            <div class="mt-6 grid grid-cols-3 gap-4">
+            <div class="mt-6 grid grid-cols-2 gap-4">
                 <div class="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ $results['deleted'] ?? 0 }}</div>
+                    <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ ($results['deleted'] ?? 0) + ($results['deletedTransfers'] ?? 0) }}</div>
                     <div class="text-sm text-gray-500 dark:text-gray-400">削除済み</div>
+                    @if (($results['deleted'] ?? 0) > 0 || ($results['deletedTransfers'] ?? 0) > 0)
+                        <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                            発注{{ $results['deleted'] ?? 0 }}件 / 移動{{ $results['deletedTransfers'] ?? 0 }}件
+                        </div>
+                    @endif
                 </div>
                 <div class="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                     <div class="text-2xl font-bold text-gray-900 dark:text-white">{{ $results['snapshot'] ?? 0 }}</div>
                     <div class="text-sm text-gray-500 dark:text-gray-400">スナップショット</div>
                 </div>
+            </div>
+            <div class="mt-4 grid grid-cols-2 gap-4">
                 <div class="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <div class="text-2xl font-bold text-primary-600 dark:text-primary-400">{{ $results['calculated'] ?? 0 }}</div>
+                    <div class="text-2xl font-bold text-primary-600 dark:text-primary-400">{{ $results['orderCandidates'] ?? $results['calculated'] ?? 0 }}</div>
                     <div class="text-sm text-gray-500 dark:text-gray-400">発注候補</div>
+                </div>
+                <div class="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div class="text-2xl font-bold text-info-600 dark:text-info-400">{{ $results['transferCandidates'] ?? 0 }}</div>
+                    <div class="text-sm text-gray-500 dark:text-gray-400">移動候補</div>
                 </div>
             </div>
 
@@ -268,6 +297,15 @@
                 >
                     閉じる
                 </x-filament::button>
+                @if (($results['transferCandidates'] ?? 0) > 0)
+                    <x-filament::button
+                        color="info"
+                        tag="a"
+                        href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}"
+                    >
+                        移動候補一覧へ
+                    </x-filament::button>
+                @endif
                 <x-filament::button
                     color="primary"
                     tag="a"

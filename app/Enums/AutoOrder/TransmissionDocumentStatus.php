@@ -6,7 +6,8 @@ use Filament\Support\Contracts\HasLabel;
 
 enum TransmissionDocumentStatus: string implements HasLabel
 {
-    case DRAFT = 'DRAFT';           // テスト生成（確定前）
+    case TEST = 'TEST';             // テストファイル（JX送信不可）
+    case DRAFT = 'DRAFT';           // テスト生成（確定前）- 旧ステータス
     case PENDING = 'PENDING';       // 送信待ち（確定済み）
     case TRANSMITTED = 'TRANSMITTED';
     case CONFIRMED = 'CONFIRMED';
@@ -15,6 +16,7 @@ enum TransmissionDocumentStatus: string implements HasLabel
     public function getLabel(): ?string
     {
         return match ($this) {
+            self::TEST => 'テスト',
             self::DRAFT => 'テスト生成',
             self::PENDING => '送信待ち',
             self::TRANSMITTED => '送信済み',
@@ -26,11 +28,23 @@ enum TransmissionDocumentStatus: string implements HasLabel
     public function color(): string
     {
         return match ($this) {
+            self::TEST => 'gray',
             self::DRAFT => 'gray',
             self::PENDING => 'warning',
             self::TRANSMITTED => 'success',
             self::CONFIRMED => 'info',
             self::ERROR => 'danger',
+        };
+    }
+
+    /**
+     * JX送信可能かどうか
+     */
+    public function canTransmit(): bool
+    {
+        return match ($this) {
+            self::PENDING => true,
+            default => false,
         };
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Enums\AutoOrder\OrderSource;
 use App\Models\WmsOrderIncomingSchedule;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Log;
  * 入庫確定サービス
  *
  * 入庫予定の確定処理と仕入れデータ作成
+ * TRANSFER タイプの場合は stock_transfer_queue (action_type=DELIVER) を作成
  */
 class IncomingConfirmationService
 {
@@ -59,11 +61,17 @@ class IncomingConfirmationService
 
             $schedule->update($updateData);
 
+            // TRANSFER タイプの場合、納品確定キューを作成
+            if ($schedule->order_source === OrderSource::TRANSFER) {
+                $this->createDeliverQueue($schedule, $receivedQuantity);
+            }
+
             Log::info('Incoming confirmed', [
                 'schedule_id' => $schedule->id,
                 'received_quantity' => $receivedQuantity,
                 'actual_date' => $actualDate,
                 'expiration_date' => $expirationDate,
+                'order_source' => $schedule->order_source->value,
             ]);
 
             return $schedule->fresh();
@@ -195,5 +203,73 @@ class IncomingConfirmationService
         ]);
 
         return $schedule->fresh();
+    }
+
+    /**
+     * stock_transfer_queue (action_type=DELIVER) を作成
+     *
+     * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
+     * @param  int|null  $receivedQuantity  実際の入庫数量
+     */
+    private function createDeliverQueue(
+        WmsOrderIncomingSchedule $schedule,
+        ?int $receivedQuantity
+    ): void {
+        // stock_transfer_id が未設定の場合、動的に取得
+        if (! $schedule->stock_transfer_id) {
+            $this->syncStockTransferId($schedule);
+        }
+
+        if (! $schedule->stock_transfer_id) {
+            throw new \RuntimeException(
+                "Stock transfer ID not found for schedule {$schedule->id}"
+            );
+        }
+
+        $requestId = "transfer-deliver-{$schedule->id}-".now()->format('YmdHis');
+
+        DB::connection('sakemaru')->table('stock_transfer_queue')->insert([
+            'client_id' => config('app.client_id'),
+            'request_id' => $requestId,
+            'stock_transfer_id' => $schedule->stock_transfer_id,
+            'delivered_date' => now()->format('Y-m-d'),
+            'items' => json_encode([
+                'schedule_id' => $schedule->id,
+                'received_quantity' => $receivedQuantity ?? $schedule->expected_quantity,
+                'quantity_type' => $schedule->quantity_type->value,
+            ], JSON_UNESCAPED_UNICODE),
+            'note' => "入荷検品確定 Schedule ID: {$schedule->id}",
+            'status' => 'BEFORE',
+            'action_type' => 'DELIVER',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Log::info('Deliver queue created', [
+            'schedule_id' => $schedule->id,
+            'stock_transfer_id' => $schedule->stock_transfer_id,
+            'request_id' => $requestId,
+            'received_quantity' => $receivedQuantity ?? $schedule->expected_quantity,
+        ]);
+    }
+
+    /**
+     * stock_transfer_id を動的に取得・設定
+     *
+     * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
+     */
+    private function syncStockTransferId(WmsOrderIncomingSchedule $schedule): void
+    {
+        $queue = DB::connection('sakemaru')
+            ->table('stock_transfer_queue')
+            ->where('request_id', "transfer-create-{$schedule->transfer_candidate_id}")
+            ->where('status', 'FINISHED')
+            ->where('is_success', true)
+            ->first();
+
+        if ($queue && $queue->stock_transfer_id) {
+            $schedule->update(['stock_transfer_id' => $queue->stock_transfer_id]);
+            $schedule->refresh();
+        }
     }
 }

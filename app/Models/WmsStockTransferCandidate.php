@@ -35,9 +35,16 @@ class WmsStockTransferCandidate extends WmsModel
         'delivery_course_id',
         'suggested_quantity',
         'transfer_quantity',
+        'current_effective_stock',
+        'incoming_quantity',
+        'calculated_available',
+        'shortage_qty',
+        'safety_stock',
+        'purchase_unit',
         'quantity_type',
         'expected_arrival_date',
         'original_arrival_date',
+        'shipment_date',
         'status',
         'lot_status',
         'lot_rule_id',
@@ -55,12 +62,19 @@ class WmsStockTransferCandidate extends WmsModel
     protected $casts = [
         'expected_arrival_date' => 'date',
         'original_arrival_date' => 'date',
+        'shipment_date' => 'date',
         'modified_at' => 'datetime',
         'status' => CandidateStatus::class,
         'lot_status' => LotStatus::class,
         'quantity_type' => QuantityType::class,
         'is_manually_modified' => 'boolean',
         'lot_fee_amount' => 'decimal:2',
+        'current_effective_stock' => 'integer',
+        'incoming_quantity' => 'integer',
+        'calculated_available' => 'integer',
+        'shortage_qty' => 'integer',
+        'safety_stock' => 'integer',
+        'purchase_unit' => 'integer',
     ];
 
     public function satelliteWarehouse(): BelongsTo
@@ -156,10 +170,16 @@ class WmsStockTransferCandidate extends WmsModel
 
     /**
      * 発注点（安全在庫）を取得
+     * 直接カラムから取得、なければcalculationLogにフォールバック
      */
-    public function getSafetyStockAttribute(): ?int
+    public function getEffectiveSafetyStockAttribute(): ?int
     {
-        return $this->calculationLog?->calculation_details['安全在庫'] ?? null;
+        // 直接カラムがあればそちらを使用
+        if (($this->attributes['safety_stock'] ?? null) !== null) {
+            return $this->attributes['safety_stock'];
+        }
+
+        return $this->calculationLog?->safety_stock_setting ?? null;
     }
 
     public function scopeForBatch(Builder $query, string $batchCode): Builder
@@ -180,5 +200,31 @@ class WmsStockTransferCandidate extends WmsModel
     public function scopeWithWarnings(Builder $query): Builder
     {
         return $query->whereIn('lot_status', [LotStatus::BLOCKED, LotStatus::NEED_APPROVAL]);
+    }
+
+    /**
+     * 計算後在庫と不足数を再計算
+     */
+    public function recalculateStock(): void
+    {
+        $effectiveStock = $this->current_effective_stock ?? 0;
+        $incoming = $this->incoming_quantity ?? 0;
+        $safetyStock = $this->safety_stock ?? 0;
+
+        $this->calculated_available = $effectiveStock + $incoming;
+        $this->shortage_qty = max(0, $safetyStock - $this->calculated_available);
+    }
+
+    /**
+     * 関連する発注候補を取得
+     * Hub倉庫（移動元）の発注候補で、同一バッチ・商品のもの
+     */
+    public function getRelatedOrderCandidateAttribute(): ?WmsOrderCandidate
+    {
+        return WmsOrderCandidate::where('batch_code', $this->batch_code)
+            ->where('warehouse_id', $this->hub_warehouse_id)
+            ->where('item_id', $this->item_id)
+            ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
+            ->first();
     }
 }

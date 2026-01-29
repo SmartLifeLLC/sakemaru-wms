@@ -33,15 +33,17 @@ class WmsIncomingCompletedTable
                     ->width('90px'),
 
                 TextColumn::make('order_source')
-                    ->label('発注元')
+                    ->label('入庫区分')
                     ->badge()
                     ->formatStateUsing(fn (OrderSource $state): string => match ($state) {
-                        OrderSource::AUTO => '自動',
+                        OrderSource::AUTO => '発注',
                         OrderSource::MANUAL => '手動',
+                        OrderSource::TRANSFER => '移動',
                     })
                     ->color(fn (OrderSource $state): string => match ($state) {
                         OrderSource::AUTO => 'info',
                         OrderSource::MANUAL => 'gray',
+                        OrderSource::TRANSFER => 'warning',
                     })
                     ->width('60px'),
 
@@ -63,7 +65,6 @@ class WmsIncomingCompletedTable
                     ->label('商品名')
                     ->searchable()
                     ->sortable()
-                    ->wrap()
                     ->grow(),
 
                 TextColumn::make('contractor.name')
@@ -132,10 +133,11 @@ class WmsIncomingCompletedTable
             ])
             ->filters([
                 SelectFilter::make('order_source')
-                    ->label('発注元')
+                    ->label('入庫区分')
                     ->options([
-                        'AUTO' => '自動発注',
-                        'MANUAL' => '手動発注',
+                        'AUTO' => '発注',
+                        'MANUAL' => '手動',
+                        'TRANSFER' => '移動',
                     ]),
 
                 SelectFilter::make('warehouse_id')

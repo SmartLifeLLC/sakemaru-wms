@@ -66,7 +66,6 @@ class WmsOrderConfirmedTable
                     ->label('商品名')
                     ->searchable()
                     ->sortable()
-                    ->wrap()
                     ->grow(),
 
                 TextColumn::make('item.packaging')

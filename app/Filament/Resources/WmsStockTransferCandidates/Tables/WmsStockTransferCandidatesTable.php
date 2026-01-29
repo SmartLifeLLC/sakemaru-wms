@@ -9,6 +9,7 @@ use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
+use App\Services\AutoOrder\TransferOrderRecalculationService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -75,7 +76,6 @@ class WmsStockTransferCandidatesTable
                     ->label('商品名')
                     ->searchable()
                     ->sortable()
-                    ->wrap()
                     ->grow(),
 
                 TextColumn::make('item.packaging')
@@ -99,12 +99,92 @@ class WmsStockTransferCandidatesTable
                     ->toggleable()
                     ->width('120px'),
 
+                // 在庫関連カラム（直接カラムから取得、なければ計算ログにフォールバック）
+                TextColumn::make('current_effective_stock')
+                    ->label('現在庫')
+                    ->state(function ($record) {
+                        // 直接カラムがあればそちらを使用
+                        if ($record->current_effective_stock !== null) {
+                            return $record->current_effective_stock;
+                        }
+                        // フォールバック: 計算ログから取得
+                        $log = $record->calculationLog;
+
+                        return $log?->current_effective_stock ?? '-';
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('55px'),
+
+                TextColumn::make('incoming_quantity')
+                    ->label('入庫予定')
+                    ->state(function ($record) {
+                        // 直接カラムがあればそちらを使用
+                        if ($record->incoming_quantity !== null) {
+                            return $record->incoming_quantity;
+                        }
+                        // フォールバック: 計算ログから取得
+                        $log = $record->calculationLog;
+
+                        return $log?->incoming_quantity ?? '-';
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('55px'),
+
+                TextColumn::make('calculated_available')
+                    ->label('計算後在庫')
+                    ->state(function ($record) {
+                        // 直接カラムがあればそちらを使用
+                        if ($record->calculated_available !== null) {
+                            return $record->calculated_available;
+                        }
+                        // フォールバック: 計算ログから取得
+                        $log = $record->calculationLog;
+                        $details = $log?->calculation_details ?? [];
+
+                        return $details['利用可能在庫'] ?? '-';
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('65px'),
+
                 TextColumn::make('safety_stock')
                     ->label('発注点')
-                    ->state(fn ($record) => $record->safety_stock ?? '-')
+                    ->state(function ($record) {
+                        // 直接カラムがあればそちらを使用
+                        if ($record->safety_stock !== null) {
+                            return $record->safety_stock;
+                        }
+                        // フォールバック: 計算ログから取得
+                        $log = $record->calculationLog;
+
+                        return $log?->safety_stock_setting ?? '-';
+                    })
                     ->numeric()
                     ->alignEnd()
                     ->width('60px'),
+
+                TextColumn::make('shortage_qty')
+                    ->label('不足分')
+                    ->state(function ($record) {
+                        // 直接カラムがあればそちらを使用
+                        if ($record->shortage_qty !== null) {
+                            return $record->shortage_qty;
+                        }
+                        // フォールバック: 計算ログから取得
+                        $log = $record->calculationLog;
+
+                        return $log?->calculated_shortage_qty ?? '-';
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('55px')
+                    ->color(function ($record) {
+                        $shortageQty = $record->shortage_qty ?? $record->calculationLog?->calculated_shortage_qty ?? 0;
+
+                        return $shortageQty > 0 ? 'danger' : null;
+                    }),
 
                 TextColumn::make('suggested_quantity')
                     ->label('算出数')
@@ -112,11 +192,57 @@ class WmsStockTransferCandidatesTable
                     ->alignEnd()
                     ->width('60px'),
 
-                TextColumn::make('transfer_quantity')
+                TextInputColumn::make('transfer_quantity')
                     ->label('移動数')
-                    ->numeric()
+                    ->type('number')
+                    ->rules(['required', 'integer', 'min:0'])
                     ->alignEnd()
-                    ->width('60px'),
+                    ->width('70px')
+                    ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
+                    // 承認前（PENDING）のみ編集可能
+                    ->disabled(fn ($record) => $record->status !== CandidateStatus::PENDING)
+                    ->afterStateUpdated(function ($record, $state) {
+                        // 承認後の編集は許可しない
+                        if ($record->status !== CandidateStatus::PENDING) {
+                            Notification::make()
+                                ->title('承認後は移動数を変更できません')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $oldQuantity = $record->transfer_quantity;
+                        $newQuantity = (int) $state;
+
+                        $record->update([
+                            'transfer_quantity' => $newQuantity,
+                            'is_manually_modified' => true,
+                            'modified_by' => auth()->id(),
+                            'modified_at' => now(),
+                        ]);
+
+                        // 移動数量が変更された場合、関連発注候補を再計算
+                        if ($oldQuantity !== $newQuantity) {
+                            $recalcService = app(TransferOrderRecalculationService::class);
+                            $updatedOrder = $recalcService->recalculateOrderForTransfer($record, $oldQuantity, $newQuantity);
+
+                            if ($updatedOrder) {
+                                Notification::make()
+                                    ->title('移動数を更新しました')
+                                    ->body("関連発注候補の発注数も {$updatedOrder->order_quantity} に再計算されました。")
+                                    ->success()
+                                    ->send();
+
+                                return;
+                            }
+                        }
+
+                        Notification::make()
+                            ->title('移動数を更新しました')
+                            ->success()
+                            ->send();
+                    }),
 
                 TextColumn::make('expected_arrival_date')
                     ->label('移動出荷日')
@@ -327,14 +453,34 @@ class WmsStockTransferCandidatesTable
                             || $data['delivery_course_id'] != $record->delivery_course_id;
 
                         if ($hasChanges) {
+                            $oldQuantity = $record->transfer_quantity;
+                            $newQuantity = (int) $data['transfer_quantity'];
+
                             $record->update([
-                                'transfer_quantity' => $data['transfer_quantity'],
+                                'transfer_quantity' => $newQuantity,
                                 'expected_arrival_date' => $data['expected_arrival_date'],
                                 'delivery_course_id' => $data['delivery_course_id'],
                                 'is_manually_modified' => true,
                                 'modified_by' => auth()->id(),
                                 'modified_at' => now(),
                             ]);
+
+                            // 移動数量が変更された場合、関連発注候補を再計算
+                            if ($oldQuantity !== $newQuantity) {
+                                $recalcService = app(TransferOrderRecalculationService::class);
+                                $updatedOrder = $recalcService->recalculateOrderForTransfer($record, $oldQuantity, $newQuantity);
+
+                                if ($updatedOrder) {
+                                    Notification::make()
+                                        ->title('移動候補を更新しました')
+                                        ->body("関連発注候補の発注数も {$updatedOrder->order_quantity} に再計算されました。")
+                                        ->success()
+                                        ->send();
+
+                                    return;
+                                }
+                            }
+
                             Notification::make()
                                 ->title('移動候補を更新しました')
                                 ->success()
@@ -356,10 +502,23 @@ class WmsStockTransferCandidatesTable
                             'status' => CandidateStatus::EXCLUDED,
                             'exclusion_reason' => $data['exclusion_reason'] ?? null,
                         ]);
-                        Notification::make()
-                            ->title('移動候補を除外しました')
-                            ->warning()
-                            ->send();
+
+                        // 関連発注候補を再計算（除外により発注不要になる可能性あり）
+                        $recalcService = app(TransferOrderRecalculationService::class);
+                        $orderExcluded = $recalcService->checkAndExcludeOrderCandidate($record);
+
+                        if ($orderExcluded) {
+                            Notification::make()
+                                ->title('移動候補を除外しました')
+                                ->body('関連発注候補も発注不要となったため除外されました。')
+                                ->warning()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('移動候補を除外しました')
+                                ->warning()
+                                ->send();
+                        }
                     }),
             ])
             ->toolbarActions([
@@ -370,10 +529,26 @@ class WmsStockTransferCandidatesTable
                         ->color('success')
                         ->requiresConfirmation()
                         ->action(function (Collection $records) {
-                            $count = $records
+                            // PENDING状態のレコードIDを取得してバルクアップデート
+                            $pendingIds = $records
                                 ->where('status', CandidateStatus::PENDING)
-                                ->each(fn ($record) => $record->update(['status' => CandidateStatus::APPROVED]))
-                                ->count();
+                                ->pluck('id')
+                                ->toArray();
+
+                            if (empty($pendingIds)) {
+                                Notification::make()
+                                    ->title('承認前の候補がありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $count = WmsStockTransferCandidate::whereIn('id', $pendingIds)
+                                ->update([
+                                    'status' => CandidateStatus::APPROVED,
+                                    'updated_at' => now(),
+                                ]);
 
                             Notification::make()
                                 ->title("{$count}件を承認しました")
@@ -391,16 +566,31 @@ class WmsStockTransferCandidatesTable
                                 ->label('除外理由'),
                         ])
                         ->action(function (Collection $records, array $data) {
+                            $recalcService = app(TransferOrderRecalculationService::class);
+                            $excludedOrderCount = 0;
+
                             $count = $records
                                 ->where('status', CandidateStatus::PENDING)
-                                ->each(fn ($record) => $record->update([
-                                    'status' => CandidateStatus::EXCLUDED,
-                                    'exclusion_reason' => $data['exclusion_reason'] ?? null,
-                                ]))
+                                ->each(function ($record) use ($data, $recalcService, &$excludedOrderCount) {
+                                    $record->update([
+                                        'status' => CandidateStatus::EXCLUDED,
+                                        'exclusion_reason' => $data['exclusion_reason'] ?? null,
+                                    ]);
+
+                                    // 関連発注候補を再計算
+                                    if ($recalcService->checkAndExcludeOrderCandidate($record)) {
+                                        $excludedOrderCount++;
+                                    }
+                                })
                                 ->count();
 
+                            $message = "{$count}件を除外しました";
+                            if ($excludedOrderCount > 0) {
+                                $message .= "（関連発注候補 {$excludedOrderCount}件も除外）";
+                            }
+
                             Notification::make()
-                                ->title("{$count}件を除外しました")
+                                ->title($message)
                                 ->warning()
                                 ->send();
                         }),
@@ -445,11 +635,25 @@ class WmsStockTransferCandidatesTable
                             $updateData['is_manually_modified'] = true;
                             $updateData['modified_by'] = auth()->id();
                             $updateData['modified_at'] = now();
+                            $updateData['updated_at'] = now();
 
-                            $count = $records
+                            // PENDING状態のレコードIDを取得してバルクアップデート
+                            $pendingIds = $records
                                 ->where('status', CandidateStatus::PENDING)
-                                ->each(fn ($record) => $record->update($updateData))
-                                ->count();
+                                ->pluck('id')
+                                ->toArray();
+
+                            if (empty($pendingIds)) {
+                                Notification::make()
+                                    ->title('承認前の候補がありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $count = WmsStockTransferCandidate::whereIn('id', $pendingIds)
+                                ->update($updateData);
 
                             Notification::make()
                                 ->title("{$count}件を更新しました")

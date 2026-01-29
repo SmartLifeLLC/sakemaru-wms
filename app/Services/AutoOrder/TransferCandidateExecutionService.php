@@ -3,6 +3,9 @@
 namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Enums\AutoOrder\OrderSource;
+use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsStockTransferCandidate;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -14,17 +17,25 @@ use Illuminate\Support\Facades\Log;
  * 承認済みの移動候補を確定し、stock_transfer_queueを作成する
  * 基幹システム（sakemaru-ai-core）が stock_transfer_queue を処理して
  * 実際の移動伝票（stock_transfers）を生成する
+ *
+ * 新フロー:
+ * - stock_transfer_queue (action_type=CREATE) を作成
+ * - WmsOrderIncomingSchedule を作成（Satellite入荷予定）
+ * - Hub在庫の予約は行わない（stock_transfer作成時に減算）
  */
 class TransferCandidateExecutionService
 {
     /**
-     * 移動候補を確定し、stock_transfer_queueを作成
+     * 移動候補を確定
+     * - stock_transfer_queue を作成 (action_type=CREATE)
+     * - WmsOrderIncomingSchedule を作成（Satellite入荷予定）
+     * ※ Hub在庫の予約は行わない（stock_transfer作成時に減算）
      *
      * @param  WmsStockTransferCandidate  $candidate  移動候補
      * @param  int  $executedBy  確定者ID
-     * @return int|null 作成されたqueue ID
+     * @return array{queue_id: int, incoming_schedule_id: int}
      */
-    public function executeCandidate(WmsStockTransferCandidate $candidate, int $executedBy): ?int
+    public function executeCandidate(WmsStockTransferCandidate $candidate, int $executedBy): array
     {
         if ($candidate->status !== CandidateStatus::APPROVED) {
             throw new \RuntimeException(
@@ -33,26 +44,33 @@ class TransferCandidateExecutionService
         }
 
         return DB::connection('sakemaru')->transaction(function () use ($candidate, $executedBy) {
-            // 1. stock_transfer_queueを作成
+            // 1. stock_transfer_queue を作成 (action_type=CREATE)
             $queueId = $this->createStockTransferQueue($candidate);
 
-            // 2. 候補ステータスを更新
+            // 2. WmsOrderIncomingSchedule を作成（Satellite入荷予定）
+            $schedule = $this->createIncomingSchedule($candidate);
+
+            // 3. 候補ステータスを更新
             $candidate->update([
                 'status' => CandidateStatus::EXECUTED,
                 'modified_by' => $executedBy,
                 'modified_at' => now(),
             ]);
 
-            Log::info('Transfer candidate executed and stock_transfer_queue created', [
+            Log::info('Transfer candidate executed', [
                 'candidate_id' => $candidate->id,
                 'queue_id' => $queueId,
+                'incoming_schedule_id' => $schedule->id,
                 'hub_warehouse_id' => $candidate->hub_warehouse_id,
                 'satellite_warehouse_id' => $candidate->satellite_warehouse_id,
                 'item_id' => $candidate->item_id,
                 'transfer_quantity' => $candidate->transfer_quantity,
             ]);
 
-            return $queueId;
+            return [
+                'queue_id' => $queueId,
+                'incoming_schedule_id' => $schedule->id,
+            ];
         });
     }
 
@@ -61,7 +79,7 @@ class TransferCandidateExecutionService
      *
      * @param  string  $batchCode  バッチコード
      * @param  int  $executedBy  確定者ID
-     * @return Collection 作成されたqueue IDのコレクション
+     * @return Collection 実行結果のコレクション
      */
     public function executeBatch(string $batchCode, int $executedBy): Collection
     {
@@ -75,15 +93,13 @@ class TransferCandidateExecutionService
             return collect();
         }
 
-        $queueIds = collect();
+        $results = collect();
         $executedCount = 0;
 
         foreach ($candidates as $candidate) {
             try {
-                $queueId = $this->executeCandidate($candidate, $executedBy);
-                if ($queueId) {
-                    $queueIds->push($queueId);
-                }
+                $result = $this->executeCandidate($candidate, $executedBy);
+                $results->push($result);
                 $executedCount++;
             } catch (\Exception $e) {
                 Log::error('Failed to execute transfer candidate', [
@@ -98,14 +114,13 @@ class TransferCandidateExecutionService
             'batch_code' => $batchCode,
             'executed_count' => $executedCount,
             'total_approved' => $candidates->count(),
-            'queue_count' => $queueIds->count(),
         ]);
 
-        return $queueIds;
+        return $results;
     }
 
     /**
-     * stock_transfer_queueレコードを作成
+     * stock_transfer_queue を作成 (action_type=CREATE)
      *
      * @param  WmsStockTransferCandidate  $candidate  移動候補
      * @return int 作成されたqueue ID
@@ -129,24 +144,25 @@ class TransferCandidateExecutionService
         }
 
         // items配列を作成
-        $items = [
-            [
-                'item_code' => $item->code,
-                'quantity' => $candidate->transfer_quantity,
-                'quantity_type' => $candidate->quantity_type->value,
-                'stock_allocation_code' => '1', // デフォルトの在庫区分コード（通常在庫）
-                'note' => "移動候補ID: {$candidate->id}",
-            ],
-        ];
+        $items = [[
+            'item_code' => $item->code,
+            'quantity' => $candidate->transfer_quantity,
+            'quantity_type' => $candidate->quantity_type->value,
+            'stock_allocation_code' => '1', // デフォルトの在庫区分コード（通常在庫）
+            'note' => "移動候補ID: {$candidate->id}",
+        ]];
 
         // request_idは候補IDを使用（ユニーク制約対応）
-        $requestId = "transfer-{$candidate->id}";
+        $requestId = "transfer-create-{$candidate->id}";
 
-        // 処理日は入荷予定日を使用
-        $processDate = $candidate->expected_arrival_date?->format('Y-m-d') ?? now()->format('Y-m-d');
+        // 処理日はshipment_dateを優先、なければexpected_arrival_dateを使用
+        $processDate = $candidate->shipment_date?->format('Y-m-d')
+            ?? $candidate->expected_arrival_date?->format('Y-m-d')
+            ?? now()->format('Y-m-d');
 
         $queueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId([
             'client_id' => config('app.client_id'),
+            'request_id' => $requestId,
             'slip_number' => null, // 自動採番
             'process_date' => $processDate,
             'delivered_date' => $processDate,
@@ -155,13 +171,13 @@ class TransferCandidateExecutionService
             'from_warehouse_code' => $hubWarehouse->code,    // 移動元（Hub）
             'to_warehouse_code' => $satelliteWarehouse->code, // 移動先（Satellite）
             'delivery_course_id' => $candidate->delivery_course_id, // 配送コースID
-            'request_id' => $requestId,
             'status' => 'BEFORE',
+            'action_type' => 'CREATE',  // 新規追加
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        Log::info('Stock transfer queue created for transfer candidate', [
+        Log::info('Stock transfer queue created (action_type=CREATE)', [
             'queue_id' => $queueId,
             'candidate_id' => $candidate->id,
             'request_id' => $requestId,
@@ -175,11 +191,66 @@ class TransferCandidateExecutionService
     }
 
     /**
+     * WmsOrderIncomingSchedule を作成（Satellite入荷予定）
+     *
+     * @param  WmsStockTransferCandidate  $candidate  移動候補
+     * @return WmsOrderIncomingSchedule 作成された入荷予定
+     */
+    private function createIncomingSchedule(WmsStockTransferCandidate $candidate): WmsOrderIncomingSchedule
+    {
+        $schedule = WmsOrderIncomingSchedule::create([
+            'warehouse_id' => $candidate->satellite_warehouse_id,
+            'item_id' => $candidate->item_id,
+            'search_code' => $this->getSearchCodeForItem($candidate->item_id),
+            'contractor_id' => $candidate->contractor_id,
+            'supplier_id' => null,
+            'order_candidate_id' => null,
+            'transfer_candidate_id' => $candidate->id,
+            'source_warehouse_id' => $candidate->hub_warehouse_id,
+            'stock_transfer_id' => null,  // Core処理完了後に同期
+            'order_source' => OrderSource::TRANSFER,
+            'expected_quantity' => $candidate->transfer_quantity,
+            'received_quantity' => 0,
+            'quantity_type' => $candidate->quantity_type,
+            'order_date' => now()->format('Y-m-d'),
+            'expected_arrival_date' => $candidate->expected_arrival_date,
+            'status' => IncomingScheduleStatus::PENDING,
+        ]);
+
+        Log::info('Incoming schedule created for transfer', [
+            'schedule_id' => $schedule->id,
+            'candidate_id' => $candidate->id,
+            'warehouse_id' => $candidate->satellite_warehouse_id,
+            'source_warehouse_id' => $candidate->hub_warehouse_id,
+            'item_id' => $candidate->item_id,
+            'expected_quantity' => $candidate->transfer_quantity,
+        ]);
+
+        return $schedule;
+    }
+
+    /**
+     * 商品の検索コードを取得
+     *
+     * @param  int  $itemId  商品ID
+     * @return string|null 検索コード
+     */
+    private function getSearchCodeForItem(int $itemId): ?string
+    {
+        return DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('item_id', $itemId)
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->value('search_string');
+    }
+
+    /**
      * 複数の移動候補を一括確定
      *
      * @param  array  $candidateIds  候補IDの配列
      * @param  int  $executedBy  確定者ID
-     * @return Collection 作成されたqueue IDのコレクション
+     * @return Collection 実行結果のコレクション
      */
     public function executeMultiple(array $candidateIds, int $executedBy): Collection
     {
@@ -187,14 +258,12 @@ class TransferCandidateExecutionService
             ->where('status', CandidateStatus::APPROVED)
             ->get();
 
-        $queueIds = collect();
+        $results = collect();
 
         foreach ($candidates as $candidate) {
             try {
-                $queueId = $this->executeCandidate($candidate, $executedBy);
-                if ($queueId) {
-                    $queueIds->push($queueId);
-                }
+                $result = $this->executeCandidate($candidate, $executedBy);
+                $results->push($result);
             } catch (\Exception $e) {
                 Log::error('Failed to execute transfer candidate', [
                     'candidate_id' => $candidate->id,
@@ -203,7 +272,7 @@ class TransferCandidateExecutionService
             }
         }
 
-        return $queueIds;
+        return $results;
     }
 
     /**
@@ -245,8 +314,12 @@ class TransferCandidateExecutionService
                 try {
                     $queueId = $this->createGroupedStockTransferQueue($groupCandidates, $executedBy);
 
-                    // グループ内の全候補をEXECUTEDに更新
+                    // グループ内の全候補をEXECUTEDに更新し、入荷予定を作成
                     foreach ($groupCandidates as $candidate) {
+                        // 入荷予定を作成
+                        $this->createIncomingSchedule($candidate);
+
+                        // ステータス更新
                         $candidate->update([
                             'status' => CandidateStatus::EXECUTED,
                             'modified_by' => $executedBy,
@@ -321,20 +394,23 @@ class TransferCandidateExecutionService
         }
 
         // request_idは複数候補IDを連結（ユニーク制約対応）
-        $requestId = 'transfer-group-'.implode('-', $candidateIds);
+        $requestId = 'transfer-create-group-'.implode('-', $candidateIds);
         if (strlen($requestId) > 100) {
             // 長すぎる場合はハッシュ化
-            $requestId = 'transfer-group-'.md5(implode('-', $candidateIds));
+            $requestId = 'transfer-create-group-'.md5(implode('-', $candidateIds));
         }
 
-        // 処理日は最初の候補の入荷予定日を使用
-        $processDate = $firstCandidate->expected_arrival_date?->format('Y-m-d') ?? now()->format('Y-m-d');
+        // 処理日は最初の候補のshipment_dateを優先
+        $processDate = $firstCandidate->shipment_date?->format('Y-m-d')
+            ?? $firstCandidate->expected_arrival_date?->format('Y-m-d')
+            ?? now()->format('Y-m-d');
 
         // バッチコードを収集
         $batchCodes = $candidates->pluck('batch_code')->unique()->implode(',');
 
         $queueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId([
             'client_id' => config('app.client_id'),
+            'request_id' => $requestId,
             'slip_number' => null,
             'process_date' => $processDate,
             'delivered_date' => $processDate,
@@ -343,13 +419,13 @@ class TransferCandidateExecutionService
             'from_warehouse_code' => $hubWarehouse->code,
             'to_warehouse_code' => $satelliteWarehouse->code,
             'delivery_course_id' => $firstCandidate->delivery_course_id,
-            'request_id' => $requestId,
             'status' => 'BEFORE',
+            'action_type' => 'CREATE',  // 新規追加
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        Log::info('Grouped stock transfer queue created', [
+        Log::info('Grouped stock transfer queue created (action_type=CREATE)', [
             'queue_id' => $queueId,
             'candidate_ids' => $candidateIds,
             'request_id' => $requestId,
