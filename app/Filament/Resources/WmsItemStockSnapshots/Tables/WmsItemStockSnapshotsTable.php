@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsItemStockSnapshots\Tables;
 use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\RealStockLot;
+use App\Models\WmsAutoOrderJobControl;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
@@ -21,28 +22,36 @@ class WmsItemStockSnapshotsTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
+            ->extraAttributes(['class' => 'item-stock-snapshots-table sticky-actions'])
             ->columns([
-                TextColumn::make('warehouse.code')
-                    ->label('倉庫コード')
+                TextColumn::make('jobControl.batch_code')
+                    ->label('実行CD')
                     ->sortable()
                     ->searchable(),
+
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫CD')
+                    ->searchable()
+                    ->alignCenter()
+                    ->width('50px'),
 
                 TextColumn::make('warehouse.name')
                     ->label('倉庫名')
-                    ->sortable()
-                    ->searchable(),
+                    ->searchable()
+                    ->width('120px'),
 
                 TextColumn::make('item.code')
-                    ->label('商品コード')
+                    ->label('商品CD')
                     ->sortable()
                     ->searchable()
-                    ->copyable(),
+                    ->copyable()
+                    ->width('80px'),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
                     ->sortable()
                     ->searchable()
-                    ->limit(40),
+                    ->grow(),
 
                 TextColumn::make('total_effective_piece')
                     ->label('有効在庫(バラ)')
@@ -69,21 +78,30 @@ class WmsItemStockSnapshotsTable
 
                 TextColumn::make('snapshot_at')
                     ->label('スナップショット日時')
-                    ->dateTime('Y-m-d H:i:s')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->dateTime('m/d H:i')
+                    ->sortable(),
 
                 TextColumn::make('created_at')
                     ->label('作成日時')
-                    ->dateTime('Y-m-d H:i')
+                    ->dateTime('m/d H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('warehouse_id')
-                    ->label('倉庫')
-                    ->relationship('warehouse', 'name')
-                    ->preload()
+                SelectFilter::make('job_control_id')
+                    ->label('実行CD')
+                    ->options(fn () => WmsAutoOrderJobControl::query()
+                        ->where('process_name', 'STOCK_SNAPSHOT')
+                        ->orderByDesc('id')
+                        ->limit(50)
+                        ->get()
+                        ->mapWithKeys(fn ($job) => [
+                            $job->id => $job->batch_code.' ('.$job->started_at?->format('m/d H:i').')',
+                        ]))
+                    ->default(fn () => WmsAutoOrderJobControl::query()
+                        ->where('process_name', 'STOCK_SNAPSHOT')
+                        ->orderByDesc('id')
+                        ->value('id'))
                     ->searchable(),
             ])
             ->recordActions([

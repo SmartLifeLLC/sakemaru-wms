@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * 商品在庫スナップショット
  *
  * @property int $id
+ * @property int|null $job_control_id
  * @property int $warehouse_id
  * @property int $item_id
  * @property \Carbon\Carbon $snapshot_at
@@ -22,6 +23,7 @@ class WmsItemStockSnapshot extends WmsModel
     protected $table = 'wms_item_stock_snapshots';
 
     protected $fillable = [
+        'job_control_id',
         'warehouse_id',
         'item_id',
         'snapshot_at',
@@ -33,6 +35,11 @@ class WmsItemStockSnapshot extends WmsModel
     protected $casts = [
         'snapshot_at' => 'datetime',
     ];
+
+    public function jobControl(): BelongsTo
+    {
+        return $this->belongsTo(WmsAutoOrderJobControl::class, 'job_control_id');
+    }
 
     public function warehouse(): BelongsTo
     {

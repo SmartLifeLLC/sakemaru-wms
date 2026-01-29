@@ -65,13 +65,12 @@ class StockSnapshotService
      *
      * INSERT INTO ... SELECT で一括処理（高速）
      * 入荷予定数は wms_order_incoming_schedules から集計
+     * 過去のスナップショットは削除せず、job_control_id で紐付けて保持
      */
     public function generateSnapshots(array $warehouseIds, ?WmsAutoOrderJobControl $job = null): int
     {
         $snapshotAt = now()->format('Y-m-d H:i:s');
-
-        // 既存データをTRUNCATE
-        WmsItemStockSnapshot::truncate();
+        $jobControlId = $job?->id ?? 'NULL';
 
         // INSERT INTO ... SELECT で一括処理
         $warehouseIdsList = implode(',', $warehouseIds);
@@ -82,8 +81,9 @@ class StockSnapshotService
         //       real_stock_id で重複排除してから集計する
         $sql = "
             INSERT INTO wms_item_stock_snapshots
-                (warehouse_id, item_id, snapshot_at, total_effective_piece, total_non_effective_piece, total_incoming_piece, created_at, updated_at)
+                (job_control_id, warehouse_id, item_id, snapshot_at, total_effective_piece, total_non_effective_piece, total_incoming_piece, created_at, updated_at)
             SELECT
+                {$jobControlId} as job_control_id,
                 COALESCE(s.warehouse_id, i.warehouse_id) as warehouse_id,
                 COALESCE(s.item_id, i.item_id) as item_id,
                 '{$snapshotAt}' as snapshot_at,
@@ -125,6 +125,7 @@ class StockSnapshotService
 
             -- 在庫がないが入荷予定がある商品
             SELECT
+                {$jobControlId} as job_control_id,
                 i.warehouse_id,
                 i.item_id,
                 '{$snapshotAt}' as snapshot_at,
@@ -153,7 +154,7 @@ class StockSnapshotService
 
         DB::connection('sakemaru')->statement($sql);
 
-        $processedCount = WmsItemStockSnapshot::count();
+        $processedCount = WmsItemStockSnapshot::where('job_control_id', $job?->id)->count();
 
         if ($job) {
             $job->update(['total_records' => $processedCount]);

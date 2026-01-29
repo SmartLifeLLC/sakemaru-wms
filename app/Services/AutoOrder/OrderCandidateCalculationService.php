@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
 use App\Models\WmsAutoOrderJobControl;
@@ -73,8 +74,10 @@ class OrderCandidateCalculationService
 
     /**
      * 発注候補計算を実行
+     *
+     * @param  int|null  $snapshotJobId  参照する在庫スナップショットのjob_id
      */
-    public function calculate(): WmsAutoOrderJobControl
+    public function calculate(?int $snapshotJobId = null): WmsAutoOrderJobControl
     {
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::ORDER_CALC)) {
             throw new \RuntimeException('Order calculation job is already running');
@@ -86,7 +89,13 @@ class OrderCandidateCalculationService
             throw new \RuntimeException("発注確定待ちの候補が {$approvedCount}件 あります。先に発注確定を行ってください。");
         }
 
-        $job = WmsAutoOrderJobControl::startJob(JobProcessName::ORDER_CALC);
+        $job = WmsAutoOrderJobControl::startJob(
+            processName: JobProcessName::ORDER_CALC,
+            scope: null,
+            batchCode: null,
+            settlementStatus: SettlementStatus::PENDING,
+            snapshotJobId: $snapshotJobId
+        );
 
         try {
             $batchCode = $job->batch_code;

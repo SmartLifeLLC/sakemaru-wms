@@ -3,6 +3,8 @@
 namespace App\Jobs;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\SettlementStatus;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
@@ -18,7 +20,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
 /**
- * 移動・発注確定ジョブ
+ * 発注・移動確定ジョブ
  *
  * 承認済みの移動候補と発注候補を確定し、入庫予定・CSVファイル・JXファイルを生成
  */
@@ -89,7 +91,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
             $hasTransfers = $transferApprovedCount > 0;
             $totalSteps = ($hasTransfers ? 1 : 0) + ($totalBatches * 3);
 
-            $progress->markAsProcessing($totalSteps, '移動・発注確定処理を開始しています...');
+            $progress->markAsProcessing($totalSteps, '発注・移動確定処理を開始しています...');
 
             $currentStep = 0;
             $totalTransferQueues = 0;
@@ -163,6 +165,9 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 ]);
             }
 
+            // 3. 関連するジョブ管理レコードの確定状態を更新
+            $this->updateSettlementStatus($batchCodes);
+
             // 完了メッセージを構築
             $completionMessages = [];
             if ($totalTransferCandidates > 0) {
@@ -217,12 +222,38 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         $progress = WmsQueueProgress::findByJobId($this->progressId);
 
         if ($progress) {
-            $progress->markAsFailed('移動・発注確定ジョブが失敗しました: '.$exception->getMessage());
+            $progress->markAsFailed('発注・移動確定ジョブが失敗しました: '.$exception->getMessage());
         }
 
         Log::error('Transfer/Order confirmation job failed', [
             'progress_id' => $this->progressId,
             'error' => $exception->getMessage(),
+        ]);
+    }
+
+    /**
+     * 関連するジョブ管理レコードの確定状態を CONFIRMED に更新
+     *
+     * @param  array  $batchCodes  処理対象のバッチコード配列
+     */
+    private function updateSettlementStatus(array $batchCodes): void
+    {
+        if (empty($batchCodes)) {
+            // バッチコードがない場合でも、PENDING状態のジョブがあれば確定済みにする
+            WmsAutoOrderJobControl::where('settlement_status', SettlementStatus::PENDING)
+                ->update(['settlement_status' => SettlementStatus::CONFIRMED]);
+
+            return;
+        }
+
+        // バッチコードに関連するジョブを確定済みに更新
+        $updatedCount = WmsAutoOrderJobControl::whereIn('batch_code', $batchCodes)
+            ->where('settlement_status', SettlementStatus::PENDING)
+            ->update(['settlement_status' => SettlementStatus::CONFIRMED]);
+
+        Log::info('Updated settlement status to CONFIRMED', [
+            'batch_codes' => $batchCodes,
+            'updated_count' => $updatedCount,
         ]);
     }
 }

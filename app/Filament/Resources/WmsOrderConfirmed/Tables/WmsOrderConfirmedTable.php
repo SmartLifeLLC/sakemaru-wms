@@ -6,20 +6,16 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
-use App\Services\AutoOrder\OrderExecutionService;
 use Filament\Actions\Action;
-use Filament\Actions\BulkAction;
-use Filament\Actions\BulkActionGroup;
-use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Collection;
 
 class WmsOrderConfirmedTable
 {
@@ -29,15 +25,25 @@ class WmsOrderConfirmedTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
-            ->extraAttributes(['class' => 'order-confirmed-table'])
+            ->extraAttributes(['class' => 'order-confirmed-table sticky-actions'])
             ->columns([
                 TextColumn::make('batch_code')
-                    ->label('計算時刻')
-                    ->state(function ($record) {
-                        return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
-                    })
+                    ->label('実行CD')
                     ->sortable()
-                    ->width('80px'),
+                    ->searchable()
+                    ->width('120px'),
+
+                TextColumn::make('executed_at')
+                    ->label('実行時刻')
+                    ->state(function ($record) {
+                        try {
+                            return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)
+                                ->format('m月d日 H時i分');
+                        } catch (\Exception $e) {
+                            return '-';
+                        }
+                    })
+                    ->width('110px'),
 
                 TextColumn::make('status')
                     ->label('状態')
@@ -47,20 +53,23 @@ class WmsOrderConfirmedTable
                     ->sortable()
                     ->width('80px'),
 
-                TextColumn::make('warehouse.name')
-                    ->label('倉庫')
-                    ->state(fn ($record) => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-')
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫CD')
                     ->searchable()
-                    ->sortable()
                     ->alignCenter()
-                    ->width('170px'),
+                    ->width('50px'),
+
+                TextColumn::make('warehouse.name')
+                    ->label('倉庫名')
+                    ->searchable()
+                    ->width('120px'),
 
                 TextColumn::make('item.code')
-                    ->label('商品コード')
+                    ->label('商品CD')
                     ->searchable()
                     ->sortable()
                     ->alignCenter()
-                    ->width('100px'),
+                    ->width('70px'),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
@@ -81,13 +90,18 @@ class WmsOrderConfirmedTable
                     ->toggleable()
                     ->width('50px'),
 
-                TextColumn::make('contractor.name')
-                    ->label('発注先')
-                    ->state(fn ($record) => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-')
+                TextColumn::make('contractor.code')
+                    ->label('発注先CD')
                     ->searchable()
-                    ->sortable()
+                    ->alignCenter()
                     ->toggleable()
-                    ->width('120px'),
+                    ->width('50px'),
+
+                TextColumn::make('contractor.name')
+                    ->label('発注先名')
+                    ->searchable()
+                    ->toggleable()
+                    ->width('100px'),
 
                 TextColumn::make('order_quantity')
                     ->label('発注数')
@@ -101,13 +115,6 @@ class WmsOrderConfirmedTable
                     ->sortable()
                     ->alignCenter()
                     ->width('70px'),
-
-                TextColumn::make('transmitted_at')
-                    ->label('送信日時')
-                    ->dateTime('m/d H:i')
-                    ->sortable()
-                    ->alignCenter()
-                    ->width('90px'),
 
                 TextColumn::make('lot_status')
                     ->label('ロット')
@@ -134,6 +141,22 @@ class WmsOrderConfirmedTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                SelectFilter::make('batch_code')
+                    ->label('実行CD')
+                    ->options(fn () => WmsOrderCandidate::query()
+                        ->whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
+                        ->select('batch_code')
+                        ->distinct()
+                        ->orderByDesc('batch_code')
+                        ->limit(50)
+                        ->pluck('batch_code', 'batch_code')
+                        ->toArray())
+                    ->default(fn () => WmsOrderCandidate::query()
+                        ->whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
+                        ->orderByDesc('batch_code')
+                        ->value('batch_code'))
+                    ->searchable(),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options([
@@ -142,54 +165,61 @@ class WmsOrderConfirmedTable
                     ]),
 
                 SelectFilter::make('warehouse_id')
-                    ->label('在庫拠点倉庫')
-                    ->relationship('warehouse', 'name'),
+                    ->label('倉庫')
+                    ->options(fn () => Warehouse::query()
+                        ->where('is_active', true)
+                        ->orderBy('code')
+                        ->get()
+                        ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"]))
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(function ($query) use ($search) {
+                                $query->where('code', 'like', "%{$search}%")
+                                    ->orWhere('name', 'like', "%{$search}%");
+                            })
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    }),
 
                 SelectFilter::make('contractor_id')
                     ->label('発注先')
                     ->options(fn () => Contractor::query()
                         ->orderBy('code')
                         ->get()
-                        ->mapWithKeys(fn ($contractor) => [
-                            $contractor->id => "[{$contractor->code}]{$contractor->name}",
-                        ]))
-                    ->searchable(),
+                        ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"]))
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Contractor::query()
+                            ->where(function ($query) use ($search) {
+                                $query->where('code', 'like', "%{$search}%")
+                                    ->orWhere('name', 'like', "%{$search}%");
+                            })
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"])
+                            ->toArray();
+                    }),
             ])
             ->recordActions([
-                Action::make('reconfirm')
-                    ->label('再確定')
-                    ->icon('heroicon-o-arrow-path')
-                    ->color('warning')
-                    ->visible(fn ($record) => $record->status === CandidateStatus::CONFIRMED)
-                    ->requiresConfirmation()
-                    ->modalHeading('発注再確定')
-                    ->modalDescription('この発注候補を再確定し、入庫予定を再作成します。既存の入庫予定（PENDING状態）は削除されます。')
-                    ->action(function ($record) {
-                        $service = app(OrderExecutionService::class);
-
-                        try {
-                            $schedules = $service->confirmCandidate($record, auth()->id());
-                            Notification::make()
-                                ->title('発注を再確定しました')
-                                ->body("入庫予定 {$schedules->count()}件 を再作成しました")
-                                ->success()
-                                ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->title('エラーが発生しました')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
-                        }
-                    }),
-
                 Action::make('viewDetail')
                     ->label('詳細')
                     ->icon('heroicon-o-eye')
                     ->color('gray')
-                    ->modalHeading('発注候補詳細')
+                    ->modalHeading('発注確定詳細')
                     ->modalWidth('6xl')
-                    ->schema(function (?WmsOrderCandidate $record): array {
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('閉じる')
+                    ->infolist(function (?WmsOrderCandidate $record): array {
                         if (! $record) {
                             return [];
                         }
@@ -213,10 +243,14 @@ class WmsOrderConfirmedTable
                             $capacityText = implode(' / ', $parts) ?: '-';
                         }
 
+                        // 入荷予定日の算出理由
+                        $leadTimeDays = $log?->lead_time_days ?? 0;
+                        $arrivalDateAdjustment = $details['到着日調整'] ?? 0;
+
                         return [
                             Grid::make(3)
                                 ->schema([
-                                    View::make('filament.components.order-candidate-left-panel')
+                                    View::make('filament.components.order-candidate-left-panel-with-arrival')
                                         ->viewData([
                                             'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
                                             'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
@@ -224,6 +258,11 @@ class WmsOrderConfirmedTable
                                             'expectedArrivalDate' => $record->expected_arrival_date
                                                 ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
                                                 : '-',
+                                            'originalArrivalDate' => $record->original_arrival_date
+                                                ? \Carbon\Carbon::parse($record->original_arrival_date)->format('Y/m/d')
+                                                : '-',
+                                            'leadTimeDays' => $leadTimeDays,
+                                            'arrivalDateAdjustment' => $arrivalDateAdjustment,
                                             'itemCode' => $item?->code ?? '-',
                                             'itemName' => $item?->name ?? '-',
                                             'packaging' => $item?->packaging ?? '-',
@@ -249,6 +288,9 @@ class WmsOrderConfirmedTable
                                                     'safetyStock' => $details['安全在庫'] ?? 0,
                                                     'calculatedAvailable' => $details['利用可能在庫'] ?? 0,
                                                     'shortageQty' => $details['不足数'] ?? 0,
+                                                    'purchaseUnit' => $details['最小仕入単位'] ?? 1,
+                                                    'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,
+                                                    'orderQuantity' => $record->order_quantity ?? 0,
                                                 ]),
 
                                             Section::make('確定情報')
@@ -268,42 +310,6 @@ class WmsOrderConfirmedTable
                                 ]),
                         ];
                     }),
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    BulkAction::make('bulkReconfirm')
-                        ->label('選択を再確定')
-                        ->icon('heroicon-o-arrow-path')
-                        ->color('warning')
-                        ->requiresConfirmation()
-                        ->modalHeading('一括再確定')
-                        ->modalDescription('選択した発注候補を再確定し、入庫予定を再作成します。')
-                        ->action(function (Collection $records) {
-                            $service = app(OrderExecutionService::class);
-                            $successCount = 0;
-                            $totalSchedules = 0;
-
-                            foreach ($records as $record) {
-                                if ($record->status !== CandidateStatus::CONFIRMED) {
-                                    continue;
-                                }
-
-                                try {
-                                    $schedules = $service->confirmCandidate($record, auth()->id());
-                                    $successCount++;
-                                    $totalSchedules += $schedules->count();
-                                } catch (\Exception $e) {
-                                    // Skip errors
-                                }
-                            }
-
-                            Notification::make()
-                                ->title("{$successCount}件を再確定しました")
-                                ->body("入庫予定 {$totalSchedules}件 を再作成しました")
-                                ->success()
-                                ->send();
-                        }),
-                ]),
             ])
             ->defaultSort('batch_code', 'desc');
     }

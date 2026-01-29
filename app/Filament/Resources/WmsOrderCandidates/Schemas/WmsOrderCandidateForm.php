@@ -23,7 +23,7 @@ class WmsOrderCandidateForm
                     ->columns(2)
                     ->schema([
                         TextEntry::make('batch_code')
-                            ->label('バッチコード'),
+                            ->label('実行CD'),
 
                         TextEntry::make('warehouse.name')
                             ->label('Hub倉庫'),

@@ -12,6 +12,7 @@ use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class ListWmsOrderConfirmed extends ListRecords
 {
@@ -22,6 +23,11 @@ class ListWmsOrderConfirmed extends ListRecords
     }
 
     protected static string $resource = WmsOrderConfirmedResource::class;
+
+    /**
+     * プリセットビュー用倉庫データのキャッシュ
+     */
+    protected ?Collection $cachedWarehouses = null;
 
     public function table(Table $table): Table
     {
@@ -38,43 +44,62 @@ class ListWmsOrderConfirmed extends ListRecords
         // ユーザーのデフォルト倉庫を取得
         $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
 
-        // 発注確定済みに存在する倉庫を取得
-        $warehouseIds = WmsOrderCandidate::whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
-            ->distinct()
-            ->pluck('warehouse_id')
-            ->toArray();
+        // 倉庫データをキャッシュから取得
+        $warehouses = $this->getWarehousesForPresetViews();
+        $warehouseIds = $warehouses->pluck('id')->toArray();
 
         // デフォルト倉庫が発注確定済みに存在するかチェック
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
-        $defaultWarehouse = $hasDefaultWarehouse ? Warehouse::find($userDefaultWarehouseId) : null;
 
-        // プリセットビュー構築
+        // プリセットビュー構築（キーはdefaultプレフィックスで統一）
         $views = [
-            'all' => PresetView::make()
+            'default' => PresetView::make()
                 ->favorite()
                 ->label('全て')
-                ->default(! $hasDefaultWarehouse),
+                ->default(! $hasDefaultWarehouse || $warehouses->isEmpty()),
 
-            'confirmed' => PresetView::make()
+            'default_confirmed' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::CONFIRMED))
                 ->favorite()
                 ->label('確定済み'),
 
-            'executed' => PresetView::make()
+            'default_executed' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::EXECUTED))
                 ->favorite()
                 ->label('送信済み'),
         ];
 
-        // デフォルト倉庫があればその倉庫タブを追加
-        if ($defaultWarehouse) {
-            $views["warehouse_{$defaultWarehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $defaultWarehouse->id))
+        // 倉庫タブを追加（データがある場合のみ）
+        foreach ($warehouses as $warehouse) {
+            $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
+            $views["default_{$warehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
-                ->label($defaultWarehouse->name)
-                ->default();
+                ->label($warehouse->name)
+                ->default($isDefault);
         }
 
         return $views;
+    }
+
+    /**
+     * プリセットビュー用の倉庫データを取得（キャッシュ付き）
+     */
+    protected function getWarehousesForPresetViews(): Collection
+    {
+        if ($this->cachedWarehouses !== null) {
+            return $this->cachedWarehouses;
+        }
+
+        $warehouseIds = WmsOrderCandidate::whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
+            ->distinct()
+            ->pluck('warehouse_id')
+            ->toArray();
+
+        $this->cachedWarehouses = Warehouse::whereIn('id', $warehouseIds)
+            ->orderBy('code')
+            ->get();
+
+        return $this->cachedWarehouses;
     }
 }

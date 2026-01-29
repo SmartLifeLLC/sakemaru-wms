@@ -181,7 +181,7 @@ enum EMenu: string
 
             self::WMS_STOCK_TRANSFER_CANDIDATES => '移動候補一覧',
             self::WMS_ORDER_CANDIDATES => '発注候補一覧',
-            self::WMS_ORDER_CONFIRMATION_WAITING => '移動・発注確定待ち',
+            self::WMS_ORDER_CONFIRMATION_WAITING => '発注・移動確定待ち',
             self::WMS_ORDER_CONFIRMED => '発注確定済み',
             self::WMS_ORDER_DATA_FILES => '発注データファイル',
             self::WMS_AUTO_ORDER_JOBS => '発注・移動候補生成',

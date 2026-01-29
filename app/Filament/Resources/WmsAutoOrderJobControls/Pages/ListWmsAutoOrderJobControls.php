@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsAutoOrderJobControls\Pages;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Filament\Resources\WmsAutoOrderJobControls\WmsAutoOrderJobControlResource;
 use App\Jobs\ProcessOrderCandidateGenerationJob;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
@@ -103,8 +104,13 @@ class ListWmsAutoOrderJobControls extends ListRecords
         try {
             $deletedOrders = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->delete();
             $deletedTransfers = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->delete();
+
+            // 確定待ち（PENDING）のジョブをキャンセル
+            $cancelledJobs = WmsAutoOrderJobControl::cancelPendingSettlements();
+
             $this->results['deleted'] = $deletedOrders;
             $this->results['deletedTransfers'] = $deletedTransfers;
+            $this->results['cancelledJobs'] = $cancelledJobs;
             $this->pendingCount = 0;
             $this->pendingTransferCount = 0;
             $this->wizardStep = 1;

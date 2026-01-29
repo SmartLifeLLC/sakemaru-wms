@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\JobStatus;
+use App\Enums\AutoOrder\SettlementStatus;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * 自動発注ジョブ管理モデル
@@ -29,6 +31,8 @@ class WmsAutoOrderJobControl extends WmsModel
         'process_name',
         'batch_code',
         'status',
+        'settlement_status',
+        'snapshot_job_id',
         'started_at',
         'finished_at',
         'target_scope',
@@ -45,6 +49,7 @@ class WmsAutoOrderJobControl extends WmsModel
         'result_data' => 'array',
         'status' => JobStatus::class,
         'process_name' => JobProcessName::class,
+        'settlement_status' => SettlementStatus::class,
     ];
 
     /**
@@ -57,13 +62,26 @@ class WmsAutoOrderJobControl extends WmsModel
 
     /**
      * ジョブを開始
+     *
+     * @param  JobProcessName  $processName  プロセス名
+     * @param  array|null  $scope  対象スコープ
+     * @param  string|null  $batchCode  バッチコード（指定がなければ自動生成）
+     * @param  SettlementStatus  $settlementStatus  確定状態（デフォルト: PENDING）
+     * @param  int|null  $snapshotJobId  参照する在庫スナップショットのjob_id
      */
-    public static function startJob(JobProcessName $processName, ?array $scope = null): self
-    {
+    public static function startJob(
+        JobProcessName $processName,
+        ?array $scope = null,
+        ?string $batchCode = null,
+        SettlementStatus $settlementStatus = SettlementStatus::PENDING,
+        ?int $snapshotJobId = null
+    ): self {
         return self::create([
             'process_name' => $processName,
-            'batch_code' => self::generateBatchCode(),
+            'batch_code' => $batchCode ?? self::generateBatchCode(),
             'status' => JobStatus::RUNNING,
+            'settlement_status' => $settlementStatus,
+            'snapshot_job_id' => $snapshotJobId,
             'started_at' => now(),
             'target_scope' => $scope,
         ]);
@@ -138,5 +156,51 @@ class WmsAutoOrderJobControl extends WmsModel
         }
 
         return (int) round(($this->processed_records / $this->total_records) * 100);
+    }
+
+    /**
+     * 参照した在庫スナップショットジョブ
+     */
+    public function snapshotJob(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'snapshot_job_id');
+    }
+
+    /**
+     * 確定待ち（PENDING）の最新ジョブを取得
+     */
+    public static function findPendingSettlement(): ?self
+    {
+        return self::where('settlement_status', SettlementStatus::PENDING)
+            ->whereIn('process_name', [JobProcessName::STOCK_SNAPSHOT, JobProcessName::ORDER_CALC])
+            ->orderBy('id', 'desc')
+            ->first();
+    }
+
+    /**
+     * 確定待ち（PENDING）のジョブが存在するかチェック
+     */
+    public static function hasPendingSettlement(): bool
+    {
+        return self::where('settlement_status', SettlementStatus::PENDING)
+            ->whereIn('process_name', [JobProcessName::STOCK_SNAPSHOT, JobProcessName::ORDER_CALC])
+            ->exists();
+    }
+
+    /**
+     * 確定待ち（PENDING）のジョブをキャンセル
+     */
+    public static function cancelPendingSettlements(): int
+    {
+        return self::where('settlement_status', SettlementStatus::PENDING)
+            ->update(['settlement_status' => SettlementStatus::CANCELLED]);
+    }
+
+    /**
+     * 確定状態を更新
+     */
+    public function markAsSettled(): void
+    {
+        $this->update(['settlement_status' => SettlementStatus::CONFIRMED]);
     }
 }

@@ -28,6 +28,7 @@ class WmsOrderDataFile extends WmsModel
         'order_count',
         'total_quantity',
         'status',
+        'is_test',
         'downloaded_at',
         'downloaded_by',
     ];

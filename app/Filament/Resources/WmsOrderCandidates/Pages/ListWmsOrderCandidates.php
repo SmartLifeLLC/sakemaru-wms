@@ -4,7 +4,9 @@ namespace App\Filament\Resources\WmsOrderCandidates\Pages;
 
 use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\EVolumeUnit;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
@@ -13,6 +15,7 @@ use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\ContractorLeadTimeService;
@@ -47,7 +50,7 @@ class ListWmsOrderCandidates extends ListRecords
         if ($result = session('order_generation_result')) {
             Notification::make()
                 ->title('発注候補を生成しました')
-                ->body("バッチコード: {$result['batchCode']} / {$result['calculated']}件")
+                ->body("実行CD: {$result['batchCode']} / {$result['calculated']}件")
                 ->success()
                 ->send();
         }
@@ -431,9 +434,23 @@ class ListWmsOrderCandidates extends ListRecords
                         return;
                     }
 
-                    // 最新のバッチコードを取得（なければ新規生成）
-                    $batchCode = WmsOrderCandidate::orderBy('batch_code', 'desc')->value('batch_code')
-                        ?? now()->format('YmdHis');
+                    // 確定待ち（PENDING）のジョブを検索し、あればそのbatch_codeを使用
+                    // なければ在庫スナップショットジョブを新規作成
+                    $pendingJob = WmsAutoOrderJobControl::findPendingSettlement();
+                    if ($pendingJob) {
+                        $batchCode = $pendingJob->batch_code;
+                    } else {
+                        // 新規ジョブを作成（在庫スナップショットを記録）
+                        $snapshotJob = WmsAutoOrderJobControl::startJob(
+                            processName: JobProcessName::STOCK_SNAPSHOT,
+                            scope: null,
+                            batchCode: null,
+                            settlementStatus: SettlementStatus::PENDING
+                        );
+                        // スナップショットは取らず、ジョブ管理のみ作成（手動追加時は現在庫を参照しないため）
+                        $snapshotJob->markAsSuccess(0);
+                        $batchCode = $snapshotJob->batch_code;
+                    }
 
                     // 同じ倉庫・商品の組み合わせが発注候補に既に存在するかチェック
                     $existsCandidate = WmsOrderCandidate::where('warehouse_id', $data['warehouse_id'])
@@ -633,41 +650,27 @@ class ListWmsOrderCandidates extends ListRecords
                 ->pluck('warehouse_id')
                 ->toArray();
         });
-        $warehouses = Warehouse::whereIn('id', $warehouseIds)->orderBy('name')->get();
+        $warehouses = Warehouse::whereIn('id', $warehouseIds)->orderBy('code')->get();
 
         // デフォルト倉庫が発注候補に存在するかチェック
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
-        $defaultWarehouse = $hasDefaultWarehouse ? Warehouse::find($userDefaultWarehouseId) : null;
 
-        // デフォルトタブ：デフォルト倉庫があればその倉庫名とフィルタ、なければ「全て」
-        if ($defaultWarehouse) {
-            $views = [
-                'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
-                    ->favorite()
-                    ->label($defaultWarehouse->name)
-                    ->default(),
-            ];
-        } else {
-            $views = [
-                'all' => PresetView::make()
-                    ->favorite()
-                    ->label('全て')
-                    ->default(),
-            ];
-        }
+        // プリセットビュー構築（データがなくても「全て」タブは常に表示）
+        $views = [
+            'default' => PresetView::make()
+                ->favorite()
+                ->label('全て')
+                ->default(! $hasDefaultWarehouse || empty($warehouses)),
+        ];
 
-        // 他の倉庫タブ（デフォルト倉庫は除外）
+        // 倉庫タブを追加
         foreach ($warehouses as $warehouse) {
-            // デフォルト倉庫は既にdefaultタブで表示しているのでスキップ
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
-                continue;
-            }
-
-            $views["warehouse_{$warehouse->id}"] = PresetView::make()
+            $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
+            $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
-                ->label($warehouse->name);
+                ->label($warehouse->name)
+                ->default($isDefault);
         }
 
         return $views;

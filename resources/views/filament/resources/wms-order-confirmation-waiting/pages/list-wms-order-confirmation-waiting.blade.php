@@ -203,11 +203,19 @@
         </div>
     @endif
 
-    <div wire:key="confirmation-table-{{ $this->confirmationTab }}-{{ $this->activePresetView }}">
-        <div class="mb-6 -mt-6">
-            <x-advanced-tables::favorites-bar />
-        </div>
+    {{-- 処理中はプログレスバーのみ表示（テーブルを非表示） --}}
+    @if(!$this->activeJobId && !$this->activeTestJobId)
+        <div wire:key="confirmation-table-{{ $this->confirmationTab }}-{{ $this->activePresetView }}">
+            <div class="mb-6 -mt-6">
+                <x-advanced-tables::favorites-bar />
+            </div>
 
-        {{ $this->table }}
-    </div>
+            {{ $this->table }}
+        </div>
+    @else
+        <div class="p-8 text-center text-gray-500 dark:text-gray-400">
+            <p class="text-lg">処理が完了するまでお待ちください...</p>
+            <p class="text-sm mt-2">このページは処理完了後に自動的に更新されます。</p>
+        </div>
+    @endif
 </x-filament-panels::page>

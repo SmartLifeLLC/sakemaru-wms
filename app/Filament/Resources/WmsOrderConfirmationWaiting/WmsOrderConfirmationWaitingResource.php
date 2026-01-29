@@ -33,12 +33,12 @@ class WmsOrderConfirmationWaitingResource extends Resource
 
     public static function getModelLabel(): string
     {
-        return '発注確定待ち';
+        return '発注・移動確定待ち';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '発注確定待ち';
+        return '発注・移動確定待ち';
     }
 
     public static function getNavigationSort(): ?int

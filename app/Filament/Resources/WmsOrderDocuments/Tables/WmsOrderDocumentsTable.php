@@ -23,10 +23,7 @@ class WmsOrderDocumentsTable
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
                 TextColumn::make('batch_code')
-                    ->label('バッチコード')
-                    ->state(function ($record) {
-                        return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
-                    })
+                    ->label('実行CD')
                     ->sortable()
                     ->searchable(),
 

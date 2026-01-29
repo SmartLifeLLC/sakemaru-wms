@@ -99,11 +99,11 @@ class OrderDataFileService
         $csvContent = $this->buildCsvContent($candidates);
 
         // S3に保存
+        // ファイル名: {実行CD}_{倉庫コード}_{発注先コード}.csv
         $date = now()->format('Y-m-d');
-        $timestamp = now()->format('YmdHis');
         $warehouseCode = $warehouse?->code ?? $warehouseId;
         $contractorCode = $contractor?->code ?? $contractorId;
-        $filename = "order_{$warehouseCode}_{$contractorCode}_{$timestamp}.csv";
+        $filename = "{$batchCode}_{$warehouseCode}_{$contractorCode}.csv";
         $filePath = "order-data-files/{$date}/{$filename}";
 
         Storage::disk('s3')->put($filePath, $csvContent);

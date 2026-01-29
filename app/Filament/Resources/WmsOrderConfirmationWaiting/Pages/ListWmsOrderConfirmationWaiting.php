@@ -66,7 +66,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             if ($cleanupResult) {
                 // タイムアウトによりキャンセルされた
                 Notification::make()
-                    ->title('移動・発注確定処理がタイムアウトしました')
+                    ->title('発注・移動確定処理がタイムアウトしました')
                     ->body('15分以上経過したため処理をキャンセルしました。生成されたファイルは削除されました。')
                     ->danger()
                     ->persistent()
@@ -156,11 +156,11 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                 }),
 
             Action::make('confirmAll')
-                ->label("移動・発注確定 (移動:{$transferApprovedCount}件 / 発注:{$orderApprovedCount}件)")
+                ->label("発注・移動確定 (移動:{$transferApprovedCount}件 / 発注:{$orderApprovedCount}件)")
                 ->icon('heroicon-o-check-circle')
                 ->color('success')
                 ->requiresConfirmation()
-                ->modalHeading('移動・発注確定')
+                ->modalHeading('発注・移動確定')
                 ->modalDescription(function () use ($orderApprovedCount, $orderPendingCount, $transferApprovedCount, $transferPendingCount, $totalPendingCount) {
                     // 未承認がある場合はエラーメッセージ
                     if ($totalPendingCount > 0) {
@@ -222,7 +222,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                     $this->activeJobId = $progress->job_id;
 
                     Notification::make()
-                        ->title('移動・発注確定処理を開始しました')
+                        ->title('発注・移動確定処理を開始しました')
                         ->body('処理はバックグラウンドで実行されます。進捗は画面上部で確認できます。')
                         ->success()
                         ->send();
@@ -258,7 +258,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                 $this->activeJobId = null;
 
                 Notification::make()
-                    ->title('移動・発注確定が完了しました')
+                    ->title('発注・移動確定が完了しました')
                     ->body($progress->message)
                     ->success()
                     ->send();
@@ -266,7 +266,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                 $this->activeJobId = null;
 
                 Notification::make()
-                    ->title('移動・発注確定が失敗しました')
+                    ->title('発注・移動確定が失敗しました')
                     ->body($progress->message)
                     ->danger()
                     ->send();

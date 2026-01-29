@@ -111,7 +111,7 @@
                         <div class="flex items-center gap-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
                             <span class="w-8 h-8 rounded-full bg-orange-500 text-white flex items-center justify-center font-bold">4</span>
                             <div>
-                                <div class="font-semibold text-sm">移動・発注確定</div>
+                                <div class="font-semibold text-sm">発注・移動確定</div>
                                 <div class="text-xs text-gray-600 dark:text-gray-400">承認した候補を一括確定</div>
                             </div>
                         </div>
@@ -205,7 +205,7 @@
                     <a href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}" class="block p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors border border-orange-200 dark:border-orange-800">
                         <div class="flex items-center gap-3 mb-2">
                             <x-heroicon-o-check-circle class="w-6 h-6 text-orange-500" />
-                            <span class="font-semibold">移動・発注確定待ち</span>
+                            <span class="font-semibold">発注・移動確定待ち</span>
                         </div>
                         <p class="text-xs text-gray-600 dark:text-gray-400">承認済み候補を一括確定する画面</p>
                     </a>
@@ -361,12 +361,12 @@
                     </div>
                 </x-filament::section>
 
-                {{-- 移動・発注確定 --}}
+                {{-- 発注・移動確定 --}}
                 <x-filament::section>
                     <x-slot name="heading">
                         <div class="flex items-center gap-2">
                             <span class="w-6 h-6 rounded-full bg-orange-500 text-white text-xs flex items-center justify-center font-bold">4</span>
-                            移動・発注確定
+                            発注・移動確定
                         </div>
                     </x-slot>
                     <div class="space-y-4">
@@ -377,7 +377,7 @@
                             </div>
                             <p class="text-sm">
                                 <a href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}" class="text-orange-600 dark:text-orange-400 hover:underline font-semibold">
-                                    発注 → 移動・発注確定待ち
+                                    発注 → 発注・移動確定待ち
                                 </a>
                             </p>
                         </div>
@@ -389,7 +389,7 @@
                             <ol class="text-sm text-gray-700 dark:text-gray-300 space-y-2">
                                 <li class="flex items-start gap-2">
                                     <span class="w-5 h-5 rounded-full bg-orange-200 dark:bg-orange-800 text-orange-800 dark:text-orange-200 text-xs flex items-center justify-center flex-shrink-0">1</span>
-                                    <span>画面上部の<strong>「移動・発注確定」</strong>ボタンをクリック</span>
+                                    <span>画面上部の<strong>「発注・移動確定」</strong>ボタンをクリック</span>
                                 </li>
                                 <li class="flex items-start gap-2">
                                     <span class="w-5 h-5 rounded-full bg-orange-200 dark:bg-orange-800 text-orange-800 dark:text-orange-200 text-xs flex items-center justify-center flex-shrink-0">2</span>

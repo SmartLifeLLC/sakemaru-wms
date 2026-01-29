@@ -525,7 +525,7 @@ class OrderTransmissionService
             ->where('status', TransmissionDocumentStatus::TEST)
             ->delete();
         WmsOrderDataFile::where('batch_code', $batchCode)
-            ->where('file_path', 'like', 'jx-orders-test/%')
+            ->where('is_test', true)
             ->delete();
         Log::info('[generateTestOrderFiles] 既存ドキュメント削除完了', [
             'batch_code' => $batchCode,
@@ -593,7 +593,7 @@ class OrderTransmissionService
         // 既存のTESTドキュメントとデータファイルを全削除
         $deleteStart = microtime(true);
         WmsOrderJxDocument::where('status', TransmissionDocumentStatus::TEST)->delete();
-        WmsOrderDataFile::where('file_path', 'like', 'jx-orders-test/%')->delete();
+        WmsOrderDataFile::where('is_test', true)->delete();
         Log::info('[generateTestOrderFilesWithProgress] 既存ドキュメント削除完了', [
             'elapsed_ms' => round((microtime(true) - $deleteStart) * 1000),
         ]);
@@ -877,24 +877,27 @@ class OrderTransmissionService
         fclose($stream);
 
         // S3に保存
+        // ファイル名: {実行CD}_{倉庫コード}_{発注先コード}.csv (テストは test_ プレフィックス)
         $folder = $status === TransmissionDocumentStatus::TEST ? 'jx-orders-test' : 'jx-orders';
         $date = now()->format('Y-m-d');
-        $timestamp = now()->format('YmdHis');
         $contractorCode = $file['contractor_code'] ?? $file['contractor_id'];
-        $csvFilename = "{$contractorCode}_order_{$timestamp}.csv";
+        $warehouseCode = $candidates->first()?->warehouse?->code ?? 'UNKNOWN';
+        $isTest = $status === TransmissionDocumentStatus::TEST;
+        $prefix = $isTest ? 'test_' : '';
+        $csvFilename = "{$prefix}{$batchCode}_{$warehouseCode}_{$contractorCode}.csv";
         $csvPath = "{$folder}/{$date}/{$csvFilename}";
 
         Storage::disk('s3')->put($csvPath, $csvContent);
 
-        // wms_order_data_filesにも記録（重複時は更新）
+        // wms_order_data_filesにも記録（テストファイルは毎回新規作成、本番は更新）
         $firstCandidate = $candidates->first();
-        WmsOrderDataFile::updateOrCreate(
-            [
+
+        if ($isTest) {
+            // テストファイルは毎回新規作成（同じものを何回でも生成可能）
+            WmsOrderDataFile::create([
                 'batch_code' => $batchCode,
                 'warehouse_id' => $firstCandidate?->warehouse_id,
                 'contractor_id' => $file['contractor_id'],
-            ],
-            [
                 'order_date' => now()->toDateString(),
                 'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
                 'file_path' => $csvPath,
@@ -902,10 +905,30 @@ class OrderTransmissionService
                 'order_count' => $candidates->count(),
                 'total_quantity' => $candidates->sum('order_quantity'),
                 'status' => OrderDataFileStatus::GENERATED,
-                'downloaded_at' => null,
-                'downloaded_by' => null,
-            ]
-        );
+                'is_test' => true,
+            ]);
+        } else {
+            // 本番ファイルは重複時は更新
+            WmsOrderDataFile::updateOrCreate(
+                [
+                    'batch_code' => $batchCode,
+                    'warehouse_id' => $firstCandidate?->warehouse_id,
+                    'contractor_id' => $file['contractor_id'],
+                ],
+                [
+                    'order_date' => now()->toDateString(),
+                    'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
+                    'file_path' => $csvPath,
+                    'file_size' => strlen($csvContent),
+                    'order_count' => $candidates->count(),
+                    'total_quantity' => $candidates->sum('order_quantity'),
+                    'status' => OrderDataFileStatus::GENERATED,
+                    'is_test' => false,
+                    'downloaded_at' => null,
+                    'downloaded_by' => null,
+                ]
+            );
+        }
 
         return $csvPath;
     }

@@ -4,11 +4,14 @@ namespace App\Filament\Resources\WmsStockTransferCandidates\Pages;
 
 use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\SettlementStatus;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsStockTransferCandidates\WmsStockTransferCandidateResource;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -178,9 +181,23 @@ class ListWmsStockTransferCandidates extends ListRecords
                         return;
                     }
 
-                    // 最新のバッチコードを取得（なければ新規生成）
-                    $batchCode = WmsStockTransferCandidate::orderBy('batch_code', 'desc')->value('batch_code')
-                        ?? now()->format('YmdHis');
+                    // 確定待ち（PENDING）のジョブを検索し、あればそのbatch_codeを使用
+                    // なければ在庫スナップショットジョブを新規作成
+                    $pendingJob = WmsAutoOrderJobControl::findPendingSettlement();
+                    if ($pendingJob) {
+                        $batchCode = $pendingJob->batch_code;
+                    } else {
+                        // 新規ジョブを作成（在庫スナップショットを記録）
+                        $snapshotJob = WmsAutoOrderJobControl::startJob(
+                            processName: JobProcessName::STOCK_SNAPSHOT,
+                            scope: null,
+                            batchCode: null,
+                            settlementStatus: SettlementStatus::PENDING
+                        );
+                        // スナップショットは取らず、ジョブ管理のみ作成（手動追加時は現在庫を参照しないため）
+                        $snapshotJob->markAsSuccess(0);
+                        $batchCode = $snapshotJob->batch_code;
+                    }
 
                     // 同じ倉庫・商品の組み合わせが既に存在するかチェック
                     $exists = WmsStockTransferCandidate::where('satellite_warehouse_id', $data['satellite_warehouse_id'])

@@ -68,20 +68,24 @@ TextColumn::make('order_date')
 | 年付き日付 | `Y/m/d` | 2025/12/27 |
 | 年付き日時 | `Y/m/d H:i` | 2025/12/27 23:05 |
 
-### バッチコードの表示
+### 実行CDの表示
 
-バッチコードはそのまま表示する（日付形式に変換しない）。
+実行CD（batch_code）はそのまま表示する（日付形式に変換しない）。
+ラベルは「実行CD」で統一。
 
 ```php
 // ✅ 正しい: そのまま表示
 TextColumn::make('batch_code')
-    ->label('バッチコード')
+    ->label('実行CD')
     ->sortable()
     ->searchable(),
 
 // ❌ 使用しない: 日付形式に変換
 TextColumn::make('batch_code')
     ->state(fn ($record) => Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i'))
+
+// ❌ 使用しない: 古いラベル
+->label('バッチコード')
 ```
 
 ## 4. 商品名の表示

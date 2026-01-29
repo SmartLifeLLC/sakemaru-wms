@@ -97,9 +97,9 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
                 'message' => '発注候補を計算中...',
             ]);
 
-            // Step 4: 発注候補計算
+            // Step 4: 発注候補計算（スナップショットのjob_idを渡す）
             $calculationService = app(OrderCandidateCalculationService::class);
-            $calcJob = $calculationService->calculate();
+            $calcJob = $calculationService->calculate($snapshotJob->id);
 
             $results['batchCode'] = $calcJob->batch_code;
             $results['calculated'] = $calcJob->processed_records;

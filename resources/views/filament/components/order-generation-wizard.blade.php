@@ -243,7 +243,7 @@
                 <div class="flex-1">
                     <h3 class="text-lg font-medium text-success-800 dark:text-success-200">発注・移動候補の生成が完了しました</h3>
                     <p class="mt-1 text-sm text-success-700 dark:text-success-300">
-                        バッチコード: <span class="font-mono font-bold">{{ $results['batchCode'] ?? '-' }}</span>
+                        実行CD: <span class="font-mono font-bold">{{ $results['batchCode'] ?? '-' }}</span>
                     </p>
                 </div>
             </div>

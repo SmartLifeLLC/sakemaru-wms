@@ -412,6 +412,138 @@ use Filament\Schemas\Components\Section; // ✅
 
 ---
 
+## プリセットビュー（倉庫タブ）の実装
+
+### 概要
+
+AdvancedTablesプラグインの`getPresetViews()`を使用して、倉庫別のタブフィルタリングを実装できます。
+ただし、`getPresetViews()`は1リクエスト内で**複数回呼び出される**ため、キャッシュが必須です。
+
+### キャッシュなしの問題
+
+```
+// クエリログ例（キャッシュなし）
+select distinct `warehouse_id` from `wms_order_data_files` where `is_test` = 0  // 1回目
+select * from `warehouses` where `id` in (1, 2, 3...) order by `code` asc        // 1回目
+select distinct `warehouse_id` from `wms_order_data_files` where `is_test` = 0  // 2回目（重複）
+select * from `warehouses` where `id` in (1, 2, 3...) order by `code` asc        // 2回目（重複）
+... 10回以上繰り返される場合あり
+```
+
+### 方法1: インメモリキャッシュ（推奨：シンプルなケース）
+
+```php
+class ListWmsOrderDataFiles extends ListRecords
+{
+    // リクエスト内キャッシュ用プロパティ
+    protected ?Collection $cachedWarehouses = null;
+
+    public function getPresetViews(): array
+    {
+        $warehouses = $this->getWarehousesForPresetViews();
+        // ... プリセットビュー構築
+    }
+
+    protected function getWarehousesForPresetViews(): Collection
+    {
+        if ($this->cachedWarehouses !== null) {
+            return $this->cachedWarehouses;
+        }
+
+        $warehouseIds = WmsOrderDataFile::where('is_test', $this->isTestTab)
+            ->distinct()
+            ->pluck('warehouse_id')
+            ->toArray();
+
+        $this->cachedWarehouses = Warehouse::whereIn('id', $warehouseIds)
+            ->orderBy('code')
+            ->get();
+
+        return $this->cachedWarehouses;
+    }
+}
+```
+
+**特徴:**
+- リクエスト内でのみキャッシュ
+- 外部キャッシュの無効化が不要
+- シンプルで理解しやすい
+
+### 方法2: Laravelキャッシュ（複数リクエストで共有）
+
+```php
+public function getPresetViews(): array
+{
+    $cacheKey = 'order_warehouses_' . auth()->id();
+
+    $warehouseData = cache()->remember($cacheKey, 30, function () {
+        $warehouseIds = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
+            ->distinct()
+            ->pluck('warehouse_id')
+            ->toArray();
+
+        $warehouses = Warehouse::whereIn('id', $warehouseIds)
+            ->orderBy('code')
+            ->get(['id', 'name']);
+
+        return [
+            'ids' => $warehouseIds,
+            'warehouses' => $warehouses,
+        ];
+    });
+
+    // ... プリセットビュー構築
+}
+
+// タブ切り替え時にキャッシュをクリア
+public function setTab(string $tab): void
+{
+    cache()->forget('order_warehouses_' . auth()->id());
+    // ...
+}
+```
+
+**特徴:**
+- リクエスト間でキャッシュ共有
+- TTL（例: 30秒）で自動無効化
+- データ変更時は明示的なキャッシュクリアが必要
+
+### フィルタ内でのLivewireコンポーネント参照
+
+テーブルクラスのフィルタからページの状態を参照する場合:
+
+```php
+// Tables/WmsOrderDataFilesTable.php
+SelectFilter::make('batch_code')
+    ->label('実行CD')
+    ->options(function ($livewire): array {
+        // $livewire でページコンポーネントを参照
+        $isTest = $livewire instanceof ListWmsOrderDataFiles
+            && $livewire->fileTypeTab === 'test';
+
+        return WmsOrderDataFile::query()
+            ->where('is_test', $isTest)
+            ->select('batch_code')
+            ->distinct()
+            ->orderByDesc('batch_code')
+            ->limit(50)
+            ->pluck('batch_code', 'batch_code')
+            ->toArray();
+    })
+    ->default(function ($livewire): ?string {
+        $isTest = $livewire instanceof ListWmsOrderDataFiles
+            && $livewire->fileTypeTab === 'test';
+
+        return WmsOrderDataFile::query()
+            ->where('is_test', $isTest)
+            ->orderByDesc('batch_code')
+            ->value('batch_code');
+    })
+    ->searchable(),
+```
+
+---
+
 ## 参考リンク
 
 - [Filament 4 公式ドキュメント](https://filamentphp.com/docs/4.x)
@@ -437,3 +569,7 @@ use Filament\Schemas\Components\Section; // ✅
   - `Placeholder::make()` から `TextEntry::make()` への変更
   - `->content()` から `->state()` への変更
   - スタイリング方法の更新 (`extraAttributes` → `->weight()`)
+- 2026-01-29: プリセットビュー（倉庫タブ）のキャッシュに関する注意事項を追加
+  - `getPresetViews()`の重複クエリ問題と解決方法
+  - インメモリキャッシュとLaravelキャッシュの使い分け
+  - フィルタ内でのLivewireコンポーネント参照方法

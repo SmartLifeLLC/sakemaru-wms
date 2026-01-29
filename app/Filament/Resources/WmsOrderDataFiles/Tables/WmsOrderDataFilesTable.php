@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderDataFiles\Tables;
 
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\PaginationOptions;
+use App\Filament\Resources\WmsOrderDataFiles\Pages\ListWmsOrderDataFiles;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderDataFile;
@@ -25,7 +26,7 @@ class WmsOrderDataFilesTable
             ->extraAttributes(['class' => 'order-data-files-table sticky-actions'])
             ->columns([
                 TextColumn::make('batch_code')
-                    ->label('バッチコード')
+                    ->label('実行CD')
                     ->sortable()
                     ->searchable(),
 
@@ -104,6 +105,32 @@ class WmsOrderDataFilesTable
                     ->sortable(),
             ])
             ->filters([
+                SelectFilter::make('batch_code')
+                    ->label('実行CD')
+                    ->options(function ($livewire): array {
+                        $isTest = $livewire instanceof ListWmsOrderDataFiles
+                            && $livewire->fileTypeTab === 'test';
+
+                        return WmsOrderDataFile::query()
+                            ->where('is_test', $isTest)
+                            ->select('batch_code')
+                            ->distinct()
+                            ->orderByDesc('batch_code')
+                            ->limit(50)
+                            ->pluck('batch_code', 'batch_code')
+                            ->toArray();
+                    })
+                    ->default(function ($livewire): ?string {
+                        $isTest = $livewire instanceof ListWmsOrderDataFiles
+                            && $livewire->fileTypeTab === 'test';
+
+                        return WmsOrderDataFile::query()
+                            ->where('is_test', $isTest)
+                            ->orderByDesc('batch_code')
+                            ->value('batch_code');
+                    })
+                    ->searchable(),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(fn () => collect(OrderDataFileStatus::cases())
