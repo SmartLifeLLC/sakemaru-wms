@@ -54,6 +54,7 @@ class WmsOrderIncomingScheduleResource extends Resource
                 'item',
                 'contractor',
                 'supplier',
+                'orderCandidate',
             ]);
     }
 

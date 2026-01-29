@@ -7,7 +7,10 @@ use App\Enums\AutoOrder\OrderSource;
 use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\ItemDefaultLocation;
+use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsOrderCalculationLog;
+use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingConfirmationService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -16,6 +19,9 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -165,7 +171,7 @@ class WmsOrderIncomingSchedulesTable
                     ->width('90px'),
 
                 TextColumn::make('default_location')
-                    ->label('デフォルトLOC')
+                    ->label('ロケーション')
                     ->state(function ($record) {
                         if (! $record->warehouse_id || ! $record->item_id) {
                             return null;
@@ -183,6 +189,36 @@ class WmsOrderIncomingSchedulesTable
                     ->placeholder('-')
                     ->alignCenter()
                     ->width('100px'),
+
+                TextColumn::make('current_stock')
+                    ->label('現在庫')
+                    ->state(function ($record) {
+                        if (! $record->warehouse_id || ! $record->item_id) {
+                            return null;
+                        }
+
+                        return RealStock::where('warehouse_id', $record->warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->sum('current_quantity');
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('70px'),
+
+                TextColumn::make('available_stock')
+                    ->label('有効在庫')
+                    ->state(function ($record) {
+                        if (! $record->warehouse_id || ! $record->item_id) {
+                            return null;
+                        }
+
+                        return RealStock::where('warehouse_id', $record->warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->sum('available_quantity');
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('70px'),
 
                 TextColumn::make('order_candidate_id')
                     ->label('発注候補ID')
@@ -392,45 +428,110 @@ class WmsOrderIncomingSchedulesTable
                     ->icon('heroicon-o-eye')
                     ->color('gray')
                     ->modalHeading('入庫予定詳細')
-                    ->modalWidth('lg')
-                    ->schema(function ($record) {
-                        return [
-                            \Filament\Schemas\Components\Section::make('基本情報')
-                                ->schema([
-                                    \Filament\Infolists\Components\TextEntry::make('warehouse')
-                                        ->label('倉庫')
-                                        ->state(fn () => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-'),
-                                    \Filament\Infolists\Components\TextEntry::make('item')
-                                        ->label('商品')
-                                        ->state(fn () => $record->item ? "[{$record->item->code}]{$record->item->name}" : '-'),
-                                    \Filament\Infolists\Components\TextEntry::make('contractor')
-                                        ->label('発注先')
-                                        ->state(fn () => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-'),
-                                    \Filament\Infolists\Components\TextEntry::make('default_location')
-                                        ->label('デフォルトロケーション')
-                                        ->state(function () use ($record) {
-                                            if (! $record->warehouse_id || ! $record->item_id) {
-                                                return '-';
-                                            }
-                                            $location = ItemDefaultLocation::getDefaultLocation(
-                                                $record->warehouse_id,
-                                                $record->item_id
-                                            );
+                    ->modalWidth('6xl')
+                    ->infolist(function (?WmsOrderIncomingSchedule $record): array {
+                        if (! $record) {
+                            return [];
+                        }
 
-                                            return $location ? "{$location->code1}-{$location->code2}-{$location->code3}" : '-';
-                                        }),
-                                ]),
-                            \Filament\Schemas\Components\Section::make('数量')
+                        // 発注候補からの計算ログを取得
+                        $orderCandidate = $record->orderCandidate;
+                        $log = null;
+                        $details = [];
+
+                        if ($orderCandidate) {
+                            $log = WmsOrderCalculationLog::where('batch_code', $orderCandidate->batch_code)
+                                ->where('warehouse_id', $orderCandidate->warehouse_id)
+                                ->where('item_id', $orderCandidate->item_id)
+                                ->first();
+                            $details = $log?->calculation_details ?? [];
+                        }
+
+                        // 商品情報
+                        $item = $record->item;
+                        $capacityText = '-';
+                        if ($item) {
+                            $parts = [];
+                            if ($item->capacity_case) {
+                                $parts[] = "ケース: {$item->capacity_case}";
+                            }
+                            if ($item->capacity_carton) {
+                                $parts[] = "ボール: {$item->capacity_carton}";
+                            }
+                            $capacityText = implode(' / ', $parts) ?: '-';
+                        }
+
+                        // 現在の在庫情報を取得
+                        $currentStock = 0;
+                        $availableStock = 0;
+                        if ($record->warehouse_id && $record->item_id) {
+                            $stockData = RealStock::where('warehouse_id', $record->warehouse_id)
+                                ->where('item_id', $record->item_id)
+                                ->selectRaw('SUM(current_quantity) as current_qty, SUM(available_quantity) as available_qty')
+                                ->first();
+                            $currentStock = $stockData->current_qty ?? 0;
+                            $availableStock = $stockData->available_qty ?? 0;
+                        }
+
+                        // ロケーション情報
+                        $location = ItemDefaultLocation::getDefaultLocation(
+                            $record->warehouse_id,
+                            $record->item_id
+                        );
+                        $locationText = $location ? "{$location->code1}-{$location->code2}-{$location->code3}" : '-';
+
+                        return [
+                            Grid::make(3)
                                 ->schema([
-                                    \Filament\Infolists\Components\TextEntry::make('expected_quantity')
-                                        ->label('予定数量')
-                                        ->state(fn () => $record->expected_quantity),
-                                    \Filament\Infolists\Components\TextEntry::make('received_quantity')
-                                        ->label('入庫済数量')
-                                        ->state(fn () => $record->received_quantity),
-                                    \Filament\Infolists\Components\TextEntry::make('remaining')
-                                        ->label('残数量')
-                                        ->state(fn () => $record->remaining_quantity),
+                                    // 左パネル（基本情報）
+                                    View::make('filament.components.incoming-schedule-left-panel')
+                                        ->viewData([
+                                            'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
+                                            'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+                                            'orderSource' => match ($record->order_source) {
+                                                OrderSource::AUTO => '発注',
+                                                OrderSource::MANUAL => '手動',
+                                                OrderSource::TRANSFER => '移動',
+                                                default => '-',
+                                            },
+                                            'orderDate' => $record->order_date?->format('Y/m/d') ?? '-',
+                                            'expectedArrivalDate' => $record->expected_arrival_date?->format('Y/m/d') ?? '-',
+                                            'locationText' => $locationText,
+                                            'itemCode' => $item?->code ?? '-',
+                                            'itemName' => $item?->name ?? '-',
+                                            'packaging' => $item?->packaging ?? '-',
+                                            'capacityText' => $capacityText,
+                                        ])
+                                        ->columnSpan(1),
+
+                                    // 右パネル（数量・在庫情報）
+                                    Section::make('入庫・在庫情報')
+                                        ->schema([
+                                            View::make('filament.components.incoming-schedule-right-panel')
+                                                ->viewData([
+                                                    'expectedQuantity' => $record->expected_quantity ?? 0,
+                                                    'receivedQuantity' => $record->received_quantity ?? 0,
+                                                    'remainingQuantity' => $record->remaining_quantity ?? 0,
+                                                    'status' => $record->status->label(),
+                                                    'statusColor' => $record->status->color(),
+                                                    'currentStock' => $currentStock,
+                                                    'availableStock' => $availableStock,
+                                                    'hasOrderCandidate' => $orderCandidate !== null,
+                                                    'orderCandidateId' => $orderCandidate?->id,
+                                                    'batchCode' => $orderCandidate?->batch_code,
+                                                    'batchCodeFormatted' => $orderCandidate?->batch_code
+                                                        ? \Carbon\Carbon::createFromFormat('YmdHis', $orderCandidate->batch_code)->format('Y/m/d H:i')
+                                                        : null,
+                                                    'hasCalculationLog' => ! empty($details),
+                                                    'formula' => $details['計算式'] ?? '-',
+                                                    'effectiveStock' => $details['有効在庫'] ?? 0,
+                                                    'incomingStock' => $details['入庫予定数'] ?? 0,
+                                                    'safetyStock' => $details['安全在庫'] ?? 0,
+                                                    'shortageQty' => $details['不足数'] ?? 0,
+                                                    'orderQuantity' => $orderCandidate?->order_quantity ?? $record->expected_quantity,
+                                                ]),
+                                        ])
+                                        ->columnSpan(2),
                                 ]),
                         ];
                     })
