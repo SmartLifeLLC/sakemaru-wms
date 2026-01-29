@@ -109,6 +109,36 @@ class WmsOrderIncomingSchedulesTable
                     ->sortable()
                     ->grow(),
 
+                TextColumn::make('current_stock')
+                    ->label('現在庫')
+                    ->state(function ($record) {
+                        if (! $record->warehouse_id || ! $record->item_id) {
+                            return null;
+                        }
+
+                        return RealStock::where('warehouse_id', $record->warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->sum('current_quantity');
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('70px'),
+
+                TextColumn::make('available_stock')
+                    ->label('有効在庫')
+                    ->state(function ($record) {
+                        if (! $record->warehouse_id || ! $record->item_id) {
+                            return null;
+                        }
+
+                        return RealStock::where('warehouse_id', $record->warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->sum('available_quantity');
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('70px'),
+
                 TextColumn::make('expected_quantity')
                     ->label('予定数')
                     ->numeric()
@@ -189,36 +219,6 @@ class WmsOrderIncomingSchedulesTable
                     ->placeholder('-')
                     ->alignCenter()
                     ->width('100px'),
-
-                TextColumn::make('current_stock')
-                    ->label('現在庫')
-                    ->state(function ($record) {
-                        if (! $record->warehouse_id || ! $record->item_id) {
-                            return null;
-                        }
-
-                        return RealStock::where('warehouse_id', $record->warehouse_id)
-                            ->where('item_id', $record->item_id)
-                            ->sum('current_quantity');
-                    })
-                    ->numeric()
-                    ->alignEnd()
-                    ->width('70px'),
-
-                TextColumn::make('available_stock')
-                    ->label('有効在庫')
-                    ->state(function ($record) {
-                        if (! $record->warehouse_id || ! $record->item_id) {
-                            return null;
-                        }
-
-                        return RealStock::where('warehouse_id', $record->warehouse_id)
-                            ->where('item_id', $record->item_id)
-                            ->sum('available_quantity');
-                    })
-                    ->numeric()
-                    ->alignEnd()
-                    ->width('70px'),
 
                 TextColumn::make('order_candidate_id')
                     ->label('発注候補ID')
