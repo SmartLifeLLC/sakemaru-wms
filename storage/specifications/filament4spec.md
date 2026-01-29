@@ -18,6 +18,9 @@
 9. [モーダルコンポーネント](#モーダルコンポーネント)
 10. [ログイン画面](#ログイン画面)
 
+### インフラストラクチャ
+11. [クロスアプリケーション セッション共有](#クロスアプリケーション-セッション共有)
+
 ---
 
 ## テーブルクエリのカスタマイズ
@@ -1455,3 +1458,139 @@ Action::make('edit')
 
 - UI全般: Heroicons（`heroicon-o-*`）
 - メガメニュー: Font Awesome 6（`fa-solid fa-*`）
+
+---
+
+## クロスアプリケーション セッション共有
+
+複数のLaravel/Filamentアプリケーション間でセッションを共有し、シングルサインオン（SSO）的な動作を実現するための設定。
+
+### 前提条件
+
+- 全アプリケーションが同じデータベースの`sessions`テーブルを使用
+- 全アプリケーションが同じドメイン配下（例: `*.sakemaru.test`）
+- 全アプリケーションが同じ`users`テーブルを参照
+
+### 必要な設定
+
+#### 1. .env 設定（全アプリ共通）
+
+```env
+# セッション設定
+SESSION_DRIVER=database
+SESSION_DOMAIN=.sakemaru.test          # 先頭にドットでサブドメイン共有
+SESSION_COOKIE=sakemaru_session        # 全アプリで同じCookie名
+SESSION_LIFETIME=3600
+SESSION_ENCRYPT=false
+SESSION_SECURE_COOKIE=true
+SESSION_PATH=/
+SESSION_CONNECTION=sakemaru            # セッションを保存するDB接続名
+```
+
+#### 2. config/session.php
+
+```php
+'connection' => env('SESSION_CONNECTION', 'sakemaru'),
+```
+
+#### 3. User モデルのクラスパス統一
+
+異なるアプリケーションで異なるUserモデルパスを使用している場合、相互にエイリアスクラスを作成する必要がある。
+
+**例: WMSが `App\Models\Sakemaru\User` を使用、Tradeが `App\Models\User` を使用する場合**
+
+Trade側に作成:
+```php
+// app/Models/Sakemaru/User.php
+namespace App\Models\Sakemaru;
+
+use App\Models\User as BaseUser;
+
+class User extends BaseUser
+{
+    // WMSセッション互換性のためのエイリアス
+}
+```
+
+WMS側に作成:
+```php
+// app/Models/User.php
+namespace App\Models;
+
+use App\Models\Sakemaru\User as SakemaruUser;
+
+class User extends SakemaruUser
+{
+    // Tradeセッション互換性のためのエイリアス
+}
+```
+
+#### 4. auth.php の設定
+
+全アプリで同じUserモデルパスを参照するか、上記のエイリアスを設定した上で統一する。
+
+```php
+'providers' => [
+    'users' => [
+        'driver' => 'eloquent',
+        'model' => App\Models\Sakemaru\User::class,  // 推奨: 全アプリで統一
+    ],
+],
+```
+
+### 重要: AuthenticateSession ミドルウェアの無効化
+
+**クロスアプリケーションセッション共有では `AuthenticateSession` ミドルウェアを無効化する必要がある。**
+
+#### 問題の原因
+
+`AuthenticateSession` ミドルウェアは、セッションに保存された `password_hash_web` と現在のユーザーの `getAuthPassword()` を比較する。異なるアプリケーション間でこの比較が失敗すると、セッションがクリアされログアウトが発生する。
+
+#### 解決策
+
+AdminPanelProvider.php でミドルウェアリストから `AuthenticateSession` をコメントアウト:
+
+```php
+->middleware([
+    EncryptCookies::class,
+    AddQueuedCookiesToResponse::class,
+    StartSession::class,
+    // AuthenticateSession::class, // Disabled for cross-app session sharing
+    ShareErrorsFromSession::class,
+    VerifyCsrfToken::class,
+    SubstituteBindings::class,
+    DisableBladeIconComponents::class,
+    DispatchServingFilamentEvent::class,
+])
+```
+
+#### セキュリティ上の注意
+
+`AuthenticateSession` を無効化すると、以下のセキュリティ機能が失われる:
+
+1. **パスワード変更時の自動ログアウト**: ユーザーがパスワードを変更しても、既存のセッションは無効化されない
+2. **セッションハイジャック検出**: パスワードハッシュによるセッション検証が行われない
+
+**対策案:**
+- パスワード変更時に明示的にセッションを無効化する処理を実装
+- 重要な操作時に再認証を要求する
+
+### トラブルシューティング
+
+| 症状 | 原因 | 解決策 |
+|------|------|--------|
+| アプリAでログイン後、アプリBでログアウトされる | `AuthenticateSession`のパスワードハッシュ検証失敗 | `AuthenticateSession`を無効化 |
+| セッションが共有されない | `SESSION_DOMAIN`が不一致 | 全アプリで`.domain.test`形式に統一 |
+| セッションが共有されない | `SESSION_CONNECTION`が未設定 | 全アプリで同じDB接続を指定 |
+| Userモデルがデシリアライズできない | クラスパスが異なる | エイリアスクラスを作成 |
+| セッションのuser_idがnullになる | 認証プロバイダのモデル設定が異なる | auth.phpのmodelを統一 |
+
+### 動作確認チェックリスト
+
+- [ ] 全アプリで同じ`SESSION_DOMAIN`を設定
+- [ ] 全アプリで同じ`SESSION_COOKIE`名を設定
+- [ ] 全アプリで同じ`SESSION_CONNECTION`を設定
+- [ ] Userモデルのエイリアスを相互に作成
+- [ ] auth.phpのmodelパスを統一または互換性確保
+- [ ] `AuthenticateSession`ミドルウェアを無効化
+- [ ] 双方向のログイン/移動テストを実施
