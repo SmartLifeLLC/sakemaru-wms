@@ -5,8 +5,10 @@ namespace App\Filament\Resources\WmsOrderIncomingSchedules\Tables;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\PaginationOptions;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\ItemDefaultLocation;
+use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
@@ -16,6 +18,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -23,6 +26,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
@@ -145,11 +149,47 @@ class WmsOrderIncomingSchedulesTable
                     ->alignEnd()
                     ->width('70px'),
 
-                TextColumn::make('received_quantity')
-                    ->label('入庫済')
-                    ->numeric()
+                TextInputColumn::make('received_quantity')
+                    ->label('入庫検品数')
+                    ->type('number')
+                    ->rules(['required', 'integer', 'min:0'])
                     ->alignEnd()
-                    ->width('70px'),
+                    ->width('70px')
+                    ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
+                    ->disabled(fn ($record) => $record->status === IncomingScheduleStatus::CONFIRMED)
+                    ->afterStateUpdated(function ($record, $state) {
+                        if ($record->status === IncomingScheduleStatus::CONFIRMED) {
+                            Notification::make()
+                                ->title('確定済みのレコードは変更できません')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $newQty = (int) $state;
+                        $expectedQty = $record->expected_quantity;
+
+                        // ステータスを更新
+                        $newStatus = $record->status;
+                        if ($newQty >= $expectedQty) {
+                            $newStatus = IncomingScheduleStatus::CONFIRMED;
+                        } elseif ($newQty > 0) {
+                            $newStatus = IncomingScheduleStatus::PARTIAL;
+                        } else {
+                            $newStatus = IncomingScheduleStatus::PENDING;
+                        }
+
+                        $record->update([
+                            'received_quantity' => $newQty,
+                            'status' => $newStatus,
+                        ]);
+
+                        Notification::make()
+                            ->title('入庫検品数を更新しました')
+                            ->success()
+                            ->send();
+                    }),
 
                 TextColumn::make('remaining')
                     ->label('残数')
@@ -323,24 +363,49 @@ class WmsOrderIncomingSchedulesTable
                         IncomingScheduleStatus::PARTIAL,
                     ]))
                     ->modalHeading('入庫処理')
-                    ->schema([
-                        TextInput::make('received_quantity')
-                            ->label('入庫数量')
-                            ->numeric()
-                            ->required()
-                            ->default(fn ($record) => $record->remaining_quantity)
-                            ->helperText(fn ($record) => "残数: {$record->remaining_quantity}"),
+                    ->schema(function ($record) {
+                        // デフォルトロケーションを取得
+                        $defaultLocation = ItemDefaultLocation::getDefaultLocation(
+                            $record->warehouse_id,
+                            $record->item_id
+                        );
 
-                        DatePicker::make('actual_date')
-                            ->label('入荷日')
-                            ->default(now())
-                            ->required(),
+                        return [
+                            TextInput::make('received_quantity')
+                                ->label('入庫数量')
+                                ->numeric()
+                                ->required()
+                                ->default($record->remaining_quantity)
+                                ->helperText("残数: {$record->remaining_quantity}"),
 
-                        DatePicker::make('expiration_date')
-                            ->label('賞味期限')
-                            ->default(fn ($record) => $record->expiration_date)
-                            ->helperText('商品の賞味期限を入力してください（任意）'),
-                    ])
+                            DatePicker::make('actual_date')
+                                ->label('入荷日')
+                                ->default(fn () => $record->actual_arrival_date ?? ClientSetting::systemDate())
+                                ->required(),
+
+                            DatePicker::make('expiration_date')
+                                ->label('賞味期限')
+                                ->default($record->expiration_date)
+                                ->helperText('商品の賞味期限を入力してください（任意）'),
+
+                            Select::make('location_id')
+                                ->label('ロケーション')
+                                ->options(fn () => Location::query()
+                                    ->where('warehouse_id', $record->warehouse_id)
+                                    ->orderBy('code1')
+                                    ->orderBy('code2')
+                                    ->orderBy('code3')
+                                    ->get()
+                                    ->mapWithKeys(fn ($loc) => [
+                                        $loc->id => "{$loc->code1}-{$loc->code2}-{$loc->code3}".($loc->name ? " ({$loc->name})" : ''),
+                                    ]))
+                                ->default($defaultLocation?->id)
+                                ->searchable()
+                                ->helperText($defaultLocation
+                                    ? "デフォルト: {$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}"
+                                    : 'デフォルトロケーション未設定'),
+                        ];
+                    })
                     ->action(function ($record, array $data) {
                         $service = app(IncomingConfirmationService::class);
 
@@ -348,6 +413,8 @@ class WmsOrderIncomingSchedulesTable
                             $receivedQty = (int) $data['received_quantity'];
                             $remainingQty = $record->remaining_quantity;
                             $expirationDate = $data['expiration_date'] ?? null;
+                            // TODO: locationIdはサービス側で未対応のため、現在は使用しない
+                            // $locationId = $data['location_id'] ?? null;
 
                             if ($receivedQty >= $remainingQty) {
                                 // 全量入庫
