@@ -149,6 +149,14 @@ class WmsOrderIncomingSchedulesTable
                     ->alignEnd()
                     ->width('70px'),
 
+                TextColumn::make('remaining')
+                    ->label('残数')
+                    ->state(fn ($record) => $record->remaining_quantity)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($record) => $record->remaining_quantity > 0 ? 'warning' : 'success')
+                    ->width('70px'),
+
                 TextInputColumn::make('received_quantity')
                     ->label('入庫検品数')
                     ->type('number')
@@ -190,14 +198,6 @@ class WmsOrderIncomingSchedulesTable
                             ->success()
                             ->send();
                     }),
-
-                TextColumn::make('remaining')
-                    ->label('残数')
-                    ->state(fn ($record) => $record->remaining_quantity)
-                    ->numeric()
-                    ->alignEnd()
-                    ->color(fn ($record) => $record->remaining_quantity > 0 ? 'warning' : 'success')
-                    ->width('70px'),
 
                 TextColumn::make('quantity_type')
                     ->label('単位')
