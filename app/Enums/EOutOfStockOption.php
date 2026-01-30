@@ -2,7 +2,6 @@
 
 namespace App\Enums;
 
-use App\Models\Partner;
 use App\Traits\EnumExtensionTrait;
 
 enum EOutOfStockOption: string
@@ -12,7 +11,7 @@ enum EOutOfStockOption: string
     case IGNORE_STOCK = 'IGNORE_STOCK';
     case UP_TO_STOCK = 'UP_TO_STOCK';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::IGNORE_STOCK => 'マイナス在庫可',
@@ -20,7 +19,7 @@ enum EOutOfStockOption: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::IGNORE_STOCK => 0,

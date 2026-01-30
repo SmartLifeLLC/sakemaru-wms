@@ -61,7 +61,7 @@ class WmsWarehouseCalendar extends WmsModel
         $maxIterations = 30; // 最大30日先まで検索
 
         for ($i = 0; $i < $maxIterations; $i++) {
-            if (!self::isHoliday($warehouseId, $date)) {
+            if (! self::isHoliday($warehouseId, $date)) {
                 return $date;
             }
             $date->addDay();

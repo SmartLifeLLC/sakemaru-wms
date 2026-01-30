@@ -27,6 +27,7 @@ class FloorSeeder extends Seeder
 
         if ($warehouses->isEmpty()) {
             $this->command->error('No active warehouses found');
+
             return;
         }
 
@@ -36,14 +37,14 @@ class FloorSeeder extends Seeder
 
         foreach ($warehouses as $warehouse) {
             // Create floor 1 for all warehouses (warehouse_code + 001)
-            $floor1Code = (int)($warehouse->code . '001');
+            $floor1Code = (int) ($warehouse->code.'001');
             $exists1F = DB::connection('sakemaru')
                 ->table('floors')
                 ->where('warehouse_id', $warehouse->id)
                 ->where('code', $floor1Code)
                 ->exists();
 
-            if (!$exists1F) {
+            if (! $exists1F) {
                 DB::connection('sakemaru')->table('floors')->insert([
                     'client_id' => $warehouse->client_id ?? 1,
                     'warehouse_id' => $warehouse->id,
@@ -62,14 +63,14 @@ class FloorSeeder extends Seeder
 
             // Create floor 2 only for warehouse 991 (warehouse_code + 002)
             if ($warehouse->id == 991) {
-                $floor2Code = (int)($warehouse->code . '002');
+                $floor2Code = (int) ($warehouse->code.'002');
                 $exists2F = DB::connection('sakemaru')
                     ->table('floors')
                     ->where('warehouse_id', $warehouse->id)
                     ->where('code', $floor2Code)
                     ->exists();
 
-                if (!$exists2F) {
+                if (! $exists2F) {
                     DB::connection('sakemaru')->table('floors')->insert([
                         'client_id' => $warehouse->client_id ?? 1,
                         'warehouse_id' => $warehouse->id,

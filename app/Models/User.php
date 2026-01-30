@@ -2,19 +2,15 @@
 
 namespace App\Models;
 
-use Archilex\AdvancedTables\Concerns\HasViews;
+use App\Models\Sakemaru\User as SakemaruUser;
 
-use Filament\Models\Contracts\FilamentUser;
-use Filament\Panel;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-
-
-// Only for filament advanced-tables (actual user table exists in SAKEMARU DB)
-class User extends Authenticatable implements FilamentUser
+/**
+ * Session compatibility class for Trade integration.
+ *
+ * Trade stores authenticated users with class name 'App\Models\User'.
+ * This class enables session sharing between WMS and Trade applications.
+ */
+class User extends SakemaruUser
 {
-    public function canAccessPanel(Panel $panel): bool
-    {
-
-        return true;
-    }
+    // Inherits all functionality from App\Models\Sakemaru\User
 }

@@ -137,9 +137,10 @@ class WmsSettingRelationManager extends RelationManager
                 CreateAction::make()
                     ->mutateFormDataUsing(function (array $data): array {
                         $data['contractor_id'] = $this->getOwnerRecord()->id;
+
                         return $data;
                     })
-                    ->visible(fn () => !$this->getOwnerRecord()->wmsSetting()->exists()),
+                    ->visible(fn () => ! $this->getOwnerRecord()->wmsSetting()->exists()),
             ])
             ->recordActions([
                 EditAction::make(),

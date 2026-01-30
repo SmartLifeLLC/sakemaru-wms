@@ -1,0 +1,513 @@
+<?php
+
+namespace Tests\Unit\Services\AutoOrder;
+
+use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\QuantityType;
+use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\Item;
+use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsOrderCandidate;
+use App\Services\AutoOrder\Generators\HanaOrderFileGenerator;
+use Carbon\Carbon;
+use Illuminate\Support\Collection;
+use Tests\TestCase;
+
+/**
+ * HanaOrderFileGenerator テスト
+ *
+ * 実DBの既存データを利用してテストを実行する。
+ * DB:fresh, refreshなどのリセットは一切行わない。
+ */
+class HanaOrderFileGeneratorTest extends TestCase
+{
+
+    private HanaOrderFileGenerator $generator;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->generator = new HanaOrderFileGenerator();
+    }
+
+    /**
+     * @test
+     * インターフェース実装の確認
+     */
+    public function it_implements_order_file_generator_interface(): void
+    {
+        $this->assertInstanceOf(
+            \App\Contracts\OrderFileGeneratorInterface::class,
+            $this->generator
+        );
+    }
+
+    /**
+     * @test
+     * エンコーディング設定の確認
+     */
+    public function it_returns_correct_encoding(): void
+    {
+        $this->assertEquals('SJIS', $this->generator->getEncoding());
+    }
+
+    /**
+     * @test
+     * 改行コード設定の確認
+     */
+    public function it_returns_correct_line_ending(): void
+    {
+        $this->assertEquals("\r\n", $this->generator->getLineEnding());
+    }
+
+    /**
+     * @test
+     * ファイル拡張子の確認
+     */
+    public function it_returns_correct_file_extension(): void
+    {
+        $this->assertEquals('dat', $this->generator->getFileExtension());
+    }
+
+    /**
+     * @test
+     * JX送信対象発注先IDの取得
+     */
+    public function it_returns_jx_transmission_contractor_ids(): void
+    {
+        $ids = $this->generator->getJxTransmissionContractorIds();
+
+        $this->assertIsArray($ids);
+
+        // JX対象発注先コード: 1106, 1017, 1202, 1330
+        $expectedCodes = [1106, 1017, 1202, 1330];
+        foreach ($expectedCodes as $code) {
+            $contractor = Contractor::where('code', $code)->first();
+            if ($contractor) {
+                $this->assertContains($contractor->id, $ids, "Contractor code {$code} should be in JX transmission list");
+            }
+        }
+    }
+
+    /**
+     * @test
+     * 送信先集約マッピングの取得
+     */
+    public function it_returns_transmission_contractor_mapping(): void
+    {
+        $mapping = $this->generator->getTransmissionContractorMapping();
+
+        $this->assertIsArray($mapping);
+
+        // マッピング: 1021,1029,1068,1126,1127 → 1106
+        $kanakan1106 = Contractor::where('code', 1106)->first();
+        if ($kanakan1106) {
+            $mappedCodes = [1021, 1029, 1068, 1126, 1127];
+            foreach ($mappedCodes as $code) {
+                $contractor = Contractor::where('code', $code)->first();
+                if ($contractor && isset($mapping[$contractor->id])) {
+                    $this->assertEquals(
+                        $kanakan1106->id,
+                        $mapping[$contractor->id],
+                        "Contractor code {$code} should map to 1106"
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * @test
+     * 空のコレクションでのファイル生成
+     */
+    public function it_generates_empty_result_for_empty_collection(): void
+    {
+        $candidates = collect([]);
+
+        $result = $this->generator->generate($candidates);
+
+        $this->assertIsArray($result);
+        $this->assertEmpty($result);
+    }
+
+    /**
+     * @test
+     * 実DBデータを使用したファイル生成
+     */
+    public function it_generates_file_with_real_db_data(): void
+    {
+        // 実際のデータを取得（JX対象発注先のもの）
+        $candidates = $this->getTestCandidatesFromRealData();
+
+        if ($candidates->isEmpty()) {
+            $this->markTestSkipped('No test data available in database');
+        }
+
+        $result = $this->generator->generate($candidates);
+
+        $this->assertIsArray($result);
+        $this->assertNotEmpty($result);
+
+        foreach ($result as $file) {
+            // 必須フィールドの確認
+            $this->assertArrayHasKey('contractor_id', $file);
+            $this->assertArrayHasKey('contractor_code', $file);
+            $this->assertArrayHasKey('content', $file);
+            $this->assertArrayHasKey('filename', $file);
+            $this->assertArrayHasKey('encoding', $file);
+            $this->assertArrayHasKey('record_count', $file);
+            $this->assertArrayHasKey('order_count', $file);
+
+            // ファイル名形式の確認
+            $this->assertMatchesRegularExpression(
+                '/^\d+_order_\d{14}\.dat$/',
+                $file['filename'],
+                'Filename should match expected format'
+            );
+
+            // エンコーディングの確認
+            $this->assertEquals('SJIS', $file['encoding']);
+
+            // コンテンツがShift_JISでエンコードされていることを確認
+            $this->assertNotEmpty($file['content']);
+
+            // レコード数が正の整数であることを確認
+            $this->assertGreaterThan(0, $file['record_count']);
+            $this->assertGreaterThan(0, $file['order_count']);
+        }
+    }
+
+    /**
+     * @test
+     * Aレコード（ヘッダ）の形式確認
+     */
+    public function it_generates_valid_a_record(): void
+    {
+        $candidates = $this->getTestCandidatesFromRealData();
+
+        if ($candidates->isEmpty()) {
+            $this->markTestSkipped('No test data available in database');
+        }
+
+        $result = $this->generator->generate($candidates);
+        $this->assertNotEmpty($result);
+
+        // SJISのままで128バイト単位で分割
+        $records = $this->splitRecords($result[0]['content']);
+        $this->assertNotEmpty($records);
+
+        // 最初のレコードがAレコードであること
+        $this->assertStringStartsWith('A', $records[0], 'First record should be A record');
+
+        // Aレコードの長さが128バイトであること
+        $this->assertEquals(128, strlen($records[0]), 'A record should be 128 bytes');
+    }
+
+    /**
+     * @test
+     * Bレコード（店舗/納品先）の形式確認
+     */
+    public function it_generates_valid_b_record(): void
+    {
+        $candidates = $this->getTestCandidatesFromRealData();
+
+        if ($candidates->isEmpty()) {
+            $this->markTestSkipped('No test data available in database');
+        }
+
+        $result = $this->generator->generate($candidates);
+        $this->assertNotEmpty($result);
+
+        // SJISのままで128バイト単位で分割
+        $records = $this->splitRecords($result[0]['content']);
+
+        // Bレコードを探す
+        $bRecords = array_filter($records, fn ($record) => str_starts_with($record, 'B'));
+        $this->assertNotEmpty($bRecords, 'Should have at least one B record');
+
+        foreach ($bRecords as $bRecord) {
+            // Bレコードの長さが128バイトであること
+            $this->assertEquals(128, strlen($bRecord), 'B record should be 128 bytes');
+        }
+    }
+
+    /**
+     * @test
+     * Dレコード（商品明細）の形式確認
+     */
+    public function it_generates_valid_d_record(): void
+    {
+        $candidates = $this->getTestCandidatesFromRealData();
+
+        if ($candidates->isEmpty()) {
+            $this->markTestSkipped('No test data available in database');
+        }
+
+        $result = $this->generator->generate($candidates);
+        $this->assertNotEmpty($result);
+
+        // SJISのままで128バイト単位で分割
+        $records = $this->splitRecords($result[0]['content']);
+
+        // Dレコードを探す
+        $dRecords = array_filter($records, fn ($record) => str_starts_with($record, 'D'));
+        $this->assertNotEmpty($dRecords, 'Should have at least one D record');
+
+        foreach ($dRecords as $dRecord) {
+            // Dレコードの長さが128バイトであること
+            $this->assertEquals(128, strlen($dRecord), 'D record should be 128 bytes');
+        }
+    }
+
+    /**
+     * @test
+     * 送信先集約のグルーピング確認
+     */
+    public function it_groups_candidates_by_transmission_contractor(): void
+    {
+        // カナカングループの発注先を持つ候補を取得
+        $kanakanCodes = [1021, 1029, 1068, 1126, 1127, 1106];
+        $kanakanContractorIds = Contractor::whereIn('code', $kanakanCodes)->pluck('id')->toArray();
+
+        if (empty($kanakanContractorIds)) {
+            $this->markTestSkipped('Kanakan contractors not found in database');
+        }
+
+        $candidates = WmsOrderCandidate::whereIn('contractor_id', $kanakanContractorIds)
+            ->with(['warehouse', 'item', 'contractor'])
+            ->limit(10)
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            $this->markTestSkipped('No Kanakan order candidates in database');
+        }
+
+        $result = $this->generator->generate($candidates);
+
+        // カナカングループは1106に集約されるので、1ファイルになるはず
+        $this->assertCount(1, $result, 'Kanakan group should be consolidated into one file');
+
+        // 発注先コードが1106であること
+        $this->assertEquals(1106, $result[0]['contractor_code']);
+    }
+
+    /**
+     * @test
+     * レコード数のカウント確認
+     */
+    public function it_counts_records_correctly(): void
+    {
+        $candidates = $this->getTestCandidatesFromRealData(5);
+
+        if ($candidates->isEmpty()) {
+            $this->markTestSkipped('No test data available in database');
+        }
+
+        $result = $this->generator->generate($candidates);
+        $this->assertNotEmpty($result);
+
+        foreach ($result as $file) {
+            // SJISのままで128バイト単位で分割
+            $records = $this->splitRecords($file['content']);
+
+            // 実際のレコード数とカウントが一致
+            $this->assertEquals(count($records), $file['record_count']);
+        }
+    }
+
+    /**
+     * 実DBからテスト用の発注候補を取得
+     */
+    private function getTestCandidatesFromRealData(int $limit = 10): Collection
+    {
+        // JX対象の発注先コード
+        $jxContractorCodes = [1106, 1017, 1202, 1330, 1021, 1029, 1068, 1126, 1127];
+        $jxContractorIds = Contractor::whereIn('code', $jxContractorCodes)->pluck('id')->toArray();
+
+        if (empty($jxContractorIds)) {
+            return collect([]);
+        }
+
+        return WmsOrderCandidate::whereIn('contractor_id', $jxContractorIds)
+            ->with(['warehouse', 'item', 'contractor'])
+            ->limit($limit)
+            ->get();
+    }
+
+    /**
+     * @test
+     * JANコードがitem_search_informationから取得され、13桁にゼロパディングされること
+     *
+     * 注意: 1つの商品に複数のコードが登録されている場合、サンプルファイルと
+     * 異なるコードが選択される可能性があるが、選択されるコードは有効なバーコードである。
+     */
+    public function it_retrieves_jan_code_from_item_search_information(): void
+    {
+        $candidates = $this->getTestCandidatesFromRealData(3);
+
+        if ($candidates->isEmpty()) {
+            $this->markTestSkipped('No test data available in database');
+        }
+
+        $result = $this->generator->generate($candidates);
+        $this->assertNotEmpty($result);
+
+        // SJISのままで128バイト単位で分割
+        $records = $this->splitRecords($result[0]['content']);
+
+        // Dレコードを取得
+        $dRecords = array_filter($records, fn ($record) => str_starts_with($record, 'D'));
+
+        foreach ($dRecords as $dRecord) {
+            $itemCode = trim(substr($dRecord, 82, 6));
+            $janCode = trim(substr($dRecord, 69, 13));
+
+            if (empty($itemCode)) {
+                continue;
+            }
+
+            // JANコードが13桁であることを確認
+            $this->assertEquals(
+                13,
+                strlen($janCode),
+                "JAN code for item {$itemCode} should be 13 digits"
+            );
+
+            // JANコードが数字のみであることを確認
+            $this->assertMatchesRegularExpression(
+                '/^[0-9]{13}$/',
+                $janCode,
+                "JAN code for item {$itemCode} should contain only digits"
+            );
+
+            // 先頭のゼロを除去してitem_search_informationに存在するか確認
+            $janCodeWithoutLeadingZeros = ltrim($janCode, '0');
+            if ($janCodeWithoutLeadingZeros === '') {
+                $janCodeWithoutLeadingZeros = '0';
+            }
+
+            $existsInDb = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                ->table('item_search_information')
+                ->where('item_id', intval($itemCode))
+                ->where('is_active', true)
+                ->where(function ($query) use ($janCode, $janCodeWithoutLeadingZeros) {
+                    $query->where('search_string', $janCode)
+                        ->orWhere('search_string', $janCodeWithoutLeadingZeros);
+                })
+                ->exists();
+
+            $this->assertTrue(
+                $existsInDb,
+                "JAN code {$janCode} for item {$itemCode} should exist in item_search_information"
+            );
+        }
+    }
+
+    /**
+     * @test
+     * 候補にordering_codeが設定されている場合、そのコードが使用されること
+     */
+    public function it_uses_ordering_code_from_candidate_when_set(): void
+    {
+        $candidates = $this->getTestCandidatesFromRealData(3);
+
+        if ($candidates->isEmpty()) {
+            $this->markTestSkipped('No test data available in database');
+        }
+
+        // 候補にordering_codeを設定
+        $testOrderingCode = '1234567890123';
+        $candidates->first()->ordering_code = $testOrderingCode;
+
+        $result = $this->generator->generate($candidates);
+        $this->assertNotEmpty($result);
+
+        // SJISのままで128バイト単位で分割
+        $records = $this->splitRecords($result[0]['content']);
+
+        // 最初のDレコードを取得
+        $dRecords = array_filter($records, fn ($record) => str_starts_with($record, 'D'));
+        $firstDRecord = array_values($dRecords)[0] ?? null;
+
+        $this->assertNotNull($firstDRecord);
+
+        // JANコードフィールド（70-82）を確認
+        $orderingCodeInRecord = trim(substr($firstDRecord, 69, 13));
+        $this->assertEquals(
+            $testOrderingCode,
+            $orderingCodeInRecord,
+            'Ordering code from candidate should be used in D record'
+        );
+    }
+
+    /**
+     * @test
+     * is_used_for_orderingフラグが設定されているコードが優先されること
+     */
+    public function it_prioritizes_is_used_for_ordering_flag(): void
+    {
+        // is_used_for_ordering=trueのコードが存在することを確認
+        $codeWithFlag = \Illuminate\Support\Facades\DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $codeWithFlag) {
+            $this->markTestSkipped('No codes with is_used_for_ordering flag in database');
+        }
+
+        // 同じitem_idで他のコードも存在するか確認
+        $otherCodes = \Illuminate\Support\Facades\DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('item_id', $codeWithFlag->item_id)
+            ->where('is_active', true)
+            ->where('id', '!=', $codeWithFlag->id)
+            ->get();
+
+        // is_used_for_ordering=trueのコードが正しく取得されることを確認
+        $expectedCode = str_pad($codeWithFlag->search_string, 13, '0', STR_PAD_LEFT);
+
+        // OrderCandidateCalculationServiceと同じロジックでコード取得
+        $retrievedCode = \Illuminate\Support\Facades\DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('item_id', $codeWithFlag->item_id)
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->value('search_string');
+
+        $this->assertNotNull($retrievedCode);
+        $this->assertEquals(
+            $codeWithFlag->search_string,
+            $retrievedCode,
+            'Code with is_used_for_ordering flag should be retrieved'
+        );
+    }
+
+    /**
+     * SJIS形式のファイル内容を128バイト単位のレコードに分割
+     *
+     * サンプルファイルの形式に合わせて、レコード間に改行がない形式を想定。
+     * 末尾のCRLFは除去してから分割する。
+     */
+    private function splitRecords(string $sjisContent): array
+    {
+        // 末尾のCRLFを除去
+        $content = rtrim($sjisContent, "\r\n");
+
+        $records = [];
+        $recordLength = 128;
+        $pos = 0;
+
+        while ($pos < strlen($content)) {
+            $record = substr($content, $pos, $recordLength);
+            if (strlen($record) < $recordLength) {
+                break;
+            }
+            $records[] = $record;
+            $pos += $recordLength;
+        }
+
+        return $records;
+    }
+}

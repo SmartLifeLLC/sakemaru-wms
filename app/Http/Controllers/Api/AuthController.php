@@ -6,7 +6,6 @@ use App\Models\WmsPicker;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\ValidationException;
 
 class AuthController extends ApiController
 {
@@ -19,22 +18,29 @@ class AuthController extends ApiController
      *     summary="Login to WMS",
      *     description="Authenticate picker with code and password, returns API token",
      *     security={{"apiKey":{}}},
+     *
      *     @OA\RequestBody(
      *         required=true,
+     *
      *         @OA\MediaType(
      *             mediaType="application/x-www-form-urlencoded",
+     *
      *             @OA\Schema(
      *                 required={"code","password"},
+     *
      *                 @OA\Property(property="code", type="string", example="TEST001"),
      *                 @OA\Property(property="password", type="string", example="password123"),
      *                 @OA\Property(property="device_id", type="string", example="ANDROID-12345")
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(
      *         response=200,
      *         description="Successful login",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="LOGIN_SUCCESS"),
      *             @OA\Property(
@@ -58,10 +64,13 @@ class AuthController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(
      *         response=401,
      *         description="Invalid credentials or inactive account",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=false),
      *             @OA\Property(property="code", type="string", example="UNAUTHORIZED"),
      *             @OA\Property(
@@ -72,10 +81,13 @@ class AuthController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(
      *         response=422,
      *         description="Validation error",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=false),
      *             @OA\Property(property="code", type="string", example="VALIDATION_ERROR"),
      *             @OA\Property(
@@ -108,11 +120,11 @@ class AuthController extends ApiController
 
         $picker = WmsPicker::where('code', $request->code)->first();
 
-        if (!$picker || !Hash::check($request->password, $picker->password)) {
+        if (! $picker || ! Hash::check($request->password, $picker->password)) {
             return $this->unauthorized('Invalid credentials');
         }
 
-        if (!$picker->is_active) {
+        if (! $picker->is_active) {
             return $this->unauthorized('Account is not active');
         }
 
@@ -140,10 +152,13 @@ class AuthController extends ApiController
      *     summary="Logout from WMS",
      *     description="Revoke current API token",
      *     security={{"apiKey":{},"sanctum":{}}},
+     *
      *     @OA\Response(
      *         response=200,
      *         description="Successfully logged out",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="LOGOUT_SUCCESS"),
      *             @OA\Property(
@@ -155,10 +170,13 @@ class AuthController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(
      *         response=401,
      *         description="Unauthenticated",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=false),
      *             @OA\Property(property="code", type="string", example="UNAUTHORIZED"),
      *             @OA\Property(
@@ -187,10 +205,13 @@ class AuthController extends ApiController
      *     summary="Get current picker info",
      *     description="Returns information about the authenticated picker",
      *     security={{"apiKey":{},"sanctum":{}}},
+     *
      *     @OA\Response(
      *         response=200,
      *         description="Picker information",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -208,10 +229,13 @@ class AuthController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(
      *         response=401,
      *         description="Unauthenticated",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=false),
      *             @OA\Property(property="code", type="string", example="UNAUTHORIZED"),
      *             @OA\Property(

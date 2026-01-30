@@ -106,6 +106,7 @@ class DeliveryDaysRelationManager extends RelationManager
                 CreateAction::make()
                     ->mutateFormDataUsing(function (array $data): array {
                         $data['contractor_id'] = $this->getOwnerRecord()->id;
+
                         return $data;
                     }),
             ])

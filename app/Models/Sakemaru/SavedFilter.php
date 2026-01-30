@@ -9,14 +9,14 @@ class SavedFilter extends Model
 {
     protected $guarded = [];
 
-    public static function getDefaultFilter(string $datatable, ?User $user = null) : array
+    public static function getDefaultFilter(string $datatable, ?User $user = null): array
     {
         $user = $user ?? auth()->user();
         $filters = self::query()
             ->where('client_id', $user->client_id)
             ->where('is_default', true)
             ->where('datatable', $datatable)
-            ->where(function($query) use ($user) {
+            ->where(function ($query) use ($user) {
                 $query->whereNull('user_id')
                     ->orWhere('user_id', $user->id);
             })
@@ -30,20 +30,21 @@ class SavedFilter extends Model
         return json_decode($filter?->filter, true) ?: [];
     }
 
-
-    public static function convertAttribute(mixed $value, ?Carbon $system_date = null) : mixed
+    public static function convertAttribute(mixed $value, ?Carbon $system_date = null): mixed
     {
         // 配列の場合は再帰的に処理
         if (is_array($value)) {
             foreach ($value as $key => $val) {
                 $value[$key] = self::convertAttribute($val, $system_date);
             }
+
             return $value;
         }
 
         $system_date = $system_date ?? ClientSetting::systemDate(true);
+
         return match ($value) {
-            ":system_date" => $system_date->toDateString(),
+            ':system_date' => $system_date->toDateString(),
             default => $value,
         };
     }

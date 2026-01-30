@@ -151,7 +151,7 @@ class WmsOutboundChartsWidget extends ChartWidget
                     default => $stat->picking_slip_count,
                 };
             } catch (\Exception $e) {
-                \Log::warning("Failed to get stats for warehouse {$warehouse->id}: " . $e->getMessage());
+                \Log::warning("Failed to get stats for warehouse {$warehouse->id}: ".$e->getMessage());
             }
         }
 

@@ -11,7 +11,7 @@ enum EClient: string
     case TANIGUCHI = 'TANIGUCHI';
     case MOTOHARA = 'MOTOHARA';
 
-    public function code() : int
+    public function code(): int
     {
         return match ($this) {
             self::TANIGUCHI => 240603000100,

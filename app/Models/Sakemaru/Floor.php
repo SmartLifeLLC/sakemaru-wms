@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Floor extends CustomModel
 {
     use HasFactory;
+
     protected $guarded = [];
+
     protected $casts = [];
 
     /**
@@ -21,7 +23,7 @@ class Floor extends CustomModel
         static::creating(function (Floor $floor) {
             // client_idは廃止予定だが、一旦はwarehouseのclient_idまたは最初のclientのIDを使用
             if (empty($floor->client_id)) {
-                if (!empty($floor->warehouse_id)) {
+                if (! empty($floor->warehouse_id)) {
                     $warehouse = Warehouse::find($floor->warehouse_id);
                     if ($warehouse) {
                         $floor->client_id = $warehouse->client_id;
@@ -49,7 +51,7 @@ class Floor extends CustomModel
         static::updating(function (Floor $floor) {
             // client_idは廃止予定だが、一旦はwarehouseのclient_idまたは最初のclientのIDを使用
             if (empty($floor->client_id)) {
-                if (!empty($floor->warehouse_id)) {
+                if (! empty($floor->warehouse_id)) {
                     $warehouse = Warehouse::find($floor->warehouse_id);
                     if ($warehouse) {
                         $floor->client_id = $warehouse->client_id;
@@ -72,7 +74,7 @@ class Floor extends CustomModel
         });
     }
 
-    public function warehouse() : belongsTo
+    public function warehouse(): belongsTo
     {
         return $this->belongsTo(Warehouse::class);
     }

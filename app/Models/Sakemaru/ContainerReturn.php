@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Models\Sakemaru;
+
 use App\Enums\PrintType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,6 +12,7 @@ class ContainerReturn extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     protected PrintType $checklist_print_type = PrintType::CONTAINER_RETURN_CHECK;
@@ -40,7 +42,7 @@ class ContainerReturn extends CustomModel
         return $this->belongsTo(BillingType::class);
     }
 
-    public function direct_earning() : HasOne
+    public function direct_earning(): HasOne
     {
         return $this->hasOne(ContainerPickup::class, 'direct_container_return_id', 'id');
     }

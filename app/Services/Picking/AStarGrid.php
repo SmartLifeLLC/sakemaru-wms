@@ -9,17 +9,21 @@ namespace App\Services\Picking;
 class AStarGrid
 {
     private int $cellSize;
+
     private array $blockedRects;
+
     private int $gridWidth;
+
     private int $gridHeight;
+
     private ?Walkable $walkable;
 
     /**
-     * @param int $cellSize Grid cell size in pixels (e.g., 25 or 50)
-     * @param array $blockedRects Array of blocked rectangles [[x1,y1,x2,y2], ...]
-     * @param int $canvasWidth Canvas width in pixels
-     * @param int $canvasHeight Canvas height in pixels
-     * @param Walkable|null $walkable Optional walkable area (if null, uses blockedRects)
+     * @param  int  $cellSize  Grid cell size in pixels (e.g., 25 or 50)
+     * @param  array  $blockedRects  Array of blocked rectangles [[x1,y1,x2,y2], ...]
+     * @param  int  $canvasWidth  Canvas width in pixels
+     * @param  int  $canvasHeight  Canvas height in pixels
+     * @param  Walkable|null  $walkable  Optional walkable area (if null, uses blockedRects)
      */
     public function __construct(
         int $cellSize,
@@ -38,8 +42,8 @@ class AStarGrid
     /**
      * Find shortest path between two points using A*
      *
-     * @param array $start [x, y] in pixels
-     * @param array $goal [x, y] in pixels
+     * @param  array  $start  [x, y] in pixels
+     * @param  array  $goal  [x, y] in pixels
      * @return array ['dist' => int, 'path' => [[x,y], ...]]
      */
     public function shortest(array $start, array $goal): array
@@ -62,6 +66,7 @@ class AStarGrid
                     'start' => $start,
                     'startCell' => $startCell,
                 ]);
+
                 return ['dist' => 100000000, 'path' => []];
             }
         }
@@ -80,12 +85,13 @@ class AStarGrid
                     'goal' => $goal,
                     'goalCell' => $goalCell,
                 ]);
+
                 return ['dist' => 100000000, 'path' => []];
             }
         }
 
         // A* implementation
-        $openSet = new \SplPriorityQueue();
+        $openSet = new \SplPriorityQueue;
         $openSet->setExtractFlags(\SplPriorityQueue::EXTR_BOTH);
 
         $cameFrom = [];
@@ -101,7 +107,7 @@ class AStarGrid
 
         $visited = [];
 
-        while (!$openSet->isEmpty()) {
+        while (! $openSet->isEmpty()) {
             $current = $openSet->extract();
             $currentKey = $current['data'];
 
@@ -109,6 +115,7 @@ class AStarGrid
                 // Reconstruct path
                 $path = $this->reconstructPath($cameFrom, $currentKey, $startKey);
                 $dist = $gScore[$currentKey];
+
                 return ['dist' => $dist, 'path' => $path];
             }
 
@@ -131,7 +138,7 @@ class AStarGrid
 
                 $tentativeGScore = $gScore[$currentKey] + $this->cellSize;
 
-                if (!isset($gScore[$neighborKey]) || $tentativeGScore < $gScore[$neighborKey]) {
+                if (! isset($gScore[$neighborKey]) || $tentativeGScore < $gScore[$neighborKey]) {
                     $cameFrom[$neighborKey] = $currentKey;
                     $gScore[$neighborKey] = $tentativeGScore;
                     $fScore[$neighborKey] = $tentativeGScore + $this->heuristic($neighbor, $goalCell);
@@ -146,6 +153,7 @@ class AStarGrid
             'goal' => $goal,
             'cellSize' => $this->cellSize,
         ]);
+
         return ['dist' => 100000000, 'path' => []];
     }
 
@@ -166,7 +174,7 @@ class AStarGrid
             $cellCenterY = $cy * $this->cellSize + intdiv($this->cellSize, 2);
 
             // Cell is blocked if center is NOT in walkable area
-            return !$this->walkable->contains([$cellCenterX, $cellCenterY]);
+            return ! $this->walkable->contains([$cellCenterX, $cellCenterY]);
         }
 
         // Legacy behavior: check blocked rectangles
@@ -196,7 +204,7 @@ class AStarGrid
         int $ax1, int $ay1, int $ax2, int $ay2,
         int $bx1, int $by1, int $bx2, int $by2
     ): bool {
-        return !($ax2 <= $bx1 || $bx2 <= $ax1 || $ay2 <= $by1 || $by2 <= $ay1);
+        return ! ($ax2 <= $bx1 || $bx2 <= $ax1 || $ay2 <= $by1 || $by2 <= $ay1);
     }
 
     /**
@@ -235,6 +243,7 @@ class AStarGrid
     private function keyToCell(string $key): array
     {
         $parts = explode(',', $key);
+
         return [(int) $parts[0], (int) $parts[1]];
     }
 
@@ -262,7 +271,7 @@ class AStarGrid
     /**
      * Find nearest walkable cell using BFS (Breadth-First Search)
      *
-     * @param array $blockedCell [cx, cy] - cell coordinates
+     * @param  array  $blockedCell  [cx, cy] - cell coordinates
      * @return array|null [cx, cy] of nearest walkable cell, or null if none found within reasonable distance
      */
     private function findNearestWalkableCell(array $blockedCell): ?array
@@ -290,7 +299,7 @@ class AStarGrid
                     $visited[$key] = true;
 
                     // If this cell is walkable, return it
-                    if (!$this->isBlockedCell($neighbor[0], $neighbor[1])) {
+                    if (! $this->isBlockedCell($neighbor[0], $neighbor[1])) {
                         return $neighbor;
                     }
 

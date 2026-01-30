@@ -35,7 +35,8 @@ class WmsWarehouseHolidaySetting extends WmsModel
 
     /**
      * 指定曜日が定休日かチェック
-     * @param int $dayOfWeek 0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土
+     *
+     * @param  int  $dayOfWeek  0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土
      */
     public function isRegularHoliday(int $dayOfWeek): bool
     {

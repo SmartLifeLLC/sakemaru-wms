@@ -12,7 +12,7 @@ enum EPayeeBankType: string
     case SAME_BANK_SAME_BRANCH = 'SAME_BANK_SAME_BRANCH';
     case OTHER_BANK = 'OTHER_BANK';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::SAME_BANK_OTHER_BRANCH => '同行他店',
@@ -21,7 +21,7 @@ enum EPayeeBankType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::SAME_BANK_OTHER_BRANCH => 0,
@@ -32,11 +32,11 @@ enum EPayeeBankType: string
 
     public static function fromMSDKubun(int $doukou_taten_kubun)
     {
-        return match ($doukou_taten_kubun){
-            1=>self::SAME_BANK_OTHER_BRANCH,
-            2=>self::SAME_BANK_SAME_BRANCH,
-            3=>self::OTHER_BANK,
-            default=>self::OTHER_BANK,
+        return match ($doukou_taten_kubun) {
+            1 => self::SAME_BANK_OTHER_BRANCH,
+            2 => self::SAME_BANK_SAME_BRANCH,
+            3 => self::OTHER_BANK,
+            default => self::OTHER_BANK,
 
         };
     }

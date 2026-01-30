@@ -1,9 +1,7 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -18,14 +16,15 @@ return new class extends Migration
     public function up(): void
     {
         // Check if index exists helper
-        $indexExists = function($table, $indexName) {
+        $indexExists = function ($table, $indexName) {
             $indexes = DB::connection('sakemaru')
                 ->select("SHOW INDEX FROM {$table} WHERE Key_name = ?", [$indexName]);
-            return !empty($indexes);
+
+            return ! empty($indexes);
         };
 
         // 1. wms_real_stocks: lock_version for optimistic locking
-        if (!$indexExists('wms_real_stocks', 'idx_wrs_real_lv')) {
+        if (! $indexExists('wms_real_stocks', 'idx_wrs_real_lv')) {
             DB::connection('sakemaru')->statement('
                 CREATE INDEX idx_wrs_real_lv ON wms_real_stocks(
                     real_stock_id,
@@ -35,7 +34,7 @@ return new class extends Migration
         }
 
         // 2. wms_locations: walking_order for efficient sorting
-        if (!$indexExists('wms_locations', 'idx_wl_loc')) {
+        if (! $indexExists('wms_locations', 'idx_wl_loc')) {
             DB::connection('sakemaru')->statement('
                 CREATE INDEX idx_wl_loc ON wms_locations(
                     location_id,
@@ -45,7 +44,7 @@ return new class extends Migration
         }
 
         // 3. wms_reservations: idempotency key (prevent duplicate reservations)
-        if (!$indexExists('wms_reservations', 'uniq_wres_idem')) {
+        if (! $indexExists('wms_reservations', 'uniq_wres_idem')) {
             DB::connection('sakemaru')->statement('
                 CREATE UNIQUE INDEX uniq_wres_idem ON wms_reservations(
                     wave_id,
@@ -64,10 +63,11 @@ return new class extends Migration
     public function down(): void
     {
         // Check if index exists helper
-        $indexExists = function($table, $indexName) {
+        $indexExists = function ($table, $indexName) {
             $indexes = DB::connection('sakemaru')
                 ->select("SHOW INDEX FROM {$table} WHERE Key_name = ?", [$indexName]);
-            return !empty($indexes);
+
+            return ! empty($indexes);
         };
 
         // Drop indexes only if they exist

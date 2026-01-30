@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsContractorHolidays\Tables;
 
+use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -11,7 +12,6 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 use Illuminate\Database\Eloquent\Builder;
 
 class WmsContractorHolidaysTable

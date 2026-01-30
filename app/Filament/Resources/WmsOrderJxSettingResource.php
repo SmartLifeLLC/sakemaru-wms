@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Enums\EMenu;
+use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsOrderJxSettingResource\Pages;
 use App\Models\WmsOrderJxSetting;
 use App\Services\JX\JxClient;
@@ -23,7 +24,6 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
-use App\Enums\PaginationOptions;
 
 class WmsOrderJxSettingResource extends Resource
 {
@@ -182,7 +182,7 @@ class WmsOrderJxSettingResource extends Resource
                             ->visibility('private')
                             ->acceptedFileTypes(['text/plain', 'text/xml', 'application/xml'])
                             ->maxSize(10240)
-                            ->helperText('テスト送信用のファイルをアップロード（最大10MB）。S3の ' . config('filesystems.disks.s3.prefix', '') . ' prefix配下に保存されます。'),
+                            ->helperText('テスト送信用のファイルをアップロード（最大10MB）。S3の '.config('filesystems.disks.s3.prefix', '').' prefix配下に保存されます。'),
                     ]),
             ]);
     }
@@ -317,7 +317,7 @@ class WmsOrderJxSettingResource extends Resource
                                 $body .= "- {$doc->messageId} ({$doc->documentType})\n";
                             }
                             if ($documents->count() > 5) {
-                                $body .= "...他 " . ($documents->count() - 5) . "件";
+                                $body .= '...他 '.($documents->count() - 5).'件';
                             }
 
                             Notification::make()
@@ -364,7 +364,7 @@ class WmsOrderJxSettingResource extends Resource
                             $body .= "ドキュメントタイプ: {$document->documentType}\n";
                             $body .= "サイズ: {$document->getDataSize()} bytes\n";
                             $body .= "保存先: {$document->savedPath}\n";
-                            $body .= "確認: " . ($document->confirmed ? 'OK' : 'NG');
+                            $body .= '確認: '.($document->confirmed ? 'OK' : 'NG');
 
                             Notification::make()
                                 ->title('テスト受信成功')

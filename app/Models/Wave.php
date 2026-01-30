@@ -45,6 +45,7 @@ class Wave extends Model
     public static function generateWaveNo(int $warehouseCode, int $courseCode, string $date, int $waveId): string
     {
         $dateFormatted = date('Ymd', strtotime($date));
+
         return sprintf('W%03d-C%03d-%s-%d', $warehouseCode, $courseCode, $dateFormatted, $waveId);
     }
 

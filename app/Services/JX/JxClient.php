@@ -16,7 +16,9 @@ use Illuminate\Support\Facades\View;
 class JxClient
 {
     public const DOCUMENT_TYPE_GET = 'GetDocument';
+
     public const DOCUMENT_TYPE_PUT = 'PutDocument';
+
     public const DOCUMENT_TYPE_CONFIRM = 'ConfirmDocument';
 
     protected WmsOrderJxSetting $setting;
@@ -29,11 +31,10 @@ class JxClient
     /**
      * ドキュメントを送信 (PutDocument)
      *
-     * @param string $data Base64エンコード済みデータ
-     * @param string $documentType ドキュメントタイプ (例: '01' = 発注)
-     * @param string $formatType フォーマットタイプ (例: 'SecondGenEDI')
-     * @param string|null $compressType 圧縮タイプ
-     * @return JxClientResult
+     * @param  string  $data  Base64エンコード済みデータ
+     * @param  string  $documentType  ドキュメントタイプ (例: '01' = 発注)
+     * @param  string  $formatType  フォーマットタイプ (例: 'SecondGenEDI')
+     * @param  string|null  $compressType  圧縮タイプ
      */
     public function putDocument(
         string $data,
@@ -69,11 +70,10 @@ class JxClient
      *
      * ヘッダー・フッターがないデータに自動的に追加してから送信
      *
-     * @param string $rawData 生データ（Base64エンコード前）
-     * @param string $documentType ドキュメントタイプ (例: '01' = 発注)
-     * @param string $formatType フォーマットタイプ (例: 'SecondGenEDI')
-     * @param string|null $compressType 圧縮タイプ
-     * @return JxClientResult
+     * @param  string  $rawData  生データ（Base64エンコード前）
+     * @param  string  $documentType  ドキュメントタイプ (例: '01' = 発注)
+     * @param  string  $formatType  フォーマットタイプ (例: 'SecondGenEDI')
+     * @param  string|null  $compressType  圧縮タイプ
      */
     public function putDocumentWithWrapper(
         string $rawData,
@@ -82,7 +82,7 @@ class JxClient
         ?string $compressType = null
     ): JxClientResult {
         // ヘッダー・フッターがない場合は追加
-        if (!JxDataWrapper::hasHeader($rawData)) {
+        if (! JxDataWrapper::hasHeader($rawData)) {
             $wrapper = new JxDataWrapper($this->setting);
             $rawData = $wrapper->wrap($rawData);
         }
@@ -95,8 +95,6 @@ class JxClient
 
     /**
      * ドキュメントを取得 (GetDocument)
-     *
-     * @return JxClientResult
      */
     public function getDocument(): JxClientResult
     {
@@ -117,8 +115,7 @@ class JxClient
     /**
      * ドキュメント受信確認 (ConfirmDocument)
      *
-     * @param string $receivedMessageId 受信したメッセージID
-     * @return JxClientResult
+     * @param  string  $receivedMessageId  受信したメッセージID
      */
     public function confirmDocument(string $receivedMessageId): JxClientResult
     {
@@ -145,7 +142,7 @@ class JxClient
     {
         $viewFile = $this->getViewFile($documentType);
         $xmlData = View::make($viewFile, $viewData)->render();
-        $soapAction = 'http://www.dsri.jp/edi-bp/2004/jedicos-xml/client-server/' . $documentType;
+        $soapAction = 'http://www.dsri.jp/edi-bp/2004/jedicos-xml/client-server/'.$documentType;
         $dataSize = isset($viewData['data']) ? strlen($viewData['data']) : null;
 
         // リクエストを保存
@@ -162,7 +159,7 @@ class JxClient
                 ]);
 
                 // エラー時もレスポンスを保存（デバッグ用）
-                $this->saveResponse($documentType . '_error', $viewData['message_id'], $response->bodyString);
+                $this->saveResponse($documentType.'_error', $viewData['message_id'], $response->bodyString);
 
                 // 失敗ログを記録
                 $this->logTransmission(
@@ -267,8 +264,8 @@ class JxClient
             'Accept: text/xml',
             'Cache-Control: no-cache',
             'Pragma: no-cache',
-            'SOAPAction: ' . $soapAction,
-            'Content-length: ' . strlen($xmlString),
+            'SOAPAction: '.$soapAction,
+            'Content-length: '.strlen($xmlString),
         ];
 
         $ch = curl_init();
@@ -287,7 +284,7 @@ class JxClient
         // SSL証明書
         if ($this->setting->ssl_certification_file) {
             $certPath = $this->setting->ssl_certification_file;
-            if (!Storage::disk('local')->exists($certPath)) {
+            if (! Storage::disk('local')->exists($certPath)) {
                 Storage::disk('local')->put($certPath, Storage::disk('s3')->get($certPath));
             }
             curl_setopt($ch, CURLOPT_CAINFO, Storage::disk('local')->path($certPath));
@@ -295,7 +292,7 @@ class JxClient
 
         // Basic認証
         if ($this->setting->is_basic_auth) {
-            curl_setopt($ch, CURLOPT_USERPWD, $this->setting->basic_user_id . ':' . $this->setting->basic_user_pw);
+            curl_setopt($ch, CURLOPT_USERPWD, $this->setting->basic_user_id.':'.$this->setting->basic_user_pw);
             curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         }
 

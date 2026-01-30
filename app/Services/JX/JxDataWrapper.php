@@ -23,7 +23,7 @@ class JxDataWrapper
     /**
      * データにヘッダーとフッターを追加
      *
-     * @param string $data 元のデータ（ヘッダー・フッターなし）
+     * @param  string  $data  元のデータ（ヘッダー・フッターなし）
      * @return string ヘッダー + データ + フッター
      */
     public function wrap(string $data): string
@@ -35,7 +35,7 @@ class JxDataWrapper
         $header = $this->generateHeader($totalRecords);
         $footer = $this->generateFooter();
 
-        return $header . $data . $footer;
+        return $header.$data.$footer;
     }
 
     /**
@@ -84,7 +84,7 @@ class JxDataWrapper
      */
     protected function generateFooter(): string
     {
-        return '8' . str_repeat(' ', 127);
+        return '8'.str_repeat(' ', 127);
     }
 
     /**
@@ -106,6 +106,7 @@ class JxDataWrapper
         // 改行がある場合は改行でカウント
         if (str_contains($normalized, "\n")) {
             $lines = explode("\n", $normalized);
+
             // 空行を除外してカウント
             return count(array_filter($lines, fn ($line) => $line !== ''));
         }
@@ -131,7 +132,7 @@ class JxDataWrapper
             return substr($value, 0, $length);
         }
 
-        return $value . str_repeat($pad, $length - $currentLength);
+        return $value.str_repeat($pad, $length - $currentLength);
     }
 
     /**
@@ -144,7 +145,7 @@ class JxDataWrapper
             return substr($value, 0, $length);
         }
 
-        return str_repeat($pad, $length - $currentLength) . $value;
+        return str_repeat($pad, $length - $currentLength).$value;
     }
 
     /**

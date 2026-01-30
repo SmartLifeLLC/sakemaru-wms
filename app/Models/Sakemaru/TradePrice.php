@@ -11,7 +11,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class TradePrice extends CustomModel
 {
     use HasFactory;
+
     protected $guarded = [];
+
     protected $casts = [];
 
     public function trade(): BelongsTo
@@ -19,17 +21,17 @@ class TradePrice extends CustomModel
         return $this->belongsTo(Trade::class);
     }
 
-    public function taxType() : TaxType
+    public function taxType(): TaxType
     {
         return TaxType::from($this->tax_type);
     }
-    public function taxFraction() : EFraction
+
+    public function taxFraction(): EFraction
     {
         return EFraction::from($this->tax_fraction);
     }
 
-
-    public static function prepareFromPriceBreakdown(PriceBreakdownVO $price_breakdown) : array
+    public static function prepareFromPriceBreakdown(PriceBreakdownVO $price_breakdown): array
     {
         return [
             'tax_type' => $price_breakdown->tax_type,
@@ -42,7 +44,7 @@ class TradePrice extends CustomModel
             'tax_10_percent' => $price_breakdown->tax_10_percent,
             'total_0_percent' => $price_breakdown->total_0_percent,
             'total_8_percent' => $price_breakdown->total_8_percent,
-            'total_10_percent' => $price_breakdown->total_10_percent
+            'total_10_percent' => $price_breakdown->total_10_percent,
         ];
     }
 }

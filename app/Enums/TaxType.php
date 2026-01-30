@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -16,7 +14,7 @@ enum TaxType: string
     case PRE_TAX = 'PRE_TAX';
     case POST_TAX = 'POST_TAX';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::PRE_TAX => '内税',
@@ -24,7 +22,7 @@ enum TaxType: string
         };
     }
 
-    public function alias() : string
+    public function alias(): string
     {
         return match ($this) {
             self::PRE_TAX => '内消費税',
@@ -32,7 +30,7 @@ enum TaxType: string
         };
     }
 
-    public function short() : string
+    public function short(): string
     {
         return match ($this) {
             self::PRE_TAX => '内',
@@ -40,7 +38,7 @@ enum TaxType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::PRE_TAX => 0,
@@ -48,7 +46,7 @@ enum TaxType: string
         };
     }
 
-    public function hubID() : int
+    public function hubID(): int
     {
         return match ($this) {
             self::PRE_TAX => 1,

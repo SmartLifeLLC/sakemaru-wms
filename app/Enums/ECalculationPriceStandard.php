@@ -11,7 +11,7 @@ enum ECalculationPriceStandard: string
     case CONTRACTOR = 'CONTRACTOR';
     case SALE = 'SALE';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::CONTRACTOR => '発注先単価',
@@ -19,7 +19,7 @@ enum ECalculationPriceStandard: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::CONTRACTOR => 0,

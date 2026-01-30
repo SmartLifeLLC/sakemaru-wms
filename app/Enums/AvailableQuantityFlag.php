@@ -38,14 +38,14 @@ enum AvailableQuantityFlag: int
     /**
      * Convert array of flags to bitmask value
      *
-     * @param array<AvailableQuantityFlag> $flags
+     * @param  array<AvailableQuantityFlag>  $flags
      * @return int Bitmask value
      */
     public static function toBitmask(array $flags): int
     {
         return array_reduce(
             $flags,
-            fn(int $carry, self $flag) => $carry | $flag->value,
+            fn (int $carry, self $flag) => $carry | $flag->value,
             0
         );
     }
@@ -53,7 +53,6 @@ enum AvailableQuantityFlag: int
     /**
      * Convert bitmask value to array of flags
      *
-     * @param int $bitmask
      * @return array<AvailableQuantityFlag>
      */
     public static function fromBitmask(int $bitmask): array
@@ -89,13 +88,14 @@ enum AvailableQuantityFlag: int
 
         // Must be a valid combination of CASE, PIECE, CARTON
         $maxValid = self::CASE->value | self::PIECE->value | self::CARTON->value; // 7
+
         return $bitmask > 0 && $bitmask <= $maxValid;
     }
 
     /**
      * Get SQL WHERE clause for filtering locations by quantity type
      *
-     * @param string $quantityType 'CASE' | 'PIECE' | 'CARTON'
+     * @param  string  $quantityType  'CASE' | 'PIECE' | 'CARTON'
      * @return string SQL condition
      */
     public static function getSqlCondition(string $quantityType): string

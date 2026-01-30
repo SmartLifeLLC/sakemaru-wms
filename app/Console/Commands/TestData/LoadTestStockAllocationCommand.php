@@ -21,14 +21,21 @@ class LoadTestStockAllocationCommand extends Command
     protected $description = 'Load test stock allocation with large dataset';
 
     private int $warehouseId;
+
     private int $itemCount;
+
     private int $stocksPerItem;
+
     private int $allocationCount;
+
     private int $concurrentCount;
+
     private bool $cleanup;
 
     private array $testItemIds = [];
+
     private array $testStockIds = [];
+
     private array $metrics = [
         'total_allocations' => 0,
         'successful_allocations' => 0,
@@ -58,7 +65,7 @@ class LoadTestStockAllocationCommand extends Command
         $this->line("Warehouse: {$this->warehouseId}");
         $this->line("Items: {$this->itemCount}");
         $this->line("Stocks per item: {$this->stocksPerItem}");
-        $this->line("Total stock records: " . ($this->itemCount * $this->stocksPerItem));
+        $this->line('Total stock records: '.($this->itemCount * $this->stocksPerItem));
         $this->line("Allocation requests: {$this->allocationCount}");
         $this->line("Concurrent requests: {$this->concurrentCount}");
         $this->newLine();
@@ -87,10 +94,12 @@ class LoadTestStockAllocationCommand extends Command
             }
 
             $this->info('✅ Load test completed!');
+
             return 0;
         } catch (\Exception $e) {
-            $this->error('❌ Load test failed: ' . $e->getMessage());
+            $this->error('❌ Load test failed: '.$e->getMessage());
             $this->error($e->getTraceAsString());
+
             return 1;
         }
     }
@@ -102,7 +111,7 @@ class LoadTestStockAllocationCommand extends Command
             ->where('id', $this->warehouseId)
             ->first();
 
-        if (!$warehouse) {
+        if (! $warehouse) {
             throw new \Exception("Warehouse {$this->warehouseId} not found");
         }
 
@@ -166,6 +175,7 @@ class LoadTestStockAllocationCommand extends Command
             $this->testItemIds[] = $itemId;
 
             // Create stock records for this item
+            // Note: 新スキーマでは real_stocks + real_stock_lots に分離
             for ($s = 0; $s < $this->stocksPerItem; $s++) {
                 $location = $locations->random();
 
@@ -177,24 +187,36 @@ class LoadTestStockAllocationCommand extends Command
 
                 // Vary quantities (1000-5000 per stock) - larger quantities for load testing
                 $currentQuantity = rand(1000, 5000);
+                $price = rand(100, 5000);
 
+                // Create real_stock record (without location/expiration - those go to lots)
                 $realStockId = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
                     'client_id' => $clientId,
                     'stock_allocation_id' => 1,
-                    'floor_id' => null,
                     'warehouse_id' => $this->warehouseId,
-                    'location_id' => $location->id,
-                    'purchase_id' => null,
                     'item_id' => $itemId,
                     'item_management_type' => 'STANDARD',
-                    'expiration_date' => $expirationDate,
                     'current_quantity' => $currentQuantity,
-                    'available_quantity' => $currentQuantity,
+                    'reserved_quantity' => 0,
                     'order_rank' => 'FIFO',
-                    'price' => rand(100, 5000),
-                    'wms_reserved_qty' => 0,
-                    'wms_picking_qty' => 0,
                     'wms_lock_version' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Create lot record with location and expiration info
+                DB::connection('sakemaru')->table('real_stock_lots')->insert([
+                    'real_stock_id' => $realStockId,
+                    'floor_id' => $location->floor_id,
+                    'location_id' => $location->id,
+                    'expiration_date' => $expirationDate,
+                    'price' => $price,
+                    'content_amount' => 0,
+                    'container_amount' => 0,
+                    'initial_quantity' => $currentQuantity,
+                    'current_quantity' => $currentQuantity,
+                    'reserved_quantity' => 0,
+                    'status' => 'ACTIVE',
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -207,19 +229,19 @@ class LoadTestStockAllocationCommand extends Command
 
         $progressBar->finish();
         $this->newLine();
-        $this->info("Created {$this->itemCount} items with " . count($this->testStockIds) . " stock records");
+        $this->info("Created {$this->itemCount} items with ".count($this->testStockIds).' stock records');
     }
 
     private function runLoadTest(): void
     {
-        $service = new StockAllocationService();
+        $service = new StockAllocationService;
 
         // Create a test wave setting first (if not exists)
         $waveSetting = DB::connection('sakemaru')->table('wms_wave_settings')
             ->where('warehouse_id', $this->warehouseId)
             ->first();
 
-        if (!$waveSetting) {
+        if (! $waveSetting) {
             throw new \Exception("No wave settings found for warehouse {$this->warehouseId}. Run testdata:wave-settings first.");
         }
 
@@ -276,7 +298,7 @@ class LoadTestStockAllocationCommand extends Command
                 $this->metrics['total_allocated_qty'] += $result['allocated'] ?? 0;
                 $this->metrics['total_shortage_qty'] += $result['shortage'] ?? 0;
 
-                if (!empty($result['lock_failed'])) {
+                if (! empty($result['lock_failed'])) {
                     $this->metrics['lock_failures']++;
                     $this->metrics['failed_allocations']++;
                 } else {
@@ -291,7 +313,7 @@ class LoadTestStockAllocationCommand extends Command
                 // Log first error for debugging
                 if ($this->metrics['failed_allocations'] === 1) {
                     $this->newLine();
-                    $this->warn("First allocation error: " . $e->getMessage());
+                    $this->warn('First allocation error: '.$e->getMessage());
                 }
                 // Continue testing even on errors
             }
@@ -343,15 +365,15 @@ class LoadTestStockAllocationCommand extends Command
             ['Metric', 'Value'],
             [
                 ['Total Allocations', number_format($total)],
-                ['Successful', number_format($successful) . ' (' . number_format($successful / max($total, 1) * 100, 2) . '%)'],
-                ['Failed', number_format($failed) . ' (' . number_format($failed / max($total, 1) * 100, 2) . '%)'],
+                ['Successful', number_format($successful).' ('.number_format($successful / max($total, 1) * 100, 2).'%)'],
+                ['Failed', number_format($failed).' ('.number_format($failed / max($total, 1) * 100, 2).'%)'],
                 ['Lock Failures', number_format($lockFailures)],
-                ['With Shortages', number_format($shortages) . ' (' . number_format($shortages / max($total, 1) * 100, 2) . '%)'],
+                ['With Shortages', number_format($shortages).' ('.number_format($shortages / max($total, 1) * 100, 2).'%)'],
                 ['---', '---'],
                 ['Total Requested Qty', number_format($totalRequested)],
                 ['Total Allocated Qty', number_format($totalAllocated)],
                 ['Total Shortage Qty', number_format($totalShortage)],
-                ['Fill Rate', number_format($fillRate, 2) . '%'],
+                ['Fill Rate', number_format($fillRate, 2).'%'],
                 ['---', '---'],
                 ['Avg Time (ms)', number_format($avgTimeMs, 2)],
                 ['Min Time (ms)', number_format($minTimeMs, 2)],

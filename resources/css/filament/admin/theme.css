@@ -370,3 +370,138 @@ html.fi {
     width: 140px !important;
     min-width: 140px !important;
 }
+
+/* トップメニュー（トップバー）の高さを半分に */
+.fi-topbar {
+    height: 2.5rem !important;
+    min-height: 2.5rem !important;
+}
+
+.fi-topbar > nav {
+    height: 2.5rem !important;
+    min-height: 2.5rem !important;
+}
+
+.fi-topbar-item {
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+}
+
+/* ロゴサイズを調整 */
+.fi-topbar .fi-logo,
+.fi-topbar [class*="logo"] {
+    height: 1.5rem !important;
+    max-height: 1.5rem !important;
+}
+
+.fi-topbar .fi-logo img,
+.fi-topbar [class*="logo"] img {
+    height: 1.5rem !important;
+    max-height: 1.5rem !important;
+    width: auto !important;
+}
+
+/* トップバー内のテキストサイズを調整 */
+.fi-topbar .fi-brand,
+.fi-topbar a,
+.fi-topbar span,
+.fi-topbar button {
+    font-size: 0.75rem !important;
+    line-height: 1rem !important;
+}
+
+/* トップバー内のボタン・アイコンサイズを調整 */
+.fi-topbar button,
+.fi-topbar .fi-icon-btn {
+    padding: 0.25rem !important;
+}
+
+.fi-topbar svg {
+    width: 1rem !important;
+    height: 1rem !important;
+}
+
+/* ユーザーメニュー等のドロップダウントリガー調整 */
+.fi-topbar .fi-dropdown-trigger {
+    padding: 0.25rem 0.5rem !important;
+}
+
+/* サイドバーの開閉ボタン調整 */
+.fi-topbar .fi-sidebar-toggle {
+    padding: 0.25rem !important;
+}
+
+/* トップバーの内側余白調整 */
+.fi-topbar > nav > div {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+/* トップバー直下のメインコンテンツのマージン調整 */
+.fi-topbar ~ .fi-main-ctn {
+    padding-top: 2.5rem !important;
+}
+
+/* 倉庫移動メニューの2列表示 */
+/* URLベースのセレクターで「倉庫移動」グループのドロップダウンをターゲット */
+.fi-topbar-nav .fi-dropdown-panel:has(a[href*="wms-shortage-allocations"]):has(a[href*="wms-stock-transfer-candidates"]) .fi-dropdown-list {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.25rem 1rem !important;
+    min-width: 400px !important;
+    padding: 0.5rem !important;
+}
+
+/* 各メニュー項目のスタイル調整 */
+.fi-topbar-nav .fi-dropdown-panel:has(a[href*="wms-shortage-allocations"]):has(a[href*="wms-stock-transfer-candidates"]) .fi-dropdown-list-item {
+    width: 100% !important;
+}
+
+/* アクションカラム固定（sticky-actionsクラスを持つテーブル） */
+.sticky-actions {
+    position: relative;
+}
+
+.sticky-actions .fi-ta-table {
+    overflow-x: auto;
+}
+
+.sticky-actions .fi-ta-row td:last-child,
+.sticky-actions .fi-ta-actions-cell {
+    position: sticky !important;
+    right: 0 !important;
+    z-index: 10 !important;
+    box-shadow: -2px 0 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+.sticky-actions .fi-ta-header-cell:last-child {
+    position: sticky !important;
+    right: 0 !important;
+    background-color: rgb(249, 250, 251) !important;
+    z-index: 11 !important;
+    box-shadow: -2px 0 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+.dark .sticky-actions .fi-ta-header-cell:last-child {
+    background-color: rgb(31, 41, 55) !important;
+}
+
+/* stripe行の背景色（不透明な色を使用） */
+/* 奇数行: 薄い青 → 不透明な色に変換 (#f0f7ff に近い色) */
+.sticky-actions .fi-ta-table tbody tr:nth-child(odd) td:last-child {
+    background-color: #f5f9ff !important;
+}
+
+/* 偶数行: 白 */
+.sticky-actions .fi-ta-table tbody tr:nth-child(even) td:last-child {
+    background-color: #ffffff !important;
+}
+
+/* ダークモード */
+.dark .sticky-actions .fi-ta-table tbody tr:nth-child(odd) td:last-child {
+    background-color: #1e2a3b !important;
+}
+
+.dark .sticky-actions .fi-ta-table tbody tr:nth-child(even) td:last-child {
+    background-color: #111827 !important;
+}

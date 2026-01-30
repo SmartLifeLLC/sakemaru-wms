@@ -1,6 +1,5 @@
 <?php
 
-
 namespace App\Traits;
 
 use Illuminate\Console\Command;
@@ -9,6 +8,7 @@ use Lorisleiva\Actions\Concerns\AsCommand;
 trait AsCustomActionCommand
 {
     use AsCommand;
+
     public function asCommand(Command $command): void
     {
         $start_time = microtime(true);

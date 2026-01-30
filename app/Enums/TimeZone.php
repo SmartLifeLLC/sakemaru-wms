@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -12,10 +10,7 @@ enum TimeZone: string
 {
     case TOKYO = 'Asia/Tokyo';
 
-    /**
-     * @return Carbon
-     */
-    public function now() : Carbon
+    public function now(): Carbon
     {
         return now($this->value);
     }

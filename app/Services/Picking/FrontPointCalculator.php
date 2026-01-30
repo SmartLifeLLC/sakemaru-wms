@@ -13,7 +13,7 @@ class FrontPointCalculator
     private int $delta;
 
     /**
-     * @param int $delta Pixels to shift towards aisle (default: 10)
+     * @param  int  $delta  Pixels to shift towards aisle (default: 10)
      */
     public function __construct(int $delta = 10)
     {
@@ -24,8 +24,8 @@ class FrontPointCalculator
      * Compute front point for a location
      * Returns the aisle-side center point of the location rectangle
      *
-     * @param Location|array $location Location model or array with x1_pos, y1_pos, x2_pos, y2_pos
-     * @param Walkable|null $walkable Optional walkable area for snapping
+     * @param  Location|array  $location  Location model or array with x1_pos, y1_pos, x2_pos, y2_pos
+     * @param  Walkable|null  $walkable  Optional walkable area for snapping
      * @return array [x, y] coordinates
      */
     public function computeFrontPoint($location, ?Walkable $walkable = null): array
@@ -70,8 +70,8 @@ class FrontPointCalculator
     /**
      * Snap a point to walkable area
      *
-     * @param array $p Point [x, y]
-     * @param Walkable $walkable Walkable area
+     * @param  array  $p  Point [x, y]
+     * @param  Walkable  $walkable  Walkable area
      * @return array Snapped point [x, y]
      */
     private function snapToWalkable(array $p, Walkable $walkable): array
@@ -91,7 +91,7 @@ class FrontPointCalculator
     /**
      * Compute front points for multiple locations
      *
-     * @param array $locations Array of Location models or arrays
+     * @param  array  $locations  Array of Location models or arrays
      * @return array Associative array [location_id => [x, y]]
      */
     public function computeFrontPoints(array $locations): array

@@ -11,7 +11,7 @@ enum ERebateConditionType: string
     case PURCHASE = 'PURCHASE';
     case STORE = 'STORE';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::PURCHASE => '仕入条件',
@@ -19,7 +19,7 @@ enum ERebateConditionType: string
         };
     }
 
-    public function invoiceName() : string
+    public function invoiceName(): string
     {
         return match ($this) {
             self::PURCHASE => '仕入リベート請求書',
@@ -27,7 +27,7 @@ enum ERebateConditionType: string
         };
     }
 
-    public function detailPrintName() : string
+    public function detailPrintName(): string
     {
         return match ($this) {
             self::PURCHASE => '仕入リベート内訳書',
@@ -35,7 +35,7 @@ enum ERebateConditionType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::PURCHASE => 0,
@@ -43,7 +43,7 @@ enum ERebateConditionType: string
         };
     }
 
-    public function tradeCategory() : TradeCategory
+    public function tradeCategory(): TradeCategory
     {
         return match ($this) {
             self::PURCHASE => TradeCategory::PURCHASE,
@@ -51,8 +51,7 @@ enum ERebateConditionType: string
         };
     }
 
-
-    public function color(): BadgeColor|null
+    public function color(): ?BadgeColor
     {
         return match ($this) {
             self::PURCHASE => BadgeColor::PURPLE,
@@ -60,14 +59,14 @@ enum ERebateConditionType: string
         };
     }
 
-
-    public static function fromTradeCategory(TradeCategory|string $category) : self|null
+    public static function fromTradeCategory(TradeCategory|string $category): ?self
     {
         if (TradeCategory::PURCHASE->isSameAs($category)) {
             return self::PURCHASE;
         } elseif (TradeCategory::EARNING->isSameAs($category)) {
             return self::STORE;
         }
+
         return null;
     }
 }

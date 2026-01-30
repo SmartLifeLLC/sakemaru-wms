@@ -50,19 +50,19 @@ class WmsOutboundOverview extends BaseWidget
                 $totalStats['total_opportunity_loss'] += $stat->total_opportunity_loss;
             } catch (\Exception $e) {
                 // エラーが発生した場合はログに記録してスキップ
-                \Log::warning("Failed to get stats for warehouse {$warehouse->id}: " . $e->getMessage());
+                \Log::warning("Failed to get stats for warehouse {$warehouse->id}: ".$e->getMessage());
             }
         }
 
         return [
             Stat::make('ピッキング伝票数', number_format($totalStats['picking_slip_count']))
-                ->description('対象日: ' . $dateStr)
+                ->description('対象日: '.$dateStr)
                 ->descriptionIcon('heroicon-o-document-text')
                 ->icon('heroicon-o-document-text')
                 ->color('primary'),
 
             Stat::make('ピッキング商品数', number_format($totalStats['picking_item_count']))
-                ->description('ユニーク: ' . number_format($totalStats['unique_item_count']))
+                ->description('ユニーク: '.number_format($totalStats['unique_item_count']))
                 ->descriptionIcon('heroicon-o-cube')
                 ->icon('heroicon-o-cube')
                 ->color('success'),
@@ -79,14 +79,14 @@ class WmsOutboundOverview extends BaseWidget
                 ->icon('heroicon-o-truck')
                 ->color('warning'),
 
-            Stat::make('税込合計金額', '¥' . number_format($totalStats['total_amount_in']))
-                ->description('税抜: ¥' . number_format($totalStats['total_amount_ex']))
+            Stat::make('税込合計金額', '¥'.number_format($totalStats['total_amount_in']))
+                ->description('税抜: ¥'.number_format($totalStats['total_amount_ex']))
                 ->descriptionIcon('heroicon-o-currency-yen')
                 ->icon('heroicon-o-currency-yen')
                 ->color('success'),
 
-            Stat::make('欠品状況', number_format($totalStats['stockout_total_count']) . ' 件')
-                ->description('ユニーク: ' . number_format($totalStats['stockout_unique_count']) . ' / 損失: ¥' . number_format($totalStats['total_opportunity_loss']))
+            Stat::make('欠品状況', number_format($totalStats['stockout_total_count']).' 件')
+                ->description('ユニーク: '.number_format($totalStats['stockout_unique_count']).' / 損失: ¥'.number_format($totalStats['total_opportunity_loss']))
                 ->descriptionIcon('heroicon-o-exclamation-triangle')
                 ->icon('heroicon-o-exclamation-triangle')
                 ->color($totalStats['stockout_total_count'] > 0 ? 'danger' : 'success'),

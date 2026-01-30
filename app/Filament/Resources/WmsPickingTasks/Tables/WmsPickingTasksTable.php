@@ -4,8 +4,12 @@ namespace App\Filament\Resources\WmsPickingTasks\Tables;
 
 use App\Enums\EWMSLogOperationType;
 use App\Enums\EWMSLogTargetType;
+use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsAdminOperationLog;
+use App\Models\WmsPickingItemResult;
+use App\Models\WmsPickingTask;
+use App\Models\WmsShortage;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
@@ -16,8 +20,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
-use App\Enums\PaginationOptions;
-
+use Illuminate\Support\Facades\Log;
 
 class WmsPickingTasksTable
 {
@@ -98,48 +101,128 @@ class WmsPickingTasksTable
                     })
                     ->toggleable(isToggledHiddenByDefault: true),
 
+                TextColumn::make('source_type')
+                    ->label('伝票種別')
+                    ->default('-')
+                    ->badge()
+                    ->formatStateUsing(function ($record) {
+                        // Check if any item is a stock_transfer
+                        $hasStockTransfer = $record->pickingItemResults
+                            ->contains(fn ($item) => $item->source_type === WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                        $hasEarning = $record->pickingItemResults
+                            ->contains(fn ($item) => $item->source_type === WmsPickingItemResult::SOURCE_TYPE_EARNING || $item->source_type === null);
+
+                        if ($hasStockTransfer && $hasEarning) {
+                            return '混合';
+                        } elseif ($hasStockTransfer) {
+                            return '移動';
+                        } else {
+                            return '売上';
+                        }
+                    })
+                    ->color(function ($record) {
+                        $hasStockTransfer = $record->pickingItemResults
+                            ->contains(fn ($item) => $item->source_type === WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                        $hasEarning = $record->pickingItemResults
+                            ->contains(fn ($item) => $item->source_type === WmsPickingItemResult::SOURCE_TYPE_EARNING || $item->source_type === null);
+
+                        if ($hasStockTransfer && $hasEarning) {
+                            return 'warning';
+                        } elseif ($hasStockTransfer) {
+                            return 'info';
+                        } else {
+                            return 'success';
+                        }
+                    })
+                    ->toggleable(isToggledHiddenByDefault: false),
+
                 TextColumn::make('partner_count')
-                    ->label('得意先数')
+                    ->label('得意先/移動先数')
                     ->default('-')
                     ->formatStateUsing(function ($record) {
                         // Use already eager-loaded relation
-                        $count = $record->pickingItemResults
+                        // Count unique partners for earnings
+                        $partnerCount = $record->pickingItemResults
                             ->pluck('earning.buyer.partner.id')
                             ->filter()
                             ->unique()
                             ->count();
 
-                        return $count > 0 ? "{$count}件" : '-';
+                        // Count unique destination warehouses for stock_transfers
+                        $warehouseCount = $record->pickingItemResults
+                            ->pluck('stockTransfer.to_warehouse.id')
+                            ->filter()
+                            ->unique()
+                            ->count();
+
+                        $total = $partnerCount + $warehouseCount;
+
+                        return $total > 0 ? "{$total}件" : '-';
                     })
                     ->alignCenter()
                     ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('partner_names')
-                    ->label('得意先名')
+                    ->label('得意先/移動先')
                     ->default('-')
                     ->formatStateUsing(function ($record) {
-                        // Use already eager-loaded relation
+                        $names = collect();
+
+                        // Collect partner names for earnings
                         $partnerNames = $record->pickingItemResults
+                            ->filter(fn ($item) => $item->earning_id !== null)
                             ->pluck('earning.buyer.partner.name')
                             ->filter()
-                            ->unique()
-                            ->sort()
-                            ->values();
+                            ->unique();
 
-                        if ($partnerNames->isEmpty()) {
+                        foreach ($partnerNames as $name) {
+                            $names->push($name);
+                        }
+
+                        // Collect warehouse names for stock_transfers
+                        $warehouseNames = $record->pickingItemResults
+                            ->filter(fn ($item) => $item->stock_transfer_id !== null)
+                            ->map(function ($item) {
+                                $warehouse = $item->stockTransfer?->to_warehouse;
+
+                                return $warehouse ? "[移動]{$warehouse->name}" : null;
+                            })
+                            ->filter()
+                            ->unique();
+
+                        foreach ($warehouseNames as $name) {
+                            $names->push($name);
+                        }
+
+                        if ($names->isEmpty()) {
                             return '-';
                         }
 
+                        // Sort and format
+                        $names = $names->sort()->values();
+
                         // 2件以上の場合は6文字で省略（...なし）
-                        if ($partnerNames->count() >= 2) {
-                            $partnerNames = $partnerNames->map(fn ($name) => mb_substr($name, 0, 6));
+                        if ($names->count() >= 2) {
+                            $names = $names->map(function ($name) {
+                                // [移動]プレフィックスは保持し、残りを省略
+                                if (str_starts_with($name, '[移動]')) {
+                                    return '[移動]'.mb_substr(str_replace('[移動]', '', $name), 0, 4);
+                                }
+
+                                return mb_substr($name, 0, 6);
+                            });
                         }
 
-                        return $partnerNames->implode(', ');
+                        return $names->implode(', ');
                     })
                     ->searchable(query: function ($query, $search) {
-                        return $query->whereHas('pickingItemResults.earning.buyer.partner', function ($q) use ($search) {
-                            $q->where('name', 'like', "%{$search}%");
+                        return $query->where(function ($q) use ($search) {
+                            $q->whereHas('pickingItemResults.earning.buyer.partner', function ($subQ) use ($search) {
+                                $subQ->where('name', 'like', "%{$search}%");
+                            })
+                                ->orWhereHas('pickingItemResults.stockTransfer.to_warehouse', function ($subQ) use ($search) {
+                                    $subQ->where('name', 'like', "%{$search}%");
+                                });
                         });
                     })
                     ->toggleable(isToggledHiddenByDefault: false),
@@ -270,6 +353,43 @@ class WmsPickingTasksTable
                             }),
                             'without_shortage' => $query->whereDoesntHave('pickingItemResults', function ($subQuery) {
                                 $subQuery->where('has_soft_shortage', true);
+                            }),
+                            default => $query,
+                        };
+                    }),
+
+                SelectFilter::make('source_type_filter')
+                    ->label('伝票種別')
+                    ->options([
+                        'earning' => '売上のみ',
+                        'stock_transfer' => '移動のみ',
+                        'mixed' => '混合',
+                    ])
+                    ->query(function ($query, $state) {
+                        return match ($state['value'] ?? null) {
+                            'earning' => $query->whereHas('pickingItemResults', function ($subQuery) {
+                                $subQuery->where(function ($q) {
+                                    $q->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
+                                        ->orWhereNull('source_type');
+                                });
+                            })->whereDoesntHave('pickingItemResults', function ($subQuery) {
+                                $subQuery->where('source_type', WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                            }),
+                            'stock_transfer' => $query->whereHas('pickingItemResults', function ($subQuery) {
+                                $subQuery->where('source_type', WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                            })->whereDoesntHave('pickingItemResults', function ($subQuery) {
+                                $subQuery->where(function ($q) {
+                                    $q->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
+                                        ->orWhereNull('source_type');
+                                });
+                            }),
+                            'mixed' => $query->whereHas('pickingItemResults', function ($subQuery) {
+                                $subQuery->where('source_type', WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER);
+                            })->whereHas('pickingItemResults', function ($subQuery) {
+                                $subQuery->where(function ($q) {
+                                    $q->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
+                                        ->orWhereNull('source_type');
+                                });
                             }),
                             default => $query,
                         };
@@ -575,7 +695,129 @@ class WmsPickingTasksTable
                 //                    ->visible(fn ($record) => !$isWaitingView && !$isCompletedView),
 
             ], position: RecordActionsPosition::BeforeColumns)
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->checkIfRecordIsSelectableUsing(fn ($record) => $record->status !== WmsPickingTask::STATUS_COMPLETED)
+            ->bulkActions([
+                BulkAction::make('forceComplete')
+                    ->label('強制完了')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('強制完了確認')
+                    ->modalDescription('選択したタスクを強制的に完了状態にします。ピッキング中のタスクは割当数量で出荷し、欠品は確定されます。この操作は取り消せません。')
+                    ->action(function (Collection $records) {
+                        $completedCount = 0;
+                        $shortageConfirmedCount = 0;
+                        $errors = [];
+
+                        DB::connection('sakemaru')->transaction(function () use ($records, &$completedCount, &$shortageConfirmedCount, &$errors) {
+                            foreach ($records as $task) {
+                                // 既にCOMPLETEDの場合はスキップ
+                                if ($task->status === WmsPickingTask::STATUS_COMPLETED) {
+                                    continue;
+                                }
+
+                                try {
+                                    // 1. ピッキングアイテム結果を処理
+                                    $pickingItemResults = $task->pickingItemResults;
+
+                                    foreach ($pickingItemResults as $itemResult) {
+                                        // ステータスがPENDINGまたはPICKINGの場合
+                                        if (in_array($itemResult->status, [
+                                            WmsPickingItemResult::STATUS_PENDING,
+                                            WmsPickingItemResult::STATUS_PICKING,
+                                        ])) {
+                                            // picked_qty が null または 0 の場合は planned_qty を設定
+                                            $pickedQty = $itemResult->picked_qty ?? 0;
+                                            if ($pickedQty == 0) {
+                                                $pickedQty = $itemResult->planned_qty;
+                                            }
+
+                                            // shortage_qty を計算
+                                            $shortageQty = max(0, ($itemResult->planned_qty ?? 0) - $pickedQty);
+
+                                            // ステータスを決定
+                                            $newStatus = $shortageQty > 0
+                                                ? WmsPickingItemResult::STATUS_SHORTAGE
+                                                : WmsPickingItemResult::STATUS_COMPLETED;
+
+                                            $itemResult->update([
+                                                'picked_qty' => $pickedQty,
+                                                'picked_qty_type' => $itemResult->planned_qty_type,
+                                                'shortage_qty' => $shortageQty,
+                                                'status' => $newStatus,
+                                                'picked_at' => $itemResult->picked_at ?? now(),
+                                            ]);
+                                        }
+
+                                        // 関連する欠品を確定
+                                        $shortage = $itemResult->shortage;
+                                        if ($shortage && ! $shortage->is_confirmed) {
+                                            $shortage->update([
+                                                'is_confirmed' => true,
+                                                'confirmed_at' => now(),
+                                                'status' => WmsShortage::STATUS_SHORTAGE,
+                                            ]);
+                                            $shortageConfirmedCount++;
+
+                                            Log::info('Shortage confirmed by force complete', [
+                                                'shortage_id' => $shortage->id,
+                                                'task_id' => $task->id,
+                                            ]);
+                                        }
+                                    }
+
+                                    // 2. タスクをCOMPLETEDに更新
+                                    $task->update([
+                                        'status' => WmsPickingTask::STATUS_COMPLETED,
+                                        'completed_at' => $task->completed_at ?? now(),
+                                    ]);
+
+                                    $completedCount++;
+
+                                    Log::info('Picking task force completed', [
+                                        'task_id' => $task->id,
+                                        'wave_id' => $task->wave_id,
+                                    ]);
+                                } catch (\Exception $e) {
+                                    $errors[] = "タスクID {$task->id}: {$e->getMessage()}";
+                                    Log::error('Force complete failed', [
+                                        'task_id' => $task->id,
+                                        'error' => $e->getMessage(),
+                                    ]);
+                                }
+                            }
+                        });
+
+                        if (! empty($errors)) {
+                            Notification::make()
+                                ->title('一部エラーが発生しました')
+                                ->body(implode("\n", $errors))
+                                ->danger()
+                                ->send();
+                        }
+
+                        if ($completedCount > 0) {
+                            $message = "{$completedCount}件のタスクを完了しました";
+                            if ($shortageConfirmedCount > 0) {
+                                $message .= "（{$shortageConfirmedCount}件の欠品を確定）";
+                            }
+
+                            Notification::make()
+                                ->title('強制完了しました')
+                                ->body($message)
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('完了対象なし')
+                                ->body('選択されたタスクは既に完了済みです')
+                                ->warning()
+                                ->send();
+                        }
+                    })
+                    ->deselectRecordsAfterCompletion(),
+            ]);
         //            ->toolbarActions([
         //                BulkAction::make('assignPicker')
         //                    ->label('担当者を割り当てる')

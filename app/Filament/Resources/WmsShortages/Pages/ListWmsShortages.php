@@ -38,11 +38,12 @@ class ListWmsShortages extends ListRecords
 
         return [
             'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'BEFORE'))->favorite()->label('対応待ち')->default(),
-            'finished' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'BEFORE')->where('shipment_date',ClientSetting::systemDate()))->favorite()->label('対応完了(当日分)'),
-            'finished_all' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'BEFORE'))->favorite()->label('対応完了(全件)')
+            'finished' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'BEFORE')->where('shipment_date', ClientSetting::systemDate()))->favorite()->label('対応完了(当日分)'),
+            'finished_all' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereNot('status', 'BEFORE'))->favorite()->label('対応完了(全件)'),
         ];
 
     }
+
     public function table(Table $table): Table
     {
         return parent::table($table)
@@ -64,16 +65,14 @@ class ListWmsShortages extends ListRecords
                 ->withSum([
                     'allocations as allocations_case_qty' => function ($query) {
                         $query->where('assign_qty_type', 'CASE');
-                    }
+                    },
                 ], 'assign_qty')
                 ->withSum([
                     'allocations as allocations_piece_qty' => function ($query) {
                         $query->where('assign_qty_type', 'PIECE');
-                    }
+                    },
                 ], 'assign_qty')
             )
             ->recordUrl(null);
     }
-
-
 }

@@ -21,9 +21,9 @@ class WmsStockAvailable extends WmsModel
         'created_at' => 'datetime',
         'unit_cost' => 'decimal:4',
         'current_quantity' => 'integer',
+        'reserved_quantity' => 'integer',
+        'available_quantity' => 'integer',
         'available_for_wms' => 'integer',
-        'wms_reserved_qty' => 'integer',
-        'wms_picking_qty' => 'integer',
     ];
 
     // Relationships

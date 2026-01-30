@@ -10,7 +10,6 @@ class SlipType extends CustomModel
 
     protected $guarded = [];
 
-
     public static function createDefaultSlipType($client_id, $user_id)
     {
         SlipType::where('client_id', $client_id)->delete();
@@ -26,7 +25,7 @@ class SlipType extends CustomModel
                 'name' => $name,
                 'creator_id' => $user_id,
                 'last_updater_id' => $user_id,
-                'is_active'=>true,
+                'is_active' => true,
 
             ]);
         }

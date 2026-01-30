@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Api\FloorPlanController;
 use App\Http\Controllers\Api\PickingRouteController;
+use App\Http\Controllers\Handy\HandyController;
+use App\Http\Controllers\Handy\HandyIncomingController;
 use App\Http\Controllers\JxServerController;
 use App\Http\Controllers\JxTransmissionLogController;
 use Illuminate\Support\Facades\Route;
@@ -9,6 +11,16 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return redirect('/admin');
 });
+
+// Handy Terminal Web Apps
+Route::get('/handy/login', [HandyController::class, 'login'])
+    ->name('handy.login');
+Route::get('/handy/home', [HandyController::class, 'home'])
+    ->name('handy.home');
+Route::get('/handy/incoming', [HandyIncomingController::class, 'index'])
+    ->name('handy.incoming');
+Route::get('/handy/outgoing', [HandyController::class, 'outgoing'])
+    ->name('handy.outgoing');
 
 // Floor plan API routes (accessible from admin panel without API key)
 Route::prefix('api')->middleware(['web'])->group(function () {
@@ -27,7 +39,7 @@ Route::prefix('api')->middleware(['web'])->group(function () {
 // JX送受信ログファイルダウンロード（Filament認証）
 Route::get('/jx-transmission-logs/{log}/download', [JxTransmissionLogController::class, 'download'])
     ->name('jx-transmission-logs.download')
-    ->middleware(['web', \Filament\Http\Middleware\Authenticate::class . ':admin']);
+    ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
 
 // JX-FINET テスト用受信サーバー（開発・テスト環境のみ）
 if (app()->environment('local', 'testing', 'staging')) {

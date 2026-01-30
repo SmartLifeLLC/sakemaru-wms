@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 class ExternalCollaborationPartnerSetting extends CustomModel
 {
     protected $guarded = [];
+
     protected $casts = [];
 
     public function partner(): BelongsTo

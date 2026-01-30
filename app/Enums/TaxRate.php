@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -16,7 +14,7 @@ enum TaxRate: string
     case PERCENT_10 = 'PERCENT_10';
     case EXEMPT = 'EXEMPT';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::PERCENT_8 => '8 %',
@@ -25,7 +23,7 @@ enum TaxRate: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::PERCENT_8 => 0,
@@ -45,15 +43,16 @@ enum TaxRate: string
 
     public function percent(): int
     {
-        return (int)($this->rate() * 100);
+        return (int) ($this->rate() * 100);
     }
 
-    public function calculate(float $value, string|TaxType $tax_type = TaxType::POST_TAX) : float
+    public function calculate(float $value, string|TaxType $tax_type = TaxType::POST_TAX): float
     {
-        if(TaxType::PRE_TAX->isSameAs($tax_type)) {
+        if (TaxType::PRE_TAX->isSameAs($tax_type)) {
             // 浮動小数点対応のために整数に直してから演算
             $value = $value * 100 / (100 + $this->percent());
         }
+
         return bcmul($value, $this->rate(), 2);
     }
 }

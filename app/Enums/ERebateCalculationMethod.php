@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -15,7 +13,8 @@ enum ERebateCalculationMethod: string
     case PER_UNIT = 'PER_UNIT';
     case PER_AMOUNT = 'PER_AMOUNT';
     case PER_VOLUME = 'PER_VOLUME';
-    public function name() : string
+
+    public function name(): string
     {
         return match ($this) {
             self::PER_UNIT => '数量単位',
@@ -24,7 +23,7 @@ enum ERebateCalculationMethod: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::PER_UNIT => 0,
@@ -33,7 +32,7 @@ enum ERebateCalculationMethod: string
         };
     }
 
-    public function rebateAmountName() : string
+    public function rebateAmountName(): string
     {
         return match ($this) {
             self::PER_UNIT => '単価',
@@ -42,13 +41,14 @@ enum ERebateCalculationMethod: string
         };
     }
 
-    public function calculationDescription(string $base, ?string $unit_amount = '') : string
+    public function calculationDescription(string $base, ?string $unit_amount = ''): string
     {
         $base = numberOrNull($base, 2);
+
         return match ($this) {
-            self::PER_UNIT => $base. ' x 数量',
-            self::PER_AMOUNT => '金額 x ' . $base . '%',
-            self::PER_VOLUME => '（容量 / ' . $unit_amount . '） x ' . $base,
+            self::PER_UNIT => $base.' x 数量',
+            self::PER_AMOUNT => '金額 x '.$base.'%',
+            self::PER_VOLUME => '（容量 / '.$unit_amount.'） x '.$base,
         };
     }
 }

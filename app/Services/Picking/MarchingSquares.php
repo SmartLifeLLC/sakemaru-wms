@@ -11,8 +11,8 @@ class MarchingSquares
     /**
      * Convert bitmap to polygons
      *
-     * @param array $bitmap 2D array of boolean values (true = walkable)
-     * @param int $cellSize Size of each cell in pixels
+     * @param  array  $bitmap  2D array of boolean values (true = walkable)
+     * @param  int  $cellSize  Size of each cell in pixels
      * @return array Array of polygons [['outer' => [[x,y],...], 'holes' => []],...]
      */
     public function bitmapToPolygons(array $bitmap, int $cellSize): array
@@ -46,9 +46,9 @@ class MarchingSquares
     /**
      * Find contours in bitmap using marching squares
      *
-     * @param array $bitmap 2D array
-     * @param int $width Width of bitmap
-     * @param int $height Height of bitmap
+     * @param  array  $bitmap  2D array
+     * @param  int  $width  Width of bitmap
+     * @param  int  $height  Height of bitmap
      * @return array Array of contours (each contour is array of [x,y] points)
      */
     private function findContours(array $bitmap, int $width, int $height): array
@@ -59,7 +59,7 @@ class MarchingSquares
         // Scan for contour starting points
         for ($y = 0; $y < $height - 1; $y++) {
             for ($x = 0; $x < $width - 1; $x++) {
-                if (!$visited[$y][$x] && $this->isContourStart($bitmap, $x, $y, $width, $height)) {
+                if (! $visited[$y][$x] && $this->isContourStart($bitmap, $x, $y, $width, $height)) {
                     $contour = $this->traceContour($bitmap, $x, $y, $width, $height, $visited);
                     if (count($contour) >= 4) { // Minimum 4 points for valid contour
                         $contours[] = $this->simplifyContour($contour);
@@ -81,7 +81,7 @@ class MarchingSquares
         $right = $this->getCellValue($bitmap, $x + 1, $y, $width, $height);
         $bottom = $this->getCellValue($bitmap, $x, $y + 1, $width, $height);
 
-        return $cell && (!$right || !$bottom);
+        return $cell && (! $right || ! $bottom);
     }
 
     /**
@@ -117,7 +117,7 @@ class MarchingSquares
                 }
             }
 
-            if (!$found) {
+            if (! $found) {
                 break;
             }
 
@@ -138,6 +138,7 @@ class MarchingSquares
             case 2: return [$x - 1, $y];     // left
             case 3: return [$x, $y - 1];     // up
         }
+
         return [$x, $y];
     }
 
@@ -149,7 +150,8 @@ class MarchingSquares
         if ($x < 0 || $x >= $width || $y < 0 || $y >= $height) {
             return false;
         }
-        return !empty($bitmap[$y][$x]);
+
+        return ! empty($bitmap[$y][$x]);
     }
 
     /**
@@ -207,6 +209,7 @@ class MarchingSquares
             // Point is outside line segment
             $d1 = sqrt(pow($point[0] - $lineStart[0], 2) + pow($point[1] - $lineStart[1], 2));
             $d2 = sqrt(pow($point[0] - $lineEnd[0], 2) + pow($point[1] - $lineEnd[1], 2));
+
             return min($d1, $d2);
         }
 

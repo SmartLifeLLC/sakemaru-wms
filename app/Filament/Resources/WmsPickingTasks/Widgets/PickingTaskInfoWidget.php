@@ -2,10 +2,10 @@
 
 namespace App\Filament\Resources\WmsPickingTasks\Widgets;
 
-use App\Models\WmsPickingTask;
-use Filament\Widgets\Widget;
-use Filament\Widgets\Concerns\InteractsWithPageTable;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingItemResults;
+use App\Models\WmsPickingTask;
+use Filament\Widgets\Concerns\InteractsWithPageTable;
+use Filament\Widgets\Widget;
 
 class PickingTaskInfoWidget extends Widget
 {
@@ -28,17 +28,17 @@ class PickingTaskInfoWidget extends Widget
         $pickingTaskId = $this->pickingTaskId;
 
         // Fallback: Try tableFilters
-        if (!$pickingTaskId) {
+        if (! $pickingTaskId) {
             $pickingTaskId = $this->tableFilters['picking_task_id']['value'] ?? null;
         }
 
-        if (!$pickingTaskId) {
+        if (! $pickingTaskId) {
             return ['task' => null];
         }
 
         $task = WmsPickingTask::with(['wave.waveSetting', 'deliveryCourse', 'warehouse', 'floor', 'pickingArea', 'picker'])->find($pickingTaskId);
 
-        if (!$task) {
+        if (! $task) {
             return ['task' => null];
         }
 
@@ -75,8 +75,8 @@ class PickingTaskInfoWidget extends Widget
             'waveNo' => $waveNo,
             'waveName' => $waveName,
             'shippingDate' => $shippingDate,
-            'deliveryCourse' => ($task->deliveryCourse->code ?? '') . ' ' . ($task->deliveryCourse->name ?? '-'),
-            'warehouse' => ($task->warehouse->code ?? '') . ' ' . ($task->warehouse->name ?? '-'),
+            'deliveryCourse' => ($task->deliveryCourse->code ?? '').' '.($task->deliveryCourse->name ?? '-'),
+            'warehouse' => ($task->warehouse->code ?? '').' '.($task->warehouse->name ?? '-'),
             'floor' => $task->floor?->name ?? '-',
             'picker' => $task->picker?->display_name ?? '未割当',
             'pickerAssigned' => $task->picker_id !== null,

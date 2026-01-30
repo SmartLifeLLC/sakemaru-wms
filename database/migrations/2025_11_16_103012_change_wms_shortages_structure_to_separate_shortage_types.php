@@ -26,10 +26,10 @@ return new class extends Migration
         ");
 
         // shortage_qty_eachを合計値に更新
-        DB::connection('sakemaru')->statement("
+        DB::connection('sakemaru')->statement('
             UPDATE wms_shortages
             SET shortage_qty_each = allocation_shortage_qty + picking_shortage_qty
-        ");
+        ');
 
         // typeカラムを削除
         Schema::connection('sakemaru')->table('wms_shortages', function (Blueprint $table) {

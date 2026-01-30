@@ -74,7 +74,7 @@ class ContractorForm
                             ->label('リードタイム')
                             ->options(fn () => LeadTime::get()
                                 ->mapWithKeys(fn ($lt) => [
-                                    $lt->id => "コード:{$lt->code} (日:{$lt->lead_time_sun} 月:{$lt->lead_time_mon} 火:{$lt->lead_time_tue} 水:{$lt->lead_time_wed} 木:{$lt->lead_time_thu} 金:{$lt->lead_time_fri} 土:{$lt->lead_time_sat})"
+                                    $lt->id => "コード:{$lt->code} (日:{$lt->lead_time_sun} 月:{$lt->lead_time_mon} 火:{$lt->lead_time_tue} 水:{$lt->lead_time_wed} 木:{$lt->lead_time_thu} 金:{$lt->lead_time_fri} 土:{$lt->lead_time_sat})",
                                 ])
                             )
                             ->searchable()

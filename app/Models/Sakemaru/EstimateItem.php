@@ -10,14 +10,15 @@ class EstimateItem extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
-    public function estimate() : BelongsTo
+    public function estimate(): BelongsTo
     {
         return $this->belongsTo(Estimate::class);
     }
 
-    public function item() : BelongsTo
+    public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
     }

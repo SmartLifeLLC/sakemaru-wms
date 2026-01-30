@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class ClientPrinterDriver extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'client_printer_drivers';
 
     protected $fillable = [
@@ -63,6 +64,7 @@ class ClientPrinterDriver extends Model
     {
         $name = $this->name ?? 'プリンター';
         $index = $this->printer_index ? "#{$this->printer_index}" : '';
+
         return "{$name}{$index}";
     }
 }

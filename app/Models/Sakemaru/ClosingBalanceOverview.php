@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Models\Sakemaru;
-use App\Enums\EClosingType;
+
 use App\Enums\Partners\EFraction;
 use App\Enums\TaxType;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class ClosingBalanceOverview extends CustomModel
 {
     protected $guarded = [];
+
     protected $casts = [
         'previous_balance_amount' => 'int',
         'balance_amount' => 'int',
@@ -68,17 +69,18 @@ class ClosingBalanceOverview extends CustomModel
         return $this->hasOne(RebateBill::class);
     }
 
-    public function getBill() : Bill|RebateBill|null {
+    public function getBill(): Bill|RebateBill|null
+    {
         if ($this->closing_type == ClosingBill::class) {
             return $this->bill;
-        }
-        else if ($this->closing_type == ClosingRebate::class) {
+        } elseif ($this->closing_type == ClosingRebate::class) {
             return $this->rebate_bill;
         }
+
         return null;
     }
 
-    public static function closingTable(string $closing_type) : string
+    public static function closingTable(string $closing_type): string
     {
         return match ($closing_type) {
             ClosingBill::class => 'closing_bills',
@@ -95,9 +97,9 @@ class ClosingBalanceOverview extends CustomModel
         int $ledger_classification_id = 0,
         ?int $rebate_type_id = null,
         ?string $rebate_condition_type = null,
-    ) : self|null
-    {
+    ): ?self {
         $closing_table = self::closingTable($closing_type);
+
         return self::query()
             ->leftJoin($closing_table, 'closing_balance_overviews.closing_id', '=', "{$closing_table}.id")
             ->where('closing_balance_overviews.closing_type', $closing_type)
@@ -111,10 +113,11 @@ class ClosingBalanceOverview extends CustomModel
             ->first();
     }
 
-    public function previousClosingBalance() : self|null
+    public function previousClosingBalance(): ?self
     {
-        //todo closing_dateをclosing_balance_overviewsに保存しておく
+        // todo closing_dateをclosing_balance_overviewsに保存しておく
         $closing_table = self::closingTable($this->closing_type);
+
         return self::query()
             ->leftJoin($closing_table, 'closing_balance_overviews.closing_id', '=', "{$closing_table}.id")
             ->where('closing_balance_overviews.client_id', $this->client_id)
@@ -125,7 +128,7 @@ class ClosingBalanceOverview extends CustomModel
             ->where('closing_balance_overviews.rebate_type_id', $this->rebate_type_id)
             ->where("{$closing_table}.closing_date", '<=', $this->closing->closing_date) // 選択した締日以前を取得
             ->where('closing_balance_overviews.id', '!=', $this->id)
-            ->when($closing_table == "closing_bills", function ($query) {
+            ->when($closing_table == 'closing_bills', function ($query) {
                 $query->where('closing_bills.is_tentative', false);
             })
             ->orderByDesc("{$closing_table}.closing_date")
@@ -133,12 +136,12 @@ class ClosingBalanceOverview extends CustomModel
             ->first();
     }
 
-    public function taxType() : TaxType
+    public function taxType(): TaxType
     {
         return TaxType::from($this->tax_type);
     }
 
-    public function taxFraction() : EFraction
+    public function taxFraction(): EFraction
     {
         return EFraction::from($this->tax_fraction);
     }

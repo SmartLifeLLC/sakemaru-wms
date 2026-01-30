@@ -43,6 +43,5 @@ return new class extends Migration
             $table->unsignedBigInteger('client_id')->after('id');
         });
 
-
     }
 };

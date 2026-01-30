@@ -2,12 +2,11 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-
     protected $connection = 'sakemaru'; // Specify your connection name here
 
     /**
@@ -68,11 +67,10 @@ return new class extends Migration
             $table->timestamps();
         });
 
+        if (Schema::connection('sakemaru')->hasTable('real_stocks')) {
 
-        if(Schema::connection('sakemaru')->hasTable('real_stocks')){
-
-        // Create view for available stock with WMS tracking
-        DB::connection('sakemaru')->statement("
+            // Create view for available stock with WMS tracking
+            DB::connection('sakemaru')->statement('
                 CREATE OR REPLACE VIEW wms_v_stock_available AS
                 SELECT
                     rs.id AS real_stock_id,
@@ -91,7 +89,7 @@ return new class extends Migration
                     rs.created_at
                 FROM real_stocks rs
                 LEFT JOIN wms_real_stocks wrs ON rs.id = wrs.real_stock_id
-            ");
+            ');
 
         }
 

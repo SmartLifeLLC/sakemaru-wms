@@ -6,11 +6,8 @@ use App\Enums\EMenu;
 use App\Filament\Resources\WmsPickingTasks\Pages\ExecuteWmsPickingTask;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingTasks;
 use App\Models\WmsPickingTask;
-use Filament\Support\Enums\IconSize;
-use Filament\Resources\Resource;
-use Illuminate\Support\HtmlString;
-use UnitEnum;
 use BackedEnum;
+use Filament\Resources\Resource;
 
 class WmsPickingTaskResource extends Resource
 {
@@ -19,7 +16,6 @@ class WmsPickingTaskResource extends Resource
     public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
     {
         return parent::getEloquentQuery()
-            ->where('status', '!=', 'COMPLETED')
             ->with([
                 'warehouse',
                 'floor',

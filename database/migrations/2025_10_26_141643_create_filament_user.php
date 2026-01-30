@@ -4,14 +4,16 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new
-class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
 
-        //testように生成
-        //基本はsakemaru側に存在しているはず。
-        if(Schema::connection('sakemaru')->hasTable('users')) return;
+        // testように生成
+        // 基本はsakemaru側に存在しているはず。
+        if (Schema::connection('sakemaru')->hasTable('users')) {
+            return;
+        }
         Schema::connection('sakemaru')->create('users', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('sakemaru_user_id');

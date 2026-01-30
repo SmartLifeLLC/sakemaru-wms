@@ -25,12 +25,12 @@ return new class extends Migration
         });
 
         // Step 2: 既存データのtrade_idを移行（picking_taskから取得）
-        DB::connection($connection)->statement("
+        DB::connection($connection)->statement('
             UPDATE wms_picking_item_results pir
             INNER JOIN wms_picking_tasks pt ON pir.picking_task_id = pt.id
             SET pir.trade_id = pt.trade_id
             WHERE pir.trade_id IS NULL AND pt.trade_id IS NOT NULL
-        ");
+        ');
 
         // Step 3: trade_idをNOT NULLに変更
         Schema::connection($connection)->table('wms_picking_item_results', function (Blueprint $table) {
@@ -44,8 +44,8 @@ return new class extends Migration
         });
 
         // Step 5: 既存データのfloor_idを推測して設定（最初のアイテムのロケーションから）
-        if(Schema::connection($connection)->hasTable('locations')){
-            DB::connection($connection)->statement("
+        if (Schema::connection($connection)->hasTable('locations')) {
+            DB::connection($connection)->statement('
                 UPDATE wms_picking_tasks pt
                 INNER JOIN (
                     SELECT pir.picking_task_id, l.floor_id
@@ -55,7 +55,7 @@ return new class extends Migration
                 ) first_item ON pt.id = first_item.picking_task_id
                 SET pt.floor_id = first_item.floor_id
                 WHERE pt.floor_id IS NULL
-            ");
+            ');
         }
 
         // Step 6: wms_picking_tasksからtrade_idを削除
@@ -77,7 +77,7 @@ return new class extends Migration
         });
 
         // データを復元（picking_item_resultsから最初のtrade_idを取得）
-        DB::connection($connection)->statement("
+        DB::connection($connection)->statement('
             UPDATE wms_picking_tasks pt
             INNER JOIN (
                 SELECT picking_task_id, MIN(trade_id) as trade_id
@@ -85,7 +85,7 @@ return new class extends Migration
                 GROUP BY picking_task_id
             ) first_item ON pt.id = first_item.picking_task_id
             SET pt.trade_id = first_item.trade_id
-        ");
+        ');
 
         // Reverse Step 4: wms_picking_tasksからfloor_idを削除
         Schema::connection($connection)->table('wms_picking_tasks', function (Blueprint $table) {

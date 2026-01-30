@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\Contractor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -15,6 +17,7 @@ class WmsOrderJxSetting extends WmsModel
 
     protected $fillable = [
         'name',
+        'contractor_id',
         'van_center',
         'jx_client_id',
         'server_id',
@@ -73,5 +76,23 @@ class WmsOrderJxSetting extends WmsModel
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * 発注先
+     */
+    public function contractor(): BelongsTo
+    {
+        return $this->belongsTo(Contractor::class);
+    }
+
+    /**
+     * 発注先IDからJX設定を取得
+     */
+    public static function findByContractorId(int $contractorId): ?self
+    {
+        return self::where('contractor_id', $contractorId)
+            ->where('is_active', true)
+            ->first();
     }
 }

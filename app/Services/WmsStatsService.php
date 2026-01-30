@@ -13,10 +13,7 @@ class WmsStatsService
      * 指定日付・倉庫の統計データを取得または更新
      * 30分ルール: 最終集計から30分未満なら既存データを返す
      *
-     * @param Carbon $date
-     * @param int $warehouseId
-     * @param bool $forceUpdate 強制更新フラグ
-     * @return WmsDailyStat
+     * @param  bool  $forceUpdate  強制更新フラグ
      */
     public function getOrUpdateDailyStats(Carbon $date, int $warehouseId, bool $forceUpdate = false): WmsDailyStat
     {
@@ -25,7 +22,7 @@ class WmsStatsService
             ->first();
 
         // データが存在しない、または30分以上経過している、または強制更新の場合は再集計
-        if (!$stat || $stat->isStale(30) || $forceUpdate) {
+        if (! $stat || $stat->isStale(30) || $forceUpdate) {
             return $this->calculate($date, $warehouseId);
         }
 
@@ -34,10 +31,6 @@ class WmsStatsService
 
     /**
      * 指定日付・倉庫の統計データを集計して保存
-     *
-     * @param Carbon $date
-     * @param int $warehouseId
-     * @return WmsDailyStat
      */
     public function calculate(Carbon $date, int $warehouseId): WmsDailyStat
     {
@@ -77,7 +70,7 @@ class WmsStatsService
 
             DB::connection('sakemaru')->commit();
 
-            Log::info("WMS Daily Stats calculated", [
+            Log::info('WMS Daily Stats calculated', [
                 'warehouse_id' => $warehouseId,
                 'target_date' => $dateStr,
                 'stats_id' => $stat->id,
@@ -86,7 +79,7 @@ class WmsStatsService
             return $stat;
         } catch (\Exception $e) {
             DB::connection('sakemaru')->rollBack();
-            Log::error("Failed to calculate WMS Daily Stats", [
+            Log::error('Failed to calculate WMS Daily Stats', [
                 'warehouse_id' => $warehouseId,
                 'target_date' => $dateStr,
                 'error' => $e->getMessage(),
@@ -97,10 +90,6 @@ class WmsStatsService
 
     /**
      * 基本統計（伝票数、商品数等）を集計
-     *
-     * @param string $dateStr
-     * @param int $warehouseId
-     * @return array
      */
     private function calculateBasicStats(string $dateStr, int $warehouseId): array
     {
@@ -147,10 +136,6 @@ class WmsStatsService
 
     /**
      * 欠品統計を集計
-     *
-     * @param string $dateStr
-     * @param int $warehouseId
-     * @return array
      */
     private function calculateShortageStats(string $dateStr, int $warehouseId): array
     {
@@ -176,10 +161,6 @@ class WmsStatsService
 
     /**
      * 金額関連統計を集計
-     *
-     * @param string $dateStr
-     * @param int $warehouseId
-     * @return array
      */
     private function calculateAmountStats(string $dateStr, int $warehouseId): array
     {
@@ -219,10 +200,6 @@ class WmsStatsService
 
     /**
      * カテゴリ別内訳を集計
-     *
-     * @param string $dateStr
-     * @param int $warehouseId
-     * @return array
      */
     private function calculateCategoryBreakdown(string $dateStr, int $warehouseId): array
     {
@@ -285,8 +262,7 @@ class WmsStatsService
     /**
      * 複数倉庫の統計を一括で更新
      *
-     * @param Carbon $date
-     * @param array|null $warehouseIds nullの場合は全倉庫
+     * @param  array|null  $warehouseIds  nullの場合は全倉庫
      * @return int 更新した倉庫数
      */
     public function bulkCalculate(Carbon $date, ?array $warehouseIds = null): int
@@ -306,7 +282,7 @@ class WmsStatsService
                 $this->calculate($date, $warehouseId);
                 $successCount++;
             } catch (\Exception $e) {
-                Log::error("Failed to calculate stats for warehouse", [
+                Log::error('Failed to calculate stats for warehouse', [
                     'warehouse_id' => $warehouseId,
                     'date' => $date->format('Y-m-d'),
                     'error' => $e->getMessage(),

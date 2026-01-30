@@ -3,8 +3,6 @@
 namespace App\Filament\Resources\Waves;
 
 use App\Enums\EMenu;
-use App\Filament\Resources\Waves\Pages\CreateWave;
-use App\Filament\Resources\Waves\Pages\EditWave;
 use App\Filament\Resources\Waves\Pages\ListWaves;
 use App\Filament\Resources\Waves\Schemas\WaveForm;
 use App\Filament\Resources\Waves\Tables\WavesTable;
@@ -38,6 +36,16 @@ class WaveResource extends Resource
         return EMenu::WAVES->sort();
     }
 
+    public static function getModelLabel(): string
+    {
+        return '波動';
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return '波動管理';
+    }
+
     public static function form(Schema $schema): Schema
     {
         return WaveForm::configure($schema);
@@ -59,8 +67,6 @@ class WaveResource extends Resource
     {
         return [
             'index' => ListWaves::route('/'),
-            'create' => CreateWave::route('/create'),
-            'edit' => EditWave::route('/{record}/edit'),
         ];
     }
 }

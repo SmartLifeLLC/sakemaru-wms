@@ -5,7 +5,9 @@ namespace App\Models;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\QuantityType;
+use App\Models\Concerns\HasOptimisticLock;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,17 +18,36 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class WmsOrderCandidate extends WmsModel
 {
+    use HasOptimisticLock;
+
     protected $table = 'wms_order_candidates';
+
+    /**
+     * 手動でセットされた計算ログ（N+1対策）
+     */
+    protected ?WmsOrderCalculationLog $preloadedCalculationLog = null;
+
+    protected bool $calculationLogPreloaded = false;
 
     protected $fillable = [
         'batch_code',
         'warehouse_id',
         'item_id',
         'contractor_id',
+        'delivery_course_id',
+        'ordering_code',
         'self_shortage_qty',
         'satellite_demand_qty',
+        'incoming_quantity_override',
+        'demand_breakdown',
+        'origin_warehouse_ids',
         'suggested_quantity',
         'order_quantity',
+        'current_effective_stock',
+        'incoming_quantity',
+        'safety_stock',
+        'calculated_shortage_qty',
+        'purchase_unit',
         'quantity_type',
         'expected_arrival_date',
         'original_arrival_date',
@@ -45,6 +66,7 @@ class WmsOrderCandidate extends WmsModel
         'transmission_status',
         'transmitted_at',
         'wms_order_jx_document_id',
+        'lock_version',
     ];
 
     protected $casts = [
@@ -57,6 +79,12 @@ class WmsOrderCandidate extends WmsModel
         'quantity_type' => QuantityType::class,
         'is_manually_modified' => 'boolean',
         'lot_fee_amount' => 'decimal:2',
+        'demand_breakdown' => 'array',
+        'current_effective_stock' => 'integer',
+        'incoming_quantity' => 'integer',
+        'safety_stock' => 'integer',
+        'calculated_shortage_qty' => 'integer',
+        'purchase_unit' => 'integer',
     ];
 
     public function warehouse(): BelongsTo
@@ -72,6 +100,174 @@ class WmsOrderCandidate extends WmsModel
     public function contractor(): BelongsTo
     {
         return $this->belongsTo(Contractor::class);
+    }
+
+    public function deliveryCourse(): BelongsTo
+    {
+        return $this->belongsTo(DeliveryCourse::class);
+    }
+
+    /**
+     * 計算ログを事前にセット（N+1対策）
+     */
+    public function setPreloadedCalculationLog(?WmsOrderCalculationLog $log): self
+    {
+        $this->preloadedCalculationLog = $log;
+        $this->calculationLogPreloaded = true;
+
+        return $this;
+    }
+
+    /**
+     * 計算ログを取得（プリロード済みの場合はキャッシュを使用）
+     */
+    public function getCalculationLogAttribute(): ?WmsOrderCalculationLog
+    {
+        // プリロード済みの場合はキャッシュを返す
+        if ($this->calculationLogPreloaded) {
+            return $this->preloadedCalculationLog;
+        }
+
+        // プリロードされていない場合はクエリを実行
+        return WmsOrderCalculationLog::where('batch_code', $this->batch_code)
+            ->where('warehouse_id', $this->warehouse_id)
+            ->where('item_id', $this->item_id)
+            ->first();
+    }
+
+    /**
+     * コレクションに対して計算ログを一括プリロード
+     *
+     * @param  \Illuminate\Database\Eloquent\Collection<int, self>  $candidates
+     */
+    public static function preloadCalculationLogs($candidates): void
+    {
+        if ($candidates->isEmpty()) {
+            return;
+        }
+
+        // 単一クエリで全ての計算ログを取得（複合インデックス idx_batch_warehouse_item を使用）
+        // (batch_code, warehouse_id, item_id) のタプルでフィルタ
+        $tuples = $candidates->map(fn ($c) => [
+            $c->batch_code,
+            $c->warehouse_id,
+            $c->item_id,
+        ])->unique()->values();
+
+        // WHERE (batch_code, warehouse_id, item_id) IN ((...), (...), ...) 形式
+        $logs = WmsOrderCalculationLog::whereRaw(
+            '(batch_code, warehouse_id, item_id) IN ('.
+            $tuples->map(fn () => '(?, ?, ?)')->implode(', ').')',
+            $tuples->flatten()->toArray()
+        )->get();
+
+        // キーでインデックス化
+        $logsIndexed = $logs->keyBy(fn ($log) => "{$log->batch_code}_{$log->warehouse_id}_{$log->item_id}");
+
+        // 各候補にログをセット
+        $candidates->each(function ($candidate) use ($logsIndexed) {
+            $key = "{$candidate->batch_code}_{$candidate->warehouse_id}_{$candidate->item_id}";
+            $candidate->setPreloadedCalculationLog($logsIndexed->get($key));
+        });
+    }
+
+    /**
+     * 現在庫（有効在庫）を取得
+     * 直接カラムから取得、なければcalculationLogにフォールバック
+     */
+    public function getCurrentStockAttribute(): ?int
+    {
+        // 直接カラムがあればそちらを使用
+        if ($this->attributes['current_effective_stock'] ?? null !== null) {
+            return $this->attributes['current_effective_stock'];
+        }
+
+        return $this->calculationLog?->current_effective_stock;
+    }
+
+    /**
+     * 入庫予定数を取得（オーバーライドがあればそちらを使用）
+     * 直接カラムから取得、なければcalculationLogにフォールバック
+     */
+    public function getEffectiveIncomingQuantityAttribute(): ?int
+    {
+        // オーバーライドが設定されていればそちらを使用
+        if ($this->incoming_quantity_override !== null) {
+            return $this->incoming_quantity_override;
+        }
+
+        // 直接カラムがあればそちらを使用
+        if (($this->attributes['incoming_quantity'] ?? null) !== null) {
+            return $this->attributes['incoming_quantity'];
+        }
+
+        return $this->calculationLog?->incoming_quantity;
+    }
+
+    /**
+     * 元の入庫予定数を取得
+     * 直接カラムから取得、なければcalculationLogにフォールバック
+     */
+    public function getOriginalIncomingQuantityAttribute(): ?int
+    {
+        // 直接カラムがあればそちらを使用
+        if (($this->attributes['incoming_quantity'] ?? null) !== null) {
+            return $this->attributes['incoming_quantity'];
+        }
+
+        return $this->calculationLog?->incoming_quantity;
+    }
+
+    /**
+     * 計算後在庫（利用可能在庫）を取得
+     * オーバーライドがある場合は再計算
+     */
+    public function getCalculatedAvailableAttribute(): ?int
+    {
+        // オーバーライドがある場合は再計算
+        if ($this->incoming_quantity_override !== null) {
+            $currentStock = $this->current_stock ?? 0;
+            $incomingQty = $this->incoming_quantity_override;
+
+            return $currentStock + $incomingQty;
+        }
+
+        // 直接カラムから計算
+        $currentStock = $this->attributes['current_effective_stock'] ?? null;
+        $incomingQty = $this->attributes['incoming_quantity'] ?? null;
+        if ($currentStock !== null && $incomingQty !== null) {
+            return $currentStock + $incomingQty;
+        }
+
+        return $this->calculationLog?->calculation_details['利用可能在庫'] ?? null;
+    }
+
+    /**
+     * 発注点（安全在庫）を取得
+     * 直接カラムから取得、なければcalculationLogにフォールバック
+     */
+    public function getEffectiveSafetyStockAttribute(): ?int
+    {
+        // 直接カラムがあればそちらを使用
+        if (($this->attributes['safety_stock'] ?? null) !== null) {
+            return $this->attributes['safety_stock'];
+        }
+
+        return $this->calculationLog?->calculation_details['安全在庫'] ?? null;
+    }
+
+    /**
+     * 不足数を取得
+     * 直接カラムから取得、なければcalculationLogにフォールバック
+     */
+    public function getShortageQtyAttribute(): ?int
+    {
+        // 直接カラムがあればそちらを使用
+        if (($this->attributes['calculated_shortage_qty'] ?? null) !== null) {
+            return $this->attributes['calculated_shortage_qty'];
+        }
+
+        return $this->calculationLog?->calculated_shortage_qty;
     }
 
     public function scopeForBatch(Builder $query, string $batchCode): Builder

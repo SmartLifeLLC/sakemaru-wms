@@ -10,6 +10,7 @@ class OrderSuggestionItem extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     public function item(): BelongsTo

@@ -1,9 +1,7 @@
 <?php
 
-
 namespace App\Enums\Partners;
 
-use App\Enums\TaxRate;
 use App\Traits\EnumExtensionTrait;
 
 enum ETradeDirection: string
@@ -15,7 +13,6 @@ enum ETradeDirection: string
     case SPONSOR = 'SPONSOR';
     case INVENTORY = 'INVENTORY';
     case ITEM_SET = 'ITEM_SET';
-
 
     public function name(): string
     {
@@ -42,13 +39,13 @@ enum ETradeDirection: string
     public function getIsShowsMinusMark(): string
     {
         return match ($this) {
-            self::NORMAL, self::SPONSOR => "0",
-            self::RETURN => "1",self::INVENTORY => "0",
-            self::ITEM_SET => "0",
+            self::NORMAL, self::SPONSOR => '0',
+            self::RETURN => '1',self::INVENTORY => '0',
+            self::ITEM_SET => '0',
         };
     }
 
-    public static function fromBool(bool $is_returned) : self
+    public static function fromBool(bool $is_returned): self
     {
         return $is_returned ? self::RETURN : self::NORMAL;
     }

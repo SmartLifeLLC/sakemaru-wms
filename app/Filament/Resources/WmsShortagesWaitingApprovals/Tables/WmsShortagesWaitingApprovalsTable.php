@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsShortagesWaitingApprovals\Tables;
 
 use App\Actions\Wms\ConfirmShortageAllocations;
+use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
@@ -19,14 +20,11 @@ use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use App\Enums\PaginationOptions;
-
 
 class WmsShortagesWaitingApprovalsTable
 {
@@ -46,8 +44,8 @@ class WmsShortagesWaitingApprovalsTable
                 TextColumn::make('is_confirmed')
                     ->label('承認')
                     ->badge()
-                    ->formatStateUsing(fn(bool $state): string => $state ? '承認済み' : '未承認')
-                    ->color(fn(bool $state): string => $state ? 'success' : 'gray')
+                    ->formatStateUsing(fn (bool $state): string => $state ? '承認済み' : '未承認')
+                    ->color(fn (bool $state): string => $state ? 'success' : 'gray')
                     ->alignment('center'),
 
                 TextColumn::make('confirmedBy.name')
@@ -65,14 +63,14 @@ class WmsShortagesWaitingApprovalsTable
                 TextColumn::make('status')
                     ->label('ステータス')
                     ->badge()
-                    ->color(fn(?string $state): string => match ($state) {
+                    ->color(fn (?string $state): string => match ($state) {
                         'BEFORE' => 'danger',
                         'REALLOCATING' => 'warning',
                         'SHORTAGE' => 'info',
                         'PARTIAL_SHORTAGE' => 'warning',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn(?string $state): string => match ($state) {
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
                         'BEFORE' => '未対応',
                         'REALLOCATING' => '横持ち出荷',
                         'SHORTAGE' => '欠品確定',
@@ -197,7 +195,7 @@ class WmsShortagesWaitingApprovalsTable
                 SelectFilter::make('trade.partner_id')
                     ->label('得意先')
                     ->query(function ($query, $data) {
-                        if (!empty($data['value'])) {
+                        if (! empty($data['value'])) {
                             $query->whereHas('trade', function ($q) use ($data) {
                                 $q->where('partner_id', $data['value']);
                             });
@@ -211,7 +209,7 @@ class WmsShortagesWaitingApprovalsTable
                     ->label('欠品編集')
                     ->icon('heroicon-o-truck')
                     ->color('warning')
-                    ->hidden(fn(WmsShortage $record) => $record->is_confirmed)
+                    ->hidden(fn (WmsShortage $record) => $record->is_confirmed)
                     ->modalHeading('欠品対応')
                     ->modalSubmitActionLabel('保存')
                     ->fillForm(function (WmsShortage $record): array {
@@ -267,12 +265,12 @@ class WmsShortagesWaitingApprovalsTable
                                 })->toArray();
 
                                 $qtyType = QuantityType::tryFrom($record->qty_type_at_order);
-                                
+
                                 // 容量
                                 $volumeValue = '-';
                                 if ($record->item->volume) {
                                     $unit = \App\Enums\EVolumeUnit::tryFrom($record->item->volume_unit);
-                                    $volumeValue = $record->item->volume . ($unit ? $unit->name() : '');
+                                    $volumeValue = $record->item->volume.($unit ? $unit->name() : '');
                                 }
 
                                 // 欠品内訳
@@ -294,13 +292,13 @@ class WmsShortagesWaitingApprovalsTable
                                     // Info Table Data
                                     'item_code' => $record->item->code ?? '-',
                                     'item_name' => $record->item->name ?? '-',
-                                    'capacity_case' => $record->item->capacity_case ? (string)$record->item->capacity_case : '-',
+                                    'capacity_case' => $record->item->capacity_case ? (string) $record->item->capacity_case : '-',
                                     'volume_value' => $volumeValue,
                                     'partner_code' => $record->trade->partner->code ?? '-',
                                     'partner_name' => $record->trade->partner->name ?? '-',
                                     'warehouse_name' => $record->warehouse->name ?? '-',
-                                    'order_qty' => (string)$record->order_qty,
-                                    'picked_qty' => (string)$record->picked_qty,
+                                    'order_qty' => (string) $record->order_qty,
+                                    'picked_qty' => (string) $record->picked_qty,
                                     'shortage_details' => $shortageDetailsValue,
                                 ];
                             })
@@ -325,13 +323,14 @@ class WmsShortagesWaitingApprovalsTable
                             ->rules([
                                 function (WmsShortage $record) {
                                     return function (string $attribute, $value, \Closure $fail) use ($record) {
-                                        if (!is_array($value)) {
+                                        if (! is_array($value)) {
                                             return;
                                         }
 
                                         $totalAllocated = collect($value)->sum(function ($item) {
                                             $qty = $item['assign_qty'] ?? 0;
-                                            return is_numeric($qty) ? (int)$qty : 0;
+
+                                            return is_numeric($qty) ? (int) $qty : 0;
                                         });
 
                                         if ($totalAllocated > $record->shortage_qty) {
@@ -364,18 +363,19 @@ class WmsShortagesWaitingApprovalsTable
                         foreach ($data['allocations'] as $allocation) {
                             // 数量が0の場合は削除
                             if (isset($allocation['assign_qty']) && $allocation['assign_qty'] == 0) {
-                                if (!empty($allocation['id'])) {
+                                if (! empty($allocation['id'])) {
                                     $existingAllocation = WmsShortageAllocation::find($allocation['id']);
                                     if ($existingAllocation) {
                                         $service->deleteProxyShipment($existingAllocation);
                                         $deletedCount++;
                                     }
                                 }
+
                                 continue;
                             }
 
                             // 既存のレコードを更新または新規作成
-                            if (!empty($allocation['id'])) {
+                            if (! empty($allocation['id'])) {
                                 // 更新
                                 $existingAllocation = WmsShortageAllocation::find($allocation['id']);
                                 if ($existingAllocation) {
@@ -414,7 +414,7 @@ class WmsShortagesWaitingApprovalsTable
 
                         Notification::make()
                             ->title('保存しました')
-                            ->body('欠品対応を更新しました' . ($deletedCount > 0 ? "（{$deletedCount}件削除）" : ''))
+                            ->body('欠品対応を更新しました'.($deletedCount > 0 ? "（{$deletedCount}件削除）" : ''))
                             ->success()
                             ->send();
                     }),
@@ -424,7 +424,7 @@ class WmsShortagesWaitingApprovalsTable
                     ->label('詳細')
                     ->icon('heroicon-o-eye')
                     ->color('info')
-                    ->visible(fn(WmsShortage $record) => $record->is_confirmed)
+                    ->visible(fn (WmsShortage $record) => $record->is_confirmed)
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->schema([
@@ -435,11 +435,11 @@ class WmsShortagesWaitingApprovalsTable
                                         $volumeValue = '-';
                                         if ($record->item->volume) {
                                             $unit = \App\Enums\EVolumeUnit::tryFrom($record->item->volume_unit);
-                                            $volumeValue = $record->item->volume . ($unit ? $unit->name() : '');
+                                            $volumeValue = $record->item->volume.($unit ? $unit->name() : '');
                                         }
 
-                                        $orderQtyValue = (string)$record->order_qty;
-                                        $plannedQtyValue = (string)$record->picked_qty;
+                                        $orderQtyValue = (string) $record->order_qty;
+                                        $plannedQtyValue = (string) $record->picked_qty;
 
                                         $shortageDetailsParts = [];
                                         if ($record->allocation_shortage_qty > 0) {
@@ -451,16 +451,16 @@ class WmsShortagesWaitingApprovalsTable
                                         $shortageDetailsValue = implode(' / ', $shortageDetailsParts);
 
                                         $shortageQtyValue = $record->shortage_qty > 0
-                                            ? (string)$record->shortage_qty
+                                            ? (string) $record->shortage_qty
                                             : '-';
 
                                         $allocatedQtyValue = ($record->allocations_total_qty ?? 0) > 0
-                                            ? (string)($record->allocations_total_qty ?? 0)
+                                            ? (string) ($record->allocations_total_qty ?? 0)
                                             : '-';
 
                                         $remainingQty = $record->remaining_qty;
                                         $remainingValue = $remainingQty > 0
-                                            ? (string)$remainingQty
+                                            ? (string) $remainingQty
                                             : '-';
 
                                         return [
@@ -476,7 +476,7 @@ class WmsShortagesWaitingApprovalsTable
                                                 [
                                                     'label' => '入り数',
                                                     'value' => $record->item->capacity_case
-                                                        ? (string)$record->item->capacity_case
+                                                        ? (string) $record->item->capacity_case
                                                         : '-',
                                                 ],
                                                 [
@@ -548,7 +548,7 @@ class WmsShortagesWaitingApprovalsTable
                                         TextInput::make('qty_type')
                                             ->label('単位')
                                             ->disabled()
-                                            ->formatStateUsing(fn($state) => QuantityType::tryFrom($state)?->name() ?? $state),
+                                            ->formatStateUsing(fn ($state) => QuantityType::tryFrom($state)?->name() ?? $state),
                                     ])
                                     ->columns(3)
                                     ->defaultItems(0),
@@ -560,7 +560,7 @@ class WmsShortagesWaitingApprovalsTable
                     ->label('承認')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn(WmsShortage $record) => !$record->is_confirmed)
+                    ->visible(fn (WmsShortage $record) => ! $record->is_confirmed)
                     ->requiresConfirmation()
                     ->modalHeading('欠品対応を承認しますか？')
                     ->modalDescription('この欠品の横持ち出荷指示を承認します。')
@@ -630,6 +630,7 @@ class WmsShortagesWaitingApprovalsTable
                                 // BEFOREまたは既に確定済みの場合はスキップ
                                 if ($shortage->status === WmsShortage::STATUS_BEFORE || $shortage->is_confirmed) {
                                     $skipped++;
+
                                     continue;
                                 }
 

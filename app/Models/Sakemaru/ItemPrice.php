@@ -2,7 +2,6 @@
 
 namespace App\Models\Sakemaru;
 
-use App\Enums\EAutofillPriceType;
 use App\Enums\EItemTaxType;
 use App\Enums\EPurchasePriceType;
 use App\Enums\Partners\EContainerTradeType;
@@ -19,15 +18,16 @@ class ItemPrice extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
-    public function item() : BelongsTo
+    public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
     }
 
     // todo 削除予定 Item.phpのcurrent_priceを推奨
-    public static function currentData(int $item_id) : ?ItemPrice
+    public static function currentData(int $item_id): ?ItemPrice
     {
         return self::where('item_id', $item_id)
             ->whereDate('start_date', '<=', TimeZone::TOKYO->now()->toDateString())
@@ -40,7 +40,7 @@ class ItemPrice extends CustomModel
         // 通常価格 (本体価格＋保証非課税)
         if ($is_cost_price) {
             $price = $this->costPriceForQuantityType($quantity_type);
-        } else if ($is_purchase_price) {
+        } elseif ($is_purchase_price) {
             $price = $this->purchasePriceForQuantityType($quantity_type);
         } else {
             $price = $this->salePriceForQuantityType($quantity_type);
@@ -55,10 +55,14 @@ class ItemPrice extends CustomModel
         $base_price = abs($price) > 0 ? $price - $tax_exempt_price : 0;     // 本体価格
 
         // 取引先情報
-        if(is_null($partner)) { return $price; }     // 取引先が指定されていない
+        if (is_null($partner)) {
+            return $price;
+        }     // 取引先が指定されていない
         $detail = $partner->getDetail();
 
-        if(is_null($detail)) { return $price; }     // 該当する取引先情報がない
+        if (is_null($detail)) {
+            return $price;
+        }     // 該当する取引先情報がない
         $container_trade_type = EContainerTradeType::tryFrom($detail->container_trade_type);        // 中身区分(通常売/中身売)
         $container_fee = match ($container_trade_type) {       // 容器価格
             EContainerTradeType::NORMAL => $tax_exempt_price,
@@ -68,14 +72,14 @@ class ItemPrice extends CustomModel
 
         $item_tax_type = EItemTaxType::tryFrom($item_price?->type)?->taxType(); // 商品の税区分
         $partner_tax_type = TaxType::tryFrom($detail->display_tax_type); // 取引先の税額表示
-        if(is_null($item_tax_type) || $item_tax_type->isSameAs($partner_tax_type)) {
+        if (is_null($item_tax_type) || $item_tax_type->isSameAs($partner_tax_type)) {
             // 商品の税区分と取引先の税区分が一致 or 商品に税区分の指定がない
             return number_format($base_price + $container_fee, 2, '.', '');
         } else {
             // 商品の税区分と取引先の税区分が不一致 → 再計算
             $tax_rate = $item_price->taxRate();
 
-            if(TaxType::PRE_TAX->isSameAs($partner_tax_type)) {
+            if (TaxType::PRE_TAX->isSameAs($partner_tax_type)) {
                 // 外税 → 内税
                 return number_format((($base_price * (100 + $tax_rate->percent())) / 100) + $container_fee, 2, '.', '');
             } else {
@@ -143,14 +147,15 @@ class ItemPrice extends CustomModel
             QuantityType::CASE => $this->cost_case_price,
         };
     }
+
     public function taxExemptPriceForQuantityType(QuantityType $quantity_type, EContainerTradeType|string|null $container_trade_type = null, bool $is_container_pickup = false): ?string
     {
-        if(!is_null($container_trade_type)) {
-            if(is_string($container_trade_type)) {
+        if (! is_null($container_trade_type)) {
+            if (is_string($container_trade_type)) {
                 $container_trade_type = EContainerTradeType::tryFrom($container_trade_type);
             }
             $excludes_exempt_price = $container_trade_type->isContentsOnly($is_container_pickup);
-            if($excludes_exempt_price) {
+            if ($excludes_exempt_price) {
                 return 0;
             }
         }
@@ -162,9 +167,13 @@ class ItemPrice extends CustomModel
         };
     }
 
-    public function taxRate(): ?TaxRate {
-        $item_tax_rate= EItemTaxType::tryFrom($this->type);
-        if(is_null($item_tax_rate)) { return null; }
+    public function taxRate(): ?TaxRate
+    {
+        $item_tax_rate = EItemTaxType::tryFrom($this->type);
+        if (is_null($item_tax_rate)) {
+            return null;
+        }
+
         return match ($item_tax_rate) {
             EItemTaxType::EXEMPT => TaxRate::EXEMPT,
             EItemTaxType::PRE_TAX_PERCENT_10,
@@ -186,13 +195,12 @@ class ItemPrice extends CustomModel
 
     public function calculateContainerPrice(bool $is_subtract = false): array
     {
-        $calculate = function ($price, $tax_exempt_price, $is_subtract)
-        {
-            if(!(abs($price) > 0)) {
+        $calculate = function ($price, $tax_exempt_price, $is_subtract) {
+            if (! (abs($price) > 0)) {
                 return $price;
             }
 
-            if($is_subtract) {
+            if ($is_subtract) {
                 $ret = $price - $tax_exempt_price;
             } else {
                 $ret = $price + $tax_exempt_price;

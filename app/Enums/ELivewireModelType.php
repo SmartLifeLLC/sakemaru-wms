@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -17,8 +15,7 @@ enum ELivewireModelType: string
     case DEFER = 'DEFER';
     case LAZY = 'LAZY';
 
-
-    public function attribute() : string
+    public function attribute(): string
     {
         return match ($this) {
             self::LIVE => 'wire:model.live',
@@ -27,5 +24,4 @@ enum ELivewireModelType: string
             self::DEFER => 'wire:model',
         };
     }
-
 }

@@ -3,33 +3,37 @@
 namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Enums\AutoOrder\OrderSource;
 use App\Models\WmsOrderIncomingSchedule;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 /**
  * 入庫確定サービス
  *
  * 入庫予定の確定処理と仕入れデータ作成
+ * TRANSFER タイプの場合は stock_transfer_queue (action_type=DELIVER) を作成
  */
 class IncomingConfirmationService
 {
     /**
      * 入庫予定を確定し、仕入れデータ作成キューに登録
      *
-     * @param WmsOrderIncomingSchedule $schedule 入庫予定
-     * @param int $confirmedBy 確定者ID
-     * @param int|null $receivedQuantity 実際の入庫数量（nullの場合は予定数量）
-     * @param string|null $actualDate 実際の入庫日（nullの場合は本日）
-     * @return WmsOrderIncomingSchedule
+     * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
+     * @param  int  $confirmedBy  確定者ID
+     * @param  int|null  $receivedQuantity  実際の入庫数量（nullの場合は予定数量）
+     * @param  string|null  $actualDate  実際の入庫日（nullの場合は本日）
+     * @param  string|null  $expirationDate  賞味期限（任意）
+     * @param  int|null  $locationId  入庫ロケーションID（任意）
      */
     public function confirmIncoming(
         WmsOrderIncomingSchedule $schedule,
         int $confirmedBy,
         ?int $receivedQuantity = null,
-        ?string $actualDate = null
+        ?string $actualDate = null,
+        ?string $expirationDate = null,
+        ?int $locationId = null
     ): WmsOrderIncomingSchedule {
         if ($schedule->status === IncomingScheduleStatus::CONFIRMED) {
             throw new \RuntimeException("Schedule {$schedule->id} is already confirmed");
@@ -42,29 +46,39 @@ class IncomingConfirmationService
         $receivedQuantity = $receivedQuantity ?? $schedule->expected_quantity;
         $actualDate = $actualDate ?? now()->format('Y-m-d');
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate) {
-            // 1. 入庫予定を更新
-            $schedule->update([
+        return DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate, $expirationDate, $locationId) {
+            // 入庫予定を更新（仕入れ連携は別途行う）
+            $updateData = [
                 'received_quantity' => $receivedQuantity,
                 'actual_arrival_date' => $actualDate,
                 'status' => IncomingScheduleStatus::CONFIRMED,
                 'confirmed_at' => now(),
                 'confirmed_by' => $confirmedBy,
-            ]);
+            ];
 
-            // 2. 仕入れデータ作成キューに登録
-            $queueId = $this->createPurchaseQueue($schedule, $actualDate);
+            // 賞味期限が指定された場合のみ更新
+            if ($expirationDate !== null) {
+                $updateData['expiration_date'] = $expirationDate;
+            }
 
-            // 3. キューIDを記録
-            $schedule->update([
-                'purchase_queue_id' => $queueId,
-            ]);
+            // ロケーションが指定された場合のみ更新
+            if ($locationId !== null) {
+                $updateData['location_id'] = $locationId;
+            }
 
-            Log::info('Incoming confirmed and purchase queue created', [
+            $schedule->update($updateData);
+
+            // TRANSFER タイプの場合、納品確定キューを作成
+            if ($schedule->order_source === OrderSource::TRANSFER) {
+                $this->createDeliverQueue($schedule, $receivedQuantity);
+            }
+
+            Log::info('Incoming confirmed', [
                 'schedule_id' => $schedule->id,
                 'received_quantity' => $receivedQuantity,
                 'actual_date' => $actualDate,
-                'purchase_queue_id' => $queueId,
+                'expiration_date' => $expirationDate,
+                'order_source' => $schedule->order_source->value,
             ]);
 
             return $schedule->fresh();
@@ -74,17 +88,20 @@ class IncomingConfirmationService
     /**
      * 一部入庫を記録
      *
-     * @param WmsOrderIncomingSchedule $schedule 入庫予定
-     * @param int $receivedQuantity 入庫数量
-     * @param int $confirmedBy 確定者ID
-     * @param string|null $actualDate 入庫日
-     * @return WmsOrderIncomingSchedule
+     * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
+     * @param  int  $receivedQuantity  入庫数量
+     * @param  int  $confirmedBy  確定者ID
+     * @param  string|null  $actualDate  入庫日
+     * @param  string|null  $expirationDate  賞味期限（任意）
+     * @param  int|null  $locationId  入庫ロケーションID（任意）
      */
     public function recordPartialIncoming(
         WmsOrderIncomingSchedule $schedule,
         int $receivedQuantity,
         int $confirmedBy,
-        ?string $actualDate = null
+        ?string $actualDate = null,
+        ?string $expirationDate = null,
+        ?int $locationId = null
     ): WmsOrderIncomingSchedule {
         if ($schedule->status === IncomingScheduleStatus::CONFIRMED) {
             throw new \RuntimeException("Schedule {$schedule->id} is already fully confirmed");
@@ -97,24 +114,33 @@ class IncomingConfirmationService
         $actualDate = $actualDate ?? now()->format('Y-m-d');
         $newReceivedQty = $schedule->received_quantity + $receivedQuantity;
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $newReceivedQty, $receivedQuantity, $confirmedBy, $actualDate) {
+        return DB::connection('sakemaru')->transaction(function () use ($schedule, $newReceivedQty, $receivedQuantity, $confirmedBy, $actualDate, $expirationDate, $locationId) {
             // ステータス判定
             $status = IncomingScheduleStatus::PARTIAL;
             if ($newReceivedQty >= $schedule->expected_quantity) {
                 $status = IncomingScheduleStatus::CONFIRMED;
             }
 
-            // 入庫予定を更新
-            $schedule->update([
+            // 入庫予定を更新（仕入れ連携は別途行う）
+            $updateData = [
                 'received_quantity' => $newReceivedQty,
                 'actual_arrival_date' => $actualDate,
                 'status' => $status,
                 'confirmed_at' => $status === IncomingScheduleStatus::CONFIRMED ? now() : null,
                 'confirmed_by' => $status === IncomingScheduleStatus::CONFIRMED ? $confirmedBy : null,
-            ]);
+            ];
 
-            // 仕入れデータ作成キューに登録（一部入庫分）
-            $queueId = $this->createPurchaseQueueForPartial($schedule, $receivedQuantity, $actualDate);
+            // 賞味期限が指定された場合のみ更新
+            if ($expirationDate !== null) {
+                $updateData['expiration_date'] = $expirationDate;
+            }
+
+            // ロケーションが指定された場合のみ更新
+            if ($locationId !== null) {
+                $updateData['location_id'] = $locationId;
+            }
+
+            $schedule->update($updateData);
 
             Log::info('Partial incoming recorded', [
                 'schedule_id' => $schedule->id,
@@ -122,7 +148,7 @@ class IncomingConfirmationService
                 'total_received' => $newReceivedQty,
                 'expected_quantity' => $schedule->expected_quantity,
                 'status' => $status->value,
-                'purchase_queue_id' => $queueId,
+                'expiration_date' => $expirationDate,
             ]);
 
             return $schedule->fresh();
@@ -132,9 +158,9 @@ class IncomingConfirmationService
     /**
      * 複数の入庫予定を一括確定
      *
-     * @param Collection|array $scheduleIds 入庫予定IDの配列
-     * @param int $confirmedBy 確定者ID
-     * @param string|null $actualDate 入庫日
+     * @param  Collection|array  $scheduleIds  入庫予定IDの配列
+     * @param  int  $confirmedBy  確定者ID
+     * @param  string|null  $actualDate  入庫日
      * @return array ['success' => int, 'failed' => int, 'errors' => array]
      */
     public function confirmMultiple(array|Collection $scheduleIds, int $confirmedBy, ?string $actualDate = null): array
@@ -173,15 +199,15 @@ class IncomingConfirmationService
      */
     public function cancelIncoming(WmsOrderIncomingSchedule $schedule, int $cancelledBy, string $reason = ''): WmsOrderIncomingSchedule
     {
-        if ($schedule->status === IncomingScheduleStatus::CONFIRMED) {
-            throw new \RuntimeException("Cannot cancel confirmed schedule {$schedule->id}");
+        if (in_array($schedule->status, [IncomingScheduleStatus::CONFIRMED, IncomingScheduleStatus::TRANSMITTED])) {
+            throw new \RuntimeException("Cannot cancel confirmed/transmitted schedule {$schedule->id}");
         }
 
         $schedule->update([
             'status' => IncomingScheduleStatus::CANCELLED,
             'note' => $schedule->note
-                ? $schedule->note . "\n[キャンセル] " . $reason
-                : "[キャンセル] " . $reason,
+                ? $schedule->note."\n[キャンセル] ".$reason
+                : '[キャンセル] '.$reason,
         ]);
 
         Log::info('Incoming schedule cancelled', [
@@ -194,140 +220,131 @@ class IncomingConfirmationService
     }
 
     /**
-     * purchase_create_queueにデータを登録
+     * stock_transfer_queue (action_type=DELIVER) を作成
+     *
+     * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
+     * @param  int|null  $receivedQuantity  実際の入庫数量
      */
-    private function createPurchaseQueue(WmsOrderIncomingSchedule $schedule, string $deliveredDate): int
-    {
-        // マスタ情報を取得
-        $warehouse = DB::connection('sakemaru')
-            ->table('warehouses')
-            ->where('id', $schedule->warehouse_id)
-            ->first();
-
-        $item = DB::connection('sakemaru')
-            ->table('items')
-            ->where('id', $schedule->item_id)
-            ->first();
-
-        $supplier = null;
-        if ($schedule->supplier_id) {
-            $supplier = DB::connection('sakemaru')
-                ->table('suppliers as s')
-                ->join('partners as p', 's.partner_id', '=', 'p.id')
-                ->where('s.id', $schedule->supplier_id)
-                ->select('p.code')
-                ->first();
+    private function createDeliverQueue(
+        WmsOrderIncomingSchedule $schedule,
+        ?int $receivedQuantity
+    ): void {
+        // stock_transfer_id が未設定の場合、動的に取得
+        if (! $schedule->stock_transfer_id) {
+            $this->syncStockTransferId($schedule);
         }
 
-        // 仕入データを構築
-        $purchaseData = [
-            'process_date' => $deliveredDate,
-            'delivered_date' => $deliveredDate,
-            'account_date' => $deliveredDate,
-            'supplier_code' => $supplier?->code ?? '',
-            'warehouse_code' => $warehouse->code,
-            'note' => $this->buildPurchaseNote($schedule),
-            'details' => [
-                [
-                    'item_code' => $item->code,
-                    'quantity' => $schedule->received_quantity,
-                    'quantity_type' => $schedule->quantity_type->value,
-                ],
-            ],
-        ];
+        if (! $schedule->stock_transfer_id) {
+            throw new \RuntimeException(
+                "Stock transfer ID not found for schedule {$schedule->id}"
+            );
+        }
 
-        // キューに挿入
-        $queueId = DB::connection('sakemaru')->table('purchase_create_queue')->insertGetId([
-            'request_uuid' => Str::uuid()->toString(),
-            'delivered_date' => $deliveredDate,
-            'items' => json_encode($purchaseData, JSON_UNESCAPED_UNICODE),
+        // 倉庫情報を取得
+        $schedule->loadMissing(['sourceWarehouse', 'warehouse', 'transferCandidate']);
+
+        $fromWarehouseCode = $schedule->sourceWarehouse?->code;
+        $toWarehouseCode = $schedule->warehouse?->code;
+        $deliveryCourseId = $schedule->transferCandidate?->delivery_course_id;
+
+        if (! $fromWarehouseCode || ! $toWarehouseCode) {
+            throw new \RuntimeException(
+                "Warehouse codes not found for schedule {$schedule->id}"
+            );
+        }
+
+        $requestId = "transfer-deliver-{$schedule->id}-".now()->format('YmdHis');
+
+        DB::connection('sakemaru')->table('stock_transfer_queue')->insert([
+            'client_id' => config('app.client_id'),
+            'request_id' => $requestId,
+            'stock_transfer_id' => $schedule->stock_transfer_id,
+            'process_date' => now()->format('Y-m-d'),
+            'delivered_date' => now()->format('Y-m-d'),
+            'from_warehouse_code' => $fromWarehouseCode,
+            'to_warehouse_code' => $toWarehouseCode,
+            'delivery_course_id' => $deliveryCourseId,
+            'items' => json_encode([
+                'schedule_id' => $schedule->id,
+                'received_quantity' => $receivedQuantity ?? $schedule->expected_quantity,
+                'quantity_type' => $schedule->quantity_type->value,
+            ], JSON_UNESCAPED_UNICODE),
+            'note' => "入荷検品確定 Schedule ID: {$schedule->id}",
             'status' => 'BEFORE',
-            'retry_count' => 0,
+            'action_type' => 'DELIVER',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        return $queueId;
+        Log::info('Deliver queue created', [
+            'schedule_id' => $schedule->id,
+            'stock_transfer_id' => $schedule->stock_transfer_id,
+            'request_id' => $requestId,
+            'from_warehouse' => $fromWarehouseCode,
+            'to_warehouse' => $toWarehouseCode,
+            'delivery_course_id' => $deliveryCourseId,
+            'received_quantity' => $receivedQuantity ?? $schedule->expected_quantity,
+        ]);
     }
 
     /**
-     * 一部入庫用のpurchase_create_queueデータを登録
+     * stock_transfer_id を動的に取得・設定
+     *
+     * 単一移動の場合: request_id = "transfer-create-{candidate_id}"
+     * グループ移動の場合: request_id = "transfer-create-group-{id1}-{id2}-..." または MD5ハッシュ
+     *
+     * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
      */
-    private function createPurchaseQueueForPartial(WmsOrderIncomingSchedule $schedule, int $quantity, string $deliveredDate): int
+    private function syncStockTransferId(WmsOrderIncomingSchedule $schedule): void
     {
-        // マスタ情報を取得
-        $warehouse = DB::connection('sakemaru')
-            ->table('warehouses')
-            ->where('id', $schedule->warehouse_id)
+        $candidateId = $schedule->transfer_candidate_id;
+
+        // 1. 単一移動の形式で検索
+        $queue = DB::connection('sakemaru')
+            ->table('stock_transfer_queue')
+            ->where('action_type', 'CREATE')
+            ->where('request_id', "transfer-create-{$candidateId}")
+            ->where('status', 'FINISHED')
+            ->where('is_success', true)
             ->first();
 
-        $item = DB::connection('sakemaru')
-            ->table('items')
-            ->where('id', $schedule->item_id)
-            ->first();
-
-        $supplier = null;
-        if ($schedule->supplier_id) {
-            $supplier = DB::connection('sakemaru')
-                ->table('suppliers as s')
-                ->join('partners as p', 's.partner_id', '=', 'p.id')
-                ->where('s.id', $schedule->supplier_id)
-                ->select('p.code')
+        // 2. グループ移動の形式で検索（候補IDを含む request_id を検索）
+        if (! $queue) {
+            $queue = DB::connection('sakemaru')
+                ->table('stock_transfer_queue')
+                ->where('action_type', 'CREATE')
+                ->where('status', 'FINISHED')
+                ->where('is_success', true)
+                ->where(function ($q) use ($candidateId) {
+                    $q->where('request_id', 'LIKE', "transfer-create-group-%-{$candidateId}-%")
+                        ->orWhere('request_id', 'LIKE', "transfer-create-group-{$candidateId}-%")
+                        ->orWhere('request_id', 'LIKE', "transfer-create-group-%-{$candidateId}");
+                })
                 ->first();
         }
 
-        // 仕入データを構築
-        $purchaseData = [
-            'process_date' => $deliveredDate,
-            'delivered_date' => $deliveredDate,
-            'account_date' => $deliveredDate,
-            'supplier_code' => $supplier?->code ?? '',
-            'warehouse_code' => $warehouse->code,
-            'note' => $this->buildPurchaseNote($schedule) . ' (一部入庫)',
-            'details' => [
-                [
-                    'item_code' => $item->code,
-                    'quantity' => $quantity,
-                    'quantity_type' => $schedule->quantity_type->value,
-                ],
-            ],
-        ];
-
-        // キューに挿入
-        $queueId = DB::connection('sakemaru')->table('purchase_create_queue')->insertGetId([
-            'request_uuid' => Str::uuid()->toString(),
-            'delivered_date' => $deliveredDate,
-            'items' => json_encode($purchaseData, JSON_UNESCAPED_UNICODE),
-            'status' => 'BEFORE',
-            'retry_count' => 0,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        return $queueId;
-    }
-
-    /**
-     * 仕入れ伝票の備考を構築
-     */
-    private function buildPurchaseNote(WmsOrderIncomingSchedule $schedule): string
-    {
-        $parts = [];
-
-        if ($schedule->order_source->value === 'AUTO') {
-            $parts[] = '自動発注';
-            if ($schedule->order_candidate_id) {
-                $parts[] = "候補ID:{$schedule->order_candidate_id}";
-            }
-        } else {
-            $parts[] = '手動発注';
-            if ($schedule->manual_order_number) {
-                $parts[] = "発注番号:{$schedule->manual_order_number}";
-            }
+        // 3. まだ見つからない場合、items JSON 内の候補IDで検索
+        if (! $queue) {
+            $queue = DB::connection('sakemaru')
+                ->table('stock_transfer_queue')
+                ->where('action_type', 'CREATE')
+                ->where('request_id', 'LIKE', 'transfer-create-group-%')
+                ->where('status', 'FINISHED')
+                ->where('is_success', true)
+                ->where('items', 'LIKE', "%移動候補ID: {$candidateId}%")
+                ->first();
         }
 
-        $parts[] = "入庫予定ID:{$schedule->id}";
+        if ($queue && $queue->stock_transfer_id) {
+            $schedule->update(['stock_transfer_id' => $queue->stock_transfer_id]);
+            $schedule->refresh();
 
-        return implode(' / ', $parts);
+            Log::info('Stock transfer ID synced from queue', [
+                'schedule_id' => $schedule->id,
+                'transfer_candidate_id' => $candidateId,
+                'queue_request_id' => $queue->request_id,
+                'stock_transfer_id' => $queue->stock_transfer_id,
+            ]);
+        }
     }
 }

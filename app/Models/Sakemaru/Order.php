@@ -12,6 +12,7 @@ class Order extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     protected PrintType $checklist_print_type = PrintType::ORDER_CHECK;
@@ -31,7 +32,7 @@ class Order extends CustomModel
         return $this->belongsTo(Supplier::class);
     }
 
-    public function contractor():BelongsTo
+    public function contractor(): BelongsTo
     {
         return $this->belongsTo(Contractor::class);
     }

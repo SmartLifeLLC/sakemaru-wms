@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Manufacturer extends CustomModel
 {
     use HasFactory;
+
     protected $guarded = [];
+
     protected $casts = [
         'code' => 'integer',
     ];

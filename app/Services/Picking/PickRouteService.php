@@ -3,9 +3,8 @@
 namespace App\Services\Picking;
 
 use App\Models\Sakemaru\Location;
-use App\Models\WmsWarehouseLayout;
 use App\Models\WmsPickingItemResult;
-use Illuminate\Support\Facades\DB;
+use App\Models\WmsWarehouseLayout;
 
 /**
  * Picking route generation service
@@ -15,22 +14,23 @@ use Illuminate\Support\Facades\DB;
 class PickRouteService
 {
     private FrontPointCalculator $frontPointCalculator;
+
     private RouteOptimizer $routeOptimizer;
 
     public function __construct()
     {
         // Use smaller delta (5px) to allow paths closer to locations and prevent breaks
         $this->frontPointCalculator = new FrontPointCalculator(5);
-        $this->routeOptimizer = new RouteOptimizer();
+        $this->routeOptimizer = new RouteOptimizer;
     }
 
     /**
      * Build optimized picking route for given locations
      *
-     * @param int $warehouseId Warehouse ID
-     * @param int|null $floorId Floor ID
-     * @param array $locationIds Array of location IDs to visit
-     * @param array|null $startPoint Start point [x, y] (default: [100, 100])
+     * @param  int  $warehouseId  Warehouse ID
+     * @param  int|null  $floorId  Floor ID
+     * @param  array  $locationIds  Array of location IDs to visit
+     * @param  array|null  $startPoint  Start point [x, y] (default: [100, 100])
      * @return array Optimized route information
      */
     public function buildRoute(
@@ -46,7 +46,7 @@ class PickRouteService
             ->where('floor_id', $floorId)
             ->first();
 
-        if (!$layout) {
+        if (! $layout) {
             throw new \RuntimeException("Layout not found for warehouse {$warehouseId}, floor {$floorId}");
         }
 
@@ -112,7 +112,7 @@ class PickRouteService
 
         // Create Walkable object from walkable_areas if available
         $walkable = null;
-        if (!empty($layout->walkable_areas)) {
+        if (! empty($layout->walkable_areas)) {
             $walkable = new \App\Services\Picking\Walkable($layout->walkable_areas);
         }
 
@@ -136,7 +136,7 @@ class PickRouteService
                 $locId = (int) substr($key, 4);
                 $location = $locations->get($locId);
 
-                if (!$location) {
+                if (! $location) {
                     throw new \RuntimeException("Location {$locId} not found");
                 }
 
@@ -147,7 +147,7 @@ class PickRouteService
         };
 
         // Build keys array
-        $keys = array_map(fn($id) => "LOC:{$id}", $locationIds);
+        $keys = array_map(fn ($id) => "LOC:{$id}", $locationIds);
         array_unshift($keys, 'NODE:START');
 
         // Add end point only if it's different from start point
@@ -158,6 +158,7 @@ class PickRouteService
         // Distance function with caching
         $distFunc = function (string $a, string $b) use ($distanceCache, $resolver) {
             $result = $distanceCache->getDistance($a, $b, $resolver);
+
             return $result['dist'];
         };
 
@@ -167,11 +168,11 @@ class PickRouteService
         // Remove START and END nodes from route (keep only locations)
         $route = array_values(array_filter(
             $optimizedRoute['route'],
-            fn($k) => !in_array($k, ['NODE:START', 'NODE:END'])
+            fn ($k) => ! in_array($k, ['NODE:START', 'NODE:END'])
         ));
 
         // Convert keys back to location IDs
-        $routeIds = array_map(fn($key) => (int) substr($key, 4), $route);
+        $routeIds = array_map(fn ($key) => (int) substr($key, 4), $route);
 
         return [
             'route' => $routeIds,
@@ -186,10 +187,10 @@ class PickRouteService
     /**
      * Update walking order for picking items based on optimized route
      *
-     * @param array $pickingItemIds Array of picking item result IDs
-     * @param int $warehouseId Warehouse ID
-     * @param int|null $floorId Floor ID
-     * @param int|null $pickingTaskId Picking task ID (optional, for logging)
+     * @param  array  $pickingItemIds  Array of picking item result IDs
+     * @param  int  $warehouseId  Warehouse ID
+     * @param  int|null  $floorId  Floor ID
+     * @param  int|null  $pickingTaskId  Picking task ID (optional, for logging)
      * @return array Update statistics
      */
     public function updateWalkingOrder(array $pickingItemIds, int $warehouseId, ?int $floorId, ?int $pickingTaskId = null): array
@@ -229,7 +230,7 @@ class PickRouteService
             ->where('floor_id', $floorId)
             ->first();
 
-        if (!$layout) {
+        if (! $layout) {
             throw new \RuntimeException("Layout not found for warehouse {$warehouseId}, floor {$floorId}");
         }
 
@@ -245,7 +246,7 @@ class PickRouteService
 
         // Create Walkable object from walkable_areas if available
         $walkable = null;
-        if (!empty($layout->walkable_areas)) {
+        if (! empty($layout->walkable_areas)) {
             $walkable = new \App\Services\Picking\Walkable($layout->walkable_areas);
         }
 
@@ -260,13 +261,13 @@ class PickRouteService
         foreach ($routeResult['route'] as $locationId) {
             $locationItems = $itemsByLocation->get($locationId);
 
-            if (!$locationItems) {
+            if (! $locationItems) {
                 continue;
             }
 
             // Get current location front point
             $location = $allLocations->get($locationId);
-            if (!$location) {
+            if (! $location) {
                 continue;
             }
 
@@ -281,11 +282,13 @@ class PickRouteService
                 if (str_starts_with($key, 'LOC:')) {
                     $locId = (int) substr($key, 4);
                     $loc = $allLocations->get($locId);
-                    if (!$loc) {
+                    if (! $loc) {
                         return null;
                     }
+
                     return $this->frontPointCalculator->computeFrontPoint($loc);
                 }
+
                 return null;
             };
 

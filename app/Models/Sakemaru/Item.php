@@ -9,10 +9,8 @@ use App\Enums\EItemPartnerPriceType;
 use App\Enums\EItemSearchCodeType;
 use App\Enums\EVolumeUnit;
 use App\Enums\QuantityType;
-use App\Enums\TimeZone;
 use App\ValueObjects\ItemPartnerPriceVO;
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,6 +22,7 @@ class Item extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [
         'start_of_sale_date' => NullSetter::class,
         'end_of_sale_date' => NullSetter::class,
@@ -78,6 +77,7 @@ class Item extends CustomModel
     public function current_price(): HasOne
     {
         $system_date = ClientSetting::systemDate(true);
+
         return $this->hasOne(ItemPrice::class)
             ->whereDate('start_date', '<=', $system_date->toDateString())
             ->orderBy('start_date', 'desc');
@@ -86,6 +86,7 @@ class Item extends CustomModel
     public function currentPriceForStartDate(?string $start_date)
     {
         $start_date = $start_date ? Carbon::parse($start_date) : ClientSetting::systemDate(true);
+
         return $this->hasOne(ItemPrice::class)
             ->whereDate('start_date', '<=', $start_date->toDateString())
             ->orderBy('start_date', 'desc')
@@ -98,8 +99,8 @@ class Item extends CustomModel
 
         $result = [
             'previous' => null,
-            'current'  => null,
-            'next'     => null,
+            'current' => null,
+            'next' => null,
         ];
 
         // 現在適用中（基準日以前の最新）
@@ -109,7 +110,7 @@ class Item extends CustomModel
             ->orderBy('start_date', 'desc')
             ->first();
 
-        if (!$current) {
+        if (! $current) {
             // 現在が無い場合：最も近い未来だけ返す
             $result['next'] = $this->hasOne(ItemPrice::class)
                 ->where('is_active', true)
@@ -150,7 +151,7 @@ class Item extends CustomModel
 
         // 取引先の単価
         $partner_price = ItemPartnerPrice::currentData($this->id, $partner_id, $warehouse_id, $price_start_date);
-        if (!is_null($partner_price)) {
+        if (! is_null($partner_price)) {
             return new ItemPartnerPriceVO($partner_price, EItemPartnerPriceType::PARTNER);
         }
 
@@ -160,7 +161,7 @@ class Item extends CustomModel
         if ($partner_price_group_id) {
             $partner_price = ItemPartnerPrice::currentData($this->id, $partner_price_group_id, $warehouse_id, $price_start_date);
         }
-        if (!is_null($partner_price)) {
+        if (! is_null($partner_price)) {
             return new ItemPartnerPriceVO($partner_price, EItemPartnerPriceType::PARTNER_PRICE_GROUP);
         }
 
@@ -169,9 +170,9 @@ class Item extends CustomModel
         if ($partner_price_group2_id) {
             $partner_price = ItemPartnerPrice::currentData($this->id, $partner_price_group2_id, $warehouse_id, $price_start_date);
 
-            if (!is_null($partner_price)) {
+            if (! is_null($partner_price)) {
                 $unknown_price_partner = Partner::unknownPriceGroup();
-                if (!is_null($unknown_price_partner) && $unknown_price_partner->id == $partner_price_group2_id) {
+                if (! is_null($unknown_price_partner) && $unknown_price_partner->id == $partner_price_group2_id) {
                     return new ItemPartnerPriceVO($partner_price, EItemPartnerPriceType::UNKNOWN);
                 }
 
@@ -319,11 +320,10 @@ class Item extends CustomModel
             ->where('collaborator', EExternalCollaborationPartner::MITSUI_PERFECT);
     }
 
-
     protected function literVolume(): Attribute
     {
         return Attribute::make(
-            get: fn() => EVolumeUnit::from($this->volume_unit)->calculateLiter($this->volume),
+            get: fn () => EVolumeUnit::from($this->volume_unit)->calculateLiter($this->volume),
         );
     }
 
@@ -336,7 +336,7 @@ class Item extends CustomModel
             ->filter();
 
         return Attribute::make(
-            get: fn() => $categories,
+            get: fn () => $categories,
         );
     }
 
@@ -348,6 +348,7 @@ class Item extends CustomModel
                 'quantity_type' => $quantity_type->value,
             ])->orderBy('priority')
             ->first();
+
         return $item_search_information?->search_string;
     }
 
@@ -359,13 +360,13 @@ class Item extends CustomModel
         if (is_null($quantity_type)) {
             return null;
         }
+
         return match ($quantity_type) {
             QuantityType::PIECE => 1,
             QuantityType::CARTON => $this->capacity_carton,
             QuantityType::CASE => $this->capacity_case,
         };
     }
-
 
     public function getCost(?int $warehouse_id, QuantityType $quantity_type = QuantityType::PIECE): string
     {
@@ -383,7 +384,7 @@ class Item extends CustomModel
             }
         }
 
-        if (!isset($piece_cost)) {
+        if (! isset($piece_cost)) {
             // 倉庫指定がない場合や取得できない場合はマスタ原価
             $piece_cost = $this->current_price?->cost_unit_price ?? 0;
         }
@@ -393,6 +394,7 @@ class Item extends CustomModel
         if ($capacity_col) {
             return $piece_cost * $this->{$capacity_col};
         }
+
         return $piece_cost;
     }
 
@@ -404,14 +406,14 @@ class Item extends CustomModel
 
         $target_date = Carbon::parse($target_date);
 
-        if (!empty($this->start_of_sale_date)) {
+        if (! empty($this->start_of_sale_date)) {
             $start_of_sale_date = Carbon::parse($this->start_of_sale_date);
             if ($target_date->lessThan($start_of_sale_date)) {
                 return false;
             }
         }
 
-        if (!empty($this->end_of_sale_date)) {
+        if (! empty($this->end_of_sale_date)) {
             $end_of_sale_date = Carbon::parse($this->end_of_sale_date);
             if ($target_date->greaterThanOrEqualTo($end_of_sale_date)) {
                 return false;
@@ -423,7 +425,6 @@ class Item extends CustomModel
 
     /**
      * POSコード取得
-     * @return string
      */
     public function posCode(): string
     {

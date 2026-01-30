@@ -25,10 +25,12 @@ class SnapshotStocksCommand extends Command
 
         } catch (\RuntimeException $e) {
             $this->error($e->getMessage());
+
             return self::FAILURE;
 
         } catch (\Exception $e) {
-            $this->error('エラーが発生しました: ' . $e->getMessage());
+            $this->error('エラーが発生しました: '.$e->getMessage());
+
             return self::FAILURE;
         }
     }

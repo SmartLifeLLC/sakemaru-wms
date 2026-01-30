@@ -23,7 +23,7 @@ class WmsStockTransferCandidateForm
                     ->columns(2)
                     ->schema([
                         TextEntry::make('batch_code')
-                            ->label('バッチコード'),
+                            ->label('実行CD'),
 
                         TextEntry::make('satelliteWarehouse.name')
                             ->label('Satellite倉庫'),

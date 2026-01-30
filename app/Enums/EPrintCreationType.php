@@ -11,7 +11,7 @@ enum EPrintCreationType: string
     case NONE = 'NONE';
     case LATER = 'LATER';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::NONE => 'しない',
@@ -19,7 +19,7 @@ enum EPrintCreationType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::NONE => 0,

@@ -8,8 +8,8 @@ use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -44,8 +44,7 @@ class WmsPickerForm
                             ->required(fn (string $context): bool => $context === 'create')
                             ->maxLength(255)
                             ->placeholder('8文字以上推奨')
-                            ->helperText(fn (string $context): string =>
-                                $context === 'edit'
+                            ->helperText(fn (string $context): string => $context === 'edit'
                                     ? '変更する場合のみ入力してください'
                                     : 'ピッカーがログインする際のパスワード'
                             ),
@@ -71,8 +70,11 @@ class WmsPickerForm
                             ->default(PickerSkillLevel::SENIOR->value)
                             ->required()
                             ->helperText(function ($state) {
-                                if (!$state) return 'ピッカーのスキルレベルを選択';
+                                if (! $state) {
+                                    return 'ピッカーのスキルレベルを選択';
+                                }
                                 $level = PickerSkillLevel::tryFrom((int) $state);
+
                                 return $level?->description() ?? '';
                             }),
 
@@ -156,6 +158,7 @@ class WmsPickerForm
                                             ->where('id', $area->warehouse_id)
                                             ->value('name') ?? '不明';
                                         $restrictedBadge = $area->is_restricted_area ? ' [制限]' : '';
+
                                         return [$area->id => "[{$warehouseName}] {$area->name}{$restrictedBadge}"];
                                     });
                             })

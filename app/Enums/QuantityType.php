@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -19,7 +17,7 @@ enum QuantityType: string
     case CARTON = 'CARTON';
     case UNKNOWN = 'UNKNOWN';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::CASE => 'ケース',
@@ -29,7 +27,7 @@ enum QuantityType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::CASE => 0,
@@ -39,7 +37,7 @@ enum QuantityType: string
         };
     }
 
-    public function taxExemptPriceCol() : string
+    public function taxExemptPriceCol(): string
     {
         return match ($this) {
             self::CASE => 'tax_exempt_case_price',
@@ -49,7 +47,7 @@ enum QuantityType: string
         };
     }
 
-    public function capacityCol() : ?string
+    public function capacityCol(): ?string
     {
         return match ($this) {
             self::CASE => 'capacity_case',
@@ -66,7 +64,7 @@ enum QuantityType: string
         ];
     }
 
-    public function aliasCol() : string
+    public function aliasCol(): string
     {
         return match ($this) {
             self::PIECE => 'unit',
@@ -76,11 +74,11 @@ enum QuantityType: string
 
     public static function generalIdNames(): array
     {
-        return Arr::mapWithKeys(self::generalCases(), fn($case) => [$case->getID() => $case->name()]);
+        return Arr::mapWithKeys(self::generalCases(), fn ($case) => [$case->getID() => $case->name()]);
     }
 
     public static function generalValueNames(): array
     {
-        return Arr::mapWithKeys(self::generalCases(), fn($case) => [$case->value => $case->name()]);
+        return Arr::mapWithKeys(self::generalCases(), fn ($case) => [$case->value => $case->name()]);
     }
 }

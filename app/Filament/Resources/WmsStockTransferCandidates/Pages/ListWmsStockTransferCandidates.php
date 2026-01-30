@@ -7,13 +7,17 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsStockTransferCandidates\WmsStockTransferCandidateResource;
+use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
+use App\Services\AutoOrder\StockSnapshotService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -34,6 +38,54 @@ class ListWmsStockTransferCandidates extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('approveAll')
+                ->label('全て承認')
+                ->icon('heroicon-o-check-circle')
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading('移動候補を全て承認')
+                ->modalDescription(function () {
+                    $count = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+
+                    return "承認前（PENDING）の移動候補 {$count}件 を全て承認します。";
+                })
+                ->modalSubmitActionLabel('全て承認')
+                ->action(function () {
+                    $updated = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                        ->update([
+                            'status' => CandidateStatus::APPROVED,
+                            'updated_at' => now(),
+                        ]);
+
+                    Notification::make()
+                        ->title('移動候補を全て承認しました')
+                        ->body("{$updated}件 を承認しました。")
+                        ->success()
+                        ->send();
+                }),
+
+            Action::make('deleteAllPending')
+                ->label('承認前を全削除')
+                ->icon('heroicon-o-trash')
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalHeading('承認前の移動候補を全削除')
+                ->modalDescription(function () {
+                    $count = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+
+                    return "承認前（PENDING）の移動候補 {$count}件 を全て削除します。この操作は取り消せません。";
+                })
+                ->modalSubmitActionLabel('全削除')
+                ->action(function () {
+                    $deleted = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->delete();
+
+                    Notification::make()
+                        ->title('承認前の移動候補を削除しました')
+                        ->body("{$deleted}件 を削除しました。")
+                        ->success()
+                        ->send();
+                }),
+
             Action::make('create')
                 ->label('移動追加')
                 ->icon('heroicon-o-plus')
@@ -51,7 +103,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                         ->required(),
 
                     Select::make('hub_warehouse_id')
-                        ->label('横持ち出荷倉庫')
+                        ->label('移動元倉庫')
                         ->options(fn () => Warehouse::query()
                             ->orderBy('code')
                             ->get()
@@ -61,34 +113,93 @@ class ListWmsStockTransferCandidates extends ListRecords
 
                     Select::make('item_id')
                         ->label('商品')
-                        ->options(fn () => Item::query()
-                            ->orderBy('code')
-                            ->limit(500)
-                            ->get()
-                            ->mapWithKeys(fn ($i) => [$i->id => "[{$i->code}]{$i->name}"]))
                         ->searchable()
-                        ->required(),
+                        ->required()
+                        ->getSearchResultsUsing(function (string $search): array {
+                            if (strlen($search) < 2) {
+                                return [];
+                            }
+                            $search = mb_convert_kana($search, 'as');
+
+                            return Item::query()
+                                ->with('piece_jan_code_information')
+                                ->where(function ($query) use ($search) {
+                                    $query->where('code', 'like', "%{$search}%")
+                                        ->orWhere('name', 'like', "%{$search}%")
+                                        ->orWhereHas('piece_jan_code_information', function ($q) use ($search) {
+                                            $q->where('search_string', 'like', "%{$search}%");
+                                        });
+                                })
+                                ->orderBy('code')
+                                ->limit(50)
+                                ->get()
+                                ->mapWithKeys(function ($item) {
+                                    $jan = $item->piece_jan_code_information?->search_string;
+                                    $label = "[{$item->code}] {$item->name}";
+                                    if ($jan) {
+                                        $label .= " ({$jan})";
+                                    }
+
+                                    return [$item->id => $label];
+                                })
+                                ->toArray();
+                        })
+                        ->getOptionLabelUsing(function ($value): ?string {
+                            $item = Item::with('piece_jan_code_information')->find($value);
+                            if (! $item) {
+                                return null;
+                            }
+                            $jan = $item->piece_jan_code_information?->search_string;
+                            $label = "[{$item->code}] {$item->name}";
+                            if ($jan) {
+                                $label .= " ({$jan})";
+                            }
+
+                            return $label;
+                        }),
 
                     TextInput::make('transfer_quantity')
                         ->label('移動数')
                         ->numeric()
                         ->required()
                         ->minValue(1),
+
+                    DatePicker::make('expected_arrival_date')
+                        ->label('移動出荷日')
+                        ->default(now()->addDay())
+                        ->required(),
+
+                    Select::make('delivery_course_id')
+                        ->label('配送コース')
+                        ->options(fn () => DeliveryCourse::query()
+                            ->orderBy('code')
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"]))
+                        ->searchable(),
                 ])
                 ->action(function (array $data) {
-                    // 依頼倉庫と横持ち出荷倉庫が同じ場合はエラー
+                    // 依頼倉庫と移動元倉庫が同じ場合はエラー
                     if ($data['satellite_warehouse_id'] === $data['hub_warehouse_id']) {
                         Notification::make()
                             ->title('エラー')
-                            ->body('依頼倉庫と横持ち出荷倉庫を同じにすることはできません')
+                            ->body('依頼倉庫と移動元倉庫を同じにすることはできません')
                             ->danger()
                             ->send();
+
                         return;
                     }
 
-                    // 最新のバッチコードを取得（なければ新規生成）
-                    $batchCode = WmsStockTransferCandidate::orderBy('batch_code', 'desc')->value('batch_code')
-                        ?? now()->format('YmdHis');
+                    // 確定待ち（PENDING）のジョブを検索し、あればそのbatch_codeを使用
+                    // なければ在庫スナップショットを新規生成
+                    $pendingJob = WmsAutoOrderJobControl::findPendingSettlement();
+                    if ($pendingJob) {
+                        $batchCode = $pendingJob->batch_code;
+                    } else {
+                        // 新規スナップショットを生成（ジョブ管理も自動作成される）
+                        $snapshotService = app(StockSnapshotService::class);
+                        $snapshotJob = $snapshotService->generateAll();
+                        $batchCode = $snapshotJob->batch_code;
+                    }
 
                     // 同じ倉庫・商品の組み合わせが既に存在するかチェック
                     $exists = WmsStockTransferCandidate::where('satellite_warehouse_id', $data['satellite_warehouse_id'])
@@ -103,6 +214,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                             ->body('この倉庫・商品の組み合わせは既に移動候補に存在します')
                             ->danger()
                             ->send();
+
                         return;
                     }
 
@@ -113,10 +225,11 @@ class ListWmsStockTransferCandidates extends ListRecords
                         'hub_warehouse_id' => $data['hub_warehouse_id'],
                         'item_id' => $data['item_id'],
                         'contractor_id' => null,
+                        'delivery_course_id' => $data['delivery_course_id'] ?? null,
                         'suggested_quantity' => $data['transfer_quantity'],
                         'transfer_quantity' => $data['transfer_quantity'],
-                        'expected_arrival_date' => now()->addDays(1),
-                        'original_arrival_date' => now()->addDays(1),
+                        'expected_arrival_date' => $data['expected_arrival_date'],
+                        'original_arrival_date' => $data['expected_arrival_date'],
                         'status' => CandidateStatus::PENDING,
                         'lot_status' => LotStatus::RAW,
                         'is_manually_modified' => true,
@@ -161,13 +274,32 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ->with([
                     'satelliteWarehouse',
                     'hubWarehouse',
+                    'deliveryCourse',
                     'item',
                     'contractor',
                 ])
+                // デフォルトでPENDINGのみ表示
+                ->where('status', CandidateStatus::PENDING)
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('satellite_warehouse_id')
                 ->orderBy('item_id')
             );
+    }
+
+    /**
+     * テーブルレコード取得後に計算ログをプリロード（N+1対策）
+     */
+    protected function paginateTableQuery(Builder $query): \Illuminate\Contracts\Pagination\Paginator
+    {
+        $paginator = parent::paginateTableQuery($query);
+
+        // 計算ログを一括プリロード
+        $items = $paginator->getCollection();
+        if ($items->isNotEmpty()) {
+            WmsStockTransferCandidate::preloadCalculationLogs($items);
+        }
+
+        return $paginator;
     }
 
     public function getPresetViews(): array
@@ -175,8 +307,14 @@ class ListWmsStockTransferCandidates extends ListRecords
         // ユーザーのデフォルト倉庫を取得
         $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
 
-        // 移動候補に存在する在庫依頼倉庫（satellite）を取得してタブを生成
-        $warehouseIds = WmsStockTransferCandidate::distinct()->pluck('satellite_warehouse_id')->toArray();
+        // PENDING の移動候補に存在する依頼倉庫（satellite_warehouse）のみ取得
+        $cacheKey = 'transfer_candidates_pending_warehouses_'.auth()->id();
+        $warehouseIds = cache()->remember($cacheKey, 30, function () {
+            return WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                ->distinct()
+                ->pluck('satellite_warehouse_id')
+                ->toArray();
+        });
         $warehouses = Warehouse::whereIn('id', $warehouseIds)->orderBy('name')->get();
 
         // デフォルト倉庫が移動候補に存在するかチェック
@@ -194,7 +332,7 @@ class ListWmsStockTransferCandidates extends ListRecords
             ];
         } else {
             $views = [
-                'all' => PresetView::make()
+                'default' => PresetView::make()
                     ->favorite()
                     ->label('全て')
                     ->default(),
@@ -208,7 +346,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                 continue;
             }
 
-            $views["warehouse_{$warehouse->id}"] = PresetView::make()
+            $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $warehouse->id))
                 ->favorite()
                 ->label($warehouse->name);

@@ -13,7 +13,7 @@
         </div>
 
         <div>
-            <dt class="modal-label">横持ち出荷倉庫</dt>
+            <dt class="modal-label">移動元倉庫</dt>
             <dd class="modal-value">{{ $hubWarehouseName }}</dd>
         </div>
 

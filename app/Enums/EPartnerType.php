@@ -13,7 +13,7 @@ enum EPartnerType: string
     case SUPPLIER = 'SUPPLIER';
     case NONE = 'NONE';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::BUYER => '得意先',
@@ -22,7 +22,7 @@ enum EPartnerType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::BUYER => 0,
@@ -31,11 +31,11 @@ enum EPartnerType: string
         };
     }
 
-    public static function fromPartner(?Partner $partner) : self
+    public static function fromPartner(?Partner $partner): self
     {
-        if(is_null($partner)) {
+        if (is_null($partner)) {
             return self::NONE;
-        } else if ($partner->is_supplier) {
+        } elseif ($partner->is_supplier) {
             return self::SUPPLIER;
         } else {
             return self::BUYER;

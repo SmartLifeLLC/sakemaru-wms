@@ -12,11 +12,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::connection('sakemaru')->table('wms_pickers', function (Blueprint $table) {
-            if (!Schema::connection('sakemaru')->hasColumn('wms_pickers', 'is_available_for_picking')) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_pickers', 'is_available_for_picking')) {
                 $table->boolean('is_available_for_picking')->default(false)->after('picking_speed_rate')
                     ->comment('当日ピッキング稼働可否 (出勤かつ割当可ならtrue)');
             }
-            if (!Schema::connection('sakemaru')->hasColumn('wms_pickers', 'current_warehouse_id')) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_pickers', 'current_warehouse_id')) {
                 $table->unsignedBigInteger('current_warehouse_id')->nullable()->after('is_available_for_picking')
                     ->comment('現在稼働中の倉庫ID (NULLなら未割当)');
             }

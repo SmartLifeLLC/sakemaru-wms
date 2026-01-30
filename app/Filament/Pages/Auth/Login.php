@@ -2,13 +2,10 @@
 
 namespace App\Filament\Pages\Auth;
 
-use Filament\Auth\Pages\Login as BaseLogin;
-use Filament\Pages\Page;
-
 use DanHarrin\LivewireRateLimiting\Exceptions\TooManyRequestsException;
-use Filament\Facades\Filament;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse;
-use Illuminate\Validation\ValidationException;
+use Filament\Auth\Pages\Login as BaseLogin;
+use Filament\Facades\Filament;
 
 class Login extends BaseLogin
 {

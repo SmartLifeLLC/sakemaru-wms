@@ -2,7 +2,10 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\DeliveryCourse;
+use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WaveSetting extends Model
@@ -29,5 +32,15 @@ class WaveSetting extends Model
     public function waves(): HasMany
     {
         return $this->hasMany(Wave::class, 'wms_wave_setting_id');
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
+    }
+
+    public function deliveryCourse(): BelongsTo
+    {
+        return $this->belongsTo(DeliveryCourse::class);
     }
 }

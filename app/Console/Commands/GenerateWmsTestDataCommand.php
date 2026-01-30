@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
-use App\Models\WmsLocation;
 use App\Models\WmsPickingArea;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -22,8 +21,11 @@ class GenerateWmsTestDataCommand extends Command
     protected $description = 'Generate WMS test data (locations, stock, orders) for testing picking scenarios';
 
     private $warehouseId = 991;
+
     private $clientId;
+
     private $testItems = [];
+
     private $testLocations = [];
 
     public function handle()
@@ -39,16 +41,16 @@ class GenerateWmsTestDataCommand extends Command
             $this->cleanTestData();
         }
 
-        if (!$this->option('stock-only') && !$this->option('orders-only')) {
+        if (! $this->option('stock-only') && ! $this->option('orders-only')) {
             $this->generateLocations();
             $this->generatePickers();
         }
 
-        if (!$this->option('locations-only') && !$this->option('orders-only')) {
+        if (! $this->option('locations-only') && ! $this->option('orders-only')) {
             $this->generateStock();
         }
 
-        if (!$this->option('locations-only') && !$this->option('stock-only')) {
+        if (! $this->option('locations-only') && ! $this->option('stock-only')) {
             $this->generateOrders();
         }
 
@@ -93,10 +95,6 @@ class GenerateWmsTestDataCommand extends Command
                 ->where('warehouse_id', $this->warehouseId)
                 ->delete();
 
-            // Clean wms_locations for warehouse 991
-            $locationIds = Location::where('warehouse_id', $this->warehouseId)->pluck('id');
-            WmsLocation::whereIn('location_id', $locationIds)->delete();
-
             // Clean locations for warehouse 991
             Location::where('warehouse_id', $this->warehouseId)->delete();
 
@@ -126,7 +124,7 @@ class GenerateWmsTestDataCommand extends Command
         $unitTypes = ['CASE', 'PIECE', 'BOTH'];
         $walkingOrder = 1000;
 
-        DB::connection('sakemaru')->transaction(function () use ($zones, $unitTypes, &$walkingOrder) {
+        DB::connection('sakemaru')->transaction(function () use ($zones, &$walkingOrder) {
             foreach ($zones as $zoneIndex => $zone) {
                 // Create picking area for each zone
                 $pickingArea = WmsPickingArea::create([
@@ -144,25 +142,15 @@ class GenerateWmsTestDataCommand extends Command
                             'client_id' => $this->clientId,
                             'warehouse_id' => $this->warehouseId,
                             'code1' => $zone['prefix'], // A(常温), B(冷蔵), C(冷凍)
-                            'code2' => (string)$rack,
-                            'code3' => (string)$level,
+                            'code2' => (string) $rack,
+                            'code3' => (string) $level,
                             'name' => "{$zone['code']}-{$rack}棚-{$level}段",
                             'creator_id' => 0,
                             'last_updater_id' => 0,
                         ]);
 
-                        // Create WMS location attributes with picking area
-                        $unitType = $unitTypes[($rack + $level) % 3];
-
-                        WmsLocation::create([
-                            'location_id' => $location->id,
-                            'wms_picking_area_id' => $pickingArea->id,
-                            'picking_unit_type' => $unitType,
-                            // 'walking_order' => $walkingOrder, // Removed: walking_order is no longer used
-                            'aisle' => $zone['prefix'],
-                            'rack' => (string)$rack,
-                            'level' => (string)$level,
-                        ]);
+                        // Assign location to picking area
+                        $location->update(['wms_picking_area_id' => $pickingArea->id]);
 
                         $this->testLocations[] = [
                             'id' => $location->id,
@@ -170,8 +158,6 @@ class GenerateWmsTestDataCommand extends Command
                             'name' => $location->name,
                             'zone' => $zone['code'],
                             'picking_area' => $zone['name'],
-                            'unit_type' => $unitType,
-                            // 'walking_order' => $walkingOrder, // Removed: walking_order is no longer used
                         ];
 
                         // $walkingOrder += 100; // Removed: walking_order is no longer used
@@ -180,7 +166,7 @@ class GenerateWmsTestDataCommand extends Command
             }
         });
 
-        $this->info("  ✓ Created " . count($this->testLocations) . " locations with WMS attributes and picking areas");
+        $this->info('  ✓ Created '.count($this->testLocations).' locations with WMS attributes and picking areas');
     }
 
     private function generateStock()
@@ -196,6 +182,7 @@ class GenerateWmsTestDataCommand extends Command
 
         if ($items->isEmpty()) {
             $this->error('No items found for stock generation');
+
             return;
         }
 
@@ -208,12 +195,13 @@ class GenerateWmsTestDataCommand extends Command
 
             if ($locations->isEmpty()) {
                 $this->error('No locations found. Run with --locations-only first.');
+
                 return;
             }
 
             // Group locations by picking area to ensure distribution across areas
-            $locationsByArea = $locations->groupBy(fn($loc) => $loc->wmsLocation->wms_picking_area_id ?? 'null');
-            $pickingAreas = $locationsByArea->keys()->filter(fn($k) => $k !== 'null')->values();
+            $locationsByArea = $locations->groupBy(fn ($loc) => $loc->wmsLocation->wms_picking_area_id ?? 'null');
+            $pickingAreas = $locationsByArea->keys()->filter(fn ($k) => $k !== 'null')->values();
 
             // Base stock_allocation_id (incremented for each stock record to ensure uniqueness)
             $stockAllocationId = 100000;
@@ -237,24 +225,37 @@ class GenerateWmsTestDataCommand extends Command
                 foreach ($locationsForItem as $location) {
                     $expiryDate = now()->addMonths(rand(1, 12))->format('Y-m-d');
                     $quantity = rand(10, 100);
+                    $price = rand(100, 5000);
 
                     // Each stock record gets unique stock_allocation_id to satisfy unique constraint
-                    // real_stocks unique key: (client_id, warehouse_id, stock_allocation_id, item_id)
-                    DB::connection('sakemaru')->table('real_stocks')->insert([
+                    // real_stocks unique key: (item_id, warehouse_id, stock_allocation_id)
+                    // Note: location_id, expiration_date, price are now in real_stock_lots
+                    $realStockId = DB::connection('sakemaru')->table('real_stocks')->insertGetId([
                         'client_id' => $this->clientId,
                         'warehouse_id' => $this->warehouseId,
                         'stock_allocation_id' => $stockAllocationId++,
-                        'location_id' => $location->id,
                         'item_id' => $item->id,
                         'current_quantity' => $quantity,
-                        'available_quantity' => $quantity,
-                        'expiration_date' => $expiryDate,
-                        'purchase_id' => null,
-                        'price' => rand(100, 5000),
+                        'reserved_quantity' => 0,
                         'order_rank' => 'A',
-                        'wms_reserved_qty' => 0,
-                        'wms_picking_qty' => 0,
                         'wms_lock_version' => 0,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                    // Create lot record with location and expiration info
+                    DB::connection('sakemaru')->table('real_stock_lots')->insert([
+                        'real_stock_id' => $realStockId,
+                        'floor_id' => $location->floor_id,
+                        'location_id' => $location->id,
+                        'expiration_date' => $expiryDate,
+                        'price' => $price,
+                        'content_amount' => 0,
+                        'container_amount' => 0,
+                        'initial_quantity' => $quantity,
+                        'current_quantity' => $quantity,
+                        'reserved_quantity' => 0,
+                        'status' => 'ACTIVE',
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -264,7 +265,7 @@ class GenerateWmsTestDataCommand extends Command
             }
         });
 
-        $this->info("  ✓ Created {$stockCount} stock records for " . count($this->testItems) . " items");
+        $this->info("  ✓ Created {$stockCount} stock records for ".count($this->testItems).' items');
     }
 
     private function generatePickers()
@@ -307,12 +308,12 @@ class GenerateWmsTestDataCommand extends Command
 
         // Locations
         $locationCount = Location::where('warehouse_id', $this->warehouseId)->count();
-        $wmsLocationCount = WmsLocation::whereHas('location', function ($query) {
-            $query->where('warehouse_id', $this->warehouseId);
-        })->count();
+        $locationsWithArea = Location::where('warehouse_id', $this->warehouseId)
+            ->whereNotNull('wms_picking_area_id')
+            ->count();
 
         $this->line("\n📍 Locations: {$locationCount}");
-        $this->line("   WMS Attributes: {$wmsLocationCount}");
+        $this->line("   With Picking Area: {$locationsWithArea}");
 
         // Pickers
         $pickerCount = DB::connection('sakemaru')->table('wms_pickers')
@@ -320,10 +321,10 @@ class GenerateWmsTestDataCommand extends Command
             ->count();
         $this->line("\n👷 Pickers: {$pickerCount}");
 
-        if (!empty($this->testLocations)) {
+        if (! empty($this->testLocations)) {
             $this->line("\n   Sample locations:");
             foreach (array_slice($this->testLocations, 0, 5) as $loc) {
-                $this->line("   - {$loc['code']} | {$loc['zone']} | {$loc['unit_type']}");
+                $this->line("   - {$loc['code']} | {$loc['zone']}");
             }
         }
 
@@ -334,8 +335,8 @@ class GenerateWmsTestDataCommand extends Command
 
         $this->line("\n📦 Stock Records: {$stockCount}");
 
-        if (!empty($this->testItems)) {
-            $this->line("\n   Test items (" . count($this->testItems) . " items):");
+        if (! empty($this->testItems)) {
+            $this->line("\n   Test items (".count($this->testItems).' items):');
             foreach (array_slice($this->testItems, 0, 10) as $item) {
                 $this->line("   - {$item['code']} | {$item['name']}");
             }
@@ -354,4 +355,3 @@ class GenerateWmsTestDataCommand extends Command
         $this->info('💡 Run: php artisan wms:generate-waves --reset to test wave generation');
     }
 }
-

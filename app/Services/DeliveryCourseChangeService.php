@@ -78,19 +78,13 @@ class DeliveryCourseChangeService
                     continue;
                 }
 
-                // wms_locations経由でpicking_area_idを取得
-                $wmsLocation = DB::connection('sakemaru')
-                    ->table('wms_locations')
-                    ->where('location_id', $itemResult->location_id)
-                    ->first();
-
                 // 移動先のpicking_taskを検索または作成
                 $targetTask = $this->findOrCreatePickingTask(
                     $wave->id,
                     $warehouseId,
                     $newCourseId,
                     $newCourse->code,
-                    $wmsLocation->wms_picking_area_id ?? null,
+                    $location->wms_picking_area_id ?? null,
                     $location->floor_id ?? null,
                     $location->temperature_type ?? null,
                     $location->is_restricted_area ?? false,

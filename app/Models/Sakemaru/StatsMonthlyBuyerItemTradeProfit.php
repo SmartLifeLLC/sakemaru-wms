@@ -2,12 +2,13 @@
 
 namespace App\Models\Sakemaru;
 
-
-//基本的にはLEFT JOINを利用(データが多くなるのを想定）
+// 基本的にはLEFT JOINを利用(データが多くなるのを想定）
 class StatsMonthlyBuyerItemTradeProfit extends StatsModel
 {
     public $timestamps = false;
+
     protected $guarded = [];
+
     public static function getTableName(): string
     {
         return 'stats_monthly_buyer_item_trade_profits';

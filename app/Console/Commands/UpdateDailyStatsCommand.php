@@ -55,13 +55,13 @@ class UpdateDailyStatsCommand extends Command
         if ($warehouseId) {
             $this->info("Target warehouse: {$warehouseId}");
         } else {
-            $this->info("Target: All active warehouses");
+            $this->info('Target: All active warehouses');
         }
 
         // 強制更新フラグ
         $forceUpdate = $this->option('force');
         if ($forceUpdate) {
-            $this->warn("Force update mode enabled");
+            $this->warn('Force update mode enabled');
         }
 
         // 統計の更新実行
@@ -74,7 +74,7 @@ class UpdateDailyStatsCommand extends Command
                 $successCount = 1;
             } else {
                 // 全倉庫の場合
-                $this->info("Processing all warehouses...");
+                $this->info('Processing all warehouses...');
                 $successCount = $this->statsService->bulkCalculate($date, $warehouseIds);
                 $this->info("✓ Successfully updated stats for {$successCount} warehouse(s)");
             }
@@ -84,8 +84,9 @@ class UpdateDailyStatsCommand extends Command
 
             return 0;
         } catch (\Exception $e) {
-            $this->error("Failed to update daily stats: " . $e->getMessage());
+            $this->error('Failed to update daily stats: '.$e->getMessage());
             $this->error($e->getTraceAsString());
+
             return 1;
         }
     }
@@ -93,12 +94,12 @@ class UpdateDailyStatsCommand extends Command
     /**
      * Display statistics summary
      *
-     * @param \App\Models\WmsDailyStat $stat
+     * @param  \App\Models\WmsDailyStat  $stat
      */
     private function displayStats($stat): void
     {
         $this->newLine();
-        $this->info("Statistics Summary:");
+        $this->info('Statistics Summary:');
         $this->table(
             ['Metric', 'Value'],
             [
@@ -107,25 +108,25 @@ class UpdateDailyStatsCommand extends Command
                 ['Unique Items', number_format($stat->unique_item_count)],
                 ['Delivery Courses', number_format($stat->delivery_course_count)],
                 ['Total Ship Qty', number_format($stat->total_ship_qty)],
-                ['Amount (Ex Tax)', '¥' . number_format($stat->total_amount_ex, 2)],
-                ['Amount (Inc Tax)', '¥' . number_format($stat->total_amount_in, 2)],
-                ['Container Deposit', '¥' . number_format($stat->total_container_deposit, 2)],
+                ['Amount (Ex Tax)', '¥'.number_format($stat->total_amount_ex, 2)],
+                ['Amount (Inc Tax)', '¥'.number_format($stat->total_amount_in, 2)],
+                ['Container Deposit', '¥'.number_format($stat->total_container_deposit, 2)],
                 ['Stockout (Unique)', number_format($stat->stockout_unique_count)],
                 ['Stockout (Total)', number_format($stat->stockout_total_count)],
-                ['Opportunity Loss', '¥' . number_format($stat->total_opportunity_loss, 2)],
+                ['Opportunity Loss', '¥'.number_format($stat->total_opportunity_loss, 2)],
             ]
         );
 
         $categoryBreakdown = $stat->getCategoryBreakdown();
-        if (!empty($categoryBreakdown['categories'])) {
+        if (! empty($categoryBreakdown['categories'])) {
             $this->newLine();
-            $this->info("Category Breakdown:");
+            $this->info('Category Breakdown:');
             $categoryRows = [];
             foreach ($categoryBreakdown['categories'] as $categoryId => $data) {
                 $categoryRows[] = [
                     $data['name'],
                     number_format($data['ship_qty']),
-                    '¥' . number_format($data['amount_ex'], 2),
+                    '¥'.number_format($data['amount_ex'], 2),
                 ];
             }
             $this->table(

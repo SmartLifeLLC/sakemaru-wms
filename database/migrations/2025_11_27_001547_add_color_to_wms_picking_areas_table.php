@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         // Check if column already exists
-        if (!Schema::connection('sakemaru')->hasColumn('wms_picking_areas', 'color')) {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_picking_areas', 'color')) {
             Schema::connection('sakemaru')->table('wms_picking_areas', function (Blueprint $table) {
                 $table->string('color')->nullable()->default('#8B5CF6')->after('name');
             });

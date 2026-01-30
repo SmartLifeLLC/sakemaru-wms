@@ -12,6 +12,7 @@ class Supplier extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     /**
@@ -24,17 +25,17 @@ class Supplier extends CustomModel
         return $this->belongsTo(Partner::class);
     }
 
-    public function partnerName() : Attribute
+    public function partnerName(): Attribute
     {
         return Attribute::make(
-            fn() => $this->partner?->name,
+            fn () => $this->partner?->name,
         );
     }
 
-    public function partnerCode() : Attribute
+    public function partnerCode(): Attribute
     {
         return Attribute::make(
-            fn() => $this->partner?->code,
+            fn () => $this->partner?->code,
         );
     }
 
@@ -43,14 +44,15 @@ class Supplier extends CustomModel
         return $this->belongsTo(DeliveryCooperator::class);
     }
 
-    public function rebate_billing_group() : BelongsTo
+    public function rebate_billing_group(): BelongsTo
     {
         return $this->belongsTo(Partner::class, 'rebate_billing_group_id', 'id');
     }
 
-    public function current_detail() : HasOne
+    public function current_detail(): HasOne
     {
         $system_date = ClientSetting::systemDate(true);
+
         return $this->hasOne(SupplierDetail::class)
             ->whereDate('start_date', '<=', $system_date)
             ->orderBy('start_date', 'desc');
@@ -63,5 +65,4 @@ class Supplier extends CustomModel
             ->orderBy('start_date', 'desc')
             ->first();
     }
-
 }

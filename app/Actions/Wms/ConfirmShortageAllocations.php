@@ -16,8 +16,8 @@ class ConfirmShortageAllocations
     /**
      * 欠品に関連する全ての代理出荷を承認
      *
-     * @param int $wmsShortageId 欠品ID
-     * @param int $confirmedUserId 承認者のユーザーID
+     * @param  int  $wmsShortageId  欠品ID
+     * @param  int  $confirmedUserId  承認者のユーザーID
      * @return int 承認された代理出荷の件数
      */
     public static function execute(int $wmsShortageId, int $confirmedUserId): int

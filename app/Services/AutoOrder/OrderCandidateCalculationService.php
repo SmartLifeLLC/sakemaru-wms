@@ -6,14 +6,15 @@ use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
-use App\Models\Sakemaru\ItemContractor;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsStockTransferCandidate;
+use App\Models\WmsWarehouseAutoOrderSetting;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -56,16 +57,45 @@ class OrderCandidateCalculationService
     /** @var array [supplier_id] => ['code' => ..., 'name' => ...] */
     private array $supplierMaster = [];
 
+    /** @var array [from_warehouse_id][to_warehouse_id] => delivery_course_id */
+    private array $transferDeliveryCourses = [];
+
+    /** @var array [contractor_id] => lead_time_days */
+    private array $contractorLeadTimes = [];
+
+    /** @var array [contractor_id][warehouse_id] => delivery_day_setting */
+    private array $deliveryDaySettings = [];
+
+    /** @var array [warehouse_id][date_string] => true */
+    private array $warehouseHolidays = [];
+
+    /** @var array [item_id] => ordering_code (13桁ゼロパディング済み) */
+    private array $orderingCodes = [];
+
     /**
      * 発注候補計算を実行
+     *
+     * @param  int|null  $snapshotJobId  参照する在庫スナップショットのjob_id
      */
-    public function calculate(): WmsAutoOrderJobControl
+    public function calculate(?int $snapshotJobId = null): WmsAutoOrderJobControl
     {
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::ORDER_CALC)) {
             throw new \RuntimeException('Order calculation job is already running');
         }
 
-        $job = WmsAutoOrderJobControl::startJob(JobProcessName::ORDER_CALC);
+        // 発注確定待ち（APPROVED）の候補がある場合は計算不可
+        $approvedCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
+        if ($approvedCount > 0) {
+            throw new \RuntimeException("発注確定待ちの候補が {$approvedCount}件 あります。先に発注確定を行ってください。");
+        }
+
+        $job = WmsAutoOrderJobControl::startJob(
+            processName: JobProcessName::ORDER_CALC,
+            scope: null,
+            batchCode: null,
+            settlementStatus: SettlementStatus::PENDING,
+            snapshotJobId: $snapshotJobId
+        );
 
         try {
             $batchCode = $job->batch_code;
@@ -98,7 +128,10 @@ class OrderCandidateCalculationService
             $this->insertCalculationLogs();
 
             $job->updateProgress(4, 4);
-            $job->markAsSuccess($transferCount + $orderCount);
+
+            // Step 6: 結果データを収集
+            $resultData = $this->buildResultData($batchCode, $transferCount, $orderCount);
+            $job->markAsSuccess($transferCount + $orderCount, $resultData);
 
             Log::info('Order candidate calculation completed', [
                 'batch_code' => $batchCode,
@@ -123,14 +156,20 @@ class OrderCandidateCalculationService
      */
     private function loadAllDataToMemory(): void
     {
-        // 実倉庫（is_virtual=false）のIDをロード
+        // 自動発注有効な実倉庫のIDをロード
+        // wms_warehouse_auto_order_settings で is_auto_order_enabled = true の倉庫のみ
+        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
+            ->pluck('warehouse_id')
+            ->toArray();
+
         $this->realWarehouseIds = DB::connection('sakemaru')
             ->table('warehouses')
             ->where('is_virtual', false)
+            ->whereIn('id', $enabledWarehouseIds)
             ->pluck('id')
             ->toArray();
 
-        Log::info('実倉庫をロード', ['count' => count($this->realWarehouseIds)]);
+        Log::info('自動発注有効な実倉庫をロード', ['count' => count($this->realWarehouseIds)]);
 
         // JOINでsafety_stock > 0の商品のスナップショットのみを取得（実倉庫のみ）
         $snapshots = DB::connection('sakemaru')
@@ -147,7 +186,7 @@ class OrderCandidateCalculationService
             ->get();
 
         foreach ($snapshots as $s) {
-            if (!isset($this->stockSnapshots[$s->warehouse_id])) {
+            if (! isset($this->stockSnapshots[$s->warehouse_id])) {
                 $this->stockSnapshots[$s->warehouse_id] = [];
             }
             $this->stockSnapshots[$s->warehouse_id][$s->item_id] = [
@@ -231,6 +270,90 @@ class OrderCandidateCalculationService
         }
 
         Log::info('仕入先マスタをロード', ['count' => count($this->supplierMaster)]);
+
+        // 移動配送コース設定をメモリにロード
+        $transferCourses = DB::connection('sakemaru')
+            ->table('warehouse_stock_transfer_delivery_courses')
+            ->select('from_warehouse_id', 'to_warehouse_id', 'delivery_course_id')
+            ->get();
+
+        foreach ($transferCourses as $tc) {
+            if (! isset($this->transferDeliveryCourses[$tc->from_warehouse_id])) {
+                $this->transferDeliveryCourses[$tc->from_warehouse_id] = [];
+            }
+            $this->transferDeliveryCourses[$tc->from_warehouse_id][$tc->to_warehouse_id] = $tc->delivery_course_id;
+        }
+
+        Log::info('移動配送コース設定をロード', ['count' => count($transferCourses)]);
+
+        // 発注先リードタイムをプリロード（contractors.lead_time_id → lead_times）
+        $contractorsWithLeadTime = DB::connection('sakemaru')
+            ->table('contractors as c')
+            ->join('lead_times as lt', 'c.lead_time_id', '=', 'lt.id')
+            ->select('c.id as contractor_id', 'lt.lead_time_mon as lead_time')
+            ->get();
+
+        foreach ($contractorsWithLeadTime as $c) {
+            $this->contractorLeadTimes[$c->contractor_id] = $c->lead_time;
+        }
+
+        Log::info('発注先リードタイムをロード', ['count' => count($this->contractorLeadTimes)]);
+
+        // 納品可能曜日をプリロード（発注先×倉庫）
+        $deliveryDays = DB::connection('sakemaru')
+            ->table('wms_contractor_warehouse_delivery_days')
+            ->get();
+
+        foreach ($deliveryDays as $dd) {
+            if (! isset($this->deliveryDaySettings[$dd->contractor_id])) {
+                $this->deliveryDaySettings[$dd->contractor_id] = [];
+            }
+            $this->deliveryDaySettings[$dd->contractor_id][$dd->warehouse_id] = [
+                'mon' => (bool) $dd->delivery_mon,
+                'tue' => (bool) $dd->delivery_tue,
+                'wed' => (bool) $dd->delivery_wed,
+                'thu' => (bool) $dd->delivery_thu,
+                'fri' => (bool) $dd->delivery_fri,
+                'sat' => (bool) $dd->delivery_sat,
+                'sun' => (bool) $dd->delivery_sun,
+            ];
+        }
+
+        Log::info('納品可能曜日をロード', ['count' => count($deliveryDays)]);
+
+        // 倉庫休日をプリロード（今後30日分）
+        $startDate = now()->format('Y-m-d');
+        $endDate = now()->addDays(30)->format('Y-m-d');
+
+        $holidays = DB::connection('sakemaru')
+            ->table('wms_warehouse_calendars')
+            ->where('is_holiday', true)
+            ->whereBetween('target_date', [$startDate, $endDate])
+            ->get();
+
+        foreach ($holidays as $h) {
+            if (! isset($this->warehouseHolidays[$h->warehouse_id])) {
+                $this->warehouseHolidays[$h->warehouse_id] = [];
+            }
+            $this->warehouseHolidays[$h->warehouse_id][$h->target_date] = true;
+        }
+
+        Log::info('倉庫休日をロード', ['count' => count($holidays)]);
+
+        // 発注コードをプリロード（is_used_for_ordering=trueのもの）
+        $orderingCodes = DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->select('item_id', 'search_string')
+            ->get();
+
+        foreach ($orderingCodes as $oc) {
+            // 13桁にゼロパディング
+            $this->orderingCodes[$oc->item_id] = str_pad($oc->search_string, 13, '0', STR_PAD_LEFT);
+        }
+
+        Log::info('発注コードをロード', ['count' => count($this->orderingCodes)]);
     }
 
     /**
@@ -250,6 +373,7 @@ class OrderCandidateCalculationService
     {
         if (empty($this->internalContractorIds)) {
             Log::info('INTERNAL発注先が見つかりません');
+
             return 0;
         }
 
@@ -263,13 +387,11 @@ class OrderCandidateCalculationService
             ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit')
             ->get();
 
-        $leadTimeDays = 1; // 内部移動は1日と仮定
-        $arrivalDate = $now->copy()->addDays($leadTimeDays)->format('Y-m-d');
         $insertData = [];
 
         foreach ($itemContractors as $ic) {
             $supplyWarehouseId = $this->internalSettings[$ic->contractor_id] ?? null;
-            if (!$supplyWarehouseId) {
+            if (! $supplyWarehouseId) {
                 continue;
             }
 
@@ -280,6 +402,7 @@ class OrderCandidateCalculationService
                     'item_id' => $ic->item_id,
                     'contractor_id' => $ic->contractor_id,
                 ]);
+
                 continue;
             }
 
@@ -299,17 +422,38 @@ class OrderCandidateCalculationService
             $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
             $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
 
+            // 配送コースIDを取得（移動元 → 移動先）
+            $deliveryCourseId = $this->transferDeliveryCourses[$supplyWarehouseId][$ic->warehouse_id] ?? null;
+
+            // 到着予定日を計算（リードタイム + 納品曜日 + 倉庫休日）
+            $arrivalInfo = $this->calculateArrivalDate(
+                $ic->contractor_id,
+                $ic->warehouse_id,
+                $now,
+                isInternal: true
+            );
+            $arrivalDate = $arrivalInfo['arrival_date']->format('Y-m-d');
+            $originalArrivalDate = $now->copy()->addDays($arrivalInfo['lead_time_days'])->format('Y-m-d');
+            $leadTimeDays = $arrivalInfo['lead_time_days'];
+
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'satellite_warehouse_id' => $ic->warehouse_id,
                 'hub_warehouse_id' => $supplyWarehouseId,
                 'item_id' => $ic->item_id,
                 'contractor_id' => $ic->contractor_id,
+                'delivery_course_id' => $deliveryCourseId,
                 'suggested_quantity' => $orderQty,
                 'transfer_quantity' => $orderQty,
+                'current_effective_stock' => $effectiveStock,
+                'incoming_quantity' => $incomingStock,
+                'calculated_available' => $effectiveStock + $incomingStock,
+                'shortage_qty' => $shortageQty,
+                'safety_stock' => $ic->safety_stock,
+                'purchase_unit' => $purchaseUnit,
                 'quantity_type' => QuantityType::PIECE->value,
                 'expected_arrival_date' => $arrivalDate,
-                'original_arrival_date' => $arrivalDate,
+                'original_arrival_date' => $originalArrivalDate,
                 'status' => CandidateStatus::PENDING->value,
                 'lot_status' => LotStatus::RAW->value,
                 'created_at' => $now,
@@ -360,6 +504,8 @@ class OrderCandidateCalculationService
                     '単位調整説明' => $purchaseUnit > 1
                         ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}"
                         : '最小仕入単位が1のため調整なし',
+                    '到着日調整' => $arrivalInfo['shifted_days'],
+                    '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
                 ], JSON_UNESCAPED_UNICODE),
             ];
         }
@@ -378,7 +524,8 @@ class OrderCandidateCalculationService
 
     /**
      * 移動候補をメモリにロード
-     * @return array [warehouse_id][item_id] => ['incoming' => qty, 'outgoing' => qty]
+     *
+     * @return array [warehouse_id][item_id] => ['incoming' => qty, 'outgoing' => qty, 'outgoing_breakdown' => [[warehouse_id, quantity], ...]]
      */
     private function loadTransferCandidatesToMemory(string $batchCode): array
     {
@@ -392,16 +539,22 @@ class OrderCandidateCalculationService
 
         foreach ($candidates as $c) {
             // 移動先（入庫）
-            if (!isset($result[$c->satellite_warehouse_id][$c->item_id])) {
-                $result[$c->satellite_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0];
+            if (! isset($result[$c->satellite_warehouse_id][$c->item_id])) {
+                $result[$c->satellite_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0, 'outgoing_breakdown' => []];
             }
             $result[$c->satellite_warehouse_id][$c->item_id]['incoming'] += $c->transfer_quantity;
 
             // 移動元（出庫）
-            if (!isset($result[$c->hub_warehouse_id][$c->item_id])) {
-                $result[$c->hub_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0];
+            if (! isset($result[$c->hub_warehouse_id][$c->item_id])) {
+                $result[$c->hub_warehouse_id][$c->item_id] = ['incoming' => 0, 'outgoing' => 0, 'outgoing_breakdown' => []];
             }
             $result[$c->hub_warehouse_id][$c->item_id]['outgoing'] += $c->transfer_quantity;
+
+            // 出庫先の内訳を記録（仮想倉庫ごとの需要）
+            $result[$c->hub_warehouse_id][$c->item_id]['outgoing_breakdown'][] = [
+                'warehouse_id' => $c->satellite_warehouse_id,
+                'quantity' => $c->transfer_quantity,
+            ];
         }
 
         return $result;
@@ -422,8 +575,6 @@ class OrderCandidateCalculationService
             ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit')
             ->get();
 
-        $defaultLeadTime = 3;
-        $arrivalDate = $now->copy()->addDays($defaultLeadTime)->format('Y-m-d');
         $insertData = [];
 
         foreach ($itemContractors as $ic) {
@@ -451,18 +602,78 @@ class OrderCandidateCalculationService
             $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
             $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
 
+            // 需要内訳を構築（自倉庫分 + サテライト倉庫分）
+            // 注意: shortageQtyは既に移動出庫を考慮した値なので、
+            //       satellite_demand_qtyはshortageQtyを超えないようにする
+            $demandBreakdown = [];
+            $originWarehouseIds = [];
+
+            // サテライト需要（移動出庫のうち、不足数に含まれる分）
+            $satelliteDemandQty = min($outgoingToTransfer, $shortageQty);
+
+            // 自倉庫の不足分（純粋な自倉庫分）
+            $selfShortageOnly = max(0, $shortageQty - $satelliteDemandQty);
+            if ($selfShortageOnly > 0) {
+                $demandBreakdown[] = [
+                    'warehouse_id' => $ic->warehouse_id,
+                    'quantity' => $selfShortageOnly,
+                ];
+                $originWarehouseIds[] = $ic->warehouse_id;
+            }
+
+            // サテライト倉庫からの需要（移動出庫の内訳を按分）
+            $outgoingBreakdown = $transfer['outgoing_breakdown'] ?? [];
+            if ($satelliteDemandQty > 0 && $outgoingToTransfer > 0) {
+                // 移動出庫の比率でサテライト需要を按分
+                $ratio = $satelliteDemandQty / $outgoingToTransfer;
+                foreach ($outgoingBreakdown as $breakdown) {
+                    $adjustedQty = (int) round($breakdown['quantity'] * $ratio);
+                    if ($adjustedQty > 0) {
+                        $demandBreakdown[] = [
+                            'warehouse_id' => $breakdown['warehouse_id'],
+                            'quantity' => $adjustedQty,
+                        ];
+                        if (! in_array($breakdown['warehouse_id'], $originWarehouseIds)) {
+                            $originWarehouseIds[] = $breakdown['warehouse_id'];
+                        }
+                    }
+                }
+            }
+
+            // 到着予定日を計算（リードタイム + 納品曜日 + 倉庫休日）
+            $arrivalInfo = $this->calculateArrivalDate(
+                $ic->contractor_id,
+                $ic->warehouse_id,
+                $now,
+                isInternal: false
+            );
+            $arrivalDate = $arrivalInfo['arrival_date']->format('Y-m-d');
+            $originalArrivalDate = $now->copy()->addDays($arrivalInfo['lead_time_days'])->format('Y-m-d');
+            $leadTimeDays = $arrivalInfo['lead_time_days'];
+
+            // 発注コードを取得
+            $orderingCode = $this->orderingCodes[$ic->item_id] ?? null;
+
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
                 'item_id' => $ic->item_id,
                 'contractor_id' => $ic->contractor_id,
-                'self_shortage_qty' => $shortageQty,
-                'satellite_demand_qty' => $outgoingToTransfer,
+                'ordering_code' => $orderingCode,
+                'self_shortage_qty' => $selfShortageOnly,
+                'satellite_demand_qty' => $satelliteDemandQty,
+                'demand_breakdown' => ! empty($demandBreakdown) ? json_encode($demandBreakdown, JSON_UNESCAPED_UNICODE) : null,
+                'origin_warehouse_ids' => ! empty($originWarehouseIds) ? implode(',', $originWarehouseIds) : null,
                 'suggested_quantity' => $orderQty,
                 'order_quantity' => $orderQty,
+                'current_effective_stock' => $effectiveStock,
+                'incoming_quantity' => $incomingStock,
+                'safety_stock' => $ic->safety_stock,
+                'calculated_shortage_qty' => $shortageQty,
+                'purchase_unit' => $purchaseUnit,
                 'quantity_type' => QuantityType::PIECE->value,
                 'expected_arrival_date' => $arrivalDate,
-                'original_arrival_date' => $arrivalDate,
+                'original_arrival_date' => $originalArrivalDate,
                 'status' => CandidateStatus::PENDING->value,
                 'lot_status' => LotStatus::RAW->value,
                 'created_at' => $now,
@@ -486,13 +697,14 @@ class OrderCandidateCalculationService
                 'current_effective_stock' => $effectiveStock,
                 'incoming_quantity' => $incomingStock,
                 'safety_stock_setting' => $ic->safety_stock,
-                'lead_time_days' => $defaultLeadTime,
+                'lead_time_days' => $leadTimeDays,
                 'calculated_shortage_qty' => $shortageQty,
                 'calculated_order_quantity' => $orderQty,
                 'calculation_details' => json_encode([
                     '商品コード' => $itemInfo['code'] ?? null,
                     '商品名' => $itemInfo['name'] ?? null,
                     '規格' => $itemInfo['packaging'] ?? null,
+                    '発注コード' => $orderingCode,
                     '仕入先コード' => $supplierInfo['code'] ?? null,
                     '仕入先名' => $supplierInfo['name'] ?? null,
                     '発注先コード' => $contractorInfo['code'] ?? null,
@@ -512,6 +724,8 @@ class OrderCandidateCalculationService
                     '単位調整説明' => $purchaseUnit > 1
                         ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}"
                         : '最小仕入単位が1のため調整なし',
+                    '到着日調整' => $arrivalInfo['shifted_days'],
+                    '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
                 ], JSON_UNESCAPED_UNICODE),
             ];
         }
@@ -546,10 +760,97 @@ class OrderCandidateCalculationService
     }
 
     /**
+     * 到着予定日を計算（リードタイム + 納品可能曜日 + 倉庫休日を考慮）
+     *
+     * @param  int  $contractorId  発注先ID
+     * @param  int  $warehouseId  倉庫ID
+     * @param  Carbon  $orderDate  発注日
+     * @param  bool  $isInternal  内部移動かどうか
+     * @return array{arrival_date: Carbon, lead_time_days: int, shifted_days: int, shift_reasons: array}
+     */
+    private function calculateArrivalDate(
+        int $contractorId,
+        int $warehouseId,
+        Carbon $orderDate,
+        bool $isInternal = false
+    ): array {
+        // Step 1: リードタイム取得（発注先単位）
+        $leadTimeDays = $this->contractorLeadTimes[$contractorId]
+            ?? 1;  // デフォルト値: 1日
+
+        // Step 2: 仮到着予定日
+        $arrivalDate = $orderDate->copy()->addDays($leadTimeDays);
+        $shiftedDays = 0;
+        $shiftReasons = [];
+
+        // Step 3: 納品可能曜日チェック（最大14日）
+        $deliverySetting = $this->deliveryDaySettings[$contractorId][$warehouseId] ?? null;
+        if ($deliverySetting) {
+            $hasDeliveryDays = array_filter($deliverySetting, fn ($v) => $v === true);
+            if (! empty($hasDeliveryDays)) {
+                $deliveryShift = 0;
+                for ($i = 0; $i < 14; $i++) {
+                    if ($this->canDeliverOn($deliverySetting, $arrivalDate->dayOfWeek)) {
+                        break;
+                    }
+                    $arrivalDate->addDay();
+                    $deliveryShift++;
+                }
+                if ($deliveryShift > 0) {
+                    $shiftedDays += $deliveryShift;
+                    $shiftReasons[] = "納品可能曜日調整(+{$deliveryShift}日)";
+                }
+            }
+        }
+
+        // Step 4: 倉庫休日チェック（最大14日）
+        $warehouseShift = 0;
+        for ($i = 0; $i < 14; $i++) {
+            $dateStr = $arrivalDate->format('Y-m-d');
+            if (! isset($this->warehouseHolidays[$warehouseId][$dateStr])) {
+                break;
+            }
+            $arrivalDate->addDay();
+            $warehouseShift++;
+        }
+        if ($warehouseShift > 0) {
+            $shiftedDays += $warehouseShift;
+            $shiftReasons[] = "倉庫休日(+{$warehouseShift}日)";
+        }
+
+        return [
+            'arrival_date' => $arrivalDate,
+            'lead_time_days' => $leadTimeDays,
+            'shifted_days' => $shiftedDays,
+            'shift_reasons' => $shiftReasons,
+        ];
+    }
+
+    /**
+     * 指定した曜日に納品可能かどうかを判定
+     *
+     * @param  array  $setting  納品曜日設定
+     * @param  int  $dayOfWeek  曜日（0=日曜, 1=月曜, ..., 6=土曜）
+     */
+    private function canDeliverOn(array $setting, int $dayOfWeek): bool
+    {
+        return match ($dayOfWeek) {
+            0 => $setting['sun'] ?? false,
+            1 => $setting['mon'] ?? false,
+            2 => $setting['tue'] ?? false,
+            3 => $setting['wed'] ?? false,
+            4 => $setting['thu'] ?? false,
+            5 => $setting['fri'] ?? false,
+            6 => $setting['sat'] ?? false,
+            default => false,
+        };
+    }
+
+    /**
      * 数量を指定単位で切り上げ
      *
-     * @param int $quantity 数量
-     * @param int $unit 単位（1以上）
+     * @param  int  $quantity  数量
+     * @param  int  $unit  単位（1以上）
      * @return int 切り上げ後の数量
      */
     private function roundUpToUnit(int $quantity, int $unit): int
@@ -559,5 +860,77 @@ class OrderCandidateCalculationService
         }
 
         return (int) ceil($quantity / $unit) * $unit;
+    }
+
+    /**
+     * 発注候補生成結果データを構築
+     */
+    private function buildResultData(string $batchCode, int $transferCount, int $orderCount): array
+    {
+        // 生成された候補を集計
+        $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
+            ->with(['warehouse', 'contractor'])
+            ->get();
+
+        // サマリー
+        $totalQuantity = $candidates->sum('order_quantity');
+
+        // 倉庫別集計（コード順でソート）
+        $byWarehouse = $candidates->groupBy('warehouse_id')->map(function ($group) {
+            $warehouse = $group->first()->warehouse;
+
+            return [
+                'warehouse_id' => $group->first()->warehouse_id,
+                'warehouse_code' => $warehouse?->code ?? '',
+                'warehouse_name' => $warehouse?->name ?? '不明',
+                'count' => $group->count(),
+                'quantity' => $group->sum('order_quantity'),
+            ];
+        })->sortBy('warehouse_code')->values()->toArray();
+
+        // 発注先別集計（コード順でソート）
+        $byContractor = $candidates->groupBy('contractor_id')->map(function ($group) {
+            $contractor = $group->first()->contractor;
+
+            return [
+                'contractor_id' => $group->first()->contractor_id,
+                'contractor_code' => $contractor?->code ?? '',
+                'contractor_name' => $contractor?->name ?? '不明',
+                'count' => $group->count(),
+                'quantity' => $group->sum('order_quantity'),
+            ];
+        })->sortBy('contractor_code')->values()->toArray();
+
+        // 倉庫×発注先クロス集計
+        $crossSummary = $candidates->groupBy(function ($c) {
+            return "{$c->warehouse_id}_{$c->contractor_id}";
+        })->map(function ($group) {
+            $first = $group->first();
+
+            return [
+                'warehouse_code' => $first->warehouse?->code ?? '',
+                'warehouse_name' => $first->warehouse?->name ?? '不明',
+                'contractor_code' => $first->contractor?->code ?? '',
+                'contractor_name' => $first->contractor?->name ?? '不明',
+                'count' => $group->count(),
+                'quantity' => $group->sum('order_quantity'),
+            ];
+        })->sortBy(['warehouse_code', 'contractor_code'])->values()->toArray();
+
+        return [
+            'batch_code' => $batchCode,
+            'summary' => [
+                'total_candidates' => $transferCount + $orderCount,
+                'internal_candidates' => $transferCount,
+                'external_candidates' => $orderCount,
+                'total_quantity' => $totalQuantity,
+                'warehouse_count' => count($byWarehouse),
+                'contractor_count' => count($byContractor),
+            ],
+            'by_warehouse' => $byWarehouse,
+            'by_contractor' => $byContractor,
+            'cross_summary' => $crossSummary,
+            'generated_at' => now()->toIso8601String(),
+        ];
     }
 }

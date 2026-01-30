@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Contractors\Tables;
 
+use App\Enums\PaginationOptions;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -10,7 +11,6 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 
 class ContractorsTable
 {
@@ -37,7 +37,7 @@ class ContractorsTable
                     ->sortable()
                     ->toggleable(),
 
-                TextColumn::make('supplier.name')
+                TextColumn::make('supplier.partner.name')
                     ->label('仕入先')
                     ->sortable()
                     ->toggleable(),

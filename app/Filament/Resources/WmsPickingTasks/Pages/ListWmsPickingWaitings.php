@@ -13,9 +13,9 @@ use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
@@ -69,7 +69,7 @@ class ListWmsPickingWaitings extends ListRecords
                         ->label('ピッカー選択')
                         ->options(function (Get $get) {
                             $warehouseId = $get('warehouse_id');
-                            if (!$warehouseId) {
+                            if (! $warehouseId) {
                                 return [];
                             }
 
@@ -90,7 +90,7 @@ class ListWmsPickingWaitings extends ListRecords
                         ->label('割当戦略')
                         ->options(function (Get $get) {
                             $warehouseId = $get('warehouse_id');
-                            if (!$warehouseId) {
+                            if (! $warehouseId) {
                                 return [];
                             }
 
@@ -100,13 +100,13 @@ class ListWmsPickingWaitings extends ListRecords
                                 ->orderBy('name')
                                 ->get()
                                 ->mapWithKeys(fn ($s) => [
-                                    $s->id => $s->name . ($s->is_default ? ' (デフォルト)' : ''),
+                                    $s->id => $s->name.($s->is_default ? ' (デフォルト)' : ''),
                                 ])
                                 ->toArray();
                         })
                         ->default(function (Get $get) {
                             $warehouseId = $get('warehouse_id');
-                            if (!$warehouseId) {
+                            if (! $warehouseId) {
                                 return null;
                             }
 
@@ -119,7 +119,7 @@ class ListWmsPickingWaitings extends ListRecords
                         ->helperText('タスクの割り当て方法を選択します'),
                 ])
                 ->action(function (array $data) {
-                    $service = new AssignPickersToTasksService();
+                    $service = new AssignPickersToTasksService;
 
                     $result = $service->execute(
                         warehouseId: $data['warehouse_id'],
