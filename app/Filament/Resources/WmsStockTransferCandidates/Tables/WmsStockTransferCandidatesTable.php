@@ -13,6 +13,7 @@ use App\Services\AutoOrder\TransferOrderRecalculationService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Support\Enums\Alignment;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -35,16 +36,30 @@ class WmsStockTransferCandidatesTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
-            ->extraAttributes(['class' => 'transfer-candidates-table'])
+            ->extraAttributes(['class' => 'transfer-candidates-table sticky-actions'])
             ->columns([
                 TextColumn::make('batch_code')
-                    ->label('計算時刻')
+                    ->label('実行CD')
+                    ->searchable()
+                    ->sortable()
+                    ->copyable()
+                    ->width('120px'),
+
+                TextColumn::make('batch_code_formatted')
+                    ->label('実行時刻')
                     ->state(function ($record) {
-                        // batch_code は YmdHis 形式 (例: 20251227230547)
                         return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
                     })
-                    ->sortable()
+                    ->sortable(query: fn ($query, $direction) => $query->orderBy('batch_code', $direction))
                     ->width('80px'),
+
+                TextColumn::make('deliveryCourse.code')
+                    ->label('配送CD')
+                    ->state(fn ($record) => $record->deliveryCourse?->code ?? '-')
+                    ->sortable()
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('70px'),
 
                 TextColumn::make('satelliteWarehouse.name')
                     ->label('依頼倉庫')
@@ -60,11 +75,13 @@ class WmsStockTransferCandidatesTable
                     ->sortable()
                     ->width('140px'),
 
-                TextColumn::make('deliveryCourse.name')
-                    ->label('配送コース')
-                    ->state(fn ($record) => $record->deliveryCourse?->name ?? '-')
+                TextColumn::make('contractor.name')
+                    ->label('発注先')
+                    ->state(fn ($record) => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-')
+                    ->searchable()
                     ->sortable()
-                    ->width('100px'),
+                    ->toggleable()
+                    ->width('120px'),
 
                 TextColumn::make('item.code')
                     ->label('商品コード')
@@ -91,14 +108,6 @@ class WmsStockTransferCandidatesTable
                     ->toggleable()
                     ->width('50px'),
 
-                TextColumn::make('contractor.name')
-                    ->label('発注先')
-                    ->state(fn ($record) => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-')
-                    ->searchable()
-                    ->sortable()
-                    ->toggleable()
-                    ->width('120px'),
-
                 // 在庫関連カラム（直接カラムから取得、なければ計算ログにフォールバック）
                 TextColumn::make('current_effective_stock')
                     ->label('現在庫')
@@ -117,7 +126,7 @@ class WmsStockTransferCandidatesTable
                     ->width('55px'),
 
                 TextColumn::make('incoming_quantity')
-                    ->label('入庫予定')
+                    ->label('入庫数')
                     ->state(function ($record) {
                         // 直接カラムがあればそちらを使用
                         if ($record->incoming_quantity !== null) {
@@ -133,7 +142,7 @@ class WmsStockTransferCandidatesTable
                     ->width('55px'),
 
                 TextColumn::make('calculated_available')
-                    ->label('計算後在庫')
+                    ->label('見込在庫')
                     ->state(function ($record) {
                         // 直接カラムがあればそちらを使用
                         if ($record->calculated_available !== null) {
@@ -284,6 +293,17 @@ class WmsStockTransferCandidatesTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                SelectFilter::make('batch_code')
+                    ->label('実行CD')
+                    ->options(fn () => WmsStockTransferCandidate::query()
+                        ->select('batch_code')
+                        ->distinct()
+                        ->orderByDesc('batch_code')
+                        ->limit(50)
+                        ->pluck('batch_code', 'batch_code')
+                        ->toArray())
+                    ->searchable(),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(collect(CandidateStatus::cases())->mapWithKeys(fn ($status) => [
@@ -361,8 +381,9 @@ class WmsStockTransferCandidatesTable
                     ->icon('heroicon-o-pencil')
                     ->color('gray')
                     ->visible(fn ($record) => $record->status === CandidateStatus::PENDING)
-                    ->modalHeading('移動候補を変更')
-                    ->modalWidth('6xl')
+                    ->modalHeading('移動数変更')
+                    ->modalWidth('4xl')
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->fillForm(fn ($record) => [
                         'transfer_quantity' => $record->transfer_quantity,
                         'expected_arrival_date' => $record->expected_arrival_date,
@@ -373,59 +394,26 @@ class WmsStockTransferCandidatesTable
                             return [];
                         }
 
-                        $log = WmsOrderCalculationLog::where('batch_code', $record->batch_code)
-                            ->where('warehouse_id', $record->satellite_warehouse_id)
-                            ->where('item_id', $record->item_id)
-                            ->first();
-
-                        $details = $log?->calculation_details ?? [];
                         $item = $record->item;
-                        $capacityText = '-';
-                        if ($item) {
-                            $parts = [];
-                            if ($item->capacity_case) {
-                                $parts[] = "ケース: {$item->capacity_case}";
-                            }
-                            if ($item->capacity_carton) {
-                                $parts[] = "ボール: {$item->capacity_carton}";
-                            }
-                            $capacityText = implode(' / ', $parts) ?: '-';
-                        }
 
                         return [
-                            Grid::make(3)
+                            Grid::make(2)
                                 ->schema([
-                                    View::make('filament.components.stock-transfer-left-panel')
+                                    View::make('filament.components.stock-transfer-edit-left-panel')
                                         ->viewData([
                                             'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
                                             'satelliteWarehouseName' => $record->satelliteWarehouse ? "[{$record->satelliteWarehouse->code}]{$record->satelliteWarehouse->name}" : '-',
                                             'hubWarehouseName' => $record->hubWarehouse ? "[{$record->hubWarehouse->code}]{$record->hubWarehouse->name}" : '-',
-                                            'expectedArrivalDate' => $record->expected_arrival_date
-                                                ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
-                                                : '-',
                                             'itemCode' => $item?->code ?? '-',
                                             'itemName' => $item?->name ?? '-',
-                                            'packaging' => $item?->packaging ?? '-',
-                                            'capacityText' => $capacityText,
+                                            'suggestedQuantity' => $record->suggested_quantity ?? 0,
+                                            'transferQuantity' => $record->transfer_quantity ?? 0,
                                         ])
                                         ->columnSpan(1),
 
-                                    Section::make('移動情報')
+                                    Section::make('変更項目')
                                         ->schema([
-                                            View::make('filament.components.stock-transfer-right-panel')
-                                                ->viewData([
-                                                    'suggestedQuantity' => $record->suggested_quantity ?? 0,
-                                                    'transferQuantity' => $record->transfer_quantity ?? 0,
-                                                    'hasCalculationLog' => ! empty($details),
-                                                    'formula' => $details['計算式'] ?? '-',
-                                                    'effectiveStock' => $details['有効在庫'] ?? 0,
-                                                    'incomingStock' => $details['入庫予定数'] ?? 0,
-                                                    'safetyStock' => $details['安全在庫'] ?? 0,
-                                                    'calculatedAvailable' => $details['利用可能在庫'] ?? 0,
-                                                    'shortageQty' => $details['不足数'] ?? 0,
-                                                ]),
-
-                                            Section::make('変更')
+                                            Grid::make(2)
                                                 ->schema([
                                                     TextInput::make('transfer_quantity')
                                                         ->label('移動数')
@@ -435,15 +423,15 @@ class WmsStockTransferCandidatesTable
                                                     DatePicker::make('expected_arrival_date')
                                                         ->label('移動出荷日')
                                                         ->required(),
-                                                    Select::make('delivery_course_id')
-                                                        ->label('配送コース')
-                                                        ->options(fn () => DeliveryCourse::query()
-                                                            ->orderBy('name')
-                                                            ->pluck('name', 'id'))
-                                                        ->searchable(),
                                                 ]),
+                                            Select::make('delivery_course_id')
+                                                ->label('配送コース')
+                                                ->options(fn () => DeliveryCourse::query()
+                                                    ->orderBy('name')
+                                                    ->pluck('name', 'id'))
+                                                ->searchable(),
                                         ])
-                                        ->columnSpan(2),
+                                        ->columnSpan(1),
                                 ]),
                         ];
                     })
@@ -662,6 +650,6 @@ class WmsStockTransferCandidatesTable
                         }),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('batch_code', 'desc');
     }
 }

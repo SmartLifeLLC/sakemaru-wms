@@ -7,6 +7,7 @@ use App\Enums\AutoOrder\OrderSource;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
+use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
@@ -28,6 +29,7 @@ class WmsOrderIncomingSchedule extends WmsModel
         'search_code',
         'contractor_id',
         'supplier_id',
+        'location_id',
         'order_candidate_id',
         'transfer_candidate_id',
         'source_warehouse_id',
@@ -80,6 +82,11 @@ class WmsOrderIncomingSchedule extends WmsModel
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function orderCandidate(): BelongsTo

@@ -35,15 +35,21 @@ class WmsOrderCandidatesTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
-            ->extraAttributes(['class' => 'order-candidates-table'])
+            ->extraAttributes(['class' => 'order-candidates-table sticky-actions'])
             ->columns([
                 TextColumn::make('batch_code')
-                    ->label('計算時刻')
+                    ->label('実行CD')
+                    ->searchable()
+                    ->sortable()
+                    ->copyable()
+                    ->width('120px'),
+
+                TextColumn::make('batch_code_formatted')
+                    ->label('実行時刻')
                     ->state(function ($record) {
-                        // batch_code は YmdHis 形式 (例: 20251227230547)
                         return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
                     })
-                    ->sortable()
+                    ->sortable(query: fn ($query, $direction) => $query->orderBy('batch_code', $direction))
                     ->width('80px'),
 
                 TextColumn::make('warehouse.name')
@@ -102,50 +108,15 @@ class WmsOrderCandidatesTable
                     ->alignEnd()
                     ->width('55px'),
 
-                TextInputColumn::make('incoming_quantity_override')
-                    ->label('入庫予定')
-                    ->type('number')
-                    ->rules(['nullable', 'integer', 'min:0'])
+                TextColumn::make('incoming_quantity_override')
+                    ->label('入庫数')
+                    ->state(fn ($record) => $record->incoming_quantity_override ?? $record->original_incoming_quantity ?? '-')
+                    ->numeric()
                     ->alignEnd()
-                    ->width('65px')
-                    ->extraInputAttributes(['style' => 'width: 60px; text-align: right;'])
-                    ->placeholder(fn ($record) => $record->original_incoming_quantity ?? '-')
-                    ->disabled(fn ($record) => $record->status !== CandidateStatus::PENDING)
-                    ->afterStateUpdated(function ($record, $state) {
-                        if ($record->status !== CandidateStatus::PENDING) {
-                            Notification::make()
-                                ->title('承認後は入庫予定を変更できません')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
-                        try {
-                            $newValue = $state !== '' && $state !== null ? (int) $state : null;
-
-                            $record->updateWithLock([
-                                'incoming_quantity_override' => $newValue,
-                                'is_manually_modified' => true,
-                                'modified_by' => auth()->id(),
-                                'modified_at' => now(),
-                            ]);
-
-                            Notification::make()
-                                ->title('入庫予定を更新しました')
-                                ->success()
-                                ->send();
-                        } catch (OptimisticLockException $e) {
-                            Notification::make()
-                                ->title('更新エラー')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
-                        }
-                    }),
+                    ->width('65px'),
 
                 TextColumn::make('calculated_available')
-                    ->label('計算後在庫')
+                    ->label('見込在庫')
                     ->state(fn ($record) => $record->calculated_available ?? '-')
                     ->numeric()
                     ->alignEnd()
@@ -260,6 +231,17 @@ class WmsOrderCandidatesTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                SelectFilter::make('batch_code')
+                    ->label('実行CD')
+                    ->options(fn () => WmsOrderCandidate::query()
+                        ->select('batch_code')
+                        ->distinct()
+                        ->orderByDesc('batch_code')
+                        ->limit(50)
+                        ->pluck('batch_code', 'batch_code')
+                        ->toArray())
+                    ->searchable(),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options([
@@ -635,6 +617,6 @@ class WmsOrderCandidatesTable
                         }),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('batch_code', 'desc');
     }
 }

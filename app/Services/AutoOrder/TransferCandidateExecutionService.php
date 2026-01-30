@@ -5,8 +5,10 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsStockTransferCandidate;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -198,6 +200,8 @@ class TransferCandidateExecutionService
      */
     private function createIncomingSchedule(WmsStockTransferCandidate $candidate): WmsOrderIncomingSchedule
     {
+        $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
+
         $schedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $candidate->satellite_warehouse_id,
             'item_id' => $candidate->item_id,
@@ -214,6 +218,7 @@ class TransferCandidateExecutionService
             'quantity_type' => $candidate->quantity_type,
             'order_date' => now()->format('Y-m-d'),
             'expected_arrival_date' => $candidate->expected_arrival_date,
+            'expiration_date' => $expirationDate,
             'status' => IncomingScheduleStatus::PENDING,
         ]);
 
@@ -224,6 +229,7 @@ class TransferCandidateExecutionService
             'source_warehouse_id' => $candidate->hub_warehouse_id,
             'item_id' => $candidate->item_id,
             'expected_quantity' => $candidate->transfer_quantity,
+            'expiration_date' => $expirationDate,
         ]);
 
         return $schedule;
@@ -243,6 +249,29 @@ class TransferCandidateExecutionService
             ->where('is_used_for_ordering', true)
             ->where('is_active', true)
             ->value('search_string');
+    }
+
+    /**
+     * 商品の賞味期限を計算
+     *
+     * 商品マスタの default_expiration_days から計算
+     * 設定がない場合は null を返す
+     *
+     * @param  int  $itemId  商品ID
+     * @param  string|Carbon  $baseDate  基準日（入荷予定日）
+     * @return string|null  賞味期限（Y-m-d形式）
+     */
+    private function calculateExpirationDate(int $itemId, string|Carbon $baseDate): ?string
+    {
+        $item = Item::find($itemId);
+
+        if (! $item || ! $item->default_expiration_days || $item->default_expiration_days <= 0) {
+            return null;
+        }
+
+        $base = $baseDate instanceof Carbon ? $baseDate : Carbon::parse($baseDate);
+
+        return $base->addDays($item->default_expiration_days)->format('Y-m-d');
     }
 
     /**
@@ -309,17 +338,21 @@ class TransferCandidateExecutionService
         $candidateCount = 0;
         $errors = [];
 
-        return DB::connection('sakemaru')->transaction(function () use ($grouped, $executedBy, &$queueCount, &$candidateCount, &$errors) {
-            foreach ($grouped as $groupKey => $groupCandidates) {
-                try {
+        // 各グループを個別のトランザクション（セーブポイント）で処理
+        // これにより、1グループ失敗しても他グループには影響しない
+        foreach ($grouped as $groupKey => $groupCandidates) {
+            try {
+                DB::connection('sakemaru')->transaction(function () use ($groupKey, $groupCandidates, $executedBy, &$queueCount, &$candidateCount) {
+                    // 1. 入荷予定を先に作成（失敗時はキューが作られないようにするため）
+                    foreach ($groupCandidates as $candidate) {
+                        $this->createIncomingSchedule($candidate);
+                    }
+
+                    // 2. キューを作成（入荷予定が全て成功した後）
                     $queueId = $this->createGroupedStockTransferQueue($groupCandidates, $executedBy);
 
-                    // グループ内の全候補をEXECUTEDに更新し、入荷予定を作成
+                    // 3. ステータスを更新
                     foreach ($groupCandidates as $candidate) {
-                        // 入荷予定を作成
-                        $this->createIncomingSchedule($candidate);
-
-                        // ステータス更新
                         $candidate->update([
                             'status' => CandidateStatus::EXECUTED,
                             'modified_by' => $executedBy,
@@ -335,24 +368,25 @@ class TransferCandidateExecutionService
                         'queue_id' => $queueId,
                         'candidate_count' => $groupCandidates->count(),
                     ]);
-                } catch (\Exception $e) {
-                    $errors[] = [
-                        'group_key' => $groupKey,
-                        'error' => $e->getMessage(),
-                    ];
-                    Log::error('Failed to execute grouped transfer candidates', [
-                        'group_key' => $groupKey,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                });
+            } catch (\Exception $e) {
+                // このグループの処理は全てロールバックされる
+                $errors[] = [
+                    'group_key' => $groupKey,
+                    'error' => $e->getMessage(),
+                ];
+                Log::error('Failed to execute grouped transfer candidates', [
+                    'group_key' => $groupKey,
+                    'error' => $e->getMessage(),
+                ]);
             }
+        }
 
-            return [
-                'queue_count' => $queueCount,
-                'candidate_count' => $candidateCount,
-                'errors' => $errors,
-            ];
-        });
+        return [
+            'queue_count' => $queueCount,
+            'candidate_count' => $candidateCount,
+            'errors' => $errors,
+        ];
     }
 
     /**

@@ -54,7 +54,7 @@
                     <tbody class="border-b" :class="selectedScheduleIndex === index ? 'bg-blue-50 border-b-2 border-blue-500' : 'border-gray-300'">
                         <tr :data-index="index">
                             <td class="px-2 pt-2 text-gray-900 font-bold" x-text="schedule.warehouse_name"></td>
-                            <td rowspan="2" class="px-1 py-1 align-middle w-20">
+                            <td rowspan="3" class="px-1 py-1 align-middle w-20">
                                 <button @click="selectedScheduleIndex = index; selectScheduleForInput(index)"
                                         class="w-full py-1 bg-blue-600 text-white font-bold rounded text-handy-xs active:bg-blue-700">
                                     予定数<br><span class="ml-2 font-bold" x-text="schedule.expected_quantity"></span>
@@ -62,8 +62,13 @@
                             </td>
                         </tr>
                         <tr>
-                            <td class="px-2 pb-2 text-gray-900">
+                            <td class="px-2 text-gray-900">
                                 予定日:<span x-text="formatDateMMDD(schedule.expected_arrival_date)"></span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="px-2 pb-2 text-gray-600">
+                                <i class="ph ph-map-pin text-orange-500"></i>ロケ:<span class="font-mono font-bold" x-text="schedule.location?.display_name || currentItem?.default_location?.display_name || '-'"></span>
                             </td>
                         </tr>
                     </tbody>

@@ -275,7 +275,7 @@
                 </div>
             </div>
 
-            {{-- 倉庫別内訳 --}}
+            {{-- 倉庫別内訳（非表示）
             @if (!empty($results['byWarehouse']))
                 <div class="mt-6">
                     <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">倉庫別内訳</h4>
@@ -289,6 +289,7 @@
                     </div>
                 </div>
             @endif
+            --}}
 
             <div class="mt-6 flex justify-end gap-3">
                 <x-filament::button
@@ -296,22 +297,6 @@
                     wire:click="closeWizard"
                 >
                     閉じる
-                </x-filament::button>
-                @if (($results['transferCandidates'] ?? 0) > 0)
-                    <x-filament::button
-                        color="info"
-                        tag="a"
-                        href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}"
-                    >
-                        移動候補一覧へ
-                    </x-filament::button>
-                @endif
-                <x-filament::button
-                    color="primary"
-                    tag="a"
-                    href="{{ route('filament.admin.resources.wms-order-candidates.index') }}"
-                >
-                    発注候補一覧へ
                 </x-filament::button>
             </div>
         </div>

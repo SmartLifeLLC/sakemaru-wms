@@ -41,10 +41,22 @@ class WmsOrderIncomingSchedulesTable
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'incoming-schedules-table sticky-actions'])
             ->columns([
-                TextColumn::make('id')
-                    ->label('ID')
-                    ->sortable()
-                    ->width('60px'),
+                TextColumn::make('batch_code')
+                    ->label('実行CD')
+                    ->state(function ($record) {
+                        // orderCandidate または transferCandidate から batch_code を取得
+                        return $record->orderCandidate?->batch_code
+                            ?? $record->transferCandidate?->batch_code
+                            ?? '-';
+                    })
+                    ->searchable(query: function ($query, string $search) {
+                        $query->where(function ($q) use ($search) {
+                            $q->whereHas('orderCandidate', fn ($sub) => $sub->where('batch_code', 'like', "%{$search}%"))
+                              ->orWhereHas('transferCandidate', fn ($sub) => $sub->where('batch_code', 'like', "%{$search}%"));
+                        });
+                    })
+                    ->copyable()
+                    ->width('120px'),
 
                 TextColumn::make('status')
                     ->label('ステータス')
@@ -224,14 +236,6 @@ class WmsOrderIncomingSchedulesTable
                     ->alignCenter()
                     ->width('80px'),
 
-                TextColumn::make('actual_arrival_date')
-                    ->label('入庫日')
-                    ->date('m/d')
-                    ->sortable()
-                    ->alignCenter()
-                    ->placeholder('-')
-                    ->width('70px'),
-
                 TextColumn::make('expiration_date')
                     ->label('賞味期限')
                     ->date('Y/m/d')
@@ -355,14 +359,14 @@ class WmsOrderIncomingSchedulesTable
             ])
             ->recordActions([
                 Action::make('confirm')
-                    ->label('入庫処理')
+                    ->label('入庫')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->visible(fn ($record) => in_array($record->status, [
                         IncomingScheduleStatus::PENDING,
                         IncomingScheduleStatus::PARTIAL,
                     ]))
-                    ->modalHeading('入庫処理')
+                    ->modalHeading('入庫')
                     ->schema(function ($record) {
                         // デフォルトロケーションを取得
                         $defaultLocation = ItemDefaultLocation::getDefaultLocation(
@@ -413,8 +417,7 @@ class WmsOrderIncomingSchedulesTable
                             $receivedQty = (int) $data['received_quantity'];
                             $remainingQty = $record->remaining_quantity;
                             $expirationDate = $data['expiration_date'] ?? null;
-                            // TODO: locationIdはサービス側で未対応のため、現在は使用しない
-                            // $locationId = $data['location_id'] ?? null;
+                            $locationId = $data['location_id'] ?? null;
 
                             if ($receivedQty >= $remainingQty) {
                                 // 全量入庫
@@ -423,7 +426,8 @@ class WmsOrderIncomingSchedulesTable
                                     auth()->id(),
                                     $record->expected_quantity,
                                     $data['actual_date'],
-                                    $expirationDate
+                                    $expirationDate,
+                                    $locationId
                                 );
                                 Notification::make()
                                     ->title('入庫を確定しました')
@@ -436,7 +440,8 @@ class WmsOrderIncomingSchedulesTable
                                     $receivedQty,
                                     auth()->id(),
                                     $data['actual_date'],
-                                    $expirationDate
+                                    $expirationDate,
+                                    $locationId
                                 );
                                 Notification::make()
                                     ->title('一部入庫を記録しました')
@@ -454,7 +459,7 @@ class WmsOrderIncomingSchedulesTable
                     }),
 
                 Action::make('cancel')
-                    ->label('キャンセル')
+                    ->label('取消')
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
                     ->visible(fn ($record) => in_array($record->status, [
@@ -462,11 +467,11 @@ class WmsOrderIncomingSchedulesTable
                         IncomingScheduleStatus::PARTIAL,
                     ]))
                     ->requiresConfirmation()
-                    ->modalHeading('入庫予定をキャンセル')
-                    ->modalDescription('この入庫予定をキャンセルしますか？')
+                    ->modalHeading('入庫予定を取消')
+                    ->modalDescription('この入庫予定を取消しますか？')
                     ->schema([
                         Textarea::make('reason')
-                            ->label('キャンセル理由'),
+                            ->label('取消理由'),
                     ])
                     ->action(function ($record, array $data) {
                         $service = app(IncomingConfirmationService::class);
@@ -478,7 +483,7 @@ class WmsOrderIncomingSchedulesTable
                                 $data['reason'] ?? ''
                             );
                             Notification::make()
-                                ->title('入庫予定をキャンセルしました')
+                                ->title('入庫予定を取消しました')
                                 ->warning()
                                 ->send();
                         } catch (\Exception $e) {
@@ -709,15 +714,15 @@ class WmsOrderIncomingSchedulesTable
                         }),
 
                     BulkAction::make('bulkCancel')
-                        ->label('選択をキャンセル')
+                        ->label('選択を取消')
                         ->icon('heroicon-o-x-circle')
                         ->color('danger')
                         ->requiresConfirmation()
-                        ->modalHeading('一括キャンセル')
-                        ->modalDescription('選択した入庫予定をキャンセルします。')
+                        ->modalHeading('一括取消')
+                        ->modalDescription('選択した入庫予定を取消します。')
                         ->schema([
                             Textarea::make('reason')
-                                ->label('キャンセル理由'),
+                                ->label('取消理由'),
                         ])
                         ->action(function (Collection $records, array $data) {
                             $service = app(IncomingConfirmationService::class);
@@ -728,7 +733,7 @@ class WmsOrderIncomingSchedulesTable
 
                             if ($validRecords->isEmpty()) {
                                 Notification::make()
-                                    ->title('キャンセル可能なレコードがありません')
+                                    ->title('取消可能なレコードがありません')
                                     ->warning()
                                     ->send();
 
@@ -746,12 +751,12 @@ class WmsOrderIncomingSchedulesTable
                             }
 
                             Notification::make()
-                                ->title("{$count}件をキャンセルしました")
+                                ->title("{$count}件を取消しました")
                                 ->warning()
                                 ->send();
                         }),
                 ]),
             ])
-            ->defaultSort('expected_arrival_date', 'asc');
+            ->defaultSort('id', 'desc');
     }
 }

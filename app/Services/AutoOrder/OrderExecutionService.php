@@ -5,8 +5,10 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -180,6 +182,7 @@ class OrderExecutionService
         $incomingSchedules = collect();
         $supplierId = $this->getSupplierIdFromCandidate($candidate);
         $searchCode = $this->getSearchCodeForItem($candidate->item_id);
+        $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
 
         // demand_breakdownがある場合は各倉庫ごとに入庫予定を作成
         if (! empty($candidate->demand_breakdown)) {
@@ -204,6 +207,7 @@ class OrderExecutionService
                     'quantity_type' => $candidate->quantity_type,
                     'order_date' => now()->format('Y-m-d'),
                     'expected_arrival_date' => $candidate->expected_arrival_date,
+                    'expiration_date' => $expirationDate,
                     'status' => IncomingScheduleStatus::PENDING,
                 ]);
 
@@ -214,6 +218,7 @@ class OrderExecutionService
                     'schedule_id' => $schedule->id,
                     'warehouse_id' => $warehouseId,
                     'quantity' => $quantity,
+                    'expiration_date' => $expirationDate,
                 ]);
             }
         } else {
@@ -231,6 +236,7 @@ class OrderExecutionService
                 'quantity_type' => $candidate->quantity_type,
                 'order_date' => now()->format('Y-m-d'),
                 'expected_arrival_date' => $candidate->expected_arrival_date,
+                'expiration_date' => $expirationDate,
                 'status' => IncomingScheduleStatus::PENDING,
             ]);
 
@@ -295,6 +301,8 @@ class OrderExecutionService
     public function createManualIncomingSchedule(array $data, int $createdBy): WmsOrderIncomingSchedule
     {
         $searchCode = $this->getSearchCodeForItem($data['item_id']);
+        $expirationDate = $data['expiration_date']
+            ?? $this->calculateExpirationDate($data['item_id'], $data['expected_arrival_date']);
 
         $incomingSchedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $data['warehouse_id'],
@@ -309,6 +317,7 @@ class OrderExecutionService
             'quantity_type' => $data['quantity_type'] ?? 'PIECE',
             'order_date' => $data['order_date'] ?? now()->format('Y-m-d'),
             'expected_arrival_date' => $data['expected_arrival_date'],
+            'expiration_date' => $expirationDate,
             'status' => IncomingScheduleStatus::PENDING,
             'note' => $data['note'] ?? null,
         ]);
@@ -318,6 +327,7 @@ class OrderExecutionService
             'warehouse_id' => $data['warehouse_id'],
             'item_id' => $data['item_id'],
             'quantity' => $data['expected_quantity'],
+            'expiration_date' => $expirationDate,
             'created_by' => $createdBy,
         ]);
 
@@ -354,5 +364,28 @@ class OrderExecutionService
             ->where('is_used_for_ordering', true)
             ->where('is_active', true)
             ->value('search_string');
+    }
+
+    /**
+     * 商品の賞味期限を計算
+     *
+     * 商品マスタの default_expiration_days から計算
+     * 設定がない場合は null を返す
+     *
+     * @param  int  $itemId  商品ID
+     * @param  string|Carbon  $baseDate  基準日（入荷予定日）
+     * @return string|null  賞味期限（Y-m-d形式）
+     */
+    private function calculateExpirationDate(int $itemId, string|Carbon $baseDate): ?string
+    {
+        $item = Item::find($itemId);
+
+        if (! $item || ! $item->default_expiration_days || $item->default_expiration_days <= 0) {
+            return null;
+        }
+
+        $base = $baseDate instanceof Carbon ? $baseDate : Carbon::parse($baseDate);
+
+        return $base->addDays($item->default_expiration_days)->format('Y-m-d');
     }
 }

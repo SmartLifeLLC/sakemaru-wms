@@ -57,12 +57,17 @@ class AdminPanelProvider extends PanelProvider
                     ->values()
                     ->toArray()
             )
-            ->navigationItems(
-                [NavigationItem::make('API Document')
+            ->navigationItems([
+                NavigationItem::make('API Document')
                     ->url('/api/documentation', shouldOpenInNewTab: true)
-                    ->icon('heroicon-o-link')->group(EMenuCategory::SETTINGS->label()),
-                ]
-            )
+                    ->icon('heroicon-o-link')
+                    ->group(EMenuCategory::SETTINGS->label()),
+                NavigationItem::make('倉庫移動伝票')
+                    ->url(config('app.core_url').'/stocks/inventory/transfer', shouldOpenInNewTab: true)
+                    ->icon('heroicon-o-arrows-right-left')
+                    ->group(EMenuCategory::ORDER_HISTORY->label())
+                    ->sort(4),
+            ])
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,

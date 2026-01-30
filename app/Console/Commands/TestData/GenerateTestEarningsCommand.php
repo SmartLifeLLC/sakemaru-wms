@@ -17,7 +17,7 @@ class GenerateTestEarningsCommand extends Command
                             {--courses=* : Specific delivery course codes to use (leave empty for all)}
                             {--locations=* : Specific location IDs to use for stock filtering (leave empty for all)}';
 
-    protected $description = 'Generate test earnings data via BoozeCore API';
+    protected $description = 'Generate test earnings data via sakemaru API';
 
     private int $warehouseId;
 
@@ -162,8 +162,9 @@ class GenerateTestEarningsCommand extends Command
 
     private function loadTestItems(): void
     {
-        // IMPORTANT: Only select items that have stock in locations (not just warehouse)
-        // AND include location type information to match with order types
+        // IMPORTANT: Only select items that:
+        // 1. Have stock in the warehouse (real_stock_lots.current_quantity > 0)
+        // 2. Have location set (INNER JOIN ensures location_id is not null)
         // This ensures stock allocation can succeed during wave generation
 
         $query = DB::connection('sakemaru')
@@ -176,8 +177,9 @@ class GenerateTestEarningsCommand extends Command
             ->whereNull('i.end_of_sale_date')
             ->where('i.is_ended', false)
             ->where('rs.warehouse_id', $this->warehouseId)
-            ->whereNotNull('rsl.location_id')
-            ->where('rs.available_quantity', '>', 0);
+            ->where('l.warehouse_id', $this->warehouseId) // Ensure location belongs to same warehouse
+            ->where('rsl.current_quantity', '>', 0) // Ensure lot has actual stock
+            ->where('rsl.status', 'ACTIVE'); // Ensure lot is active
 
         // Filter by specified locations if provided
         if (! empty($this->specifiedLocations)) {
@@ -189,9 +191,10 @@ class GenerateTestEarningsCommand extends Command
             'i.code',
             'i.name',
             'l.available_quantity_flags',
-            DB::raw('SUM(rs.available_quantity) as total_available')
+            DB::raw('SUM(rsl.current_quantity) as total_available')
         )
             ->groupBy('i.id', 'i.code', 'i.name', 'l.available_quantity_flags')
+            ->having('total_available', '>', 0)
             ->limit(30)
             ->get();
 
@@ -208,8 +211,8 @@ class GenerateTestEarningsCommand extends Command
         })
             ->toArray();
 
-        $this->line('Loaded '.count($this->testItems).' test items with location-based stock'
-            .(! empty($this->specifiedLocations) ? ' (filtered by locations)' : ''));
+        $this->line('Loaded '.count($this->testItems).' test items (with stock > 0 and location set)'
+            .(! empty($this->specifiedLocations) ? ' (filtered by '.count($this->specifiedLocations).' locations)' : ''));
     }
 
     private function generateEarnings(int $count): array

@@ -25,13 +25,15 @@ class IncomingConfirmationService
      * @param  int|null  $receivedQuantity  実際の入庫数量（nullの場合は予定数量）
      * @param  string|null  $actualDate  実際の入庫日（nullの場合は本日）
      * @param  string|null  $expirationDate  賞味期限（任意）
+     * @param  int|null  $locationId  入庫ロケーションID（任意）
      */
     public function confirmIncoming(
         WmsOrderIncomingSchedule $schedule,
         int $confirmedBy,
         ?int $receivedQuantity = null,
         ?string $actualDate = null,
-        ?string $expirationDate = null
+        ?string $expirationDate = null,
+        ?int $locationId = null
     ): WmsOrderIncomingSchedule {
         if ($schedule->status === IncomingScheduleStatus::CONFIRMED) {
             throw new \RuntimeException("Schedule {$schedule->id} is already confirmed");
@@ -44,7 +46,7 @@ class IncomingConfirmationService
         $receivedQuantity = $receivedQuantity ?? $schedule->expected_quantity;
         $actualDate = $actualDate ?? now()->format('Y-m-d');
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate, $expirationDate) {
+        return DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate, $expirationDate, $locationId) {
             // 入庫予定を更新（仕入れ連携は別途行う）
             $updateData = [
                 'received_quantity' => $receivedQuantity,
@@ -57,6 +59,11 @@ class IncomingConfirmationService
             // 賞味期限が指定された場合のみ更新
             if ($expirationDate !== null) {
                 $updateData['expiration_date'] = $expirationDate;
+            }
+
+            // ロケーションが指定された場合のみ更新
+            if ($locationId !== null) {
+                $updateData['location_id'] = $locationId;
             }
 
             $schedule->update($updateData);
@@ -86,13 +93,15 @@ class IncomingConfirmationService
      * @param  int  $confirmedBy  確定者ID
      * @param  string|null  $actualDate  入庫日
      * @param  string|null  $expirationDate  賞味期限（任意）
+     * @param  int|null  $locationId  入庫ロケーションID（任意）
      */
     public function recordPartialIncoming(
         WmsOrderIncomingSchedule $schedule,
         int $receivedQuantity,
         int $confirmedBy,
         ?string $actualDate = null,
-        ?string $expirationDate = null
+        ?string $expirationDate = null,
+        ?int $locationId = null
     ): WmsOrderIncomingSchedule {
         if ($schedule->status === IncomingScheduleStatus::CONFIRMED) {
             throw new \RuntimeException("Schedule {$schedule->id} is already fully confirmed");
@@ -105,7 +114,7 @@ class IncomingConfirmationService
         $actualDate = $actualDate ?? now()->format('Y-m-d');
         $newReceivedQty = $schedule->received_quantity + $receivedQuantity;
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $newReceivedQty, $receivedQuantity, $confirmedBy, $actualDate, $expirationDate) {
+        return DB::connection('sakemaru')->transaction(function () use ($schedule, $newReceivedQty, $receivedQuantity, $confirmedBy, $actualDate, $expirationDate, $locationId) {
             // ステータス判定
             $status = IncomingScheduleStatus::PARTIAL;
             if ($newReceivedQty >= $schedule->expected_quantity) {
@@ -124,6 +133,11 @@ class IncomingConfirmationService
             // 賞味期限が指定された場合のみ更新
             if ($expirationDate !== null) {
                 $updateData['expiration_date'] = $expirationDate;
+            }
+
+            // ロケーションが指定された場合のみ更新
+            if ($locationId !== null) {
+                $updateData['location_id'] = $locationId;
             }
 
             $schedule->update($updateData);
@@ -226,13 +240,30 @@ class IncomingConfirmationService
             );
         }
 
+        // 倉庫情報を取得
+        $schedule->loadMissing(['sourceWarehouse', 'warehouse', 'transferCandidate']);
+
+        $fromWarehouseCode = $schedule->sourceWarehouse?->code;
+        $toWarehouseCode = $schedule->warehouse?->code;
+        $deliveryCourseId = $schedule->transferCandidate?->delivery_course_id;
+
+        if (! $fromWarehouseCode || ! $toWarehouseCode) {
+            throw new \RuntimeException(
+                "Warehouse codes not found for schedule {$schedule->id}"
+            );
+        }
+
         $requestId = "transfer-deliver-{$schedule->id}-".now()->format('YmdHis');
 
         DB::connection('sakemaru')->table('stock_transfer_queue')->insert([
             'client_id' => config('app.client_id'),
             'request_id' => $requestId,
             'stock_transfer_id' => $schedule->stock_transfer_id,
+            'process_date' => now()->format('Y-m-d'),
             'delivered_date' => now()->format('Y-m-d'),
+            'from_warehouse_code' => $fromWarehouseCode,
+            'to_warehouse_code' => $toWarehouseCode,
+            'delivery_course_id' => $deliveryCourseId,
             'items' => json_encode([
                 'schedule_id' => $schedule->id,
                 'received_quantity' => $receivedQuantity ?? $schedule->expected_quantity,
@@ -249,6 +280,9 @@ class IncomingConfirmationService
             'schedule_id' => $schedule->id,
             'stock_transfer_id' => $schedule->stock_transfer_id,
             'request_id' => $requestId,
+            'from_warehouse' => $fromWarehouseCode,
+            'to_warehouse' => $toWarehouseCode,
+            'delivery_course_id' => $deliveryCourseId,
             'received_quantity' => $receivedQuantity ?? $schedule->expected_quantity,
         ]);
     }
@@ -256,20 +290,61 @@ class IncomingConfirmationService
     /**
      * stock_transfer_id を動的に取得・設定
      *
+     * 単一移動の場合: request_id = "transfer-create-{candidate_id}"
+     * グループ移動の場合: request_id = "transfer-create-group-{id1}-{id2}-..." または MD5ハッシュ
+     *
      * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
      */
     private function syncStockTransferId(WmsOrderIncomingSchedule $schedule): void
     {
+        $candidateId = $schedule->transfer_candidate_id;
+
+        // 1. 単一移動の形式で検索
         $queue = DB::connection('sakemaru')
             ->table('stock_transfer_queue')
-            ->where('request_id', "transfer-create-{$schedule->transfer_candidate_id}")
+            ->where('action_type', 'CREATE')
+            ->where('request_id', "transfer-create-{$candidateId}")
             ->where('status', 'FINISHED')
             ->where('is_success', true)
             ->first();
 
+        // 2. グループ移動の形式で検索（候補IDを含む request_id を検索）
+        if (! $queue) {
+            $queue = DB::connection('sakemaru')
+                ->table('stock_transfer_queue')
+                ->where('action_type', 'CREATE')
+                ->where('status', 'FINISHED')
+                ->where('is_success', true)
+                ->where(function ($q) use ($candidateId) {
+                    $q->where('request_id', 'LIKE', "transfer-create-group-%-{$candidateId}-%")
+                        ->orWhere('request_id', 'LIKE', "transfer-create-group-{$candidateId}-%")
+                        ->orWhere('request_id', 'LIKE', "transfer-create-group-%-{$candidateId}");
+                })
+                ->first();
+        }
+
+        // 3. まだ見つからない場合、items JSON 内の候補IDで検索
+        if (! $queue) {
+            $queue = DB::connection('sakemaru')
+                ->table('stock_transfer_queue')
+                ->where('action_type', 'CREATE')
+                ->where('request_id', 'LIKE', 'transfer-create-group-%')
+                ->where('status', 'FINISHED')
+                ->where('is_success', true)
+                ->where('items', 'LIKE', "%移動候補ID: {$candidateId}%")
+                ->first();
+        }
+
         if ($queue && $queue->stock_transfer_id) {
             $schedule->update(['stock_transfer_id' => $queue->stock_transfer_id]);
             $schedule->refresh();
+
+            Log::info('Stock transfer ID synced from queue', [
+                'schedule_id' => $schedule->id,
+                'transfer_candidate_id' => $candidateId,
+                'queue_request_id' => $queue->request_id,
+                'stock_transfer_id' => $queue->stock_transfer_id,
+            ]);
         }
     }
 }

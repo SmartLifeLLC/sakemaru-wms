@@ -11,7 +11,7 @@ class ItemDefaultLocation extends SakemaruModel
     protected $fillable = [
         'warehouse_id',
         'item_id',
-        'default_location_id',
+        'location_id',
         'creator_id',
         'last_updater_id',
     ];
@@ -28,7 +28,7 @@ class ItemDefaultLocation extends SakemaruModel
 
     public function defaultLocation(): BelongsTo
     {
-        return $this->belongsTo(Location::class, 'default_location_id');
+        return $this->belongsTo(Location::class, 'location_id');
     }
 
     /**

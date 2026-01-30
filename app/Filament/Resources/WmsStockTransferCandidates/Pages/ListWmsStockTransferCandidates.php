@@ -4,16 +4,16 @@ namespace App\Filament\Resources\WmsStockTransferCandidates\Pages;
 
 use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
-use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
-use App\Enums\AutoOrder\SettlementStatus;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsStockTransferCandidates\WmsStockTransferCandidateResource;
+use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
+use App\Services\AutoOrder\StockSnapshotService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -168,6 +168,14 @@ class ListWmsStockTransferCandidates extends ListRecords
                         ->label('移動出荷日')
                         ->default(now()->addDay())
                         ->required(),
+
+                    Select::make('delivery_course_id')
+                        ->label('配送コース')
+                        ->options(fn () => DeliveryCourse::query()
+                            ->orderBy('code')
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"]))
+                        ->searchable(),
                 ])
                 ->action(function (array $data) {
                     // 依頼倉庫と移動元倉庫が同じ場合はエラー
@@ -182,20 +190,14 @@ class ListWmsStockTransferCandidates extends ListRecords
                     }
 
                     // 確定待ち（PENDING）のジョブを検索し、あればそのbatch_codeを使用
-                    // なければ在庫スナップショットジョブを新規作成
+                    // なければ在庫スナップショットを新規生成
                     $pendingJob = WmsAutoOrderJobControl::findPendingSettlement();
                     if ($pendingJob) {
                         $batchCode = $pendingJob->batch_code;
                     } else {
-                        // 新規ジョブを作成（在庫スナップショットを記録）
-                        $snapshotJob = WmsAutoOrderJobControl::startJob(
-                            processName: JobProcessName::STOCK_SNAPSHOT,
-                            scope: null,
-                            batchCode: null,
-                            settlementStatus: SettlementStatus::PENDING
-                        );
-                        // スナップショットは取らず、ジョブ管理のみ作成（手動追加時は現在庫を参照しないため）
-                        $snapshotJob->markAsSuccess(0);
+                        // 新規スナップショットを生成（ジョブ管理も自動作成される）
+                        $snapshotService = app(StockSnapshotService::class);
+                        $snapshotJob = $snapshotService->generateAll();
                         $batchCode = $snapshotJob->batch_code;
                     }
 
@@ -223,6 +225,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                         'hub_warehouse_id' => $data['hub_warehouse_id'],
                         'item_id' => $data['item_id'],
                         'contractor_id' => null,
+                        'delivery_course_id' => $data['delivery_course_id'] ?? null,
                         'suggested_quantity' => $data['transfer_quantity'],
                         'transfer_quantity' => $data['transfer_quantity'],
                         'expected_arrival_date' => $data['expected_arrival_date'],

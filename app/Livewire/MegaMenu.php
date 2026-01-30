@@ -33,13 +33,13 @@ class MegaMenu extends Component
 
         // Map EMenuCategory to Tabs
         $tabs = [
-            'outbound' => [
-                'label' => '出荷',
-                'icon' => 'fa-arrow-up-from-bracket',
+            'order' => [
+                'label' => '発注',
+                'icon' => 'fa-cart-shopping',
                 'categories' => [
-                    EMenuCategory::OUTBOUND,
-                    EMenuCategory::SHORTAGE,
-                    EMenuCategory::HORIZONTAL_SHIPMENT,
+                    EMenuCategory::AUTO_ORDER,
+                    EMenuCategory::ORDER_HISTORY,
+                    EMenuCategory::ORDER_SETTINGS,
                 ],
             ],
             'inbound' => [
@@ -49,13 +49,13 @@ class MegaMenu extends Component
                     EMenuCategory::INBOUND,
                 ],
             ],
-            'order' => [
-                'label' => '発注',
-                'icon' => 'fa-cart-shopping',
+            'outbound' => [
+                'label' => '出荷',
+                'icon' => 'fa-arrow-up-from-bracket',
                 'categories' => [
-                    EMenuCategory::AUTO_ORDER,
-                    EMenuCategory::ORDER_HISTORY,
-                    EMenuCategory::ORDER_SETTINGS,
+                    EMenuCategory::OUTBOUND,
+                    EMenuCategory::SHORTAGE,
+                    EMenuCategory::HORIZONTAL_SHIPMENT,
                 ],
             ],
             'inventory' => [

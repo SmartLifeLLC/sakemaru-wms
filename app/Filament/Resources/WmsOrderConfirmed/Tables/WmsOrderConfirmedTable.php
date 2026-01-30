@@ -7,12 +7,11 @@ use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
-use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use Filament\Actions\Action;
 use Filament\Schemas\Components\Grid;
-use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -216,97 +215,44 @@ class WmsOrderConfirmedTable
                     ->icon('heroicon-o-eye')
                     ->color('gray')
                     ->modalHeading('発注確定詳細')
-                    ->modalWidth('6xl')
+                    ->modalWidth('4xl')
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->infolist(function (?WmsOrderCandidate $record): array {
                         if (! $record) {
                             return [];
                         }
 
-                        $log = WmsOrderCalculationLog::where('batch_code', $record->batch_code)
-                            ->where('warehouse_id', $record->warehouse_id)
-                            ->where('item_id', $record->item_id)
-                            ->first();
-
-                        $details = $log?->calculation_details ?? [];
                         $item = $record->item;
-                        $capacityText = '-';
-                        if ($item) {
-                            $parts = [];
-                            if ($item->capacity_case) {
-                                $parts[] = "ケース: {$item->capacity_case}";
-                            }
-                            if ($item->capacity_carton) {
-                                $parts[] = "ボール: {$item->capacity_carton}";
-                            }
-                            $capacityText = implode(' / ', $parts) ?: '-';
-                        }
-
-                        // 入荷予定日の算出理由
-                        $leadTimeDays = $log?->lead_time_days ?? 0;
-                        $arrivalDateAdjustment = $details['到着日調整'] ?? 0;
 
                         return [
-                            Grid::make(3)
+                            Grid::make(2)
                                 ->schema([
-                                    View::make('filament.components.order-candidate-left-panel-with-arrival')
+                                    View::make('filament.components.order-confirmed-detail-left')
                                         ->viewData([
                                             'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
                                             'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
                                             'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+                                            'itemCode' => $item?->code ?? '-',
+                                            'itemName' => $item?->name ?? '-',
                                             'expectedArrivalDate' => $record->expected_arrival_date
                                                 ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
                                                 : '-',
-                                            'originalArrivalDate' => $record->original_arrival_date
-                                                ? \Carbon\Carbon::parse($record->original_arrival_date)->format('Y/m/d')
-                                                : '-',
-                                            'leadTimeDays' => $leadTimeDays,
-                                            'arrivalDateAdjustment' => $arrivalDateAdjustment,
-                                            'itemCode' => $item?->code ?? '-',
-                                            'itemName' => $item?->name ?? '-',
-                                            'packaging' => $item?->packaging ?? '-',
-                                            'capacityText' => $capacityText,
                                         ])
                                         ->columnSpan(1),
 
-                                    Section::make('発注情報')
-                                        ->schema([
-                                            View::make('filament.components.order-candidate-right-panel')
-                                                ->viewData([
-                                                    'selfShortageQty' => $record->self_shortage_qty ?? 0,
-                                                    'satelliteDemandQty' => $record->satellite_demand_qty ?? 0,
-                                                    'suggestedQuantity' => $record->suggested_quantity ?? 0,
-                                                    'hasCalculationLog' => ! empty($details),
-                                                    'formula' => $details['計算式'] ?? '-',
-                                                    'effectiveStock' => $details['有効在庫'] ?? 0,
-                                                    'incomingStock' => $details['入庫予定数'] ?? 0,
-                                                    'hasTransferIncoming' => isset($details['移動入庫予定']),
-                                                    'transferIncoming' => $details['移動入庫予定'] ?? 0,
-                                                    'hasTransferOutgoing' => isset($details['移動出庫予定']),
-                                                    'transferOutgoing' => $details['移動出庫予定'] ?? 0,
-                                                    'safetyStock' => $details['安全在庫'] ?? 0,
-                                                    'calculatedAvailable' => $details['利用可能在庫'] ?? 0,
-                                                    'shortageQty' => $details['不足数'] ?? 0,
-                                                    'purchaseUnit' => $details['最小仕入単位'] ?? 1,
-                                                    'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,
-                                                    'orderQuantity' => $record->order_quantity ?? 0,
-                                                ]),
-
-                                            Section::make('確定情報')
-                                                ->schema([
-                                                    View::make('filament.components.order-confirmed-info')
-                                                        ->viewData([
-                                                            'orderQuantity' => $record->order_quantity,
-                                                            'status' => $record->status->label(),
-                                                            'statusColor' => $record->status->color(),
-                                                            'transmittedAt' => $record->transmitted_at
-                                                                ? $record->transmitted_at->format('Y/m/d H:i')
-                                                                : null,
-                                                        ]),
-                                                ]),
+                                    View::make('filament.components.order-confirmed-detail-right')
+                                        ->viewData([
+                                            'suggestedQuantity' => $record->suggested_quantity ?? 0,
+                                            'orderQuantity' => $record->order_quantity ?? 0,
+                                            'status' => $record->status->label(),
+                                            'statusColor' => $record->status->color(),
+                                            'transmittedAt' => $record->transmitted_at
+                                                ? $record->transmitted_at->format('Y/m/d H:i')
+                                                : null,
                                         ])
-                                        ->columnSpan(2),
+                                        ->columnSpan(1),
                                 ]),
                         ];
                     }),

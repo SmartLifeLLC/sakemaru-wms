@@ -592,6 +592,12 @@ SelectFilter::make('batch_code')
   - テーブルデザインパターン
   - モーダルコンポーネント
   - ログイン画面デザイン
+- 2026-01-30: モーダルフッターボタン配置を追加
+  - `modalFooterActionsAlignment(Alignment::End)` で右寄せ
+  - Alignment ENUMの使用方法
+- 2026-01-30: 在庫関連カラム名の統一を追加
+  - 「入庫予定」→「入庫数」
+  - 「計算後在庫」→「見込在庫」
 
 ---
 
@@ -1197,8 +1203,21 @@ TextColumn::make('quantity')
 |-----------|--------|-----|
 | コード系 | 〜CD | 倉庫CD、商品CD、発注先CD |
 | 名称系 | 〜名 | 倉庫名、商品名 |
-| 数量系 | 〜数 | 発注数、在庫数 |
-| 日時系 | 〜日時、〜日 | 作成日時、入荷予定 |
+| 数量系 | 〜数 | 発注数、在庫数、入庫数 |
+| 日時系 | 〜日時、〜日 | 作成日時、入荷予定日 |
+
+### 在庫関連カラム名の統一
+
+| カラム | ラベル | 説明 |
+|--------|--------|------|
+| current_stock / current_effective_stock | 現在庫 | 現在の有効在庫数 |
+| incoming_quantity | 入庫数 | 入庫予定数量（※「入庫予定」ではなく「入庫数」） |
+| calculated_available | 見込在庫 | 計算後の利用可能在庫（※「計算後在庫」ではなく「見込在庫」） |
+| safety_stock | 発注点 | 安全在庫/発注点 |
+| shortage_qty | 不足分 | 不足数量 |
+| suggested_quantity | 算出数 | システム算出の推奨数量 |
+| order_quantity | 発注数 | 実際の発注数量 |
+| transfer_quantity | 移動数 | 移動数量 |
 
 ### インライン編集
 
@@ -1303,12 +1322,15 @@ Action::make('viewDetail')
 ### 編集モーダル
 
 ```php
+use Filament\Support\Enums\Alignment;
+
 Action::make('edit')
     ->label('編集')
     ->icon('heroicon-o-pencil')
     ->color('warning')
     ->modalHeading('発注数量編集')
     ->modalWidth('md')
+    ->modalFooterActionsAlignment(Alignment::End)  // ボタンを右寄せ
     ->schema([
         TextInput::make('order_quantity')
             ->label('発注数')
@@ -1328,6 +1350,28 @@ Action::make('edit')
         ]);
     }),
 ```
+
+### モーダルフッターボタンの配置
+
+```php
+use Filament\Support\Enums\Alignment;
+
+// ボタンを右寄せ（推奨）
+->modalFooterActionsAlignment(Alignment::End)
+
+// ボタンを左寄せ
+->modalFooterActionsAlignment(Alignment::Start)
+
+// ボタンを中央寄せ
+->modalFooterActionsAlignment(Alignment::Center)
+```
+
+**利用可能なAlignment:**
+- `Alignment::Start` - 左寄せ
+- `Alignment::Center` - 中央寄せ
+- `Alignment::End` - 右寄せ（推奨）
+
+**重要:** デフォルトは左寄せ。業務アプリでは右寄せ（`Alignment::End`）が標準的。
 
 ### Bladeコンポーネント例
 

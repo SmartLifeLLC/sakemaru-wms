@@ -58,7 +58,7 @@
             </div>
         </div>
 
-        {{-- タブセクション --}}
+        {{-- 倉庫別内訳セクション --}}
         <div x-data="{ activeTab: 'warehouse' }">
             {{-- タブナビゲーション --}}
             <div class="border-b border-gray-200 dark:border-gray-700">
@@ -101,7 +101,7 @@
                 {{-- 倉庫別タブ --}}
                 @if (!empty($result['by_warehouse']))
                     <div x-show="activeTab === 'warehouse'" x-cloak>
-                        <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 max-h-[50vh] overflow-y-auto">
+                        <div class="rounded-lg border border-gray-200 dark:border-gray-700" style="max-height: 200px; overflow-y: auto;">
                             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                                 <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
                                     <tr>
@@ -121,7 +121,7 @@
                                         </tr>
                                     @endforeach
                                 </tbody>
-                                <tfoot class="bg-gray-100 dark:bg-gray-800 sticky bottom-0">
+                                <tfoot class="bg-gray-100 dark:bg-gray-800">
                                     <tr>
                                         <td colspan="2" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300">合計</td>
                                         <td class="px-4 py-2 text-sm font-bold text-gray-900 dark:text-white text-right">{{ number_format(collect($result['by_warehouse'])->sum('count')) }}</td>
@@ -136,7 +136,7 @@
                 {{-- 発注先別タブ --}}
                 @if (!empty($result['by_contractor']))
                     <div x-show="activeTab === 'contractor'" x-cloak>
-                        <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 max-h-[50vh] overflow-y-auto">
+                        <div class="rounded-lg border border-gray-200 dark:border-gray-700" style="max-height: 200px; overflow-y: auto;">
                             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                                 <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
                                     <tr>
@@ -156,7 +156,7 @@
                                         </tr>
                                     @endforeach
                                 </tbody>
-                                <tfoot class="bg-gray-100 dark:bg-gray-800 sticky bottom-0">
+                                <tfoot class="bg-gray-100 dark:bg-gray-800">
                                     <tr>
                                         <td colspan="2" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300">合計</td>
                                         <td class="px-4 py-2 text-sm font-bold text-gray-900 dark:text-white text-right">{{ number_format(collect($result['by_contractor'])->sum('count')) }}</td>
@@ -171,7 +171,7 @@
                 {{-- 倉庫×発注先タブ --}}
                 @if (!empty($result['cross_summary']))
                     <div x-show="activeTab === 'cross'" x-cloak>
-                        <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 max-h-[50vh] overflow-y-auto">
+                        <div class="rounded-lg border border-gray-200 dark:border-gray-700" style="max-height: 200px; overflow-y: auto;">
                             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                                 <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0">
                                     <tr>
@@ -197,7 +197,7 @@
                                         </tr>
                                     @endforeach
                                 </tbody>
-                                <tfoot class="bg-gray-100 dark:bg-gray-800 sticky bottom-0">
+                                <tfoot class="bg-gray-100 dark:bg-gray-800">
                                     <tr>
                                         <td colspan="2" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300">合計</td>
                                         <td class="px-4 py-2 text-sm font-bold text-gray-900 dark:text-white text-right">{{ number_format(collect($result['cross_summary'])->sum('count')) }}</td>

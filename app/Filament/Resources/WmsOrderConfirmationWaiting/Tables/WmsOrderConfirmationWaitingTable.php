@@ -34,11 +34,18 @@ class WmsOrderConfirmationWaitingTable
             ->extraAttributes(['class' => 'order-confirmation-waiting-table'])
             ->columns([
                 TextColumn::make('batch_code')
-                    ->label('計算時刻')
+                    ->label('実行CD')
+                    ->searchable()
+                    ->sortable()
+                    ->copyable()
+                    ->width('120px'),
+
+                TextColumn::make('batch_code_formatted')
+                    ->label('実行時刻')
                     ->state(function ($record) {
                         return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
                     })
-                    ->sortable()
+                    ->sortable(query: fn ($query, $direction) => $query->orderBy('batch_code', $direction))
                     ->width('80px'),
 
                 TextColumn::make('status')

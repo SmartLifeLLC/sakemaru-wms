@@ -71,6 +71,7 @@ class ListWmsIncomingCompleted extends ListRecords
     {
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
+                ->with(['warehouse', 'item', 'contractor', 'location'])
                 ->orderBy('confirmed_at', 'desc')
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')

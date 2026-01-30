@@ -7,6 +7,7 @@ use App\Enums\AutoOrder\LotStatus;
 use App\Enums\QuantityType;
 use App\Models\Concerns\HasOptimisticLock;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
@@ -33,6 +34,7 @@ class WmsOrderCandidate extends WmsModel
         'warehouse_id',
         'item_id',
         'contractor_id',
+        'delivery_course_id',
         'ordering_code',
         'self_shortage_qty',
         'satellite_demand_qty',
@@ -98,6 +100,11 @@ class WmsOrderCandidate extends WmsModel
     public function contractor(): BelongsTo
     {
         return $this->belongsTo(Contractor::class);
+    }
+
+    public function deliveryCourse(): BelongsTo
+    {
+        return $this->belongsTo(DeliveryCourse::class);
     }
 
     /**

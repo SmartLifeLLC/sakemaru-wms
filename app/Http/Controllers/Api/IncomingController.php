@@ -149,7 +149,7 @@ class IncomingController extends ApiController
                 IncomingScheduleStatus::PENDING,
                 IncomingScheduleStatus::PARTIAL,
             ])
-            ->with(['warehouse', 'item', 'item.item_search_information', 'contractor']);
+            ->with(['warehouse', 'item', 'item.item_search_information', 'contractor', 'location']);
 
         // Apply search filter
         if ($search) {
@@ -676,6 +676,7 @@ class IncomingController extends ApiController
             DB::connection('sakemaru')->transaction(function () use ($workItem, $schedule) {
                 $workQuantity = $workItem->work_quantity;
                 $remainingQty = $schedule->remaining_quantity;
+                $locationId = $workItem->location_id;
 
                 if ($workQuantity >= $remainingQty) {
                     // 全量入庫
@@ -684,7 +685,8 @@ class IncomingController extends ApiController
                         $workItem->picker_id,
                         $schedule->expected_quantity,
                         $workItem->work_arrival_date?->format('Y-m-d'),
-                        $workItem->work_expiration_date?->format('Y-m-d')
+                        $workItem->work_expiration_date?->format('Y-m-d'),
+                        $locationId
                     );
                 } else {
                     // 一部入庫
@@ -693,7 +695,8 @@ class IncomingController extends ApiController
                         $workQuantity,
                         $workItem->picker_id,
                         $workItem->work_arrival_date?->format('Y-m-d'),
-                        $workItem->work_expiration_date?->format('Y-m-d')
+                        $workItem->work_expiration_date?->format('Y-m-d'),
+                        $locationId
                     );
                 }
 
@@ -880,6 +883,9 @@ class IncomingController extends ApiController
             $itemId = $schedule->item_id;
 
             if (! isset($grouped[$itemId])) {
+                // デフォルトロケーションを取得
+                $defaultLocation = ItemDefaultLocation::getDefaultLocation($requestWarehouseId, $itemId);
+
                 $grouped[$itemId] = [
                     'item_id' => $itemId,
                     'item_code' => $schedule->item?->code,
@@ -891,6 +897,13 @@ class IncomingController extends ApiController
                     'capacity_case' => $schedule->item?->capacity_case,
                     'temperature_type' => $this->getTemperatureTypeLabel($schedule->item),
                     'images' => $this->getImages($schedule->item),
+                    'default_location' => $defaultLocation ? [
+                        'id' => $defaultLocation->id,
+                        'code1' => $defaultLocation->code1,
+                        'code2' => $defaultLocation->code2,
+                        'code3' => $defaultLocation->code3,
+                        'display_name' => "{$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}",
+                    ] : null,
                     'total_expected_quantity' => 0,
                     'total_received_quantity' => 0,
                     'total_remaining_quantity' => 0,
@@ -921,6 +934,14 @@ class IncomingController extends ApiController
             $grouped[$itemId]['warehouses'][$whId]['remaining_quantity'] += $schedule->remaining_quantity;
 
             // Add individual schedule
+            // スケジュールに設定されたロケーション、なければデフォルトロケーションを取得
+            $scheduleLocation = null;
+            if ($schedule->location_id) {
+                $scheduleLocation = $schedule->location;
+            } else {
+                $scheduleLocation = ItemDefaultLocation::getDefaultLocation($schedule->warehouse_id, $itemId);
+            }
+
             $grouped[$itemId]['schedules'][] = [
                 'id' => $schedule->id,
                 'warehouse_id' => $schedule->warehouse_id,
@@ -930,7 +951,15 @@ class IncomingController extends ApiController
                 'remaining_quantity' => $schedule->remaining_quantity,
                 'quantity_type' => $schedule->quantity_type?->value,
                 'expected_arrival_date' => $schedule->expected_arrival_date?->format('Y-m-d'),
+                'expiration_date' => $schedule->expiration_date?->format('Y-m-d'),
                 'status' => $schedule->status->value,
+                'location' => $scheduleLocation ? [
+                    'id' => $scheduleLocation->id,
+                    'code1' => $scheduleLocation->code1,
+                    'code2' => $scheduleLocation->code2,
+                    'code3' => $scheduleLocation->code3,
+                    'display_name' => "{$scheduleLocation->code1}-{$scheduleLocation->code2}-{$scheduleLocation->code3}",
+                ] : null,
             ];
         }
 
@@ -1091,9 +1120,12 @@ class IncomingController extends ApiController
     /**
      * デフォルトロケーションIDを取得（優先順位に従う）
      *
-     * 1. 商品×倉庫のデフォルトロケーション (item_warehouse_locations)
+     * 1. 商品×倉庫のデフォルトロケーション (item_incoming_default_locations)
      * 2. 同じ倉庫・商品の既存ロットのロケーション
-     * 3. 倉庫のデフォルトロケーション (Z-0-0)
+     * 3. 倉庫のデフォルトロケーション（以下の順で検索）
+     *    - Z-00-（華むすびの蔵センター等のメイン倉庫パターン）
+     *    - Z-0-0（レガシーパターン）
+     *    - ZZ-1-100（店舗パターン）
      */
     private function getDefaultLocationId(int $warehouseId, int $itemId): ?int
     {
@@ -1119,11 +1151,33 @@ class IncomingController extends ApiController
             return $existingLocationId;
         }
 
-        // 3. 倉庫のデフォルトロケーション (Z-0-0)
+        // 3. 倉庫のデフォルトロケーション（複数パターンを順番に検索）
+        // 3-1. Z-00- パターン（メイン倉庫：華むすびの蔵センター等）
+        $defaultLocation = Location::where('warehouse_id', $warehouseId)
+            ->where('code1', 'Z')
+            ->where('code2', '00')
+            ->first();
+
+        if ($defaultLocation) {
+            return $defaultLocation->id;
+        }
+
+        // 3-2. Z-0-0 パターン（レガシー）
         $defaultLocation = Location::where('warehouse_id', $warehouseId)
             ->where('code1', 'Z')
             ->where('code2', '0')
             ->where('code3', '0')
+            ->first();
+
+        if ($defaultLocation) {
+            return $defaultLocation->id;
+        }
+
+        // 3-3. ZZ-1-100 パターン（店舗用）
+        $defaultLocation = Location::where('warehouse_id', $warehouseId)
+            ->where('code1', 'ZZ')
+            ->where('code2', '1')
+            ->where('code3', '100')
             ->first();
 
         return $defaultLocation?->id;

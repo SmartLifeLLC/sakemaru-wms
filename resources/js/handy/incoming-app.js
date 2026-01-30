@@ -595,14 +595,30 @@ window.handyIncomingApp = function() {
                 return;
             }
 
+            // Get location from schedule or default_location
+            let locationId = null;
+            let locationSearch = '';
+            if (schedule.location) {
+                // Use schedule's location if available
+                locationId = schedule.location.id;
+                locationSearch = schedule.location.display_name || '';
+            } else if (this.currentItem?.default_location) {
+                // Fall back to item's default location
+                locationId = this.currentItem.default_location.id;
+                locationSearch = this.currentItem.default_location.display_name || '';
+            }
+
+            // Get expiration date from schedule if available
+            const expirationDate = schedule.expiration_date || '';
+
             // Reset form for this schedule (DB変更なしで入力画面へ)
             this.editingWorkItem = null;  // Clear any previous work item
             this.inputForm = {
                 schedule_id: schedule.id,
                 qty: schedule.expected_quantity || 0,
-                location_search: '',
-                location_id: null,
-                expiration_date: '',
+                location_search: locationSearch,
+                location_id: locationId,
+                expiration_date: expirationDate,
                 arrival_date: new Date().toISOString().split('T')[0],  // Today's date
             };
 

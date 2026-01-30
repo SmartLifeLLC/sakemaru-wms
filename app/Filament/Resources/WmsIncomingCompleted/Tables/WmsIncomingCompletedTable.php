@@ -18,11 +18,12 @@ class WmsIncomingCompletedTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
+            ->extraAttributes(['class' => 'incoming-completed-table sticky-actions'])
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
                     ->sortable()
-                    ->width('60px'),
+                    ->width('50px'),
 
                 TextColumn::make('status')
                     ->label('ステータス')
@@ -30,10 +31,10 @@ class WmsIncomingCompletedTable
                     ->formatStateUsing(fn (IncomingScheduleStatus $state): string => $state->label())
                     ->color(fn (IncomingScheduleStatus $state): string => $state->color())
                     ->sortable()
-                    ->width('90px'),
+                    ->width('80px'),
 
                 TextColumn::make('order_source')
-                    ->label('入庫区分')
+                    ->label('区分')
                     ->badge()
                     ->formatStateUsing(fn (OrderSource $state): string => match ($state) {
                         OrderSource::AUTO => '発注',
@@ -45,21 +46,21 @@ class WmsIncomingCompletedTable
                         OrderSource::MANUAL => 'gray',
                         OrderSource::TRANSFER => 'warning',
                     })
-                    ->width('60px'),
+                    ->width('55px'),
 
                 TextColumn::make('warehouse.name')
                     ->label('倉庫')
                     ->state(fn ($record) => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-')
                     ->searchable()
                     ->sortable()
-                    ->width('150px'),
+                    ->width('140px'),
 
                 TextColumn::make('item.code')
-                    ->label('商品コード')
+                    ->label('商品CD')
                     ->searchable()
                     ->sortable()
                     ->alignCenter()
-                    ->width('100px'),
+                    ->width('90px'),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
@@ -73,19 +74,19 @@ class WmsIncomingCompletedTable
                     ->searchable()
                     ->sortable()
                     ->toggleable()
-                    ->width('120px'),
+                    ->width('110px'),
 
                 TextColumn::make('expected_quantity')
                     ->label('予定数')
                     ->numeric()
                     ->alignEnd()
-                    ->width('70px'),
+                    ->width('60px'),
 
                 TextColumn::make('received_quantity')
                     ->label('入庫数')
                     ->numeric()
                     ->alignEnd()
-                    ->width('70px'),
+                    ->width('60px'),
 
                 TextColumn::make('quantity_type')
                     ->label('単位')
@@ -96,34 +97,41 @@ class WmsIncomingCompletedTable
                         default => '-',
                     })
                     ->alignCenter()
-                    ->width('60px'),
+                    ->width('55px'),
 
-                TextColumn::make('expected_arrival_date')
-                    ->label('入庫予定日')
-                    ->date('m/d')
+                TextColumn::make('expiration_date')
+                    ->label('賞味期限')
+                    ->date('Y/m/d')
                     ->sortable()
                     ->alignCenter()
-                    ->width('80px'),
+                    ->placeholder('-')
+                    ->width('85px'),
 
                 TextColumn::make('actual_arrival_date')
                     ->label('入庫日')
                     ->date('m/d')
                     ->sortable()
                     ->alignCenter()
-                    ->width('70px'),
+                    ->width('60px'),
 
                 TextColumn::make('confirmed_at')
                     ->label('確定日時')
                     ->dateTime('m/d H:i')
                     ->sortable()
                     ->alignCenter()
-                    ->width('90px'),
+                    ->width('85px'),
+
+                TextColumn::make('location.display_name')
+                    ->label('ロケ')
+                    ->placeholder('-')
+                    ->toggleable()
+                    ->width('80px'),
 
                 TextColumn::make('purchase_slip_number')
                     ->label('仕入伝票')
                     ->placeholder('-')
-                    ->toggleable()
-                    ->width('100px'),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('90px'),
 
                 TextColumn::make('note')
                     ->label('備考')
@@ -159,13 +167,31 @@ class WmsIncomingCompletedTable
                     ->color('gray')
                     ->modalHeading('入庫完了詳細')
                     ->modalWidth('lg')
-                    ->schema(function ($record) {
+                    ->infolist(function ($record): array {
                         return [
                             \Filament\Schemas\Components\Section::make('基本情報')
                                 ->schema([
-                                    \Filament\Infolists\Components\TextEntry::make('warehouse')
-                                        ->label('倉庫')
-                                        ->state(fn () => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-'),
+                                    \Filament\Schemas\Components\Grid::make(2)
+                                        ->schema([
+                                            \Filament\Infolists\Components\TextEntry::make('warehouse')
+                                                ->label('倉庫')
+                                                ->state(fn () => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-'),
+                                            \Filament\Infolists\Components\TextEntry::make('order_source')
+                                                ->label('入庫区分')
+                                                ->state(fn () => match ($record->order_source) {
+                                                    OrderSource::AUTO => '発注',
+                                                    OrderSource::MANUAL => '手動',
+                                                    OrderSource::TRANSFER => '移動',
+                                                    default => '-',
+                                                })
+                                                ->badge()
+                                                ->color(fn () => match ($record->order_source) {
+                                                    OrderSource::AUTO => 'info',
+                                                    OrderSource::MANUAL => 'gray',
+                                                    OrderSource::TRANSFER => 'warning',
+                                                    default => 'gray',
+                                                }),
+                                        ]),
                                     \Filament\Infolists\Components\TextEntry::make('item')
                                         ->label('商品')
                                         ->state(fn () => $record->item ? "[{$record->item->code}]{$record->item->name}" : '-'),
@@ -175,19 +201,55 @@ class WmsIncomingCompletedTable
                                 ]),
                             \Filament\Schemas\Components\Section::make('入庫情報')
                                 ->schema([
-                                    \Filament\Infolists\Components\TextEntry::make('received_quantity')
-                                        ->label('入庫数量')
-                                        ->state(fn () => $record->received_quantity),
-                                    \Filament\Infolists\Components\TextEntry::make('expected_arrival_date')
-                                        ->label('入庫予定日')
-                                        ->state(fn () => $record->expected_arrival_date?->format('Y/m/d') ?? '-'),
-                                    \Filament\Infolists\Components\TextEntry::make('actual_arrival_date')
-                                        ->label('入庫日')
-                                        ->state(fn () => $record->actual_arrival_date?->format('Y/m/d') ?? '-'),
-                                    \Filament\Infolists\Components\TextEntry::make('confirmed_at')
-                                        ->label('確定日時')
-                                        ->state(fn () => $record->confirmed_at?->format('Y/m/d H:i') ?? '-'),
+                                    \Filament\Schemas\Components\Grid::make(3)
+                                        ->schema([
+                                            \Filament\Infolists\Components\TextEntry::make('received_quantity')
+                                                ->label('入庫数')
+                                                ->state(fn () => number_format($record->received_quantity).' '.match ($record->quantity_type?->value ?? $record->quantity_type) {
+                                                    'PIECE' => 'バラ',
+                                                    'CASE' => 'ケース',
+                                                    'CARTON' => 'ボール',
+                                                    default => '',
+                                                })
+                                                ->weight('bold'),
+                                            \Filament\Infolists\Components\TextEntry::make('expected_quantity')
+                                                ->label('予定数')
+                                                ->state(fn () => number_format($record->expected_quantity)),
+                                            \Filament\Infolists\Components\TextEntry::make('expiration_date')
+                                                ->label('賞味期限')
+                                                ->state(fn () => $record->expiration_date?->format('Y/m/d') ?? '-'),
+                                        ]),
+                                    \Filament\Schemas\Components\Grid::make(3)
+                                        ->schema([
+                                            \Filament\Infolists\Components\TextEntry::make('expected_arrival_date')
+                                                ->label('入庫予定日')
+                                                ->state(fn () => $record->expected_arrival_date?->format('Y/m/d') ?? '-'),
+                                            \Filament\Infolists\Components\TextEntry::make('actual_arrival_date')
+                                                ->label('入庫日')
+                                                ->state(fn () => $record->actual_arrival_date?->format('Y/m/d') ?? '-'),
+                                            \Filament\Infolists\Components\TextEntry::make('confirmed_at')
+                                                ->label('確定日時')
+                                                ->state(fn () => $record->confirmed_at?->format('Y/m/d H:i') ?? '-'),
+                                        ]),
+                                    \Filament\Schemas\Components\Grid::make(2)
+                                        ->schema([
+                                            \Filament\Infolists\Components\TextEntry::make('location')
+                                                ->label('入庫ロケーション')
+                                                ->state(fn () => $record->location?->display_name ?? '-'),
+                                            \Filament\Infolists\Components\TextEntry::make('purchase_slip_number')
+                                                ->label('仕入伝票番号')
+                                                ->state(fn () => $record->purchase_slip_number ?? '-'),
+                                        ]),
                                 ]),
+                            \Filament\Schemas\Components\Section::make('備考')
+                                ->schema([
+                                    \Filament\Infolists\Components\TextEntry::make('note')
+                                        ->label('')
+                                        ->state(fn () => $record->note ?? '-')
+                                        ->columnSpanFull(),
+                                ])
+                                ->collapsed()
+                                ->collapsible(),
                         ];
                     })
                     ->modalSubmitAction(false)

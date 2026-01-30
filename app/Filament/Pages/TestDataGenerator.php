@@ -142,7 +142,7 @@ class TestDataGenerator extends Page
 
                 Toggle::make('delete_earnings')
                     ->label('売上データ（Earnings）を削除')
-                    ->helperText('BoozeCore経由で作成された売上伝票を削除')
+                    ->helperText('酒丸経由で作成された売上伝票を削除')
                     ->default(false),
 
                 Toggle::make('delete_stocks')
@@ -614,7 +614,7 @@ class TestDataGenerator extends Page
             ->color('success')
             ->requiresConfirmation()
             ->modalHeading('売上テストデータを生成')
-            ->modalDescription('BoozeCore APIを通じてテスト用の売上データを生成します。')
+            ->modalDescription('酒丸APIを通じてテスト用の売上データを生成します。')
             ->modalWidth('2xl')
             ->schema([
                 Select::make('warehouse_id')
@@ -655,7 +655,7 @@ class TestDataGenerator extends Page
 
                 Select::make('locations')
                     ->label('ロケーション指定（任意）')
-                    ->helperText('指定しない場合は全ロケーションの在庫から商品選択。検索して選択してください。')
+                    ->helperText('在庫があり、ロケーション設定済みの商品のみ選択されます。指定しない場合は全ロケーションから選択。')
                     ->multiple()
                     ->searchable()
                     ->getSearchResultsUsing(function (?string $search, Get $get) {

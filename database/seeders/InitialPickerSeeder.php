@@ -3,6 +3,8 @@
 namespace Database\Seeders;
 
 use App\Enums\PickerSkillLevel;
+use App\Models\Sakemaru\Client;
+use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -43,11 +45,13 @@ class InitialPickerSeeder extends Seeder
                 continue;
             }
 
+
+            $warehouseId = Warehouse::where('code',Client::first()->default_warehouse_code)->first()->id;
             DB::connection('sakemaru')->table('wms_pickers')->insert([
                 'code' => $code,
                 'name' => "ピッカー{$i}",
                 'password' => Hash::make($code),
-                'default_warehouse_id' => null,
+                'default_warehouse_id' => $warehouseId,
                 'skill_level' => PickerSkillLevel::SENIOR->value,
                 'picking_speed_rate' => 1.00,
                 'can_access_restricted_area' => false,

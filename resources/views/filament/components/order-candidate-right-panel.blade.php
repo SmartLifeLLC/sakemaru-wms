@@ -53,7 +53,7 @@
                 <dd class="modal-value">{{ number_format($safetyStock) }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">計算後在庫</dt>
+                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">見込在庫</dt>
                 <dd class="modal-value">{{ number_format($calculatedAvailable) }}</dd>
             </div>
             <div>
