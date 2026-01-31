@@ -253,12 +253,19 @@ class OrderCreateJobHandler
         $expectedArrivalDate = $arrivalInfo['arrival_date'];
         $leadTimeDays = $arrivalInfo['lead_time_days'] ?? 0;
 
+        // 仕入先と仕入単価を取得
+        $supplierId = $itemContractor->supplier_id;
+        $item = Item::with('current_price')->find($itemId);
+        $purchaseUnitPrice = $item?->current_price?->purchase_unit_price;
+
         // 発注候補を作成
         $candidate = WmsOrderCandidate::create([
             'batch_code' => $batchCode,
             'warehouse_id' => $warehouseId,
             'item_id' => $itemId,
             'contractor_id' => $itemContractor->contractor_id,
+            'supplier_id' => $supplierId,
+            'purchase_unit_price' => $purchaseUnitPrice,
             'self_shortage_qty' => 0,
             'satellite_demand_qty' => 0,
             'suggested_quantity' => $quantity,

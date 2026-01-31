@@ -212,7 +212,7 @@ class OrderCandidateCalculationService
         // 商品マスタをメモリにロード
         $items = DB::connection('sakemaru')
             ->table('items')
-            ->select('id', 'code', 'name', 'packaging')
+            ->select('id', 'code', 'name', 'packaging', 'purchase_price_type')
             ->get();
 
         foreach ($items as $item) {
@@ -220,10 +220,41 @@ class OrderCandidateCalculationService
                 'code' => $item->code,
                 'name' => $item->name,
                 'packaging' => $item->packaging,
+                'purchase_price_type' => $item->purchase_price_type,
+                'purchase_unit_price' => null,
             ];
         }
 
         Log::info('商品マスタをロード', ['count' => count($this->itemMaster)]);
+
+        // 仕入単価を別クエリで取得してマージ（効率的なウィンドウ関数使用）
+        $systemDate = now()->format('Y-m-d');
+        $prices = DB::connection('sakemaru')
+            ->select('
+                SELECT ip.item_id, ip.producer_unit_price, ip.cost_unit_price, ip.wholesale_unit_price
+                FROM item_prices ip
+                INNER JOIN (
+                    SELECT item_id, MAX(start_date) as max_start_date
+                    FROM item_prices
+                    WHERE start_date <= ?
+                    GROUP BY item_id
+                ) latest ON ip.item_id = latest.item_id AND ip.start_date = latest.max_start_date
+            ', [$systemDate]);
+
+        foreach ($prices as $price) {
+            if (isset($this->itemMaster[$price->item_id])) {
+                $priceType = $this->itemMaster[$price->item_id]['purchase_price_type'];
+                $purchaseUnitPrice = match ($priceType) {
+                    'producer' => $price->producer_unit_price,
+                    'cost' => $price->cost_unit_price,
+                    'wholesale' => $price->wholesale_unit_price,
+                    default => null,
+                };
+                $this->itemMaster[$price->item_id]['purchase_unit_price'] = $purchaseUnitPrice;
+            }
+        }
+
+        Log::info('仕入単価をマージ', ['count' => count($prices)]);
 
         // 倉庫マスタをメモリにロード
         $warehouses = DB::connection('sakemaru')
@@ -654,11 +685,17 @@ class OrderCandidateCalculationService
             // 発注コードを取得
             $orderingCode = $this->orderingCodes[$ic->item_id] ?? null;
 
+            // 仕入単価を取得
+            $itemInfo = $this->itemMaster[$ic->item_id] ?? null;
+            $purchaseUnitPrice = $itemInfo['purchase_unit_price'] ?? null;
+
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
                 'item_id' => $ic->item_id,
                 'contractor_id' => $ic->contractor_id,
+                'supplier_id' => $ic->supplier_id,
+                'purchase_unit_price' => $purchaseUnitPrice,
                 'ordering_code' => $orderingCode,
                 'self_shortage_qty' => $selfShortageOnly,
                 'satellite_demand_qty' => $satelliteDemandQty,

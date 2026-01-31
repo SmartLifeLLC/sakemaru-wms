@@ -7,6 +7,8 @@ use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Models\Concerns\OptimisticLockException;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\Supplier;
+use App\Models\Sakemaru\WarehouseContractor;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsStockTransferCandidate;
@@ -21,11 +23,15 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
+use Filament\Tables\Columns\Summarizers\Sum;
+use Filament\Tables\Columns\Summarizers\Summarizer;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Facades\DB;
 
 class WmsOrderCandidatesTable
 {
@@ -78,6 +84,12 @@ class WmsOrderCandidatesTable
                     ->alignCenter()
                     ->toggleable()
                     ->width('100px'),
+
+                TextColumn::make('supplier.partner_name')
+                    ->label('仕入先')
+                    ->state(fn ($record) => $record->supplier ? "[{$record->supplier->partner_code}]{$record->supplier->partner_name}" : '-')
+                    ->toggleable()
+                    ->width('120px'),
 
                 TextColumn::make('contractor.name')
                     ->label('発注先')
@@ -149,6 +161,10 @@ class WmsOrderCandidatesTable
                     ->rules(['required', 'integer', 'min:0'])
                     ->alignEnd()
                     ->width('70px')
+                    ->summarize(
+                        Sum::make()
+                            ->label('合計')
+                    )
                     ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
                     // 承認前（PENDING）のみ編集可能
                     ->disabled(fn ($record) => $record->status !== CandidateStatus::PENDING)
@@ -186,6 +202,39 @@ class WmsOrderCandidatesTable
                                 ->send();
                         }
                     }),
+
+                TextColumn::make('purchase_unit_price')
+                    ->label('仕入単価')
+                    ->state(fn ($record) => $record->purchase_unit_price !== null ? number_format((float) $record->purchase_unit_price, 2) : '-')
+                    ->alignEnd()
+                    ->toggleable()
+                    ->width('80px'),
+
+                TextColumn::make('purchase_total')
+                    ->label('仕入合計')
+                    ->state(function ($record) {
+                        if ($record->purchase_unit_price === null || ! $record->order_quantity) {
+                            return '-';
+                        }
+                        $total = (float) $record->purchase_unit_price * $record->order_quantity;
+
+                        return number_format($total, 0);
+                    })
+                    ->alignEnd()
+                    ->toggleable()
+                    ->width('90px')
+                    ->summarize(
+                        Summarizer::make()
+                            ->label('合計')
+                            ->numeric(thousandsSeparator: ',')
+                            ->using(function (Builder $query) {
+                                // 仕入合計 = purchase_unit_price * order_quantity
+                                // 画面で数量変更されうるため、DBの現在値を集計する。
+                                return (float) $query->sum(
+                                    DB::raw('COALESCE(purchase_unit_price, 0) * COALESCE(order_quantity, 0)')
+                                );
+                            })
+                    ),
 
                 TextColumn::make('expected_arrival_date')
                     ->label('入荷予定')
@@ -279,6 +328,36 @@ class WmsOrderCandidatesTable
                             ])
                             ->toArray();
                     }),
+
+                SelectFilter::make('supplier_id')
+                    ->label('仕入先')
+                    ->options(fn () => Supplier::query()
+                        ->with('partner')
+                        ->whereHas('partner')
+                        ->get()
+                        ->sortBy(fn ($s) => $s->partner?->code)
+                        ->mapWithKeys(fn ($supplier) => [
+                            $supplier->id => "[{$supplier->partner_code}]{$supplier->partner_name}",
+                        ]))
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        // 全角英数字を半角に変換
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Supplier::query()
+                            ->with('partner')
+                            ->whereHas('partner', function ($query) use ($search) {
+                                $query->where('code', 'like', "%{$search}%")
+                                    ->orWhere('name', 'like', "%{$search}%");
+                            })
+                            ->limit(50)
+                            ->get()
+                            ->sortBy(fn ($s) => $s->partner?->code)
+                            ->mapWithKeys(fn ($supplier) => [
+                                $supplier->id => "[{$supplier->partner_code}]{$supplier->partner_name}",
+                            ])
+                            ->toArray();
+                    }),
             ])
             ->recordActions([
                 Action::make('approve')
@@ -365,6 +444,20 @@ class WmsOrderCandidatesTable
                         $leadTimeDays = $log?->lead_time_days ?? 0;
                         $arrivalDateAdjustment = $details['到着日調整'] ?? 0;
 
+                        // 発注先ロット条件を取得
+                        $warehouseContractor = WarehouseContractor::where('warehouse_id', $record->warehouse_id)
+                            ->where('contractor_id', $record->contractor_id)
+                            ->first();
+                        $lotConditions = $warehouseContractor ? [
+                            $warehouseContractor->lot_condition_1,
+                            $warehouseContractor->lot_condition_2,
+                            $warehouseContractor->lot_condition_3,
+                            $warehouseContractor->lot_condition_4,
+                        ] : [];
+
+                        // JANコード取得
+                        $janCode = $item?->piece_jan_code_information?->search_string;
+
                         return [
                             Grid::make(3)
                                 ->schema([
@@ -383,8 +476,11 @@ class WmsOrderCandidatesTable
                                             'arrivalDateAdjustment' => $arrivalDateAdjustment,
                                             'itemCode' => $item?->code ?? '-',
                                             'itemName' => $item?->name ?? '-',
+                                            'itemKana' => $item?->kana ?? '',
+                                            'janCode' => $janCode ?? '',
                                             'packaging' => $item?->packaging ?? '-',
                                             'capacityText' => $capacityText,
+                                            'lotConditions' => $lotConditions,
                                         ])
                                         ->columnSpan(1),
 

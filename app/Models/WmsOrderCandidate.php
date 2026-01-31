@@ -9,6 +9,8 @@ use App\Models\Concerns\HasOptimisticLock;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
+use App\Models\Sakemaru\ItemContractor;
+use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -29,11 +31,20 @@ class WmsOrderCandidate extends WmsModel
 
     protected bool $calculationLogPreloaded = false;
 
+    /**
+     * 手動でセットされたItemContractor（N+1対策）
+     */
+    protected ?ItemContractor $preloadedItemContractor = null;
+
+    protected bool $itemContractorPreloaded = false;
+
     protected $fillable = [
         'batch_code',
         'warehouse_id',
         'item_id',
         'contractor_id',
+        'supplier_id',
+        'purchase_unit_price',
         'delivery_course_id',
         'ordering_code',
         'self_shortage_qty',
@@ -85,6 +96,7 @@ class WmsOrderCandidate extends WmsModel
         'safety_stock' => 'integer',
         'calculated_shortage_qty' => 'integer',
         'purchase_unit' => 'integer',
+        'purchase_unit_price' => 'decimal:2',
     ];
 
     public function warehouse(): BelongsTo
@@ -102,6 +114,11 @@ class WmsOrderCandidate extends WmsModel
         return $this->belongsTo(Contractor::class);
     }
 
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class);
+    }
+
     public function deliveryCourse(): BelongsTo
     {
         return $this->belongsTo(DeliveryCourse::class);
@@ -116,6 +133,34 @@ class WmsOrderCandidate extends WmsModel
         $this->calculationLogPreloaded = true;
 
         return $this;
+    }
+
+    /**
+     * ItemContractorを事前にセット（N+1対策）
+     */
+    public function setPreloadedItemContractor(?ItemContractor $itemContractor): self
+    {
+        $this->preloadedItemContractor = $itemContractor;
+        $this->itemContractorPreloaded = true;
+
+        return $this;
+    }
+
+    /**
+     * ItemContractorを取得（プリロード済みの場合はキャッシュを使用）
+     */
+    public function getItemContractorCachedAttribute(): ?ItemContractor
+    {
+        // プリロード済みの場合はキャッシュを返す
+        if ($this->itemContractorPreloaded) {
+            return $this->preloadedItemContractor;
+        }
+
+        // プリロードされていない場合はクエリを実行
+        return ItemContractor::with('supplier.partner')
+            ->where('item_id', $this->item_id)
+            ->where('warehouse_id', $this->warehouse_id)
+            ->first();
     }
 
     /**
@@ -168,6 +213,41 @@ class WmsOrderCandidate extends WmsModel
         $candidates->each(function ($candidate) use ($logsIndexed) {
             $key = "{$candidate->batch_code}_{$candidate->warehouse_id}_{$candidate->item_id}";
             $candidate->setPreloadedCalculationLog($logsIndexed->get($key));
+        });
+    }
+
+    /**
+     * コレクションに対してItemContractorを一括プリロード
+     *
+     * @param  \Illuminate\Database\Eloquent\Collection<int, self>  $candidates
+     */
+    public static function preloadItemContractors($candidates): void
+    {
+        if ($candidates->isEmpty()) {
+            return;
+        }
+
+        // (item_id, warehouse_id) のタプルでフィルタ
+        $tuples = $candidates->map(fn ($c) => [
+            $c->item_id,
+            $c->warehouse_id,
+        ])->unique()->values();
+
+        // WHERE (item_id, warehouse_id) IN ((...), (...), ...) 形式
+        $itemContractors = ItemContractor::with('supplier.partner')
+            ->whereRaw(
+                '(item_id, warehouse_id) IN ('.
+                $tuples->map(fn () => '(?, ?)')->implode(', ').')',
+                $tuples->flatten()->toArray()
+            )->get();
+
+        // キーでインデックス化
+        $indexed = $itemContractors->keyBy(fn ($ic) => "{$ic->item_id}_{$ic->warehouse_id}");
+
+        // 各候補にセット
+        $candidates->each(function ($candidate) use ($indexed) {
+            $key = "{$candidate->item_id}_{$candidate->warehouse_id}";
+            $candidate->setPreloadedItemContractor($indexed->get($key));
         });
     }
 

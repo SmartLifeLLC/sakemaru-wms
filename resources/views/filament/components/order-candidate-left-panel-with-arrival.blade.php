@@ -62,6 +62,20 @@
             <dd class="modal-value">{{ $itemName }}</dd>
         </div>
 
+        @if(!empty($itemKana))
+        <div>
+            <dt class="modal-label">カナ名</dt>
+            <dd class="modal-value">{{ $itemKana }}</dd>
+        </div>
+        @endif
+
+        @if(!empty($janCode))
+        <div>
+            <dt class="modal-label">JANコード</dt>
+            <dd class="modal-value">{{ $janCode }}</dd>
+        </div>
+        @endif
+
         <div>
             <dt class="modal-label">規格</dt>
             <dd class="modal-value">{{ $packaging }}</dd>
@@ -72,4 +86,19 @@
             <dd class="modal-value">{{ $capacityText }}</dd>
         </div>
     </div>
+
+    @if(!empty($lotConditions) && count(array_filter($lotConditions)) > 0)
+    <h3 class="modal-section-title mt-6">発注先ロット条件</h3>
+
+    <div class="space-y-2 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+        @foreach($lotConditions as $index => $condition)
+            @if(!empty($condition))
+            <div class="text-sm">
+                <span class="text-amber-700 dark:text-amber-300 font-medium">条件{{ $index + 1 }}:</span>
+                <span class="text-gray-700 dark:text-gray-300">{{ $condition }}</span>
+            </div>
+            @endif
+        @endforeach
+    </div>
+    @endif
 </div>
