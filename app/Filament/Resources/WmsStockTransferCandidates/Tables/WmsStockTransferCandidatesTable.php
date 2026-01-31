@@ -125,6 +125,14 @@ class WmsStockTransferCandidatesTable
                     ->alignEnd()
                     ->width('55px'),
 
+                // 移動元倉庫（hub_warehouse）の該当商品在庫
+                TextColumn::make('hub_effective_stock')
+                    ->label('倉庫在庫')
+                    ->state(fn ($record) => $record->hub_effective_stock ?? '-')
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('70px'),
+
                 TextColumn::make('incoming_quantity')
                     ->label('入庫数')
                     ->state(function ($record) {
