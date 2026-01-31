@@ -103,6 +103,9 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
 
             $results['batchCode'] = $calcJob->batch_code;
             $results['calculated'] = $calcJob->processed_records;
+            // 移動候補数・発注候補数をresult_dataから取得
+            $results['transferCandidates'] = $calcJob->result_data['summary']['internal_candidates'] ?? 0;
+            $results['orderCandidates'] = $calcJob->result_data['summary']['external_candidates'] ?? 0;
 
             $progress->update([
                 'progress' => 90,
