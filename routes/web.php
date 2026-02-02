@@ -47,20 +47,22 @@ if (app()->environment('local', 'testing', 'staging')) {
         ->name('jx-server.handle')
         ->middleware('jx.basic');
 
-    // JXテストファイルダウンロード
+    // JXテストファイルダウンロード（S3）
     Route::get('/jx-test-files/{filename}/download', function (string $filename) {
         $path = "jx-test/{$filename}";
 
-        if (! \Illuminate\Support\Facades\Storage::disk('local')->exists($path)) {
+        if (! \Illuminate\Support\Facades\Storage::disk('s3')->exists($path)) {
             abort(404);
         }
 
-        return \Illuminate\Support\Facades\Storage::disk('local')->download($path, $filename);
+        $url = \Illuminate\Support\Facades\Storage::disk('s3')->temporaryUrl($path, now()->addHour());
+
+        return redirect($url);
     })
         ->name('jx-test-files.download')
         ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
 
-    // JXテストサーバ受信ファイルダウンロード
+    // JXテストサーバ受信ファイルダウンロード（S3）
     Route::get('/jx-server-files/download', function (\Illuminate\Http\Request $request) {
         $path = $request->query('path');
 
@@ -68,18 +70,18 @@ if (app()->environment('local', 'testing', 'staging')) {
             abort(400, '無効なパスです');
         }
 
-        if (! \Illuminate\Support\Facades\Storage::disk('local')->exists($path)) {
+        if (! \Illuminate\Support\Facades\Storage::disk('s3')->exists($path)) {
             abort(404);
         }
 
-        $filename = basename($path);
+        $url = \Illuminate\Support\Facades\Storage::disk('s3')->temporaryUrl($path, now()->addHour());
 
-        return \Illuminate\Support\Facades\Storage::disk('local')->download($path, $filename);
+        return redirect($url);
     })
         ->name('jx-server-files.download')
         ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
 
-    // JX送信XMLファイルダウンロード
+    // JX送信XMLファイルダウンロード（S3）
     Route::get('/jx-xml-files/download', function (\Illuminate\Http\Request $request) {
         $path = $request->query('path');
 
@@ -87,13 +89,13 @@ if (app()->environment('local', 'testing', 'staging')) {
             abort(400, '無効なパスです');
         }
 
-        if (! \Illuminate\Support\Facades\Storage::disk('local')->exists($path)) {
+        if (! \Illuminate\Support\Facades\Storage::disk('s3')->exists($path)) {
             abort(404);
         }
 
-        $filename = basename($path);
+        $url = \Illuminate\Support\Facades\Storage::disk('s3')->temporaryUrl($path, now()->addHour());
 
-        return \Illuminate\Support\Facades\Storage::disk('local')->download($path, $filename);
+        return redirect($url);
     })
         ->name('jx-xml-files.download')
         ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);

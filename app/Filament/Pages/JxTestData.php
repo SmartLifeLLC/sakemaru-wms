@@ -417,17 +417,17 @@ class JxTestData extends Page
     }
 
     /**
-     * 生成済みファイル一覧を取得
+     * 生成済みファイル一覧を取得（S3）
      */
     public function getGeneratedFiles(): array
     {
-        $files = Storage::disk('local')->files('jx-test');
+        $files = Storage::disk('s3')->files('jx-test');
 
         return collect($files)
             ->map(function ($path) {
                 $filename = basename($path);
-                $size = Storage::disk('local')->size($path);
-                $lastModified = Storage::disk('local')->lastModified($path);
+                $size = Storage::disk('s3')->size($path);
+                $lastModified = Storage::disk('s3')->lastModified($path);
 
                 return [
                     'filename' => $filename,
@@ -467,9 +467,9 @@ class JxTestData extends Page
     }
 
     /**
-     * 送信済みファイルをダウンロード
+     * 送信済みファイルをダウンロード（S3）
      */
-    public function downloadTransmittedFile(int $logId): \Symfony\Component\HttpFoundation\StreamedResponse
+    public function downloadTransmittedFile(int $logId): \Illuminate\Http\RedirectResponse
     {
         $log = WmsJxTransmissionLog::findOrFail($logId);
 
@@ -477,65 +477,68 @@ class JxTestData extends Page
             abort(404, 'ファイルパスが記録されていません');
         }
 
-        // file_path format: "local:jx-client/data/2026-02-02/01/timestamp_messageId.dat"
-        $path = str_replace('local:', '', $log->file_path);
+        // file_path format: "s3:jx-client/data/2026-02-02/01/timestamp_messageId.dat"
+        // 旧形式 "local:" もサポート
+        $path = preg_replace('/^(local|s3):/', '', $log->file_path);
 
-        if (! Storage::disk('local')->exists($path)) {
+        if (! Storage::disk('s3')->exists($path)) {
             abort(404, 'ファイルが見つかりません');
         }
 
-        $filename = basename($path);
+        $url = Storage::disk('s3')->temporaryUrl($path, now()->addHour());
 
-        return Storage::disk('local')->download($path, $filename);
+        return redirect($url);
     }
 
     /**
-     * ファイルダウンロード
+     * ファイルダウンロード（S3）
      */
-    public function downloadFile(string $filename): \Symfony\Component\HttpFoundation\StreamedResponse
+    public function downloadFile(string $filename): \Illuminate\Http\RedirectResponse
     {
         $path = "jx-test/{$filename}";
 
-        if (! Storage::disk('local')->exists($path)) {
+        if (! Storage::disk('s3')->exists($path)) {
             abort(404);
         }
 
-        return Storage::disk('local')->download($path, $filename);
+        $url = Storage::disk('s3')->temporaryUrl($path, now()->addHour());
+
+        return redirect($url);
     }
 
     /**
-     * テストサーバ受信ファイル一覧を取得
+     * テストサーバ受信ファイル一覧を取得（S3）
      */
     public function getTestServerReceivedFiles(): array
     {
         $baseDir = 'jx-server/documents';
 
-        if (! Storage::disk('local')->exists($baseDir)) {
+        // S3から全ファイルを取得
+        $allFiles = Storage::disk('s3')->allFiles($baseDir);
+
+        if (empty($allFiles)) {
             return [];
         }
 
-        // 日付ディレクトリを取得
-        $dateDirs = Storage::disk('local')->directories($baseDir);
-
         $files = [];
-        foreach ($dateDirs as $dateDir) {
-            $dateFiles = Storage::disk('local')->files($dateDir);
-            foreach ($dateFiles as $filePath) {
-                $filename = basename($filePath);
-                $size = Storage::disk('local')->size($filePath);
-                $lastModified = Storage::disk('local')->lastModified($filePath);
-                $date = basename($dateDir);
+        foreach ($allFiles as $filePath) {
+            $filename = basename($filePath);
+            $size = Storage::disk('s3')->size($filePath);
+            $lastModified = Storage::disk('s3')->lastModified($filePath);
 
-                $files[] = [
-                    'filename' => $filename,
-                    'path' => $filePath,
-                    'date' => $date,
-                    'size' => $size,
-                    'size_formatted' => number_format($size).' bytes',
-                    'last_modified_timestamp' => $lastModified,
-                    'last_modified' => date('Y-m-d H:i:s', $lastModified),
-                ];
-            }
+            // パスから日付を抽出（jx-server/documents/2026-02-02/file.xml）
+            $pathParts = explode('/', $filePath);
+            $date = $pathParts[2] ?? '';
+
+            $files[] = [
+                'filename' => $filename,
+                'path' => $filePath,
+                'date' => $date,
+                'size' => $size,
+                'size_formatted' => number_format($size).' bytes',
+                'last_modified_timestamp' => $lastModified,
+                'last_modified' => date('Y-m-d H:i:s', $lastModified),
+            ];
         }
 
         // 最新順にソート（タイムスタンプで比較）
@@ -545,66 +548,55 @@ class JxTestData extends Page
     }
 
     /**
-     * テストサーバ受信ファイルをダウンロード
+     * テストサーバ受信ファイルをダウンロード（S3）
      */
-    public function downloadTestServerFile(string $path): \Symfony\Component\HttpFoundation\StreamedResponse
+    public function downloadTestServerFile(string $path): \Illuminate\Http\RedirectResponse
     {
-        if (! Storage::disk('local')->exists($path)) {
+        if (! Storage::disk('s3')->exists($path)) {
             abort(404);
         }
 
-        $filename = basename($path);
+        $url = Storage::disk('s3')->temporaryUrl($path, now()->addHour());
 
-        return Storage::disk('local')->download($path, $filename);
+        return redirect($url);
     }
 
     /**
-     * 送信XMLファイル一覧を取得
+     * 送信XMLファイル一覧を取得（S3）
      */
     public function getSentXmlFiles(): array
     {
         $baseDir = 'jx-client/requests';
 
-        if (! Storage::disk('local')->exists($baseDir)) {
+        // S3から全ファイルを取得
+        $allFiles = Storage::disk('s3')->allFiles($baseDir);
+
+        if (empty($allFiles)) {
             return [];
         }
 
         $files = [];
+        foreach ($allFiles as $filePath) {
+            $filename = basename($filePath);
+            $size = Storage::disk('s3')->size($filePath);
+            $lastModified = Storage::disk('s3')->lastModified($filePath);
 
-        // 日付ディレクトリを取得
-        $dateDirs = Storage::disk('local')->directories($baseDir);
+            // パスから日付とドキュメントタイプを抽出
+            // jx-client/requests/2026-02-02/putdocument/20260202152329/file.xml
+            $pathParts = explode('/', $filePath);
+            $date = $pathParts[2] ?? '';
+            $docType = $pathParts[3] ?? '';
 
-        foreach ($dateDirs as $dateDir) {
-            // ドキュメントタイプディレクトリを取得
-            $typeDirs = Storage::disk('local')->directories($dateDir);
-
-            foreach ($typeDirs as $typeDir) {
-                // タイムスタンプディレクトリを取得
-                $timestampDirs = Storage::disk('local')->directories($typeDir);
-
-                foreach ($timestampDirs as $timestampDir) {
-                    $xmlFiles = Storage::disk('local')->files($timestampDir);
-
-                    foreach ($xmlFiles as $filePath) {
-                        $filename = basename($filePath);
-                        $size = Storage::disk('local')->size($filePath);
-                        $lastModified = Storage::disk('local')->lastModified($filePath);
-                        $date = basename($dateDir);
-                        $docType = basename($typeDir);
-
-                        $files[] = [
-                            'filename' => $filename,
-                            'path' => $filePath,
-                            'date' => $date,
-                            'doc_type' => $docType,
-                            'size' => $size,
-                            'size_formatted' => number_format($size).' bytes',
-                            'last_modified_timestamp' => $lastModified,
-                            'last_modified' => date('Y-m-d H:i:s', $lastModified),
-                        ];
-                    }
-                }
-            }
+            $files[] = [
+                'filename' => $filename,
+                'path' => $filePath,
+                'date' => $date,
+                'doc_type' => $docType,
+                'size' => $size,
+                'size_formatted' => number_format($size).' bytes',
+                'last_modified_timestamp' => $lastModified,
+                'last_modified' => date('Y-m-d H:i:s', $lastModified),
+            ];
         }
 
         // 最新順にソート
@@ -614,28 +606,28 @@ class JxTestData extends Page
     }
 
     /**
-     * 送信XMLファイルの内容を取得
+     * 送信XMLファイルの内容を取得（S3）
      */
     public function getXmlContent(string $path): string
     {
-        if (! Storage::disk('local')->exists($path)) {
+        if (! Storage::disk('s3')->exists($path)) {
             return 'ファイルが見つかりません';
         }
 
-        return Storage::disk('local')->get($path);
+        return Storage::disk('s3')->get($path);
     }
 
     /**
-     * 送信XMLファイルをダウンロード
+     * 送信XMLファイルをダウンロード（S3）
      */
-    public function downloadXmlFile(string $path): \Symfony\Component\HttpFoundation\StreamedResponse
+    public function downloadXmlFile(string $path): \Illuminate\Http\RedirectResponse
     {
-        if (! Storage::disk('local')->exists($path)) {
+        if (! Storage::disk('s3')->exists($path)) {
             abort(404);
         }
 
-        $filename = basename($path);
+        $url = Storage::disk('s3')->temporaryUrl($path, now()->addHour());
 
-        return Storage::disk('local')->download($path, $filename);
+        return redirect($url);
     }
 }

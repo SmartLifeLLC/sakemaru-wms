@@ -557,14 +557,14 @@ class JxTestFileGenerator
     }
 
     /**
-     * ファイルを保存
+     * ファイルを保存（S3）
      */
     private function saveFile(string $filename, string $content): string
     {
         $path = "jx-test/{$filename}";
-        Storage::disk('local')->put($path, $content);
+        Storage::disk('s3')->put($path, $content);
 
-        return storage_path("app/{$path}");
+        return $path;
     }
 
     /**

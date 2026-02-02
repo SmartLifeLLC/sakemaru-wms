@@ -315,7 +315,7 @@ class JxClient
     }
 
     /**
-     * レスポンスを保存
+     * レスポンスを保存（S3）
      */
     protected function saveResponse(string $documentType, string $messageId, string $body): string
     {
@@ -324,13 +324,13 @@ class JxClient
         $timestamp = Carbon::now()->format('YmdHis');
         $savePath = "jx-client/responses/{$date}/{$docType}/{$timestamp}/{$messageId}.xml";
 
-        Storage::disk('local')->put($savePath, $body);
+        Storage::disk('s3')->put($savePath, $body);
 
         return $savePath;
     }
 
     /**
-     * リクエストを保存
+     * リクエストを保存（S3）
      */
     protected function saveRequest(string $documentType, string $messageId, string $body): string
     {
@@ -339,13 +339,13 @@ class JxClient
         $timestamp = Carbon::now()->format('YmdHis');
         $savePath = "jx-client/requests/{$date}/{$docType}/{$timestamp}/{$messageId}.xml";
 
-        Storage::disk('local')->put($savePath, $body);
+        Storage::disk('s3')->put($savePath, $body);
 
         return $savePath;
     }
 
     /**
-     * 送信データ本体を保存
+     * 送信データ本体を保存（S3）
      */
     protected function saveTransmittedData(string $documentType, string $messageId, string $data): string
     {
@@ -353,8 +353,8 @@ class JxClient
         $timestamp = Carbon::now()->format('YmdHis');
         $savePath = "jx-client/data/{$date}/{$documentType}/{$timestamp}_{$messageId}.dat";
 
-        Storage::disk('local')->put($savePath, $data);
+        Storage::disk('s3')->put($savePath, $data);
 
-        return "local:{$savePath}";
+        return "s3:{$savePath}";
     }
 }

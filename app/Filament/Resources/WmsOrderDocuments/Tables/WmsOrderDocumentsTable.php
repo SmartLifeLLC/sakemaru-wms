@@ -16,39 +16,19 @@ use Illuminate\Support\Facades\Storage;
 class WmsOrderDocumentsTable
 {
     /**
-     * メッセージIDでXMLファイルを検索
+     * メッセージIDでXMLファイルを検索（S3）
      */
     public static function findXmlFileByMessageId(string $messageId): ?string
     {
         $baseDir = 'jx-client/requests';
 
-        if (! Storage::disk('local')->exists($baseDir)) {
-            return null;
-        }
+        // S3から全ファイルを取得してメッセージIDで検索
+        $allFiles = Storage::disk('s3')->allFiles($baseDir);
 
-        // 日付ディレクトリを取得（最新から検索）
-        $dateDirs = Storage::disk('local')->directories($baseDir);
-        rsort($dateDirs);
-
-        foreach ($dateDirs as $dateDir) {
-            // putdocumentディレクトリを検索
-            $putDocDir = $dateDir.'/putdocument';
-            if (! Storage::disk('local')->exists($putDocDir)) {
-                continue;
-            }
-
-            // タイムスタンプディレクトリを検索
-            $timestampDirs = Storage::disk('local')->directories($putDocDir);
-
-            foreach ($timestampDirs as $timestampDir) {
-                $files = Storage::disk('local')->files($timestampDir);
-
-                foreach ($files as $file) {
-                    // ファイル名にメッセージIDが含まれているか確認
-                    if (str_contains(basename($file), $messageId)) {
-                        return $file;
-                    }
-                }
+        foreach ($allFiles as $file) {
+            // ファイル名にメッセージIDが含まれているか確認
+            if (str_contains(basename($file), $messageId)) {
+                return $file;
             }
         }
 

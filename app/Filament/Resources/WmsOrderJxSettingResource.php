@@ -346,8 +346,8 @@ class WmsOrderJxSettingResource extends Resource
                     ->action(function (WmsOrderJxSetting $record) {
                         try {
                             $receiver = new JxDocumentReceiver($record);
-                            // テスト用: localストレージを使用
-                            $receiver->setStorageDisk('local');
+                            // S3ストレージを使用
+                            $receiver->setStorageDisk('s3');
 
                             $document = $receiver->receiveSingle();
 
