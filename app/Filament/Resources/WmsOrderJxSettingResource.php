@@ -261,8 +261,9 @@ class WmsOrderJxSettingResource extends Resource
                             }
 
                             // JX送信実行（ヘッダー・フッター自動付与）
+                            // formatType: 'SecondGenEDI'（固定）
                             $client = new JxClient($record);
-                            $result = $client->putDocumentWithWrapper($fileContent, $record->send_document_type ?? '91', 'SecondGenEDI');
+                            $result = $client->putDocumentWithWrapper($fileContent, $record->send_document_type ?? '91');
 
                             if ($result->succeeded()) {
                                 Notification::make()

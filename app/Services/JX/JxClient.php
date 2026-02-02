@@ -32,8 +32,8 @@ class JxClient
      * ドキュメントを送信 (PutDocument)
      *
      * @param  string  $data  Base64エンコード済みデータ
-     * @param  string  $documentType  ドキュメントタイプ (例: '01' = 発注)
-     * @param  string  $formatType  フォーマットタイプ (例: 'SecondGenEDI')
+     * @param  string  $documentType  ドキュメントタイプ (例: '91' = 発注)
+     * @param  string  $formatType  フォーマットタイプ (固定: 'SecondGenEDI')
      * @param  string|null  $compressType  圧縮タイプ
      */
     public function putDocument(
@@ -71,8 +71,8 @@ class JxClient
      * ヘッダー・フッターがないデータに自動的に追加してから送信
      *
      * @param  string  $rawData  生データ（Base64エンコード前）
-     * @param  string  $documentType  ドキュメントタイプ (例: '01' = 発注)
-     * @param  string  $formatType  フォーマットタイプ (例: 'SecondGenEDI')
+     * @param  string  $documentType  ドキュメントタイプ (例: '91' = 発注)
+     * @param  string  $formatType  フォーマットタイプ (固定: 'SecondGenEDI')
      * @param  string|null  $compressType  圧縮タイプ
      */
     public function putDocumentWithWrapper(

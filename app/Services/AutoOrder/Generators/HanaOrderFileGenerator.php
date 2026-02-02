@@ -5,6 +5,7 @@ namespace App\Services\AutoOrder\Generators;
 use App\Contracts\OrderFileGeneratorInterface;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderJxSetting;
+use App\Services\JX\JxDataWrapper;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -243,10 +244,16 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
             }
         }
 
-        // レコードを連結（改行なし）+ 末尾にCRLF
-        $content = implode('', $records).self::LINE_ENDING;
+        // レコードを連結（改行なし）
+        $content = implode('', $records);
 
-        // Shift_JISに変換
+        // JXラッパー（開始行"1" + 終了行"8"）を追加（UTF-8のまま）
+        if ($jxSetting) {
+            $wrapper = new JxDataWrapper($jxSetting);
+            $content = $wrapper->wrap($content);
+        }
+
+        // 最後にShift_JISに変換
         return mb_convert_encoding($content, self::ENCODING, 'UTF-8');
     }
 
@@ -431,15 +438,23 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
 
     /**
      * レコード数をカウント
+     *
+     * JXラッパー(1,8) + Aレコード(1) + Bレコード(グループ数) + Dレコード(候補数)
      */
     private function countRecords(Collection $candidates): int
     {
-        // Aレコード(1) + Bレコード(グループ数) + Dレコード(候補数)
-        $groupCount = $candidates->groupBy(function ($c) {
+        // 6件ずつ分割した場合のBレコード数を計算
+        $grouped = $candidates->groupBy(function ($c) {
             return "{$c->contractor_id}_{$c->warehouse_id}";
-        })->count();
+        });
 
-        return 1 + $groupCount + $candidates->count();
+        $bCount = 0;
+        foreach ($grouped as $groupCandidates) {
+            $bCount += (int) ceil($groupCandidates->count() / self::MAX_D_RECORDS_PER_B);
+        }
+
+        // JXラッパー開始(1) + Aレコード(1) + Bレコード + Dレコード + JXラッパー終了(1)
+        return 1 + 1 + $bCount + $candidates->count() + 1;
     }
 
     /**

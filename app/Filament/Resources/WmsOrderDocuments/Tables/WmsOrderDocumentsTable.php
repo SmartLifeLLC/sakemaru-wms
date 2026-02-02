@@ -15,6 +15,46 @@ use Illuminate\Support\Facades\Storage;
 
 class WmsOrderDocumentsTable
 {
+    /**
+     * メッセージIDでXMLファイルを検索
+     */
+    public static function findXmlFileByMessageId(string $messageId): ?string
+    {
+        $baseDir = 'jx-client/requests';
+
+        if (! Storage::disk('local')->exists($baseDir)) {
+            return null;
+        }
+
+        // 日付ディレクトリを取得（最新から検索）
+        $dateDirs = Storage::disk('local')->directories($baseDir);
+        rsort($dateDirs);
+
+        foreach ($dateDirs as $dateDir) {
+            // putdocumentディレクトリを検索
+            $putDocDir = $dateDir.'/putdocument';
+            if (! Storage::disk('local')->exists($putDocDir)) {
+                continue;
+            }
+
+            // タイムスタンプディレクトリを検索
+            $timestampDirs = Storage::disk('local')->directories($putDocDir);
+
+            foreach ($timestampDirs as $timestampDir) {
+                $files = Storage::disk('local')->files($timestampDir);
+
+                foreach ($files as $file) {
+                    // ファイル名にメッセージIDが含まれているか確認
+                    if (str_contains(basename($file), $messageId)) {
+                        return $file;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -169,6 +209,38 @@ class WmsOrderDocumentsTable
                         }
 
                         return redirect($url);
+                    }),
+
+                Action::make('downloadXml')
+                    ->label('XML')
+                    ->icon('heroicon-o-code-bracket')
+                    ->color('warning')
+                    ->visible(fn ($record) => ! empty($record->jx_message_id))
+                    ->action(function (WmsOrderJxDocument $record) {
+                        if (! $record->jx_message_id) {
+                            Notification::make()
+                                ->title('送信XMLが見つかりません')
+                                ->body('JXメッセージIDが記録されていません')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        // メッセージIDでXMLファイルを検索
+                        $xmlPath = self::findXmlFileByMessageId($record->jx_message_id);
+
+                        if (! $xmlPath) {
+                            Notification::make()
+                                ->title('送信XMLが見つかりません')
+                                ->body('XMLファイルが存在しないか、削除されています')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        return redirect(route('jx-xml-files.download', ['path' => $xmlPath]));
                     }),
 
                 Action::make('transmit')

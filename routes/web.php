@@ -46,4 +46,55 @@ if (app()->environment('local', 'testing', 'staging')) {
     Route::post('/jx-server', [JxServerController::class, 'handle'])
         ->name('jx-server.handle')
         ->middleware('jx.basic');
+
+    // JXテストファイルダウンロード
+    Route::get('/jx-test-files/{filename}/download', function (string $filename) {
+        $path = "jx-test/{$filename}";
+
+        if (! \Illuminate\Support\Facades\Storage::disk('local')->exists($path)) {
+            abort(404);
+        }
+
+        return \Illuminate\Support\Facades\Storage::disk('local')->download($path, $filename);
+    })
+        ->name('jx-test-files.download')
+        ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
+
+    // JXテストサーバ受信ファイルダウンロード
+    Route::get('/jx-server-files/download', function (\Illuminate\Http\Request $request) {
+        $path = $request->query('path');
+
+        if (! $path || ! str_starts_with($path, 'jx-server/')) {
+            abort(400, '無効なパスです');
+        }
+
+        if (! \Illuminate\Support\Facades\Storage::disk('local')->exists($path)) {
+            abort(404);
+        }
+
+        $filename = basename($path);
+
+        return \Illuminate\Support\Facades\Storage::disk('local')->download($path, $filename);
+    })
+        ->name('jx-server-files.download')
+        ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
+
+    // JX送信XMLファイルダウンロード
+    Route::get('/jx-xml-files/download', function (\Illuminate\Http\Request $request) {
+        $path = $request->query('path');
+
+        if (! $path || ! str_starts_with($path, 'jx-client/requests/')) {
+            abort(400, '無効なパスです');
+        }
+
+        if (! \Illuminate\Support\Facades\Storage::disk('local')->exists($path)) {
+            abort(404);
+        }
+
+        $filename = basename($path);
+
+        return \Illuminate\Support\Facades\Storage::disk('local')->download($path, $filename);
+    })
+        ->name('jx-xml-files.download')
+        ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
 }

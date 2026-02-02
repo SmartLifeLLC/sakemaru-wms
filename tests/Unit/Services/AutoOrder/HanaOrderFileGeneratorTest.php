@@ -196,11 +196,14 @@ class HanaOrderFileGeneratorTest extends TestCase
         $records = $this->splitRecords($result[0]['content']);
         $this->assertNotEmpty($records);
 
-        // 最初のレコードがAレコードであること
-        $this->assertStringStartsWith('A', $records[0], 'First record should be A record');
+        // 最初のレコードがJXラッパーの開始行"1"であること
+        $this->assertStringStartsWith('1', $records[0], 'First record should be JX wrapper header (1)');
+
+        // 2番目のレコードがAレコードであること
+        $this->assertStringStartsWith('A', $records[1], 'Second record should be A record');
 
         // Aレコードの長さが128バイトであること
-        $this->assertEquals(128, strlen($records[0]), 'A record should be 128 bytes');
+        $this->assertEquals(128, strlen($records[1]), 'A record should be 128 bytes');
     }
 
     /**
