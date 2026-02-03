@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Models\Sakemaru;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+
 use Illuminate\Database\Eloquent\Model;
 
 class DashboardMonthlyPurchaseAmount extends Model
@@ -11,6 +11,6 @@ class DashboardMonthlyPurchaseAmount extends Model
     protected $fillable = [
         'client_id',
         'target_month',
-        'amount'
+        'amount',
     ];
 }

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Enums\EMenu;
+use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsOrderJxSettingResource\Pages;
 use App\Models\WmsOrderJxSetting;
 use App\Services\JX\JxClient;
@@ -23,7 +24,6 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
-use App\Enums\PaginationOptions;
 
 class WmsOrderJxSettingResource extends Resource
 {
@@ -70,6 +70,10 @@ class WmsOrderJxSettingResource extends Resource
                         Checkbox::make('is_active')
                             ->label('有効')
                             ->default(true),
+                        Checkbox::make('auto_transmit_on_confirm')
+                            ->label('発注確定時に自動送信')
+                            ->default(false)
+                            ->helperText('ONにすると、発注確定処理時にJXファイルを自動送信します'),
                     ]),
 
                 Section::make('JX接続情報')
@@ -182,7 +186,7 @@ class WmsOrderJxSettingResource extends Resource
                             ->visibility('private')
                             ->acceptedFileTypes(['text/plain', 'text/xml', 'application/xml'])
                             ->maxSize(10240)
-                            ->helperText('テスト送信用のファイルをアップロード（最大10MB）。S3の ' . config('filesystems.disks.s3.prefix', '') . ' prefix配下に保存されます。'),
+                            ->helperText('テスト送信用のファイルをアップロード（最大10MB）。S3の '.config('filesystems.disks.s3.prefix', '').' prefix配下に保存されます。'),
                     ]),
             ]);
     }
@@ -215,6 +219,10 @@ class WmsOrderJxSettingResource extends Resource
                     ->alignCenter(),
                 IconColumn::make('is_active')
                     ->label('有効')
+                    ->boolean()
+                    ->alignCenter(),
+                IconColumn::make('auto_transmit_on_confirm')
+                    ->label('自動送信')
                     ->boolean()
                     ->alignCenter(),
                 IconColumn::make('test_file_path')
@@ -261,8 +269,9 @@ class WmsOrderJxSettingResource extends Resource
                             }
 
                             // JX送信実行（ヘッダー・フッター自動付与）
+                            // formatType: 'SecondGenEDI'（固定）
                             $client = new JxClient($record);
-                            $result = $client->putDocumentWithWrapper($fileContent, $record->send_document_type ?? '91', 'SecondGenEDI');
+                            $result = $client->putDocumentWithWrapper($fileContent, $record->send_document_type ?? '91');
 
                             if ($result->succeeded()) {
                                 Notification::make()
@@ -317,7 +326,7 @@ class WmsOrderJxSettingResource extends Resource
                                 $body .= "- {$doc->messageId} ({$doc->documentType})\n";
                             }
                             if ($documents->count() > 5) {
-                                $body .= "...他 " . ($documents->count() - 5) . "件";
+                                $body .= '...他 '.($documents->count() - 5).'件';
                             }
 
                             Notification::make()
@@ -345,8 +354,8 @@ class WmsOrderJxSettingResource extends Resource
                     ->action(function (WmsOrderJxSetting $record) {
                         try {
                             $receiver = new JxDocumentReceiver($record);
-                            // テスト用: localストレージを使用
-                            $receiver->setStorageDisk('local');
+                            // S3ストレージを使用
+                            $receiver->setStorageDisk('s3');
 
                             $document = $receiver->receiveSingle();
 
@@ -364,7 +373,7 @@ class WmsOrderJxSettingResource extends Resource
                             $body .= "ドキュメントタイプ: {$document->documentType}\n";
                             $body .= "サイズ: {$document->getDataSize()} bytes\n";
                             $body .= "保存先: {$document->savedPath}\n";
-                            $body .= "確認: " . ($document->confirmed ? 'OK' : 'NG');
+                            $body .= '確認: '.($document->confirmed ? 'OK' : 'NG');
 
                             Notification::make()
                                 ->title('テスト受信成功')

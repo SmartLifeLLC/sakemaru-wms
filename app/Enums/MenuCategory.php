@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -21,12 +19,13 @@ enum MenuCategory: string
     case DATA_VERIFICATION = 'DATA_VERIFICATION';
     case SETTING = 'SETTING';
 
-    case WMS = 'WMS'; //WMS外部システムの場合
+    case WMS = 'WMS'; // WMS外部システムの場合
     case TOOLS = 'TOOLS';
 
     case AI = 'AI';
 
     case SMART_TRADE = 'SMART_TRADE';
+
     public function getMenuCategoryDescription(): string
     {
         return match ($this) {
@@ -43,8 +42,7 @@ enum MenuCategory: string
             self::TOOLS => 'ツール',
             self::STATS => '統計',
             self::AI => 'AI',
-            self::SMART_TRADE =>'スマトレ'
+            self::SMART_TRADE => 'スマトレ'
         };
     }
-
 }

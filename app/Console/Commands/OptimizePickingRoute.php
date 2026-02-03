@@ -36,21 +36,24 @@ class OptimizePickingRoute extends Command
         $date = $this->option('date');
         $deliveryCourseId = $this->option('delivery-course-id');
 
-        $pickRouteService = new PickRouteService();
+        $pickRouteService = new PickRouteService;
 
         // Option 1: Optimize specific task
         if ($taskId) {
             $this->optimizeTask($taskId, $pickRouteService);
+
             return 0;
         }
 
         // Option 2: Optimize all tasks for warehouse/date/course
         if ($warehouseId) {
             $this->optimizeMultipleTasks($warehouseId, $date, $deliveryCourseId, $pickRouteService);
+
             return 0;
         }
 
         $this->error('Please specify either --task-id or --warehouse-id');
+
         return 1;
     }
 
@@ -61,8 +64,9 @@ class OptimizePickingRoute extends Command
     {
         $task = WmsPickingTask::with('pickingItemResults.location')->find($taskId);
 
-        if (!$task) {
+        if (! $task) {
             $this->error("Task {$taskId} not found");
+
             return;
         }
 
@@ -74,8 +78,9 @@ class OptimizePickingRoute extends Command
         // Get floor ID from first item's location
         $floorId = $task->pickingItemResults->first()?->location?->floor_id;
 
-        if (!$floorId) {
-            $this->warn("No floor information found for task items");
+        if (! $floorId) {
+            $this->warn('No floor information found for task items');
+
             return;
         }
 
@@ -86,7 +91,7 @@ class OptimizePickingRoute extends Command
         $result = $service->updateWalkingOrder($itemIds, $task->warehouse_id, $floorId);
 
         if ($result['success']) {
-            $this->info("✓ Optimization completed");
+            $this->info('✓ Optimization completed');
             $this->line("  Updated: {$result['updated']} items");
             $this->line("  Total distance: {$result['total_distance']} pixels");
             $this->line("  Locations: {$result['location_count']}");
@@ -119,6 +124,7 @@ class OptimizePickingRoute extends Command
 
         if ($tasks->isEmpty()) {
             $this->warn('No pending tasks found matching criteria');
+
             return;
         }
 
@@ -149,7 +155,7 @@ class OptimizePickingRoute extends Command
 
         $bar->finish();
         $this->newLine();
-        $this->info("✓ Optimization completed");
+        $this->info('✓ Optimization completed');
         $this->line("  Tasks processed: {$tasks->count()}");
         $this->line("  Items updated: {$totalUpdated}");
         $this->line("  Total distance: {$totalDistance} pixels");

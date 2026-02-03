@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -17,7 +15,8 @@ enum PriceCategory: string
     case OTHER = 'OTHER';
     case UNKNOWN = 'UNKNOWN';
 
-    public function name() {
+    public function name()
+    {
         return match ($this) {
             self::CLIENT => '商品',
             self::PARTNER => '特単',
@@ -26,7 +25,7 @@ enum PriceCategory: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::CLIENT => 0,

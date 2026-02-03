@@ -111,13 +111,13 @@ class WmsNationalHoliday extends WmsModel
 
         // 春分の日（3月20日または21日）
         $holidays[] = [
-            'holiday_date' => "{$year}-03-" . self::getVernalEquinoxDay($year),
+            'holiday_date' => "{$year}-03-".self::getVernalEquinoxDay($year),
             'holiday_name' => '春分の日',
         ];
 
         // 秋分の日（9月22日または23日）
         $holidays[] = [
-            'holiday_date' => "{$year}-09-" . self::getAutumnalEquinoxDay($year),
+            'holiday_date' => "{$year}-09-".self::getAutumnalEquinoxDay($year),
             'holiday_name' => '秋分の日',
         ];
 
@@ -151,6 +151,7 @@ class WmsNationalHoliday extends WmsModel
     private static function getVernalEquinoxDay(int $year): string
     {
         $day = (int) (20.8431 + 0.242194 * ($year - 1980) - (int) (($year - 1980) / 4));
+
         return str_pad((string) $day, 2, '0', STR_PAD_LEFT);
     }
 
@@ -160,6 +161,7 @@ class WmsNationalHoliday extends WmsModel
     private static function getAutumnalEquinoxDay(int $year): string
     {
         $day = (int) (23.2488 + 0.242194 * ($year - 1980) - (int) (($year - 1980) / 4));
+
         return str_pad((string) $day, 2, '0', STR_PAD_LEFT);
     }
 }

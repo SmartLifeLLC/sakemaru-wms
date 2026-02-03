@@ -14,7 +14,7 @@ enum EItemTaxType: string
     case PRE_TAX_PERCENT_8 = 'PRE_TAX_PERCENT_8';
     case POST_TAX_PERCENT_8 = 'POST_TAX_PERCENT_8';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::EXEMPT => '非課税',
@@ -25,7 +25,7 @@ enum EItemTaxType: string
         };
     }
 
-    public function percent() : int
+    public function percent(): int
     {
         return match ($this) {
             self::EXEMPT => 0,
@@ -47,12 +47,12 @@ enum EItemTaxType: string
         };
     }
 
-    public function asPercent() : string
+    public function asPercent(): string
     {
-        return $this->percent() . '%';
+        return $this->percent().'%';
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::EXEMPT => 0,
@@ -62,7 +62,8 @@ enum EItemTaxType: string
             self::POST_TAX_PERCENT_8 => 4,
         };
     }
-    public function taxRate():TaxRate
+
+    public function taxRate(): TaxRate
     {
         return match ($this) {
             self::EXEMPT => TaxRate::EXEMPT,

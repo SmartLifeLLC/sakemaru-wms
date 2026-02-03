@@ -2,13 +2,15 @@
 
 namespace App\Models;
 
-use Archilex\AdvancedTables\Concerns\HasViews;
-use Illuminate\Database\Eloquent\Model;
+use App\Models\Sakemaru\User as SakemaruUser;
 
-
-
-// Only for filament advanced-tables (actual user table exists in SAKEMARU DB)
-class User extends Model
+/**
+ * Session compatibility class for Trade integration.
+ *
+ * Trade stores authenticated users with class name 'App\Models\User'.
+ * This class enables session sharing between WMS and Trade applications.
+ */
+class User extends SakemaruUser
 {
-    use HasViews;
+    // Inherits all functionality from App\Models\Sakemaru\User
 }

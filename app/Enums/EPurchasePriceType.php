@@ -12,7 +12,7 @@ enum EPurchasePriceType: string
     case COST = 'COST';
     case WHOLESALE = 'WHOLESALE';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::PRODUCER => '生販単価',
@@ -21,7 +21,7 @@ enum EPurchasePriceType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::PRODUCER => 0,

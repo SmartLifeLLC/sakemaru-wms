@@ -52,22 +52,27 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->navigationGroups(
                 collect(EMenuCategory::cases())
-                    ->sortBy(fn(EMenuCategory $category) => $category->sort())
-                    ->map(fn(EMenuCategory $category) => NavigationGroup::make($category->label()))
+                    ->sortBy(fn (EMenuCategory $category) => $category->sort())
+                    ->map(fn (EMenuCategory $category) => NavigationGroup::make($category->label()))
                     ->values()
                     ->toArray()
             )
-            ->navigationItems(
-                [NavigationItem::make('API Document')
+            ->navigationItems([
+                NavigationItem::make('API Document')
                     ->url('/api/documentation', shouldOpenInNewTab: true)
-                    ->icon('heroicon-o-link')->group(EMenuCategory::SETTINGS->label())
-                ]
-            )
+                    ->icon('heroicon-o-link')
+                    ->group(EMenuCategory::SETTINGS->label()),
+                NavigationItem::make('倉庫移動伝票')
+                    ->url(config('app.core_url').'/stocks/inventory/transfer', shouldOpenInNewTab: true)
+                    ->icon('heroicon-o-arrows-right-left')
+                    ->group(EMenuCategory::ORDER_HISTORY->label())
+                    ->sort(4),
+            ])
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
-                AuthenticateSession::class,
+                // AuthenticateSession::class, // Disabled for cross-app session sharing
                 ShareErrorsFromSession::class,
                 VerifyCsrfToken::class,
                 SubstituteBindings::class,
@@ -75,19 +80,19 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             ->plugins([
-                    StickyTableHeaderPlugin::make(),
-                    AdvancedTablesPlugin::make()
-                        ->userViewsEnabled(true)
-                        ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
-                        ->resourceNavigationSort(1000)
-                        ->userView(\App\Models\FilamentFilterSets\UserView::class)
-                        ->managedUserView(\App\Models\FilamentFilterSets\ManagedUserView::class)
-                        ->managedPresetView(\App\Models\FilamentFilterSets\ManagedPresetView::class)
-                        ->managedDefaultView(\App\Models\FilamentFilterSets\ManagedDefaultView::class)
-                ]
+                StickyTableHeaderPlugin::make(),
+                AdvancedTablesPlugin::make()
+                    ->userViewsEnabled(true)
+                    ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
+                    ->resourceNavigationSort(1000)
+                    ->userView(\App\Models\FilamentFilterSets\UserView::class)
+                    ->managedUserView(\App\Models\FilamentFilterSets\ManagedUserView::class)
+                    ->managedPresetView(\App\Models\FilamentFilterSets\ManagedPresetView::class)
+                    ->managedDefaultView(\App\Models\FilamentFilterSets\ManagedDefaultView::class),
+            ]
             )
             ->authMiddleware([
                 Authenticate::class,
-            ]);
+            ])->authGuard('web');
     }
 }

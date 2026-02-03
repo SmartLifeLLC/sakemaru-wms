@@ -2,16 +2,16 @@
 
 namespace App\Filament\Resources\WmsPickingLogs\Tables;
 
-use App\Models\WmsPicker;
-use App\Models\Sakemaru\Warehouse;
-use Filament\Actions\ViewAction;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Filters\Filter;
-use Filament\Tables\Table;
 use App\Enums\PaginationOptions;
-use Illuminate\Database\Eloquent\Builder;
+use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsPicker;
+use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsPickingLogsTable
 {
@@ -53,6 +53,7 @@ class WmsPickingLogsTable
                     ->limit(30)
                     ->tooltip(function (TextColumn $column): ?string {
                         $state = $column->getState();
+
                         return strlen($state) > 30 ? $state : null;
                     })
                     ->searchable(),
@@ -152,7 +153,7 @@ class WmsPickingLogsTable
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
                     ->query(function (Builder $query, array $data): Builder {
-                        if (!isset($data['value']) || $data['value'] === null) {
+                        if (! isset($data['value']) || $data['value'] === null) {
                             return $query;
                         }
 
@@ -200,11 +201,11 @@ class WmsPickingLogsTable
                         $indicators = [];
 
                         if ($data['created_from'] ?? null) {
-                            $indicators[] = '開始日: ' . \Carbon\Carbon::parse($data['created_from'])->toFormattedDateString();
+                            $indicators[] = '開始日: '.\Carbon\Carbon::parse($data['created_from'])->toFormattedDateString();
                         }
 
                         if ($data['created_until'] ?? null) {
-                            $indicators[] = '終了日: ' . \Carbon\Carbon::parse($data['created_until'])->toFormattedDateString();
+                            $indicators[] = '終了日: '.\Carbon\Carbon::parse($data['created_until'])->toFormattedDateString();
                         }
 
                         return $indicators;

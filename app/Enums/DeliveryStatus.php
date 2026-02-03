@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -16,17 +14,16 @@ enum DeliveryStatus: string
     case CONFIRMED = 'CONFIRMED';
     case ARRANGED = 'ARRANGED';
 
-
-    public function name() : string
+    public function name(): string
     {
-        return match($this) {
+        return match ($this) {
             self::UNCONFIRMED => '未確定',
             self::CONFIRMED => '確定済',
             self::ARRANGED => '手配済',
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::UNCONFIRMED => 0,
@@ -37,7 +34,7 @@ enum DeliveryStatus: string
 
     public function color(): BadgeColor
     {
-        return match($this) {
+        return match ($this) {
             self::UNCONFIRMED => BadgeColor::YELLOW,
             self::CONFIRMED => BadgeColor::GREEN,
             self::ARRANGED => BadgeColor::PRIMARY,

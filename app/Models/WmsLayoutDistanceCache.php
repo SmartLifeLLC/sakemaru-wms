@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class WmsLayoutDistanceCache extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'wms_layout_distance_cache';
 
     protected $fillable = [

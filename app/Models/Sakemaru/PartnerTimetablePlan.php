@@ -4,7 +4,6 @@ namespace App\Models\Sakemaru;
 
 use App\Enums\EPartnerHolidayType;
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Arr;
@@ -12,6 +11,7 @@ use Illuminate\Support\Arr;
 class PartnerTimetablePlan extends CustomModel
 {
     protected $guarded = [];
+
     protected $casts = [];
 
     public function partner(): BelongsTo
@@ -42,6 +42,7 @@ class PartnerTimetablePlan extends CustomModel
             6 => Arr::get($partner_timetable, 'saturday'),
             null => null,
         };
+
         return EPartnerHolidayType::tryFrom($partner_holiday_string);
     }
 }

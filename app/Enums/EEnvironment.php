@@ -1,11 +1,8 @@
 <?php
 
-
 namespace App\Enums;
 
-
 namespace App\Enums;
-
 
 enum EEnvironment: string
 {
@@ -17,9 +14,9 @@ enum EEnvironment: string
 
     case TESTING = 'testing';
 
-    public function name() : string
+    public function name(): string
     {
-        return match($this) {
+        return match ($this) {
             self::PRODUCTION => '本番環境',
             self::DEVELOPMENT => '開発環境',
             self::LOCAL => 'ローカル',
@@ -28,12 +25,12 @@ enum EEnvironment: string
         };
     }
 
-    public static function notProductions() : array
+    public static function notProductions(): array
     {
         return collect(self::cases())->reject(
-            fn($env) => $env == self::PRODUCTION
+            fn ($env) => $env == self::PRODUCTION
         )->map(
-            fn($env) => $env->value
+            fn ($env) => $env->value
         )->toArray();
     }
 }

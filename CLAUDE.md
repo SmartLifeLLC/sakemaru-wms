@@ -53,6 +53,13 @@ php artisan make:migration     # マイグレーション作成 → OK
    - 欠品検出と代理出荷のアルゴリズム
    - データ構造と状態管理
 
+4. **テーブルデザイン仕様**: `storage/specifications/table-design-specification.md`
+   - コード系ラベルは「CD」表記で統一（商品コード→商品CD）
+   - コードと名前は別カラムに分離
+   - 商品名は`wrap()`禁止、`grow()`で全体表示
+   - アクションボタンは右固定（`sticky-actions`クラス使用）
+   - フィルターは`[コード]名前`形式で表示、コードでも検索可能
+
 これらのドキュメントに記載されている情報を優先して使用し、古い実装パターンを避けてください。
 
 ## Project Overview
@@ -149,11 +156,54 @@ Business logic is organized in `app/Services/`:
 
 **CRITICAL: These patterns are Filament 4 specific and differ from Filament 3**
 
-```php
-// Schema instead of Form
-use Filament\Schemas\Schema;
-use Filament\Schemas\Components\Section;  // NOT Filament\Forms\Components\Section
+#### コンポーネントのインポートパス（重要）
 
+```php
+// =====================================================
+// Filament 4 正しいインポートパス一覧
+// =====================================================
+
+// Schema/Form コンポーネント
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;      // NOT Filament\Forms\Components\Section
+use Filament\Schemas\Components\Grid;         // NOT Filament\Infolists\Components\Grid
+
+// フォーム入力コンポーネント
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Textarea;
+
+// 表示専用コンポーネント（Infolist）
+use Filament\Infolists\Components\TextEntry;  // 表示専用フィールド
+
+// アクション
+use Filament\Actions\Action;                  // NOT Filament\Tables\Actions\Action
+
+// テーブル
+use Filament\Tables\Table;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
+```
+
+#### よくある間違い（避けるべきパターン）
+
+```php
+// ❌ 間違い
+use Filament\Tables\Actions\Action;           // クラスが存在しない
+use Filament\Forms\Components\Section;        // Filament 4では非推奨
+use Filament\Infolists\Components\Section;    // クラスが存在しない
+use Filament\Infolists\Components\Grid;       // クラスが存在しない
+
+// ✅ 正しい
+use Filament\Actions\Action;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Grid;
+```
+
+#### テーブルアクションの設定
+
+```php
 // Table query customization
 public function table(Table $table): Table
 {
@@ -161,18 +211,40 @@ public function table(Table $table): Table
         ->modifyQueryUsing(fn (Builder $query) => $query->with(['relation']));
 }
 
+// ❌ 間違い: ->actions([]) は Filament 4 では使用不可
+$table->actions([...]);
+
+// ✅ 正しい: recordActions と toolbarActions を使用
+$table->recordActions([
+    Action::make('view')->icon('heroicon-o-eye'),
+], position: RecordActionsPosition::BeforeColumns)
+->toolbarActions([
+    Action::make('create'),
+]);
+```
+
+#### モーダルアクションのスキーマ
+
+```php
 // Actions in modals use schema(), not form()
 Action::make('myAction')
     ->schema([...])  // NOT ->form([...])
     ->action(function ($record, array $data) { ... });
 
-// Table actions
-$table->recordActions([...], position: RecordActionsPosition::BeforeColumns)
-      ->toolbarActions([...]);  // NOT ->actions() and ->bulkActions()
-
-// TextEntry for display-only fields (replaces Placeholder)
-use Filament\Infolists\Components\TextEntry;
-TextEntry::make('field')->state(fn ($record) => $record->value);
+// モーダル内でInfolistを表示する場合
+Action::make('viewResult')
+    ->modalHeading('結果表示')
+    ->modalSubmitAction(false)
+    ->modalCancelActionLabel('閉じる')
+    ->infolist(fn ($record) => [
+        Section::make('サマリー')
+            ->schema([
+                Grid::make(2)->schema([
+                    TextEntry::make('field1')->label('項目1'),
+                    TextEntry::make('field2')->label('項目2'),
+                ]),
+            ]),
+    ]);
 ```
 
 ### Stock Allocation Strategy

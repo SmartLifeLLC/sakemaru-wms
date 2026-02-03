@@ -12,7 +12,7 @@ enum EInvoicePrintType: string
     case NOT_PRINT = 'NOT_PRINT';
     case ONLY_HEADER = 'ONLY_HEADER';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::PRINT_ALL => '印刷する',
@@ -21,7 +21,7 @@ enum EInvoicePrintType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::PRINT_ALL => 0,

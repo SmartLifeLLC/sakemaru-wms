@@ -1,0 +1,508 @@
+{
+    "test_date": "2026-01-25 04:17:22",
+    "summary": {
+        "total_files": 211,
+        "total_items_compared": 30967,
+        "jan_code_match": 29312,
+        "jan_code_mismatch": 1655,
+        "quantity_match": 30967,
+        "quantity_mismatch": 0,
+        "capacity_match": 0,
+        "capacity_mismatch": 0,
+        "all_fields_match": 29312
+    },
+    "by_contractor": {
+        "1017": {
+            "contractor_code": 1017,
+            "files_compared": 29,
+            "items_compared": 349,
+            "jan_match": 344,
+            "jan_mismatch": 5,
+            "qty_match": 349,
+            "qty_mismatch": 0,
+            "all_match": 344
+        },
+        "1021": {
+            "contractor_code": 1021,
+            "files_compared": 61,
+            "items_compared": 18216,
+            "jan_match": 17197,
+            "jan_mismatch": 1019,
+            "qty_match": 18216,
+            "qty_mismatch": 0,
+            "all_match": 17197
+        },
+        "1202": {
+            "contractor_code": 1202,
+            "files_compared": 60,
+            "items_compared": 6243,
+            "jan_match": 6008,
+            "jan_mismatch": 235,
+            "qty_match": 6243,
+            "qty_mismatch": 0,
+            "all_match": 6008
+        },
+        "1330": {
+            "contractor_code": 1330,
+            "files_compared": 61,
+            "items_compared": 6159,
+            "jan_match": 5763,
+            "jan_mismatch": 396,
+            "qty_match": 6159,
+            "qty_mismatch": 0,
+            "all_match": 5763
+        }
+    },
+    "mismatches": [
+        {
+            "contractor": 1017,
+            "file": "COCA_20250903140028.txt",
+            "item_id": 215162,
+            "sample_jan": "4902102119443",
+            "generated_jan": "4902102119450",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250912140018.txt",
+            "item_id": 215027,
+            "sample_jan": "4902102112109",
+            "generated_jan": "0000002152059",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_id": 215162,
+            "sample_jan": "4902102119443",
+            "generated_jan": "4902102119450",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250924140024.txt",
+            "item_id": 215162,
+            "sample_jan": "4902102119443",
+            "generated_jan": "4902102119450",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "コカコラ様発注データバックアップ_20250901140040.txt",
+            "item_id": 215027,
+            "sample_jan": "4902102112109",
+            "generated_jan": "0000002152059",
+            "case_qty": 2,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 181103,
+            "sample_jan": "4904230074007",
+            "generated_jan": "4904230073536",
+            "case_qty": 10,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 184242,
+            "sample_jan": "4901777252622",
+            "generated_jan": "4901777201439",
+            "case_qty": 44,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 143009,
+            "sample_jan": "4901004037428",
+            "generated_jan": "0000049893588",
+            "case_qty": 10,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 181200,
+            "sample_jan": "4570040880369",
+            "generated_jan": "4570040880574",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 211899,
+            "sample_jan": "4904230073086",
+            "generated_jan": "4904230073079",
+            "case_qty": 14,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 113894,
+            "sample_jan": "4981268212106",
+            "generated_jan": "4981268116039",
+            "case_qty": 0,
+            "piece_qty": 4
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 147085,
+            "sample_jan": "4901777230194",
+            "generated_jan": "4901777230170",
+            "case_qty": 4,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 147199,
+            "sample_jan": "4901004034427",
+            "generated_jan": "4901004034373",
+            "case_qty": 13,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 181105,
+            "sample_jan": "4904230074021",
+            "generated_jan": "4904230073574",
+            "case_qty": 2,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 184476,
+            "sample_jan": "4901777323926",
+            "generated_jan": "4901777192782",
+            "case_qty": 3,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 184533,
+            "sample_jan": "4901777270701",
+            "generated_jan": "4901777197114",
+            "case_qty": 5,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 211096,
+            "sample_jan": "4904230030010",
+            "generated_jan": "4904230029991",
+            "case_qty": 16,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 147045,
+            "sample_jan": "4901777217201",
+            "generated_jan": "4901777217188",
+            "case_qty": 7,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 142339,
+            "sample_jan": "4901004060488",
+            "generated_jan": "4901004064820",
+            "case_qty": 2,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 113892,
+            "sample_jan": "4981268210003",
+            "generated_jan": "4981268116015",
+            "case_qty": 0,
+            "piece_qty": 3
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 147044,
+            "sample_jan": "4901004005755",
+            "generated_jan": "4901004005700",
+            "case_qty": 12,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 113750,
+            "sample_jan": "4981268157100",
+            "generated_jan": "4981268115025",
+            "case_qty": 0,
+            "piece_qty": 1
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 142104,
+            "sample_jan": "4901004039835",
+            "generated_jan": "4901004039774",
+            "case_qty": 3,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 113884,
+            "sample_jan": "4981268395007",
+            "generated_jan": "4981268117012",
+            "case_qty": 0,
+            "piece_qty": 2
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 185558,
+            "sample_jan": "4901777364479",
+            "generated_jan": "4901777361621",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 184723,
+            "sample_jan": "4901777323988",
+            "generated_jan": "4901777241015",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 113895,
+            "sample_jan": "4981268051200",
+            "generated_jan": "4981268113014",
+            "case_qty": 0,
+            "piece_qty": 1
+        },
+        {
+            "contractor": 1021,
+            "file": "20250928235020.txt",
+            "item_id": 211604,
+            "sample_jan": "4514603449815",
+            "generated_jan": "4514603470215",
+            "case_qty": 2,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 113884,
+            "sample_jan": "4981268395007",
+            "generated_jan": "4981268117012",
+            "case_qty": 0,
+            "piece_qty": 2
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 142339,
+            "sample_jan": "4901004060488",
+            "generated_jan": "4901004064820",
+            "case_qty": 3,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 143009,
+            "sample_jan": "4901004037428",
+            "generated_jan": "0000049893588",
+            "case_qty": 10,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 143027,
+            "sample_jan": "4901004007629",
+            "generated_jan": "4901004007612",
+            "case_qty": 14,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 147199,
+            "sample_jan": "4901004034427",
+            "generated_jan": "4901004034373",
+            "case_qty": 4,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 184533,
+            "sample_jan": "4901777270701",
+            "generated_jan": "4901777197114",
+            "case_qty": 11,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 211899,
+            "sample_jan": "4904230073086",
+            "generated_jan": "4904230073079",
+            "case_qty": 42,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 147044,
+            "sample_jan": "4901004005755",
+            "generated_jan": "4901004005700",
+            "case_qty": 12,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 211096,
+            "sample_jan": "4904230030010",
+            "generated_jan": "4904230029991",
+            "case_qty": 50,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 211934,
+            "sample_jan": "4904230074465",
+            "generated_jan": "4904230074472",
+            "case_qty": 6,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 147045,
+            "sample_jan": "4901777217201",
+            "generated_jan": "4901777217188",
+            "case_qty": 12,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 147085,
+            "sample_jan": "4901777230194",
+            "generated_jan": "4901777230170",
+            "case_qty": 7,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 142104,
+            "sample_jan": "4901004039835",
+            "generated_jan": "4901004039774",
+            "case_qty": 4,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 181103,
+            "sample_jan": "4904230074007",
+            "generated_jan": "4904230073536",
+            "case_qty": 3,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 181105,
+            "sample_jan": "4904230074021",
+            "generated_jan": "4904230073574",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 210276,
+            "sample_jan": "4902471043912",
+            "generated_jan": "4902471103838",
+            "case_qty": 0,
+            "piece_qty": 2
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 185558,
+            "sample_jan": "4901777364479",
+            "generated_jan": "4901777361621",
+            "case_qty": 2,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 185900,
+            "sample_jan": "4901777404212",
+            "generated_jan": "4901777393905",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 184242,
+            "sample_jan": "4901777252622",
+            "generated_jan": "4901777201439",
+            "case_qty": 10,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 184476,
+            "sample_jan": "4901777323926",
+            "generated_jan": "4901777192782",
+            "case_qty": 1,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 184723,
+            "sample_jan": "4901777323988",
+            "generated_jan": "4901777241015",
+            "case_qty": 4,
+            "piece_qty": 0
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250803235023.txt",
+            "item_id": 113750,
+            "sample_jan": "4981268157100",
+            "generated_jan": "4981268115025",
+            "case_qty": 0,
+            "piece_qty": 1
+        }
+    ]
+}

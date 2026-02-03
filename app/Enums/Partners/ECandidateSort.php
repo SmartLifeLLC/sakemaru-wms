@@ -13,7 +13,8 @@ enum ECandidateSort: string
     case ITEM_TYPE_ASC = 'ITEM_TYPE_ASC';
     case ITEM_KANA_ASC = 'ITEM_KANA_ASC';
     case ITEM_CODE_ASC = 'ITEM_CODE_ASC';
-    public function name() : string
+
+    public function name(): string
     {
         return match ($this) {
             self::TRADE_COUNT_DESC => '取引回数降順',
@@ -24,7 +25,7 @@ enum ECandidateSort: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::TRADE_COUNT_DESC => 1,

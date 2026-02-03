@@ -11,8 +11,8 @@ class Walkable
     private array $polygons;
 
     /**
-     * @param array $polygons Array of polygons with format:
-     *                        [['outer' => [[x,y],...], 'holes' => [[[x,y],...],...]],...]
+     * @param  array  $polygons  Array of polygons with format:
+     *                           [['outer' => [[x,y],...], 'holes' => [[[x,y],...],...]],...]
      */
     public function __construct(array $polygons)
     {
@@ -22,7 +22,7 @@ class Walkable
     /**
      * Check if a point is inside the walkable area
      *
-     * @param array $p Point [x, y]
+     * @param  array  $p  Point [x, y]
      * @return bool True if point is in walkable area
      */
     public function contains(array $p): bool
@@ -36,16 +36,18 @@ class Walkable
                         return false; // Point is in hole, not walkable
                     }
                 }
+
                 return true; // Point is in outer and not in any hole
             }
         }
+
         return false;
     }
 
     /**
      * Find nearest point on the boundary of walkable area
      *
-     * @param array $p Point [x, y]
+     * @param  array  $p  Point [x, y]
      * @return array Nearest point [x, y] on boundary
      */
     public function nearestPointOnBoundary(array $p): array
@@ -77,8 +79,8 @@ class Walkable
     /**
      * Nudge a boundary point slightly inside the walkable area
      *
-     * @param array $q Point on boundary [x, y]
-     * @param int $eps Distance to nudge (px)
+     * @param  array  $q  Point on boundary [x, y]
+     * @param  int  $eps  Distance to nudge (px)
      * @return array Point nudged inside [x, y]
      */
     public function nudgeInside(array $q, int $eps = 2): array
@@ -110,8 +112,8 @@ class Walkable
     /**
      * Point-in-Polygon test using ray casting algorithm
      *
-     * @param array $p Point [x, y]
-     * @param array $polygon Polygon vertices [[x,y],...]
+     * @param  array  $p  Point [x, y]
+     * @param  array  $polygon  Polygon vertices [[x,y],...]
      * @return bool True if point is inside polygon
      */
     private function pointInPolygon(array $p, array $polygon): bool
@@ -131,7 +133,7 @@ class Walkable
                 && ($x < ($xj - $xi) * ($y - $yi) / ($yj - $yi) + $xi);
 
             if ($intersect) {
-                $inside = !$inside;
+                $inside = ! $inside;
             }
         }
 
@@ -141,9 +143,9 @@ class Walkable
     /**
      * Find nearest point on a line segment
      *
-     * @param array $p Point [x, y]
-     * @param array $a Segment start [x, y]
-     * @param array $b Segment end [x, y]
+     * @param  array  $p  Point [x, y]
+     * @param  array  $a  Segment start [x, y]
+     * @param  array  $b  Segment end [x, y]
      * @return array Nearest point [x, y]
      */
     private function nearestPointOnSegment(array $p, array $a, array $b): array
@@ -168,21 +170,20 @@ class Walkable
     /**
      * Calculate squared distance between two points
      *
-     * @param array $a Point [x, y]
-     * @param array $b Point [x, y]
+     * @param  array  $a  Point [x, y]
+     * @param  array  $b  Point [x, y]
      * @return float Squared distance
      */
     private function sqDistance(array $a, array $b): float
     {
         $dx = $b[0] - $a[0];
         $dy = $b[1] - $a[1];
+
         return $dx * $dx + $dy * $dy;
     }
 
     /**
      * Get all polygons
-     *
-     * @return array
      */
     public function getPolygons(): array
     {

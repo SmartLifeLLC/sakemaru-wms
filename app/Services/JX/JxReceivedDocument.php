@@ -20,8 +20,7 @@ class JxReceivedDocument
         public readonly Carbon $receivedAt,
         public ?string $savedPath = null,
         public bool $confirmed = false,
-    ) {
-    }
+    ) {}
 
     /**
      * データサイズ（バイト）

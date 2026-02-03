@@ -2,14 +2,18 @@
 
 namespace App\Filament\Resources\RealStocks\Tables;
 
+use App\Enums\PaginationOptions;
+use App\Models\Sakemaru\RealStock;
+use App\Models\Sakemaru\RealStockLot;
+use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
-use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
+use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\DB;
 
 class RealStocksTable
 {
@@ -25,10 +29,10 @@ class RealStocksTable
                     ->sortable()
                     ->searchable(),
 
-                TextColumn::make('location.code')
+                TextColumn::make('activeLots.location.code')
                     ->label('ロケーション')
-                    ->sortable()
-                    ->searchable(),
+                    ->listWithLineBreaks()
+                    ->limitList(3),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
@@ -46,10 +50,11 @@ class RealStocksTable
                     ->searchable()
                     ->toggleable(),
 
-                TextColumn::make('expiration_date')
+                TextColumn::make('activeLots.expiration_date')
                     ->label('賞味期限')
                     ->date('Y-m-d')
-                    ->sortable(),
+                    ->listWithLineBreaks()
+                    ->limitList(3),
 
                 TextColumn::make('current_quantity')
                     ->label('現在庫数')
@@ -57,25 +62,18 @@ class RealStocksTable
                     ->sortable()
                     ->alignEnd(),
 
-                TextColumn::make('available_quantity')
-                    ->label('利用可能数')
-                    ->numeric()
-                    ->sortable()
-                    ->alignEnd(),
-
-                TextColumn::make('wms_reserved_qty')
-                    ->label('WMS引当')
+                TextColumn::make('reserved_quantity')
+                    ->label('引当済')
                     ->numeric()
                     ->sortable()
                     ->alignEnd()
                     ->color(fn ($state) => $state > 0 ? 'warning' : null),
 
-                TextColumn::make('wms_picking_qty')
-                    ->label('WMSピッキング')
+                TextColumn::make('available_quantity')
+                    ->label('利用可能数')
                     ->numeric()
                     ->sortable()
-                    ->alignEnd()
-                    ->color(fn ($state) => $state > 0 ? 'info' : null),
+                    ->alignEnd(),
 
                 TextColumn::make('created_at')
                     ->label('登録日時')
@@ -83,10 +81,11 @@ class RealStocksTable
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('price')
+                TextColumn::make('activeLots.price')
                     ->label('単価')
                     ->money('JPY')
-                    ->sortable()
+                    ->listWithLineBreaks()
+                    ->limitList(3)
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
@@ -102,7 +101,17 @@ class RealStocksTable
                     ->preload(),
             ])
             ->recordActions([
-                ViewAction::make(),
+                Action::make('view')
+                    ->label('詳細')
+                    ->icon('heroicon-o-eye')
+                    ->modalHeading(fn (RealStock $record) => $record->item?->name ?? '在庫詳細')
+                    ->modalWidth('screen')
+                    ->modalContent(fn (RealStock $record): View => view(
+                        'filament.resources.real-stocks.modal.stock-detail',
+                        self::getModalData($record)
+                    ))
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('閉じる'),
                 EditAction::make(),
             ])
             ->toolbarActions([
@@ -111,5 +120,195 @@ class RealStocksTable
                 ]),
             ])
             ->defaultSort('created_at', 'desc');
+    }
+
+    /**
+     * モーダル表示用のデータを取得
+     */
+    private static function getModalData(RealStock $record): array
+    {
+        // リレーションをロード
+        $record->load([
+            'warehouse',
+            'item.manufacturer',
+            'item.item_category1',
+            'item.item_category2',
+            'item.item_category3',
+            'activeLots.floor',
+            'activeLots.location',
+            'activeLots.purchase',
+            'activeLots.buyerRestrictions.buyer',
+        ]);
+
+        // システム日付を取得
+        $systemDate = DB::connection('sakemaru')
+            ->table('client_settings')
+            ->value('system_date') ?? now()->toDateString();
+
+        $item = $record->item;
+        $capacityCase = $item?->capacity_case ?? 1;
+        $capacityCarton = $item?->capacity_carton ?? 1;
+
+        // 本日入荷
+        $incoming = self::getTodayIncoming($record, $systemDate, $capacityCase, $capacityCarton);
+
+        // 本日出荷
+        $outgoing = self::getTodayOutgoing($record, $systemDate, $capacityCase, $capacityCarton);
+
+        // ロット一覧
+        $activeLots = $record->activeLots
+            ->sortBy([
+                ['expiration_date', 'asc'],
+                ['created_at', 'asc'],
+            ])
+            ->values();
+
+        $depletedLots = $record->lots()
+            ->where('status', RealStockLot::STATUS_DEPLETED)
+            ->latest()
+            ->limit(5)
+            ->get();
+
+        return [
+            'record' => $record,
+            'item' => $item,
+            'warehouse' => $record->warehouse,
+            'incoming' => $incoming,
+            'outgoing' => $outgoing,
+            'summary' => [
+                'current_quantity' => $record->current_quantity,
+                'available_quantity' => $record->available_quantity,
+                'reserved_quantity' => $record->reserved_quantity,
+            ],
+            'lots' => [
+                'active' => $activeLots,
+                'depleted' => $depletedLots,
+            ],
+        ];
+    }
+
+    private static function getTodayIncoming(RealStock $record, string $systemDate, int $capacityCase, int $capacityCarton): array
+    {
+        // 仕入入荷（直送除く）
+        $purchaseIncoming = DB::connection('sakemaru')
+            ->table('trades')
+            ->select(['trade_items.quantity_type'])
+            ->selectRaw('SUM(trade_items.quantity) as quantity')
+            ->where('trades.trade_category', 'PURCHASE')
+            ->where('trade_items.item_id', $record->item_id)
+            ->where('trades.is_active', true)
+            ->leftJoin('purchases', 'trades.id', '=', 'purchases.trade_id')
+            ->where('purchases.is_direct_delivery', false)
+            ->where('purchases.warehouse_id', $record->warehouse_id)
+            ->whereDate('purchases.delivered_date', $systemDate)
+            ->leftJoin('trade_items', 'trades.id', '=', 'trade_items.trade_id')
+            ->groupBy('trade_items.quantity_type')
+            ->get();
+
+        // 直送
+        $directIncoming = DB::connection('sakemaru')
+            ->table('trades')
+            ->select(['trade_items.quantity_type'])
+            ->selectRaw('SUM(trade_items.quantity) as quantity')
+            ->where('trades.trade_category', 'PURCHASE')
+            ->where('trade_items.item_id', $record->item_id)
+            ->leftJoin('purchases', 'trades.id', '=', 'purchases.trade_id')
+            ->where('purchases.is_direct_delivery', true)
+            ->whereDate('purchases.delivered_date', $systemDate)
+            ->leftJoin('trade_items', 'trades.id', '=', 'trade_items.trade_id')
+            ->groupBy('trade_items.quantity_type')
+            ->get();
+
+        // 移動入荷
+        $transferIncoming = DB::connection('sakemaru')
+            ->table('stock_transfers')
+            ->select(['trade_items.quantity_type'])
+            ->selectRaw('SUM(trade_items.quantity) as quantity')
+            ->where('to_warehouse_id', $record->warehouse_id)
+            ->where('trade_items.item_id', $record->item_id)
+            ->whereDate('delivered_date', $systemDate)
+            ->leftJoin('trades', 'stock_transfers.trade_id', '=', 'trades.id')
+            ->leftJoin('trade_items', 'trade_items.trade_id', '=', 'trades.id')
+            ->groupBy('trade_items.quantity_type')
+            ->get();
+
+        return [
+            'purchase_incoming' => self::calculatePieceQuantity($purchaseIncoming, $capacityCase, $capacityCarton),
+            'direct_incoming' => self::calculatePieceQuantity($directIncoming, $capacityCase, $capacityCarton),
+            'transfer_incoming' => self::calculatePieceQuantity($transferIncoming, $capacityCase, $capacityCarton),
+        ];
+    }
+
+    private static function getTodayOutgoing(RealStock $record, string $systemDate, int $capacityCase, int $capacityCarton): array
+    {
+        // 出荷予定（is_delivered = false）
+        $earningsNotDelivered = DB::connection('sakemaru')
+            ->table('trades')
+            ->select(['trade_items.quantity_type'])
+            ->selectRaw('SUM(trade_items.quantity) as quantity')
+            ->where('trades.trade_category', 'EARNING')
+            ->where('trade_items.item_id', $record->item_id)
+            ->where('trades.is_active', true)
+            ->whereDate('earnings.delivered_date', $systemDate)
+            ->where('earnings.warehouse_id', $record->warehouse_id)
+            ->where('earnings.is_delivered', false)
+            ->leftJoin('trade_items', 'trades.id', '=', 'trade_items.trade_id')
+            ->leftJoin('earnings', 'trades.id', '=', 'earnings.trade_id')
+            ->groupBy('trade_items.quantity_type')
+            ->get();
+
+        // 出荷済（is_delivered = true）
+        $earningsDelivered = DB::connection('sakemaru')
+            ->table('trades')
+            ->select(['trade_items.quantity_type'])
+            ->selectRaw('SUM(trade_items.quantity) as quantity')
+            ->where('trades.trade_category', 'EARNING')
+            ->where('trade_items.item_id', $record->item_id)
+            ->where('trades.is_active', true)
+            ->whereDate('earnings.delivered_date', $systemDate)
+            ->where('earnings.warehouse_id', $record->warehouse_id)
+            ->where('earnings.is_delivered', true)
+            ->leftJoin('trade_items', 'trades.id', '=', 'trade_items.trade_id')
+            ->leftJoin('earnings', 'trades.id', '=', 'earnings.trade_id')
+            ->groupBy('trade_items.quantity_type')
+            ->get();
+
+        // 移動出荷
+        $transferOutgoing = DB::connection('sakemaru')
+            ->table('stock_transfers')
+            ->select(['trade_items.quantity_type'])
+            ->selectRaw('SUM(trade_items.quantity) as quantity')
+            ->where('from_warehouse_id', $record->warehouse_id)
+            ->where('trade_items.item_id', $record->item_id)
+            ->whereDate('delivered_date', $systemDate)
+            ->leftJoin('trades', 'stock_transfers.trade_id', '=', 'trades.id')
+            ->leftJoin('trade_items', 'trade_items.trade_id', '=', 'trades.id')
+            ->groupBy('trade_items.quantity_type')
+            ->get();
+
+        $notDeliveredQty = self::calculatePieceQuantity($earningsNotDelivered, $capacityCase, $capacityCarton);
+        $deliveredQty = self::calculatePieceQuantity($earningsDelivered, $capacityCase, $capacityCarton);
+
+        return [
+            'total_reserved' => $notDeliveredQty + $deliveredQty,
+            'total_shipped' => $deliveredQty,
+            'transfer_outgoing' => self::calculatePieceQuantity($transferOutgoing, $capacityCase, $capacityCarton),
+        ];
+    }
+
+    private static function calculatePieceQuantity($items, int $capacityCase, int $capacityCarton): int
+    {
+        $sum = 0;
+        foreach ($items as $item) {
+            if ($item->quantity_type === 'PIECE') {
+                $sum += $item->quantity;
+            } elseif ($item->quantity_type === 'CASE') {
+                $sum += $item->quantity * $capacityCase;
+            } elseif ($item->quantity_type === 'CARTON') {
+                $sum += $item->quantity * $capacityCarton;
+            }
+        }
+
+        return $sum;
     }
 }

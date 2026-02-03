@@ -33,7 +33,7 @@ class JxServerController extends Controller
         $this->saveRequest($xmlData);
 
         try {
-            $doc = new DOMDocument();
+            $doc = new DOMDocument;
             $doc->loadXML($xmlData);
 
             $timestamp = getJxTimestamp('UTC');
@@ -57,11 +57,13 @@ class JxServerController extends Controller
             }
 
             Log::warning('JxServer: Unknown document type received');
+
             return response('Method not allowed', 405);
         } catch (\Exception $e) {
             Log::error('JxServer: Error processing request', [
                 'message' => $e->getMessage(),
             ]);
+
             return response('Internal Server Error', 500);
         }
     }
@@ -116,17 +118,13 @@ class JxServerController extends Controller
     }
 
     /**
-     * 未配信のドキュメントを取得
+     * 未配信のドキュメントを取得（S3）
      */
     protected function getPendingDocument(): ?array
     {
         $pendingDir = 'jx-server/pending';
 
-        if (!Storage::disk('local')->exists($pendingDir)) {
-            return null;
-        }
-
-        $files = Storage::disk('local')->files($pendingDir);
+        $files = Storage::disk('s3')->files($pendingDir);
 
         if (empty($files)) {
             return null;
@@ -134,7 +132,7 @@ class JxServerController extends Controller
 
         // 最初のファイルを取得
         $file = $files[0];
-        $content = Storage::disk('local')->get($file);
+        $content = Storage::disk('s3')->get($file);
         $filename = basename($file);
 
         // ファイル名からメタデータを抽出 (format: {document_type}_{message_id}.txt)
@@ -145,9 +143,10 @@ class JxServerController extends Controller
         // Base64エンコード
         $encodedData = base64_encode($content);
 
-        // 配信済みに移動
-        $deliveredDir = 'jx-server/delivered/' . Carbon::today()->format('Y-m-d');
-        Storage::disk('local')->move($file, "{$deliveredDir}/{$filename}");
+        // 配信済みに移動（S3はmove非対応なのでcopy+delete）
+        $deliveredDir = 'jx-server/delivered/'.Carbon::today()->format('Y-m-d');
+        Storage::disk('s3')->copy($file, "{$deliveredDir}/{$filename}");
+        Storage::disk('s3')->delete($file);
 
         return [
             'message_id' => $messageId,
@@ -209,7 +208,7 @@ class JxServerController extends Controller
     }
 
     /**
-     * リクエストを保存
+     * リクエストを保存（S3）
      */
     protected function saveRequest(string $xmlData): void
     {
@@ -217,11 +216,11 @@ class JxServerController extends Controller
         $timestamp = Carbon::now()->format('YmdHis');
         $filename = "jx-server/received/{$date}/{$timestamp}_request.xml";
 
-        Storage::disk('local')->put($filename, $xmlData);
+        Storage::disk('s3')->put($filename, $xmlData);
     }
 
     /**
-     * PutDocumentのデータを保存（pending キューに追加）
+     * PutDocumentのデータを保存（pending キューに追加）（S3）
      */
     protected function savePutDocumentData(string $messageId, string $documentType, string $data): void
     {
@@ -229,11 +228,11 @@ class JxServerController extends Controller
 
         // pendingディレクトリに保存（GetDocumentで取得可能にする）
         $pendingFilename = "jx-server/pending/{$documentType}_{$messageId}.txt";
-        Storage::disk('local')->put($pendingFilename, $decodedData);
+        Storage::disk('s3')->put($pendingFilename, $decodedData);
 
         // アーカイブ用にも保存
         $date = Carbon::now()->format('Y-m-d');
         $archiveFilename = "jx-server/documents/{$date}/{$documentType}_{$messageId}.txt";
-        Storage::disk('local')->put($archiveFilename, $decodedData);
+        Storage::disk('s3')->put($archiveFilename, $decodedData);
     }
 }

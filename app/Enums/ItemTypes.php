@@ -13,7 +13,7 @@ enum ItemTypes: string
     case CONTAINER = 'CONTAINER';
     case COMMENT = 'COMMENT';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::ALCOHOL => '酒類',
@@ -23,9 +23,6 @@ enum ItemTypes: string
         };
     }
 
-    /**
-     * @return int
-     */
     public function getID(): int
     {
         return match ($this) {

@@ -30,10 +30,11 @@ class AssignPickersToTasksSeeder extends Seeder
 
         if (empty($pickers)) {
             $this->command->error('No test pickers found. Please run WmsPickerSeeder first.');
+
             return;
         }
 
-        $this->command->info("Found " . count($pickers) . " test pickers");
+        $this->command->info('Found '.count($pickers).' test pickers');
 
         // Get unassigned picking tasks for this warehouse
         $tasks = DB::connection('sakemaru')
@@ -46,6 +47,7 @@ class AssignPickersToTasksSeeder extends Seeder
 
         if ($tasks->isEmpty()) {
             $this->command->warn('No unassigned tasks found');
+
             return;
         }
 
@@ -68,7 +70,7 @@ class AssignPickersToTasksSeeder extends Seeder
             $assignedCount++;
         }
 
-        $this->command->info("Assigned {$assignedCount} tasks to " . count($pickers) . " pickers");
+        $this->command->info("Assigned {$assignedCount} tasks to ".count($pickers).' pickers');
 
         // Show assignment summary
         $this->command->newLine();

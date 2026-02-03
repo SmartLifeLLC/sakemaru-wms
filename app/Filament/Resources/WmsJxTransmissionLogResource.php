@@ -3,12 +3,12 @@
 namespace App\Filament\Resources;
 
 use App\Enums\EMenu;
+use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsJxTransmissionLogResource\Pages;
 use App\Models\WmsJxTransmissionLog;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Select;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
@@ -17,7 +17,6 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use App\Enums\PaginationOptions;
 
 class WmsJxTransmissionLogResource extends Resource
 {
@@ -121,7 +120,7 @@ class WmsJxTransmissionLogResource extends Resource
                     ->alignCenter(),
                 TextColumn::make('data_size')
                     ->label('サイズ')
-                    ->formatStateUsing(fn (?int $state) => $state ? number_format($state) . ' bytes' : '-')
+                    ->formatStateUsing(fn (?int $state) => $state ? number_format($state).' bytes' : '-')
                     ->alignRight(),
                 TextColumn::make('http_code')
                     ->label('HTTP')
@@ -196,7 +195,7 @@ class WmsJxTransmissionLogResource extends Resource
                     ->color('primary')
                     ->url(fn (WmsJxTransmissionLog $record) => route('jx-transmission-logs.download', $record))
                     ->openUrlInNewTab()
-                    ->visible(fn (WmsJxTransmissionLog $record) => !empty($record->file_path)),
+                    ->visible(fn (WmsJxTransmissionLog $record) => ! empty($record->file_path)),
             ]);
     }
 

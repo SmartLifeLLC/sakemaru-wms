@@ -2,14 +2,14 @@
 
 namespace App\Filament\Resources\Locations\Tables;
 
+use App\Enums\PaginationOptions;
+use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
-use App\Models\Sakemaru\Warehouse;
 
 class LocationsTable
 {
@@ -29,6 +29,12 @@ class LocationsTable
                     ->label('倉庫')
                     ->searchable()
                     ->sortable(),
+
+                TextColumn::make('floor.name')
+                    ->label('フロア')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('-'),
 
                 TextColumn::make('code1')
                     ->label('コード1')
@@ -71,6 +77,27 @@ class LocationsTable
                     ->badge()
                     ->color(fn (bool $state): string => $state ? 'danger' : 'success')
                     ->formatStateUsing(fn (bool $state): string => $state ? '制限' : '通常')
+                    ->sortable(),
+
+                TextColumn::make('available_quantity_flags')
+                    ->label('数量タイプ')
+                    ->badge()
+                    ->formatStateUsing(fn (int $state): string => match ($state) {
+                        1 => 'ケース',
+                        2 => 'バラ',
+                        3 => 'ケース+バラ',
+                        4 => 'ボール',
+                        8 => '無し',
+                        default => (string) $state,
+                    })
+                    ->color(fn (int $state): string => match ($state) {
+                        1 => 'info',
+                        2 => 'success',
+                        3 => 'warning',
+                        4 => 'primary',
+                        8 => 'danger',
+                        default => 'gray',
+                    })
                     ->sortable(),
 
                 TextColumn::make('created_at')

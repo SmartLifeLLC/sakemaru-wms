@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands\TestData;
 
-use App\Models\WmsLocationLevel;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -18,7 +17,9 @@ class GenerateMasterDataCommand extends Command
     protected $description = 'Generate WMS master data (Floors and Locations) without stock data';
 
     private int $warehouseId;
+
     private int $clientId;
+
     private string $warehouseCode;
 
     public function handle()
@@ -28,13 +29,14 @@ class GenerateMasterDataCommand extends Command
 
         // Get warehouse ID
         $this->warehouseId = (int) $this->option('warehouse-id');
-        if (!$this->warehouseId) {
+        if (! $this->warehouseId) {
             $this->error('Warehouse ID is required. Use --warehouse-id option.');
+
             return 1;
         }
 
         // Initialize warehouse data
-        if (!$this->initializeWarehouse()) {
+        if (! $this->initializeWarehouse()) {
             return 1;
         }
 
@@ -53,9 +55,9 @@ class GenerateMasterDataCommand extends Command
         $pieceCount = (int) $this->option('piece-locations');
         $bothCount = (int) $this->option('both-locations');
 
-        $this->line("Configuration:");
+        $this->line('Configuration:');
         $this->line("  Warehouse: {$this->warehouseId} (code: {$this->warehouseCode})");
-        $this->line("  Floors: " . count($floorConfigs));
+        $this->line('  Floors: '.count($floorConfigs));
         $this->line("  CASE locations per floor: {$caseCount}");
         $this->line("  PIECE locations per floor: {$pieceCount}");
         $this->line("  CASE+PIECE locations per floor: {$bothCount}");
@@ -64,7 +66,7 @@ class GenerateMasterDataCommand extends Command
         try {
             // Generate floors
             $floors = $this->generateFloors($floorConfigs);
-            $this->info("✓ Created " . count($floors) . " floors");
+            $this->info('✓ Created '.count($floors).' floors');
 
             // Generate locations for each floor
             $totalLocations = 0;
@@ -76,10 +78,12 @@ class GenerateMasterDataCommand extends Command
 
             $this->newLine();
             $this->info('✅ WMS Master Data generation completed!');
+
             return 0;
         } catch (\Exception $e) {
-            $this->error('❌ Error generating master data: ' . $e->getMessage());
+            $this->error('❌ Error generating master data: '.$e->getMessage());
             $this->error($e->getTraceAsString());
+
             return 1;
         }
     }
@@ -90,8 +94,9 @@ class GenerateMasterDataCommand extends Command
             ->where('id', $this->warehouseId)
             ->first();
 
-        if (!$warehouse) {
+        if (! $warehouse) {
             $this->error("Warehouse with ID {$this->warehouseId} not found");
+
             return false;
         }
 
@@ -111,6 +116,7 @@ class GenerateMasterDataCommand extends Command
             $parts = explode('|', $floorConfig);
             if (count($parts) !== 2) {
                 $this->warn("Invalid floor configuration: {$floorConfig}. Expected format: number|name (e.g., 1|1F)");
+
                 continue;
             }
 
@@ -135,10 +141,10 @@ class GenerateMasterDataCommand extends Command
             // Positive floors: 001, 002, 003
             // Negative floors (basement): 901, 902, 903
             if ($floorNumber > 0) {
-                $floorCode = (int) ($this->warehouseCode . str_pad($floorNumber, 3, '0', STR_PAD_LEFT));
+                $floorCode = (int) ($this->warehouseCode.str_pad($floorNumber, 3, '0', STR_PAD_LEFT));
             } else {
                 // Basement floors: use 900 + abs(floor_number)
-                $floorCode = (int) ($this->warehouseCode . (900 + abs($floorNumber)));
+                $floorCode = (int) ($this->warehouseCode.(900 + abs($floorNumber)));
             }
 
             // Check if floor already exists
@@ -151,6 +157,7 @@ class GenerateMasterDataCommand extends Command
             if ($existing) {
                 $this->line("  Floor {$floorName} (code: {$floorCode}) already exists, skipping");
                 $floors[] = $existing;
+
                 continue;
             }
 
@@ -189,7 +196,6 @@ class GenerateMasterDataCommand extends Command
         ];
 
         $totalCreated = 0;
-        $totalLevelsCreated = 0;
         $walkingOrder = 1; // Initialize walking order counter for this floor
 
         // Get the next available code2 number for each prefix in this warehouse
@@ -205,7 +211,7 @@ class GenerateMasterDataCommand extends Command
                 ->where('code1', $type['prefix'])
                 ->max('code2');
 
-            $startNumber = $maxCode2 ? (int)$maxCode2 + 1 : 1;
+            $startNumber = $maxCode2 ? (int) $maxCode2 + 1 : 1;
 
             for ($i = 0; $i < $type['count']; $i++) {
                 $code1 = $type['prefix'];
@@ -222,6 +228,7 @@ class GenerateMasterDataCommand extends Command
 
                 if ($existing) {
                     $this->line("    Location {$code1}{$code2} already exists, skipping");
+
                     continue;
                 }
 
@@ -241,33 +248,12 @@ class GenerateMasterDataCommand extends Command
                     'updated_at' => now(),
                 ]);
 
-                // Create WMS location record with walking_order for route optimization
-                DB::connection('sakemaru')->table('wms_locations')->insert([
-                    'location_id' => $locationId,
-                    'wms_picking_area_id' => null, // Can be set later via floor plan editor
-                    'picking_unit_type' => $type['unit_type'],
-                    'walking_order' => $walkingOrder++, // Sequential order for now
-                    'aisle' => $code1, // Use code1 as aisle
-                    'rack' => $code2, // Use code2 as rack
-                    'level' => '1', // Default level
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                // Create ONE WMS level (level 1) for this location
-                WmsLocationLevel::create([
-                    'location_id' => $locationId,
-                    'level_number' => 1,
-                    'name' => "{$type['name']}エリア {$floor->name} {$code1}{$code2} 1段",
-                    'available_quantity_flags' => $type['flag'],
-                ]);
-
                 $totalCreated++;
-                $totalLevelsCreated++;
             }
         }
 
-        $this->line("  Created {$totalCreated} locations with {$totalLevelsCreated} WMS levels for floor {$floor->name}");
+        $this->line("  Created {$totalCreated} locations for floor {$floor->name}");
+
         return $totalCreated;
     }
 }

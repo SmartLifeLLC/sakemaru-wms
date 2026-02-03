@@ -2,12 +2,8 @@
 
 namespace App\Models\Sakemaru;
 
-use App\Actions\BZActions\Trades\CalculateTaxExemptPrice;
-use App\Enums\EItemTaxType;
 use App\Enums\Partners\EContainerTradeType;
 use App\Enums\QuantityType;
-use App\Enums\TaxType;
-use App\Enums\TimeZone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,6 +13,7 @@ class ItemPartnerPrice extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 
     protected static function boot(): void
@@ -30,12 +27,12 @@ class ItemPartnerPrice extends CustomModel
         });
     }
 
-    public function item() : BelongsTo
+    public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
     }
 
-    public function partner() : BelongsTo
+    public function partner(): BelongsTo
     {
         return $this->belongsTo(Partner::class);
     }
@@ -45,9 +42,10 @@ class ItemPartnerPrice extends CustomModel
         return $this->belongsTo(Warehouse::class);
     }
 
-    public static function currentData(int $item_id, ?int $partner_id, ?int $warehouse_id, ?string $date = null) : ?self
+    public static function currentData(int $item_id, ?int $partner_id, ?int $warehouse_id, ?string $date = null): ?self
     {
         $date = $date ?? ClientSetting::systemDate(true)->toDateString();
+
         return self::query()
             ->where('item_id', $item_id)
             ->where('partner_id', $partner_id)
@@ -86,7 +84,6 @@ class ItemPartnerPrice extends CustomModel
         };
         $tax_exempt_price = $this->taxExemptPriceForQuantityType($quantity_type);
 
-
         return ItemPrice::matchTaxTypeOfPrice($price, $tax_exempt_price, $this->item->current_price, $this->partner);
     }
 
@@ -109,7 +106,8 @@ class ItemPartnerPrice extends CustomModel
         return $this->calculateContainerPrice(true);
     }
 
-    protected function calculateContainerPrice(bool $is_subtract = false): array {
+    protected function calculateContainerPrice(bool $is_subtract = false): array
+    {
         return [
             'unit_price' => calculateTaxExemptPrice($this['unit_price'], $this['tax_exempt_unit_price'], $is_subtract),
             'case_price' => calculateTaxExemptPrice($this['case_price'], $this['tax_exempt_case_price'], $is_subtract),

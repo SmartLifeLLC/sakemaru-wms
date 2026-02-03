@@ -19,6 +19,15 @@ Artisan::command('inspire', function () {
 |
 */
 
+// 月別安全在庫の同期 (毎月末日 4:30)
+// ※ 翌月の発注点を事前に同期（翌日から適用されるため）
+Schedule::command('wms:sync-monthly-safety-stocks')
+    ->dailyAt('04:30')
+    ->when(fn () => now()->isLastOfMonth())
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->appendOutputTo(storage_path('logs/auto-order-monthly-safety-stocks.log'));
+
 // 在庫スナップショット生成 (毎日 5:00)
 Schedule::command('wms:snapshot-stocks')
     ->dailyAt('05:00')
@@ -43,7 +52,7 @@ Schedule::command('wms:auto-order-calculate --skip-snapshot')
 
 // 祝日データインポート (毎年1月1日 3:00)
 // ※ 年間の祝日データを取得・更新
-Schedule::command('wms:import-holidays --year=' . (date('Y') + 1))
+Schedule::command('wms:import-holidays --year='.(date('Y') + 1))
     ->yearlyOn(1, 1, '03:00')
     ->withoutOverlapping()
     ->onOneServer()

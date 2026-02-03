@@ -8,7 +8,6 @@ use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\Sakemaru\ClientSetting;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
-use Carbon\Carbon;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -22,8 +21,8 @@ class ListWmsPickingTasks extends ListRecords
     }
 
     protected static string $resource = WmsPickingTaskResource::class;
-    protected static ?string $title = 'ピッキング作業一覧';
 
+    protected static ?string $title = 'ピッキング作業一覧';
 
     public function getPresetViews(): array
     {
@@ -31,9 +30,8 @@ class ListWmsPickingTasks extends ListRecords
             'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING_READY'))->favorite()->label('ピッキング前')->default(),
             'PICKING' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING'))->favorite()->label('ピッキング中'),
             'SHORTAGE' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'SHORTAGE'))->favorite()->label('欠品対応待ち'),
-            'COMPLETED_TODAY' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED')->where('shipment_date',ClientSetting::systemDateYMD()))->favorite()->label('ピッキング完了(本日出荷)'),
+            'COMPLETED_TODAY' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED')->whereDate('shipment_date', ClientSetting::systemDateYMD()))->favorite()->label('ピッキング完了(本日出荷)'),
             'COMPLETED_ALL' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED'))->favorite()->label('ピッキング完了(すべて)'),
-
 
         ];
     }
@@ -41,16 +39,18 @@ class ListWmsPickingTasks extends ListRecords
     public function table(Table $table): Table
     {
         return WmsPickingTasksTable::configure($table)
-            ->modifyQueryUsing(fn (Builder $query) =>
-                $query->with([
-                    'floor',
-                    'warehouse',
-                    'deliveryCourse',
-                    'picker',
-                    'pickingItemResults.trade',
-                    'pickingItemResults.earning.buyer.partner'
-                ])
+            ->modifyQueryUsing(fn (Builder $query) => $query->with([
+                'floor',
+                'warehouse',
+                'deliveryCourse',
+                'picker',
+                'pickingItemResults.trade',
+                'pickingItemResults.earning.buyer.partner',
+            ])
                 ->withCount('pickingItemResults')
+                ->withCount(['pickingItemResults as soft_shortage_count' => function ($q) {
+                    $q->where('has_soft_shortage', true);
+                }])
             );
     }
 

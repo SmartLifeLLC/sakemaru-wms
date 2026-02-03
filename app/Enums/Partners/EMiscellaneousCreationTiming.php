@@ -12,7 +12,7 @@ enum EMiscellaneousCreationTiming: string
     case ON_EARNING = 'ON_EARNING';
     case ON_CLOSING_DAILY = 'ON_CLOSING_DAILY';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::NONE => '生成しない',
@@ -21,7 +21,7 @@ enum EMiscellaneousCreationTiming: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::NONE => 0,

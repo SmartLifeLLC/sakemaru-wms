@@ -29,12 +29,12 @@ class WmsAutoOrderJobControlResource extends Resource
 
     public static function getModelLabel(): string
     {
-        return 'ジョブ';
+        return '候補生成履歴';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return 'ジョブ履歴';
+        return '発注・移動候補生成履歴';
     }
 
     public static function getNavigationSort(): ?int

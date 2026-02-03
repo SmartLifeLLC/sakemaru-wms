@@ -1,0 +1,100 @@
+{
+    "summary": {
+        "total_files": 211,
+        "total_records": 71405,
+        "total_d_records": 44868,
+        "jan_code_match": 44864,
+        "jan_code_mismatch": 4,
+        "jan_code_not_found": 0,
+        "is_used_for_ordering_match": 41907,
+        "match_rate": 99.99,
+        "is_used_for_ordering_rate": 93.4
+    },
+    "by_contractor": {
+        "1017": {
+            "contractor_code": 1017,
+            "file_count": 29,
+            "total_records": 1016,
+            "d_records": 566,
+            "jan_code_match": 566,
+            "jan_code_mismatch": 0,
+            "jan_code_not_found": 0,
+            "is_used_for_ordering_match": 561,
+            "unique_items_count": 61
+        },
+        "1021": {
+            "contractor_code": 1021,
+            "file_count": 61,
+            "total_records": 40113,
+            "d_records": 26196,
+            "jan_code_match": 26194,
+            "jan_code_mismatch": 2,
+            "jan_code_not_found": 0,
+            "is_used_for_ordering_match": 24262,
+            "unique_items_count": 1852
+        },
+        "1202": {
+            "contractor_code": 1202,
+            "file_count": 60,
+            "total_records": 14718,
+            "d_records": 8675,
+            "jan_code_match": 8673,
+            "jan_code_mismatch": 2,
+            "jan_code_not_found": 0,
+            "is_used_for_ordering_match": 8334,
+            "unique_items_count": 709
+        },
+        "1330": {
+            "contractor_code": 1330,
+            "file_count": 61,
+            "total_records": 15558,
+            "d_records": 9431,
+            "jan_code_match": 9431,
+            "jan_code_mismatch": 0,
+            "jan_code_not_found": 0,
+            "is_used_for_ordering_match": 8750,
+            "unique_items_count": 562
+        }
+    },
+    "errors": [],
+    "mismatches": [
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250817235022.txt",
+            "item_id": 132740,
+            "sample_jan": "5060716145384",
+            "db_codes": [
+                "1327403"
+            ]
+        },
+        {
+            "contractor": 1021,
+            "file": "LWHANA_20250818140032.txt",
+            "item_id": 132740,
+            "sample_jan": "5060716145384",
+            "db_codes": [
+                "1327403"
+            ]
+        },
+        {
+            "contractor": 1202,
+            "file": "EOS_20250828140058.txt",
+            "item_id": 154947,
+            "sample_jan": "4901880881931",
+            "db_codes": [
+                "1549478",
+                "4901880874384"
+            ]
+        },
+        {
+            "contractor": 1202,
+            "file": "EOS_20250903140039.txt",
+            "item_id": 154947,
+            "sample_jan": "4901880881931",
+            "db_codes": [
+                "1549478",
+                "4901880874384"
+            ]
+        }
+    ]
+}

@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\WmsPickingTasks;
 
 use App\Enums\EMenu;
-use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingWaitings;
 use App\Models\WmsPickingTask;
 use Filament\Resources\Resource;
@@ -43,6 +42,7 @@ class WmsPickingWaitingResource extends Resource
                 'deliveryCourse',
                 'pickingItemResults.trade',
                 'pickingItemResults.earning.buyer.partner',
+                'pickingItemResults.stockTransfer.to_warehouse',
             ])
             ->withCount([
                 'pickingItemResults as soft_shortage_count' => function ($query) {

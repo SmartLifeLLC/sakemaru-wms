@@ -17,15 +17,22 @@ class GenerateTestEarningsCommand extends Command
                             {--courses=* : Specific delivery course codes to use (leave empty for all)}
                             {--locations=* : Specific location IDs to use for stock filtering (leave empty for all)}';
 
-    protected $description = 'Generate test earnings data via BoozeCore API';
+    protected $description = 'Generate test earnings data via sakemaru API';
 
     private int $warehouseId;
+
     private string $warehouseCode;
+
     private array $specifiedCourses = [];
+
     private array $specifiedLocations = [];
+
     private array $testItems = [];
+
     private Collection $eligibleBuyers;
+
     private array $usedBuyerCodes = [];
+
     private array $deliveryCourseCodes = [];
 
     public function handle()
@@ -34,8 +41,9 @@ class GenerateTestEarningsCommand extends Command
         $this->newLine();
 
         $this->warehouseId = (int) $this->option('warehouse-id');
-        if (!$this->warehouseId) {
+        if (! $this->warehouseId) {
             $this->error('Warehouse ID is required. Use --warehouse-id option.');
+
             return 1;
         }
 
@@ -51,6 +59,7 @@ class GenerateTestEarningsCommand extends Command
         // Check if we have enough buyers
         if ($this->eligibleBuyers->count() < $count) {
             $this->error("Not enough buyers available. Found {$this->eligibleBuyers->count()} buyers, but need {$count}.");
+
             return 1;
         }
 
@@ -59,6 +68,7 @@ class GenerateTestEarningsCommand extends Command
 
         if (empty($this->testItems)) {
             $this->error('No items with stock found for earnings generation');
+
             return 1;
         }
 
@@ -67,9 +77,11 @@ class GenerateTestEarningsCommand extends Command
 
         if ($result['success']) {
             $this->info("✓ Successfully created {$result['count']} test earnings via API");
+
             return 0;
         } else {
-            $this->error("Failed to create earnings: " . ($result['error'] ?? 'Unknown error'));
+            $this->error('Failed to create earnings: '.($result['error'] ?? 'Unknown error'));
+
             return 1;
         }
     }
@@ -87,7 +99,7 @@ class GenerateTestEarningsCommand extends Command
             ->where('warehouse_id', $this->warehouseId);
 
         // Filter by specified courses if provided
-        if (!empty($this->specifiedCourses)) {
+        if (! empty($this->specifiedCourses)) {
             $courseQuery->whereIn('code', $this->specifiedCourses);
         }
 
@@ -98,6 +110,7 @@ class GenerateTestEarningsCommand extends Command
         if (empty($deliveryCourseIds)) {
             $this->warn("No delivery courses found for warehouse {$this->warehouseId}");
             $this->eligibleBuyers = collect();
+
             return;
         }
 
@@ -118,12 +131,12 @@ class GenerateTestEarningsCommand extends Command
             ->get();
 
         $this->line("Warehouse: {$this->warehouseId} (code: {$this->warehouseCode})");
-        $this->line("Delivery courses: " . (!empty($this->specifiedCourses)
-            ? implode(', ', $this->specifiedCourses) . ' (specified)'
-            : count($deliveryCourseIds) . ' (all)'));
+        $this->line('Delivery courses: '.(! empty($this->specifiedCourses)
+            ? implode(', ', $this->specifiedCourses).' (specified)'
+            : count($deliveryCourseIds).' (all)'));
         $this->line("Eligible buyers: {$this->eligibleBuyers->count()}");
-        if (!empty($this->specifiedLocations)) {
-            $this->line("Stock locations filter: " . implode(', ', $this->specifiedLocations));
+        if (! empty($this->specifiedLocations)) {
+            $this->line('Stock locations filter: '.implode(', ', $this->specifiedLocations));
         }
         $this->newLine();
     }
@@ -134,7 +147,7 @@ class GenerateTestEarningsCommand extends Command
     private function getUniqueBuyer(): ?object
     {
         $available = $this->eligibleBuyers->filter(
-            fn($buyer) => !in_array($buyer->buyer_code, $this->usedBuyerCodes)
+            fn ($buyer) => ! in_array($buyer->buyer_code, $this->usedBuyerCodes)
         );
 
         if ($available->isEmpty()) {
@@ -149,53 +162,57 @@ class GenerateTestEarningsCommand extends Command
 
     private function loadTestItems(): void
     {
-        // IMPORTANT: Only select items that have stock in locations (not just warehouse)
-        // AND include location type information to match with order types
+        // IMPORTANT: Only select items that:
+        // 1. Have stock in the warehouse (real_stock_lots.current_quantity > 0)
+        // 2. Have location set (INNER JOIN ensures location_id is not null)
         // This ensures stock allocation can succeed during wave generation
 
         $query = DB::connection('sakemaru')
             ->table('items as i')
             ->join('real_stocks as rs', 'i.id', '=', 'rs.item_id')
-            ->join('locations as l', 'rs.location_id', '=', 'l.id')
+            ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
+            ->join('locations as l', 'rsl.location_id', '=', 'l.id')
             ->where('i.type', 'ALCOHOL')
             ->where('i.is_active', true)
             ->whereNull('i.end_of_sale_date')
             ->where('i.is_ended', false)
             ->where('rs.warehouse_id', $this->warehouseId)
-            ->whereNotNull('rs.location_id')
-            ->where('rs.available_quantity', '>', 0);
+            ->where('l.warehouse_id', $this->warehouseId) // Ensure location belongs to same warehouse
+            ->where('rsl.current_quantity', '>', 0) // Ensure lot has actual stock
+            ->where('rsl.status', 'ACTIVE'); // Ensure lot is active
 
         // Filter by specified locations if provided
-        if (!empty($this->specifiedLocations)) {
-            $query->whereIn('rs.location_id', $this->specifiedLocations);
+        if (! empty($this->specifiedLocations)) {
+            $query->whereIn('rsl.location_id', $this->specifiedLocations);
         }
 
         $items = $query->select(
-                'i.id',
-                'i.code',
-                'i.name',
-                'l.available_quantity_flags',
-                DB::raw('SUM(rs.available_quantity) as total_available')
-            )
+            'i.id',
+            'i.code',
+            'i.name',
+            'l.available_quantity_flags',
+            DB::raw('SUM(rsl.current_quantity) as total_available')
+        )
             ->groupBy('i.id', 'i.code', 'i.name', 'l.available_quantity_flags')
+            ->having('total_available', '>', 0)
             ->limit(30)
             ->get();
 
         $this->testItems = $items->map(function ($item) {
-                return [
-                    'id' => $item->id,
-                    'code' => $item->code,
-                    'name' => $item->name,
-                    'supports_case' => ($item->available_quantity_flags & 1) > 0, // CASE対応
-                    'supports_piece' => ($item->available_quantity_flags & 2) > 0, // PIECE対応
-                    'total_available' => $item->total_available,
-                    'case_quantity' => 1, // Default case quantity
-                ];
-            })
+            return [
+                'id' => $item->id,
+                'code' => $item->code,
+                'name' => $item->name,
+                'supports_case' => ($item->available_quantity_flags & 1) > 0, // CASE対応
+                'supports_piece' => ($item->available_quantity_flags & 2) > 0, // PIECE対応
+                'total_available' => $item->total_available,
+                'case_quantity' => 1, // Default case quantity
+            ];
+        })
             ->toArray();
 
-        $this->line("Loaded " . count($this->testItems) . " test items with location-based stock"
-            . (!empty($this->specifiedLocations) ? " (filtered by locations)" : ""));
+        $this->line('Loaded '.count($this->testItems).' test items (with stock > 0 and location set)'
+            .(! empty($this->specifiedLocations) ? ' (filtered by '.count($this->specifiedLocations).' locations)' : ''));
     }
 
     private function generateEarnings(int $count): array
@@ -209,7 +226,7 @@ class GenerateTestEarningsCommand extends Command
         for ($i = 0; $i < $count; $i++) {
             // Get a unique buyer for each earning
             $buyer = $this->getUniqueBuyer();
-            if (!$buyer) {
+            if (! $buyer) {
                 $this->warn("  No more unique buyers available, stopping at {$createdCount} earnings");
                 break;
             }
@@ -219,7 +236,8 @@ class GenerateTestEarningsCommand extends Command
             $availableItems = collect($this->testItems);
 
             if ($availableItems->isEmpty()) {
-                $this->warn("  No items available, skipping");
+                $this->warn('  No items available, skipping');
+
                 continue;
             }
 
@@ -272,7 +290,7 @@ class GenerateTestEarningsCommand extends Command
                 'details' => $details,
             ];
 
-            $this->line("  [{$i}] Buyer: {$buyer->buyer_code}, Course: {$deliveryCourseCode}, Items: " . count($details));
+            $this->line("  [{$i}] Buyer: {$buyer->buyer_code}, Course: {$deliveryCourseCode}, Items: ".count($details));
             $createdCount++;
         }
 
@@ -327,12 +345,12 @@ class GenerateTestEarningsCommand extends Command
         $supportsPiece = $item['supports_piece'];
 
         // If we don't have CASE yet and item supports CASE, use CASE
-        if (!$hasCaseItem && $supportsCase) {
+        if (! $hasCaseItem && $supportsCase) {
             return 'CASE';
         }
 
         // If we don't have PIECE yet and item supports PIECE, use PIECE
-        if (!$hasPieceItem && $supportsPiece) {
+        if (! $hasPieceItem && $supportsPiece) {
             return 'PIECE';
         }
 

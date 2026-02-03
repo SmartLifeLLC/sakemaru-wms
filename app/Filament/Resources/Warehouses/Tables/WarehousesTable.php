@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Warehouses\Tables;
 
+use App\Enums\PaginationOptions;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -9,7 +10,6 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 
 class WarehousesTable
 {
@@ -19,6 +19,7 @@ class WarehousesTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
+            ->modifyQueryUsing(fn ($query) => $query->with('autoOrderSetting'))
             ->columns([
                 TextColumn::make('code')
                     ->label('コード')
@@ -32,10 +33,9 @@ class WarehousesTable
                     ->weight('bold'),
 
                 TextColumn::make('kana_name')
-                    ->label('カナ名')
+                    ->label('カナ名称')
                     ->searchable()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->sortable(),
 
                 TextColumn::make('abbreviation')
                     ->label('略称')
@@ -48,8 +48,17 @@ class WarehousesTable
                     ->sortable()
                     ->default('-'),
 
+                IconColumn::make('autoOrderSetting.is_auto_order_enabled')
+                    ->label('自動発注')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-check-circle')
+                    ->falseIcon('heroicon-o-x-circle')
+                    ->trueColor('success')
+                    ->falseColor('gray')
+                    ->default(false),
+
                 TextColumn::make('out_of_stock_option')
-                    ->label('在庫切れ動作')
+                    ->label('売上登録時在庫確認')
                     ->formatStateUsing(fn (string $state): string => match ($state) {
                         'IGNORE_STOCK' => '在庫無視',
                         'UP_TO_STOCK' => '在庫制限',
@@ -89,7 +98,7 @@ class WarehousesTable
                     ]),
 
                 SelectFilter::make('out_of_stock_option')
-                    ->label('在庫切れ動作')
+                    ->label('売上登録時在庫確認')
                     ->options([
                         'IGNORE_STOCK' => '在庫無視',
                         'UP_TO_STOCK' => '在庫制限',

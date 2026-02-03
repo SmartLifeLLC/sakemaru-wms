@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\WmsShortagesWaitingApprovals;
 
 use App\Enums\EMenu;
-use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\Pages\ListWmsShortagesWaitingApprovals;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\Pages\ViewWmsShortagesWaitingApproval;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\Tables\WmsShortagesWaitingApprovalsTable;

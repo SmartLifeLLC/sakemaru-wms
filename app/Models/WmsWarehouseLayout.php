@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class WmsWarehouseLayout extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'wms_warehouse_layouts';
 
     protected $fillable = [

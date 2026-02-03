@@ -44,15 +44,16 @@ class ResetTestDataCommand extends Command
         }
 
         // If nothing specified, show error
-        if (!$deleteWaves && !$deleteEarnings && !$deleteStocks && !$deleteLocations && !$deleteFloors) {
+        if (! $deleteWaves && ! $deleteEarnings && ! $deleteStocks && ! $deleteLocations && ! $deleteFloors) {
             $this->error('Please specify what to delete using options: --waves, --earnings, --stocks, --locations, --floors, or --all');
+
             return 1;
         }
 
         if ($this->warehouseId) {
             $this->line("Scope: Warehouse ID {$this->warehouseId}");
         } else {
-            $this->line("Scope: All warehouses");
+            $this->line('Scope: All warehouses');
         }
         $this->newLine();
 
@@ -82,10 +83,12 @@ class ResetTestDataCommand extends Command
 
             $this->newLine();
             $this->info("✅ Deleted {$totalDeleted} records total");
+
             return 0;
         } catch (\Exception $e) {
-            $this->error('❌ Error resetting data: ' . $e->getMessage());
+            $this->error('❌ Error resetting data: '.$e->getMessage());
             $this->error($e->getTraceAsString());
+
             return 1;
         }
     }
@@ -197,16 +200,6 @@ class ResetTestDataCommand extends Command
     {
         $this->line('🗑️  Deleting locations...');
         $count = 0;
-
-        // Delete wms_locations first
-        $query = DB::connection('sakemaru')->table('wms_locations as wl')
-            ->join('locations as l', 'wl.location_id', '=', 'l.id');
-        if ($this->warehouseId) {
-            $query->where('l.warehouse_id', $this->warehouseId);
-        }
-        $deleted = $query->delete();
-        $count += $deleted;
-        $this->line("  Deleted {$deleted} wms_locations");
 
         // Delete locations
         $query = DB::connection('sakemaru')->table('locations');

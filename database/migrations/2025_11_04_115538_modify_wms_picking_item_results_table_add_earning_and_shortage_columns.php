@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -45,19 +45,19 @@ return new class extends Migration
         // Step 4: Add quantity type columns for ordered, planned, and picked
         Schema::connection('sakemaru')->table('wms_picking_item_results', function (Blueprint $table) {
             // Add quantity type columns if they don't exist
-            if (!Schema::connection('sakemaru')->hasColumn('wms_picking_item_results', 'ordered_qty_type')) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_picking_item_results', 'ordered_qty_type')) {
                 $table->enum('ordered_qty_type', ['CASE', 'PIECE'])
                     ->after('ordered_qty')
                     ->default('PIECE')
                     ->comment('発注数量タイプ');
             }
-            if (!Schema::connection('sakemaru')->hasColumn('wms_picking_item_results', 'planned_qty_type')) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_picking_item_results', 'planned_qty_type')) {
                 $table->enum('planned_qty_type', ['CASE', 'PIECE'])
                     ->after('planned_qty')
                     ->default('PIECE')
                     ->comment('計画数量タイプ');
             }
-            if (!Schema::connection('sakemaru')->hasColumn('wms_picking_item_results', 'picked_qty_type')) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_picking_item_results', 'picked_qty_type')) {
                 $table->enum('picked_qty_type', ['CASE', 'PIECE'])
                     ->after('picked_qty')
                     ->default('PIECE')

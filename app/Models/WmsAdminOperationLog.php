@@ -70,8 +70,8 @@ class WmsAdminOperationLog extends Model
     /**
      * 管理画面操作のログを記録
      *
-     * @param EWMSLogOperationType $operationType 操作種類
-     * @param array $data ログデータ
+     * @param  EWMSLogOperationType  $operationType  操作種類
+     * @param  array  $data  ログデータ
      * @return static
      */
     public static function log(EWMSLogOperationType $operationType, array $data = []): self

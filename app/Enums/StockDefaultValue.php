@@ -1,9 +1,7 @@
 <?php
 
-
 namespace App\Enums;
 
-use App\Enums\TaxRate;
 use App\Traits\EnumExtensionTrait;
 
 enum StockDefaultValue: string

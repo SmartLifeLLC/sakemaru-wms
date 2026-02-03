@@ -13,9 +13,9 @@ class AssignPickersToTasksService
     /**
      * ピッカーをタスクに割り当てる
      *
-     * @param int $warehouseId 倉庫ID
-     * @param Collection|array $pickerIds 割り当て対象ピッカーID
-     * @param int $strategyId 戦略ID
+     * @param  int  $warehouseId  倉庫ID
+     * @param  Collection|array  $pickerIds  割り当て対象ピッカーID
+     * @param  int  $strategyId  戦略ID
      * @return array 結果 ['success' => bool, 'assigned_count' => int, 'message' => string]
      */
     public function execute(int $warehouseId, Collection|array $pickerIds, int $strategyId): array
@@ -47,7 +47,7 @@ class AssignPickersToTasksService
         // 戦略を取得
         $strategy = WmsPickingAssignmentStrategy::find($strategyId);
 
-        if (!$strategy) {
+        if (! $strategy) {
             return [
                 'success' => false,
                 'assigned_count' => 0,
@@ -87,7 +87,7 @@ class AssignPickersToTasksService
         // 2Fタスク (floor_id = 2) と 1Fタスク (floor_id = 1) に分離
         $floor2Tasks = $tasks->filter(fn ($task) => $task->floor_id === 2);
         $floor1Tasks = $tasks->filter(fn ($task) => $task->floor_id === 1);
-        $otherTasks = $tasks->filter(fn ($task) => !in_array($task->floor_id, [1, 2]));
+        $otherTasks = $tasks->filter(fn ($task) => ! in_array($task->floor_id, [1, 2]));
 
         $totalAssigned = 0;
         $pickerTaskCounts = $pickers->mapWithKeys(fn ($p) => [$p->id => 0])->toArray();
@@ -122,7 +122,7 @@ class AssignPickersToTasksService
             return [
                 'success' => false,
                 'assigned_count' => 0,
-                'message' => '割り当て処理中にエラーが発生しました: ' . $e->getMessage(),
+                'message' => '割り当て処理中にエラーが発生しました: '.$e->getMessage(),
             ];
         }
     }
@@ -191,7 +191,7 @@ class AssignPickersToTasksService
     protected function canPickerHandleTask(WmsPicker $picker, WmsPickingTask $task): bool
     {
         // 1. 制限エリアのチェック
-        if ($task->is_restricted_area && !$picker->can_access_restricted_area) {
+        if ($task->is_restricted_area && ! $picker->can_access_restricted_area) {
             return false;
         }
 
@@ -201,7 +201,7 @@ class AssignPickersToTasksService
             $pickerAreaIds = $picker->pickingAreas->pluck('id')->toArray();
 
             // ピッカーに担当エリアが設定されている場合は、そのエリアのみ担当可能
-            if (!empty($pickerAreaIds) && !in_array($task->wms_picking_area_id, $pickerAreaIds)) {
+            if (! empty($pickerAreaIds) && ! in_array($task->wms_picking_area_id, $pickerAreaIds)) {
                 return false;
             }
         }
@@ -234,7 +234,7 @@ class AssignPickersToTasksService
             return [
                 'success' => false,
                 'assigned_count' => 0,
-                'message' => '割り当て処理中にエラーが発生しました: ' . $e->getMessage(),
+                'message' => '割り当て処理中にエラーが発生しました: '.$e->getMessage(),
             ];
         }
     }

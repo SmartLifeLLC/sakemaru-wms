@@ -2,9 +2,7 @@
 
 namespace App\Models\Sakemaru;
 
-
 use App\Enums\Partners\EHandleCompany;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PartnerDeliveryType extends CustomModel
@@ -29,6 +27,7 @@ class PartnerDeliveryType extends CustomModel
             5 => $this->friday,
             6 => $this->saturday,
         };
+
         return EHandleCompany::fromValue($value);
     }
 }

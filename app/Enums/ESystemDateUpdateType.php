@@ -1,8 +1,6 @@
 <?php
 
-
 namespace App\Enums;
-
 
 namespace App\Enums;
 
@@ -16,15 +14,16 @@ enum ESystemDateUpdateType: string
     case TOMORROW = 'TOMORROW';
     case BOTH = 'BOTH';
 
-    public function name() : string
+    public function name(): string
     {
-        return match($this) {
+        return match ($this) {
             self::TODAY => '当日',
             self::TOMORROW => '翌日',
             self::BOTH => ' どちらも可'
         };
     }
-    public function getID() : int
+
+    public function getID(): int
     {
         return match ($this) {
             self::TODAY => 1,
@@ -32,6 +31,4 @@ enum ESystemDateUpdateType: string
             self::BOTH => 3,
         };
     }
-
-
 }

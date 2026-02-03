@@ -19,6 +19,7 @@ class WmsContractorSetting extends WmsModel
 
     protected $fillable = [
         'contractor_id',
+        'transmission_contractor_id',
         'transmission_type',
         'wms_order_jx_setting_id',
         'wms_order_ftp_setting_id',
@@ -52,6 +53,29 @@ class WmsContractorSetting extends WmsModel
         return $this->belongsTo(Contractor::class);
     }
 
+    /**
+     * 発注データ送信先の発注先
+     */
+    public function transmissionContractor(): BelongsTo
+    {
+        return $this->belongsTo(Contractor::class, 'transmission_contractor_id');
+    }
+
+    /**
+     * 実際の送信設定を取得（自身 or 送信先発注先の設定）
+     */
+    public function getEffectiveTransmissionSettings(): self
+    {
+        if ($this->transmission_contractor_id) {
+            $transmissionContractorSetting = self::where('contractor_id', $this->transmission_contractor_id)->first();
+            if ($transmissionContractorSetting) {
+                return $transmissionContractorSetting;
+            }
+        }
+
+        return $this;
+    }
+
     public function jxSetting(): BelongsTo
     {
         return $this->belongsTo(WmsOrderJxSetting::class, 'wms_order_jx_setting_id');
@@ -73,20 +97,35 @@ class WmsContractorSetting extends WmsModel
     public function getTransmissionDaysLabelAttribute(): string
     {
         $days = [];
-        if ($this->is_transmission_sun) $days[] = '日';
-        if ($this->is_transmission_mon) $days[] = '月';
-        if ($this->is_transmission_tue) $days[] = '火';
-        if ($this->is_transmission_wed) $days[] = '水';
-        if ($this->is_transmission_thu) $days[] = '木';
-        if ($this->is_transmission_fri) $days[] = '金';
-        if ($this->is_transmission_sat) $days[] = '土';
+        if ($this->is_transmission_sun) {
+            $days[] = '日';
+        }
+        if ($this->is_transmission_mon) {
+            $days[] = '月';
+        }
+        if ($this->is_transmission_tue) {
+            $days[] = '火';
+        }
+        if ($this->is_transmission_wed) {
+            $days[] = '水';
+        }
+        if ($this->is_transmission_thu) {
+            $days[] = '木';
+        }
+        if ($this->is_transmission_fri) {
+            $days[] = '金';
+        }
+        if ($this->is_transmission_sat) {
+            $days[] = '土';
+        }
 
         return empty($days) ? '-' : implode('・', $days);
     }
 
     /**
      * 指定された曜日に送信するかどうか
-     * @param int $dayOfWeek 0=日, 1=月, ..., 6=土
+     *
+     * @param  int  $dayOfWeek  0=日, 1=月, ..., 6=土
      */
     public function shouldTransmitOn(int $dayOfWeek): bool
     {

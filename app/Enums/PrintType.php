@@ -53,8 +53,8 @@ enum PrintType: string
     case ORDER = 'ORDER';
     case ARRIVAL_PLAN = 'ARRIVAL_PLAN';
 
-    case EXTERNAL_DATA_IMPORT_EARNING_CHECK = "EXTERNAL_DATA_IMPORT_EARNING_CHECK";
-    case EXTERNAL_DATA_IMPORT_EARNING_COMMENT_LIST = "EXTERNAL_DATA_IMPORT_EARNING_COMMENT_LIST";
+    case EXTERNAL_DATA_IMPORT_EARNING_CHECK = 'EXTERNAL_DATA_IMPORT_EARNING_CHECK';
+    case EXTERNAL_DATA_IMPORT_EARNING_COMMENT_LIST = 'EXTERNAL_DATA_IMPORT_EARNING_COMMENT_LIST';
 
     public function name(): string
     {
@@ -97,7 +97,7 @@ enum PrintType: string
             self::STOCK_TRANSFER_CHECK => '倉庫移動チェックリスト',
             self::ORDER => '発注依頼書',
             self::ARRIVAL_PLAN => '入荷予定表',
-            self::EXTERNAL_DATA_IMPORT_EARNING_CHECK => "取込エラーリスト",
+            self::EXTERNAL_DATA_IMPORT_EARNING_CHECK => '取込エラーリスト',
             self::EXTERNAL_DATA_IMPORT_EARNING_COMMENT_LIST => '受注データコメント表'
         };
     }
@@ -147,7 +147,6 @@ enum PrintType: string
         };
     }
 
-
     public function isNeededIds(): bool
     {
         return match ($this) {
@@ -157,7 +156,6 @@ enum PrintType: string
             default => true
         };
     }
-
 
     public function canSpecifyWarehouse(): bool
     {

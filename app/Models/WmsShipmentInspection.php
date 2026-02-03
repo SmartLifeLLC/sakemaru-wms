@@ -26,8 +26,11 @@ class WmsShipmentInspection extends WmsModel
 
     // Status constants
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_IN_PROGRESS = 'in_progress';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_PARTIAL = 'partial';
 
     // Relationships

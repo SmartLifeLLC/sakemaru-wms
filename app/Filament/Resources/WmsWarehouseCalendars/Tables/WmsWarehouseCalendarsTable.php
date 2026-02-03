@@ -2,19 +2,23 @@
 
 namespace App\Filament\Resources\WmsWarehouseCalendars\Tables;
 
+use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\BulkAction;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
-use App\Enums\PaginationOptions;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -28,8 +32,13 @@ class WmsWarehouseCalendarsTable
             ->paginationPageOptions(PaginationOptions::all())
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['warehouse'])->orderBy('target_date', 'desc'))
             ->columns([
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫コード')
+                    ->searchable()
+                    ->sortable(),
+
                 TextColumn::make('warehouse.name')
-                    ->label('倉庫')
+                    ->label('倉庫名')
                     ->searchable()
                     ->sortable(),
 
@@ -78,9 +87,36 @@ class WmsWarehouseCalendarsTable
                     ->falseLabel('営業日のみ'),
             ])
             ->recordActions([
-                EditAction::make(),
+                EditAction::make()
+                    ->modalHeading('休日設定を編集')
+                    ->schema([
+                        Select::make('warehouse_id')
+                            ->label('倉庫')
+                            ->options(fn () => Warehouse::pluck('name', 'id')->toArray())
+                            ->searchable()
+                            ->required(),
+
+                        DatePicker::make('target_date')
+                            ->label('対象日')
+                            ->required()
+                            ->native(false)
+                            ->displayFormat('Y-m-d'),
+
+                        Toggle::make('is_holiday')
+                            ->label('休日')
+                            ->helperText('ONで休日、OFFで営業日'),
+
+                        TextInput::make('holiday_reason')
+                            ->label('休日理由')
+                            ->maxLength(255)
+                            ->placeholder('例: 年末年始休業、臨時休業など'),
+
+                        Toggle::make('is_manual_override')
+                            ->label('手動設定')
+                            ->helperText('自動生成された定休日を手動で上書きする場合はON'),
+                    ]),
                 DeleteAction::make(),
-            ], position: RecordActionsPosition::BeforeColumns)
+            ], position: RecordActionsPosition::AfterColumns)
             ->toolbarActions([
                 CreateAction::make(),
             ])

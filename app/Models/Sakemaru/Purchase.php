@@ -2,23 +2,17 @@
 
 namespace App\Models\Sakemaru;
 
-
 use App\Enums\PrintType;
-
-use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Relations\MorphMany;
-use Illuminate\Database\Eloquent\Relations\MorphOne;
-use Illuminate\Database\Eloquent\Relations\MorphToMany;
 
 class Purchase extends CustomModel
 {
     use HasFactory;
 
-
     protected $guarded = [];
+
     protected $casts = [];
 
     protected PrintType $checklist_print_type = PrintType::PURCHASE_CHECK;
@@ -65,9 +59,8 @@ class Purchase extends CustomModel
         return $this->belongsTo(Bill::class);
     }
 
-    public function direct_earning() : HasOne
+    public function direct_earning(): HasOne
     {
         return $this->hasOne(Earning::class, 'direct_purchase_id', 'id');
     }
-
 }

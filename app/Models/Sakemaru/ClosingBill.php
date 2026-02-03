@@ -2,18 +2,13 @@
 
 namespace App\Models\Sakemaru;
 
-use App\Models\Sakemaru\Bill;
-use App\Models\Sakemaru\ClosingBalanceOverview;
-use App\Models\Sakemaru\CustomModel;
-use App\Models\Sakemaru\Trade;
-use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use Illuminate\Database\Eloquent\Relations\MorphOne;
 
 class ClosingBill extends CustomModel
 {
     protected $guarded = [];
+
     protected $casts = [];
 
     public function bills(): HasMany
@@ -30,6 +25,7 @@ class ClosingBill extends CustomModel
     {
         return $this->hasMany(Trade::class)->orderBy('id');
     }
+
     protected static function booted()
     {
         // レコードが保存された後（作成・更新時）に実行

@@ -12,7 +12,7 @@ enum EMiscellaneousCollectionType: string
     case FREE = 'FREE';
     case PAID = 'PAID';
 
-    public function name() : string
+    public function name(): string
     {
         return match ($this) {
             self::NONE => '回収しない',
@@ -21,7 +21,7 @@ enum EMiscellaneousCollectionType: string
         };
     }
 
-    public function getID() : int
+    public function getID(): int
     {
         return match ($this) {
             self::NONE => 0,
@@ -39,12 +39,13 @@ enum EMiscellaneousCollectionType: string
         };
     }
 
-    public  static function fromMSDID(int $id){
-        return match ($id){
-            1=>self::FREE,
-            2=>self::NONE,
-            3=>self::PAID,
-            default=>self::NONE,
+    public static function fromMSDID(int $id)
+    {
+        return match ($id) {
+            1 => self::FREE,
+            2 => self::NONE,
+            3 => self::PAID,
+            default => self::NONE,
         };
     }
 }

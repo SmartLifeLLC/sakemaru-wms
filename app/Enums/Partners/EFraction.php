@@ -1,6 +1,5 @@
 <?php
 
-
 namespace App\Enums\Partners;
 
 use App\Enums\TaxRate;
@@ -14,7 +13,6 @@ enum EFraction: string
     case ROUND_DOWN = 'ROUND_DOWN';
     case ROUND = 'ROUND';
     case ROUND_UP = 'ROUND_UP';
-
 
     public static function fromPrevID(int $id): self
     {

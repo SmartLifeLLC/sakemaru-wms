@@ -54,7 +54,7 @@ class CreateTestPickerCommand extends Command
             'is_active' => true,
         ]);
 
-        $this->info("Test picker created successfully!");
+        $this->info('Test picker created successfully!');
 
         $this->newLine();
         $this->info('Test credentials:');

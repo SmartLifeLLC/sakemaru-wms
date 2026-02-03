@@ -29,6 +29,7 @@ class GenerateCalendarsCommand extends Command
 
                 if (empty($results)) {
                     $this->warn('自動発注が有効な倉庫がありません');
+
                     return self::SUCCESS;
                 }
 
@@ -36,13 +37,14 @@ class GenerateCalendarsCommand extends Command
                     $this->info("倉庫ID {$whId}: {$count}日分を生成");
                 }
 
-                $this->info('完了しました。合計: ' . array_sum($results) . '件');
+                $this->info('完了しました。合計: '.array_sum($results).'件');
             }
 
             return self::SUCCESS;
 
         } catch (\Exception $e) {
-            $this->error('エラーが発生しました: ' . $e->getMessage());
+            $this->error('エラーが発生しました: '.$e->getMessage());
+
             return self::FAILURE;
         }
     }

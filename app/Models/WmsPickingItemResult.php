@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
+use App\Models\Sakemaru\StockTransfer;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -16,13 +17,23 @@ class WmsPickingItemResult extends Model
 
     // Status constants
     public const STATUS_PENDING = 'PENDING';
+
     public const STATUS_PICKING = 'PICKING';
+
     public const STATUS_COMPLETED = 'COMPLETED';
+
     public const STATUS_SHORTAGE = 'SHORTAGE';
+
+    // Source type constants
+    public const SOURCE_TYPE_EARNING = 'EARNING';
+
+    public const SOURCE_TYPE_STOCK_TRANSFER = 'STOCK_TRANSFER';
 
     protected $fillable = [
         'picking_task_id',
         'earning_id',
+        'source_type',
+        'stock_transfer_id',
         'trade_id',
         'trade_item_id',
         'item_id',
@@ -75,9 +86,35 @@ class WmsPickingItemResult extends Model
         return $this->belongsTo(Earning::class, 'earning_id');
     }
 
-    public function picker(){
+    /**
+     * このピッキング明細が属する倉庫間移動伝票
+     */
+    public function stockTransfer(): BelongsTo
+    {
+        return $this->belongsTo(StockTransfer::class, 'stock_transfer_id');
+    }
+
+    /**
+     * 伝票種別が EARNING かどうか
+     */
+    public function isEarning(): bool
+    {
+        return $this->source_type === self::SOURCE_TYPE_EARNING;
+    }
+
+    /**
+     * 伝票種別が STOCK_TRANSFER かどうか
+     */
+    public function isStockTransfer(): bool
+    {
+        return $this->source_type === self::SOURCE_TYPE_STOCK_TRANSFER;
+    }
+
+    public function picker()
+    {
         return $this->belongsTo(WmsPicker::class, 'picker_id');
     }
+
     /**
      * このピッキング明細が属する取引（売上伝票）
      */
@@ -126,7 +163,7 @@ class WmsPickingItemResult extends Model
     public function scopeOrderedForPicking($query)
     {
         return $query->orderBy('walking_order', 'asc')
-                    ->orderBy('item_id', 'asc');
+            ->orderBy('item_id', 'asc');
     }
 
     /**
@@ -143,9 +180,10 @@ class WmsPickingItemResult extends Model
     public function getItemNameWithCodeAttribute(): string
     {
         $item = $this->item;
-        if (!$item) {
+        if (! $item) {
             return "Item {$this->item_id}";
         }
+
         return "[{$item->code}] {$item->name}";
     }
 
@@ -155,14 +193,14 @@ class WmsPickingItemResult extends Model
     public function getLocationDisplayAttribute(): string
     {
         $location = $this->location;
-        if (!$location) {
-            return "-";
+        if (! $location) {
+            return '-';
         }
 
         $locationCode = trim("{$location->code1} {$location->code2} {$location->code3}");
 
         // Add location name if available
-        if (!empty($location->name)) {
+        if (! empty($location->name)) {
             return "{$locationCode} - {$location->name}";
         }
 
@@ -239,6 +277,4 @@ class WmsPickingItemResult extends Model
     {
         return self::getQuantityTypeLabel($this->picked_qty_type ?? 'PIECE');
     }
-
-
 }

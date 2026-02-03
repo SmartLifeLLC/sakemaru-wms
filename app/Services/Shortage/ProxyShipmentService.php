@@ -18,12 +18,11 @@ class ProxyShipmentService
     /**
      * 横持ち出荷指示を作成
      *
-     * @param WmsShortage $shortage
-     * @param int $fromWarehouseId 横持ち出荷倉庫（出荷元倉庫）
-     * @param int $assignQty 横持ち出荷数量（受注単位ベース）
-     * @param string $assignQtyType 横持ち出荷単位 (CASE, PIECE, CARTON)
-     * @param int $createdBy 作成者
-     * @return WmsShortageAllocation
+     * @param  int  $fromWarehouseId  横持ち出荷倉庫（出荷元倉庫）
+     * @param  int  $assignQty  横持ち出荷数量（受注単位ベース）
+     * @param  string  $assignQtyType  横持ち出荷単位 (CASE, PIECE, CARTON)
+     * @param  int  $createdBy  作成者
+     *
      * @throws \Exception
      */
     public function createProxyShipment(
@@ -56,7 +55,7 @@ class ProxyShipmentService
         ) {
             // 1. 倉庫単価と容器単価を取得
             $quantityType = QuantityType::tryFrom($assignQtyType);
-            if (!$quantityType) {
+            if (! $quantityType) {
                 throw new \Exception("Invalid quantity type: {$assignQtyType}");
             }
 
@@ -116,11 +115,10 @@ class ProxyShipmentService
     /**
      * 横持ち出荷指示を更新
      *
-     * @param WmsShortageAllocation $allocation
-     * @param int $fromWarehouseId 横持ち出荷倉庫
-     * @param int $assignQty 横持ち出荷数量（受注単位ベース）
-     * @param int $updatedBy 更新者
-     * @return WmsShortageAllocation
+     * @param  int  $fromWarehouseId  横持ち出荷倉庫
+     * @param  int  $assignQty  横持ち出荷数量（受注単位ベース）
+     * @param  int  $updatedBy  更新者
+     *
      * @throws \Exception
      */
     public function updateProxyShipment(
@@ -165,9 +163,6 @@ class ProxyShipmentService
 
     /**
      * 横持ち出荷を削除
-     *
-     * @param WmsShortageAllocation $allocation
-     * @return void
      */
     public function deleteProxyShipment(WmsShortageAllocation $allocation): void
     {
@@ -198,9 +193,6 @@ class ProxyShipmentService
 
     /**
      * 欠品の充足状況を更新
-     *
-     * @param WmsShortage $shortage
-     * @return void
      */
     public function updateFulfillmentStatus(WmsShortage $shortage): void
     {

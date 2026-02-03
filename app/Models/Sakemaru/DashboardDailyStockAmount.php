@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Models\Sakemaru;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+
 use Illuminate\Database\Eloquent\Model;
 
 class DashboardDailyStockAmount extends Model
@@ -12,6 +12,6 @@ class DashboardDailyStockAmount extends Model
         'client_id',
         'warehouse_id',
         'target_date',
-        'amount'
+        'amount',
     ];
 }

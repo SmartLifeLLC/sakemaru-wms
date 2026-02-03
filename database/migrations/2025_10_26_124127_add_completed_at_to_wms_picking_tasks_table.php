@@ -15,14 +15,14 @@ return new class extends Migration
     {
         Schema::connection('sakemaru')->table('wms_picking_tasks', function (Blueprint $table) {
             // Add started_at and completed_at timestamps
-            if (!Schema::connection('sakemaru')->hasColumn('wms_picking_tasks', 'started_at')) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_picking_tasks', 'started_at')) {
                 $table->timestamp('started_at')
                     ->nullable()
                     ->after('picker_id')
                     ->comment('ピッキング開始日時');
             }
 
-            if (!Schema::connection('sakemaru')->hasColumn('wms_picking_tasks', 'completed_at')) {
+            if (! Schema::connection('sakemaru')->hasColumn('wms_picking_tasks', 'completed_at')) {
                 $table->timestamp('completed_at')
                     ->nullable()
                     ->after('picker_id')

@@ -4,15 +4,13 @@ namespace App\Filament\Pages;
 
 use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
-use App\Models\Sakemaru\Warehouse;
 use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\Location;
-use App\Models\WmsLocationLevel;
-use App\Models\WmsWarehouseLayout;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsFloorObject;
-use App\Models\WmsPickingArea;
-use App\Models\WmsLocation;
 use App\Models\WmsPicker;
+use App\Models\WmsPickingArea;
+use App\Models\WmsWarehouseLayout;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Livewire\Attributes\Computed;
@@ -27,25 +25,45 @@ class FloorPlanEditor extends Page
 
     // Livewire properties
     public ?int $selectedWarehouseId = null;
+
     public ?int $selectedFloorId = null;
+
     public int $canvasWidth = 2000;
+
     public int $canvasHeight = 1500;
+
     public array $colors = [];
+
     public array $textStyles = [];
+
     public array $walls = [];
+
     public array $fixedAreas = [];
+
     public int $pickingStartX = 0;
+
     public int $pickingStartY = 0;
+
     public int $pickingEndX = 0;
+
     public int $pickingEndY = 0;
+
     public ?array $walkableAreas = null;
+
     public ?array $navmeta = null;
+
     public $pickingAreas = [];
+
     public $pickingAreaMode = null; // 'draw'
+
     public $currentPolygonPoints = [];
+
     public $showPickingAreaNameModal = false;
+
     public $newPickingAreaName = '';
+
     public $newPickingAreaColor = '#8B5CF6'; // Default purple
+
     public array $newPickingArea = [
         'name' => '',
         'polygon' => [],
@@ -58,7 +76,7 @@ class FloorPlanEditor extends Page
 
     public static function getNavigationLabel(): string
     {
-        return '倉庫フロアプラン';
+        return EMenu::FLOOR_PLAN_EDITOR->label();
     }
 
     public static function getNavigationSort(): ?int
@@ -97,7 +115,6 @@ class FloorPlanEditor extends Page
             } else {
                 // Get first floor for this warehouse
                 $firstFloor = Floor::where('warehouse_id', $this->selectedWarehouseId)
-                    ->where('is_active', true)
                     ->orderBy('code')
                     ->first();
                 if ($firstFloor) {
@@ -113,7 +130,6 @@ class FloorPlanEditor extends Page
 
                 // Set default floor if available
                 $firstFloor = Floor::where('warehouse_id', $this->selectedWarehouseId)
-                    ->where('is_active', true)
                     ->orderBy('code')
                     ->first();
 
@@ -163,53 +179,104 @@ class FloorPlanEditor extends Page
     #[Computed]
     public function floors()
     {
-        if (!$this->selectedWarehouseId) {
+        if (! $this->selectedWarehouseId) {
             return collect();
         }
 
         return Floor::where('warehouse_id', $this->selectedWarehouseId)
-            ->where('is_active', true)
             ->orderBy('code')
             ->get(['id', 'code', 'name', 'warehouse_id']);
     }
 
     /**
-     * Get zones (locations) for selected floor
+     * Get zones (locations GROUPED by code1+code2) for selected floor
+     * Each zone represents a rack position (code1+code2), with multiple shelves (code3)
      */
     #[Computed]
     public function zones()
     {
-        if (!$this->selectedFloorId) {
+        if (! $this->selectedFloorId) {
             return collect();
         }
 
         $locations = Location::where('floor_id', $this->selectedFloorId)
             ->whereNotNull('code1')
             ->whereNotNull('code2')
+            ->where('code1', '!=', 'ZZ')  // Exclude default location
             ->orderBy('code1')
             ->orderBy('code2')
+            ->orderBy('code3')
             ->get();
 
-        return $locations->map(function ($location) {
-            $levelsCount = WmsLocationLevel::where('location_id', $location->id)->count();
+        // Group locations by code1+code2
+        $zoneGroups = [];
+        foreach ($locations as $location) {
+            $zoneKey = $location->code1.'-'.$location->code2;
+            if (! isset($zoneGroups[$zoneKey])) {
+                $zoneGroups[$zoneKey] = [
+                    'locations' => [],
+                    'first_location' => $location,
+                ];
+            }
+            $zoneGroups[$zoneKey]['locations'][] = $location;
+        }
 
-            return [
-                'id' => $location->id,
-                'floor_id' => $location->floor_id,
-                'warehouse_id' => $location->warehouse_id,
-                'code1' => $location->code1,
-                'code2' => $location->code2,
-                'name' => $location->name,
-                'x1_pos' => (int) $location->x1_pos,
-                'y1_pos' => (int) $location->y1_pos,
-                'x2_pos' => (int) $location->x2_pos,
-                'y2_pos' => (int) $location->y2_pos,
-                'available_quantity_flags' => $location->available_quantity_flags,
-                'temperature_type' => $location->temperature_type?->value,
-                'is_restricted_area' => $location->is_restricted_area ?? false,
-                'levels' => $levelsCount,
+        // Build zones array - one entry per code1+code2 group
+        $zones = [];
+        $zoneIndex = 0;
+        foreach ($zoneGroups as $zoneKey => $group) {
+            $firstLoc = $group['first_location'];
+            $locationIds = collect($group['locations'])->pluck('id')->toArray();
+
+            // Use first location's position (all locations in zone should have same position)
+            // Find the first location with a non-zero position
+            $x1 = 0;
+            $y1 = 0;
+            $x2 = 0;
+            $y2 = 0;
+            foreach ($group['locations'] as $loc) {
+                if ($loc->x1_pos > 0 || $loc->y1_pos > 0) {
+                    $x1 = (int) $loc->x1_pos;
+                    $y1 = (int) $loc->y1_pos;
+                    $x2 = (int) $loc->x2_pos;
+                    $y2 = (int) $loc->y2_pos;
+                    break;  // Use first non-zero position found
+                }
+            }
+
+            // Auto-generate position if none set
+            if ($x1 == 0 && $y1 == 0) {
+                $row = intdiv($zoneIndex, 30);
+                $col = $zoneIndex % 30;
+                $x1 = 50 + $col * 45;
+                $y1 = 50 + $row * 35;
+                $x2 = $x1 + 40;
+                $y2 = $y1 + 30;
+            }
+
+            $zones[] = [
+                'id' => $firstLoc->id,  // Use first location's ID as zone ID
+                'zone_key' => $zoneKey,
+                'floor_id' => $firstLoc->floor_id,
+                'warehouse_id' => $firstLoc->warehouse_id,
+                'code1' => $firstLoc->code1,
+                'code2' => $firstLoc->code2,
+                'name' => $firstLoc->code1.$firstLoc->code2,  // Zone name = code1+code2 only
+                'x1_pos' => $x1,
+                'y1_pos' => $y1,
+                'x2_pos' => $x2,
+                'y2_pos' => $y2,
+                'available_quantity_flags' => $firstLoc->available_quantity_flags,
+                'temperature_type' => $firstLoc->temperature_type?->value,
+                'is_restricted_area' => $firstLoc->is_restricted_area ?? false,
+                'shelf_count' => count($group['locations']),
+                'location_ids' => $locationIds,
             ];
-        });
+
+            $zoneIndex++;
+        }
+
+        return collect($zones);
     }
 
     /**
@@ -218,7 +285,7 @@ class FloorPlanEditor extends Page
     #[Computed]
     public function floorObjects()
     {
-        if (!$this->selectedFloorId) {
+        if (! $this->selectedFloorId) {
             return collect();
         }
 
@@ -233,8 +300,9 @@ class FloorPlanEditor extends Page
      */
     public function loadLayout(): void
     {
-        if (!$this->selectedWarehouseId) {
+        if (! $this->selectedWarehouseId) {
             $this->resetToDefaults();
+
             return;
         }
 
@@ -243,7 +311,7 @@ class FloorPlanEditor extends Page
             ->where('floor_id', $this->selectedFloorId)
             ->first();
 
-        if (!$layout && $this->selectedFloorId) {
+        if (! $layout && $this->selectedFloorId) {
             // Try warehouse default
             $layout = WmsWarehouseLayout::where('warehouse_id', $this->selectedWarehouseId)
                 ->whereNull('floor_id')
@@ -302,8 +370,9 @@ class FloorPlanEditor extends Page
      */
     private function loadPickingAreas(): void
     {
-        if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+        if (! $this->selectedWarehouseId || ! $this->selectedFloorId) {
             $this->pickingAreas = [];
+
             return;
         }
 
@@ -348,11 +417,12 @@ class FloorPlanEditor extends Page
      */
     public function saveLayout(): void
     {
-        if (!$this->selectedWarehouseId) {
+        if (! $this->selectedWarehouseId) {
             \Filament\Notifications\Notification::make()
                 ->title('倉庫を選択してください')
                 ->danger()
                 ->send();
+
             return;
         }
 
@@ -391,17 +461,18 @@ class FloorPlanEditor extends Page
      */
     public function updateCanvasSize($width, $height): void
     {
-        if (!$this->selectedWarehouseId) {
+        if (! $this->selectedWarehouseId) {
             \Filament\Notifications\Notification::make()
                 ->title('倉庫を選択してください')
                 ->danger()
                 ->send();
+
             return;
         }
 
         // Validate and update canvas size
-        $this->canvasWidth = max(500, min(10000, (int)$width));
-        $this->canvasHeight = max(500, min(10000, (int)$height));
+        $this->canvasWidth = max(500, min(10000, (int) $width));
+        $this->canvasHeight = max(500, min(10000, (int) $height));
 
         // Save to database directly
         WmsWarehouseLayout::updateOrCreate(
@@ -486,7 +557,7 @@ class FloorPlanEditor extends Page
 
         $newWall = [
             'id' => $newId,
-            'name' => '柱' . $newId,
+            'name' => '柱'.$newId,
             'x1' => 100,
             'y1' => 100,
             'x2' => 150,
@@ -507,7 +578,7 @@ class FloorPlanEditor extends Page
 
         $newArea = [
             'id' => $newId,
-            'name' => '固定領域' . $newId,
+            'name' => '固定領域'.$newId,
             'x1' => 200,
             'y1' => 200,
             'x2' => 300,
@@ -524,7 +595,7 @@ class FloorPlanEditor extends Page
      */
     public function removeWall(int $id): void
     {
-        $this->walls = array_values(array_filter($this->walls, fn($wall) => $wall['id'] !== $id));
+        $this->walls = array_values(array_filter($this->walls, fn ($wall) => $wall['id'] !== $id));
     }
 
     /**
@@ -532,7 +603,7 @@ class FloorPlanEditor extends Page
      */
     public function removeFixedArea(int $id): void
     {
-        $this->fixedAreas = array_values(array_filter($this->fixedAreas, fn($area) => $area['id'] !== $id));
+        $this->fixedAreas = array_values(array_filter($this->fixedAreas, fn ($area) => $area['id'] !== $id));
     }
 
     /**
@@ -540,38 +611,41 @@ class FloorPlanEditor extends Page
      */
     public function addZone(): void
     {
-        if (!$this->selectedFloorId) {
+        if (! $this->selectedFloorId) {
             \Filament\Notifications\Notification::make()
                 ->title('フロアを選択してください')
                 ->danger()
                 ->send();
+
             return;
         }
 
         try {
             // Get floor to get client_id
             $floor = Floor::find($this->selectedFloorId);
-            if (!$floor) {
+            if (! $floor) {
                 \Filament\Notifications\Notification::make()
                     ->title('フロアが見つかりません')
                     ->danger()
                     ->send();
+
                 return;
             }
 
             // Get warehouse name
             $warehouse = Warehouse::find($this->selectedWarehouseId);
-            if (!$warehouse) {
+            if (! $warehouse) {
                 \Filament\Notifications\Notification::make()
                     ->title('倉庫が見つかりません')
                     ->danger()
                     ->send();
+
                 return;
             }
 
             // Generate codes
             $code1 = 'A';
-            $code2 = str_pad((string)(Location::where('floor_id', $this->selectedFloorId)->count() + 1), 3, '0', STR_PAD_LEFT);
+            $code2 = str_pad((string) (Location::where('floor_id', $this->selectedFloorId)->count() + 1), 3, '0', STR_PAD_LEFT);
 
             // Create location name: "[倉庫名][フロア名-CODE1-CODE2]"
             $locationName = "{$warehouse->name}{$floor->name}-{$code1}-{$code2}";
@@ -589,16 +663,6 @@ class FloorPlanEditor extends Page
                 'y1_pos' => 300,
                 'x2_pos' => 460,
                 'y2_pos' => 340,
-                'available_quantity_flags' => 3,
-                'creator_id' => 0,
-                'last_updater_id' => 0,
-            ]);
-
-            // Create one WMS level for this location
-            WmsLocationLevel::create([
-                'location_id' => $newLocation->id,
-                'level_number' => 1,
-                'name' => "{$locationName} 1段",
                 'available_quantity_flags' => 3,
             ]);
 
@@ -631,17 +695,22 @@ class FloorPlanEditor extends Page
 
     /**
      * Update zone position
+     * Updates ALL locations in the zone group (same code1+code2)
      */
     public function updateZonePosition(int $zoneId, int $x1, int $y1, int $x2, int $y2): void
     {
         $location = Location::find($zoneId);
         if ($location) {
-            $location->update([
-                'x1_pos' => $x1,
-                'y1_pos' => $y1,
-                'x2_pos' => $x2,
-                'y2_pos' => $y2,
-            ]);
+            // Update all locations with the same code1+code2 (entire zone group)
+            Location::where('floor_id', $location->floor_id)
+                ->where('code1', $location->code1)
+                ->where('code2', $location->code2)
+                ->update([
+                    'x1_pos' => $x1,
+                    'y1_pos' => $y1,
+                    'x2_pos' => $x2,
+                    'y2_pos' => $y2,
+                ]);
         }
     }
 
@@ -666,18 +735,16 @@ class FloorPlanEditor extends Page
      */
     public function saveAllPositions(array $changedZones, array $walls, array $fixedAreas, array $newZones = [], array $deletedZoneIds = []): void
     {
-        if (!$this->selectedWarehouseId) {
+        if (! $this->selectedWarehouseId) {
             return;
         }
 
         // Delete zones
         $deletedCount = 0;
-        if (!empty($deletedZoneIds)) {
+        if (! empty($deletedZoneIds)) {
             foreach ($deletedZoneIds as $zoneId) {
                 $location = Location::find($zoneId);
                 if ($location) {
-                    // Delete related WmsLocationLevels first
-                    WmsLocationLevel::where('location_id', $zoneId)->delete();
                     $location->delete();
                     $deletedCount++;
                 }
@@ -685,25 +752,31 @@ class FloorPlanEditor extends Page
         }
 
         // Update only changed zones positions in database
+        // Update ALL locations in the zone group, not just the first one
         foreach ($changedZones as $zoneData) {
             // Skip temp IDs (new zones are handled separately)
             if (is_string($zoneData['id']) && str_starts_with($zoneData['id'], 'temp_')) {
                 continue;
             }
-            $location = Location::find($zoneData['id']);
-            if ($location) {
-                $location->update([
-                    'x1_pos' => $zoneData['x1_pos'],
-                    'y1_pos' => $zoneData['y1_pos'],
-                    'x2_pos' => $zoneData['x2_pos'],
-                    'y2_pos' => $zoneData['y2_pos'],
-                ]);
-            }
+
+            // Get all location IDs in this zone group from the zones collection
+            // since frontend doesn't pass location_ids
+            $zoneId = $zoneData['id'];
+            $zone = $this->zones->firstWhere('id', $zoneId);
+            $locationIds = $zone['location_ids'] ?? [$zoneId];
+
+            // Update all locations in the zone group with the same position
+            Location::whereIn('id', $locationIds)->update([
+                'x1_pos' => $zoneData['x1_pos'],
+                'y1_pos' => $zoneData['y1_pos'],
+                'x2_pos' => $zoneData['x2_pos'],
+                'y2_pos' => $zoneData['y2_pos'],
+            ]);
         }
 
         // Create new zones
         $createdCount = 0;
-        if (!empty($newZones) && $this->selectedFloorId) {
+        if (! empty($newZones) && $this->selectedFloorId) {
             $floor = Floor::find($this->selectedFloorId);
             $warehouse = Warehouse::find($this->selectedWarehouseId);
 
@@ -726,20 +799,7 @@ class FloorPlanEditor extends Page
                         'x2_pos' => $zoneData['x2_pos'],
                         'y2_pos' => $zoneData['y2_pos'],
                         'available_quantity_flags' => $zoneData['available_quantity_flags'] ?? 3,
-                        'creator_id' => 0,
-                        'last_updater_id' => 0,
                     ]);
-
-                    // Create WMS levels for this location
-                    $levels = $zoneData['levels'] ?? 1;
-                    for ($level = 1; $level <= $levels; $level++) {
-                        WmsLocationLevel::create([
-                            'location_id' => $newLocation->id,
-                            'level_number' => $level,
-                            'name' => "{$newLocation->name} {$level}段",
-                            'available_quantity_flags' => $zoneData['available_quantity_flags'] ?? 3,
-                        ]);
-                    }
 
                     $createdCount++;
                 }
@@ -764,8 +824,8 @@ class FloorPlanEditor extends Page
         if ($deletedCount > 0) {
             $details[] = "削除: {$deletedCount}件";
         }
-        if (!empty($details)) {
-            $message .= '（' . implode('、', $details) . '）';
+        if (! empty($details)) {
+            $message .= '（'.implode('、', $details).'）';
         }
         \Filament\Notifications\Notification::make()
             ->title($message)
@@ -794,18 +854,19 @@ class FloorPlanEditor extends Page
      */
     public function exportLayout()
     {
-        if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+        if (! $this->selectedWarehouseId || ! $this->selectedFloorId) {
             \Filament\Notifications\Notification::make()
                 ->title('倉庫とフロアを選択してください')
                 ->danger()
                 ->send();
+
             return null;
         }
 
         $warehouse = Warehouse::find($this->selectedWarehouseId);
         $floor = Floor::find($this->selectedFloorId);
 
-        if (!$warehouse || !$floor) {
+        if (! $warehouse || ! $floor) {
             return null;
         }
 
@@ -820,7 +881,9 @@ class FloorPlanEditor extends Page
                 'x2_pos' => $zone['x2_pos'],
                 'y2_pos' => $zone['y2_pos'],
                 'available_quantity_flags' => $zone['available_quantity_flags'],
-                'levels' => $zone['levels'],
+                'temperature_type' => $zone['temperature_type'] ?? null,
+                'is_restricted_area' => $zone['is_restricted_area'] ?? false,
+                'shelf_count' => $zone['shelf_count'] ?? 1,
             ];
         })->values()->toArray();
 
@@ -861,20 +924,21 @@ class FloorPlanEditor extends Page
     public function importLayoutData($layout)
     {
         try {
-            if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+            if (! $this->selectedWarehouseId || ! $this->selectedFloorId) {
                 \Filament\Notifications\Notification::make()
                     ->title('倉庫とフロアを選択してください')
                     ->danger()
                     ->send();
+
                 return;
             }
 
             $floor = Floor::find($this->selectedFloorId);
-            if (!$floor) {
+            if (! $floor) {
                 throw new \Exception('フロアが見つかりません');
             }
 
-            if (!is_array($layout)) {
+            if (! is_array($layout)) {
                 throw new \Exception('無効なレイアウトデータです');
             }
 
@@ -927,30 +991,10 @@ class FloorPlanEditor extends Page
                             'x2_pos' => $zoneData['x2_pos'],
                             'y2_pos' => $zoneData['y2_pos'],
                             'available_quantity_flags' => $zoneData['available_quantity_flags'],
-                            'creator_id' => 0,
-                            'last_updater_id' => 0,
+                            'temperature_type' => $zoneData['temperature_type'] ?? null,
+                            'is_restricted_area' => $zoneData['is_restricted_area'] ?? false,
                         ]
                     );
-
-                    // Update or create levels
-                    $levels = $zoneData['levels'] ?? 1;
-                    for ($level = 1; $level <= $levels; $level++) {
-                        WmsLocationLevel::updateOrCreate(
-                            [
-                                'location_id' => $location->id,
-                                'level_number' => $level,
-                            ],
-                            [
-                                'name' => "{$locationName} {$level}段",
-                                'available_quantity_flags' => $zoneData['available_quantity_flags'],
-                            ]
-                        );
-                    }
-
-                    // Remove excess levels
-                    WmsLocationLevel::where('location_id', $location->id)
-                        ->where('level_number', '>', $levels)
-                        ->delete();
                 }
             }
 
@@ -994,9 +1038,8 @@ class FloorPlanEditor extends Page
         ?int $availableQuantityFlags = null,
         ?string $temperatureType = null,
         bool $isRestrictedArea = false
-    ): void
-    {
-        if (!$this->selectedWarehouseId || !$this->selectedFloorId) {
+    ): void {
+        if (! $this->selectedWarehouseId || ! $this->selectedFloorId) {
             return;
         }
 
@@ -1028,7 +1071,7 @@ class FloorPlanEditor extends Page
 
             // Reload layout
             $this->loadLayout();
-            
+
             // Notify frontend
             $zones = $this->zones->toArray();
             $this->dispatch('layout-loaded',
@@ -1076,11 +1119,7 @@ class FloorPlanEditor extends Page
             $centerY = ($location->y1_pos + $location->y2_pos) / 2;
 
             if ($this->isPointInPolygon($centerX, $centerY, $polygon)) {
-                // Update WmsLocation
-                \App\Models\WmsLocation::updateOrCreate(
-                    ['location_id' => $location->id],
-                    ['wms_picking_area_id' => $area->id]
-                );
+                $location->update(['wms_picking_area_id' => $area->id]);
                 $count++;
             }
         }
@@ -1100,7 +1139,7 @@ class FloorPlanEditor extends Page
         }
 
         // Clear existing assignments for this area
-        WmsLocation::where('wms_picking_area_id', $area->id)->update(['wms_picking_area_id' => null]);
+        Location::where('wms_picking_area_id', $area->id)->update(['wms_picking_area_id' => null]);
 
         $locations = Location::where('floor_id', $area->floor_id)->get();
         $count = 0;
@@ -1111,11 +1150,7 @@ class FloorPlanEditor extends Page
             $centerY = ($location->y1_pos + $location->y2_pos) / 2;
 
             if ($this->isPointInPolygon($centerX, $centerY, $polygon)) {
-                // Update WmsLocation
-                WmsLocation::updateOrCreate(
-                    ['location_id' => $location->id],
-                    ['wms_picking_area_id' => $area->id]
-                );
+                $location->update(['wms_picking_area_id' => $area->id]);
                 $count++;
             }
         }
@@ -1130,7 +1165,7 @@ class FloorPlanEditor extends Page
     {
         $inside = false;
         $count = count($polygon);
-        
+
         for ($i = 0, $j = $count - 1; $i < $count; $j = $i++) {
             $xi = $polygon[$i]['x'];
             $yi = $polygon[$i]['y'];
@@ -1141,7 +1176,7 @@ class FloorPlanEditor extends Page
                 && ($x < ($xj - $xi) * ($y - $yi) / ($yj - $yi) + $xi);
 
             if ($intersect) {
-                $inside = !$inside;
+                $inside = ! $inside;
             }
         }
 
@@ -1158,19 +1193,16 @@ class FloorPlanEditor extends Page
             if ($area) {
                 // Unassign locations and delete area in transaction
                 \Illuminate\Support\Facades\DB::transaction(function () use ($area) {
-                    // Use Location model as WmsLocation is deprecated
-                    \App\Models\Sakemaru\Location::whereHas('wmsLocation', function ($query) use ($area) {
-                        $query->where('wms_picking_area_id', $area->id);
-                    })->with('wmsLocation')->get()->each(function ($location) {
-                        $location->wmsLocation()->update(['wms_picking_area_id' => null]);
-                    });
-                    
+                    // Clear wms_picking_area_id from locations
+                    Location::where('wms_picking_area_id', $area->id)
+                        ->update(['wms_picking_area_id' => null]);
+
                     $area->delete();
                 });
 
                 // Reload layout
                 $this->loadLayout();
-                
+
                 // Notify frontend
                 $zones = $this->zones->toArray();
                 $this->dispatch('layout-loaded',
@@ -1203,7 +1235,7 @@ class FloorPlanEditor extends Page
      */
     public function getAreaLocationCount(int $areaId): int
     {
-        return WmsLocation::where('wms_picking_area_id', $areaId)->count();
+        return Location::where('wms_picking_area_id', $areaId)->count();
     }
 
     /**
@@ -1214,11 +1246,12 @@ class FloorPlanEditor extends Page
         try {
             $area = WmsPickingArea::find($data['id']);
 
-            if (!$area) {
+            if (! $area) {
                 \Filament\Notifications\Notification::make()
                     ->title('エリアが見つかりません')
                     ->danger()
                     ->send();
+
                 return;
             }
 
@@ -1297,17 +1330,18 @@ class FloorPlanEditor extends Page
     ): void {
         // Fixed grid size for entire system
         $gridSize = 10;
-        if (!$this->selectedWarehouseId) {
+        if (! $this->selectedWarehouseId) {
             \Filament\Notifications\Notification::make()
                 ->title('倉庫を選択してください')
                 ->danger()
                 ->send();
+
             return;
         }
 
         try {
             // Convert bitmap to rectangles (much more compact than bitmap)
-            $converter = new \App\Services\Picking\BitmapToRectangles();
+            $converter = new \App\Services\Picking\BitmapToRectangles;
             $rectangles = $converter->convert($bitmap, $cellSize);
 
             if (empty($rectangles)) {
@@ -1315,6 +1349,7 @@ class FloorPlanEditor extends Page
                     ->title('歩行領域が定義されていません')
                     ->warning()
                     ->send();
+
                 return;
             }
 
@@ -1335,7 +1370,7 @@ class FloorPlanEditor extends Page
             // Apply erosion to account for cart width (if erosion distance > 0)
             $finalPolygons = $polygons;
             if ($erosionDistance > 0) {
-                $erosion = new \App\Services\Picking\PolygonErosion();
+                $erosion = new \App\Services\Picking\PolygonErosion;
                 $erodedPolygons = $erosion->erode($polygons, $erosionDistance);
 
                 if (empty($erodedPolygons)) {
@@ -1344,6 +1379,7 @@ class FloorPlanEditor extends Page
                         ->body('エロージョン距離を小さくするか、歩行領域をもっと広く塗ってください。')
                         ->warning()
                         ->send();
+
                     return;
                 }
                 $finalPolygons = $erodedPolygons;
@@ -1397,11 +1433,12 @@ class FloorPlanEditor extends Page
         try {
             $location = Location::find($locationData['id']);
 
-            if (!$location) {
+            if (! $location) {
                 \Filament\Notifications\Notification::make()
                     ->title('ロケーションが見つかりません')
                     ->danger()
                     ->send();
+
                 return;
             }
 
@@ -1433,7 +1470,7 @@ class FloorPlanEditor extends Page
      */
     public function searchTransferLocations(string $search, int $excludeLocationId): array
     {
-        if (!$this->selectedWarehouseId || strlen($search) < 1) {
+        if (! $this->selectedWarehouseId || strlen($search) < 1) {
             return [];
         }
 
@@ -1445,7 +1482,7 @@ class FloorPlanEditor extends Page
                 $query->where('name', 'like', "%{$search}%")
                     ->orWhere('code1', 'like', "%{$search}%")
                     ->orWhere('code2', 'like', "%{$search}%")
-                    ->orWhereRaw("CONCAT(code1, code2) LIKE ?", ["%{$search}%"]);
+                    ->orWhereRaw('CONCAT(code1, code2) LIKE ?', ["%{$search}%"]);
             })
             ->with('floor:id,name,code')
             ->orderBy('code1')
@@ -1466,6 +1503,7 @@ class FloorPlanEditor extends Page
 
     /**
      * Execute stock transfer between locations
+     * Note: real_stock_lots経由でlocation移動を行う
      */
     public function executeStockTransfer(array $transferData): void
     {
@@ -1480,6 +1518,7 @@ class FloorPlanEditor extends Page
                     ->title('移動する商品が選択されていません')
                     ->warning()
                     ->send();
+
                 return;
             }
 
@@ -1487,106 +1526,99 @@ class FloorPlanEditor extends Page
             $userId = auth()->id();
             $userName = auth()->user()?->name ?? 'Unknown';
 
+            // Get target location's floor_id
+            $targetLocation = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                ->table('locations')
+                ->where('id', $targetLocationId)
+                ->first();
+
             \Illuminate\Support\Facades\DB::connection('sakemaru')->transaction(function () use (
                 $sourceLocationId,
                 $targetLocationId,
+                $targetLocation,
                 $warehouseId,
                 $items,
                 $userId,
                 $userName
             ) {
                 foreach ($items as $item) {
+                    $lotId = $item['lot_id'] ?? null;
                     $realStockId = $item['real_stock_id'];
                     $itemId = $item['item_id'];
                     $transferQty = (int) $item['transfer_qty'];
                     $totalQty = (int) ($item['total_qty'] ?? $transferQty);
 
-                    // Get the source real_stock record
-                    $sourceStock = \Illuminate\Support\Facades\DB::connection('sakemaru')
-                        ->table('real_stocks')
-                        ->where('id', $realStockId)
+                    // Get the source lot record
+                    $sourceLot = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                        ->table('real_stock_lots')
+                        ->where('real_stock_id', $realStockId)
+                        ->where('location_id', $sourceLocationId)
+                        ->where('status', 'ACTIVE')
                         ->first();
 
-                    if (!$sourceStock) {
+                    if (! $sourceLot) {
                         continue;
                     }
 
-                    if ($transferQty >= $totalQty) {
-                        // Full transfer: just update the location_id
+                    if ($transferQty >= $sourceLot->current_quantity) {
+                        // Full transfer: just update the lot's location_id
                         \Illuminate\Support\Facades\DB::connection('sakemaru')
-                            ->table('real_stocks')
-                            ->where('id', $realStockId)
+                            ->table('real_stock_lots')
+                            ->where('id', $sourceLot->id)
                             ->update([
                                 'location_id' => $targetLocationId,
+                                'floor_id' => $targetLocation?->floor_id ?? $sourceLot->floor_id,
                                 'updated_at' => now(),
                             ]);
                     } else {
-                        // Partial transfer: reduce source and create/update target
-                        $remainingQty = $totalQty - $transferQty;
+                        // Partial transfer: reduce source lot and create/update target lot
+                        $remainingQty = $sourceLot->current_quantity - $transferQty;
 
-                        // Reduce quantity at source location
+                        // Reduce quantity at source lot
                         \Illuminate\Support\Facades\DB::connection('sakemaru')
-                            ->table('real_stocks')
-                            ->where('id', $realStockId)
+                            ->table('real_stock_lots')
+                            ->where('id', $sourceLot->id)
                             ->update([
                                 'current_quantity' => $remainingQty,
-                                'available_quantity' => \Illuminate\Support\Facades\DB::raw("GREATEST(0, available_quantity - {$transferQty})"),
                                 'updated_at' => now(),
                             ]);
 
-                        // Check if there's an existing stock at target location with same item/expiration
-                        $existingTargetStock = \Illuminate\Support\Facades\DB::connection('sakemaru')
-                            ->table('real_stocks')
+                        // Check if there's an existing lot at target location with same properties
+                        $existingTargetLot = \Illuminate\Support\Facades\DB::connection('sakemaru')
+                            ->table('real_stock_lots')
+                            ->where('real_stock_id', $realStockId)
                             ->where('location_id', $targetLocationId)
-                            ->where('item_id', $sourceStock->item_id)
-                            ->where('expiration_date', $sourceStock->expiration_date)
-                            ->where('client_id', $sourceStock->client_id)
+                            ->where('expiration_date', $sourceLot->expiration_date)
+                            ->where('status', 'ACTIVE')
                             ->first();
 
-                        if ($existingTargetStock) {
-                            // Add to existing stock at target
+                        if ($existingTargetLot) {
+                            // Add to existing lot at target
                             \Illuminate\Support\Facades\DB::connection('sakemaru')
-                                ->table('real_stocks')
-                                ->where('id', $existingTargetStock->id)
+                                ->table('real_stock_lots')
+                                ->where('id', $existingTargetLot->id)
                                 ->update([
-                                    'current_quantity' => $existingTargetStock->current_quantity + $transferQty,
-                                    'available_quantity' => $existingTargetStock->available_quantity + $transferQty,
+                                    'current_quantity' => $existingTargetLot->current_quantity + $transferQty,
                                     'updated_at' => now(),
                                 ]);
                         } else {
-                            // Get target location's floor_id
-                            $targetLocation = \Illuminate\Support\Facades\DB::connection('sakemaru')
-                                ->table('locations')
-                                ->where('id', $targetLocationId)
-                                ->first();
-
-                            // Create new stock record at target location
+                            // Create new lot at target location
                             \Illuminate\Support\Facades\DB::connection('sakemaru')
-                                ->table('real_stocks')
+                                ->table('real_stock_lots')
                                 ->insert([
-                                    'client_id' => $sourceStock->client_id,
-                                    'warehouse_id' => $sourceStock->warehouse_id,
-                                    'floor_id' => $targetLocation?->floor_id ?? $sourceStock->floor_id,
+                                    'real_stock_id' => $realStockId,
+                                    'purchase_id' => $sourceLot->purchase_id,
+                                    'trade_item_id' => $sourceLot->trade_item_id,
+                                    'floor_id' => $targetLocation?->floor_id ?? $sourceLot->floor_id,
                                     'location_id' => $targetLocationId,
-                                    'item_id' => $sourceStock->item_id,
-                                    'stock_allocation_id' => $sourceStock->stock_allocation_id,
-                                    'purchase_id' => $sourceStock->purchase_id,
-                                    'trade_item_id' => $sourceStock->trade_item_id,
-                                    'expiration_date' => $sourceStock->expiration_date,
-                                    'price' => $sourceStock->price,
-                                    'item_management_type' => $sourceStock->item_management_type,
-                                    'order_rank' => $sourceStock->order_rank ?? '',
-                                    'order_parameter' => $sourceStock->order_parameter,
-                                    'content_amount' => $sourceStock->content_amount,
-                                    'container_amount' => $sourceStock->container_amount,
+                                    'price' => $sourceLot->price,
+                                    'content_amount' => $sourceLot->content_amount,
+                                    'container_amount' => $sourceLot->container_amount,
+                                    'expiration_date' => $sourceLot->expiration_date,
+                                    'initial_quantity' => $transferQty,
                                     'current_quantity' => $transferQty,
-                                    'available_quantity' => $transferQty,
                                     'reserved_quantity' => 0,
-                                    'picking_quantity' => 0,
-                                    'wms_reserved_qty' => 0,
-                                    'wms_picking_qty' => 0,
-                                    'wms_lock_version' => 0,
-                                    'lock_version' => 0,
+                                    'status' => 'ACTIVE',
                                     'created_at' => now(),
                                     'updated_at' => now(),
                                 ]);
@@ -1594,7 +1626,7 @@ class FloorPlanEditor extends Page
                     }
 
                     // Create transfer history record
-                    \App\Models\WmsStockTransfer::create([
+                    \App\Models\WmsFloorPlanStockTransferLog::create([
                         'item_id' => $itemId,
                         'real_stock_id' => $realStockId,
                         'transfer_qty' => $transferQty,
@@ -1675,7 +1707,7 @@ class FloorPlanEditor extends Page
     public function getAreaPickers(int $areaId): array
     {
         $area = WmsPickingArea::find($areaId);
-        if (!$area) {
+        if (! $area) {
             return [];
         }
 
@@ -1699,11 +1731,12 @@ class FloorPlanEditor extends Page
     {
         try {
             $area = WmsPickingArea::find($areaId);
-            if (!$area) {
+            if (! $area) {
                 \Filament\Notifications\Notification::make()
                     ->title('エリアが見つかりません')
                     ->danger()
                     ->send();
+
                 return;
             }
 
@@ -1712,7 +1745,7 @@ class FloorPlanEditor extends Page
 
             \Filament\Notifications\Notification::make()
                 ->title('担当ピッカーを更新しました')
-                ->body(count($pickerIds) . '名のピッカーを設定しました')
+                ->body(count($pickerIds).'名のピッカーを設定しました')
                 ->success()
                 ->send();
 
@@ -1737,6 +1770,7 @@ class FloorPlanEditor extends Page
                     ->title('必須項目を入力してください')
                     ->danger()
                     ->send();
+
                 return null;
             }
 
@@ -1747,6 +1781,7 @@ class FloorPlanEditor extends Page
                     ->title('このコードは既に使用されています')
                     ->danger()
                     ->send();
+
                 return null;
             }
 
@@ -1792,6 +1827,7 @@ class FloorPlanEditor extends Page
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
+
             return null;
         }
     }

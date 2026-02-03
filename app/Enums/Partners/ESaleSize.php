@@ -1,6 +1,5 @@
 <?php
 
-
 namespace App\Enums\Partners;
 
 use App\Traits\EnumExtensionTrait;

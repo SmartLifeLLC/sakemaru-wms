@@ -9,5 +9,6 @@ class Material extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
+
     protected $casts = [];
 }

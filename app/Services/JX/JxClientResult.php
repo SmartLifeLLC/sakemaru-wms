@@ -10,8 +10,11 @@ use App\Support\JxRequestResponse;
 class JxClientResult
 {
     public readonly bool $success;
+
     public readonly ?string $error;
+
     public readonly string $messageId;
+
     public readonly ?JxRequestResponse $response;
 
     private function __construct(
@@ -55,7 +58,7 @@ class JxClientResult
      */
     public function failed(): bool
     {
-        return !$this->success;
+        return ! $this->success;
     }
 
     /**
@@ -72,6 +75,7 @@ class JxClientResult
     public function getPutDocumentResult(): ?bool
     {
         $result = $this->getValueByTag('PutDocumentResult');
+
         return $result !== null ? $result === 'true' : null;
     }
 
@@ -81,6 +85,7 @@ class JxClientResult
     public function getGetDocumentResult(): ?bool
     {
         $result = $this->getValueByTag('GetDocumentResult');
+
         return $result !== null ? $result === 'true' : null;
     }
 
@@ -98,13 +103,14 @@ class JxClientResult
     public function getDecodedData(): ?string
     {
         $data = $this->getData();
+
         return $data !== null ? base64_decode($data) : null;
     }
 
     /**
      * 受信データをデコード＆解凍して取得
      *
-     * @param bool $decompress GZIP解凍するかどうか
+     * @param  bool  $decompress  GZIP解凍するかどうか
      */
     public function getDecodedAndDecompressedData(bool $decompress = false): ?string
     {
@@ -127,7 +133,7 @@ class JxClientResult
     protected function isGzipped(string $data): bool
     {
         // GZIPマジックナンバー: 0x1f 0x8b
-        return strlen($data) >= 2 && ord($data[0]) === 0x1f && ord($data[1]) === 0x8b;
+        return strlen($data) >= 2 && ord($data[0]) === 0x1F && ord($data[1]) === 0x8B;
     }
 
     /**

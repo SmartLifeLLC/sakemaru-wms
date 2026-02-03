@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HANDY 入庫処理システム</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- アプリケーションロジック (Alpine読み込み前に定義) -->
+    <script>
+        function handyApp() {
+            return {
+                currentScreen: 'warehouse', // warehouse, list, process, result, history
+                selectedWarehouse: '',
+                searchQuery: '',
+
+                // データモデル (項目を追加: 自社コード、発注先、入荷予定数)
+                warehouses: [
+                    { id: 1, name: '第一倉庫 (A棟)' },
+                    { id: 2, name: '第二倉庫 (B棟)' },
+                    { id: 3, name: '冷蔵倉庫' },
+                ],
+                // 商品マスタ(モック)
+                products: [
+                    { code: '4901234567890', internalCode: 'SH-001-A', name: '特選醤油 1Lボトル', supplier: 'ヤマダ醤油(株)', location: 'A-01-02', unit: '本', expectedQty: 120, status: 'pending' },
+                    { code: '4909876543210', internalCode: 'MY-500-B', name: '業務用マヨネーズ 500g', supplier: '味の素食品', location: 'A-02-10', unit: '本', expectedQty: 50, status: 'pending' },
+                    { code: '4501111222233', internalCode: 'TM-CAN-400', name: 'カットトマト缶 400g', supplier: 'イタリアンフーズ', location: 'B-05-01', unit: '缶', expectedQty: 240, status: 'pending' },
+                    { code: '4509999888877', internalCode: 'PS-16-5KG', name: 'パスタ 1.6mm 5kg', supplier: '日清製粉', location: 'C-10-05', unit: '袋', expectedQty: 30, status: 'pending' },
+                    { code: '1234567890123', internalCode: 'OL-EV-01', name: 'オリーブオイル EV', supplier: 'ボスコ', location: 'A-01-04', unit: '本', expectedQty: 10, status: 'done' },
+                ],
+
+                // 作業中の状態
+                currentItem: null,
+                inputForm: { qty: '', location: '', date: '' }, // location入力を追加
+                history: [], // 本日の履歴
+                editingIndex: null, // 修正モード時のインデックス
+
+                notification: { show: false, message: '' },
+
+                // 画面タイトル制御
+                getHeaderTitle() {
+                    const titles = {
+                        'warehouse': '倉庫選択',
+                        'list': '入庫商品検索',
+                        'process': '入庫処理',
+                        'result': 'ラベル発行完了',
+                        'history': '入庫履歴・修正'
+                    };
+                    return titles[this.currentScreen] || '';
+                },
+
+                // 倉庫選択
+                selectWarehouse(name) {
+                    this.selectedWarehouse = name;
+                    this.currentScreen = 'list';
+                },
+
+                // 戻るボタンのロジック
+                goBack() {
+                    if (this.currentScreen === 'list') {
+                        this.selectedWarehouse = '';
+                        this.currentScreen = 'warehouse';
+                    } else if (this.currentScreen === 'process') {
+                        this.currentScreen = 'list';
+                        this.editingIndex = null;
+                    } else if (this.currentScreen === 'result') {
+                        this.currentScreen = 'list';
+                    } else if (this.currentScreen === 'history') {
+                        this.currentScreen = 'list';
+                    }
+                },
+
+                // 商品フィルタリング
+                get filteredProducts() {
+                    if (!this.searchQuery) return this.products;
+                    const lowerQ = this.searchQuery.toLowerCase();
+                    return this.products.filter(p =>
+                        p.code.includes(lowerQ) ||
+                        p.internalCode.toLowerCase().includes(lowerQ) ||
+                        p.name.toLowerCase().includes(lowerQ)
+                    );
+                },
+
+                // 商品選択
+                selectProduct(item) {
+                    this.currentItem = item;
+                    this.inputForm.qty = ''; // 数量リセット
+                    this.inputForm.location = item.location; // デフォルトロケーションをセット
+                    this.inputForm.date = '';
+                    this.currentScreen = 'process';
+                },
+
+                // 数量調整ボタン
+                adjustQty(amount) {
+                    let current = parseInt(this.inputForm.qty) || 0;
+                    let next = current + amount;
+                    if (next < 0) next = 0;
+                    this.inputForm.qty = next;
+                },
+
+                // 入庫確定
+                submitReceiving() {
+                    if (this.editingIndex !== null) {
+                        // 修正モードの場合、履歴を更新
+                        this.history[this.editingIndex].qty = this.inputForm.qty;
+                        this.history[this.editingIndex].location = this.inputForm.location; // ロケーションも更新
+                        this.showNotification('修正データを保存しました');
+                    } else {
+                        // 新規の場合、履歴に追加
+                        this.history.unshift({
+                            ...this.currentItem,
+                            qty: this.inputForm.qty,
+                            inputLocation: this.inputForm.location, // 実績ロケーション
+                            time: new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})
+                        });
+                        // マスタのステータス更新(モック)
+                        const target = this.products.find(p => p.code === this.currentItem.code);
+                        if(target) target.status = 'done';
+                    }
+
+                    this.currentScreen = 'result';
+                },
+
+                // 次の処理へ
+                finishProcess() {
+                    this.searchQuery = '';
+                    this.currentScreen = 'list';
+                    this.editingIndex = null;
+                },
+
+                // 履歴から修正へ
+                editHistory(histItem, index) {
+                    this.currentItem = histItem;
+                    this.inputForm.qty = histItem.qty;
+                    this.inputForm.location = histItem.inputLocation || histItem.location;
+                    this.editingIndex = index;
+                    this.currentScreen = 'process';
+                },
+
+                // ラベル再発行(モック)
+                printLabelAgain() {
+                    this.showNotification('ラベルを再発行しました');
+                },
+
+                // トースト通知表示
+                showNotification(msg) {
+                    this.notification.message = msg;
+                    this.notification.show = true;
+                    setTimeout(() => {
+                        this.notification.show = false;
+                    }, 2000);
+                }
+            };
+        }
+    </script>
+
+    <!-- Alpine.js (deferをつけて最後に実行) -->
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        /* BHT-M60向けのスタイル調整 */
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Hiragino Kaku Gothic ProN', 'メイリオ', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="flex justify-center min-h-screen bg-gray-800">
+
+<!-- アプリケーション・コンテナ -->
+<div x-data="handyApp()"
+     class="w-full max-w-[480px] bg-white h-screen flex flex-col relative shadow-xl overflow-hidden">
+
+    <!-- ================= HEADER ================= -->
+    <header class="bg-blue-700 text-white p-3 flex items-center justify-between shrink-0 h-14 shadow-md z-10">
+        <div class="flex items-center gap-2">
+            <!-- 戻るボタン -->
+            <button x-show="currentScreen !== 'warehouse'"
+                    @click="goBack()"
+                    class="p-1 active:bg-blue-600 rounded">
+                <i class="ph ph-caret-left text-2xl"></i>
+            </button>
+            <h1 class="text-lg font-bold tracking-wide" x-text="getHeaderTitle()"></h1>
+        </div>
+        <!-- 倉庫名表示 -->
+        <div x-show="selectedWarehouse" class="text-xs bg-blue-800 px-2 py-1 rounded border border-blue-500">
+            <span x-text="selectedWarehouse"></span>
+        </div>
+    </header>
+
+    <!-- ================= MAIN CONTENT AREA ================= -->
+    <main class="flex-1 overflow-y-auto no-scrollbar bg-slate-50 relative">
+
+        <!-- 1. 倉庫選択画面 -->
+        <template x-if="currentScreen === 'warehouse'">
+            <div class="p-4 flex flex-col gap-4 h-full justify-center">
+                <p class="text-center text-gray-600 font-bold mb-2">作業する倉庫を選択してください</p>
+                <template x-for="wh in warehouses" :key="wh.id">
+                    <button @click="selectWarehouse(wh.name)"
+                            class="bg-white border-2 border-blue-100 text-blue-900 font-bold py-6 px-4 rounded-xl shadow-sm active:bg-blue-50 active:border-blue-500 transition-all flex items-center justify-between">
+                        <span class="text-xl" x-text="wh.name"></span>
+                        <i class="ph ph-warehouse text-3xl text-blue-300"></i>
+                    </button>
+                </template>
+            </div>
+        </template>
+
+        <!-- 2. 商品検索・一覧画面 -->
+        <template x-if="currentScreen === 'list'">
+            <div class="flex flex-col h-full">
+                <!-- 検索バー -->
+                <div class="p-3 bg-white border-b border-gray-200 sticky top-0 z-10">
+                    <div class="relative">
+                        <i class="ph ph-barcode absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xl"></i>
+                        <input type="text"
+                               x-model="searchQuery"
+                               placeholder="JAN/自社コード/商品名"
+                               class="w-full pl-10 pr-4 py-3 bg-gray-100 border border-gray-300 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors"
+                               autofocus>
+                    </div>
+                    <div class="flex justify-between mt-2">
+                        <button @click="currentScreen = 'history'" class="text-sm text-blue-600 flex items-center gap-1 font-bold px-2 py-1 bg-blue-50 rounded">
+                            <i class="ph ph-clock-counter-clockwise"></i> 作業履歴・修正
+                        </button>
+                        <span class="text-sm text-gray-500 self-center" x-text="`対象: ${filteredProducts.length}件`"></span>
+                    </div>
+                </div>
+
+                <!-- リスト -->
+                <div class="flex-1 p-2 space-y-2">
+                    <template x-for="item in filteredProducts" :key="item.code">
+                        <div @click="selectProduct(item)"
+                             class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm active:bg-blue-50 active:border-blue-400 flex justify-between items-start">
+
+                            <div class="flex-1">
+                                <!-- JANコード (大きく表示) -->
+                                <div class="flex items-center gap-2 mb-1">
+                                    <i class="ph ph-barcode text-gray-400"></i>
+                                    <span class="text-xl font-bold font-mono text-gray-900" x-text="item.code"></span>
+                                </div>
+
+                                <!-- 自社コード (追加) -->
+                                <div class="mb-1">
+                                    <span class="text-xs bg-gray-100 text-gray-600 px-1 rounded border border-gray-300 mr-1">自社</span>
+                                    <span class="text-sm font-mono text-gray-700 font-bold" x-text="item.internalCode"></span>
+                                </div>
+
+                                <!-- 商品名 -->
+                                <h3 class="font-bold text-lg leading-tight text-blue-900 line-clamp-2 my-1" x-text="item.name"></h3>
+
+                                <!-- 発注先 (追加) -->
+                                <div class="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                                    <i class="ph ph-truck"></i>
+                                    <span x-text="item.supplier"></span>
+                                </div>
+                            </div>
+
+                            <!-- 右側ステータス -->
+                            <div class="ml-2 flex flex-col items-end gap-2">
+                                <span class="text-xs bg-orange-100 text-orange-700 px-1 py-0.5 rounded border border-orange-200 whitespace-nowrap" x-text="item.location"></span>
+
+                                <template x-if="item.status === 'done'">
+                                        <span class="flex flex-col items-end text-green-600 mt-2">
+                                            <i class="ph ph-check-circle text-2xl"></i>
+                                            <span class="text-xs font-bold">済</span>
+                                        </span>
+                                </template>
+                                <template x-if="item.status !== 'done'">
+                                    <i class="ph ph-caret-right text-gray-300 text-2xl mt-4"></i>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                    <!-- 検索結果なし -->
+                    <div x-show="filteredProducts.length === 0" class="text-center py-10 text-gray-400">
+                        <i class="ph ph-magnifying-glass text-4xl mb-2"></i>
+                        <p>該当する商品がありません</p>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <!-- 3. 入庫処理画面 -->
+        <template x-if="currentScreen === 'process'">
+            <div class="flex flex-col h-full bg-white">
+                <!-- 商品情報サマリー -->
+                <div class="bg-blue-50 p-4 border-b border-blue-100">
+                    <div class="mb-1">
+                        <span class="text-2xl font-bold font-mono text-gray-900 block" x-text="currentItem.code"></span>
+                        <span class="text-sm text-gray-600 font-mono" x-text="currentItem.internalCode"></span>
+                    </div>
+                    <h2 class="text-xl font-bold mt-1 text-blue-900 leading-tight" x-text="currentItem.name"></h2>
+                    <div class="flex flex-wrap gap-3 mt-2 text-sm text-gray-700 bg-white/50 p-2 rounded">
+                        <span>単位: <b x-text="currentItem.unit"></b></span>
+                        <!-- 入荷予定数 (追加) -->
+                        <span class="text-blue-700">入荷予定: <b class="text-lg" x-text="currentItem.expectedQty"></b></span>
+                    </div>
+                </div>
+
+                <!-- 入力フォーム -->
+                <div class="p-4 space-y-6 flex-1">
+
+                    <!-- 格納ロケーション入力 (追加: 入力可能に変更) -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2">
+                            <i class="ph ph-map-pin mr-1"></i>格納ロケーション
+                        </label>
+                        <div class="relative">
+                            <input type="text" x-model="inputForm.location"
+                                   class="w-full h-12 px-3 pl-10 border-2 border-orange-200 rounded text-xl font-bold bg-orange-50 focus:bg-white focus:border-orange-500 outline-none uppercase"
+                                   placeholder="ロケーション入力">
+                            <i class="ph ph-scan absolute left-3 top-3.5 text-gray-400 text-xl"></i>
+                        </div>
+                    </div>
+
+                    <!-- 数量入力 -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2">
+                            <i class="ph ph-package mr-1"></i>入庫数量
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <button @click="adjustQty(-1)" class="w-14 h-14 bg-gray-200 rounded text-2xl font-bold text-gray-600 active:bg-gray-300 shadow-sm">-</button>
+                            <input type="number" x-model="inputForm.qty" class="flex-1 h-14 text-center text-3xl font-bold border-2 border-blue-300 rounded focus:border-blue-600 outline-none shadow-inner" inputmode="numeric" placeholder="0">
+                            <button @click="adjustQty(1)" class="w-14 h-14 bg-gray-200 rounded text-2xl font-bold text-gray-600 active:bg-gray-300 shadow-sm">+</button>
+                        </div>
+                    </div>
+
+                    <!-- 賞味期限など -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 text-sm">賞味期限 (任意)</label>
+                        <input type="date" x-model="inputForm.date" class="w-full h-10 px-3 border border-gray-300 rounded text-base bg-white">
+                    </div>
+                </div>
+
+                <!-- アクションボタン -->
+                <div class="p-4 border-t border-gray-200 pb-8 bg-gray-50">
+                    <button @click="submitReceiving()"
+                            :disabled="!inputForm.qty || inputForm.qty <= 0"
+                            class="w-full bg-blue-600 text-white font-bold text-xl py-4 rounded-lg shadow-lg active:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transform active:scale-[0.98] transition-transform">
+                        <span>入庫確定・ラベル発行</span>
+                        <i class="ph ph-printer text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+        </template>
+
+        <!-- 4. ラベル発行・完了画面 -->
+        <template x-if="currentScreen === 'result'">
+            <div class="flex flex-col items-center justify-center h-full p-6 text-center bg-green-50">
+                <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4 animate-bounce">
+                    <i class="ph ph-check text-4xl text-green-600"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-green-800 mb-2">入庫完了</h2>
+                <p class="text-gray-600 mb-6">ラベルデータを作成しました</p>
+
+                <!-- ラベルイメージ -->
+                <div class="bg-white border-2 border-gray-300 p-4 rounded shadow-sm w-full max-w-xs mb-8 relative">
+                    <div class="text-left">
+                        <div class="text-xs text-gray-500">品名</div>
+                        <div class="font-bold truncate" x-text="currentItem.name"></div>
+                        <div class="flex justify-between mt-2">
+                            <div>
+                                <div class="text-xs text-gray-500">ロケーション</div>
+                                <div class="font-bold text-lg" x-text="inputForm.location || currentItem.location"></div>
+                            </div>
+                            <div>
+                                <div class="text-xs text-gray-500">数量</div>
+                                <div class="font-bold text-lg" x-text="inputForm.qty + ' ' + currentItem.unit"></div>
+                            </div>
+                        </div>
+                        <div class="mt-2 h-10 bg-gray-800 w-full flex items-center justify-center text-white text-xs tracking-widest">
+                            ||| || ||||| || |||
+                        </div>
+                    </div>
+                </div>
+
+                <div class="w-full space-y-3">
+                    <button @click="printLabelAgain()" class="w-full bg-white text-blue-600 border border-blue-600 font-bold py-3 rounded active:bg-blue-50">
+                        <i class="ph ph-printer mr-1"></i> ラベル再発行
+                    </button>
+                    <button @click="finishProcess()" class="w-full bg-green-600 text-white font-bold py-4 rounded shadow active:bg-green-700">
+                        次の商品を処理
+                    </button>
+                </div>
+            </div>
+        </template>
+
+        <!-- 5. 履歴・修正画面 -->
+        <template x-if="currentScreen === 'history'">
+            <div class="flex flex-col h-full">
+                <div class="p-3 bg-gray-100 border-b border-gray-200">
+                    <h2 class="font-bold text-gray-700">本日の入庫履歴</h2>
+                </div>
+                <div class="flex-1 overflow-y-auto p-2 space-y-2">
+                    <template x-for="(hist, index) in history" :key="index">
+                        <div class="bg-white p-3 rounded border-l-4 border-green-500 shadow-sm flex justify-between items-center">
+                            <div>
+                                <div class="text-xs text-gray-500" x-text="hist.time"></div>
+                                <div class="font-bold text-gray-800 truncate w-48" x-text="hist.name"></div>
+                                <div class="flex gap-3 text-sm mt-1">
+                                    <span>数: <b class="text-blue-700" x-text="hist.qty"></b></span>
+                                    <span>Loc: <b class="text-orange-700" x-text="hist.inputLocation || hist.location"></b></span>
+                                </div>
+                            </div>
+                            <button @click="editHistory(hist, index)"
+                                    class="bg-gray-100 text-gray-600 px-3 py-2 rounded border border-gray-300 active:bg-gray-200 text-sm font-bold flex flex-col items-center">
+                                <i class="ph ph-pencil-simple text-lg mb-1"></i>
+                                修正
+                            </button>
+                        </div>
+                    </template>
+                    <div x-show="history.length === 0" class="text-center py-10 text-gray-400">
+                        履歴がありません
+                    </div>
+                </div>
+            </div>
+        </template>
+
+    </main>
+
+    <!-- 通知トースト (画面下部) -->
+    <div x-show="notification.show"
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0 translate-y-full"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100 translate-y-0"
+         x-transition:leave-end="opacity-0 translate-y-full"
+         class="absolute bottom-4 left-4 right-4 bg-gray-800 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 z-50">
+        <i class="ph ph-info text-xl text-blue-300"></i>
+        <span x-text="notification.message" class="font-bold"></span>
+    </div>
+
+</div>
+</body>
+</html>

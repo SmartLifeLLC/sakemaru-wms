@@ -2,17 +2,19 @@
 
 namespace App\Models\Sakemaru;
 
-use App\Models\Sakemaru\ClientCalendar;
-use App\Models\Sakemaru\WarehouseContractor;
 use App\Models\WmsContractorWarehouseDeliveryDay;
+use App\Models\WmsWarehouseAutoOrderSetting;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Warehouse extends CustomModel
 {
     use HasFactory;
+
     protected $guarded = [];
+
     protected $casts = [];
 
     protected static function booted(): void
@@ -42,7 +44,7 @@ class Warehouse extends CustomModel
         return $this->belongsTo(ClientCalendar::class);
     }
 
-    public function warehouse_contractors() : HasMany
+    public function warehouse_contractors(): HasMany
     {
         return $this->hasMany(WarehouseContractor::class);
     }
@@ -55,5 +57,13 @@ class Warehouse extends CustomModel
     public function contractorDeliveryDays(): HasMany
     {
         return $this->hasMany(WmsContractorWarehouseDeliveryDay::class, 'warehouse_id');
+    }
+
+    /**
+     * 自動発注設定
+     */
+    public function autoOrderSetting(): HasOne
+    {
+        return $this->hasOne(WmsWarehouseAutoOrderSetting::class, 'warehouse_id');
     }
 }

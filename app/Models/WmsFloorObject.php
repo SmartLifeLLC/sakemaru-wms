@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class WmsFloorObject extends Model
 {
     protected $connection = 'sakemaru';
+
     protected $table = 'wms_floor_objects';
 
     protected $fillable = [

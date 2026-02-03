@@ -1,9 +1,7 @@
 <?php
 
-
 namespace App\Enums\Partners;
 
-use App\Enums\TimeZone;
 use App\Traits\EnumExtensionTrait;
 use Carbon\Carbon;
 
@@ -16,19 +14,19 @@ enum EDepositPlan: string
     case IN_TWO_MONTHS = 'IN_TWO_MONTHS';
     case IN_THREE_MONTHS = 'IN_THREE_MONTHS';
 
-
-    public function name() : string
+    public function name(): string
     {
-        return match($this) {
+        return match ($this) {
             self::THIS_MONTH => '当月',
             self::IN_ONE_MONTH => '翌月',
             self::IN_TWO_MONTHS => '翌々月',
             self::IN_THREE_MONTHS => '3ヶ月後',
         };
     }
-    public function getID() : int
+
+    public function getID(): int
     {
-        return match($this) {
+        return match ($this) {
             self::THIS_MONTH => 0,
             self::IN_ONE_MONTH => 1,
             self::IN_TWO_MONTHS => 2,
@@ -36,11 +34,11 @@ enum EDepositPlan: string
         };
     }
 
-    public function getDate(int $date, string $closing_date) : Carbon
+    public function getDate(int $date, string $closing_date): Carbon
     {
         $base_date = Carbon::createFromDate($closing_date);
 
-        $deposit_date = match($this) {
+        $deposit_date = match ($this) {
             self::THIS_MONTH => $base_date,
             self::IN_ONE_MONTH => $base_date->addMonthNoOverflow(),
             self::IN_TWO_MONTHS => $base_date->addMonthsNoOverflow(2),

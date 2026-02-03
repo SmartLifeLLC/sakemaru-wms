@@ -14,8 +14,8 @@ class StockTransferQueueService
     /**
      * 横持ち出荷完了時に倉庫移動伝票キューを作成
      *
-     * @param WmsShortageAllocation $allocation
      * @return int|null 作成されたキューID
+     *
      * @throws \Exception
      */
     public function createStockTransferQueue(WmsShortageAllocation $allocation): ?int
@@ -25,17 +25,18 @@ class StockTransferQueueService
             Log::info('No stock transfer queue created (picked_qty = 0)', [
                 'allocation_id' => $allocation->id,
             ]);
+
             return null;
         }
 
         // shortage経由でtradeを取得
         $shortage = $allocation->shortage;
-        if (!$shortage) {
+        if (! $shortage) {
             throw new \Exception("Shortage not found for allocation ID {$allocation->id}");
         }
 
         $trade = $shortage->trade;
-        if (!$trade) {
+        if (! $trade) {
             throw new \Exception("Trade not found for shortage ID {$shortage->id}");
         }
 
@@ -43,13 +44,13 @@ class StockTransferQueueService
         $targetWarehouse = $allocation->targetWarehouse;
         $sourceWarehouse = $allocation->sourceWarehouse;
 
-        if (!$targetWarehouse || !$sourceWarehouse) {
+        if (! $targetWarehouse || ! $sourceWarehouse) {
             throw new \Exception("Warehouse not found: target={$allocation->target_warehouse_id}, source={$allocation->source_warehouse_id}");
         }
 
         // itemの取得
         $item = $shortage->item;
-        if (!$item) {
+        if (! $item) {
             throw new \Exception("Item not found for shortage ID {$shortage->id}");
         }
 

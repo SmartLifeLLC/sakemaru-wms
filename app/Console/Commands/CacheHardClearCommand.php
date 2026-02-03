@@ -11,25 +11,26 @@ class CacheHardClearCommand extends Command
 
     protected $description = 'Command description';
 
-    private ConsoleOutput|null $console_output = null;
-
+    private ?ConsoleOutput $console_output = null;
 
     public function handle(): void
     {
 
-        $this->console_output = new ConsoleOutput();
-        $this->console_output->writeLine("Run composer dump-autoload");
+        $this->console_output = new ConsoleOutput;
+        $this->console_output->writeLine('Run composer dump-autoload');
         exec('composer dump-autoload');
 
         $cache_clear_commands = [
-            'clear-compiled','optimize','config:cache','route:clear', 'view:clear', 'cache:clear file','filament:cache-components','filament:assets'
+            'clear-compiled', 'optimize', 'config:cache', 'route:clear', 'view:clear', 'cache:clear file', 'filament:cache-components', 'filament:assets',
         ];
         foreach ($cache_clear_commands as $cache_clear_command) {
             $this->runArtisanCommand($cache_clear_command);
         }
-        $this->console_output->writeLine("Finished.");
+        $this->console_output->writeLine('Finished.');
     }
-    private function runArtisanCommand($command){
+
+    private function runArtisanCommand($command)
+    {
         $this->console_output->writeLine("Run composer {$command}");
         \Artisan::call($command);
     }

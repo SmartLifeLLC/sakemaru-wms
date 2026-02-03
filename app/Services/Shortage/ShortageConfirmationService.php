@@ -6,7 +6,6 @@ use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
-use App\Models\WmsShortageAllocation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -19,8 +18,7 @@ class ShortageConfirmationService
     /**
      * 欠品対応を確定する
      *
-     * @param WmsShortage $shortage 欠品レコード
-     * @return void
+     * @param  WmsShortage  $shortage  欠品レコード
      */
     public function confirm(WmsShortage $shortage): void
     {
@@ -32,6 +30,7 @@ class ShortageConfirmationService
                 Log::warning('No allocations to confirm', [
                     'shortage_id' => $shortage->id,
                 ]);
+
                 return;
             }
 
@@ -45,7 +44,7 @@ class ShortageConfirmationService
                 })
                 ->first();
 
-            if (!$pickResult) {
+            if (! $pickResult) {
                 throw new \RuntimeException(
                     "Picking item result not found for shortage ID {$shortage->id}"
                 );
@@ -108,20 +107,17 @@ class ShortageConfirmationService
     /**
      * ピッキングタスクの全アイテムがis_ready_to_shipment = trueの場合、
      * タスクのステータスをCOMPLETEDにする
-     *
-     * @param WmsPickingTask|null $task
-     * @return void
      */
     protected function updatePickingTaskStatus(?WmsPickingTask $task): void
     {
-        if (!$task) {
+        if (! $task) {
             return;
         }
 
         // タスクに属する全てのピッキング結果を取得
         $allResults = $task->pickingItemResults;
 
-        if (!$allResults || $allResults->isEmpty()) {
+        if (! $allResults || $allResults->isEmpty()) {
             return;
         }
 

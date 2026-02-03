@@ -20,8 +20,9 @@ class WmsPickingAreaSeeder extends Seeder
 
         // Get warehouse
         $warehouse = Warehouse::find($warehouseId);
-        if (!$warehouse) {
+        if (! $warehouse) {
             $this->command->error("Warehouse {$warehouseId} not found");
+
             return;
         }
 

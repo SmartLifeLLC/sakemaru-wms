@@ -2,14 +2,13 @@
 
 namespace App\Models\Sakemaru;
 
-
 use App\Models\BZCore\CalendarHoliday;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ClientCalendar extends CustomModel
 {
     protected $guarded = [];
+
     protected $casts = [];
 
     public function calendar_holidays(): HasMany
@@ -20,7 +19,7 @@ class ClientCalendar extends CustomModel
     public function isHoliday($date)
     {
         $holiday = $this->calendar_holidays()->firstWhere('date', $date);
-        if (!is_null($holiday)) {
+        if (! is_null($holiday)) {
             return $holiday->is_holiday;
         }
 

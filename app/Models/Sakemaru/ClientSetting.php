@@ -3,12 +3,10 @@
 namespace App\Models\Sakemaru;
 
 use App\Enums\TimeZone;
-use App\Models\Sakemaru\Client;
-use App\Models\Sakemaru\CustomModel;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class ClientSetting extends CustomModel
 {
@@ -24,23 +22,19 @@ class ClientSetting extends CustomModel
         return $this->belongsTo(Client::class);
     }
 
-
     /**
-     *
-     * @param bool $default_now
-     * @param int|null $client_id (client id deprecated for a whole system)
-     * @return Carbon|null
+     * @param  int|null  $client_id  (client id deprecated for a whole system)
      */
-    public static function systemDate(bool $default_now = false, ?int $client_id = null): Carbon|null
+    public static function systemDate(bool $default_now = false, ?int $client_id = null): ?Carbon
     {
-//        if ($client_id) {
-//            $client_setting = ClientSetting::firstWhere('client_id', $client_id);
-//        } else {
-//            $client_setting = auth()->user()?->client?->setting;
-//        }
-//        if ($client_setting?->system_date) {
-//            return new Carbon($client_setting->system_date);
-//        }
+        //        if ($client_id) {
+        //            $client_setting = ClientSetting::firstWhere('client_id', $client_id);
+        //        } else {
+        //            $client_setting = auth()->user()?->client?->setting;
+        //        }
+        //        if ($client_setting?->system_date) {
+        //            return new Carbon($client_setting->system_date);
+        //        }
         if ($default_now) {
             return TimeZone::TOKYO->now();
         }
@@ -49,24 +43,27 @@ class ClientSetting extends CustomModel
 
     }
 
-    public static function systemYesterdayYMD(): string{
+    public static function systemYesterdayYMD(): string
+    {
         return self::systemDate()->copy()->subDay()->format('Y-m-d');
     }
 
-    public static function systemDateYMD(): string{
+    public static function systemDateYMD(): string
+    {
         return self::systemDate()->format('Y-m-d');
     }
 
-    public static function systemMonth(): int|null
+    public static function systemMonth(): ?int
     {
         $client_setting = auth()->user()?->client?->setting;
         if ($client_setting?->system_month) {
             return $client_setting->system_month;
         }
+
         return null;
     }
 
-    public static function endOfSystemMonth(bool $default_now = false): Carbon|null
+    public static function endOfSystemMonth(bool $default_now = false): ?Carbon
     {
         $client_setting = auth()->user()?->client?->setting;
         $client_setting->refresh();
@@ -78,24 +75,24 @@ class ClientSetting extends CustomModel
                 $date = TimeZone::TOKYO->now();
             }
         }
+
         return $date?->endOfMonth();
     }
 
     public static function isLocked(): bool
     {
         $user = auth()->user();
-        if (!$user) {
+        if (! $user) {
             return false;
         }
+
         return cacheValue("locked-{$user->id}", function () use ($user) {
-            return (bool)$user->client?->setting?->is_locked;
+            return (bool) $user->client?->setting?->is_locked;
         });
     }
 
     /**
      * 操作をロックする
-     * @param bool $is_lock
-     * @return void
      */
     public static function lock(bool $is_lock = true): void
     {
@@ -114,7 +111,6 @@ class ClientSetting extends CustomModel
 
     /**
      * 操作をアンロックする
-     * @return void
      */
     public static function unlock(): void
     {
@@ -124,12 +120,14 @@ class ClientSetting extends CustomModel
     public static function hasWms()
     {
         $client_id = auth()?->user()?->client_id ?? null;
+
         return ClientSetting::where('client_id', $client_id)->first()?->has_wms ?? false;
     }
 
     public static function authSetting(): ?self
     {
         $user = auth()->user();
+
         return $user?->client?->setting;
     }
 }

@@ -1,0 +1,884 @@
+{
+    "test_date": "2026-01-25 04:25:13",
+    "summary": {
+        "total_files": 211,
+        "files_generated": 211,
+        "generation_failed": 0,
+        "d_records_compared": 30967,
+        "d_records_match": 8383,
+        "field_stats": {
+            "jan_code": {
+                "total": 15679,
+                "match": 14663,
+                "match_rate": 93.52
+            },
+            "item_code": {
+                "total": 15679,
+                "match": 15679,
+                "match_rate": 100
+            },
+            "case_qty": {
+                "total": 15679,
+                "match": 9934,
+                "match_rate": 63.36
+            },
+            "piece_qty": {
+                "total": 15679,
+                "match": 9934,
+                "match_rate": 63.36
+            }
+        }
+    },
+    "by_contractor": {
+        "1017": {
+            "contractor_code": 1017,
+            "files_total": 29,
+            "files_generated": 29,
+            "generation_failed": 0,
+            "d_records_compared": 349,
+            "d_records_match": 202,
+            "jan_match": 344,
+            "jan_mismatch": 5,
+            "qty_match": 209,
+            "qty_mismatch": 140
+        },
+        "1021": {
+            "contractor_code": 1021,
+            "files_total": 61,
+            "files_generated": 61,
+            "generation_failed": 0,
+            "d_records_compared": 18216,
+            "d_records_match": 2908,
+            "jan_match": 5184,
+            "jan_mismatch": 490,
+            "qty_match": 3639,
+            "qty_mismatch": 2035
+        },
+        "1202": {
+            "contractor_code": 1202,
+            "files_total": 60,
+            "files_generated": 60,
+            "generation_failed": 0,
+            "d_records_compared": 6243,
+            "d_records_match": 2991,
+            "jan_match": 4696,
+            "jan_mismatch": 194,
+            "qty_match": 3440,
+            "qty_mismatch": 1450
+        },
+        "1330": {
+            "contractor_code": 1330,
+            "files_total": 61,
+            "files_generated": 61,
+            "generation_failed": 0,
+            "d_records_compared": 6159,
+            "d_records_match": 2282,
+            "jan_match": 4439,
+            "jan_mismatch": 327,
+            "qty_match": 2646,
+            "qty_mismatch": 2120
+        }
+    },
+    "mismatches": [
+        {
+            "contractor": 1017,
+            "file": "COCA_20250903140028.txt",
+            "item_code": 215270,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250903140028.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 6,
+            "generated": 20
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250903140028.txt",
+            "item_code": 215162,
+            "field": "jan_code",
+            "sample": "4902102119443",
+            "generated": "4902102119450"
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250903140028.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 6,
+            "generated": 14
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250903140028.txt",
+            "item_code": 211102,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 4
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250903140028.txt",
+            "item_code": 215026,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250903140028.txt",
+            "item_code": 211208,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250903140028.txt",
+            "item_code": 211011,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 10,
+            "generated": 28
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 7,
+            "generated": 17
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 211523,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 6
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 214005,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 211655,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 4
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 211073,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 41
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 211283,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 211672,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 214190,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250905140023.txt",
+            "item_code": 211102,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 5
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 8,
+            "generated": 40
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 7,
+            "generated": 33
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 215021,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 5
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 211173,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 5
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 211672,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 211222,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 214059,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 214202,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 211073,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 18
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 210094,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 211208,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250908140018.txt",
+            "item_code": 211072,
+            "field": "case_qty",
+            "sample": 10,
+            "generated": 14
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250909140019.txt",
+            "item_code": 214202,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250910140020.txt",
+            "item_code": 211073,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250910140020.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 10,
+            "generated": 30
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250910140020.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 8,
+            "generated": 34
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250910140020.txt",
+            "item_code": 214202,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250910140020.txt",
+            "item_code": 211208,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250910140020.txt",
+            "item_code": 214005,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250912140018.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 5,
+            "generated": 15
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250912140018.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 8,
+            "generated": 11
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250912140018.txt",
+            "item_code": 215021,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 6
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250912140018.txt",
+            "item_code": 211672,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250912140018.txt",
+            "item_code": 211073,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 48
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250912140018.txt",
+            "item_code": 215027,
+            "field": "jan_code",
+            "sample": "4902102112109",
+            "generated": "0000002152059"
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250912140018.txt",
+            "item_code": 211011,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250912140018.txt",
+            "item_code": 211208,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250914235016.txt",
+            "item_code": 211523,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 211208,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 5
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 211210,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 214202,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 8,
+            "generated": 38
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 211173,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 211672,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 4
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 7,
+            "generated": 33
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 214315,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 14
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 215021,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 12
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 211655,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 6
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 211073,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 6
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 215026,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 213195,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250915140022.txt",
+            "item_code": 215162,
+            "field": "jan_code",
+            "sample": "4902102119443",
+            "generated": "4902102119450"
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250917140022.txt",
+            "item_code": 211102,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 4
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250917140022.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 8,
+            "generated": 34
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250917140022.txt",
+            "item_code": 211073,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 9
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250917140022.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 7,
+            "generated": 11
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250917140022.txt",
+            "item_code": 214202,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250917140022.txt",
+            "item_code": 211072,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 12
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250917140022.txt",
+            "item_code": 211523,
+            "field": "case_qty",
+            "sample": 4,
+            "generated": 8
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250918140025.txt",
+            "item_code": 251020,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 4
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250918140025.txt",
+            "item_code": 210422,
+            "field": "case_qty",
+            "sample": 0,
+            "generated": 1
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250919140027.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 5,
+            "generated": 17
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250919140027.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 10,
+            "generated": 26
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250919140027.txt",
+            "item_code": 214202,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250919140027.txt",
+            "item_code": 211283,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250919140027.txt",
+            "item_code": 211073,
+            "field": "case_qty",
+            "sample": 5,
+            "generated": 40
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250919140027.txt",
+            "item_code": 211208,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 4
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250919140027.txt",
+            "item_code": 213193,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 5
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 31
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 211073,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 211102,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 4
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 7,
+            "generated": 69
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 214315,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 9
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 211283,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 4
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 213193,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 2
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 211523,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 9
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 214005,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 211011,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 211173,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250922140023.txt",
+            "item_code": 211208,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250923140022.txt",
+            "item_code": 215270,
+            "field": "case_qty",
+            "sample": 6,
+            "generated": 7
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250924140024.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 10,
+            "generated": 34
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250924140024.txt",
+            "item_code": 215162,
+            "field": "jan_code",
+            "sample": "4902102119443",
+            "generated": "4902102119450"
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250924140024.txt",
+            "item_code": 211672,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 7
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250925140033.txt",
+            "item_code": 214005,
+            "field": "case_qty",
+            "sample": 2,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250925140033.txt",
+            "item_code": 214202,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 0
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250926140018.txt",
+            "item_code": 210855,
+            "field": "case_qty",
+            "sample": 10,
+            "generated": 18
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250926140018.txt",
+            "item_code": 215021,
+            "field": "case_qty",
+            "sample": 3,
+            "generated": 5
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250926140018.txt",
+            "item_code": 211173,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 4
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250926140018.txt",
+            "item_code": 214314,
+            "field": "case_qty",
+            "sample": 6,
+            "generated": 8
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250926140018.txt",
+            "item_code": 211672,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 3
+        },
+        {
+            "contractor": 1017,
+            "file": "COCA_20250926140018.txt",
+            "item_code": 211523,
+            "field": "case_qty",
+            "sample": 1,
+            "generated": 6
+        }
+    ]
+}

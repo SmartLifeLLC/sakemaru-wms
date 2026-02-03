@@ -2,48 +2,47 @@
 
 namespace App\Models\Sakemaru;
 
-
 use App\Traits\QuantityTrait;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-
 
 class ExternalCollaborationContainerPickup extends CustomModel
 {
     use QuantityTrait;
 
     protected $guarded = [];
+
     protected $casts = [
         'log' => 'json',
     ];
+
     protected bool $is_active_activate = false;
 
-    public function partner() : BelongsTo
+    public function partner(): BelongsTo
     {
         return $this->belongsTo(Partner::class);
     }
 
-    public function warehouse() : BelongsTo
+    public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
     }
 
-    public function item() : BelongsTo
+    public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
     }
 
-    public function trade() : BelongsTo
+    public function trade(): BelongsTo
     {
         return $this->belongsTo(Trade::class);
     }
 
-    public function stock_allocation() : BelongsTo
+    public function stock_allocation(): BelongsTo
     {
         return $this->belongsTo(StockAllocation::class);
     }
 
-    public function external_collaboration_data() : BelongsTo
+    public function external_collaboration_data(): BelongsTo
     {
         return $this->belongsTo(ExternalCollaborationData::class);
     }

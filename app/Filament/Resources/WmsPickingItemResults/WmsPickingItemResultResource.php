@@ -3,8 +3,6 @@
 namespace App\Filament\Resources\WmsPickingItemResults;
 
 use App\Enums\EMenu;
-use App\Filament\Resources\WmsPickingItemResults\Pages\CreateWmsPickingItemResult;
-use App\Filament\Resources\WmsPickingItemResults\Pages\EditWmsPickingItemResult;
 use App\Filament\Resources\WmsPickingItemResults\Pages\ListWmsPickingItemResults;
 use App\Filament\Resources\WmsPickingItemResults\Schemas\WmsPickingItemResultForm;
 use App\Filament\Resources\WmsPickingItemResults\Tables\WmsPickingItemResultsTable;
