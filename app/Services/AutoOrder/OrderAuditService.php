@@ -4,7 +4,6 @@ namespace App\Services\AutoOrder;
 
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderCandidateAuditLog;
-use Illuminate\Support\Facades\Log;
 
 /**
  * 発注候補監査ログサービス
@@ -122,12 +121,6 @@ class OrderAuditService
             'performed_by_name' => $user?->name,
             'ip_address' => request()?->ip(),
             'user_agent' => request()?->userAgent(),
-        ]);
-
-        Log::info('Order candidate audit log created', [
-            'candidate_id' => $candidate->id,
-            'action' => $action,
-            'performed_by' => $user?->id,
         ]);
 
         return $log;
