@@ -70,6 +70,10 @@ class WmsOrderJxSettingResource extends Resource
                         Checkbox::make('is_active')
                             ->label('有効')
                             ->default(true),
+                        Checkbox::make('auto_transmit_on_confirm')
+                            ->label('発注確定時に自動送信')
+                            ->default(false)
+                            ->helperText('ONにすると、発注確定処理時にJXファイルを自動送信します'),
                     ]),
 
                 Section::make('JX接続情報')
@@ -215,6 +219,10 @@ class WmsOrderJxSettingResource extends Resource
                     ->alignCenter(),
                 IconColumn::make('is_active')
                     ->label('有効')
+                    ->boolean()
+                    ->alignCenter(),
+                IconColumn::make('auto_transmit_on_confirm')
+                    ->label('自動送信')
                     ->boolean()
                     ->alignCenter(),
                 IconColumn::make('test_file_path')
