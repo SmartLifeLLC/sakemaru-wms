@@ -155,11 +155,11 @@ class IncomingApiTest extends TestCase
         // Ensure it is in a valid state for starting work
         $schedule->refresh();
         // Force update status (will be rolled back)
+        // Note: remaining_quantity is a computed accessor, not a DB column
         DB::connection('sakemaru')->table('wms_order_incoming_schedules')
             ->where('id', $schedule->id)
             ->update([
                 'status' => 'PENDING',
-                'remaining_quantity' => $schedule->expected_quantity,
                 'received_quantity' => 0
             ]);
         $schedule->refresh();
@@ -223,11 +223,12 @@ class IncomingApiTest extends TestCase
              $this->markTestSkipped('No schedules available.');
          }
          
+         // Note: remaining_quantity is a computed accessor, not a DB column
          DB::connection('sakemaru')->table('wms_order_incoming_schedules')
              ->where('id', $schedule->id)
              ->update([
-                 'status' => 'PENDING', 
-                 'remaining_quantity' => 100
+                 'status' => 'PENDING',
+                 'received_quantity' => 0
              ]);
 
          // 2. Start Work
