@@ -70,6 +70,10 @@ class WmsOrderJxSettingResource extends Resource
                         Checkbox::make('is_active')
                             ->label('有効')
                             ->default(true),
+                        Checkbox::make('auto_transmit_on_confirm')
+                            ->label('発注確定時に自動送信')
+                            ->default(false)
+                            ->helperText('ONにすると、発注確定処理時にJXファイルを自動送信します'),
                     ]),
 
                 Section::make('JX接続情報')
@@ -217,6 +221,10 @@ class WmsOrderJxSettingResource extends Resource
                     ->label('有効')
                     ->boolean()
                     ->alignCenter(),
+                IconColumn::make('auto_transmit_on_confirm')
+                    ->label('自動送信')
+                    ->boolean()
+                    ->alignCenter(),
                 IconColumn::make('test_file_path')
                     ->label('テストファイル')
                     ->boolean()
@@ -261,8 +269,9 @@ class WmsOrderJxSettingResource extends Resource
                             }
 
                             // JX送信実行（ヘッダー・フッター自動付与）
+                            // formatType: 'SecondGenEDI'（固定）
                             $client = new JxClient($record);
-                            $result = $client->putDocumentWithWrapper($fileContent, $record->send_document_type ?? '91', 'SecondGenEDI');
+                            $result = $client->putDocumentWithWrapper($fileContent, $record->send_document_type ?? '91');
 
                             if ($result->succeeded()) {
                                 Notification::make()
@@ -345,8 +354,8 @@ class WmsOrderJxSettingResource extends Resource
                     ->action(function (WmsOrderJxSetting $record) {
                         try {
                             $receiver = new JxDocumentReceiver($record);
-                            // テスト用: localストレージを使用
-                            $receiver->setStorageDisk('local');
+                            // S3ストレージを使用
+                            $receiver->setStorageDisk('s3');
 
                             $document = $receiver->receiveSingle();
 
