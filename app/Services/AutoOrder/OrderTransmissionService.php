@@ -1018,6 +1018,27 @@ class OrderTransmissionService
     }
 
     /**
+     * 指定されたドキュメントIDのJXファイルを送信
+     *
+     * @param  int  $documentId  ドキュメントID
+     * @return array{success: bool, message_id?: string, error?: string}
+     */
+    public function transmitDocumentById(int $documentId): array
+    {
+        $document = WmsOrderJxDocument::find($documentId);
+
+        if (! $document) {
+            return ['success' => false, 'error' => 'ドキュメントが見つかりません'];
+        }
+
+        if ($document->status !== TransmissionDocumentStatus::PENDING) {
+            return ['success' => false, 'error' => '送信可能なステータスではありません'];
+        }
+
+        return $this->transmitDocumentViaJx($document);
+    }
+
+    /**
      * 発注ファイル生成クラスを取得
      */
     private function getOrderFileGenerator(): ?OrderFileGeneratorInterface

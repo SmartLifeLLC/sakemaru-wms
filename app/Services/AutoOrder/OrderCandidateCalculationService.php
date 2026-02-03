@@ -72,6 +72,9 @@ class OrderCandidateCalculationService
     /** @var array [item_id] => ordering_code (13桁ゼロパディング済み) */
     private array $orderingCodes = [];
 
+    /** @var array [item_id][supplier_id] => unit_price (仕入先別商品仕入単価) */
+    private array $supplierItemPrices = [];
+
     /**
      * 発注候補計算を実行
      *
@@ -225,6 +228,47 @@ class OrderCandidateCalculationService
 
         Log::info('商品マスタをロード', ['count' => count($this->itemMaster)]);
 
+        // 仕入先別商品仕入単価をメモリにロード（item_partner_prices.unit_price を使用）
+        // 条件:
+        // - partner_category = 'SUPPLIER'
+        // - partner_id = partners.id (partners.is_supplier = true)
+        // - start_date <= systemDate の最新
+        $systemDate = now()->format('Y-m-d');
+
+        $supplierItemPrices = DB::connection('sakemaru')
+            ->select('
+                SELECT
+                    ipp.item_id,
+                    s.id AS supplier_id,
+                    ipp.unit_price
+                FROM item_partner_prices ipp
+                INNER JOIN (
+                    SELECT item_id, partner_id, MAX(start_date) AS max_start_date
+                    FROM item_partner_prices
+                    WHERE partner_category = "SUPPLIER"
+                      AND is_active = true
+                      AND start_date <= ?
+                    GROUP BY item_id, partner_id
+                ) latest
+                  ON ipp.item_id = latest.item_id
+                 AND ipp.partner_id = latest.partner_id
+                 AND ipp.start_date = latest.max_start_date
+                INNER JOIN suppliers s
+                  ON s.partner_id = ipp.partner_id
+                 AND s.partner_category = ipp.partner_category
+                INNER JOIN partners p
+                  ON p.id = s.partner_id
+                WHERE ipp.partner_category = "SUPPLIER"
+                  AND ipp.is_active = true
+                  AND p.is_supplier = true
+            ', [$systemDate]);
+
+        foreach ($supplierItemPrices as $row) {
+            $this->supplierItemPrices[$row->item_id][$row->supplier_id] = $row->unit_price;
+        }
+
+        Log::info('仕入先別商品仕入単価をロード', ['count' => count($supplierItemPrices)]);
+
         // 倉庫マスタをメモリにロード
         $warehouses = DB::connection('sakemaru')
             ->table('warehouses')
@@ -259,6 +303,8 @@ class OrderCandidateCalculationService
         $suppliers = DB::connection('sakemaru')
             ->table('suppliers as s')
             ->join('partners as p', 's.partner_id', '=', 'p.id')
+            ->where('s.partner_category', 'SUPPLIER')
+            ->where('p.is_supplier', true)
             ->select('s.id', 'p.code', 'p.name')
             ->get();
 
@@ -654,11 +700,16 @@ class OrderCandidateCalculationService
             // 発注コードを取得
             $orderingCode = $this->orderingCodes[$ic->item_id] ?? null;
 
+            // 仕入単価を取得（仕入先別単価）
+            $purchaseUnitPrice = $this->supplierItemPrices[$ic->item_id][$ic->supplier_id] ?? null;
+
             $insertData[] = [
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
                 'item_id' => $ic->item_id,
                 'contractor_id' => $ic->contractor_id,
+                'supplier_id' => $ic->supplier_id,
+                'purchase_unit_price' => $purchaseUnitPrice,
                 'ordering_code' => $orderingCode,
                 'self_shortage_qty' => $selfShortageOnly,
                 'satellite_demand_qty' => $satelliteDemandQty,

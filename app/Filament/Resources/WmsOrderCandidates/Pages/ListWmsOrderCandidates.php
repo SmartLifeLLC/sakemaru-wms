@@ -492,12 +492,18 @@ class ListWmsOrderCandidates extends ListRecords
                     $expectedArrivalDate = $arrivalInfo['arrival_date'];
                     $leadTimeDays = $arrivalInfo['lead_time_days'] ?? 0;
 
+                    // 仕入先と仕入単価を取得
+                    $supplierId = $itemContractor->supplier_id;
+                    $purchaseUnitPrice = $item->current_price?->purchase_unit_price;
+
                     // 発注候補を作成
                     WmsOrderCandidate::create([
                         'batch_code' => $batchCode,
                         'warehouse_id' => $data['warehouse_id'],
                         'item_id' => $data['item_id'],
                         'contractor_id' => $itemContractor->contractor_id,
+                        'supplier_id' => $supplierId,
+                        'purchase_unit_price' => $purchaseUnitPrice,
                         'self_shortage_qty' => 0,
                         'satellite_demand_qty' => 0,
                         'suggested_quantity' => $orderQuantity,
@@ -603,8 +609,10 @@ class ListWmsOrderCandidates extends ListRecords
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with([
                     'warehouse',
-                    'item',
+                    'item.current_price',
+                    'item.piece_jan_code_information',
                     'contractor',
+                    'supplier.partner',
                 ])
                 // デフォルトでPENDINGのみ表示（大幅な高速化）
                 ->where('status', CandidateStatus::PENDING)
@@ -615,16 +623,17 @@ class ListWmsOrderCandidates extends ListRecords
     }
 
     /**
-     * テーブルレコード取得後に計算ログをプリロード（N+1対策）
+     * テーブルレコード取得後に計算ログとItemContractorをプリロード（N+1対策）
      */
     protected function paginateTableQuery(Builder $query): \Illuminate\Contracts\Pagination\Paginator
     {
         $paginator = parent::paginateTableQuery($query);
 
-        // 計算ログを一括プリロード
+        // 計算ログとItemContractorを一括プリロード
         $items = $paginator->getCollection();
         if ($items->isNotEmpty()) {
             WmsOrderCandidate::preloadCalculationLogs($items);
+            WmsOrderCandidate::preloadItemContractors($items);
         }
 
         return $paginator;

@@ -80,6 +80,7 @@ enum EMenu: string
 
     // テストデータ
     case TEST_DATA_GENERATOR = 'test_data.generator';
+    case JX_TEST_DATA = 'test_data.jx_test_data';
 
     public function category(): EMenuCategory
     {
@@ -152,6 +153,7 @@ enum EMenu: string
             self::CLIENT_PRINTER_COURSE_SETTINGS => EMenuCategory::SETTINGS,
 
             self::TEST_DATA_GENERATOR => EMenuCategory::TEST_DATA,
+            self::JX_TEST_DATA => EMenuCategory::TEST_DATA,
         };
     }
 
@@ -221,6 +223,7 @@ enum EMenu: string
             self::CLIENT_PRINTER_COURSE_SETTINGS => 'プリンター設定',
 
             self::TEST_DATA_GENERATOR => 'テストデータ生成',
+            self::JX_TEST_DATA => 'JXテストデータ',
         };
     }
 
@@ -289,6 +292,7 @@ enum EMenu: string
             self::CLIENT_PRINTER_COURSE_SETTINGS => 'heroicon-o-printer',
 
             self::TEST_DATA_GENERATOR => 'heroicon-o-beaker',
+            self::JX_TEST_DATA => 'heroicon-o-server',
         };
     }
 
@@ -375,6 +379,7 @@ enum EMenu: string
 
             // テストデータ
             self::TEST_DATA_GENERATOR => 1,
+            self::JX_TEST_DATA => 2,
         };
     }
 }

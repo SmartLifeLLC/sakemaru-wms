@@ -24,6 +24,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 class ListWmsStockTransferCandidates extends ListRecords
 {
@@ -297,6 +298,27 @@ class ListWmsStockTransferCandidates extends ListRecords
         $items = $paginator->getCollection();
         if ($items->isNotEmpty()) {
             WmsStockTransferCandidate::preloadCalculationLogs($items);
+
+            // 移動元倉庫（hub）の在庫を一括プリロード（N+1対策）
+            $hubWarehouseIds = $items->pluck('hub_warehouse_id')->unique()->values()->toArray();
+            $itemIds = $items->pluck('item_id')->unique()->values()->toArray();
+
+            if (! empty($hubWarehouseIds) && ! empty($itemIds)) {
+                $hubStocks = DB::connection('sakemaru')
+                    ->table('wms_item_stock_snapshots')
+                    ->whereIn('warehouse_id', $hubWarehouseIds)
+                    ->whereIn('item_id', $itemIds)
+                    ->select('warehouse_id', 'item_id', 'total_effective_piece')
+                    ->get()
+                    ->keyBy(fn ($row) => "{$row->warehouse_id}_{$row->item_id}");
+
+                $items->each(function ($candidate) use ($hubStocks) {
+                    $key = "{$candidate->hub_warehouse_id}_{$candidate->item_id}";
+                    $candidate->hub_effective_stock = isset($hubStocks[$key])
+                        ? (int) $hubStocks[$key]->total_effective_piece
+                        : null;
+                });
+            }
         }
 
         return $paginator;

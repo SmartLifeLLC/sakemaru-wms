@@ -38,6 +38,7 @@ class WmsOrderJxSetting extends WmsModel
         'ssl_certification_file',
         'test_file_path',
         'is_active',
+        'auto_transmit_on_confirm',
     ];
 
     protected static function booted(): void
@@ -56,6 +57,7 @@ class WmsOrderJxSetting extends WmsModel
     protected $casts = [
         'is_basic_auth' => 'boolean',
         'is_active' => 'boolean',
+        'auto_transmit_on_confirm' => 'boolean',
     ];
 
     protected $hidden = [
