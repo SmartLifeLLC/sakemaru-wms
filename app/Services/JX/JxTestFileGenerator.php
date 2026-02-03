@@ -112,8 +112,9 @@ class JxTestFileGenerator
             ? Warehouse::findOrFail($warehouseId)
             : Warehouse::where('is_active', true)->first();
 
-        // 発注先の全商品を取得
+        // 発注先の全商品を取得（倉庫でフィルタ）
         $query = ItemContractor::whereIn('contractor_id', $contractorIds)
+            ->where('warehouse_id', $warehouse->id)
             ->with(['item', 'contractor']);
 
         if ($maxItems !== null) {
@@ -179,10 +180,11 @@ class JxTestFileGenerator
             ? Warehouse::findOrFail($warehouseId)
             : Warehouse::where('is_active', true)->first();
 
-        // 各発注先から商品を取得
+        // 各発注先から商品を取得（倉庫でフィルタ）
         $allTestOrders = collect();
         foreach ($allContractorIds as $contractorId) {
             $query = ItemContractor::where('contractor_id', $contractorId)
+                ->where('warehouse_id', $warehouse->id)
                 ->with(['item', 'contractor']);
 
             if ($maxItemsPerContractor !== null) {

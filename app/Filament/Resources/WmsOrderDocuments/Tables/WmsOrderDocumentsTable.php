@@ -73,14 +73,6 @@ class WmsOrderDocumentsTable
                     ->sortable()
                     ->wrap(),
 
-                TextColumn::make('warehouse.name')
-                    ->label('倉庫')
-                    ->state(fn ($record) => $record->warehouse
-                        ? "[{$record->warehouse->code}]{$record->warehouse->name}"
-                        : '-')
-                    ->sortable()
-                    ->toggleable(),
-
                 TextColumn::make('order_count')
                     ->label('発注数')
                     ->numeric()
