@@ -249,7 +249,7 @@ class PickingTaskController extends Controller
             'pickingItemResults.stockTransfer.to_warehouse',
         ])
             ->where('warehouse_id', $warehouseId)
-            ->whereIn('status', ['PENDING', 'PICKING']);
+            ->whereIn('status', ['PENDING', 'PICKING_READY', 'PICKING']);
 
         if ($pickerId) {
             $query->where('picker_id', $pickerId);
@@ -611,7 +611,7 @@ class PickingTaskController extends Controller
         }
 
         // Validate task can be started
-        if (! in_array($task->status, ['PENDING', 'PICKING'])) {
+        if (! in_array($task->status, ['PENDING', 'PICKING_READY', 'PICKING'])) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
@@ -619,7 +619,7 @@ class PickingTaskController extends Controller
                     'data' => null,
                     'error_message' => 'Task cannot be started',
                     'errors' => [
-                        'status' => ["Task status must be PENDING or PICKING, current status is {$task->status}"],
+                        'status' => ["Task status must be PENDING, PICKING_READY or PICKING, current status is {$task->status}"],
                     ],
                 ],
             ], 422);
@@ -871,8 +871,26 @@ class PickingTaskController extends Controller
             ], 404);
         }
 
+        // If task is already completed, return success (idempotent)
+        if ($task->status === 'COMPLETED') {
+            return response()->json([
+                'is_success' => true,
+                'code' => 'SUCCESS',
+                'result' => [
+                    'data' => [
+                        'wms_picking_task_id' => $task->id,
+                        'id' => $task->id,
+                        'status' => $task->status,
+                        'completed_at' => $task->completed_at,
+                    ],
+                    'message' => 'Picking task already completed',
+                    'debug_message' => null,
+                ],
+            ]);
+        }
+
         // Check if task can be completed
-        if (! in_array($task->status, ['PICKING', 'PENDING', 'SHORTAGE'])) {
+        if (! in_array($task->status, ['PICKING', 'PICKING_READY', 'PENDING', 'SHORTAGE'])) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
@@ -886,8 +904,17 @@ class PickingTaskController extends Controller
             ], 422);
         }
 
-        // Check if any items have PENDING or PICKING status (not allowed to complete)
+        // Auto-complete items with planned_qty = 0 (no picking required)
+        $task->pickingItemResults()
+            ->where('planned_qty', 0)
+            ->whereIn('status', ['PENDING', 'PICKING'])
+            ->update(['status' => 'COMPLETED', 'updated_at' => now()]);
+
+        // Check if any items with planned_qty > 0 AND picked_qty = 0 have PENDING status (not picked yet)
+        // Items with picked_qty > 0 are considered "picked" even if status is still PICKING
         $incompleteItems = $task->pickingItemResults()
+            ->where('planned_qty', '>', 0)
+            ->where('picked_qty', 0)
             ->whereIn('status', ['PENDING', 'PICKING'])
             ->get();
 
@@ -990,6 +1017,7 @@ class PickingTaskController extends Controller
             'code' => 'SUCCESS',
             'result' => [
                 'data' => [
+                    'wms_picking_task_id' => $task->id,
                     'id' => $task->id,
                     'status' => $task->status,
                     'completed_at' => $task->completed_at,
