@@ -88,6 +88,15 @@ class WmsJxTransmissionLogResource extends Resource
                         default => 'gray',
                     })
                     ->formatStateUsing(fn (WmsJxTransmissionLog $record) => $record->direction_label),
+                TextColumn::make('environment')
+                    ->label('環境')
+                    ->badge()
+                    ->color(fn (?string $state): string => match ($state) {
+                        WmsJxTransmissionLog::ENV_PRODUCTION => 'danger',
+                        WmsJxTransmissionLog::ENV_TEST => 'warning',
+                        default => 'gray',
+                    })
+                    ->formatStateUsing(fn (WmsJxTransmissionLog $record) => $record->environment_label),
                 TextColumn::make('operation_type')
                     ->label('操作タイプ')
                     ->badge()
@@ -168,6 +177,12 @@ class WmsJxTransmissionLogResource extends Resource
                     ->options([
                         WmsJxTransmissionLog::STATUS_SUCCESS => '成功',
                         WmsJxTransmissionLog::STATUS_FAILURE => '失敗',
+                    ]),
+                SelectFilter::make('environment')
+                    ->label('環境')
+                    ->options([
+                        WmsJxTransmissionLog::ENV_PRODUCTION => '本番',
+                        WmsJxTransmissionLog::ENV_TEST => 'テスト',
                     ]),
                 Filter::make('transmitted_at')
                     ->form([

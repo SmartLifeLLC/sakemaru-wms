@@ -81,11 +81,11 @@ if (app()->environment('local', 'testing', 'staging')) {
         ->name('jx-server-files.download')
         ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
 
-    // JX送信XMLファイルダウンロード（S3）
-    Route::get('/jx-xml-files/download', function (\Illuminate\Http\Request $request) {
+    // JXクライアントファイルダウンロード（S3: requests/responses）
+    Route::get('/jx-client-files/download', function (\Illuminate\Http\Request $request) {
         $path = $request->query('path');
 
-        if (! $path || ! str_starts_with($path, 'jx-client/requests/')) {
+        if (! $path || ! str_starts_with($path, 'jx-client/')) {
             abort(400, '無効なパスです');
         }
 
@@ -97,6 +97,6 @@ if (app()->environment('local', 'testing', 'staging')) {
 
         return redirect($url);
     })
-        ->name('jx-xml-files.download')
+        ->name('jx-client-files.download')
         ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);
 }

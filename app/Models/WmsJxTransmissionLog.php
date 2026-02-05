@@ -26,9 +26,14 @@ class WmsJxTransmissionLog extends WmsModel
 
     public const OPERATION_CONFIRM = 'ConfirmDocument';
 
+    public const ENV_PRODUCTION = 'production';
+
+    public const ENV_TEST = 'test';
+
     protected $fillable = [
         'jx_setting_id',
         'direction',
+        'environment',
         'operation_type',
         'message_id',
         'document_type',
@@ -90,6 +95,22 @@ class WmsJxTransmissionLog extends WmsModel
     }
 
     /**
+     * 本番環境ログのスコープ
+     */
+    public function scopeProduction(Builder $query): Builder
+    {
+        return $query->where('environment', self::ENV_PRODUCTION);
+    }
+
+    /**
+     * テスト環境ログのスコープ
+     */
+    public function scopeTest(Builder $query): Builder
+    {
+        return $query->where('environment', self::ENV_TEST);
+    }
+
+    /**
      * 送信ログを記録
      */
     public static function logSend(
@@ -103,10 +124,12 @@ class WmsJxTransmissionLog extends WmsModel
         ?string $filePath = null,
         ?int $httpCode = null,
         ?string $errorMessage = null,
+        string $environment = self::ENV_PRODUCTION,
     ): self {
         return self::create([
             'jx_setting_id' => $jxSettingId,
             'direction' => self::DIRECTION_SEND,
+            'environment' => $environment,
             'operation_type' => $operationType,
             'message_id' => $messageId,
             'document_type' => $documentType,
@@ -136,10 +159,12 @@ class WmsJxTransmissionLog extends WmsModel
         ?string $filePath = null,
         ?int $httpCode = null,
         ?string $errorMessage = null,
+        string $environment = self::ENV_PRODUCTION,
     ): self {
         return self::create([
             'jx_setting_id' => $jxSettingId,
             'direction' => self::DIRECTION_RECEIVE,
+            'environment' => $environment,
             'operation_type' => $operationType,
             'message_id' => $messageId,
             'document_type' => $documentType,
@@ -176,6 +201,18 @@ class WmsJxTransmissionLog extends WmsModel
             self::STATUS_SUCCESS => '成功',
             self::STATUS_FAILURE => '失敗',
             default => $this->status,
+        };
+    }
+
+    /**
+     * 環境区分のラベル
+     */
+    public function getEnvironmentLabelAttribute(): string
+    {
+        return match ($this->environment) {
+            self::ENV_PRODUCTION => '本番',
+            self::ENV_TEST => 'テスト',
+            default => $this->environment,
         };
     }
 }
