@@ -7,6 +7,67 @@
             @endforeach
         </div>
 
+        {{-- CLIコマンド説明 --}}
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6" x-data="{ open: false }">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2 cursor-pointer flex items-center justify-between" @click="open = !open">
+                <span>
+                    <x-heroicon-o-command-line class="w-5 h-5 inline-block mr-2 -mt-0.5" />
+                    CLIコマンド
+                </span>
+                <x-heroicon-o-chevron-down class="w-4 h-4 transition-transform" ::class="open ? 'rotate-180' : ''" />
+            </h2>
+            <div x-show="open" x-cloak class="mt-4 space-y-4">
+                <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">テストデータ全件送信:</p>
+                    <code class="block bg-gray-900 text-green-400 text-xs font-mono rounded px-3 py-2">php artisan wms:generate-jx-test-files --pattern=full --max-items=0 --transmit</code>
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">プレビューのみ（送信しない）:</p>
+                    <code class="block bg-gray-900 text-green-400 text-xs font-mono rounded px-3 py-2">php artisan wms:generate-jx-test-files --pattern=full --max-items=0 --dry-run</code>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-200 dark:border-gray-700">
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">オプション</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">説明</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                            <tr>
+                                <td class="px-3 py-1.5 font-mono text-xs text-gray-900 dark:text-white">--pattern=<span class="text-yellow-600">full</span></td>
+                                <td class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400">全商品発注ファイル（empty / full / aggregated / all）</td>
+                            </tr>
+                            <tr>
+                                <td class="px-3 py-1.5 font-mono text-xs text-gray-900 dark:text-white">--max-items=<span class="text-yellow-600">0</span></td>
+                                <td class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400">0 または all で全件（デフォルト: 50件）</td>
+                            </tr>
+                            <tr>
+                                <td class="px-3 py-1.5 font-mono text-xs text-gray-900 dark:text-white">--transmit</td>
+                                <td class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400">生成後にJX送信も実行</td>
+                            </tr>
+                            <tr>
+                                <td class="px-3 py-1.5 font-mono text-xs text-gray-900 dark:text-white">--jx-setting=<span class="text-yellow-600">ID</span></td>
+                                <td class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400">特定のJX設定のみ対象（省略時は全設定）</td>
+                            </tr>
+                            <tr>
+                                <td class="px-3 py-1.5 font-mono text-xs text-gray-900 dark:text-white">--warehouse=<span class="text-yellow-600">ID</span></td>
+                                <td class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400">倉庫指定</td>
+                            </tr>
+                            <tr>
+                                <td class="px-3 py-1.5 font-mono text-xs text-gray-900 dark:text-white">--dry-run</td>
+                                <td class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400">送信せずにプレビューのみ</td>
+                            </tr>
+                            <tr>
+                                <td class="px-3 py-1.5 font-mono text-xs text-gray-900 dark:text-white">--list</td>
+                                <td class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400">JX設定一覧を表示</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         {{-- JX設定一覧 --}}
         <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
