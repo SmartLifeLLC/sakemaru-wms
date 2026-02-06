@@ -24,10 +24,22 @@ class JxDocumentReceiver
 
     protected string $storageDirectory = 'jx-received';
 
+    protected string $environment = WmsJxTransmissionLog::ENV_PRODUCTION;
+
     public function __construct(WmsOrderJxSetting $setting)
     {
         $this->setting = $setting;
         $this->client = new JxClient($setting);
+    }
+
+    /**
+     * 環境区分を設定
+     */
+    public function setEnvironment(string $environment): self
+    {
+        $this->environment = $environment;
+
+        return $this;
     }
 
     /**
@@ -163,6 +175,7 @@ class JxDocumentReceiver
                 dataSize: $document->getDataSize(),
                 filePath: $filePathWithDisk,
                 httpCode: 200,
+                environment: $this->environment,
             );
         } catch (\Exception $e) {
             Log::warning('Failed to log JX receive', [

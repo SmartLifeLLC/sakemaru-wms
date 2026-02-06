@@ -5,15 +5,21 @@ namespace App\Filament\Resources\WmsOrderDataFiles\Tables;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsOrderDataFiles\Pages\ListWmsOrderDataFiles;
+use App\Mail\OrderDataMail;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderDataFile;
 use App\Services\AutoOrder\OrderDataFileService;
+use App\Services\AutoOrder\PurchaseOrderPdfService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Placeholder;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 class WmsOrderDataFilesTable
 {
@@ -82,27 +88,36 @@ class WmsOrderDataFilesTable
                     ->sortable(),
 
                 TextColumn::make('file_size')
-                    ->label('ファイルサイズ')
+                    ->label('サイズ')
                     ->state(fn ($record) => $record->file_size
                         ? number_format($record->file_size / 1024, 1).'KB'
                         : '-')
                     ->alignEnd()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('downloaded_at')
-                    ->label('ダウンロード日時')
+                TextColumn::make('csv_downloaded_at')
+                    ->label('CSV')
                     ->dateTime('m/d H:i')
                     ->sortable()
                     ->toggleable(),
 
-                TextColumn::make('downloadedByUser.name')
-                    ->label('ダウンロードユーザー')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('fax_downloaded_at')
+                    ->label('FAX')
+                    ->dateTime('m/d H:i')
+                    ->sortable()
+                    ->toggleable(),
+
+                TextColumn::make('mail_sent_at')
+                    ->label('メール')
+                    ->dateTime('m/d H:i')
+                    ->sortable()
+                    ->toggleable(),
 
                 TextColumn::make('created_at')
                     ->label('作成日時')
                     ->dateTime('m/d H:i')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('batch_code')
@@ -184,21 +199,21 @@ class WmsOrderDataFilesTable
                     }),
             ])
             ->recordActions([
-                Action::make('download')
-                    ->label('ダウンロード')
-                    ->icon('heroicon-o-arrow-down-tray')
+                // CSV
+                Action::make('downloadCsv')
+                    ->label('CSV')
+                    ->icon('heroicon-o-document-text')
                     ->color('primary')
                     ->action(function (WmsOrderDataFile $record) {
                         if (! $record->file_path) {
                             Notification::make()
-                                ->title('ファイルが見つかりません')
+                                ->title('CSVファイルが見つかりません')
                                 ->danger()
                                 ->send();
 
                             return;
                         }
 
-                        // S3から直接ダウンロード用のURLを生成
                         $service = app(OrderDataFileService::class);
                         $url = $service->getDownloadUrl($record);
 
@@ -211,10 +226,120 @@ class WmsOrderDataFilesTable
                             return;
                         }
 
-                        // ダウンロード済みとしてマーク
-                        $record->markAsDownloaded(auth()->id());
+                        $record->markAsCsvDownloaded(auth()->id());
 
                         return redirect($url);
+                    }),
+
+                // FAX
+                Action::make('downloadFax')
+                    ->label('FAX')
+                    ->icon('heroicon-o-document')
+                    ->color('success')
+                    ->action(function (WmsOrderDataFile $record) {
+                        try {
+                            // FAX PDFが未生成の場合は生成
+                            if (! $record->fax_file_path) {
+                                $pdfService = app(PurchaseOrderPdfService::class);
+                                $pdfService->generateAndStore($record);
+                                $record->refresh();
+                            }
+
+                            if (! $record->fax_file_path) {
+                                Notification::make()
+                                    ->title('FAX PDFの生成に失敗しました')
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $url = Storage::disk('s3')->temporaryUrl($record->fax_file_path, now()->addHour());
+
+                            $record->markAsFaxDownloaded(auth()->id());
+
+                            Notification::make()
+                                ->title('FAX PDFを生成しました')
+                                ->success()
+                                ->send();
+
+                            return redirect($url);
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('エラーが発生しました')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+
+                // メール
+                Action::make('sendMail')
+                    ->label('メール')
+                    ->icon('heroicon-o-envelope')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('メール送信')
+                    ->modalDescription(fn (WmsOrderDataFile $record) => $record->contractor?->email
+                        ? "送信先: {$record->contractor->email}"
+                        : '発注先にメールアドレスが設定されていません')
+                    ->modalSubmitActionLabel('送信')
+                    ->schema([
+                        Placeholder::make('email_info')
+                            ->label('送信先')
+                            ->content(fn (WmsOrderDataFile $record) => $record->contractor?->email ?? '未設定'),
+
+                        CheckboxList::make('attachments')
+                            ->label('添付ファイル')
+                            ->options([
+                                'csv' => 'CSV（発注データ）',
+                                'fax' => 'FAX（発注書PDF）',
+                            ])
+                            ->default(['csv', 'fax'])
+                            ->required(),
+                    ])
+                    ->action(function (WmsOrderDataFile $record, array $data) {
+                        $email = $record->contractor?->email;
+
+                        if (! $email) {
+                            Notification::make()
+                                ->title('メールアドレスが設定されていません')
+                                ->body('発注先マスタにメールアドレスを設定してください')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        try {
+                            $attachments = $data['attachments'] ?? [];
+                            $attachCsv = in_array('csv', $attachments);
+                            $attachFax = in_array('fax', $attachments);
+
+                            // FAX PDFが未生成で添付が必要な場合は生成
+                            if ($attachFax && ! $record->fax_file_path) {
+                                $pdfService = app(PurchaseOrderPdfService::class);
+                                $pdfService->generateAndStore($record);
+                                $record->refresh();
+                            }
+
+                            // メール送信
+                            Mail::to($email)->send(new OrderDataMail($record, $attachCsv, $attachFax));
+
+                            $record->markAsMailSent(auth()->id());
+
+                            Notification::make()
+                                ->title('メールを送信しました')
+                                ->body("送信先: {$email}")
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('メール送信に失敗しました')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
                     }),
             ])
             ->defaultSort('created_at', 'desc');

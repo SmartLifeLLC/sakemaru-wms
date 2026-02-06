@@ -25,18 +25,25 @@ class WmsOrderDataFile extends WmsModel
         'expected_arrival_date',
         'file_path',
         'file_size',
+        'fax_file_path',
+        'fax_downloaded_at',
+        'fax_downloaded_by',
+        'mail_sent_at',
+        'mail_sent_by',
         'order_count',
         'total_quantity',
         'status',
         'is_test',
-        'downloaded_at',
-        'downloaded_by',
+        'csv_downloaded_at',
+        'csv_downloaded_by',
     ];
 
     protected $casts = [
         'order_date' => 'date',
         'expected_arrival_date' => 'date',
-        'downloaded_at' => 'datetime',
+        'csv_downloaded_at' => 'datetime',
+        'fax_downloaded_at' => 'datetime',
+        'mail_sent_at' => 'datetime',
         'status' => OrderDataFileStatus::class,
     ];
 
@@ -52,9 +59,19 @@ class WmsOrderDataFile extends WmsModel
         return $this->belongsTo(Contractor::class);
     }
 
-    public function downloadedByUser(): BelongsTo
+    public function csvDownloadedByUser(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'downloaded_by');
+        return $this->belongsTo(User::class, 'csv_downloaded_by');
+    }
+
+    public function faxDownloadedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'fax_downloaded_by');
+    }
+
+    public function mailSentByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'mail_sent_by');
     }
 
     // Scopes
@@ -72,14 +89,57 @@ class WmsOrderDataFile extends WmsModel
     // Methods
 
     /**
-     * ダウンロード済みとしてマーク
+     * CSVダウンロード済みとしてマーク
      */
-    public function markAsDownloaded(int $userId): void
+    public function markAsCsvDownloaded(int $userId): void
     {
         $this->update([
             'status' => OrderDataFileStatus::DOWNLOADED,
-            'downloaded_at' => now(),
-            'downloaded_by' => $userId,
+            'csv_downloaded_at' => now(),
+            'csv_downloaded_by' => $userId,
         ]);
+    }
+
+    /**
+     * FAXダウンロード済みとしてマーク
+     */
+    public function markAsFaxDownloaded(int $userId): void
+    {
+        $this->update([
+            'status' => OrderDataFileStatus::DOWNLOADED,
+            'fax_downloaded_at' => now(),
+            'fax_downloaded_by' => $userId,
+        ]);
+    }
+
+    /**
+     * メール送信済みとしてマーク
+     */
+    public function markAsMailSent(int $userId): void
+    {
+        $this->update([
+            'mail_sent_at' => now(),
+            'mail_sent_by' => $userId,
+        ]);
+    }
+
+    /**
+     * 後方互換性のためのエイリアス
+     *
+     * @deprecated Use csvDownloadedByUser() instead
+     */
+    public function downloadedByUser(): BelongsTo
+    {
+        return $this->csvDownloadedByUser();
+    }
+
+    /**
+     * 後方互換性のためのエイリアス
+     *
+     * @deprecated Use markAsCsvDownloaded() instead
+     */
+    public function markAsDownloaded(int $userId): void
+    {
+        $this->markAsCsvDownloaded($userId);
     }
 }

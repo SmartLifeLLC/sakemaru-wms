@@ -23,9 +23,29 @@ class JxClient
 
     protected WmsOrderJxSetting $setting;
 
+    protected ?string $lastRequestPath = null;
+
+    protected ?string $lastResponsePath = null;
+
     public function __construct(WmsOrderJxSetting $setting)
     {
         $this->setting = $setting;
+    }
+
+    /**
+     * 最後のリクエストファイルパスを取得
+     */
+    public function getLastRequestPath(): ?string
+    {
+        return $this->lastRequestPath;
+    }
+
+    /**
+     * 最後のレスポンスファイルパスを取得
+     */
+    public function getLastResponsePath(): ?string
+    {
+        return $this->lastResponsePath;
     }
 
     /**
@@ -146,7 +166,7 @@ class JxClient
         $dataSize = isset($viewData['data']) ? strlen($viewData['data']) : null;
 
         // リクエストを保存
-        $this->saveRequest($documentType, $viewData['message_id'], $xmlData);
+        $this->lastRequestPath = $this->saveRequest($documentType, $viewData['message_id'], $xmlData);
 
         try {
             $response = $this->doRequest($xmlData, $soapAction);
@@ -159,7 +179,7 @@ class JxClient
                 ]);
 
                 // エラー時もレスポンスを保存（デバッグ用）
-                $this->saveResponse($documentType.'_error', $viewData['message_id'], $response->bodyString);
+                $this->lastResponsePath = $this->saveResponse($documentType.'_error', $viewData['message_id'], $response->bodyString);
 
                 // 失敗ログを記録
                 $this->logTransmission(
@@ -179,7 +199,7 @@ class JxClient
             }
 
             // レスポンスを保存
-            $this->saveResponse($documentType, $viewData['message_id'], $response->bodyString);
+            $this->lastResponsePath = $this->saveResponse($documentType, $viewData['message_id'], $response->bodyString);
 
             // ログ用のファイルパス（PutDocumentの場合はデータ本体、それ以外はレスポンス）
             $logFilePath = $viewData['_data_file_path'] ?? null;
@@ -259,8 +279,11 @@ class JxClient
      */
     protected function doRequest(string $xmlString, string $soapAction): JxRequestResponse
     {
+        // UTF-8からShift_JISに変換
+        $xmlString = mb_convert_encoding($xmlString, 'SJIS', 'UTF-8');
+
         $headers = [
-            'Content-type: text/xml;charset="UTF-8"',
+            'Content-type: text/xml;charset="Shift_JIS"',
             'Accept: text/xml',
             'Cache-Control: no-cache',
             'Pragma: no-cache',
