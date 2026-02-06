@@ -60,7 +60,7 @@
 /* html要素のscrollbar-gutterをオーバーライド */
 html.fi {
     scrollbar-gutter: auto !important;
-    overflow: hidden !important;
+    overflow: auto !important;
 }
 
 @layer components {
