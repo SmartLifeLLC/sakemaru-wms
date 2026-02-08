@@ -314,8 +314,8 @@ class WmsOrderJxSettingResource extends Resource
                             $responsePath = $client->getLastResponsePath();
 
                             // ダウンロードリンクを生成
-                            $requestUrl = $requestPath ? route('jx-client-files.download', ['path' => $requestPath]) : null;
-                            $responseUrl = $responsePath ? route('jx-client-files.download', ['path' => $responsePath]) : null;
+                            $requestUrl = $requestPath ? route('jx-xml-files.download', ['path' => $requestPath]) : null;
+                            $responseUrl = $responsePath ? route('jx-xml-files.download', ['path' => $responsePath]) : null;
 
                             $body = "メッセージID: {$result->messageId}\n";
                             $body .= 'HTTPコード: '.($result->response?->httpCode ?? 'N/A')."\n\n";
