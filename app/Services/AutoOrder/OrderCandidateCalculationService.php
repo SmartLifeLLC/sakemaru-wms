@@ -75,6 +75,9 @@ class OrderCandidateCalculationService
     /** @var array [item_id][supplier_id] => unit_price (仕入先別商品仕入単価) */
     private array $supplierItemPrices = [];
 
+    /** @var int|null 参照する在庫スナップショットのjob_control_id */
+    private ?int $snapshotJobId = null;
+
     /**
      * 発注候補計算を実行
      *
@@ -99,6 +102,9 @@ class OrderCandidateCalculationService
             settlementStatus: SettlementStatus::PENDING,
             snapshotJobId: $snapshotJobId
         );
+
+        // スナップショットJob IDを保持（loadAllDataToMemoryで使用）
+        $this->snapshotJobId = $snapshotJobId;
 
         try {
             $batchCode = $job->batch_code;
@@ -175,7 +181,9 @@ class OrderCandidateCalculationService
         Log::info('自動発注有効な実倉庫をロード', ['count' => count($this->realWarehouseIds)]);
 
         // JOINでsafety_stock > 0の商品のスナップショットのみを取得（実倉庫のみ）
-        $snapshots = DB::connection('sakemaru')
+        // snapshotJobIdが指定されている場合、そのジョブのスナップショットのみを使用
+        // （過去のスナップショットの古いincoming値が混入するのを防止）
+        $snapshotQuery = DB::connection('sakemaru')
             ->table('wms_item_stock_snapshots as s')
             ->join('item_contractors as ic', function ($join) {
                 $join->on('s.warehouse_id', '=', 'ic.warehouse_id')
@@ -183,7 +191,25 @@ class OrderCandidateCalculationService
             })
             ->whereIn('s.warehouse_id', $this->realWarehouseIds)
             ->where('ic.is_auto_order', true)
-            ->where('ic.safety_stock', '>', 0)
+            ->where('ic.safety_stock', '>', 0);
+
+        if ($this->snapshotJobId) {
+            $snapshotQuery->where('s.job_control_id', $this->snapshotJobId);
+        } else {
+            // snapshotJobIdが未指定の場合は最新のスナップショットジョブを使用
+            $latestSnapshotJobId = DB::connection('sakemaru')
+                ->table('wms_auto_order_job_controls')
+                ->where('process_name', JobProcessName::STOCK_SNAPSHOT->value)
+                ->where('status', 'SUCCESS')
+                ->orderByDesc('id')
+                ->value('id');
+
+            if ($latestSnapshotJobId) {
+                $snapshotQuery->where('s.job_control_id', $latestSnapshotJobId);
+            }
+        }
+
+        $snapshots = $snapshotQuery
             ->select('s.warehouse_id', 's.item_id', 's.total_effective_piece', 's.total_incoming_piece')
             ->distinct()
             ->get();
