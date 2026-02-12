@@ -4,6 +4,7 @@ namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Models\Sakemaru\Client;
+use App\Models\WmsContractorWarehouseSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
 use Illuminate\Support\Collection;
@@ -269,6 +270,15 @@ class PurchaseOrderPdfService
             $this->pdf->Cell(80, self::LINE_HEIGHT_NORMAL, '納入場所: '.$warehouseName, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
+
+        // 納入先指定コード
+        $designatedCode = WmsContractorWarehouseSetting::getDesignatedCode(
+            $this->warehouse?->id ?? 0,
+            $this->contractor?->id ?? 0,
+        );
+        $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
+        $this->pdf->Cell(80, self::LINE_HEIGHT_NORMAL, '納入先指定コード: '.($designatedCode ?? ' - '), 0, 1, 'L');
+        $lineY += self::LINE_HEIGHT_NORMAL;
 
         // 納入予定日（入荷日）
         $expectedDate = $this->dataFile->expected_arrival_date?->format('Y年m月d日') ?? '';

@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\TransmissionType;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsContractorSupplier;
 use App\Models\WmsContractorWarehouseDeliveryDay;
+use App\Models\WmsContractorWarehouseSetting;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -94,5 +95,15 @@ class Contractor extends CustomModel
     public function warehouseDeliveryDays(): HasMany
     {
         return $this->hasMany(WmsContractorWarehouseDeliveryDay::class, 'contractor_id');
+    }
+
+    // ==================== WMS Contractor Warehouse Settings ====================
+
+    /**
+     * 発注先×倉庫ごとの納入先指定コード設定
+     */
+    public function warehouseSettings(): HasMany
+    {
+        return $this->hasMany(WmsContractorWarehouseSetting::class, 'contractor_id');
     }
 }

@@ -126,6 +126,7 @@ class OrderDataFileService
                 'order_count' => $candidates->count(),
                 'total_quantity' => $totalQuantity,
                 'status' => OrderDataFileStatus::GENERATED,
+                'is_test' => false,
                 'downloaded_at' => null,
                 'downloaded_by' => null,
             ]
