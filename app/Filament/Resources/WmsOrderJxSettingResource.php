@@ -75,6 +75,10 @@ class WmsOrderJxSettingResource extends Resource
                             ->label('発注確定時に自動送信')
                             ->default(false)
                             ->helperText('ONにすると、発注確定処理時にJXファイルを自動送信します'),
+                        Checkbox::make('add_zero_record')
+                            ->label('データなし時にAレコードを送信')
+                            ->default(true)
+                            ->helperText('OFFの場合、発注データがない時はファイルを生成しません'),
                     ]),
 
                 Section::make('JX接続情報')
@@ -224,6 +228,10 @@ class WmsOrderJxSettingResource extends Resource
                     ->alignCenter(),
                 IconColumn::make('auto_transmit_on_confirm')
                     ->label('自動送信')
+                    ->boolean()
+                    ->alignCenter(),
+                IconColumn::make('add_zero_record')
+                    ->label('空送信')
                     ->boolean()
                     ->alignCenter(),
                 IconColumn::make('test_file_path')
