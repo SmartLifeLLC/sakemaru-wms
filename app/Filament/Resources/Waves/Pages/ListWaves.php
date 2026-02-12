@@ -229,7 +229,7 @@ class ListWaves extends ListRecords
             $totalEarnings = 0;
             $totalStockTransfers = 0;
 
-            DB::transaction(function () use (
+            DB::connection('sakemaru')->transaction(function () use (
                 $warehouseId,
                 $shippingDate,
                 $allDeliveryCourseIds,
@@ -353,6 +353,31 @@ class ListWaves extends ListRecords
     ): void {
         $earningIds = $earnings->pluck('id')->toArray();
         $tradeIds = $earnings->pluck('trade_id')->toArray();
+
+        // Clean up any existing data from a previous failed attempt for these earnings
+        DB::connection('sakemaru')
+            ->table('wms_picking_item_results')
+            ->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
+            ->whereIn('earning_id', $earningIds)
+            ->delete();
+
+        // Clean up orphaned picking_tasks (no remaining item_results)
+        DB::connection('sakemaru')
+            ->table('wms_picking_tasks')
+            ->where('wave_id', $wave->id)
+            ->whereNotExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('wms_picking_item_results')
+                    ->whereColumn('wms_picking_item_results.picking_task_id', 'wms_picking_tasks.id');
+            })
+            ->delete();
+
+        DB::connection('sakemaru')
+            ->table('wms_reservations')
+            ->where('wave_id', $wave->id)
+            ->whereIn('source_id', $earningIds)
+            ->where('source_type', 'EARNING')
+            ->delete();
 
         // Get all trade items
         $tradeItems = DB::connection('sakemaru')
@@ -573,6 +598,31 @@ class ListWaves extends ListRecords
     ): void {
         $stockTransferIds = $stockTransfers->pluck('id')->toArray();
         $tradeIds = $stockTransfers->pluck('trade_id')->toArray();
+
+        // Clean up any existing data from a previous failed attempt for these stock_transfers
+        DB::connection('sakemaru')
+            ->table('wms_picking_item_results')
+            ->where('source_type', WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER)
+            ->whereIn('stock_transfer_id', $stockTransferIds)
+            ->delete();
+
+        // Clean up orphaned picking_tasks (no remaining item_results)
+        DB::connection('sakemaru')
+            ->table('wms_picking_tasks')
+            ->where('wave_id', $wave->id)
+            ->whereNotExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('wms_picking_item_results')
+                    ->whereColumn('wms_picking_item_results.picking_task_id', 'wms_picking_tasks.id');
+            })
+            ->delete();
+
+        DB::connection('sakemaru')
+            ->table('wms_reservations')
+            ->where('wave_id', $wave->id)
+            ->whereIn('source_id', $stockTransferIds)
+            ->where('source_type', 'STOCK_TRANSFER')
+            ->delete();
 
         // Create stock_transfer_id lookup from trade_id
         $tradeIdToStockTransferId = $stockTransfers->pluck('id', 'trade_id')->toArray();
