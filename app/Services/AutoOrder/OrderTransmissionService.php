@@ -16,6 +16,7 @@ use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
 use App\Models\WmsOrderTransmissionLog;
+use App\Services\AutoOrder\Generators\HanaOrderFileGenerator;
 use App\Services\JX\JxClient;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -672,16 +673,7 @@ class OrderTransmissionService
             ->with(['warehouse', 'item', 'contractor'])
             ->get();
 
-        if ($candidates->isEmpty()) {
-            return [
-                'success' => true,
-                'files' => [],
-                'total_orders' => 0,
-                'errors' => [],
-                'message' => '生成対象のJX送信発注候補がありません',
-            ];
-        }
-
+        // 候補が空でも空ファイル生成のために処理を続行する
         return $this->doGenerateOrderFiles($batchCode, $candidates, TransmissionDocumentStatus::PENDING, true);
     }
 
@@ -800,6 +792,17 @@ class OrderTransmissionService
                     'db_ms' => $dbElapsed,
                     'total_ms' => round((microtime(true) - $fileStart) * 1000),
                 ]);
+            }
+
+            // データなしJX設定に対する空ファイル生成
+            $emptyFileResults = $this->generateEmptyFilesForMissingSettings(
+                $batchCode,
+                $files,
+                $status,
+                $progressCallback
+            );
+            foreach ($emptyFileResults as $emptyResult) {
+                $results[] = $emptyResult;
             }
         } catch (\Exception $e) {
             $errors[] = $e->getMessage();
@@ -1125,6 +1128,92 @@ class OrderTransmissionService
                 ]);
             }
         });
+    }
+
+    /**
+     * データなしJX設定に対して空ファイルを生成
+     *
+     * 生成済みファイルのJX設定IDを確認し、まだファイルが生成されていない
+     * アクティブなJX設定に対して空ファイルを生成する。
+     * add_zero_record=true: Aレコード付き空ファイル
+     * add_zero_record=false: JXラッパーのみの完全空ファイル
+     *
+     * @param  string  $batchCode  バッチコード
+     * @param  array  $generatedFiles  生成済みファイル情報
+     * @param  TransmissionDocumentStatus  $status  ドキュメントステータス
+     * @param  callable|null  $progressCallback  進捗コールバック
+     * @return array 空ファイル生成結果
+     */
+    private function generateEmptyFilesForMissingSettings(
+        string $batchCode,
+        array $generatedFiles,
+        TransmissionDocumentStatus $status,
+        ?callable $progressCallback
+    ): array {
+        // 生成済みファイルのJX設定IDを収集
+        $generatedSettingIds = collect($generatedFiles)
+            ->pluck('jx_setting_id')
+            ->filter()
+            ->unique()
+            ->toArray();
+
+        // 全アクティブJX設定を取得
+        $allActiveSettings = WmsOrderJxSetting::where('is_active', true)->get();
+
+        $results = [];
+        $generator = $this->getOrderFileGenerator();
+
+        if (! ($generator instanceof HanaOrderFileGenerator)) {
+            return $results;
+        }
+
+        foreach ($allActiveSettings as $jxSetting) {
+            // 既にファイルが生成されている設定はスキップ
+            if (in_array($jxSetting->id, $generatedSettingIds)) {
+                continue;
+            }
+
+            try {
+                $file = $generator->generateEmptyFile($jxSetting);
+
+                // S3に保存
+                $s3Path = $this->saveOrderFileToS3($batchCode, $file, $status);
+
+                // ドキュメント作成（CSV生成・候補紐付けなし）
+                $document = $this->createOrderDocument($batchCode, $file, $s3Path, null, $status);
+
+                $fileResult = [
+                    'contractor_id' => $file['contractor_id'],
+                    'contractor_code' => $file['contractor_code'] ?? null,
+                    'filename' => $file['filename'],
+                    's3_path' => $s3Path,
+                    'csv_path' => null,
+                    'document_id' => $document->id,
+                    'record_count' => $file['record_count'],
+                    'order_count' => 0,
+                ];
+
+                $results[] = $fileResult;
+
+                if ($progressCallback !== null) {
+                    $progressCallback($fileResult);
+                }
+
+                Log::info('[doGenerateOrderFiles] 空ファイル生成完了', [
+                    'batch_code' => $batchCode,
+                    'jx_setting_id' => $jxSetting->id,
+                    'contractor_id' => $file['contractor_id'],
+                    'filename' => $file['filename'],
+                ]);
+            } catch (\Exception $e) {
+                Log::error('[doGenerateOrderFiles] 空ファイル生成失敗', [
+                    'jx_setting_id' => $jxSetting->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $results;
     }
 
     /**

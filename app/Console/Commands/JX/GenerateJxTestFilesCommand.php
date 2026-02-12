@@ -204,7 +204,7 @@ class GenerateJxTestFilesCommand extends Command
             if ($transmitResult->succeeded()) {
                 $this->info("    <fg=green>送信成功</> - MessageID: {$transmitResult->messageId}");
             } else {
-                $this->error("    送信失敗: {$transmitResult->errorMessage}");
+                $this->error("    送信失敗: {$transmitResult->error}");
             }
 
         } catch (\Exception $e) {

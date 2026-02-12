@@ -774,6 +774,51 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
         ]);
     }
 
+    /**
+     * データなし時の空ファイルを生成（Aレコードのみ）
+     *
+     * add_zero_record=true のJX設定に対して、Aレコードのみの空ファイルを生成する。
+     * JXラッパー(1) + Aレコード(1) + JXラッパー(8) = 3レコード構成。
+     *
+     * @param  WmsOrderJxSetting  $jxSetting  JX設定
+     * @return array ファイル情報（generate()と同じフォーマット）
+     */
+    public function generateEmptyFile(WmsOrderJxSetting $jxSetting): array
+    {
+        $contractorId = $jxSetting->contractor_id;
+        $contractorCode = $jxSetting->contractor?->code
+            ?? DB::connection('sakemaru')
+                ->table('contractors')
+                ->where('id', $contractorId)
+                ->value('code');
+
+        // add_zero_record=true: Aレコード付き、add_zero_record=false: レコードなし（JXラッパーのみ）
+        $innerContent = $jxSetting->add_zero_record
+            ? $this->generateARecord((int) $contractorCode, 1, 0, $jxSetting)
+            : '';
+
+        // JXラッパーで包む（UTF-8のまま）
+        $wrapper = new JxDataWrapper($jxSetting);
+        $content = $wrapper->wrap($innerContent);
+
+        // Shift_JISに変換
+        $sjisContent = mb_convert_encoding($content, self::ENCODING, 'UTF-8');
+
+        $filename = $this->generateFilename((int) $contractorCode);
+        $recordCount = $jxSetting->add_zero_record ? 3 : 2; // wrapper(1) + A?(1) + wrapper(8)
+
+        return [
+            'contractor_id' => $contractorId,
+            'contractor_code' => $contractorCode,
+            'jx_setting_id' => $jxSetting->id,
+            'content' => $sjisContent,
+            'filename' => $filename,
+            'encoding' => self::ENCODING,
+            'record_count' => $recordCount,
+            'order_count' => 0,
+        ];
+    }
+
     // ========================================
     // Interface実装
     // ========================================
