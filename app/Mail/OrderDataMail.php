@@ -55,7 +55,7 @@ class OrderDataMail extends Mailable
     public function content(): Content
     {
         return new Content(
-            view: 'emails.order-data',
+            text: 'emails.order-data',
             with: [
                 'dataFile' => $this->dataFile,
                 'contractor' => $this->dataFile->contractor,

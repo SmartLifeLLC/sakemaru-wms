@@ -28,6 +28,7 @@ class WmsOrderDataFile extends WmsModel
         'fax_file_path',
         'fax_downloaded_at',
         'fax_downloaded_by',
+        'mail_to',
         'mail_sent_at',
         'mail_sent_by',
         'order_count',
@@ -115,12 +116,18 @@ class WmsOrderDataFile extends WmsModel
     /**
      * メール送信済みとしてマーク
      */
-    public function markAsMailSent(int $userId): void
+    public function markAsMailSent(int $userId, ?string $mailTo = null): void
     {
-        $this->update([
+        $data = [
             'mail_sent_at' => now(),
             'mail_sent_by' => $userId,
-        ]);
+        ];
+
+        if ($mailTo !== null) {
+            $data['mail_to'] = $mailTo;
+        }
+
+        $this->update($data);
     }
 
     /**

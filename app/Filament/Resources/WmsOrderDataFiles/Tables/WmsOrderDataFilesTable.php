@@ -13,7 +13,7 @@ use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\PurchaseOrderPdfService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
-use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -280,14 +280,14 @@ class WmsOrderDataFilesTable
                     ->color('warning')
                     ->requiresConfirmation()
                     ->modalHeading('メール送信')
-                    ->modalDescription(fn (WmsOrderDataFile $record) => $record->contractor?->email
-                        ? "送信先: {$record->contractor->email}"
-                        : '発注先にメールアドレスが設定されていません')
+                    ->modalDescription('発注データをメールで送信します')
                     ->modalSubmitActionLabel('送信')
                     ->schema([
-                        Placeholder::make('email_info')
-                            ->label('送信先')
-                            ->content(fn (WmsOrderDataFile $record) => $record->contractor?->email ?? '未設定'),
+                        TextInput::make('mail_to')
+                            ->label('送信先メールアドレス')
+                            ->email()
+                            ->required()
+                            ->default(fn (WmsOrderDataFile $record) => $record->mail_to ?? $record->contractor?->email ?? ''),
 
                         CheckboxList::make('attachments')
                             ->label('添付ファイル')
@@ -299,17 +299,7 @@ class WmsOrderDataFilesTable
                             ->required(),
                     ])
                     ->action(function (WmsOrderDataFile $record, array $data) {
-                        $email = $record->contractor?->email;
-
-                        if (! $email) {
-                            Notification::make()
-                                ->title('メールアドレスが設定されていません')
-                                ->body('発注先マスタにメールアドレスを設定してください')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
+                        $email = $data['mail_to'];
 
                         try {
                             $attachments = $data['attachments'] ?? [];
@@ -326,7 +316,7 @@ class WmsOrderDataFilesTable
                             // メール送信
                             Mail::to($email)->send(new OrderDataMail($record, $attachCsv, $attachFax));
 
-                            $record->markAsMailSent(auth()->id());
+                            $record->markAsMailSent(auth()->id(), $email);
 
                             Notification::make()
                                 ->title('メールを送信しました')
