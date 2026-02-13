@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>自動発注</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    @media print {
+      @page { size: A4; margin: 10mm; }
+      body { margin: 0; padding: 10px; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+  <div x-data="autoOrderApp()" x-cloak class="p-4 md:p-6 font-sans text-slate-900">
+    <div class="space-y-6">
+      <!-- Header -->
+      <header class="flex items-center justify-between flex-wrap gap-4">
+        <h1 class="text-2xl md:text-3xl font-extrabold text-blue-700" x-text="getPageTitle()"></h1>
+        <div class="flex items-center gap-2 md:gap-3 text-sm flex-wrap">
+          <template x-if="!showDetail">
+            <div class="flex items-center gap-2 flex-wrap">
+              <template x-if="activeTab === 'list'">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <button @click="handleAddNewPO()" class="inline-flex items-center gap-1 rounded-xl border border-blue-600 bg-blue-600 text-white px-3 py-2 hover:bg-blue-700 shadow-sm text-sm">+ 追加</button>
+                  <button class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm text-sm">今すぐ再集計</button>
+                  <button @click="handleBulkPrintPO()" :disabled="selectedPOs.length === 0" class="inline-flex items-center gap-1 rounded-xl border border-green-600 bg-green-600 text-white px-3 py-2 hover:bg-green-700 disabled:bg-green-300 disabled:cursor-not-allowed shadow-sm text-sm">発注書出力<span x-show="selectedPOs.length > 0" x-text="' (' + selectedPOs.length + ')'"></span></button>
+                  <button @click="handleBulkSend()" :disabled="selectedPOs.length === 0" class="inline-flex items-center gap-1 rounded-xl border border-emerald-600 bg-emerald-600 text-white px-3 py-2 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed shadow-sm text-sm">送信<span x-show="selectedPOs.length > 0" x-text="' (' + selectedPOs.length + ')'"></span></button>
+                  <button @click="handleBulkConfirm()" :disabled="selectedPOs.length === 0 || !list.some(po => selectedPOs.includes(po.id) && po.status === '送信済' && !po.isConfirmed)" class="inline-flex items-center gap-1 rounded-xl border border-purple-600 bg-purple-600 text-white px-3 py-2 hover:bg-purple-700 disabled:bg-purple-300 disabled:cursor-not-allowed shadow-sm text-sm">確定<span x-show="selectedPOs.length > 0" x-text="' (' + selectedPOs.length + ')'"></span></button>
+                  <button @click="handleExportCSV()" class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm text-sm">CSV出力</button>
+                </div>
+              </template>
+              <template x-if="activeTab === 'purchase'">
+                <button @click="handleAddNewPurchase()" class="inline-flex items-center gap-1 rounded-xl border border-blue-600 bg-blue-600 text-white px-3 py-2 hover:bg-blue-700 shadow-sm text-sm">+ 追加</button>
+              </template>
+            </div>
+          </template>
+          <template x-if="showDetail && !isPopupMode">
+            <button @click="showDetail = false; selectedPO = null; isCreatingNew = false" class="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm">◀ 一覧へ</button>
+          </template>
+        </div>
+      </header>
+
+      <!-- Tab Navigation -->
+      <template x-if="!showDetail || isPopupMode">
+        <div class="w-full">
+          <div class="flex gap-2 border-b overflow-x-auto">
+            <template x-for="tab in tabs" :key="tab.key">
+              <button @click="activeTab = tab.key" :class="activeTab === tab.key ? 'border-blue-600 text-blue-700 font-semibold' : 'border-transparent text-slate-500 hover:text-slate-700'" class="px-4 py-2 -mb-px border-b-2 whitespace-nowrap" x-text="tab.label"></button>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- ==================== List View ==================== -->
+      <template x-if="!showDetail && activeTab === 'list'">
+        <div class="space-y-4">
+          <!-- Filter Section -->
+          <div class="bg-white rounded-2xl shadow-lg p-4">
+            <div class="flex items-center justify-between mb-3 border-b pb-2">
+              <div class="text-slate-600 text-sm font-semibold">一覧フィルタリング</div>
+            </div>
+            <div class="space-y-4">
+              <div class="grid md:grid-cols-8 grid-cols-2 gap-4 items-end">
+                <div class="relative md:col-span-2">
+                  <svg class="w-4 h-4 absolute left-3 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  <input x-model="filters.keyword" type="text" placeholder="キーワード（ID/仕入先/倉庫）" class="w-full h-[42px] rounded-xl border pl-10 pr-3 py-2.5 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-xs text-slate-500 font-medium px-1">発注日（自）</label>
+                  <input x-model="filters.orderDateFrom" type="date" class="w-full h-[42px] rounded-xl border border-slate-300 px-3 py-2 bg-white shadow-sm text-sm">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-xs text-slate-500 font-medium px-1">発注日（至）</label>
+                  <input x-model="filters.orderDateTo" type="date" class="w-full h-[42px] rounded-xl border border-slate-300 px-3 py-2 bg-white shadow-sm text-sm">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-xs text-slate-500 font-medium px-1">入荷予定日（自）</label>
+                  <input x-model="filters.etaDateFrom" type="date" class="w-full h-[42px] rounded-xl border border-slate-300 px-3 py-2 bg-white shadow-sm text-sm">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-xs text-slate-500 font-medium px-1">入荷予定日（至）</label>
+                  <input x-model="filters.etaDateTo" type="date" class="w-full h-[42px] rounded-xl border border-slate-300 px-3 py-2 bg-white shadow-sm text-sm">
+                </div>
+                <select x-model="filters.warehouse" class="h-[42px] rounded-xl border border-slate-300 px-3 py-2.5 bg-white shadow-sm appearance-none text-sm">
+                  <option value="ALL">倉庫（すべて）</option>
+                  <template x-for="w in warehouses" :key="w.id"><option :value="w.id" x-text="w.name"></option></template>
+                </select>
+                <select x-model="filters.vendor" class="h-[42px] rounded-xl border border-slate-300 px-3 py-2.5 bg-white shadow-sm appearance-none text-sm">
+                  <option value="ALL">仕入先（すべて）</option>
+                  <template x-for="v in vendors" :key="v.id"><option :value="v.id" x-text="v.name"></option></template>
+                </select>
+              </div>
+              <div class="grid md:grid-cols-8 grid-cols-2 gap-4 items-end">
+                <select x-model="filters.status" class="h-[42px] rounded-xl border border-slate-300 px-3 py-2.5 bg-white shadow-sm appearance-none text-sm">
+                  <option value="ALL">状態（すべて）</option>
+                  <option value="送信待ち">送信待ち</option>
+                  <option value="送信中">送信中</option>
+                  <option value="送信済">送信済</option>
+                  <option value="取消">取消</option>
+                </select>
+                <select x-model="filters.edi" class="h-[42px] rounded-xl border border-slate-300 px-3 py-2.5 bg-white shadow-sm appearance-none text-sm">
+                  <option value="ALL">EDI（すべて）</option>
+                  <option value="無">無</option>
+                  <option value="EOS">EOS</option>
+                </select>
+                <select x-model="filters.confirmStatus" class="h-[42px] rounded-xl border border-slate-300 px-3 py-2.5 bg-white shadow-sm appearance-none text-sm">
+                  <option value="ALL">確定状況（すべて）</option>
+                  <option value="未確定">未確定</option>
+                  <option value="一部確定">一部確定</option>
+                </select>
+                <select x-model="filters.receiptSetting" class="h-[42px] rounded-xl border border-slate-300 px-3 py-2.5 bg-white shadow-sm appearance-none text-sm">
+                  <option value="ALL">入荷設定（すべて）</option>
+                  <option value="即入荷">即入荷</option>
+                  <option value="入荷保留">入荷保留</option>
+                </select>
+              </div>
+              <template x-if="selectedPOs.length > 0">
+                <div class="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl p-3">
+                  <span class="text-sm font-medium text-blue-700" x-text="selectedPOs.length + '件選択中'"></span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-600">状態を一括変更:</span>
+                    <button @click="handleBulkStatusChange('送信待ち')" class="rounded-lg bg-blue-100 text-blue-700 px-3 py-1 text-xs hover:bg-blue-200">送信待ち</button>
+                    <button @click="handleBulkStatusChange('送信中')" class="rounded-lg bg-yellow-100 text-yellow-700 px-3 py-1 text-xs hover:bg-yellow-200">送信中</button>
+                    <button @click="handleBulkStatusChange('送信済')" class="rounded-lg bg-green-100 text-green-700 px-3 py-1 text-xs hover:bg-green-200">送信済</button>
+                    <button @click="handleBulkStatusChange('取消')" class="rounded-lg bg-red-100 text-red-700 px-3 py-1 text-xs hover:bg-red-200">取消</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Order List Table -->
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm min-w-[1400px]">
+                <thead class="bg-slate-100 text-slate-600 border-b border-slate-200 sticky top-0">
+                  <tr>
+                    <th class="px-4 py-3 text-center whitespace-nowrap">
+                      <input type="checkbox" @change="toggleSelectAll()" :checked="selectedPOs.length === filteredList.length && filteredList.length > 0" class="w-4 h-4 rounded border-slate-300 cursor-pointer">
+                    </th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">識別ID</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">発注日</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">入荷予定日</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">倉庫</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">発注先</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">仕入先</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">明細数</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">金額（税込）</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">状態</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">EDI区分</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">自動発注</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">発注書発行</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">確定状況</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">入荷設定</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">ロット条件</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">作成者</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">作成日時</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">更新者</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">更新日時</th>
+                    <th class="px-4 py-3 text-center whitespace-nowrap">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="po in filteredList" :key="po.id">
+                    <tr class="border-t hover:bg-slate-50 cursor-pointer" @click="openPopup(po)">
+                      <td class="px-4 py-3 text-center" @click.stop>
+                        <input type="checkbox" :checked="selectedPOs.includes(po.id)" @change="toggleSelectPO(po.id)" class="w-4 h-4 rounded border-slate-300 cursor-pointer">
+                      </td>
+                      <td class="px-4 py-3 font-mono text-blue-700 font-semibold whitespace-nowrap" x-text="po.id"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="po.orderDate"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="po.etaDate"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="getWarehouseName(po.warehouseId)"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="getVendorName(po.vendorId)"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="getVendorName(po.vendorId)"></td>
+                      <td class="px-4 py-3 text-right whitespace-nowrap" x-text="po.lines.length"></td>
+                      <td class="px-4 py-3 text-right font-bold text-lg text-red-700 whitespace-nowrap" x-text="fmtYen(summarizeTax(po).gross)"></td>
+                      <td class="px-4 py-3 whitespace-nowrap">
+                        <span :class="getStatusClass(po.status)" class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium" x-text="po.status"></span>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="po.edi"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="po.isAuto ? '自動' : '手動'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap">
+                        <span x-show="po.isPrinted" class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-green-100 text-green-700 text-xs font-medium">発行済み</span>
+                        <span x-show="!po.isPrinted" class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 text-slate-600 text-xs font-medium">未発行</span>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap">
+                        <span x-show="po.memo && po.memo.includes('一部入荷済み')" class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-yellow-100 text-yellow-700 text-xs font-medium">一部確定</span>
+                        <span x-show="!po.memo || !po.memo.includes('一部入荷済み')" class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 text-slate-600 text-xs font-medium">未確定</span>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap">
+                        <span x-show="po.immediateReceipt" class="px-2 py-1 rounded-md bg-blue-100 text-blue-700 text-xs font-medium">即入荷</span>
+                        <span x-show="!po.immediateReceipt" class="px-2 py-1 rounded-md bg-orange-100 text-orange-700 text-xs font-medium">保留</span>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="po.lotCondition || '-'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-600" x-text="po.createdBy || '-'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-600" x-text="po.createdAt ? po.createdAt.replace('T', ' ') : '-'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-600" x-text="po.updatedBy || '-'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-600" x-text="po.updatedAt ? po.updatedAt.replace('T', ' ') : '-'"></td>
+                      <td class="px-4 py-3" @click.stop>
+                        <div class="flex items-center justify-end gap-2 whitespace-nowrap min-w-[280px]">
+                          <template x-if="po.status === '送信済'">
+                            <button @click="handleOpenConfirmModal(po)" class="inline-flex items-center gap-1 rounded-lg border border-purple-600 px-2 py-1 bg-white text-purple-600 hover:bg-purple-50 whitespace-nowrap text-xs">確定</button>
+                          </template>
+                          <button @click="openDetail(po)" class="inline-flex items-center gap-1 rounded-lg border px-2 py-1 bg-white text-blue-600 hover:bg-blue-50 border-slate-300 whitespace-nowrap text-xs">編集</button>
+                          <template x-if="po.status !== '送信済' && po.status !== '送信中'">
+                            <button @click="handleDeletePO(po.id)" class="inline-flex items-center gap-1 rounded-lg border px-2 py-1 bg-white text-red-600 hover:bg-red-50 border-slate-300 whitespace-nowrap text-xs">削除</button>
+                          </template>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                  <template x-if="filteredList.length === 0">
+                    <tr><td colspan="21" class="px-4 py-8 text-center text-slate-500">データがありません</td></tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ==================== Plan Tab ==================== -->
+      <template x-if="!showDetail && activeTab === 'plan'">
+        <div class="space-y-4">
+          <div class="bg-white rounded-2xl shadow-lg p-4">
+            <div class="flex items-center justify-between mb-3 border-b pb-2">
+              <div class="text-slate-600 text-sm font-semibold">期間・条件</div>
+              <span class="text-xs text-slate-500">倉庫/仕入先は発注先の想定</span>
+            </div>
+            <div class="grid md:grid-cols-8 grid-cols-2 gap-3">
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium">期間（自）</label>
+                <input x-model="planFilters.periodFrom" type="date" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium">期間（至）</label>
+                <input x-model="planFilters.periodTo" type="date" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium">大分類</label>
+                <select x-model="planFilters.catL" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-sm">
+                  <option value="ALL">ALL</option>
+                  <template x-for="c in categories.L" :key="c"><option :value="c" x-text="c"></option></template>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium">中分類</label>
+                <select x-model="planFilters.catM" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-sm">
+                  <option value="ALL">ALL</option>
+                  <template x-for="c in categories.M" :key="c"><option :value="c" x-text="c"></option></template>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium">小分類</label>
+                <select x-model="planFilters.catS" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-sm">
+                  <option value="ALL">ALL</option>
+                  <template x-for="c in categories.S" :key="c"><option :value="c" x-text="c"></option></template>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium">倉庫</label>
+                <select x-model="planFilters.warehouse" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-sm">
+                  <template x-for="w in warehouses" :key="w.id"><option :value="w.id" x-text="w.name"></option></template>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium">仕入先（発注先）</label>
+                <select x-model="planFilters.vendor" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white text-sm">
+                  <option value="NONE">指定なし</option>
+                  <template x-for="v in vendors" :key="v.id"><option :value="v.id" x-text="v.name"></option></template>
+                </select>
+              </div>
+              <div class="flex items-end">
+                <button @click="handleAggregate()" class="inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-4 py-2 hover:bg-blue-700 shadow text-sm">実績集計</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Product List -->
+          <div class="bg-white rounded-2xl shadow-lg p-4">
+            <div class="flex items-center justify-between mb-3 border-b pb-2">
+              <div class="text-slate-600 text-sm font-semibold">商品実績</div>
+            </div>
+            <div class="overflow-x-auto overflow-y-auto relative" style="max-height: 336px;">
+              <table class="w-full text-sm min-w-[1400px]">
+                <thead class="bg-slate-100 text-slate-600 sticky top-0 z-20">
+                  <tr>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">品番</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">商品名</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">規格</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">大分類</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">中分類</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">小分類</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">倉庫</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">期間販売数</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">現在庫(総バラ)</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">1日平均</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">発注先</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">標準仕入先</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">LT(日)</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">発注点</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap bg-slate-100" style="position: sticky; right: 328px; z-index: 10; min-width: 120px; box-shadow: -2px 0 4px rgba(0,0,0,0.1);">自動発注数</th>
+                    <th class="px-2 py-2 text-right whitespace-nowrap bg-slate-100" style="position: sticky; right: 208px; z-index: 10; min-width: 120px;">発注ケース</th>
+                    <th class="px-2 py-2 text-right whitespace-nowrap bg-slate-100" style="position: sticky; right: 88px; z-index: 10; min-width: 120px;">発注バラ</th>
+                    <th class="px-2 py-2 text-right whitespace-nowrap bg-slate-100" style="position: sticky; right: 0px; z-index: 10; min-width: 88px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in planRows" :key="row.productId">
+                    <tr class="border-t">
+                      <td class="px-3 py-2 font-mono whitespace-nowrap" x-text="row.code"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="row.name"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="row.spec"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="row.catL"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="row.catM"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="row.catS"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="row.warehouseName"></td>
+                      <td class="px-3 py-2 text-right" x-text="row.soldEach"></td>
+                      <td class="px-3 py-2 text-right" x-text="row.stockEach"></td>
+                      <td class="px-3 py-2 text-right" x-text="row.avgDaily"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="row.orderVendorName"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="row.stdVendorName"></td>
+                      <td class="px-3 py-2 text-right" x-text="row.leadTime"></td>
+                      <td class="px-3 py-2 text-right" x-text="row.orderPoint"></td>
+                      <td class="px-3 py-2 text-right bg-white" style="position: sticky; right: 328px; z-index: 5; min-width: 120px; box-shadow: -2px 0 4px rgba(0,0,0,0.1);" x-text="row.autoOrderQty"></td>
+                      <td class="px-2 py-2 text-right bg-white" style="position: sticky; right: 208px; z-index: 5; min-width: 120px;">
+                        <input type="number" min="0" x-model.number="row.orderCase" class="w-full rounded-xl border border-slate-300 px-2 py-1.5 bg-white text-sm text-right">
+                      </td>
+                      <td class="px-2 py-2 text-right bg-white" style="position: sticky; right: 88px; z-index: 5; min-width: 120px;">
+                        <input type="number" min="0" x-model.number="row.orderEach" class="w-full rounded-xl border border-slate-300 px-2 py-1.5 bg-white text-sm text-right">
+                      </td>
+                      <td class="px-2 py-2 text-right bg-white" style="position: sticky; right: 0px; z-index: 5; min-width: 88px;">
+                        <button @click="addToStaging(row)" :class="staging.some(s => s.productId === row.productId) ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-white hover:bg-blue-50'" class="rounded-lg border px-2 py-1 whitespace-nowrap text-xs" x-text="staging.some(s => s.productId === row.productId) ? '更新' : '追加'"></button>
+                      </td>
+                    </tr>
+                  </template>
+                  <template x-if="planRows.length === 0">
+                    <tr><td colspan="18" class="px-3 py-6 text-center text-slate-500">期間とカテゴリを指定して「実績集計」を押してください。</td></tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Staging Area -->
+          <div class="bg-white rounded-2xl shadow-lg p-4">
+            <div class="flex items-center justify-between mb-3 border-b pb-2">
+              <div class="text-slate-600 text-sm font-semibold">発注予定行</div>
+              <button @click="showManualAdd = true" class="inline-flex items-center gap-1 rounded-lg bg-blue-600 text-white px-3 py-1.5 text-sm hover:bg-blue-700 shadow">+ 手動で追加</button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm min-w-[900px]">
+                <thead class="bg-slate-100 text-slate-600">
+                  <tr>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">発注日</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">品番</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">商品名</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">標準仕入先</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">発注ケース</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">発注バラ</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="st in staging" :key="st.productId">
+                    <tr class="border-t">
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="todayStr()"></td>
+                      <td class="px-3 py-2 font-mono whitespace-nowrap" x-text="getProductCode(st.productId)"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="getProductName(st.productId)"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="getStdVendorName(st.productId)"></td>
+                      <td class="px-3 py-2 text-right" x-text="st.qtyCase"></td>
+                      <td class="px-3 py-2 text-right" x-text="st.qtyEach"></td>
+                      <td class="px-3 py-2 text-right"><button @click="removeFromStaging(st.productId)" class="rounded-lg border px-3 py-1 bg-white hover:bg-red-50 text-xs">削除</button></td>
+                    </tr>
+                  </template>
+                  <template x-if="staging.length === 0">
+                    <tr><td colspan="7" class="px-3 py-6 text-center text-slate-500">追加した行がここに表示されます。</td></tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div class="flex items-center justify-between mt-3 text-xs text-slate-500">
+              <div x-text="planFilters.vendor === 'NONE' ? '※ 仕入先指定なしの場合、各商品の標準仕入先別に発注が作成されます。' : '選択中の発注先: ' + getVendorName(planFilters.vendor)"></div>
+              <div x-text="'行数: ' + staging.length"></div>
+            </div>
+            <div class="flex justify-end mt-2">
+              <button @click="createOrder()" :disabled="staging.length === 0" class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 disabled:bg-emerald-300 text-white px-5 py-2 hover:bg-emerald-700 shadow text-sm">発注作成（モック）</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ==================== Purchase Tab ==================== -->
+      <template x-if="!showDetail && activeTab === 'purchase'">
+        <div class="space-y-4">
+          <div class="bg-white rounded-2xl shadow-lg p-4">
+            <div class="text-slate-600 text-sm font-semibold mb-3 border-b pb-2">一覧フィルタリング</div>
+            <div class="grid md:grid-cols-8 grid-cols-2 gap-4 items-end">
+              <div class="relative md:col-span-2">
+                <svg class="w-4 h-4 absolute left-3 top-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <input x-model="purchaseFilters.keyword" type="text" placeholder="キーワード（ID/仕入先/倉庫）" class="w-full h-[42px] rounded-xl border pl-10 pr-3 py-2.5 bg-white shadow-sm text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium px-1">発注日（自）</label>
+                <input x-model="purchaseFilters.orderDateFrom" type="date" class="w-full h-[42px] rounded-xl border border-slate-300 px-3 py-2 bg-white shadow-sm text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium px-1">発注日（至）</label>
+                <input x-model="purchaseFilters.orderDateTo" type="date" class="w-full h-[42px] rounded-xl border border-slate-300 px-3 py-2 bg-white shadow-sm text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium px-1">入荷日（自）</label>
+                <input x-model="purchaseFilters.etaDateFrom" type="date" class="w-full h-[42px] rounded-xl border border-slate-300 px-3 py-2 bg-white shadow-sm text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs text-slate-500 font-medium px-1">入荷日（至）</label>
+                <input x-model="purchaseFilters.etaDateTo" type="date" class="w-full h-[42px] rounded-xl border border-slate-300 px-3 py-2 bg-white shadow-sm text-sm">
+              </div>
+              <select x-model="purchaseFilters.warehouse" class="h-[42px] rounded-xl border border-slate-300 px-3 py-2.5 bg-white shadow-sm appearance-none text-sm">
+                <option value="ALL">倉庫（すべて）</option>
+                <template x-for="w in warehouses" :key="w.id"><option :value="w.id" x-text="w.name"></option></template>
+              </select>
+              <select x-model="purchaseFilters.vendor" class="h-[42px] rounded-xl border border-slate-300 px-3 py-2.5 bg-white shadow-sm appearance-none text-sm">
+                <option value="ALL">仕入先（すべて）</option>
+                <template x-for="v in vendors" :key="v.id"><option :value="v.id" x-text="v.name"></option></template>
+              </select>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm min-w-[1400px]">
+                <thead class="bg-slate-100 text-slate-600 border-b border-slate-200 sticky top-0">
+                  <tr>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">識別ID</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">元発注ID</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">発注日</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">入荷日</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">倉庫</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">発注先</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">仕入先</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">明細数</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">金額（税込）</th>
+                    <th class="px-4 py-3 text-right whitespace-nowrap">入荷欠品数</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">EDI区分</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">自動発注</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">作成者</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">作成日時</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">更新者</th>
+                    <th class="px-4 py-3 text-left whitespace-nowrap">更新日時</th>
+                    <th class="px-4 py-3 text-center whitespace-nowrap">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="po in purchaseFilteredList" :key="po.id">
+                    <tr class="border-t hover:bg-slate-50 cursor-pointer" @click="openPopup(po)">
+                      <td class="px-4 py-3 whitespace-nowrap">
+                        <div class="flex items-center gap-2">
+                          <span class="font-mono text-blue-700 font-semibold" x-text="po.id"></span>
+                          <template x-if="po.isConfirmed">
+                            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">確認済</span>
+                          </template>
+                        </div>
+                      </td>
+                      <td class="px-4 py-3 font-mono text-slate-600 whitespace-nowrap" x-text="po.sourceOrderId || '-'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="po.orderDate"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="po.etaDate"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="getWarehouseName(po.warehouseId)"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="getVendorName(po.vendorId)"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="getVendorName(po.vendorId)"></td>
+                      <td class="px-4 py-3 text-right whitespace-nowrap" x-text="po.lines.length"></td>
+                      <td class="px-4 py-3 text-right font-bold text-lg text-red-700 whitespace-nowrap" x-text="fmtYen(summarizeTax(po).gross)"></td>
+                      <td class="px-4 py-3 text-right whitespace-nowrap">
+                        <span x-show="po.shortageQty" class="text-orange-600 font-semibold" x-text="po.shortageQty"></span>
+                        <span x-show="!po.shortageQty" class="text-slate-400">-</span>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="po.edi"></td>
+                      <td class="px-4 py-3 whitespace-nowrap" x-text="po.isAuto ? '自動' : '手動'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-600" x-text="po.createdBy || '-'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-600" x-text="po.createdAt ? po.createdAt.replace('T', ' ') : '-'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-600" x-text="po.updatedBy || '-'"></td>
+                      <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-600" x-text="po.updatedAt ? po.updatedAt.replace('T', ' ') : '-'"></td>
+                      <td class="px-4 py-3" @click.stop>
+                        <div class="flex items-center justify-end gap-2 whitespace-nowrap min-w-[180px]">
+                          <button @click="openDetail(po)" class="inline-flex items-center gap-1 rounded-lg border px-2 py-1 bg-white text-blue-600 hover:bg-blue-50 border-slate-300 whitespace-nowrap text-xs">編集</button>
+                          <button @click="handleDeletePO(po.id)" class="inline-flex items-center gap-1 rounded-lg border px-2 py-1 bg-white text-red-600 hover:bg-red-50 border-slate-300 whitespace-nowrap text-xs">削除</button>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                  <template x-if="purchaseFilteredList.length === 0">
+                    <tr><td colspan="17" class="px-4 py-8 text-center text-slate-500">仕入データがありません</td></tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ==================== Detail View (Full Screen) ==================== -->
+      <template x-if="showDetail && !isPopupMode && selectedPO">
+        <div class="bg-white rounded-2xl shadow-xl p-6 border border-blue-200">
+          <div class="flex items-center justify-between mb-4 pb-2 border-b border-blue-100">
+            <div class="text-xl font-bold text-blue-700" x-text="(isCreatingNew ? (currentTab === 'purchase' ? '仕入入力' : '発注入力') : (currentTab === 'purchase' ? '仕入詳細' : '発注詳細')) + '（' + selectedPO.id + '）'"></div>
+            <div class="flex items-center gap-3">
+              <template x-if="isCreatingNew">
+                <div class="flex items-center gap-2">
+                  <button @click="handleSaveNewDraft()" class="inline-flex items-center gap-1 rounded-xl bg-green-600 text-white px-3 py-2 hover:bg-green-700 shadow-sm">登録</button>
+                  <button @click="handleCancelNew()" class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm">キャンセル</button>
+                </div>
+              </template>
+              <template x-if="!isCreatingNew">
+                <div class="flex items-center gap-2">
+                  <template x-if="selectedPO.status === '送信待ち'">
+                    <button class="inline-flex items-center gap-1 rounded-xl bg-blue-600 text-white px-3 py-2 hover:bg-blue-700 shadow-sm">送信</button>
+                  </template>
+                  <template x-if="currentTab === 'list' && selectedPO.status === '送信済'">
+                    <button @click="handleOpenConfirmModal(selectedPO)" class="inline-flex items-center gap-1 rounded-xl bg-purple-600 text-white px-3 py-2 hover:bg-purple-700 shadow-sm">確定</button>
+                  </template>
+                  <button @click="showDetail = false; selectedPO = null" class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm">閉じる</button>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <div class="text-xs text-slate-500 mb-4" x-text="(currentTab === 'plan' ? '週/月販発注' : currentTab === 'purchase' ? '仕入一覧' : '発注一覧') + ' › ' + selectedPO.id"></div>
+
+          <!-- Detail Form Grid -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 grid sm:grid-cols-2 gap-x-6 gap-y-4 p-4 rounded-xl border bg-slate-50/50">
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">計上日</span>
+                <input type="date" x-model="selectedPO.postingDate" :readonly="!isCreatingNew" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium" x-text="currentTab === 'purchase' ? '入荷日' : '入荷予定日'"></span>
+                <input type="date" x-model="selectedPO.etaDate" :readonly="!isCreatingNew && selectedPO.status !== '送信待ち'" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">買掛日</span>
+                <input type="date" x-model="selectedPO.payableDate" :readonly="!isCreatingNew" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">割戻日</span>
+                <input type="date" x-model="selectedPO.rebateDate" :readonly="!isCreatingNew" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">取引方向</span>
+                <select x-model="selectedPO.tradeType" :disabled="!isCreatingNew" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+                  <option value="0:通常">0:通常</option>
+                  <option value="1:返品">1:返品</option>
+                  <option value="2:協賛">2:協賛</option>
+                  <option value="3:在庫調整">3:在庫調整</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">入荷設定</span>
+                <select x-model="selectedPO.receiptSetting" :disabled="!isCreatingNew && selectedPO.status !== '送信待ち'" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+                  <option value="immediate">即入荷</option>
+                  <option value="onHold">入荷保留</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">仕入先</span>
+                <select x-model="selectedPO.vendorId" :disabled="!isCreatingNew" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+                  <option value="">選択してください</option>
+                  <template x-for="v in vendors" :key="v.id"><option :value="v.id" x-text="v.name"></option></template>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">倉庫</span>
+                <select x-model="selectedPO.warehouseId" :disabled="!isCreatingNew" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+                  <option value="">選択してください</option>
+                  <template x-for="w in warehouses" :key="w.id"><option :value="w.id" x-text="w.name"></option></template>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">納品区分</span>
+                <select disabled class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+                  <option>0:買掛</option>
+                  <option>1:直送</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">課税区分</span>
+                <input type="text" value="自動" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">伝票番号</span>
+                <input type="text" x-model="selectedPO.slipNo" :readonly="!isCreatingNew" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">EDI区分</span>
+                <input type="text" x-model="selectedPO.edi" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">ロット条件</span>
+                <input type="text" x-model="selectedPO.lotCondition" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+              </div>
+              <div class="flex flex-col gap-1 sm:col-span-2">
+                <span class="text-xs text-slate-500 font-medium">備考</span>
+                <textarea x-model="selectedPO.memo" :readonly="!isCreatingNew" rows="2" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></textarea>
+              </div>
+              <div class="flex flex-col gap-1">
+                <span class="text-xs text-slate-500 font-medium">備考コード</span>
+                <input type="text" x-model="selectedPO.memoCode" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm">
+              </div>
+            </div>
+
+            <!-- Tax Summary -->
+            <div class="rounded-xl border border-blue-300 bg-blue-50 p-4 shadow-md h-fit">
+              <div class="flex items-center justify-between mb-3 border-b border-blue-200 pb-2">
+                <div class="font-bold text-blue-800">税サマリ</div>
+              </div>
+              <div class="text-sm">
+                <table class="w-full">
+                  <tbody>
+                    <tr><th class="text-left text-slate-600 font-medium py-1">8% (税抜)</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(selectedPO).ex8)"></td></tr>
+                    <tr><th class="text-left text-slate-600 font-medium py-1">10% (税抜)</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(selectedPO).ex10)"></td></tr>
+                    <tr><th class="text-left text-slate-600 font-medium py-1">非課税 (税抜)</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(selectedPO).ex0)"></td></tr>
+                    <tr class="border-t"><th class="text-left font-semibold py-2">税抜合計</th><td class="text-right font-semibold py-2" x-text="fmtYen(summarizeTax(selectedPO).net)"></td></tr>
+                    <tr><th class="text-left text-slate-600 font-medium py-1">8%対象税額</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(selectedPO).tax8)"></td></tr>
+                    <tr><th class="text-left text-slate-600 font-medium py-1">10%対象税額</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(selectedPO).tax10)"></td></tr>
+                    <tr><th class="text-left text-slate-600 py-1">税額合計</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(selectedPO).tax)"></td></tr>
+                    <tr class="border-t"><th class="text-left font-extrabold py-2">税込総額</th><td class="text-right font-extrabold py-2 text-blue-700" x-text="fmtYen(summarizeTax(selectedPO).gross)"></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Line Items Table -->
+          <div class="mt-6">
+            <div class="text-slate-600 text-sm font-semibold mb-3 border-b pb-2">明細データ</div>
+            <div class="overflow-x-auto rounded-xl border border-slate-300">
+              <table class="w-full text-sm min-w-[1200px]">
+                <thead class="bg-slate-100 text-slate-600 sticky top-0">
+                  <tr>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">取引区分</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">品番</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">商品名</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">規格</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">在庫数</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">自動発注数</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap" x-text="currentTab === 'purchase' ? '入荷ケース数' : '発注ケース数'"></th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap" x-text="currentTab === 'purchase' ? '入荷バラ数' : '発注バラ数'"></th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">総バラ数</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">在庫区分</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">単価</th>
+                    <th class="px-3 py-2 text-left whitespace-nowrap">税区分</th>
+                    <th class="px-3 py-2 text-right whitespace-nowrap">金額（税抜）</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="ln in selectedPO.lines" :key="ln.id">
+                    <tr class="border-t hover:bg-yellow-50/50">
+                      <td class="px-3 py-2 whitespace-nowrap">通常品</td>
+                      <td class="px-3 py-2 font-mono whitespace-nowrap" x-text="getProductCode(ln.productId)"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="getProductName(ln.productId)"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="getProductSpec(ln.productId)"></td>
+                      <td class="px-3 py-2 text-right text-slate-500 whitespace-nowrap">-</td>
+                      <td class="px-3 py-2 text-right text-emerald-600 font-medium whitespace-nowrap" x-text="ln.autoOrderQty || '-'"></td>
+                      <td class="px-3 py-2 text-right font-medium text-blue-700 whitespace-nowrap">
+                        <template x-if="isCreatingNew || selectedPO.status === '送信待ち'">
+                          <input type="number" class="border rounded px-2 w-24 text-right bg-white" x-model.number="ln.qtyCase" min="0">
+                        </template>
+                        <template x-if="!isCreatingNew && selectedPO.status !== '送信待ち'">
+                          <span x-text="ln.qtyCase"></span>
+                        </template>
+                      </td>
+                      <td class="px-3 py-2 text-right font-medium text-blue-700 whitespace-nowrap">
+                        <template x-if="isCreatingNew || selectedPO.status === '送信待ち'">
+                          <input type="number" class="border rounded px-2 w-24 text-right bg-white" x-model.number="ln.qtyEach" min="0">
+                        </template>
+                        <template x-if="!isCreatingNew && selectedPO.status !== '送信待ち'">
+                          <span x-text="ln.qtyEach"></span>
+                        </template>
+                      </td>
+                      <td class="px-3 py-2 text-right font-semibold whitespace-nowrap" x-text="ln.qtyCase * getProductCasePack(ln.productId) + ln.qtyEach"></td>
+                      <td class="px-3 py-2 whitespace-nowrap">通常倉</td>
+                      <td class="px-3 py-2 text-right whitespace-nowrap" x-text="fmtYen(getProductUnitPrice(ln.productId))"></td>
+                      <td class="px-3 py-2 whitespace-nowrap" x-text="getProductTax(ln.productId) === 0 ? '非課税' : getProductTax(ln.productId) + '%'"></td>
+                      <td class="px-3 py-2 text-right font-semibold whitespace-nowrap" x-text="fmtYen((ln.qtyCase * getProductCasePack(ln.productId) + ln.qtyEach) * getProductUnitPrice(ln.productId))"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex flex-wrap items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-200">
+            <div class="flex items-center gap-3">
+              <button @click="showAddProductModal = true" :disabled="!isCreatingNew && selectedPO.status !== '送信待ち'" class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-sm">追加(F3)</button>
+              <button class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm text-sm">設定(F4)</button>
+            </div>
+            <div class="flex items-center gap-3">
+              <template x-if="!isCreatingNew && (selectedPO.status === '送信待ち' || currentTab === 'purchase')">
+                <button @click="handleUpdatePO()" class="inline-flex items-center gap-1 rounded-xl border border-emerald-300 bg-emerald-600 text-white px-3 py-2 hover:bg-emerald-700 shadow-sm text-sm">更新(F1)</button>
+              </template>
+              <button class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm text-sm">クリア(F9)</button>
+              <button @click="showDetail = false; selectedPO = null" class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm text-sm">閉じる</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ==================== Popup Modal ==================== -->
+      <template x-if="isPopupMode && popupPO">
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click="isPopupMode = false; popupPO = null">
+          <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-[1200px] w-full mx-4 max-h-[90vh] overflow-y-auto" @click.stop>
+            <div class="flex items-center justify-between mb-4 pb-2 border-b border-blue-100">
+              <div class="text-xl font-bold text-blue-700" x-text="(activeTab === 'purchase' ? '仕入詳細' : '発注詳細') + '（' + popupPO.id + '）'"></div>
+              <div class="flex items-center gap-3">
+                <template x-if="popupPO.status === '送信待ち'">
+                  <button class="inline-flex items-center gap-1 rounded-xl bg-blue-600 text-white px-3 py-2 hover:bg-blue-700 shadow-sm text-sm">送信</button>
+                </template>
+                <template x-if="activeTab === 'list' && popupPO.status === '送信済'">
+                  <button @click="handleOpenConfirmModal(popupPO)" class="inline-flex items-center gap-1 rounded-xl bg-purple-600 text-white px-3 py-2 hover:bg-purple-700 shadow-sm text-sm">確定</button>
+                </template>
+                <button @click="isPopupMode = false; popupPO = null" class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+              </div>
+            </div>
+
+            <div class="text-xs text-slate-500 mb-4" x-text="(activeTab === 'plan' ? '週/月販発注' : activeTab === 'purchase' ? '仕入一覧' : '発注一覧') + ' › ' + popupPO.id"></div>
+
+            <!-- Popup Content - Same as Detail but read-only -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div class="lg:col-span-2 grid sm:grid-cols-2 gap-x-6 gap-y-4 p-4 rounded-xl border bg-slate-50/50">
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">計上日</span><input type="text" :value="popupPO.postingDate || popupPO.orderDate" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium" x-text="activeTab === 'purchase' ? '入荷日' : '入荷予定日'"></span><input type="text" :value="popupPO.etaDate" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">買掛日</span><input type="text" :value="popupPO.payableDate || todayStr()" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">割戻日</span><input type="text" :value="popupPO.rebateDate || todayStr()" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">取引方向</span><input type="text" :value="popupPO.tradeType || '0:通常'" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">入荷設定</span><input type="text" :value="popupPO.immediateReceipt ? '即入荷' : '入荷保留'" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">仕入先</span><input type="text" :value="getVendorName(popupPO.vendorId)" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">倉庫</span><input type="text" :value="getWarehouseName(popupPO.warehouseId)" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">納品区分</span><input type="text" :value="popupPO.deliveryType || '0:買掛'" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">EDI区分</span><input type="text" :value="popupPO.edi || '無'" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1"><span class="text-xs text-slate-500 font-medium">ロット条件</span><input type="text" :value="popupPO.lotCondition || 'なし'" readonly class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></div>
+                <div class="flex flex-col gap-1 sm:col-span-2"><span class="text-xs text-slate-500 font-medium">備考</span><textarea :value="popupPO.memo || ''" readonly rows="2" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50 text-sm"></textarea></div>
+              </div>
+
+              <!-- Tax Summary -->
+              <div class="rounded-xl border border-blue-300 bg-blue-50 p-4 shadow-md h-fit">
+                <div class="flex items-center justify-between mb-3 border-b border-blue-200 pb-2"><div class="font-bold text-blue-800">税サマリ</div></div>
+                <div class="text-sm">
+                  <table class="w-full">
+                    <tbody>
+                      <tr><th class="text-left text-slate-600 font-medium py-1">8% (税抜)</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(popupPO).ex8)"></td></tr>
+                      <tr><th class="text-left text-slate-600 font-medium py-1">10% (税抜)</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(popupPO).ex10)"></td></tr>
+                      <tr><th class="text-left text-slate-600 font-medium py-1">非課税 (税抜)</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(popupPO).ex0)"></td></tr>
+                      <tr class="border-t"><th class="text-left font-semibold py-2">税抜合計</th><td class="text-right font-semibold py-2" x-text="fmtYen(summarizeTax(popupPO).net)"></td></tr>
+                      <tr><th class="text-left text-slate-600 font-medium py-1">8%対象税額</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(popupPO).tax8)"></td></tr>
+                      <tr><th class="text-left text-slate-600 font-medium py-1">10%対象税額</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(popupPO).tax10)"></td></tr>
+                      <tr><th class="text-left text-slate-600 py-1">税額合計</th><td class="text-right py-1" x-text="fmtYen(summarizeTax(popupPO).tax)"></td></tr>
+                      <tr class="border-t"><th class="text-left font-extrabold py-2">税込総額</th><td class="text-right font-extrabold py-2 text-blue-700" x-text="fmtYen(summarizeTax(popupPO).gross)"></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Line Items Table -->
+            <div class="mt-6">
+              <div class="text-slate-600 text-sm font-semibold mb-3 border-b pb-2">明細データ</div>
+              <div class="overflow-x-auto rounded-xl border border-slate-300">
+                <table class="w-full text-sm min-w-[1200px]">
+                  <thead class="bg-slate-100 text-slate-600 sticky top-0">
+                    <tr>
+                      <th class="px-3 py-2 text-left whitespace-nowrap">取引区分</th>
+                      <th class="px-3 py-2 text-left whitespace-nowrap">品番</th>
+                      <th class="px-3 py-2 text-left whitespace-nowrap">商品名</th>
+                      <th class="px-3 py-2 text-left whitespace-nowrap">規格</th>
+                      <th class="px-3 py-2 text-right whitespace-nowrap">在庫数</th>
+                      <th class="px-3 py-2 text-right whitespace-nowrap">自動発注数</th>
+                      <th class="px-3 py-2 text-right whitespace-nowrap" x-text="activeTab === 'purchase' ? '入荷ケース数' : '発注ケース数'"></th>
+                      <th class="px-3 py-2 text-right whitespace-nowrap" x-text="activeTab === 'purchase' ? '入荷バラ数' : '発注バラ数'"></th>
+                      <th class="px-3 py-2 text-right whitespace-nowrap">総バラ数</th>
+                      <th class="px-3 py-2 text-left whitespace-nowrap">在庫区分</th>
+                      <th class="px-3 py-2 text-right whitespace-nowrap">単価</th>
+                      <th class="px-3 py-2 text-left whitespace-nowrap">税区分</th>
+                      <th class="px-3 py-2 text-right whitespace-nowrap">金額（税抜）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="ln in popupPO.lines" :key="ln.id">
+                      <tr class="border-t hover:bg-yellow-50/50">
+                        <td class="px-3 py-2 whitespace-nowrap">通常品</td>
+                        <td class="px-3 py-2 font-mono whitespace-nowrap" x-text="getProductCode(ln.productId)"></td>
+                        <td class="px-3 py-2 whitespace-nowrap" x-text="getProductName(ln.productId)"></td>
+                        <td class="px-3 py-2 whitespace-nowrap" x-text="getProductSpec(ln.productId)"></td>
+                        <td class="px-3 py-2 text-right text-slate-500 whitespace-nowrap">-</td>
+                        <td class="px-3 py-2 text-right text-emerald-600 font-medium whitespace-nowrap" x-text="ln.autoOrderQty || '-'"></td>
+                        <td class="px-3 py-2 text-right font-medium text-blue-700 whitespace-nowrap" x-text="ln.qtyCase"></td>
+                        <td class="px-3 py-2 text-right font-medium text-blue-700 whitespace-nowrap" x-text="ln.qtyEach"></td>
+                        <td class="px-3 py-2 text-right font-semibold whitespace-nowrap" x-text="ln.qtyCase * getProductCasePack(ln.productId) + ln.qtyEach"></td>
+                        <td class="px-3 py-2 whitespace-nowrap">通常倉</td>
+                        <td class="px-3 py-2 text-right whitespace-nowrap" x-text="fmtYen(getProductUnitPrice(ln.productId))"></td>
+                        <td class="px-3 py-2 whitespace-nowrap" x-text="getProductTax(ln.productId) === 0 ? '非課税' : getProductTax(ln.productId) + '%'"></td>
+                        <td class="px-3 py-2 text-right font-semibold whitespace-nowrap" x-text="fmtYen((ln.qtyCase * getProductCasePack(ln.productId) + ln.qtyEach) * getProductUnitPrice(ln.productId))"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Popup Footer -->
+            <div class="flex flex-wrap items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-200">
+              <div class="flex items-center gap-3">
+                <button @click="showAddProductModal = true" :disabled="popupPO.status !== '送信待ち'" class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm disabled:opacity-50 text-sm">追加(F3)</button>
+                <button class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm text-sm">設定(F4)</button>
+              </div>
+              <div class="flex items-center gap-3">
+                <template x-if="popupPO.status === '送信待ち' || activeTab === 'purchase'">
+                  <button @click="handleUpdatePopupPO()" class="inline-flex items-center gap-1 rounded-xl border border-emerald-300 bg-emerald-600 text-white px-3 py-2 hover:bg-emerald-700 shadow-sm text-sm">更新(F1)</button>
+                </template>
+                <button class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm text-sm">クリア(F9)</button>
+                <button @click="isPopupMode = false; popupPO = null" class="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 py-2 hover:bg-slate-100 shadow-sm text-sm">閉じる</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ==================== Add Product Modal ==================== -->
+      <template x-if="showAddProductModal">
+        <div class="fixed inset-0 z-50 flex items-center justify-center">
+          <div class="absolute inset-0 bg-black/50" @click="showAddProductModal = false"></div>
+          <div class="relative bg-white rounded-lg shadow-2xl w-[700px] max-h-[90vh] overflow-y-auto p-6">
+            <div class="flex items-center justify-between mb-4 pb-3 border-b">
+              <h3 class="text-xl font-bold text-blue-700">商品を手動で追加</h3>
+              <button @click="showAddProductModal = false" class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+            </div>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">商品選択</label>
+                <select x-model="addProduct.productId" class="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
+                  <option value="">-- 商品を選択 --</option>
+                  <template x-for="p in products" :key="p.id">
+                    <option :value="p.id" x-text="p.code + ' - ' + p.name + ' (' + p.spec + ')'"></option>
+                  </template>
+                </select>
+              </div>
+              <template x-if="addProduct.productId">
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 class="font-semibold text-blue-900 mb-3">商品実績</h4>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div><div class="text-xs text-slate-600">期間販売数（7日）</div><div class="text-lg font-bold text-blue-700">35</div></div>
+                    <div><div class="text-xs text-slate-600">現在庫</div><div class="text-lg font-bold text-emerald-600" x-text="currentStocks[addProduct.productId] || 0"></div></div>
+                    <div><div class="text-xs text-slate-600">1日平均</div><div class="text-lg font-bold text-orange-600">5</div></div>
+                    <div><div class="text-xs text-slate-600">リードタイム</div><div class="text-lg font-bold text-purple-600">3日</div></div>
+                  </div>
+                </div>
+              </template>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">ケース数</label>
+                  <input type="number" min="0" x-model.number="addProduct.qtyCase" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">バラ数</label>
+                  <input type="number" min="0" x-model.number="addProduct.qtyEach" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                </div>
+              </div>
+              <template x-if="addProductError">
+                <div class="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded-lg" x-text="addProductError"></div>
+              </template>
+              <div class="flex justify-end gap-3 pt-4 border-t">
+                <button @click="showAddProductModal = false" class="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">キャンセル</button>
+                <button @click="handleAddProduct()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">追加</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Manual Add Modal for Plan Tab -->
+      <template x-if="showManualAdd">
+        <div class="fixed inset-0 z-50 flex items-center justify-center">
+          <div class="absolute inset-0 bg-black/50" @click="showManualAdd = false"></div>
+          <div class="relative bg-white rounded-lg shadow-2xl w-[700px] max-h-[90vh] overflow-y-auto p-6">
+            <div class="flex items-center justify-between mb-4 pb-3 border-b">
+              <h3 class="text-xl font-bold text-blue-700">商品を手動で追加</h3>
+              <button @click="showManualAdd = false" class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+            </div>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-2">商品選択</label>
+                <select x-model="manualAdd.productId" class="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
+                  <option value="">-- 商品を選択 --</option>
+                  <template x-for="p in products" :key="p.id">
+                    <option :value="p.id" x-text="p.code + ' - ' + p.name + ' (' + p.spec + ')'"></option>
+                  </template>
+                </select>
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">ケース数</label>
+                  <input type="number" min="0" x-model.number="manualAdd.qtyCase" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-2">バラ数</label>
+                  <input type="number" min="0" x-model.number="manualAdd.qtyEach" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                </div>
+              </div>
+              <div class="flex justify-end gap-3 pt-4 border-t">
+                <button @click="showManualAdd = false" class="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">キャンセル</button>
+                <button @click="handleManualAdd()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">追加</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- 入荷確定モーダル -->
+      <template x-if="showConfirmModal && confirmingPO">
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click="showConfirmModal = false">
+          <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-5xl w-full mx-4 max-h-[90vh] overflow-y-auto" @click.stop>
+            <div class="flex items-center justify-between mb-4 pb-3 border-b">
+              <h3 class="text-xl font-bold text-purple-700">入荷確定処理</h3>
+              <button @click="showConfirmModal = false" class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+            </div>
+            <div class="mb-4 p-4 bg-slate-50 rounded-xl">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div><span class="text-slate-500">発注ID:</span> <span class="font-semibold" x-text="confirmingPO.id"></span></div>
+                <div><span class="text-slate-500">発注日:</span> <span x-text="confirmingPO.orderDate"></span></div>
+                <div><span class="text-slate-500">入荷予定日:</span> <span x-text="confirmingPO.etaDate"></span></div>
+                <div><span class="text-slate-500">仕入先:</span> <span x-text="getVendorName(confirmingPO.vendorId)"></span></div>
+              </div>
+            </div>
+            <div class="mb-4">
+              <h4 class="text-sm font-semibold text-slate-700 mb-2">入荷数量を入力してください</h4>
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm border-collapse">
+                  <thead>
+                    <tr class="bg-slate-100">
+                      <th class="px-3 py-2 text-left">商品名</th>
+                      <th class="px-3 py-2 text-center">規格</th>
+                      <th class="px-3 py-2 text-right">発注ケース</th>
+                      <th class="px-3 py-2 text-right">発注バラ</th>
+                      <th class="px-3 py-2 text-center">入荷ケース</th>
+                      <th class="px-3 py-2 text-center">入荷バラ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="(line, idx) in confirmingPO.lines" :key="line.id">
+                      <tr class="border-t">
+                        <td class="px-3 py-2" x-text="products.find(p => p.id === line.productId)?.name || '-'"></td>
+                        <td class="px-3 py-2 text-center" x-text="products.find(p => p.id === line.productId)?.spec || '-'"></td>
+                        <td class="px-3 py-2 text-right" x-text="line.qtyCase"></td>
+                        <td class="px-3 py-2 text-right" x-text="line.qtyEach"></td>
+                        <td class="px-3 py-2 text-center">
+                          <input type="number" min="0" x-model.number="receivedLines[idx].receivedCase" class="w-20 border border-slate-300 rounded px-2 py-1 text-right">
+                        </td>
+                        <td class="px-3 py-2 text-center">
+                          <input type="number" min="0" x-model.number="receivedLines[idx].receivedEach" class="w-20 border border-slate-300 rounded px-2 py-1 text-right">
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="mb-4">
+              <label class="block text-sm font-semibold text-slate-700 mb-2">備考</label>
+              <textarea x-model="confirmRemarks" placeholder="入荷確定時の備考を入力してください" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none" rows="3"></textarea>
+            </div>
+            <div class="flex justify-end gap-3 pt-4 border-t">
+              <button @click="showConfirmModal = false" class="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50">キャンセル</button>
+              <button @click="handleConfirmPurchase()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">確定</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </div>
+
+  <script>
+function autoOrderApp() {
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const addBizDays = (startISO, days) => {
+    let d = new Date(startISO);
+    let left = days;
+    while (left > 0) {
+      d.setDate(d.getDate() + 1);
+      const dow = d.getDay();
+      if (dow !== 0 && dow !== 6) left--;
+    }
+    return d.toISOString().slice(0, 10);
+  };
+  const addDays = (iso, d) => {
+    const t = new Date(iso);
+    t.setDate(t.getDate() + d);
+    return t.toISOString().slice(0, 10);
+  };
+
+  const warehouses = [
+    { id: "W1", name: "むすびの蔵センター" },
+    { id: "W2", name: "北陸DC" },
+  ];
+
+  const vendors = [
+    { id: "V1", name: "コクブ富山支社", edi: "EOS", tel: "076-123-4567", fax: "076-123-4568" },
+    { id: "V2", name: "三菱食品 金沢", edi: "EOS", tel: "076-234-5678", fax: "076-234-5679" },
+    { id: "V3", name: "地場仕入先A", edi: "無", tel: "076-345-6789", fax: "076-345-6790" },
+  ];
+
+  const products = [
+    { id: "1", code: "4900001", jan: "4900001000001", name: "ミネラルウォーター 2L", spec: "2L×6", casePack: 6, unitPrice: 90, tax: 10 },
+    { id: "2", code: "4900002", jan: "4900002000002", name: "カップ麺 醤油", spec: "12個", casePack: 12, unitPrice: 110, tax: 10 },
+    { id: "3", code: "4900003", jan: "4900003000003", name: "惣菜(非課税例)", spec: "-", casePack: 1, unitPrice: 200, tax: 0 },
+    { id: "4", code: "4900004", jan: "4900004000004", name: "菓子(軽減)", spec: "24個", casePack: 24, unitPrice: 60, tax: 8 },
+    { id: "5", code: "4900005", jan: "4900005000005", name: "緑茶ペットボトル 500ml", spec: "24本", casePack: 24, unitPrice: 85, tax: 10 },
+    { id: "6", code: "4900006", jan: "4900006000006", name: "コーヒー缶 185ml", spec: "30本", casePack: 30, unitPrice: 75, tax: 10 },
+    { id: "7", code: "4900007", jan: "4900007000007", name: "カップ麺 味噌", spec: "12個", casePack: 12, unitPrice: 115, tax: 10 },
+    { id: "8", code: "4900008", jan: "4900008000008", name: "カップ麺 塩", spec: "12個", casePack: 12, unitPrice: 108, tax: 10 },
+    { id: "9", code: "4900009", jan: "4900009000009", name: "おにぎり 鮭", spec: "10個", casePack: 10, unitPrice: 120, tax: 8 },
+    { id: "10", code: "4900010", jan: "4900010000010", name: "おにぎり 梅", spec: "10個", casePack: 10, unitPrice: 110, tax: 8 },
+    { id: "11", code: "4900011", jan: "4900011000011", name: "サンドイッチ ツナ", spec: "8個", casePack: 8, unitPrice: 180, tax: 8 },
+    { id: "12", code: "4900012", jan: "4900012000012", name: "サンドイッチ ハム", spec: "8個", casePack: 8, unitPrice: 185, tax: 8 },
+    { id: "13", code: "4900013", jan: "4900013000013", name: "ポテトチップス うす塩", spec: "12袋", casePack: 12, unitPrice: 95, tax: 8 },
+    { id: "14", code: "4900014", jan: "4900014000014", name: "ポテトチップス コンソメ", spec: "12袋", casePack: 12, unitPrice: 95, tax: 8 },
+    { id: "15", code: "4900015", jan: "4900015000015", name: "チョコレート ミルク", spec: "20個", casePack: 20, unitPrice: 80, tax: 8 },
+    { id: "16", code: "4900016", jan: "4900016000016", name: "チョコレート ビター", spec: "20個", casePack: 20, unitPrice: 85, tax: 8 },
+    { id: "17", code: "4900017", jan: "4900017000017", name: "炭酸水 500ml", spec: "24本", casePack: 24, unitPrice: 65, tax: 10 },
+    { id: "18", code: "4900018", jan: "4900018000018", name: "スポーツドリンク 500ml", spec: "24本", casePack: 24, unitPrice: 95, tax: 10 },
+    { id: "19", code: "4900019", jan: "4900019000019", name: "弁当 幕の内", spec: "6個", casePack: 6, unitPrice: 450, tax: 8 },
+    { id: "20", code: "4900020", jan: "4900020000020", name: "弁当 のり弁", spec: "6個", casePack: 6, unitPrice: 350, tax: 8 },
+  ];
+
+  const productCategories = {
+    "1": { L: '飲料', M: '水', S: '2L' }, "2": { L: '加工食品', M: '麺類', S: 'カップ麺' },
+    "3": { L: '惣菜', M: '弁当・総菜', S: '日配惣菜' }, "4": { L: '菓子', M: 'スナック', S: '小袋' },
+    "5": { L: '飲料', M: 'お茶', S: 'ペットボトル' }, "6": { L: '飲料', M: 'コーヒー', S: '缶' },
+    "7": { L: '加工食品', M: '麺類', S: 'カップ麺' }, "8": { L: '加工食品', M: '麺類', S: 'カップ麺' },
+    "9": { L: '惣菜', M: 'おにぎり', S: '定番' }, "10": { L: '惣菜', M: 'おにぎり', S: '定番' },
+    "11": { L: '惣菜', M: 'サンドイッチ', S: '定番' }, "12": { L: '惣菜', M: 'サンドイッチ', S: '定番' },
+    "13": { L: '菓子', M: 'スナック', S: 'ポテト' }, "14": { L: '菓子', M: 'スナック', S: 'ポテト' },
+    "15": { L: '菓子', M: 'チョコ', S: '板チョコ' }, "16": { L: '菓子', M: 'チョコ', S: '板チョコ' },
+    "17": { L: '飲料', M: '炭酸', S: '炭酸水' }, "18": { L: '飲料', M: 'スポーツ', S: 'ペットボトル' },
+    "19": { L: '惣菜', M: '弁当・総菜', S: '弁当' }, "20": { L: '惣菜', M: '弁当・総菜', S: '弁当' },
+  };
+
+  const currentStocks = { "1": 30, "2": 18, "3": 8, "4": 120, "5": 48, "6": 60, "7": 24, "8": 36, "9": 20, "10": 15, "11": 16, "12": 8, "13": 36, "14": 24, "15": 40, "16": 20, "17": 72, "18": 48, "19": 12, "20": 18 };
+
+  const productAutoOrderQty = {
+    "1": { W1: 60, W2: 50 }, "2": { W1: 96, W2: 80 }, "3": { W1: 50, W2: 40 }, "4": { W1: 132, W2: 120 },
+    "5": { W1: 72, W2: 48 }, "6": { W1: 90, W2: 60 }, "7": { W1: 48, W2: 36 }, "8": { W1: 48, W2: 36 },
+    "9": { W1: 30, W2: 20 }, "10": { W1: 30, W2: 20 }, "11": { W1: 24, W2: 16 }, "12": { W1: 24, W2: 16 },
+    "13": { W1: 48, W2: 36 }, "14": { W1: 48, W2: 36 }, "15": { W1: 60, W2: 40 }, "16": { W1: 60, W2: 40 },
+    "17": { W1: 96, W2: 72 }, "18": { W1: 72, W2: 48 }, "19": { W1: 18, W2: 12 }, "20": { W1: 24, W2: 18 },
+  };
+
+  const productStandardVendor = { "1": 'V1', "2": 'V2', "3": 'V3', "4": 'V1', "5": 'V1', "6": 'V1', "7": 'V2', "8": 'V2', "9": 'V3', "10": 'V3', "11": 'V3', "12": 'V3', "13": 'V1', "14": 'V1', "15": 'V2', "16": 'V2', "17": 'V1', "18": 'V1', "19": 'V3', "20": 'V3' };
+
+  const vendorLeadTimeDays = { V1: 2, V2: 4, V3: 3 };
+
+  const categories = {
+    L: [...new Set(Object.values(productCategories).map(c => c.L))],
+    M: [...new Set(Object.values(productCategories).map(c => c.M))],
+    S: [...new Set(Object.values(productCategories).map(c => c.S))]
+  };
+
+  const demoPOs = [
+    { id: "1728518400001", orderDate: todayStr(), etaDate: addBizDays(todayStr(), 2), warehouseId: "W1", vendorId: "V1", status: "送信済", edi: "EOS", isAuto: true, lotCondition: "ケース単位", createdBy: "山田太郎", createdAt: `${todayStr()}T10:30:00`, updatedBy: "佐藤花子", updatedAt: `${todayStr()}T14:20:00`, postingDate: todayStr(), payableDate: todayStr(), rebateDate: todayStr(), tradeType: "0:通常", deliveryType: "0:買掛", slipNo: "", memo: "納品時間：午前中希望。裏口から搬入してください。", memoCode: "", immediateReceipt: false, receiptOnHold: true, isPrinted: true, lines: [{ id: "L1", productId: "1", qtyCase: 10, qtyEach: 0, autoOrderQty: 60 }, { id: "L2", productId: "4", qtyCase: 5, qtyEach: 12, autoOrderQty: 132 }] },
+    { id: "1728518400002", orderDate: todayStr(), etaDate: addBizDays(todayStr(), 4), warehouseId: "W2", vendorId: "V3", status: "送信待ち", edi: "無", isAuto: false, lotCondition: "なし", createdBy: "鈴木一郎", createdAt: `${todayStr()}T09:15:00`, updatedBy: "鈴木一郎", updatedAt: `${todayStr()}T09:15:00`, postingDate: todayStr(), payableDate: todayStr(), rebateDate: todayStr(), tradeType: "0:通常", deliveryType: "0:買掛", slipNo: "", memo: "", memoCode: "", immediateReceipt: true, receiptOnHold: false, isPrinted: false, lines: [{ id: "L3", productId: "2", qtyCase: 8, qtyEach: 0, autoOrderQty: 96 }, { id: "L4", productId: "3", qtyCase: 0, qtyEach: 50, autoOrderQty: 50 }] },
+    { id: "1728432000003", orderDate: '2025-10-08', etaDate: addBizDays('2025-10-08', 7), warehouseId: "W1", vendorId: "V2", status: "送信済", edi: "EOS", isAuto: true, lotCondition: "ボール単位", createdBy: "田中美咲", createdAt: '2025-10-08T08:00:00', updatedBy: "田中美咲", updatedAt: '2025-10-08T16:30:00', postingDate: '2025-10-08', payableDate: '2025-10-08', rebateDate: '2025-10-08', tradeType: "0:通常", deliveryType: "0:買掛", slipNo: "PO12345", memo: "※至急対応願います。欠品時は電話連絡ください。", memoCode: "", immediateReceipt: false, receiptOnHold: true, isPrinted: true, lines: [{ id: "L5", productId: "1", qtyCase: 5, qtyEach: 0, autoOrderQty: 30 }, { id: "L6", productId: "2", qtyCase: 5, qtyEach: 0, autoOrderQty: 60 }] },
+    { id: "1728345600004", orderDate: '2025-10-07', etaDate: addBizDays('2025-10-07', 3), warehouseId: "W2", vendorId: "V1", status: "取消", edi: "EOS", isAuto: false, lotCondition: "ケース単位", createdBy: "高橋健太", createdAt: '2025-10-07T11:00:00', updatedBy: "山田太郎", updatedAt: '2025-10-07T13:45:00', postingDate: '2025-10-07', payableDate: '2025-10-07', rebateDate: '2025-10-07', tradeType: "0:通常", deliveryType: "0:買掛", slipNo: "", memo: "", memoCode: "", immediateReceipt: false, receiptOnHold: true, isPrinted: false, lines: [{ id: "L7", productId: "4", qtyCase: 1, qtyEach: 0, autoOrderQty: 24 }] },
+  ];
+
+  return {
+    tabs: [{ key: 'plan', label: '週/月販発注' }, { key: 'list', label: '発注一覧' }, { key: 'purchase', label: '仕入一覧' }],
+    activeTab: 'list', currentTab: 'list', warehouses, vendors, products, categories, currentStocks, productCategories, productStandardVendor, vendorLeadTimeDays, productAutoOrderQty,
+    list: demoPOs, selectedPO: null, popupPO: null, selectedPOs: [], isCreatingNew: false, showDetail: false, isPopupMode: false, showAddProductModal: false, showManualAdd: false,
+    showConfirmModal: false, confirmingPO: null, receivedLines: [], confirmRemarks: '',
+    addProduct: { productId: '', qtyCase: 0, qtyEach: 0 }, addProductError: '', manualAdd: { productId: '', qtyCase: 0, qtyEach: 0 },
+    filters: { keyword: '', orderDateFrom: '', orderDateTo: '', etaDateFrom: '', etaDateTo: '', warehouse: 'ALL', vendor: 'ALL', status: 'ALL', edi: 'ALL', confirmStatus: 'ALL', receiptSetting: 'ALL' },
+    purchaseFilters: { keyword: '', orderDateFrom: '', orderDateTo: '', etaDateFrom: '', etaDateTo: '', warehouse: 'ALL', vendor: 'ALL' },
+    planFilters: { periodFrom: addDays(todayStr(), -7), periodTo: todayStr(), warehouse: 'W1', vendor: 'NONE', catL: 'ALL', catM: 'ALL', catS: 'ALL' },
+    planRows: [], staging: [],
+    todayStr,
+    get filteredList() {
+      return this.list.filter(po => {
+        if (po.sourceOrderId) return false;
+        const v = this.vendors.find(x => x.id === po.vendorId); const w = this.warehouses.find(x => x.id === po.warehouseId);
+        if (!v || !w) return false;
+        const hitKW = this.filters.keyword ? [po.id, v.name, w.name].some(s => s.toLowerCase().includes(this.filters.keyword.toLowerCase())) : true;
+        const hitW = this.filters.warehouse === 'ALL' || po.warehouseId === this.filters.warehouse;
+        const hitV = this.filters.vendor === 'ALL' || po.vendorId === this.filters.vendor;
+        const hitS = this.filters.status === 'ALL' || po.status === this.filters.status;
+        const hitE = this.filters.edi === 'ALL' || po.edi === this.filters.edi;
+        const hitDateFrom = this.filters.orderDateFrom ? po.orderDate >= this.filters.orderDateFrom : true;
+        const hitDateTo = this.filters.orderDateTo ? po.orderDate <= this.filters.orderDateTo : true;
+        const hitEtaFrom = this.filters.etaDateFrom ? po.etaDate >= this.filters.etaDateFrom : true;
+        const hitEtaTo = this.filters.etaDateTo ? po.etaDate <= this.filters.etaDateTo : true;
+        const hitConfirm = this.filters.confirmStatus === 'ALL' || (this.filters.confirmStatus === '未確定' && !(po.memo && po.memo.includes('一部入荷済み'))) || (this.filters.confirmStatus === '一部確定' && po.memo && po.memo.includes('一部入荷済み'));
+        const hitReceipt = this.filters.receiptSetting === 'ALL' || (this.filters.receiptSetting === '即入荷' && po.immediateReceipt) || (this.filters.receiptSetting === '入荷保留' && !po.immediateReceipt);
+        return hitKW && hitW && hitV && hitS && hitE && hitDateFrom && hitDateTo && hitEtaFrom && hitEtaTo && hitConfirm && hitReceipt;
+      });
+    },
+    get purchaseFilteredList() {
+      return this.list.filter(po => {
+        if (!po.sourceOrderId) return false;
+        const v = this.vendors.find(x => x.id === po.vendorId); const w = this.warehouses.find(x => x.id === po.warehouseId);
+        if (!v || !w) return false;
+        const hitKW = this.purchaseFilters.keyword ? [po.id, v.name, w.name].some(s => s.toLowerCase().includes(this.purchaseFilters.keyword.toLowerCase())) : true;
+        const hitW = this.purchaseFilters.warehouse === 'ALL' || po.warehouseId === this.purchaseFilters.warehouse;
+        const hitV = this.purchaseFilters.vendor === 'ALL' || po.vendorId === this.purchaseFilters.vendor;
+        return hitKW && hitW && hitV;
+      });
+    },
+    fmtYen(n) { return Number(n || 0).toLocaleString('ja-JP'); },
+    getPageTitle() {
+      if (this.showDetail && this.selectedPO) return this.isCreatingNew ? (this.currentTab === 'purchase' ? '仕入入力' : '発注入力') : (this.currentTab === 'purchase' ? '仕入詳細' : '発注詳細');
+      if (this.activeTab === 'list') return '発注一覧'; if (this.activeTab === 'plan') return '週/月販発注'; if (this.activeTab === 'purchase') return '仕入一覧'; return '';
+    },
+    getWarehouseName(id) { return this.warehouses.find(w => w.id === id)?.name || '-'; },
+    getVendorName(id) { return this.vendors.find(v => v.id === id)?.name || '-'; },
+    getProductCode(id) { return this.products.find(p => p.id === id)?.code || '-'; },
+    getProductJan(id) { return this.products.find(p => p.id === id)?.jan || '-'; },
+    getProductName(id) { return this.products.find(p => p.id === id)?.name || '-'; },
+    getProductSpec(id) { return this.products.find(p => p.id === id)?.spec || '-'; },
+    getProductCasePack(id) { return this.products.find(p => p.id === id)?.casePack || 1; },
+    getProductUnitPrice(id) { return this.products.find(p => p.id === id)?.unitPrice || 0; },
+    getProductTax(id) { return this.products.find(p => p.id === id)?.tax ?? 10; },
+    getStdVendorName(productId) { const vid = this.productStandardVendor[productId]; return this.vendors.find(v => v.id === vid)?.name || '-'; },
+    getStatusClass(status) {
+      if (status === '送信待ち') return 'bg-blue-100 text-blue-700 border-blue-300';
+      if (status === '送信中') return 'bg-yellow-100 text-yellow-800 border-yellow-400';
+      if (status === '送信済') return 'bg-green-100 text-green-700 border-green-300';
+      if (status === '取消') return 'bg-red-100 text-red-700 border-red-300';
+      return 'bg-slate-100 text-slate-700 border-slate-300';
+    },
+    summarizeTax(po) {
+      let ex0 = 0, ex8 = 0, ex10 = 0;
+      for (const ln of po.lines) { const p = this.products.find(x => x.id === ln.productId); if (!p) continue; const totalEach = ln.qtyCase * p.casePack + ln.qtyEach; const amount = totalEach * p.unitPrice; if (p.tax === 0) ex0 += amount; else if (p.tax === 8) ex8 += amount; else ex10 += amount; }
+      const tax8 = Math.floor(ex8 * 0.08), tax10 = Math.floor(ex10 * 0.10); const net = ex0 + ex8 + ex10, tax = tax8 + tax10, gross = net + tax;
+      return { ex0, ex8, ex10, tax8, tax10, net, tax, gross };
+    },
+    openPopup(po) { this.popupPO = JSON.parse(JSON.stringify(po)); this.isPopupMode = true; },
+    openDetail(po) { this.selectedPO = JSON.parse(JSON.stringify(po)); this.currentTab = this.activeTab; this.showDetail = true; this.isCreatingNew = false; },
+    toggleSelectPO(poId) { const idx = this.selectedPOs.indexOf(poId); if (idx >= 0) this.selectedPOs.splice(idx, 1); else this.selectedPOs.push(poId); },
+    toggleSelectAll() { if (this.selectedPOs.length === this.filteredList.length) this.selectedPOs = []; else this.selectedPOs = this.filteredList.map(po => po.id); },
+    handleAddNewPO() { const newId = `${Date.now()}`; this.selectedPO = { id: newId, orderDate: todayStr(), etaDate: todayStr(), warehouseId: '', vendorId: '', status: '送信待ち', edi: '無', isAuto: false, lines: [], createdAt: '', createdBy: '', updatedAt: '', updatedBy: '', postingDate: todayStr(), payableDate: todayStr(), rebateDate: todayStr(), tradeType: '0:通常', deliveryType: '0:買掛', slipNo: '', memo: '', memoCode: '', lotCondition: 'なし', immediateReceipt: false, receiptOnHold: true, receiptSetting: 'onHold' }; this.currentTab = 'list'; this.isCreatingNew = true; this.showDetail = true; },
+    handleAddNewPurchase() { const newId = `${Date.now()}`; this.selectedPO = { id: newId, orderDate: todayStr(), etaDate: todayStr(), warehouseId: '', vendorId: '', status: '送信済', edi: '無', isAuto: false, lines: [], createdAt: '', createdBy: '', updatedAt: '', updatedBy: '', postingDate: todayStr(), payableDate: todayStr(), rebateDate: todayStr(), tradeType: '0:通常', deliveryType: '0:買掛', slipNo: '', memo: '', memoCode: '', lotCondition: 'なし', immediateReceipt: false, receiptOnHold: true, receiptSetting: 'onHold', sourceOrderId: 'MANUAL' }; this.currentTab = 'purchase'; this.isCreatingNew = true; this.showDetail = true; },
+    handleSaveNewDraft() { if (!this.selectedPO.etaDate || !this.selectedPO.warehouseId || !this.selectedPO.vendorId) { const missing = []; if (!this.selectedPO.etaDate) missing.push('入荷予定日'); if (!this.selectedPO.warehouseId) missing.push('倉庫'); if (!this.selectedPO.vendorId) missing.push('仕入先'); alert(`以下の項目が未入力です: ${missing.join('、')}`); return; } const now = new Date().toISOString().slice(0, 19); this.selectedPO.createdAt = now; this.selectedPO.updatedAt = now; this.selectedPO.createdBy = 'システム'; this.selectedPO.updatedBy = 'システム'; this.selectedPO.immediateReceipt = this.selectedPO.receiptSetting === 'immediate'; this.list.unshift(JSON.parse(JSON.stringify(this.selectedPO))); this.selectedPO = null; this.isCreatingNew = false; this.showDetail = false; alert('登録が完了しました'); },
+    handleCancelNew() { if (confirm('入力内容を破棄して一覧に戻りますか？')) { this.selectedPO = null; this.isCreatingNew = false; this.showDetail = false; } },
+    handleUpdatePO() { const idx = this.list.findIndex(p => p.id === this.selectedPO.id); if (idx >= 0) { this.selectedPO.updatedAt = new Date().toISOString().slice(0, 19); this.list[idx] = JSON.parse(JSON.stringify(this.selectedPO)); alert('更新しました'); } },
+    handleUpdatePopupPO() { const idx = this.list.findIndex(p => p.id === this.popupPO.id); if (idx >= 0) { this.popupPO.updatedAt = new Date().toISOString().slice(0, 19); this.list[idx] = JSON.parse(JSON.stringify(this.popupPO)); alert('更新しました'); } },
+    handleDeletePO(poId) { if (!confirm('この発注を削除してもよろしいですか？')) return; this.list = this.list.filter(po => po.id !== poId); this.selectedPOs = this.selectedPOs.filter(id => id !== poId); },
+    handleBulkStatusChange(newStatus) { if (this.selectedPOs.length === 0) { alert('変更する発注を選択してください'); return; } const now = new Date().toISOString().slice(0, 19); this.list = this.list.map(po => this.selectedPOs.includes(po.id) ? { ...po, status: newStatus, updatedAt: now } : po); this.selectedPOs = []; },
+    handleBulkSend() { if (this.selectedPOs.length === 0) { alert('送信する発注を選択してください'); return; } const targets = this.list.filter(po => this.selectedPOs.includes(po.id) && po.status === '送信待ち'); if (targets.length === 0) { alert('送信可能な発注がありません'); return; } const now = new Date().toISOString().slice(0, 19); this.list = this.list.map(po => (this.selectedPOs.includes(po.id) && po.status === '送信待ち') ? { ...po, status: '送信済', updatedAt: now } : po); this.selectedPOs = []; alert(`${targets.length}件の発注を送信しました`); },
+    handleExportCSV() { const header = ['識別ID', '発注日', '入荷予定日', '倉庫', '発注先', '仕入先', '明細数', '税込合計', '状態', 'EDI区分', '自動発注', 'ロット条件', '作成者', '作成日時', '更新者', '更新日時']; const rows = this.filteredList.map(po => { const w = this.warehouses.find(x => x.id === po.warehouseId)?.name || ''; const v = this.vendors.find(x => x.id === po.vendorId)?.name || ''; const sum = this.summarizeTax(po); return [po.id, po.orderDate, po.etaDate, w, v, v, String(po.lines.length), String(sum.gross), po.status, po.edi, po.isAuto ? '自動' : '手動', po.lotCondition || '', po.createdBy || '', po.createdAt ? po.createdAt.replace('T', ' ') : '', po.updatedBy || '', po.updatedAt ? po.updatedAt.replace('T', ' ') : '']; }); const csv = [header, ...rows].map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\r\n'); const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `auto_po_${todayStr()}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); },
+    handleBulkPrintPO() { if (this.selectedPOs.length === 0) { alert('出力する発注を選択してください'); return; } const targets = this.list.filter(po => this.selectedPOs.includes(po.id)); targets.forEach((po, index) => setTimeout(() => this.handlePrintSinglePO(po), index * 1000)); const now = new Date().toISOString().slice(0, 19); this.list = this.list.map(po => this.selectedPOs.includes(po.id) ? { ...po, isPrinted: true, updatedAt: now } : po); },
+    handlePrintSinglePO(po) { const w = this.warehouses.find(x => x.id === po.warehouseId); const v = this.vendors.find(x => x.id === po.vendorId); const printWindow = window.open('', '_blank'); if (!printWindow) return; const linesHtml = po.lines.map((line, idx) => { const p = this.products.find(x => x.id === line.productId); const productJan = p?.jan || '-'; const productCode = p?.code || line.productId; const productName = p?.name || '商品情報取得予定'; const productSpec = p?.spec || '-'; const casePack = p?.casePack || 1; const totalEach = line.qtyCase * casePack + line.qtyEach; return `<tr><td class="text-center">${idx + 1}</td><td class="text-center">${productJan}</td><td class="text-center">${productCode}</td><td>${productName}</td><td class="text-center">${productSpec}</td><td class="text-right">${casePack}</td><td class="text-right"><strong>${line.qtyCase}</strong></td><td class="text-right"><strong>${line.qtyEach}</strong></td><td class="text-right"><strong>${totalEach}</strong></td></tr>`; }).join(''); const memoHtml = po.memo ? `<div style="margin-top:15px;padding:10px;border:1px solid #333;background:#fffef0;"><strong>■ 備考・連絡事項</strong><div style="margin-top:5px;">${po.memo}</div></div>` : ''; const htmlContent = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>FAX発注書 - ${po.id}</title><style>@media print{@page{size:A4;margin:10mm}body{margin:0;padding:10px;-webkit-print-color-adjust:exact;print-color-adjust:exact}th,td{border:0.1px solid #ccc!important}th{background-color:#e0e0e0!important}.no-print{display:none!important}}*{box-sizing:border-box}body{font-family:'MS Gothic','MS Mincho',monospace;font-size:11px;line-height:1.4;padding:20px;max-width:210mm;margin:20px auto;background:white}.fax-header{border:2px solid #000;padding:8px;margin-bottom:10px}.fax-header-grid{display:table;width:100%;margin-bottom:8px}.fax-header-grid>div{display:table-cell;width:50%;vertical-align:top;padding:4px;font-size:13px}.fax-to{font-size:16px;font-weight:bold;margin-bottom:8px;border-bottom:2px solid #000;padding-bottom:4px}.fax-from{text-align:right;font-size:12px}h1{text-align:center;font-size:24px;font-weight:bold;margin:10px 0 15px 0;border-bottom:3px double #000;padding-bottom:8px}table{width:100%;border-collapse:collapse;margin-top:8px;font-size:10px}th,td{border:0.1px solid #ccc;padding:4px 6px}th{background-color:#e0e0e0;font-weight:bold;text-align:center}.text-right{text-align:right}.text-center{text-align:center}.print-button-container{text-align:center;margin:20px 0}.print-button{background:#2563eb;color:white;border:none;padding:12px 32px;font-size:16px;font-weight:bold;border-radius:8px;cursor:pointer}.print-button:hover{background:#1d4ed8}.footer{margin-top:15px;text-align:center;font-size:9px;color:#666;border-top:1px solid #ccc;padding-top:8px}</style></head><body><div class="fax-header"><div class="fax-to">宛先: ${v?.name || ''} 御中<span style="font-size:11px;font-weight:normal;margin-left:20px;">TEL: ${v?.tel || '―'}　FAX: ${v?.fax || '―'}</span></div><div class="fax-header-grid"><div><div><strong>発注日:</strong> ${po.orderDate}</div><div><strong>納品希望日:</strong> ${po.etaDate}</div><div><strong>発注番号:</strong> ${po.id}</div><div><strong>納入場所:</strong> ${w?.name || ''}</div><div><strong>EDI区分:</strong> ${po.edi}</div></div><div class="fax-from"><div>発注元: むすびの蔵センター</div><div>住所: 〒000-0000 富山県富山市</div><div>TEL: 000-0000-0000</div><div>FAX: 000-0000-0001</div><div style="margin-top:4px;"><strong>担当者: ${po.createdBy || '―'}</strong></div></div></div></div><h1>発 注 書</h1><table><thead><tr><th style="width:30px;">No.</th><th style="width:110px;">JANコード</th><th style="width:80px;">品番</th><th>商品名</th><th style="width:80px;">規格</th><th style="width:40px;">入数</th><th style="width:50px;">ケース</th><th style="width:50px;">バラ</th><th style="width:60px;">総バラ数</th></tr></thead><tbody>${linesHtml}</tbody></table>${memoHtml}<div class="print-button-container no-print"><button class="print-button" onclick="window.print()">印刷</button></div><div class="footer">この発注書は自動発注システムにより出力されました。<br>ご不明点がございましたら、上記連絡先までお問い合わせください。</div><script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>`; printWindow.document.write(htmlContent); printWindow.document.close(); },
+    handleOpenConfirmModal(po) {
+      this.confirmingPO = JSON.parse(JSON.stringify(po));
+      this.receivedLines = po.lines.map(line => {
+        const p = this.products.find(x => x.id === line.productId);
+        const casePack = p?.casePack || 1;
+        return { id: line.id, receivedCase: line.qtyCase, receivedEach: line.qtyEach };
+      });
+      this.confirmRemarks = '';
+      this.showConfirmModal = true;
+    },
+    handleBulkConfirm() {
+      if (this.selectedPOs.length === 0) { alert('確定する発注を選択してください'); return; }
+      const confirmablePOs = this.list.filter(po => this.selectedPOs.includes(po.id) && po.status === '送信済' && !po.isConfirmed);
+      if (confirmablePOs.length === 0) { alert('確定可能な発注（状態が「送信済」かつ未確定）がありません'); return; }
+      if (!confirm(`${confirmablePOs.length}件の発注を確定します。全数入荷として処理されます。よろしいですか？`)) return;
+      const now = new Date().toISOString().slice(0, 19);
+      const newPurchases = confirmablePOs.map(po => ({
+        ...JSON.parse(JSON.stringify(po)),
+        id: `PUR-${po.id}`,
+        sourceOrderId: po.id,
+        status: '送信済',
+        createdAt: now,
+        updatedAt: now,
+        memo: `発注ID:${po.id}より全数入荷`
+      }));
+      this.list = this.list.filter(po => !(this.selectedPOs.includes(po.id) && po.status === '送信済' && !po.isConfirmed));
+      this.list = [...newPurchases, ...this.list];
+      this.selectedPOs = [];
+      alert(`${confirmablePOs.length}件の発注を確定しました`);
+    },
+    handleConfirmPurchase() {
+      if (!this.confirmingPO) return;
+      const now = new Date().toISOString().slice(0, 19);
+      const receivedLinesData = this.receivedLines.map(rl => {
+        const origLine = this.confirmingPO.lines.find(l => l.id === rl.id);
+        return { ...origLine, qtyCase: rl.receivedCase, qtyEach: rl.receivedEach };
+      }).filter(l => l.qtyCase > 0 || l.qtyEach > 0);
+      if (receivedLinesData.length === 0) { alert('入荷数量を入力してください'); return; }
+      const newPurchase = {
+        ...JSON.parse(JSON.stringify(this.confirmingPO)),
+        id: `PUR-${this.confirmingPO.id}-${Date.now()}`,
+        sourceOrderId: this.confirmingPO.id,
+        status: '送信済',
+        lines: receivedLinesData,
+        createdAt: now,
+        updatedAt: now,
+        memo: this.confirmRemarks || `発注ID:${this.confirmingPO.id}より入荷`
+      };
+      const remainingLines = this.confirmingPO.lines.map(origLine => {
+        const received = this.receivedLines.find(rl => rl.id === origLine.id);
+        if (!received) return origLine;
+        const p = this.products.find(x => x.id === origLine.productId);
+        const casePack = p?.casePack || 1;
+        const origTotal = origLine.qtyCase * casePack + origLine.qtyEach;
+        const recTotal = received.receivedCase * casePack + received.receivedEach;
+        const remainTotal = origTotal - recTotal;
+        if (remainTotal <= 0) return null;
+        return { ...origLine, qtyCase: Math.floor(remainTotal / casePack), qtyEach: remainTotal % casePack };
+      }).filter(l => l !== null);
+      this.list = this.list.map(po => {
+        if (po.id === this.confirmingPO.id) {
+          if (remainingLines.length > 0) {
+            return { ...po, lines: remainingLines, memo: '一部入荷済み', updatedAt: now };
+          } else {
+            return { ...po, isConfirmed: true, updatedAt: now };
+          }
+        }
+        return po;
+      });
+      this.list = this.list.filter(po => !(po.id === this.confirmingPO.id && po.isConfirmed));
+      this.list.unshift(newPurchase);
+      this.showConfirmModal = false;
+      this.confirmingPO = null;
+      this.receivedLines = [];
+      this.confirmRemarks = '';
+      alert('入荷確定処理が完了しました');
+    },
+    handleAddProduct() { this.addProductError = ''; if (!this.addProduct.productId) { this.addProductError = '商品を選択してください'; return; } if (this.addProduct.qtyCase === 0 && this.addProduct.qtyEach === 0) { this.addProductError = 'ケース数またはバラ数を入力してください'; return; } const newLine = { id: `L-${Date.now()}`, productId: this.addProduct.productId, qtyCase: this.addProduct.qtyCase, qtyEach: this.addProduct.qtyEach }; if (this.selectedPO) this.selectedPO.lines.push(newLine); else if (this.popupPO) this.popupPO.lines.push(newLine); this.showAddProductModal = false; this.addProduct = { productId: '', qtyCase: 0, qtyEach: 0 }; this.addProductError = ''; },
+    handleAggregate() { const days = Math.max(1, Math.floor((new Date(this.planFilters.periodTo) - new Date(this.planFilters.periodFrom)) / (1000 * 60 * 60 * 24)) + 1); const base = { "1": 8, "2": 5, "3": 2, "4": 12, "5": 10, "6": 15, "7": 4, "8": 3, "9": 8, "10": 6, "11": 5, "12": 4, "13": 7, "14": 6, "15": 9, "16": 5, "17": 12, "18": 8, "19": 3, "20": 4 }; const wh = this.warehouses.find(w => w.id === this.planFilters.warehouse); this.planRows = this.products.filter(p => { const cat = this.productCategories[p.id]; if (!cat) return false; if (this.planFilters.catL !== 'ALL' && cat.L !== this.planFilters.catL) return false; if (this.planFilters.catM !== 'ALL' && cat.M !== this.planFilters.catM) return false; if (this.planFilters.catS !== 'ALL' && cat.S !== this.planFilters.catS) return false; return true; }).map(p => { const soldEach = (base[p.id] || 1) * days; const avg = soldEach / days; const stock = this.currentStocks[p.id] || 0; const autoOrderQty = this.productAutoOrderQty[p.id]?.[this.planFilters.warehouse] || 0; const stdVendorId = this.productStandardVendor[p.id]; const stdVendor = this.vendors.find(v => v.id === stdVendorId); const orderVendorId = this.planFilters.vendor === 'NONE' ? stdVendorId : this.planFilters.vendor; const orderVendor = this.vendors.find(v => v.id === orderVendorId); const leadTime = this.vendorLeadTimeDays[stdVendorId] || 0; const orderPoint = Math.ceil(avg * leadTime); const cat = this.productCategories[p.id] || {}; return { productId: p.id, code: p.code, name: p.name, spec: p.spec, soldEach, stockEach: stock, avgDaily: avg.toFixed(2), autoOrderQty, stdVendorName: stdVendor?.name || '-', orderVendorName: orderVendor?.name || '-', leadTime, orderPoint, warehouseName: wh?.name || '', catL: cat.L || '', catM: cat.M || '', catS: cat.S || '', orderCase: 0, orderEach: 0 }; }); },
+    addToStaging(row) { if (row.orderCase === 0 && row.orderEach === 0) { alert('ケース数またはバラ数を入力してください'); return; } const existing = this.staging.find(s => s.productId === row.productId); if (existing) { existing.qtyCase = row.orderCase; existing.qtyEach = row.orderEach; } else this.staging.push({ productId: row.productId, qtyCase: row.orderCase, qtyEach: row.orderEach }); },
+    removeFromStaging(productId) { this.staging = this.staging.filter(s => s.productId !== productId); },
+    handleManualAdd() { if (!this.manualAdd.productId) { alert('商品を選択してください'); return; } if (this.manualAdd.qtyCase === 0 && this.manualAdd.qtyEach === 0) { alert('ケース数またはバラ数を入力してください'); return; } const existing = this.staging.find(s => s.productId === this.manualAdd.productId); if (existing) { existing.qtyCase = this.manualAdd.qtyCase; existing.qtyEach = this.manualAdd.qtyEach; } else this.staging.push({ productId: this.manualAdd.productId, qtyCase: this.manualAdd.qtyCase, qtyEach: this.manualAdd.qtyEach }); this.showManualAdd = false; this.manualAdd = { productId: '', qtyCase: 0, qtyEach: 0 }; },
+    createOrder() { if (this.staging.length === 0) return; const newId = `${Date.now()}`; const now = new Date().toISOString().slice(0, 19); const lines = this.staging.map((s, idx) => ({ id: `PL${idx + 1}`, productId: s.productId, qtyCase: s.qtyCase, qtyEach: s.qtyEach })); const vendorId = this.planFilters.vendor === 'NONE' ? 'V1' : this.planFilters.vendor; const eta = addBizDays(todayStr(), this.vendorLeadTimeDays[vendorId] || 3); const newPO = { id: newId, orderDate: todayStr(), etaDate: eta, warehouseId: this.planFilters.warehouse, vendorId: vendorId, status: '送信待ち', edi: '無', isAuto: false, lines: lines, createdAt: now, createdBy: 'システム', updatedAt: now, updatedBy: 'システム', postingDate: todayStr(), payableDate: todayStr(), rebateDate: todayStr(), tradeType: '0:通常', deliveryType: '0:買掛', slipNo: '', memo: `期間実績(${this.planFilters.periodFrom}〜${this.planFilters.periodTo})参照`, memoCode: '', lotCondition: 'なし', immediateReceipt: false, receiptOnHold: true, isPrinted: false }; this.list.unshift(newPO); this.staging = []; this.planRows = this.planRows.map(r => ({ ...r, orderCase: 0, orderEach: 0 })); alert('発注を作成しました'); this.activeTab = 'list'; }
+  };
+}
+  </script>
+</body>
+</html>

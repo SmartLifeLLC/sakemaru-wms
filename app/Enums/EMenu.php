@@ -58,6 +58,7 @@ enum EMenu: string
     case WMS_WAREHOUSE_CALENDARS = 'master.wms_warehouse_calendars';
     case WMS_CONTRACTOR_HOLIDAYS = 'master.wms_contractor_holidays';
     case WMS_ORDER_JX_SETTINGS = 'master.wms_order_jx_settings';
+    case WMS_CONTRACTOR_WAREHOUSE_SETTINGS = 'master.wms_contractor_warehouse_settings';
     case LOCATIONS = 'master.locations';
     case FLOORS = 'master.floors';
     case WMS_PICKING_AREAS = 'master.wms_picking_areas';
@@ -135,7 +136,8 @@ enum EMenu: string
             self::WMS_MONTHLY_SAFETY_STOCKS,
             self::WMS_ITEM_SUPPLY_SETTINGS,
             self::WMS_CONTRACTOR_HOLIDAYS,
-            self::WMS_ORDER_JX_SETTINGS => EMenuCategory::MASTER_ORDER,
+            self::WMS_ORDER_JX_SETTINGS,
+            self::WMS_CONTRACTOR_WAREHOUSE_SETTINGS => EMenuCategory::MASTER_ORDER,
 
             // ピッキングマスタ
             self::WMS_PICKERS,
@@ -204,6 +206,7 @@ enum EMenu: string
             self::WMS_WAREHOUSE_CALENDARS => '倉庫カレンダー',
             self::WMS_CONTRACTOR_HOLIDAYS => '発注先休日',
             self::WMS_ORDER_JX_SETTINGS => 'JX接続設定',
+            self::WMS_CONTRACTOR_WAREHOUSE_SETTINGS => '発注先指定倉庫コード',
             self::LOCATIONS => '倉庫ロケーション',
             self::FLOORS => '倉庫フロア',
             self::WMS_PICKING_AREAS => 'ピッキングエリア',
@@ -274,6 +277,7 @@ enum EMenu: string
             self::WMS_WAREHOUSE_CALENDARS => 'heroicon-o-calendar-days',
             self::WMS_CONTRACTOR_HOLIDAYS => 'heroicon-o-calendar',
             self::WMS_ORDER_JX_SETTINGS => 'heroicon-o-server',
+            self::WMS_CONTRACTOR_WAREHOUSE_SETTINGS => 'heroicon-o-identification',
             self::LOCATIONS => 'heroicon-o-map-pin',
             self::FLOORS => 'heroicon-o-rectangle-stack',
             self::WMS_PICKING_AREAS => 'heroicon-o-squares-plus',
@@ -358,6 +362,7 @@ enum EMenu: string
             self::WMS_ITEM_SUPPLY_SETTINGS => 5,
             self::WMS_CONTRACTOR_HOLIDAYS => 6,
             self::WMS_ORDER_JX_SETTINGS => 7,
+            self::WMS_CONTRACTOR_WAREHOUSE_SETTINGS => 8,
 
             // ピッキングマスタ
             self::WMS_PICKERS => 1,

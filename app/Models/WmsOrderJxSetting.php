@@ -39,6 +39,7 @@ class WmsOrderJxSetting extends WmsModel
         'test_file_path',
         'is_active',
         'auto_transmit_on_confirm',
+        'add_zero_record',
     ];
 
     protected static function booted(): void
@@ -58,6 +59,7 @@ class WmsOrderJxSetting extends WmsModel
         'is_basic_auth' => 'boolean',
         'is_active' => 'boolean',
         'auto_transmit_on_confirm' => 'boolean',
+        'add_zero_record' => 'boolean',
     ];
 
     protected $hidden = [

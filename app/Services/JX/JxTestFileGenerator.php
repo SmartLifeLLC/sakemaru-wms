@@ -55,10 +55,15 @@ class JxTestFileGenerator
     {
         $jxSetting = WmsOrderJxSetting::findOrFail($jxSettingId);
 
-        Log::info('[JxTestFileGenerator] 空ファイル生成開始', ['jx_setting_id' => $jxSettingId]);
+        Log::info('[JxTestFileGenerator] 空ファイル生成開始', [
+            'jx_setting_id' => $jxSettingId,
+            'add_zero_record' => $jxSetting->add_zero_record,
+        ]);
 
-        // 空データの場合はAレコードのみ（レコード数=1、伝票数=0）
-        $content = $this->generateARecord($jxSetting, 1, 0);
+        // add_zero_record=true: Aレコードのみ、add_zero_record=false: レコードなし（JXラッパーのみ）
+        $content = $jxSetting->add_zero_record
+            ? $this->generateARecord($jxSetting, 1, 0)
+            : '';
 
         // JXラッパー（開始行"1" + 終了行"8"）を追加（UTF-8のまま）
         $wrapper = new JxDataWrapper($jxSetting);
