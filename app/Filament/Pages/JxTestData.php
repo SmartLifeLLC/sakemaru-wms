@@ -127,7 +127,7 @@ class JxTestData extends Page
                         if ($transmitResult->succeeded()) {
                             $message .= "\n\n送信成功: {$transmitResult->messageId}";
                         } else {
-                            $message .= "\n\n送信失敗: {$transmitResult->errorMessage}";
+                            $message .= "\n\n送信失敗: {$transmitResult->error}";
                         }
                     }
 
@@ -209,7 +209,7 @@ class JxTestData extends Page
                         if ($transmitResult->succeeded()) {
                             $message .= "\n\n送信成功: {$transmitResult->messageId}";
                         } else {
-                            $message .= "\n\n送信失敗: {$transmitResult->errorMessage}";
+                            $message .= "\n\n送信失敗: {$transmitResult->error}";
                         }
                     }
 
@@ -293,7 +293,7 @@ class JxTestData extends Page
                         if ($transmitResult->succeeded()) {
                             $message .= "\n\n送信成功: {$transmitResult->messageId}";
                         } else {
-                            $message .= "\n\n送信失敗: {$transmitResult->errorMessage}";
+                            $message .= "\n\n送信失敗: {$transmitResult->error}";
                         }
                     }
 
@@ -378,7 +378,7 @@ class JxTestData extends Page
                             if ($transmitResult->succeeded()) {
                                 $message .= "  送信成功\n";
                             } else {
-                                $message .= "  送信失敗: {$transmitResult->errorMessage}\n";
+                                $message .= "  送信失敗: {$transmitResult->error}\n";
                             }
                         }
                     }

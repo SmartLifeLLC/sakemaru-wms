@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Enums\EMenu;
 use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsOrderJxSettingResource\Pages;
+use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderJxSetting;
 use App\Services\JX\JxClient;
 use App\Services\JX\JxDocumentReceiver;
@@ -74,6 +75,10 @@ class WmsOrderJxSettingResource extends Resource
                             ->label('発注確定時に自動送信')
                             ->default(false)
                             ->helperText('ONにすると、発注確定処理時にJXファイルを自動送信します'),
+                        Checkbox::make('add_zero_record')
+                            ->label('データなし時にAレコードを送信')
+                            ->default(true)
+                            ->helperText('OFFの場合、発注データがない時はファイルを生成しません'),
                     ]),
 
                 Section::make('JX接続情報')
@@ -225,6 +230,10 @@ class WmsOrderJxSettingResource extends Resource
                     ->label('自動送信')
                     ->boolean()
                     ->alignCenter(),
+                IconColumn::make('add_zero_record')
+                    ->label('空送信')
+                    ->boolean()
+                    ->alignCenter(),
                 IconColumn::make('test_file_path')
                     ->label('テストファイル')
                     ->boolean()
@@ -300,33 +309,62 @@ class WmsOrderJxSettingResource extends Resource
                     ->color('success')
                     ->requiresConfirmation()
                     ->modalHeading('JXドキュメント受信')
-                    ->modalDescription('このJX設定で全ての待機中ドキュメントを受信しますか？（S3に保存）')
+                    ->modalDescription('このJX設定でドキュメント受信を実行しますか？')
                     ->modalSubmitActionLabel('受信開始')
                     ->visible(fn (WmsOrderJxSetting $record) => $record->is_active)
                     ->action(function (WmsOrderJxSetting $record) {
                         try {
-                            $receiver = new JxDocumentReceiver($record);
-                            // 本番用: S3ストレージを使用
-                            $receiver->setStorageDisk('s3');
+                            // JxClientを直接使用してリクエスト/レスポンスのパスを取得
+                            $client = new JxClient($record);
+                            $result = $client->getDocument();
 
-                            $documents = $receiver->receiveAll();
+                            $requestPath = $client->getLastRequestPath();
+                            $responsePath = $client->getLastResponsePath();
 
-                            if ($documents->isEmpty()) {
+                            // ダウンロードリンクを生成
+                            $requestUrl = $requestPath ? route('jx-xml-files.download', ['path' => $requestPath]) : null;
+                            $responseUrl = $responsePath ? route('jx-xml-files.download', ['path' => $responsePath]) : null;
+
+                            $body = "メッセージID: {$result->messageId}\n";
+                            $body .= 'HTTPコード: '.($result->response?->httpCode ?? 'N/A')."\n\n";
+
+                            if ($requestUrl) {
+                                $body .= "[リクエストXML]({$requestUrl})\n";
+                            }
+                            if ($responseUrl) {
+                                $body .= "[レスポンスXML]({$responseUrl})\n";
+                            }
+
+                            if ($result->failed()) {
+                                $body .= "\nエラー: {$result->error}";
+                                Notification::make()
+                                    ->title('受信失敗')
+                                    ->body($body)
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            if (! $result->hasDocument()) {
                                 Notification::make()
                                     ->title('受信完了')
-                                    ->body('受信可能なドキュメントはありません')
+                                    ->body($body."\n受信可能なドキュメントはありません")
                                     ->info()
                                     ->send();
 
                                 return;
                             }
 
-                            $body = "受信件数: {$documents->count()}件\n\n";
+                            // ドキュメントがある場合は保存処理（本番環境）
+                            $receiver = new JxDocumentReceiver($record);
+                            $receiver->setStorageDisk('s3');
+                            $receiver->setEnvironment(WmsJxTransmissionLog::ENV_PRODUCTION);
+                            $documents = $receiver->receiveAll();
+
+                            $body .= "\n受信件数: {$documents->count()}件\n";
                             foreach ($documents->take(5) as $doc) {
                                 $body .= "- {$doc->messageId} ({$doc->documentType})\n";
-                            }
-                            if ($documents->count() > 5) {
-                                $body .= '...他 '.($documents->count() - 5).'件';
                             }
 
                             Notification::make()
@@ -354,8 +392,9 @@ class WmsOrderJxSettingResource extends Resource
                     ->action(function (WmsOrderJxSetting $record) {
                         try {
                             $receiver = new JxDocumentReceiver($record);
-                            // S3ストレージを使用
+                            // S3ストレージを使用（テスト環境）
                             $receiver->setStorageDisk('s3');
+                            $receiver->setEnvironment(WmsJxTransmissionLog::ENV_TEST);
 
                             $document = $receiver->receiveSingle();
 
