@@ -87,7 +87,7 @@ class PurchaseOrderPdfService
     /**
      * WmsOrderDataFileからPDFを生成
      */
-    public function generateFromDataFile(WmsOrderDataFile $dataFile): string
+    public function generateFromDataFile(WmsOrderDataFile $dataFile, ?string $communicationNotes = null): string
     {
         // CONFIRMED状態の発注候補を取得
         $candidates = WmsOrderCandidate::where('batch_code', $dataFile->batch_code)
@@ -102,16 +102,16 @@ class PurchaseOrderPdfService
             throw new \RuntimeException('生成対象の発注候補がありません');
         }
 
-        return $this->generate($candidates, $dataFile);
+        return $this->generate($candidates, $dataFile, $communicationNotes);
     }
 
     /**
      * 発注データからPDFを生成しバイナリを返す
      */
-    public function generate(Collection $candidates, WmsOrderDataFile $dataFile): string
+    public function generate(Collection $candidates, WmsOrderDataFile $dataFile, ?string $communicationNotes = null): string
     {
         $this->initPdf();
-        $this->renderDocument($candidates, $dataFile);
+        $this->renderDocument($candidates, $dataFile, $communicationNotes);
 
         // 全ページにページ番号を描画
         $this->renderPageNumbers();
@@ -122,9 +122,9 @@ class PurchaseOrderPdfService
     /**
      * PDFを生成しS3に保存
      */
-    public function generateAndStore(WmsOrderDataFile $dataFile): string
+    public function generateAndStore(WmsOrderDataFile $dataFile, ?string $communicationNotes = null): string
     {
-        $pdfBinary = $this->generateFromDataFile($dataFile);
+        $pdfBinary = $this->generateFromDataFile($dataFile, $communicationNotes);
 
         // S3パス生成
         $date = now()->format('Y-m-d');
@@ -168,7 +168,7 @@ class PurchaseOrderPdfService
     /**
      * ドキュメント全体を描画
      */
-    private function renderDocument(Collection $candidates, WmsOrderDataFile $dataFile): void
+    private function renderDocument(Collection $candidates, WmsOrderDataFile $dataFile, ?string $communicationNotes = null): void
     {
         $firstCandidate = $candidates->first();
 
@@ -187,7 +187,7 @@ class PurchaseOrderPdfService
         $this->renderHeader();
 
         // 通信欄描画（商品リストの前）
-        $this->renderCommunicationArea();
+        $this->renderCommunicationArea($communicationNotes);
         $this->currentY += 5;
 
         // 明細テーブル描画
@@ -514,7 +514,7 @@ class PurchaseOrderPdfService
     /**
      * 通信欄描画（全幅）
      */
-    private function renderCommunicationArea(): void
+    private function renderCommunicationArea(?string $notes = null): void
     {
         $boxX = self::MARGIN_LEFT;
         $boxY = $this->currentY;
@@ -528,6 +528,13 @@ class PurchaseOrderPdfService
         // 枠線
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
         $this->pdf->Rect($boxX, $boxY + self::LINE_HEIGHT_NORMAL, $boxWidth, $boxHeight - self::LINE_HEIGHT_NORMAL);
+
+        // 枠内にテキストを描画
+        if ($notes) {
+            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+            $this->pdf->SetXY($boxX + 2, $boxY + self::LINE_HEIGHT_NORMAL + 1);
+            $this->pdf->MultiCell($boxWidth - 4, 4, $notes, 0, 'L');
+        }
 
         // Y座標を通信欄の下へ進める
         $this->currentY = $boxY + $boxHeight;

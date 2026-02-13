@@ -8,12 +8,15 @@ use App\Filament\Resources\WmsOrderDataFiles\Pages\ListWmsOrderDataFiles;
 use App\Mail\OrderDataMail;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderDataFile;
 use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\PurchaseOrderPdfService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Grid;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -23,6 +26,29 @@ use Illuminate\Support\Facades\Storage;
 
 class WmsOrderDataFilesTable
 {
+    /**
+     * テンプレート内の$$VAR_XXX$$を実データに置換
+     */
+    private static function replaceMailVariables(?string $template, WmsOrderDataFile $record): ?string
+    {
+        if (! $template) {
+            return null;
+        }
+
+        $variables = [
+            '$$VAR_CONTRACTOR_NAME$$' => $record->contractor?->name ?? '発注先',
+            '$$VAR_WAREHOUSE_NAME$$' => $record->warehouse?->name ?? '倉庫',
+            '$$VAR_ORDER_DATE$$' => $record->order_date->format('Y年m月d日'),
+            '$$VAR_ORDER_DATE_SHORT$$' => $record->order_date->format('Y/m/d'),
+            '$$VAR_EXPECTED_ARRIVAL_DATE$$' => $record->expected_arrival_date?->format('Y年m月d日') ?? '未定',
+            '$$VAR_ORDER_COUNT$$' => number_format($record->order_count),
+            '$$VAR_TOTAL_QUANTITY$$' => number_format($record->total_quantity),
+            '$$VAR_ATTACHMENTS$$' => "・発注データ（CSV形式）\n・発注書（PDF形式）",
+        ];
+
+        return str_replace(array_keys($variables), array_values($variables), $template);
+    }
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -236,14 +262,24 @@ class WmsOrderDataFilesTable
                     ->label('FAX')
                     ->icon('heroicon-o-document')
                     ->color('success')
-                    ->action(function (WmsOrderDataFile $record) {
+                    ->requiresConfirmation()
+                    ->modalHeading('FAX発注書生成')
+                    ->modalDescription('通信欄に記載する内容を入力してください')
+                    ->modalSubmitActionLabel('生成・ダウンロード')
+                    ->schema([
+                        Textarea::make('communication_notes')
+                            ->label('通信欄')
+                            ->rows(3)
+                            ->maxLength(200),
+                    ])
+                    ->action(function (WmsOrderDataFile $record, array $data) {
                         try {
-                            // FAX PDFが未生成の場合は生成
-                            if (! $record->fax_file_path) {
-                                $pdfService = app(PurchaseOrderPdfService::class);
-                                $pdfService->generateAndStore($record);
-                                $record->refresh();
-                            }
+                            $notes = $data['communication_notes'] ?? null;
+
+                            // 通信欄の内容を反映するため常にPDFを再生成
+                            $pdfService = app(PurchaseOrderPdfService::class);
+                            $pdfService->generateAndStore($record, $notes);
+                            $record->refresh();
 
                             if (! $record->fax_file_path) {
                                 Notification::make()
@@ -278,16 +314,58 @@ class WmsOrderDataFilesTable
                     ->label('メール')
                     ->icon('heroicon-o-envelope')
                     ->color('warning')
-                    ->requiresConfirmation()
-                    ->modalHeading('メール送信')
-                    ->modalDescription('発注データをメールで送信します')
+                    ->modalHeading('発注データをメールで送信します')
                     ->modalSubmitActionLabel('送信')
+                    ->modalWidth('7xl')
                     ->schema([
-                        TextInput::make('mail_to')
-                            ->label('送信先メールアドレス')
-                            ->email()
-                            ->required()
-                            ->default(fn (WmsOrderDataFile $record) => $record->mail_to ?? $record->contractor?->email ?? ''),
+                        Grid::make(3)->schema([
+                            TextInput::make('mail_to')
+                                ->label('送信先メールアドレス')
+                                ->email()
+                                ->required()
+                                ->default(function (WmsOrderDataFile $record) {
+                                    $setting = WmsContractorSetting::where('contractor_id', $record->contractor_id)->first();
+
+                                    return $record->mail_to ?? $setting?->order_mail ?? $record->contractor?->email ?? '';
+                                }),
+
+                            TextInput::make('mail_from_name')
+                                ->label('送信名')
+                                ->maxLength(100)
+                                ->default(function (WmsOrderDataFile $record) {
+                                    $setting = WmsContractorSetting::where('contractor_id', $record->contractor_id)->first();
+
+                                    return $setting?->order_mail_from;
+                                }),
+
+                            TextInput::make('mail_title')
+                                ->label('メールタイトル')
+                                ->maxLength(200)
+                                ->default(function (WmsOrderDataFile $record) {
+                                    return self::replaceMailVariables(
+                                        WmsContractorSetting::where('contractor_id', $record->contractor_id)->value('order_mail_title'),
+                                        $record
+                                    ) ?? '';
+                                })
+                                ->placeholder('未設定時: 【発注書】倉庫名 - 日付'),
+                        ]),
+
+                        Textarea::make('mail_content')
+                            ->label('メール本文')
+                            ->rows(12)
+                            ->maxLength(5000)
+                            ->default(function (WmsOrderDataFile $record) {
+                                return self::replaceMailVariables(
+                                    WmsContractorSetting::where('contractor_id', $record->contractor_id)->value('order_mail_content'),
+                                    $record
+                                ) ?? '';
+                            })
+                            ->placeholder('未設定時はシステムデフォルトを使用'),
+
+                        Textarea::make('communication_notes')
+                            ->label('通信欄（FAX発注書に記載）')
+                            ->rows(3)
+                            ->maxLength(200),
 
                         CheckboxList::make('attachments')
                             ->label('添付ファイル')
@@ -306,15 +384,22 @@ class WmsOrderDataFilesTable
                             $attachCsv = in_array('csv', $attachments);
                             $attachFax = in_array('fax', $attachments);
 
-                            // FAX PDFが未生成で添付が必要な場合は生成
-                            if ($attachFax && ! $record->fax_file_path) {
+                            // FAX PDFを通信欄付きで再生成
+                            if ($attachFax) {
                                 $pdfService = app(PurchaseOrderPdfService::class);
-                                $pdfService->generateAndStore($record);
+                                $pdfService->generateAndStore($record, $data['communication_notes'] ?? null);
                                 $record->refresh();
                             }
 
-                            // メール送信
-                            Mail::to($email)->send(new OrderDataMail($record, $attachCsv, $attachFax));
+                            // メール送信（モーダルの値をオーバーライドとして渡す）
+                            Mail::to($email)->send(new OrderDataMail(
+                                dataFile: $record,
+                                attachCsv: $attachCsv,
+                                attachFax: $attachFax,
+                                fromName: $data['mail_from_name'] ?? null,
+                                subject: $data['mail_title'] ?? null,
+                                content: $data['mail_content'] ?? null,
+                            ));
 
                             $record->markAsMailSent(auth()->id(), $email);
 

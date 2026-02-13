@@ -917,6 +917,7 @@ class OrderTransmissionService
                     'batch_code' => $batchCode,
                     'warehouse_id' => $firstCandidate?->warehouse_id,
                     'contractor_id' => $file['contractor_id'],
+                    'is_test' => false,
                 ],
                 [
                     'order_date' => now()->toDateString(),
@@ -926,9 +927,8 @@ class OrderTransmissionService
                     'order_count' => $candidates->count(),
                     'total_quantity' => $candidates->sum('order_quantity'),
                     'status' => OrderDataFileStatus::GENERATED,
-                    'is_test' => false,
-                    'downloaded_at' => null,
-                    'downloaded_by' => null,
+                    'csv_downloaded_at' => null,
+                    'csv_downloaded_by' => null,
                 ]
             );
         }

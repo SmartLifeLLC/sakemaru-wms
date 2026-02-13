@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderDataFile;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Storage;
  * 発注データメール
  *
  * FAX PDF / CSV を添付して発注先に送信
+ * テンプレートはモーダルから渡された値を優先、未指定時はwms_contractor_settings → デフォルト
  */
 class OrderDataMail extends Mailable
 {
@@ -24,16 +26,28 @@ class OrderDataMail extends Mailable
 
     public bool $attachFax;
 
+    private ?string $overrideFromName;
+
+    private ?string $overrideSubject;
+
+    private ?string $overrideContent;
+
     /**
      * Create a new message instance.
      */
     public function __construct(
         public WmsOrderDataFile $dataFile,
         bool $attachCsv = true,
-        bool $attachFax = true
+        bool $attachFax = true,
+        ?string $fromName = null,
+        ?string $subject = null,
+        ?string $content = null,
     ) {
         $this->attachCsv = $attachCsv;
         $this->attachFax = $attachFax;
+        $this->overrideFromName = $fromName;
+        $this->overrideSubject = $subject;
+        $this->overrideContent = $content;
     }
 
     /**
@@ -41,12 +55,19 @@ class OrderDataMail extends Mailable
      */
     public function envelope(): Envelope
     {
-        $contractor = $this->dataFile->contractor;
-        $warehouseName = $this->dataFile->warehouse?->name ?? '倉庫';
+        $subject = $this->resolveSubject();
+        $fromName = $this->overrideFromName;
 
-        return new Envelope(
-            subject: "【発注書】{$warehouseName} - {$this->dataFile->order_date->format('Y/m/d')}",
-        );
+        if (! $fromName) {
+            $setting = $this->getContractorSetting();
+            $fromName = $setting?->order_mail_from;
+        }
+
+        if ($fromName) {
+            $this->from(config('mail.from.address'), $fromName);
+        }
+
+        return new Envelope(subject: $subject);
     }
 
     /**
@@ -54,6 +75,22 @@ class OrderDataMail extends Mailable
      */
     public function content(): Content
     {
+        $customContent = $this->overrideContent;
+
+        if (! $customContent) {
+            $setting = $this->getContractorSetting();
+            $customContent = $setting?->order_mail_content;
+        }
+
+        if ($customContent) {
+            $body = $this->replaceVariables($customContent);
+
+            return new Content(
+                htmlString: nl2br(e($body)),
+            );
+        }
+
+        // デフォルト: Bladeテンプレートを使用
         return new Content(
             text: 'emails.order-data',
             with: [
@@ -106,5 +143,58 @@ class OrderDataMail extends Mailable
         }
 
         return $attachments;
+    }
+
+    /**
+     * メールタイトルを解決（モーダル → DB設定 → デフォルト）
+     */
+    private function resolveSubject(): string
+    {
+        $title = $this->overrideSubject;
+
+        if (! $title) {
+            $setting = $this->getContractorSetting();
+            $title = $setting?->order_mail_title;
+        }
+
+        if ($title) {
+            return $this->replaceVariables($title);
+        }
+
+        $warehouseName = $this->dataFile->warehouse?->name ?? '倉庫';
+
+        return "【発注書】{$warehouseName} - {$this->dataFile->order_date->format('Y/m/d')}";
+    }
+
+    /**
+     * テンプレート内の$$VAR_XXX$$を実際の値に置換
+     */
+    private function replaceVariables(string $template): string
+    {
+        $attachmentLines = [];
+        if ($this->attachCsv) {
+            $attachmentLines[] = '・発注データ（CSV形式）';
+        }
+        if ($this->attachFax) {
+            $attachmentLines[] = '・発注書（PDF形式）';
+        }
+
+        $variables = [
+            '$$VAR_CONTRACTOR_NAME$$' => $this->dataFile->contractor?->name ?? '発注先',
+            '$$VAR_WAREHOUSE_NAME$$' => $this->dataFile->warehouse?->name ?? '倉庫',
+            '$$VAR_ORDER_DATE$$' => $this->dataFile->order_date->format('Y年m月d日'),
+            '$$VAR_ORDER_DATE_SHORT$$' => $this->dataFile->order_date->format('Y/m/d'),
+            '$$VAR_EXPECTED_ARRIVAL_DATE$$' => $this->dataFile->expected_arrival_date?->format('Y年m月d日') ?? '未定',
+            '$$VAR_ORDER_COUNT$$' => number_format($this->dataFile->order_count),
+            '$$VAR_TOTAL_QUANTITY$$' => number_format($this->dataFile->total_quantity),
+            '$$VAR_ATTACHMENTS$$' => implode("\n", $attachmentLines),
+        ];
+
+        return str_replace(array_keys($variables), array_values($variables), $template);
+    }
+
+    private function getContractorSetting(): ?WmsContractorSetting
+    {
+        return WmsContractorSetting::where('contractor_id', $this->dataFile->contractor_id)->first();
     }
 }
