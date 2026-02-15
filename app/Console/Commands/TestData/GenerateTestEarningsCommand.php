@@ -15,7 +15,8 @@ class GenerateTestEarningsCommand extends Command
                             {--count=5 : Number of test earnings to generate}
                             {--warehouse-id= : Warehouse ID}
                             {--courses=* : Specific delivery course codes to use (leave empty for all)}
-                            {--locations=* : Specific location IDs to use for stock filtering (leave empty for all)}';
+                            {--locations=* : Specific location IDs to use for stock filtering (leave empty for all)}
+                            {--payment-method= : Payment method filter (DEPOSIT, CASH, or empty for all)}';
 
     protected $description = 'Generate test earnings data via sakemaru API';
 
@@ -35,6 +36,8 @@ class GenerateTestEarningsCommand extends Command
 
     private array $deliveryCourseCodes = [];
 
+    private ?string $paymentMethod = null;
+
     public function handle()
     {
         $this->info('📝 Generating test earnings via API...');
@@ -49,9 +52,10 @@ class GenerateTestEarningsCommand extends Command
 
         $count = (int) $this->option('count');
 
-        // Get specified courses and locations
+        // Get specified courses, locations, and payment method
         $this->specifiedCourses = $this->option('courses') ?: [];
         $this->specifiedLocations = array_map('intval', $this->option('locations') ?: []);
+        $this->paymentMethod = $this->option('payment-method') ?: null;
 
         // Initialize warehouse and buyer data
         $this->initializeData();
@@ -126,6 +130,7 @@ class GenerateTestEarningsCommand extends Command
             ->where('p.is_active', 1)
             ->where('p.is_supplier', 0)
             ->whereNull('p.end_of_trade_date')
+            ->when($this->paymentMethod, fn ($q) => $q->where('bd.payment_method', $this->paymentMethod))
             ->select(['p.code as buyer_code'])
             ->distinct()
             ->get();
@@ -134,7 +139,7 @@ class GenerateTestEarningsCommand extends Command
         $this->line('Delivery courses: '.(! empty($this->specifiedCourses)
             ? implode(', ', $this->specifiedCourses).' (specified)'
             : count($deliveryCourseIds).' (all)'));
-        $this->line("Eligible buyers: {$this->eligibleBuyers->count()}");
+        $this->line("Eligible buyers: {$this->eligibleBuyers->count()}".($this->paymentMethod ? " (payment: {$this->paymentMethod})" : ''));
         if (! empty($this->specifiedLocations)) {
             $this->line('Stock locations filter: '.implode(', ', $this->specifiedLocations));
         }

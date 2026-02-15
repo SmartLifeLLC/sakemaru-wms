@@ -452,6 +452,15 @@ class TestDataGenerator extends Page
                     ->searchable()
                     ->reactive(),
 
+                Select::make('payment_method')
+                    ->label('支払い区分')
+                    ->options([
+                        '' => '全部',
+                        'DEPOSIT' => '売掛',
+                        'CASH' => '現金',
+                    ])
+                    ->default(''),
+
                 Select::make('locations')
                     ->label('ロケーション指定')
                     ->helperText('該当ロケーションの在庫商品のみで売上を生成します。在庫がない場合は自動生成されます。検索して選択してください。')
@@ -579,6 +588,10 @@ class TestDataGenerator extends Page
                         $params['--reset'] = true;
                     }
 
+                    if (! empty($data['payment_method'])) {
+                        $params['--payment-method'] = $data['payment_method'];
+                    }
+
                     $exitCode = Artisan::call('testdata:picker-wave', $params);
                     $output = Artisan::output();
 
@@ -632,6 +645,15 @@ class TestDataGenerator extends Page
                     ->required()
                     ->minValue(1)
                     ->maxValue(50),
+
+                Select::make('payment_method')
+                    ->label('支払い区分')
+                    ->options([
+                        '' => '全部',
+                        'DEPOSIT' => '売掛',
+                        'CASH' => '現金',
+                    ])
+                    ->default(''),
 
                 Select::make('courses')
                     ->label('配送コース指定（任意）')
@@ -714,6 +736,10 @@ class TestDataGenerator extends Page
 
                     if (! empty($data['locations'])) {
                         $params['--locations'] = $data['locations'];
+                    }
+
+                    if (! empty($data['payment_method'])) {
+                        $params['--payment-method'] = $data['payment_method'];
                     }
 
                     $exitCode = Artisan::call('testdata:earnings', $params);
