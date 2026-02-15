@@ -243,19 +243,42 @@ class ExecuteWmsPickingTask extends Page implements HasForms
     public function completeTask(): void
     {
         DB::connection('sakemaru')->transaction(function () {
-            // すべての商品がCOMPLETEDまたはSHORTAGEか確認
-            $pendingItems = $this->record->pickingItemResults()
-                ->whereIn('status', ['PICKING'])
+            // planned_qty = 0 のアイテムを自動完了（引当なし）
+            $this->record->pickingItemResults()
+                ->where('planned_qty', 0)
+                ->whereIn('status', ['PENDING', 'PICKING'])
+                ->update(['status' => 'COMPLETED', 'updated_at' => now()]);
+
+            // 未ピッキング商品チェック（planned_qty > 0 かつ picked_qty = 0）
+            // API経由でpicked_qty > 0 のアイテムはステータスがPICKINGでも完了可能
+            $incompleteItems = $this->record->pickingItemResults()
+                ->where('planned_qty', '>', 0)
+                ->where('picked_qty', 0)
+                ->whereIn('status', ['PENDING', 'PICKING'])
                 ->count();
 
-            if ($pendingItems > 0) {
+            if ($incompleteItems > 0) {
                 Notification::make()
                     ->title('完了できません')
-                    ->body("未完了の商品が{$pendingItems}件あります")
+                    ->body("未完了の商品が{$incompleteItems}件あります（ピッキング数が未入力）")
                     ->warning()
                     ->send();
 
                 return;
+            }
+
+            // PICKING状態でpicked_qty > 0のアイテムを最終ステータスに更新
+            $pickingItems = $this->record->pickingItemResults()
+                ->whereIn('status', ['PICKING'])
+                ->get();
+
+            foreach ($pickingItems as $item) {
+                $itemStatus = $item->shortage_qty > 0 ? 'SHORTAGE' : 'COMPLETED';
+                $item->update([
+                    'status' => $itemStatus,
+                    'picked_at' => $item->picked_at ?? now(),
+                    'updated_at' => now(),
+                ]);
             }
 
             // 欠品がある商品の欠品データを生成

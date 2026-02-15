@@ -117,6 +117,7 @@ class OrderDataFileService
                 'batch_code' => $batchCode,
                 'warehouse_id' => $warehouseId,
                 'contractor_id' => $contractorId,
+                'is_test' => false,
             ],
             [
                 'order_date' => now()->toDateString(),
@@ -126,9 +127,8 @@ class OrderDataFileService
                 'order_count' => $candidates->count(),
                 'total_quantity' => $totalQuantity,
                 'status' => OrderDataFileStatus::GENERATED,
-                'is_test' => false,
-                'downloaded_at' => null,
-                'downloaded_by' => null,
+                'csv_downloaded_at' => null,
+                'csv_downloaded_by' => null,
             ]
         );
 

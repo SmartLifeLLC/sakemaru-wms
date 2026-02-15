@@ -20,7 +20,8 @@ class GeneratePickerWaveCommand extends Command
                             {--courses=* : Delivery course codes with counts (format: code:count)}
                             {--locations=* : Specific location IDs to use for stock filtering and generation}
                             {--date= : Shipping date (YYYY-MM-DD), defaults to today}
-                            {--reset : Reset wave data before generation}';
+                            {--reset : Reset wave data before generation}
+                            {--payment-method= : Payment method filter (DEPOSIT, CASH, or empty for all)}';
 
     protected $description = 'Generate test earnings and waves for a specific picker with specified delivery courses';
 
@@ -39,6 +40,8 @@ class GeneratePickerWaveCommand extends Command
     private array $specifiedLocations = [];
 
     private int $buyerIndex = 0;
+
+    private ?string $paymentMethod = null;
 
     public function handle()
     {
@@ -66,8 +69,9 @@ class GeneratePickerWaveCommand extends Command
             return 1;
         }
 
-        // Get specified locations
+        // Get specified locations and payment method
         $this->specifiedLocations = array_map('intval', $this->option('locations') ?: []);
+        $this->paymentMethod = $this->option('payment-method') ?: null;
 
         $this->line("Picker: [{$picker->code}] {$picker->name}");
         $this->line("Warehouse ID: {$this->warehouseId}");
@@ -207,6 +211,7 @@ class GeneratePickerWaveCommand extends Command
             ->where('buyer_details.can_register_earnings', 1)
             ->where('buyer_details.is_allowed_duplicated_item', true)
             ->where('buyer_details.is_allowed_case_quantity', true)
+            ->when($this->paymentMethod, fn ($q) => $q->where('buyer_details.payment_method', $this->paymentMethod))
             ->select('partners.code', 'partners.id')
             ->inRandomOrder()
             ->limit(1000) // Get enough buyers for all possible earnings
@@ -219,7 +224,7 @@ class GeneratePickerWaveCommand extends Command
 
         // Store buyers as array with code as value
         $this->buyers = $buyers->pluck('code')->toArray();
-        $this->line('Loaded '.count($this->buyers).' eligible buyers for earnings generation');
+        $this->line('Loaded '.count($this->buyers).' eligible buyers for earnings generation'.($this->paymentMethod ? " (payment: {$this->paymentMethod})" : ''));
 
         // Get warehouse
         $warehouse = DB::connection('sakemaru')->table('warehouses')

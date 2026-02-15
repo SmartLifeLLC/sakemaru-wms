@@ -12,6 +12,21 @@ class EditContractor extends EditRecord
 
     protected static ?string $title = '発注先編集';
 
+    public function hasCombinedRelationManagerTabsWithContent(): bool
+    {
+        return true;
+    }
+
+    public function getContentTabLabel(): ?string
+    {
+        return '基本情報';
+    }
+
+    public function getContentTabIcon(): string|null
+    {
+        return 'heroicon-o-building-office';
+    }
+
     protected function getHeaderActions(): array
     {
         return [

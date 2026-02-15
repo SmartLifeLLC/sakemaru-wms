@@ -70,6 +70,14 @@ class Contractor extends CustomModel
     }
 
     /**
+     * 発注メール設定（wmsSettingと同テーブル、メール設定用のエイリアス）
+     */
+    public function wmsMailSetting(): HasOne
+    {
+        return $this->hasOne(WmsContractorSetting::class);
+    }
+
+    /**
      * WMS送信設定を取得（なければ作成）
      */
     public function getOrCreateWmsSetting(): WmsContractorSetting

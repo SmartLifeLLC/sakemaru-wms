@@ -15,7 +15,8 @@ class GenerateTestEarningsCommand extends Command
                             {--count=5 : Number of test earnings to generate}
                             {--warehouse-id= : Warehouse ID}
                             {--courses=* : Specific delivery course codes to use (leave empty for all)}
-                            {--locations=* : Specific location IDs to use for stock filtering (leave empty for all)}';
+                            {--locations=* : Specific location IDs to use for stock filtering (leave empty for all)}
+                            {--payment-method= : Payment method filter (DEPOSIT, CASH, or empty for all)}';
 
     protected $description = 'Generate test earnings data via sakemaru API';
 
@@ -35,6 +36,8 @@ class GenerateTestEarningsCommand extends Command
 
     private array $deliveryCourseCodes = [];
 
+    private ?string $paymentMethod = null;
+
     public function handle()
     {
         $this->info('📝 Generating test earnings via API...');
@@ -49,9 +52,10 @@ class GenerateTestEarningsCommand extends Command
 
         $count = (int) $this->option('count');
 
-        // Get specified courses and locations
+        // Get specified courses, locations, and payment method
         $this->specifiedCourses = $this->option('courses') ?: [];
         $this->specifiedLocations = array_map('intval', $this->option('locations') ?: []);
+        $this->paymentMethod = $this->option('payment-method') ?: null;
 
         // Initialize warehouse and buyer data
         $this->initializeData();
@@ -126,6 +130,7 @@ class GenerateTestEarningsCommand extends Command
             ->where('p.is_active', 1)
             ->where('p.is_supplier', 0)
             ->whereNull('p.end_of_trade_date')
+            ->when($this->paymentMethod, fn ($q) => $q->where('bd.payment_method', $this->paymentMethod))
             ->select(['p.code as buyer_code'])
             ->distinct()
             ->get();
@@ -134,7 +139,7 @@ class GenerateTestEarningsCommand extends Command
         $this->line('Delivery courses: '.(! empty($this->specifiedCourses)
             ? implode(', ', $this->specifiedCourses).' (specified)'
             : count($deliveryCourseIds).' (all)'));
-        $this->line("Eligible buyers: {$this->eligibleBuyers->count()}");
+        $this->line("Eligible buyers: {$this->eligibleBuyers->count()}".($this->paymentMethod ? " (payment: {$this->paymentMethod})" : ''));
         if (! empty($this->specifiedLocations)) {
             $this->line('Stock locations filter: '.implode(', ', $this->specifiedLocations));
         }
@@ -199,6 +204,13 @@ class GenerateTestEarningsCommand extends Command
             ->get();
 
         $this->testItems = $items->map(function ($item) {
+            // Get capacity_case from items table
+            $itemDetail = DB::connection('sakemaru')
+                ->table('items')
+                ->where('id', $item->id)
+                ->first(['capacity_case']);
+            $capacityCase = $itemDetail->capacity_case ?? 12;
+
             return [
                 'id' => $item->id,
                 'code' => $item->code,
@@ -206,7 +218,7 @@ class GenerateTestEarningsCommand extends Command
                 'supports_case' => ($item->available_quantity_flags & 1) > 0, // CASE対応
                 'supports_piece' => ($item->available_quantity_flags & 2) > 0, // PIECE対応
                 'total_available' => $item->total_available,
-                'case_quantity' => 1, // Default case quantity
+                'capacity_case' => $capacityCase,
             ];
         })
             ->toArray();
@@ -255,12 +267,19 @@ class GenerateTestEarningsCommand extends Command
                 // Determine quantity type to ensure mix
                 $qtyType = $this->determineQuantityType($item, $index, $hasCaseItem, $hasPieceItem);
 
+                $available = (int) $item['total_available'];
+                $capacityCase = (int) ($item['capacity_case'] ?? 12);
+
                 if ($qtyType === 'CASE') {
                     $hasCaseItem = true;
-                    $qty = rand(1, 5);
+                    // ケース数を在庫数から算出し、上限を設定
+                    $maxCases = max(1, (int) floor($available / $capacityCase));
+                    $qty = rand(1, min(5, $maxCases));
                 } else {
                     $hasPieceItem = true;
-                    $qty = rand(5, 30);
+                    // バラ数を在庫数以内に制限
+                    $maxPieces = max(1, $available);
+                    $qty = rand(1, min(30, $maxPieces));
                 }
 
                 $details[] = [

@@ -27,6 +27,9 @@ class InitSystemSeeder extends Seeder
         // 初期ピッカー生成
         $this->call(InitialPickerSeeder::class);
 
+        // 発注先メールテンプレート初期設定
+        $this->call(ContractorMailSettingSeeder::class);
+
         // 今後追加予定の初期設定
         // $this->call(InitialPickingAreaSeeder::class);
         // $this->call(InitialWaveSettingSeeder::class);

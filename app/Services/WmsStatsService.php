@@ -149,7 +149,7 @@ class WmsStatsService
             ->whereDate('ws.created_at', $dateStr)
             ->selectRaw('
                 COUNT(DISTINCT ws.item_id) as unique_count,
-                SUM(ws.shortage_qty_each) as total_count
+                SUM(ws.shortage_qty) as total_count
             ')
             ->first();
 
@@ -187,7 +187,7 @@ class WmsStatsService
             ->join('trade_items as ti', 'pir.trade_item_id', '=', 'ti.id')
             ->where('pt.warehouse_id', $warehouseId)
             ->whereDate('ws.created_at', $dateStr)
-            ->selectRaw('SUM(ws.shortage_qty_each * ti.price) as total_loss')
+            ->selectRaw('SUM(ws.shortage_qty * ti.price) as total_loss')
             ->value('total_loss');
 
         return [
@@ -236,7 +236,7 @@ class WmsStatsService
             ->groupBy('c.id')
             ->selectRaw('
                 c.id as category_id,
-                SUM(ws.shortage_qty_each * ti.price) as opportunity_loss
+                SUM(ws.shortage_qty * ti.price) as opportunity_loss
             ')
             ->pluck('opportunity_loss', 'category_id');
 

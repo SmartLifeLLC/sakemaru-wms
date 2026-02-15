@@ -34,6 +34,10 @@ class WmsContractorSetting extends WmsModel
         'is_transmission_fri',
         'is_transmission_sat',
         'is_auto_transmission',
+        'order_mail',
+        'order_mail_from',
+        'order_mail_title',
+        'order_mail_content',
     ];
 
     protected $casts = [
