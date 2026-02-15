@@ -199,6 +199,13 @@ class GenerateTestEarningsCommand extends Command
             ->get();
 
         $this->testItems = $items->map(function ($item) {
+            // Get capacity_case from items table
+            $itemDetail = DB::connection('sakemaru')
+                ->table('items')
+                ->where('id', $item->id)
+                ->first(['capacity_case']);
+            $capacityCase = $itemDetail->capacity_case ?? 12;
+
             return [
                 'id' => $item->id,
                 'code' => $item->code,
@@ -206,7 +213,7 @@ class GenerateTestEarningsCommand extends Command
                 'supports_case' => ($item->available_quantity_flags & 1) > 0, // CASE対応
                 'supports_piece' => ($item->available_quantity_flags & 2) > 0, // PIECE対応
                 'total_available' => $item->total_available,
-                'case_quantity' => 1, // Default case quantity
+                'capacity_case' => $capacityCase,
             ];
         })
             ->toArray();
@@ -255,12 +262,19 @@ class GenerateTestEarningsCommand extends Command
                 // Determine quantity type to ensure mix
                 $qtyType = $this->determineQuantityType($item, $index, $hasCaseItem, $hasPieceItem);
 
+                $available = (int) $item['total_available'];
+                $capacityCase = (int) ($item['capacity_case'] ?? 12);
+
                 if ($qtyType === 'CASE') {
                     $hasCaseItem = true;
-                    $qty = rand(1, 5);
+                    // ケース数を在庫数から算出し、上限を設定
+                    $maxCases = max(1, (int) floor($available / $capacityCase));
+                    $qty = rand(1, min(5, $maxCases));
                 } else {
                     $hasPieceItem = true;
-                    $qty = rand(5, 30);
+                    // バラ数を在庫数以内に制限
+                    $maxPieces = max(1, $available);
+                    $qty = rand(1, min(30, $maxPieces));
                 }
 
                 $details[] = [
