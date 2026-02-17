@@ -96,9 +96,12 @@
                                         @foreach($group['items'] as $item)
                                             <li>
                                                 <a href="{{ $item['url'] }}"
+                                                   @if(!empty($item['external'])) target="_blank" rel="noopener noreferrer" @endif
                                                    class="group flex items-center gap-3 p-2 rounded-lg transition-all duration-150 hover:bg-indigo-100 {{ $item['isActive'] ? 'bg-indigo-50' : '' }}">
                                                     <div class="flex-shrink-0 p-1.5 rounded-md bg-white border border-slate-200 text-slate-500 transition-colors shadow-sm group-hover:bg-indigo-600 group-hover:border-indigo-600 group-hover:text-white {{ $item['isActive'] ? 'text-indigo-600 border-indigo-200' : '' }}">
-                                                        @if(isset($item['icon']) && $item['icon'])
+                                                        @if(!empty($item['external']))
+                                                            <i class="fa-solid fa-arrow-up-right-from-square w-4 h-4 flex items-center justify-center text-[12px]"></i>
+                                                        @elseif(isset($item['icon']) && $item['icon'])
                                                             <x-filament::icon
                                                                 :icon="$item['icon']"
                                                                 class="w-4 h-4"
@@ -107,9 +110,14 @@
                                                             <i class="fa-solid fa-circle text-[6px] w-4 h-4 flex items-center justify-center"></i>
                                                         @endif
                                                     </div>
-                                                    <span class="text-base font-medium text-slate-700 transition-colors group-hover:text-indigo-700 group-hover:font-semibold {{ $item['isActive'] ? 'text-indigo-700 font-semibold' : '' }}">
-                                                        {{ $item['label'] }}
-                                                    </span>
+                                                    <div class="flex flex-col">
+                                                        <span class="text-base font-medium text-slate-700 transition-colors group-hover:text-indigo-700 group-hover:font-semibold {{ $item['isActive'] ? 'text-indigo-700 font-semibold' : '' }}">
+                                                            {{ $item['label'] }}
+                                                        </span>
+                                                        @if(!empty($item['desc']))
+                                                            <span class="text-xs text-slate-400">{{ $item['desc'] }}</span>
+                                                        @endif
+                                                    </div>
                                                 </a>
                                             </li>
                                         @endforeach

@@ -130,4 +130,18 @@ class ClientSetting extends CustomModel
 
         return $user?->client?->setting;
     }
+
+    /**
+     * 酒丸シリーズのサブドメインURLを生成
+     *
+     * @param  string  $subdomain  search, trade, documents, delivery, insights, knowledge
+     */
+    public static function getSakemaruSubdomainUrl(string $subdomain): string
+    {
+        $coreUrl = parse_url(config('app.core_url'));
+        $scheme = $coreUrl['scheme'] ?? 'https';
+        $host = $coreUrl['host'] ?? 'localhost';
+
+        return "{$scheme}://{$subdomain}.{$host}";
+    }
 }
