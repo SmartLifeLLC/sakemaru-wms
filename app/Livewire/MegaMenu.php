@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Enums\EMenuCategory;
+use App\Models\Sakemaru\ClientSetting;
 use Filament\Facades\Filament;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
@@ -132,7 +133,72 @@ class MegaMenu extends Component
             }
         }
 
+        // 酒丸シリーズ（外部システム）のメニューを追加
+        $sakemaruTab = $this->buildSakemaruSeriesTab();
+        if ($sakemaruTab) {
+            $structure[] = $sakemaruTab;
+        }
+
         return $structure;
+    }
+
+    /**
+     * 酒丸シリーズの外部システムメニュータブを構築
+     */
+    protected function buildSakemaruSeriesTab(): ?array
+    {
+        $clientSetting = ClientSetting::authSetting();
+
+        $sakemaruSystems = [
+            ['key' => 'has_sakemaru_search', 'label' => '酒丸千里眼', 'subdomain' => 'search', 'desc' => '高度検索システム'],
+            ['key' => 'has_sakemaru_trade', 'label' => '酒丸乃蓮', 'subdomain' => 'trade', 'desc' => '取引管理システム'],
+            ['key' => 'has_sakemaru_documents', 'label' => '酒丸帳場', 'subdomain' => 'documents', 'desc' => '帳票管理システム'],
+            ['key' => 'has_sakemaru_delivery', 'label' => '酒丸飛脚', 'subdomain' => 'delivery', 'desc' => '配送管理システム'],
+            ['key' => 'has_sakemaru_insights', 'label' => '酒丸算盤', 'subdomain' => 'insights', 'desc' => '分析・レポートシステム'],
+            ['key' => 'has_sakemaru_knowledge', 'label' => '酒丸通い帳', 'subdomain' => 'knowledge', 'desc' => 'ナレッジ管理システム'],
+        ];
+
+        $items = [];
+
+        // 酒丸（基幹システム）は常に表示
+        $items[] = [
+            'label' => '酒丸（基幹システム）',
+            'url' => config('app.core_url'),
+            'isActive' => false,
+            'icon' => null,
+            'external' => true,
+            'desc' => '基幹業務システム',
+        ];
+
+        foreach ($sakemaruSystems as $system) {
+            if ($clientSetting?->{$system['key']} ?? false) {
+                $items[] = [
+                    'label' => $system['label'],
+                    'url' => ClientSetting::getSakemaruSubdomainUrl($system['subdomain']),
+                    'isActive' => false,
+                    'icon' => null,
+                    'external' => true,
+                    'desc' => $system['desc'],
+                ];
+            }
+        }
+
+        if (empty($items)) {
+            return null;
+        }
+
+        return [
+            'id' => 'sakemaru_series',
+            'label' => '酒丸シリーズ',
+            'icon' => 'fa-box',
+            'groups' => [
+                [
+                    'label' => '外部システム連携',
+                    'icon' => 'heroicon-o-arrow-top-right-on-square',
+                    'items' => $items,
+                ],
+            ],
+        ];
     }
 
     protected function getIconString($icon): ?string
