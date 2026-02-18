@@ -27,6 +27,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 use Livewire\Attributes\Url;
 
@@ -82,7 +83,6 @@ class TestDataGenerator extends Page
             'generatePickers',
             'generatePickerWave',
             'generateEarnings',
-            'resetTestData',  // 出荷テストデータのリセット
         ];
     }
 
@@ -92,11 +92,9 @@ class TestDataGenerator extends Page
     public function getWarehouseActionNames(): array
     {
         return [
-            'generateWmsData',
-            'updateItemTemperatureTypes',
-            'generateAlcoholStocks',
-            'generateStocks',
-            'truncateAllData',  // WMSデータのTRUNCATE
+            'generateEarnings',  // 売上データ生成
+            'saveStockData',     // 在庫データ保存（S3）
+            'loadStockData',     // 在庫データ読込（S3）
         ];
     }
 
@@ -210,6 +208,229 @@ class TestDataGenerator extends Page
                         ->send();
                 }
             });
+    }
+
+    // ========================================
+    // 在庫データ保存/読込アクション
+    // ========================================
+
+    public function saveStockDataAction(): Action
+    {
+        return Action::make('saveStockData')
+            ->label('在庫データ保存')
+            ->icon('heroicon-o-arrow-down-tray')
+            ->color('info')
+            ->requiresConfirmation()
+            ->modalHeading('在庫データをS3に保存')
+            ->modalDescription('現在のreal_stocks・real_stock_lotsデータをCSVとしてS3に保存します。')
+            ->schema([
+                TextInput::make('snapshot_name')
+                    ->label('スナップショット名（任意）')
+                    ->helperText('未入力の場合はタイムスタンプが使用されます')
+                    ->placeholder('例: 初期状態、テスト前')
+                    ->maxLength(50),
+            ])
+            ->action(function (array $data): void {
+                try {
+                    $timestamp = now()->format('Ymd_His');
+                    $name = trim($data['snapshot_name'] ?? '');
+                    $dirName = $name !== '' ? "{$timestamp}_{$name}" : $timestamp;
+                    $basePath = "test-stock-snapshots/{$dirName}";
+
+                    // real_stocks データ取得（available_quantity は生成カラムなので除外）
+                    $stocks = DB::connection('sakemaru')
+                        ->table('real_stocks')
+                        ->get();
+
+                    if ($stocks->isEmpty()) {
+                        Notification::make()
+                            ->title('保存対象がありません')
+                            ->body('real_stocksにデータがありません。')
+                            ->warning()
+                            ->send();
+
+                        return;
+                    }
+
+                    // real_stocks CSV生成（available_quantity を除外）
+                    $stockColumns = collect(array_keys((array) $stocks->first()))
+                        ->reject(fn ($col) => $col === 'available_quantity')
+                        ->values()
+                        ->toArray();
+
+                    $stocksCsv = $this->generateCsvString($stocks, $stockColumns);
+                    Storage::disk('s3')->put("{$basePath}/real_stocks.csv", $stocksCsv);
+
+                    // real_stock_lots データ取得・CSV生成
+                    $lots = DB::connection('sakemaru')
+                        ->table('real_stock_lots')
+                        ->get();
+
+                    $lotsCsv = '';
+                    $lotsCount = 0;
+                    if ($lots->isNotEmpty()) {
+                        $lotColumns = array_keys((array) $lots->first());
+                        $lotsCsv = $this->generateCsvString($lots, $lotColumns);
+                        $lotsCount = $lots->count();
+                    } else {
+                        $lotsCsv = "id,real_stock_id,floor_id,location_id,expiration_date,price,content_amount,container_amount,initial_quantity,current_quantity,reserved_quantity,status,purchase_id,created_at,updated_at\n";
+                    }
+                    Storage::disk('s3')->put("{$basePath}/real_stock_lots.csv", $lotsCsv);
+
+                    Notification::make()
+                        ->title('在庫データを保存しました')
+                        ->body("スナップショット: {$dirName}\nreal_stocks: {$stocks->count()}件\nreal_stock_lots: {$lotsCount}件")
+                        ->success()
+                        ->send();
+                } catch (\Exception $e) {
+                    Notification::make()
+                        ->title('エラー')
+                        ->body($e->getMessage())
+                        ->danger()
+                        ->send();
+                }
+            });
+    }
+
+    public function loadStockDataAction(): Action
+    {
+        return Action::make('loadStockData')
+            ->label('在庫データ読込')
+            ->icon('heroicon-o-arrow-up-tray')
+            ->color('warning')
+            ->requiresConfirmation()
+            ->modalHeading('在庫データをS3から読込')
+            ->modalDescription('保存されたスナップショットを選択して在庫データを上書きします。既存の在庫データは全て削除されます。')
+            ->modalSubmitActionLabel('読込を実行')
+            ->schema([
+                Select::make('snapshot')
+                    ->label('スナップショット')
+                    ->options(function () {
+                        try {
+                            $directories = Storage::disk('s3')->directories('test-stock-snapshots');
+
+                            return collect($directories)
+                                ->mapWithKeys(fn ($dir) => [
+                                    $dir => basename($dir),
+                                ])
+                                ->sortKeysDesc()
+                                ->toArray();
+                        } catch (\Exception $e) {
+                            return [];
+                        }
+                    })
+                    ->required()
+                    ->searchable(),
+            ])
+            ->action(function (array $data): void {
+                try {
+                    $snapshotPath = $data['snapshot'];
+
+                    // S3からCSV取得
+                    $stocksCsvContent = Storage::disk('s3')->get("{$snapshotPath}/real_stocks.csv");
+                    $lotsCsvContent = Storage::disk('s3')->get("{$snapshotPath}/real_stock_lots.csv");
+
+                    if (! $stocksCsvContent) {
+                        throw new \Exception('real_stocks.csv が見つかりません');
+                    }
+
+                    // CSVパース
+                    $stocksData = $this->parseCsvString($stocksCsvContent);
+                    $lotsData = $this->parseCsvString($lotsCsvContent);
+
+                    // トランザクション内でDELETE → INSERT
+                    // ※ TRUNCATEはDDLで暗黙commitされるためDELETEを使用
+                    DB::connection('sakemaru')->transaction(function () use ($stocksData, $lotsData) {
+                        // 子テーブル → 親テーブルの順でDELETE
+                        DB::connection('sakemaru')->table('real_stock_lots')->delete();
+                        DB::connection('sakemaru')->table('real_stocks')->delete();
+
+                        // 親テーブル → 子テーブルの順でINSERT
+                        // real_stocks: available_quantity（生成カラム）を除外してINSERT
+                        foreach (array_chunk($stocksData, 1000) as $chunk) {
+                            $insertData = collect($chunk)->map(function ($row) {
+                                unset($row['available_quantity']);
+
+                                return $row;
+                            })->toArray();
+
+                            DB::connection('sakemaru')->table('real_stocks')->insert($insertData);
+                        }
+
+                        // real_stock_lots
+                        foreach (array_chunk($lotsData, 1000) as $chunk) {
+                            DB::connection('sakemaru')->table('real_stock_lots')->insert($chunk);
+                        }
+                    });
+
+                    $snapshotName = basename($snapshotPath);
+
+                    Notification::make()
+                        ->title('在庫データを復元しました')
+                        ->body("スナップショット: {$snapshotName}\nreal_stocks: ".count($stocksData)."件\nreal_stock_lots: ".count($lotsData).'件')
+                        ->success()
+                        ->send();
+                } catch (\Exception $e) {
+                    Notification::make()
+                        ->title('エラー')
+                        ->body($e->getMessage())
+                        ->danger()
+                        ->send();
+                }
+            });
+    }
+
+    /**
+     * コレクションデータからCSV文字列を生成する
+     */
+    private function generateCsvString($collection, array $columns): string
+    {
+        $handle = fopen('php://temp', 'r+');
+        fputcsv($handle, $columns);
+
+        foreach ($collection as $row) {
+            $rowArray = (array) $row;
+            $values = [];
+            foreach ($columns as $col) {
+                $values[] = $rowArray[$col] ?? null;
+            }
+            fputcsv($handle, $values);
+        }
+
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
+
+        return $csv;
+    }
+
+    /**
+     * CSV文字列をパースして連想配列の配列として返す
+     */
+    private function parseCsvString(string $csvContent): array
+    {
+        $lines = explode("\n", trim($csvContent));
+        if (count($lines) < 2) {
+            return [];
+        }
+
+        $headers = str_getcsv(array_shift($lines));
+        $data = [];
+
+        foreach ($lines as $line) {
+            if (trim($line) === '') {
+                continue;
+            }
+            $values = str_getcsv($line);
+            if (count($values) === count($headers)) {
+                $row = array_combine($headers, $values);
+                // 空文字をnullに変換
+                $row = array_map(fn ($v) => $v === '' ? null : $v, $row);
+                $data[] = $row;
+            }
+        }
+
+        return $data;
     }
 
     public function truncateAllDataAction(): Action
@@ -344,7 +565,7 @@ class TestDataGenerator extends Page
         return Action::make('generatePickers')
             ->label('ピッカー生成')
             ->icon('heroicon-o-user-plus')
-            ->color('gray')
+            ->color('warning')
             ->requiresConfirmation()
             ->modalHeading('ピッカーを生成')
             ->modalDescription('指定した倉庫に5人のピッカーを生成します。各スキルレベル1人ずつ、異なる作業速度で生成されます。')
