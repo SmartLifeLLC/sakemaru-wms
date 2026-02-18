@@ -13,8 +13,8 @@ class SwaggerBasicAuth
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $expectedUser = config('l5-swagger.defaults.auth.username', 'code');
-        $expectedPassword = config('l5-swagger.defaults.auth.password', 'code');
+        $expectedUser = config('l5-swagger.defaults.routes.auth.username', 'code');
+        $expectedPassword = config('l5-swagger.defaults.routes.auth.password', 'code');
 
         $user = $request->getUser();
         $password = $request->getPassword();
