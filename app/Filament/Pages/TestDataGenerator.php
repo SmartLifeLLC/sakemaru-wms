@@ -346,10 +346,14 @@ class TestDataGenerator extends Page
                         DB::connection('sakemaru')->table('real_stocks')->delete();
 
                         // 親テーブル → 子テーブルの順でINSERT
-                        // real_stocks: available_quantity（生成カラム）を除外してINSERT
+                        // real_stocks: available_quantity（生成カラム）を除外、NOT NULLカラムのデフォルト値を補完してINSERT
                         foreach (array_chunk($stocksData, 1000) as $chunk) {
                             $insertData = collect($chunk)->map(function ($row) {
                                 unset($row['available_quantity']);
+                                // order_rankがNULLの場合はデフォルト値'A'を設定（NOT NULL制約対応）
+                                if (! isset($row['order_rank']) || $row['order_rank'] === null) {
+                                    $row['order_rank'] = 'A';
+                                }
 
                                 return $row;
                             })->toArray();
