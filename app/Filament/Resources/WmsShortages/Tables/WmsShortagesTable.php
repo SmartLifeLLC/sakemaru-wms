@@ -292,12 +292,12 @@ class WmsShortagesTable
                     ->icon('heroicon-o-truck')
                     ->color('warning')
                     ->hidden(fn (WmsShortage $record) => $record->is_confirmed)
-                    ->modalHeading('')
+                    ->modalHeading('欠品対応-横持ち出荷指示')
                     ->modalSubmitActionLabel('欠品対応確定')
                     ->schema([
 
                         \Filament\Forms\Components\ViewField::make('allocations')
-                            ->label('横持ち出荷指示')
+                            ->label('')
                             ->live()
                             ->view('filament.forms.components.proxy-shipment-allocations')
                             ->viewData(function (WmsShortage $record) {

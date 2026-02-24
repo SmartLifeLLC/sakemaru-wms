@@ -290,7 +290,8 @@
 
         <!-- 横持ち出荷指示リスト -->
         <div class="space-y-3">
-            <div class="flex items-center justify-end">
+            <div class="flex items-center justify-between">
+                <div class="font-bold text-gray-700 dark:text-gray-300">横持ち出荷指示</div>
                 <div class="text-sm">
                     残欠品数: <span class="font-bold" :class="remainingQty > 0 ? 'text-red-600' : 'text-green-600'" x-text="remainingQty"></span>
                 </div>

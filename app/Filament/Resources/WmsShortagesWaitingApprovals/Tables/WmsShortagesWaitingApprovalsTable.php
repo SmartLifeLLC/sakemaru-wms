@@ -210,7 +210,7 @@ class WmsShortagesWaitingApprovalsTable
                     ->icon('heroicon-o-truck')
                     ->color('warning')
                     ->hidden(fn (WmsShortage $record) => $record->is_confirmed)
-                    ->modalHeading('欠品対応')
+                    ->modalHeading('欠品対応-横持ち出荷指示')
                     ->modalSubmitActionLabel('保存')
                     ->fillForm(function (WmsShortage $record): array {
                         $allocations = $record->allocations()
@@ -231,7 +231,7 @@ class WmsShortagesWaitingApprovalsTable
                     })
                     ->schema([
                         \Filament\Forms\Components\ViewField::make('allocations')
-                            ->label('横持ち出荷指示')
+                            ->label('')
                             ->live()
                             ->view('filament.forms.components.proxy-shipment-allocations')
                             ->viewData(function (WmsShortage $record): array {
