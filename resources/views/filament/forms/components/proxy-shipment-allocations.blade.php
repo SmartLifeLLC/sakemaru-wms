@@ -96,9 +96,8 @@
             });
         }
     }">
-      <div class="max-h-[55vh] overflow-y-auto pr-1">
-        <!-- 商品情報テーブル -->
-        <div class="mb-6 -mt-2">
+        <!-- 商品情報テーブル（固定） -->
+        <div class="mb-4 -mt-2">
             <table class="w-full border-collapse border border-gray-300 dark:border-gray-600 mb-1">
                 <thead class="bg-gray-50 dark:bg-gray-800">
                     <tr>
@@ -150,6 +149,7 @@
             </table>
         </div>
 
+      <div class="max-h-[45vh] overflow-y-auto pr-1">
         <!-- 同一配送コース上横持ち出荷予定倉庫 | コース内最短倉庫 -->
         <div x-show="hasDeliveryCourse" x-cloak class="mb-4 grid grid-cols-2 gap-4">
             <!-- 左: 同一配送コース上横持ち出荷予定倉庫 -->
