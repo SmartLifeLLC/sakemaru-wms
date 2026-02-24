@@ -3,7 +3,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
     <!-- Main Navigation Bar -->
-    <header class="bg-slate-800 sticky top-0 z-50 shadow-md">
+    <header class="bg-slate-800 sticky top-0 z-[35] shadow-md">
         <div class="w-full px-4 md:px-6">
             <div class="flex items-center justify-between h-10">
 

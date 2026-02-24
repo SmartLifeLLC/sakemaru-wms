@@ -294,6 +294,8 @@ class WmsShortagesTable
                     ->hidden(fn (WmsShortage $record) => $record->is_confirmed)
                     ->modalHeading('欠品対応-横持ち出荷指示')
                     ->modalSubmitActionLabel('欠品対応確定')
+                    ->modalWidth('7xl')
+                    ->extraModalWindowAttributes(['class' => 'proxy-shipment-modal'])
                     ->schema([
 
                         \Filament\Forms\Components\ViewField::make('allocations')
@@ -359,7 +361,7 @@ class WmsShortagesTable
 
                                 // 同一配送コース内の横持ち出荷予定倉庫を取得
                                 $sameCourseAllocations = [];
-                                $courseNearestWarehouse = null;
+                                $courseNearestWarehouses = [];
                                 if ($record->wave_id && $record->delivery_course_id) {
                                     $sameCourseAllocations = WmsShortageAllocation::query()
                                         ->whereHas('shortage', function ($q) use ($record) {
@@ -396,20 +398,87 @@ class WmsShortagesTable
                                         ->toArray();
 
                                     if (! empty($coursePartnerIds)) {
-                                        $nearestDistance = \App\Models\WmsPartnerWarehouseDistance::whereIn('partner_id', $coursePartnerIds)
+                                        $nearestDistances = \App\Models\WmsPartnerWarehouseDistance::whereIn('partner_id', $coursePartnerIds)
                                             ->orderBy('distance_km', 'asc')
-                                            ->first();
+                                            ->get()
+                                            ->unique('warehouse_id')
+                                            ->take(3);
 
-                                        if ($nearestDistance) {
-                                            $warehouse = Warehouse::find($nearestDistance->warehouse_id);
+                                        foreach ($nearestDistances as $dist) {
+                                            $warehouse = Warehouse::find($dist->warehouse_id);
                                             if ($warehouse) {
-                                                $courseNearestWarehouse = [
+                                                $courseNearestWarehouses[] = [
                                                     'warehouse_id' => $warehouse->id,
                                                     'warehouse_name' => $warehouse->name,
-                                                    'distance_km' => $nearestDistance->distance_km,
-                                                    'partner_id' => $nearestDistance->partner_id,
+                                                    'distance_km' => $dist->distance_km,
                                                 ];
                                             }
+                                        }
+                                    }
+                                }
+
+                                // マップ用位置情報データ
+                                $locations = [];
+
+                                // 1. 出発倉庫（departure）
+                                $departureWarehouse = $record->warehouse;
+                                if ($departureWarehouse && $departureWarehouse->latitude && $departureWarehouse->longitude) {
+                                    $locations[] = [
+                                        'id' => $departureWarehouse->id,
+                                        'name' => $departureWarehouse->name,
+                                        'lat' => (float) $departureWarehouse->latitude,
+                                        'lng' => (float) $departureWarehouse->longitude,
+                                        'type' => 'departure',
+                                    ];
+                                }
+
+                                // 2. 横持ち出荷倉庫（warehouse）: ret_stores.pos_store_code IS NOT NULL の全倉庫
+                                $stockByWarehouse = collect($stockData)->keyBy('warehouse_id');
+                                $proxyWarehouses = \DB::connection('sakemaru')
+                                    ->table('warehouses')
+                                    ->join('ret_stores', 'warehouses.code', '=', 'ret_stores.code')
+                                    ->whereNotNull('ret_stores.pos_store_code')
+                                    ->whereNotNull('warehouses.latitude')
+                                    ->whereNotNull('warehouses.longitude')
+                                    ->where('warehouses.id', '!=', $record->warehouse_id)
+                                    ->select('warehouses.id', 'warehouses.name', 'warehouses.latitude', 'warehouses.longitude')
+                                    ->get();
+
+                                foreach ($proxyWarehouses as $wh) {
+                                    $stockInfo = null;
+                                    if ($stockByWarehouse->has($wh->id)) {
+                                        $s = $stockByWarehouse->get($wh->id);
+                                        $stockInfo = $s['cases'].'CS / '.$s['total_pieces'].'バラ';
+                                    }
+                                    $locations[] = [
+                                        'id' => $wh->id,
+                                        'name' => $wh->name,
+                                        'lat' => (float) $wh->latitude,
+                                        'lng' => (float) $wh->longitude,
+                                        'type' => 'warehouse',
+                                        'stock_info' => $stockInfo,
+                                    ];
+                                }
+
+                                // 3. 納品先（customer）: 同一配送コース内の得意先
+                                if ($record->wave_id && $record->delivery_course_id) {
+                                    $courseShortages = WmsShortage::where('wave_id', $record->wave_id)
+                                        ->where('delivery_course_id', $record->delivery_course_id)
+                                        ->with('trade.partner')
+                                        ->get();
+
+                                    $addedPartnerIds = [];
+                                    foreach ($courseShortages as $s) {
+                                        $partner = $s->trade?->partner;
+                                        if ($partner && $partner->latitude && $partner->longitude && ! in_array($partner->id, $addedPartnerIds)) {
+                                            $locations[] = [
+                                                'id' => $partner->id,
+                                                'name' => $partner->name,
+                                                'lat' => (float) $partner->latitude,
+                                                'lng' => (float) $partner->longitude,
+                                                'type' => 'customer',
+                                            ];
+                                            $addedPartnerIds[] = $partner->id;
                                         }
                                     }
                                 }
@@ -434,8 +503,10 @@ class WmsShortagesTable
                                     // 倉庫推薦データ
                                     'nearest_warehouse_id' => $nearestWarehouseId,
                                     'same_course_allocations' => $sameCourseAllocations,
-                                    'course_nearest_warehouse' => $courseNearestWarehouse,
+                                    'course_nearest_warehouses' => $courseNearestWarehouses,
                                     'has_delivery_course' => (bool) $record->delivery_course_id,
+                                    // マップ用位置情報
+                                    'locations' => $locations,
                                 ];
                             })
                             ->default(function (WmsShortage $record) {
