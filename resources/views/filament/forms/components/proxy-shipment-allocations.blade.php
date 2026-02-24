@@ -27,6 +27,19 @@
             });
         },
 
+        get stockRows() {
+            const sorted = this.sortedStocks;
+            const half = Math.ceil(sorted.length / 2);
+            const rows = [];
+            for (let i = 0; i < half; i++) {
+                rows.push({
+                    left: sorted[i] || null,
+                    right: sorted[i + half] || null,
+                });
+            }
+            return rows;
+        },
+
         addAllocation(warehouseId, qty) {
             if (qty <= 0) {
                 alert('残欠品数が0のため追加できません。');
@@ -203,35 +216,71 @@
             </div>
         </div>
 
-        <!-- 在庫リスト -->
+        <!-- 在庫リスト（2グループ横並び） -->
         <div class="mb-4 overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600">
             <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
                 <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400 border-b border-gray-200 dark:border-gray-600">
                     <tr>
-                        <th class="px-4 py-3 border-r border-gray-200 dark:border-gray-600 last:border-r-0">倉庫名</th>
-                        <th class="px-4 py-3 text-center border-r border-gray-200 dark:border-gray-600 last:border-r-0">ケース数</th>
-                        <th class="px-4 py-3 text-center">総バラ数</th>
+                        <th class="px-3 py-2 border-r border-gray-200 dark:border-gray-600">倉庫名</th>
+                        <th class="px-3 py-2 text-center border-r border-gray-200 dark:border-gray-600">ケース数</th>
+                        <th class="px-3 py-2 text-center border-r-2 border-gray-300 dark:border-gray-500">総バラ数</th>
+                        <th class="px-3 py-2 border-r border-gray-200 dark:border-gray-600">倉庫名</th>
+                        <th class="px-3 py-2 text-center border-r border-gray-200 dark:border-gray-600">ケース数</th>
+                        <th class="px-3 py-2 text-center">総バラ数</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    <template x-for="stock in sortedStocks" :key="stock.warehouse_id">
-                        <tr
-                            class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900 cursor-pointer transition-colors"
-                            @click="addAllocation(stock.warehouse_id, remainingQty)"
-                        >
-                            <td class="px-4 py-2 border-r border-gray-200 dark:border-gray-700 last:border-r-0 text-gray-900 dark:text-gray-100">
-                                <span x-text="stock.warehouse_name"></span>
+                    <template x-for="(row, idx) in stockRows" :key="idx">
+                        <tr class="bg-white dark:bg-gray-800">
+                            <!-- 左グループ -->
+                            <td
+                                class="px-3 py-1.5 border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors"
+                                @click="row.left && addAllocation(row.left.warehouse_id, remainingQty)"
+                            >
+                                <span x-text="row.left?.warehouse_name ?? ''"></span>
                                 <span
-                                    x-show="stock.warehouse_id == nearestWarehouseId"
-                                    class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                    x-show="row.left && row.left.warehouse_id == nearestWarehouseId"
+                                    class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
                                 >おすすめ</span>
                             </td>
-                            <td class="px-4 py-2 text-center border-r border-gray-200 dark:border-gray-700 last:border-r-0 text-gray-900 dark:text-gray-100 font-medium" x-text="new Intl.NumberFormat('ja-JP').format(stock.cases) + 'ケース'"></td>
-                            <td class="px-4 py-2 text-center text-gray-900 dark:text-gray-100" x-text="new Intl.NumberFormat('ja-JP').format(stock.total_pieces) + 'バラ'"></td>
+                            <td
+                                class="px-3 py-1.5 text-center border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100 font-medium cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors"
+                                @click="row.left && addAllocation(row.left.warehouse_id, remainingQty)"
+                                x-text="row.left ? new Intl.NumberFormat('ja-JP').format(row.left.cases) + 'CS' : ''"
+                            ></td>
+                            <td
+                                class="px-3 py-1.5 text-center border-r-2 border-gray-300 dark:border-gray-500 text-gray-900 dark:text-gray-100 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors"
+                                @click="row.left && addAllocation(row.left.warehouse_id, remainingQty)"
+                                x-text="row.left ? new Intl.NumberFormat('ja-JP').format(row.left.total_pieces) + 'バラ' : ''"
+                            ></td>
+                            <!-- 右グループ -->
+                            <td
+                                class="px-3 py-1.5 border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors"
+                                :class="{ 'cursor-default': !row.right }"
+                                @click="row.right && addAllocation(row.right.warehouse_id, remainingQty)"
+                            >
+                                <span x-text="row.right?.warehouse_name ?? ''"></span>
+                                <span
+                                    x-show="row.right && row.right.warehouse_id == nearestWarehouseId"
+                                    class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                >おすすめ</span>
+                            </td>
+                            <td
+                                class="px-3 py-1.5 text-center border-r border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100 font-medium cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors"
+                                :class="{ 'cursor-default': !row.right }"
+                                @click="row.right && addAllocation(row.right.warehouse_id, remainingQty)"
+                                x-text="row.right ? new Intl.NumberFormat('ja-JP').format(row.right.cases) + 'CS' : ''"
+                            ></td>
+                            <td
+                                class="px-3 py-1.5 text-center text-gray-900 dark:text-gray-100 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors"
+                                :class="{ 'cursor-default': !row.right }"
+                                @click="row.right && addAllocation(row.right.warehouse_id, remainingQty)"
+                                x-text="row.right ? new Intl.NumberFormat('ja-JP').format(row.right.total_pieces) + 'バラ' : ''"
+                            ></td>
                         </tr>
                     </template>
                     <tr x-show="stocks.length === 0" class="bg-white dark:bg-gray-900">
-                        <td colspan="3" class="px-4 py-4 text-center text-gray-500 dark:text-gray-400">
+                        <td colspan="6" class="px-4 py-4 text-center text-gray-500 dark:text-gray-400">
                             在庫のある倉庫がありません
                         </td>
                     </tr>
