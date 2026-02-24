@@ -359,6 +359,7 @@ class WmsShortagesTable
 
                                 // 同一配送コース内の横持ち出荷予定倉庫を取得
                                 $sameCourseAllocations = [];
+                                $courseNearestWarehouse = null;
                                 if ($record->wave_id && $record->delivery_course_id) {
                                     $sameCourseAllocations = WmsShortageAllocation::query()
                                         ->whereHas('shortage', function ($q) use ($record) {
@@ -382,6 +383,35 @@ class WmsShortagesTable
                                         })
                                         ->values()
                                         ->toArray();
+
+                                    // コース内最短倉庫を取得（同一配送コース内の得意先の最短距離倉庫）
+                                    $coursePartnerIds = WmsShortage::where('wave_id', $record->wave_id)
+                                        ->where('delivery_course_id', $record->delivery_course_id)
+                                        ->with('trade')
+                                        ->get()
+                                        ->pluck('trade.partner_id')
+                                        ->filter()
+                                        ->unique()
+                                        ->values()
+                                        ->toArray();
+
+                                    if (! empty($coursePartnerIds)) {
+                                        $nearestDistance = \App\Models\WmsPartnerWarehouseDistance::whereIn('partner_id', $coursePartnerIds)
+                                            ->orderBy('distance_km', 'asc')
+                                            ->first();
+
+                                        if ($nearestDistance) {
+                                            $warehouse = Warehouse::find($nearestDistance->warehouse_id);
+                                            if ($warehouse) {
+                                                $courseNearestWarehouse = [
+                                                    'warehouse_id' => $warehouse->id,
+                                                    'warehouse_name' => $warehouse->name,
+                                                    'distance_km' => $nearestDistance->distance_km,
+                                                    'partner_id' => $nearestDistance->partner_id,
+                                                ];
+                                            }
+                                        }
+                                    }
                                 }
 
                                 return [
@@ -404,6 +434,7 @@ class WmsShortagesTable
                                     // 倉庫推薦データ
                                     'nearest_warehouse_id' => $nearestWarehouseId,
                                     'same_course_allocations' => $sameCourseAllocations,
+                                    'course_nearest_warehouse' => $courseNearestWarehouse,
                                 ];
                             })
                             ->default(function (WmsShortage $record) {
