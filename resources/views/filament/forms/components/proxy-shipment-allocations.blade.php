@@ -6,7 +6,9 @@
         state: $wire.entangle('{{ $getStatePath() }}'),
         shortageQty: {{ $shortage_qty }},
         stocks: {{ json_encode($stocks) }},
-        
+        nearestWarehouseId: {{ $nearest_warehouse_id ?? 'null' }},
+        sameCourseAllocations: {{ json_encode($same_course_allocations ?? []) }},
+
         get allocatedQty() {
             return (this.state || []).reduce((sum, item) => sum + (parseInt(item.assign_qty) || 0), 0);
         },
@@ -15,14 +17,22 @@
             return Math.max(0, this.shortageQty - this.allocatedQty);
         },
 
+        get sortedStocks() {
+            return [...this.stocks].sort((a, b) => {
+                if (a.warehouse_id == this.nearestWarehouseId) return -1;
+                if (b.warehouse_id == this.nearestWarehouseId) return 1;
+                return 0;
+            });
+        },
+
         addAllocation(warehouseId, qty) {
             if (qty <= 0) {
                 alert('残欠品数が0のため追加できません。');
                 return;
             }
-            
+
             this.state = this.state || [];
-            
+
             // 重複チェック
             if (this.state.find(item => item.from_warehouse_id == warehouseId)) {
                 alert('この倉庫は既に選択されています。');
@@ -43,7 +53,7 @@
         validateQty(index) {
             const item = this.state[index];
             let val = parseInt(item.assign_qty);
-            
+
             if (isNaN(val) || val < 0) {
                 val = 0;
             }
@@ -124,6 +134,37 @@
             </table>
         </div>
 
+        <!-- 同一配送コース上横持ち出荷予定倉庫 -->
+        <div x-show="sameCourseAllocations.length > 0" x-cloak class="mb-4 overflow-hidden rounded-lg border border-amber-300 dark:border-amber-600">
+            <div class="px-4 py-2 bg-amber-50 dark:bg-amber-900/30 border-b border-amber-300 dark:border-amber-600">
+                <span class="font-bold text-sm text-amber-700 dark:text-amber-300">同一配送コース上横持ち出荷予定倉庫</span>
+            </div>
+            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-amber-50/50 dark:bg-amber-900/20 dark:text-gray-400 border-b border-amber-200 dark:border-amber-700">
+                    <tr>
+                        <th class="px-4 py-2 border-r border-amber-200 dark:border-amber-700 last:border-r-0">倉庫名</th>
+                        <th class="px-4 py-2 text-center border-r border-amber-200 dark:border-amber-700 last:border-r-0">横持ち出荷件数</th>
+                        <th class="px-4 py-2 text-center">合計数量</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-amber-200 dark:divide-amber-700">
+                    <template x-for="alloc in sameCourseAllocations" :key="alloc.warehouse_id">
+                        <tr
+                            class="bg-white border-b dark:bg-gray-800 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/30 cursor-pointer transition-colors"
+                            @click="addAllocation(alloc.warehouse_id, remainingQty)"
+                        >
+                            <td class="px-4 py-2 border-r border-amber-200 dark:border-amber-700 last:border-r-0 text-gray-900 dark:text-gray-100">
+                                <span x-text="alloc.warehouse_name"></span>
+                                <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">コース内</span>
+                            </td>
+                            <td class="px-4 py-2 text-center border-r border-amber-200 dark:border-amber-700 last:border-r-0 text-gray-900 dark:text-gray-100 font-medium" x-text="alloc.allocation_count + '件'"></td>
+                            <td class="px-4 py-2 text-center text-gray-900 dark:text-gray-100" x-text="alloc.total_qty"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
         <!-- 在庫リスト -->
         <div class="mb-4 overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600">
             <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
@@ -135,12 +176,18 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    <template x-for="stock in stocks" :key="stock.warehouse_id">
-                        <tr 
+                    <template x-for="stock in sortedStocks" :key="stock.warehouse_id">
+                        <tr
                             class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900 cursor-pointer transition-colors"
                             @click="addAllocation(stock.warehouse_id, remainingQty)"
                         >
-                            <td class="px-4 py-2 border-r border-gray-200 dark:border-gray-700 last:border-r-0 text-gray-900 dark:text-gray-100" x-text="stock.warehouse_name"></td>
+                            <td class="px-4 py-2 border-r border-gray-200 dark:border-gray-700 last:border-r-0 text-gray-900 dark:text-gray-100">
+                                <span x-text="stock.warehouse_name"></span>
+                                <span
+                                    x-show="stock.warehouse_id == nearestWarehouseId"
+                                    class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                >おすすめ</span>
+                            </td>
                             <td class="px-4 py-2 text-center border-r border-gray-200 dark:border-gray-700 last:border-r-0 text-gray-900 dark:text-gray-100 font-medium" x-text="new Intl.NumberFormat('ja-JP').format(stock.cases) + 'ケース'"></td>
                             <td class="px-4 py-2 text-center text-gray-900 dark:text-gray-100" x-text="new Intl.NumberFormat('ja-JP').format(stock.total_pieces) + 'バラ'"></td>
                         </tr>
@@ -177,8 +224,8 @@
                         <template x-for="(allocation, index) in state" :key="index">
                             <tr class="border-b dark:border-gray-700">
                                 <td class="px-4 py-2 border-r border-gray-200 dark:border-gray-700 last:border-r-0">
-                                    <select 
-                                        x-model="allocation.from_warehouse_id" 
+                                    <select
+                                        x-model="allocation.from_warehouse_id"
                                         class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-sm py-1"
                                     >
                                         <option value="">倉庫を選択</option>
@@ -188,9 +235,9 @@
                                     </select>
                                 </td>
                                 <td class="px-4 py-2 border-r border-gray-200 dark:border-gray-700 last:border-r-0">
-                                    <input 
-                                        type="number" 
-                                        x-model="allocation.assign_qty" 
+                                    <input
+                                        type="number"
+                                        x-model="allocation.assign_qty"
                                         @input="validateQty(index)"
                                         min="0"
                                         class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-sm py-1"
@@ -200,9 +247,9 @@
                                     {{ $qty_type_label }}
                                 </td>
                                 <td class="px-4 py-2 text-center">
-                                    <button 
-                                        type="button" 
-                                        @click="removeAllocation(index)" 
+                                    <button
+                                        type="button"
+                                        @click="removeAllocation(index)"
                                         class="text-red-500 hover:text-red-700 p-1"
                                     >
                                         <x-heroicon-o-trash class="w-5 h-5" />
@@ -218,7 +265,7 @@
                     </tbody>
                 </table>
             </div>
-            
+
             <div class="flex justify-end">
                 <button
                     type="button"

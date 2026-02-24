@@ -349,6 +349,41 @@ class WmsShortagesTable
                                 }
                                 $shortageDetailsValue = implode(' / ', $shortageDetailsParts);
 
+                                // 得意先の最寄倉庫を取得
+                                $partnerId = $record->trade->partner_id ?? null;
+                                $nearestWarehouseId = null;
+                                if ($partnerId) {
+                                    $nearest = \App\Models\WmsPartnerNearestWarehouse::where('partner_id', $partnerId)->first();
+                                    $nearestWarehouseId = $nearest?->nearest_warehouse_id;
+                                }
+
+                                // 同一配送コース内の横持ち出荷予定倉庫を取得
+                                $sameCourseAllocations = [];
+                                if ($record->wave_id && $record->delivery_course_id) {
+                                    $sameCourseAllocations = WmsShortageAllocation::query()
+                                        ->whereHas('shortage', function ($q) use ($record) {
+                                            $q->where('wave_id', $record->wave_id)
+                                                ->where('delivery_course_id', $record->delivery_course_id)
+                                                ->where('id', '!=', $record->id);
+                                        })
+                                        ->whereNotIn('status', ['CANCELLED'])
+                                        ->with('targetWarehouse')
+                                        ->get()
+                                        ->groupBy('target_warehouse_id')
+                                        ->map(function ($group) {
+                                            $warehouse = $group->first()->targetWarehouse;
+
+                                            return [
+                                                'warehouse_id' => $warehouse->id,
+                                                'warehouse_name' => $warehouse->name,
+                                                'allocation_count' => $group->count(),
+                                                'total_qty' => $group->sum('assign_qty'),
+                                            ];
+                                        })
+                                        ->values()
+                                        ->toArray();
+                                }
+
                                 return [
                                     'stocks' => $stockData,
                                     'warehouses' => Warehouse::pluck('name', 'id')->toArray(),
@@ -366,6 +401,9 @@ class WmsShortagesTable
                                     'order_qty' => (string) $record->order_qty,
                                     'picked_qty' => (string) $record->picked_qty,
                                     'shortage_details' => $shortageDetailsValue,
+                                    // 倉庫推薦データ
+                                    'nearest_warehouse_id' => $nearestWarehouseId,
+                                    'same_course_allocations' => $sameCourseAllocations,
                                 ];
                             })
                             ->default(function (WmsShortage $record) {
