@@ -62,7 +62,7 @@ class DeliveryCourseChangeService
             $oldTaskIds = $itemResults->pluck('picking_task_id')->unique()->toArray();
 
             // 2. Waveを取得または生成
-            $wave = $this->waveService->getOrCreateWave($warehouseId, $newCourseId, $shipmentDate);
+            $wave = $this->waveService->getOrCreateWave($newCourseId, $shipmentDate);
 
             // 3. 各picking_item_resultを移動
             $movedCount = 0;

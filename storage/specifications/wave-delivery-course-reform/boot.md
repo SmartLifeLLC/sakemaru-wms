@@ -3,7 +3,7 @@
 - **ID**: wave-delivery-course-reform
 - **作成日**: 2026-02-21
 - **最終更新**: 2026-02-21
-- **ステータス**: 進行中
+- **ステータス**: 完了
 - **ディレクトリ**: storage/specifications/wave-delivery-course-reform/
 - **仕様書**: storage/specifications/outbound/20260219-wms-wave-delivery-course-reform.md
 
@@ -83,13 +83,13 @@ php artisan wms:generate-waves
 
 | Phase | 状態 | 更新日 | 備考 |
 |-------|------|--------|------|
-| P0: WarehouseResolver ユーティリティ作成 | 未着手 | - | F-0 |
-| P1: wms_wave_settings.warehouse_id 削除（モデル・サービス改修） | 未着手 | - | M-2b, M-2, M-6, M-1, M-7, M-8, M-9, M-10, M-11, M-12 |
-| P2: StockTransferQueueService 実倉庫ベース修正 | 未着手 | - | M-4 |
-| P3: DB変更とモデル作成（配送コース切替） | 未着手 | - | F-1, F-2 |
-| P4: 出荷倉庫不一致対応 | 未着手 | - | F-4, M-3 |
-| P5: 得意先配送コース時間切替 | 未着手 | - | F-3, F-5, M-5 |
-| P6: マイグレーション実行・テスト・検証 | 未着手 | - | F-1b, テスト |
+| P0: WarehouseResolver ユーティリティ作成 | 完了 | 2026-02-21 | F-0 |
+| P1: wms_wave_settings.warehouse_id 削除（モデル・サービス改修） | 完了 | 2026-02-21 | M-2b, M-2, M-6, M-1, M-7, M-8, M-9, M-10, M-11, M-12 |
+| P2: StockTransferQueueService 実倉庫ベース修正 | 完了 | 2026-02-21 | M-4 |
+| P3: DB変更とモデル作成（配送コース切替） | 完了 | 2026-02-21 | F-1, F-2 |
+| P4: 出荷倉庫不一致対応 | 完了 | 2026-02-21 | F-4, M-3 |
+| P5: 得意先配送コース時間切替 | 完了 | 2026-02-21 | F-3, F-5, M-5 |
+| P6: マイグレーション実行・テスト・検証 | 完了 | 2026-02-21 | F-1b, テスト |
 
 ---
 
@@ -110,7 +110,7 @@ php artisan wms:generate-waves
 - `GeneratePickerWaveCommand.php`: L65, L255, L314, L401, L460, L492, L561, L604
 
 ### Git ブランチ
-- 作業ブランチ: (作業開始後に記入)
+- 作業ブランチ: feature/wave-delivery-course-reform
 - ベースブランチ: release/v1.0
 
 ---
@@ -120,36 +120,65 @@ php artisan wms:generate-waves
 > 各Phase完了時にここに実績を追記する。
 
 ### P0: WarehouseResolver ユーティリティ作成
-- 完了日: -
+- 完了日: 2026-02-21
 - 実績:
-  - (完了後に記入)
+  - `app/Services/WarehouseResolver.php` 作成
+  - メソッド: resolveRealWarehouseId(), isSameRealWarehouse(), getRealWarehouseCode()
+  - Pint通過
 
 ### P1: wms_wave_settings.warehouse_id 削除
-- 完了日: -
+- 完了日: 2026-02-21
 - 実績:
-  - (完了後に記入)
+  - WaveSetting モデル: fillable から warehouse_id 削除、warehouse() リレーション削除、getWarehouseIdAttribute() アクセサ追加
+  - WaveService: findExistingWave(), getOrCreateWave(), createTemporaryWave() から $warehouseId 引数削除
+  - DeliveryCourseChangeService: getOrCreateWave() 呼び出しから $warehouseId 引数削除
+  - GenerateWavesCommand: delivery_course_id 基準に統一、WarehouseResolver 使用の仮想倉庫判定追加
+  - ListWaves: WaveSetting 検索・作成から warehouse_id 削除
+  - WaveSettingForm: warehouse_id Select を削除、配送コースを全コースから選択可能に変更（倉庫名プレフィックス付き）
+  - WaveSettingsTable: warehouse_id カラムを warehouse_name 導出カラムに変更
+  - GenerateWaveSettingsCommand, WaveSettingSeeder, GeneratePickerWaveCommand: warehouse_id 参照を削除
+  - マイグレーション作成（未実行、P6で実行）
+  - Pint通過
 
 ### P2: StockTransferQueueService 実倉庫ベース修正
-- 完了日: -
+- 完了日: 2026-02-21
 - 実績:
-  - (完了後に記入)
+  - determineToWarehouse() メソッド追加（実倉庫ベース判定）
+  - WarehouseResolver::isSameRealWarehouse() 使用
+  - 異なる実倉庫→販売倉庫の実倉庫コードへ直接配送
+  - Pint通過
 
 ### P3: DB変更とモデル作成（配送コース切替）
-- 完了日: -
+- 完了日: 2026-02-21
 - 実績:
-  - (完了後に記入)
+  - マイグレーション作成: wms_buyer_delivery_course_switch_settings テーブル
+  - モデル作成: WmsBuyerDeliveryCourseSwitchSetting (SoftDeletes, buyer/toDeliveryCourse リレーション, switchTimeRule)
+  - マイグレーション実行完了
+  - Pint通過
 
 ### P4: 出荷倉庫不一致対応
-- 完了日: -
+- 完了日: 2026-02-21
 - 実績:
-  - (完了後に記入)
+  - WarehouseMismatchTransferService 作成: createMismatchTransfer(), べき等性チェック(request_id), 実倉庫ベース不一致検出
+  - WmsPickingTask: STATUS_SHIPPED 定数追加、booted() に SHIPPED トリガー追加
+  - Pint通過
 
 ### P5: 得意先配送コース時間切替
-- 完了日: -
+- 完了日: 2026-02-21
 - 実績:
-  - (完了後に記入)
+  - SwitchDeliveryCourseCommand 作成: 15分単位スロット、原子UPDATE実行制御、buyer_details一括更新
+  - Filament Resource 作成: WmsBuyerDeliveryCourseSwitchSettingResource (リスト・作成・編集ページ)
+  - フォーム: buyer_id Select, switch_time Select(15分単位), to_delivery_course_id Select
+  - テーブル: 得意先名, 切替時刻, 切替先配送コース, 最終実行日
+  - EMenu に DELIVERY_COURSE_SWITCH_SETTINGS 追加
+  - routes/console.php にスケジューラー登録（everyFifteenMinutes）
+  - Pint通過
 
 ### P6: マイグレーション実行・テスト・検証
-- 完了日: -
+- 完了日: 2026-02-21
 - 実績:
-  - (完了後に記入)
+  - Pint通過（全変更ファイル。既存の18件のスタイル問題は本PR対象外）
+  - F-1b マイグレーション実行: wms_wave_settings.warehouse_id 削除完了
+  - F-1 マイグレーション実行: wms_buyer_delivery_course_switch_settings テーブル作成完了
+  - テスト実行: 109 passed, 17 failed（全て既存テストの問題、本PR起因のfailureなし）
+  - wms:switch-delivery-course コマンド動作確認

@@ -457,8 +457,7 @@ class GeneratePickerWaveCommand extends Command
         $pickingDeadlineTime = '23:59:59';
 
         // Search for existing wave setting with the same picking_start_time
-        $existing = WaveSetting::where('warehouse_id', $this->warehouseId)
-            ->where('delivery_course_id', $course->id)
+        $existing = WaveSetting::where('delivery_course_id', $course->id)
             ->where('picking_start_time', $pickingStartTime)
             ->first();
 
@@ -473,7 +472,6 @@ class GeneratePickerWaveCommand extends Command
 
         // Create new wave setting
         WaveSetting::create([
-            'warehouse_id' => $this->warehouseId,
             'delivery_course_id' => $course->id,
             'picking_start_time' => $pickingStartTime,
             'picking_deadline_time' => $pickingDeadlineTime,
@@ -486,9 +484,9 @@ class GeneratePickerWaveCommand extends Command
 
     private function assignTasksToPicker(string $shippingDate): int
     {
-        // Get waves for this shipping date and warehouse only (via wave_setting)
+        // Get waves for this shipping date and warehouse only (via wave_setting -> deliveryCourse)
         $waves = Wave::where('shipping_date', $shippingDate)
-            ->whereHas('waveSetting', function ($query) {
+            ->whereHas('waveSetting.deliveryCourse', function ($query) {
                 $query->where('warehouse_id', $this->warehouseId);
             })
             ->get();

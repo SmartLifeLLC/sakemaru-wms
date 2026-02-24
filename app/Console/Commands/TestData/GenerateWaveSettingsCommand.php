@@ -80,7 +80,6 @@ class GenerateWaveSettingsCommand extends Command
                 foreach ($timeSlots as $slot) {
                     // Check if setting already exists
                     $exists = WaveSetting::query()
-                        ->where('warehouse_id', $warehouse->id)
                         ->where('delivery_course_id', $course->id)
                         ->where('picking_start_time', $slot['start'])
                         ->exists();
@@ -93,7 +92,6 @@ class GenerateWaveSettingsCommand extends Command
 
                     // Create wave setting
                     WaveSetting::create([
-                        'warehouse_id' => $warehouse->id,
                         'delivery_course_id' => $course->id,
                         'picking_start_time' => $slot['start'],
                         'picking_deadline_time' => $slot['deadline'],

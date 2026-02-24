@@ -62,7 +62,6 @@ class WaveSettingSeeder extends Seeder
                 $slot = $timeSlots[$index % count($timeSlots)];
 
                 WaveSetting::create([
-                    'warehouse_id' => $warehouse->id,
                     'delivery_course_id' => $course->id,
                     'picking_start_time' => $slot['start'],
                     'picking_deadline_time' => $slot['deadline'],

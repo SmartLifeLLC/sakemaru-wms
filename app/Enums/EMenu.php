@@ -77,6 +77,7 @@ enum EMenu: string
 
     // システム設定
     case WAVE_SETTINGS = 'settings.wave_settings';
+    case DELIVERY_COURSE_SWITCH_SETTINGS = 'settings.delivery_course_switch_settings';
     case CLIENT_PRINTER_COURSE_SETTINGS = 'settings.client_printer_course_settings';
 
     // テストデータ
@@ -152,6 +153,7 @@ enum EMenu: string
             self::WMS_QUEUE_JOBS => EMenuCategory::LOGS,
 
             self::WAVE_SETTINGS,
+            self::DELIVERY_COURSE_SWITCH_SETTINGS,
             self::CLIENT_PRINTER_COURSE_SETTINGS => EMenuCategory::SETTINGS,
 
             self::TEST_DATA_GENERATOR => EMenuCategory::TEST_DATA,
@@ -222,6 +224,7 @@ enum EMenu: string
             self::WMS_QUEUE_JOBS => 'Queueジョブ',
 
             self::WAVE_SETTINGS => '波動設定',
+            self::DELIVERY_COURSE_SWITCH_SETTINGS => '配送コース切替設定',
 
             self::CLIENT_PRINTER_COURSE_SETTINGS => 'プリンター設定',
 
@@ -293,6 +296,7 @@ enum EMenu: string
             self::WMS_QUEUE_JOBS => 'heroicon-o-queue-list',
 
             self::WAVE_SETTINGS => 'heroicon-o-cog-6-tooth',
+            self::DELIVERY_COURSE_SWITCH_SETTINGS => 'heroicon-o-arrow-path-rounded-square',
             self::CLIENT_PRINTER_COURSE_SETTINGS => 'heroicon-o-printer',
 
             self::TEST_DATA_GENERATOR => 'heroicon-o-beaker',
@@ -380,7 +384,8 @@ enum EMenu: string
 
             // システム設定
             self::WAVE_SETTINGS => 1,
-            self::CLIENT_PRINTER_COURSE_SETTINGS => 2,
+            self::DELIVERY_COURSE_SWITCH_SETTINGS => 2,
+            self::CLIENT_PRINTER_COURSE_SETTINGS => 3,
 
             // テストデータ
             self::TEST_DATA_GENERATOR => 1,

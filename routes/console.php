@@ -50,6 +50,13 @@ Schedule::command('wms:auto-order-calculate --skip-snapshot')
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/auto-order-calculate.log'));
 
+// 配送コース時間切替 (15分ごと)
+Schedule::command('wms:switch-delivery-course')
+    ->everyFifteenMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/delivery-course-switch.log'));
+
 // 祝日データインポート (毎年1月1日 3:00)
 // ※ 年間の祝日データを取得・更新
 Schedule::command('wms:import-holidays --year='.(date('Y') + 1))
