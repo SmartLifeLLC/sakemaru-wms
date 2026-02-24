@@ -83,6 +83,7 @@
             });
         }
     }">
+      <div class="max-h-[70vh] overflow-y-auto pr-1">
         <!-- 商品情報テーブル -->
         <div class="mb-6 -mt-2">
             <table class="w-full border-collapse border border-gray-300 dark:border-gray-600 mb-1">
@@ -314,5 +315,6 @@
                 </button>
             </div>
         </div>
+      </div>
     </div>
 </x-dynamic-component>
