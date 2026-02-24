@@ -292,8 +292,18 @@
         <div class="space-y-3">
             <div class="flex items-center justify-between">
                 <div class="font-bold text-gray-700 dark:text-gray-300">横持ち出荷指示</div>
-                <div class="text-sm">
-                    残欠品数: <span class="font-bold" :class="remainingQty > 0 ? 'text-red-600' : 'text-green-600'" x-text="remainingQty"></span>
+                <div class="flex items-center gap-4">
+                    <div class="text-sm">
+                        残欠品数: <span class="font-bold" :class="remainingQty > 0 ? 'text-red-600' : 'text-green-600'" x-text="remainingQty"></span>
+                    </div>
+                    <button
+                        type="button"
+                        @click="addManualAllocation()"
+                        class="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
+                    >
+                        <x-heroicon-m-plus class="w-4 h-4" />
+                        <span>倉庫を追加</span>
+                    </button>
                 </div>
             </div>
 
@@ -351,17 +361,6 @@
                         </tr>
                     </tbody>
                 </table>
-            </div>
-
-            <div class="flex justify-end">
-                <button
-                    type="button"
-                    @click="addManualAllocation()"
-                    class="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
-                >
-                    <x-heroicon-m-plus class="w-4 h-4" />
-                    <span>倉庫を追加</span>
-                </button>
             </div>
         </div>
       </div>
