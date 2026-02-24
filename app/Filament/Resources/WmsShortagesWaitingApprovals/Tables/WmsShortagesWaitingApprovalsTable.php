@@ -231,7 +231,7 @@ class WmsShortagesWaitingApprovalsTable
                     })
                     ->schema([
                         \Filament\Forms\Components\ViewField::make('allocations')
-                            ->label('')
+                            ->hiddenLabel()
                             ->live()
                             ->view('filament.forms.components.proxy-shipment-allocations')
                             ->viewData(function (WmsShortage $record): array {
