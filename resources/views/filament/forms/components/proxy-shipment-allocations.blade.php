@@ -9,6 +9,7 @@
         nearestWarehouseId: {{ $nearest_warehouse_id ?? 'null' }},
         sameCourseAllocations: {{ json_encode($same_course_allocations ?? []) }},
         courseNearestWarehouse: {{ json_encode($course_nearest_warehouse ?? null) }},
+        hasDeliveryCourse: {{ json_encode($has_delivery_course ?? false) }},
 
         get allocatedQty() {
             return (this.state || []).reduce((sum, item) => sum + (parseInt(item.assign_qty) || 0), 0);
@@ -136,58 +137,68 @@
         </div>
 
         <!-- 同一配送コース上横持ち出荷予定倉庫 | コース内最短倉庫 -->
-        <div x-show="sameCourseAllocations.length > 0 || courseNearestWarehouse" x-cloak class="mb-4 grid grid-cols-2 gap-4">
+        <div x-show="hasDeliveryCourse" x-cloak class="mb-4 grid grid-cols-2 gap-4">
             <!-- 左: 同一配送コース上横持ち出荷予定倉庫 -->
-            <div x-show="sameCourseAllocations.length > 0" class="overflow-hidden rounded-lg border border-amber-300 dark:border-amber-600">
+            <div class="overflow-hidden rounded-lg border border-amber-300 dark:border-amber-600">
                 <div class="px-4 py-2 bg-amber-50 dark:bg-amber-900/30 border-b border-amber-300 dark:border-amber-600">
                     <span class="font-bold text-sm text-amber-700 dark:text-amber-300">同一配送コース上横持ち出荷予定倉庫</span>
                 </div>
-                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                    <thead class="text-xs text-gray-700 uppercase bg-amber-50/50 dark:bg-amber-900/20 dark:text-gray-400 border-b border-amber-200 dark:border-amber-700">
-                        <tr>
-                            <th class="px-4 py-2 border-r border-amber-200 dark:border-amber-700 last:border-r-0">倉庫名</th>
-                            <th class="px-4 py-2 text-center border-r border-amber-200 dark:border-amber-700 last:border-r-0">件数</th>
-                            <th class="px-4 py-2 text-center">合計数量</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-amber-200 dark:divide-amber-700">
-                        <template x-for="alloc in sameCourseAllocations" :key="alloc.warehouse_id">
-                            <tr
-                                class="bg-white border-b dark:bg-gray-800 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/30 cursor-pointer transition-colors"
-                                @click="addAllocation(alloc.warehouse_id, remainingQty)"
-                            >
-                                <td class="px-4 py-2 border-r border-amber-200 dark:border-amber-700 last:border-r-0 text-gray-900 dark:text-gray-100" x-text="alloc.warehouse_name"></td>
-                                <td class="px-4 py-2 text-center border-r border-amber-200 dark:border-amber-700 last:border-r-0 text-gray-900 dark:text-gray-100 font-medium" x-text="alloc.allocation_count + '件'"></td>
-                                <td class="px-4 py-2 text-center text-gray-900 dark:text-gray-100" x-text="alloc.total_qty"></td>
+                <template x-if="sameCourseAllocations.length > 0">
+                    <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                        <thead class="text-xs text-gray-700 uppercase bg-amber-50/50 dark:bg-amber-900/20 dark:text-gray-400 border-b border-amber-200 dark:border-amber-700">
+                            <tr>
+                                <th class="px-4 py-2 border-r border-amber-200 dark:border-amber-700 last:border-r-0">倉庫名</th>
+                                <th class="px-4 py-2 text-center border-r border-amber-200 dark:border-amber-700 last:border-r-0">件数</th>
+                                <th class="px-4 py-2 text-center">合計数量</th>
                             </tr>
-                        </template>
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody class="divide-y divide-amber-200 dark:divide-amber-700">
+                            <template x-for="alloc in sameCourseAllocations" :key="alloc.warehouse_id">
+                                <tr
+                                    class="bg-white border-b dark:bg-gray-800 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/30 cursor-pointer transition-colors"
+                                    @click="addAllocation(alloc.warehouse_id, remainingQty)"
+                                >
+                                    <td class="px-4 py-2 border-r border-amber-200 dark:border-amber-700 last:border-r-0 text-gray-900 dark:text-gray-100" x-text="alloc.warehouse_name"></td>
+                                    <td class="px-4 py-2 text-center border-r border-amber-200 dark:border-amber-700 last:border-r-0 text-gray-900 dark:text-gray-100 font-medium" x-text="alloc.allocation_count + '件'"></td>
+                                    <td class="px-4 py-2 text-center text-gray-900 dark:text-gray-100" x-text="alloc.total_qty"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </template>
+                <div x-show="sameCourseAllocations.length === 0" class="px-4 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+                    横持ち出荷予定なし
+                </div>
             </div>
 
             <!-- 右: コース内最短倉庫 -->
-            <div x-show="courseNearestWarehouse" class="overflow-hidden rounded-lg border border-teal-300 dark:border-teal-600">
+            <div class="overflow-hidden rounded-lg border border-teal-300 dark:border-teal-600">
                 <div class="px-4 py-2 bg-teal-50 dark:bg-teal-900/30 border-b border-teal-300 dark:border-teal-600">
                     <span class="font-bold text-sm text-teal-700 dark:text-teal-300">コース内最短倉庫</span>
                 </div>
-                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                    <thead class="text-xs text-gray-700 uppercase bg-teal-50/50 dark:bg-teal-900/20 dark:text-gray-400 border-b border-teal-200 dark:border-teal-700">
-                        <tr>
-                            <th class="px-4 py-2 border-r border-teal-200 dark:border-teal-700 last:border-r-0">倉庫名</th>
-                            <th class="px-4 py-2 text-center">距離</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr
-                            class="bg-white dark:bg-gray-800 hover:bg-teal-50 dark:hover:bg-teal-900/30 cursor-pointer transition-colors"
-                            x-show="courseNearestWarehouse"
-                            @click="courseNearestWarehouse && addAllocation(courseNearestWarehouse.warehouse_id, remainingQty)"
-                        >
-                            <td class="px-4 py-2 border-r border-teal-200 dark:border-teal-700 last:border-r-0 text-gray-900 dark:text-gray-100" x-text="courseNearestWarehouse?.warehouse_name"></td>
-                            <td class="px-4 py-2 text-center text-gray-900 dark:text-gray-100" x-text="courseNearestWarehouse?.distance_km + 'km'"></td>
-                        </tr>
-                    </tbody>
-                </table>
+                <template x-if="courseNearestWarehouse">
+                    <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                        <thead class="text-xs text-gray-700 uppercase bg-teal-50/50 dark:bg-teal-900/20 dark:text-gray-400 border-b border-teal-200 dark:border-teal-700">
+                            <tr>
+                                <th class="px-4 py-2 border-r border-teal-200 dark:border-teal-700 last:border-r-0">倉庫名</th>
+                                <th class="px-4 py-2 text-center">距離</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr
+                                class="bg-white dark:bg-gray-800 hover:bg-teal-50 dark:hover:bg-teal-900/30 cursor-pointer transition-colors"
+                                @click="addAllocation(courseNearestWarehouse.warehouse_id, remainingQty)"
+                            >
+                                <td class="px-4 py-2 border-r border-teal-200 dark:border-teal-700 last:border-r-0 text-gray-900 dark:text-gray-100" x-text="courseNearestWarehouse.warehouse_name"></td>
+                                <td class="px-4 py-2 text-center text-gray-900 dark:text-gray-100" x-text="courseNearestWarehouse.distance_km + 'km'"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </template>
+                <div x-show="!courseNearestWarehouse" class="px-4 py-4 text-sm text-center">
+                    <span class="text-red-600 dark:text-red-400 font-medium">最寄倉庫算出失敗。</span>
+                    <span class="text-gray-500 dark:text-gray-400">緯度経度情報を更新してください。</span>
+                </div>
             </div>
         </div>
 

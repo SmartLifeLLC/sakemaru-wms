@@ -435,6 +435,7 @@ class WmsShortagesTable
                                     'nearest_warehouse_id' => $nearestWarehouseId,
                                     'same_course_allocations' => $sameCourseAllocations,
                                     'course_nearest_warehouse' => $courseNearestWarehouse,
+                                    'has_delivery_course' => (bool) $record->delivery_course_id,
                                 ];
                             })
                             ->default(function (WmsShortage $record) {
