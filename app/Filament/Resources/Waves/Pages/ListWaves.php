@@ -11,6 +11,7 @@ use App\Models\WaveSetting;
 use App\Models\WmsPickingItemResult;
 use App\Services\StockAllocationService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
@@ -54,17 +55,93 @@ class ListWaves extends ListRecords
                         ->required()
                         ->live(),
 
+                    CheckboxList::make('delivery_course_ids')
+                        ->label('配送コース')
+                        ->options(function (Get $get): array {
+                            $warehouseId = $get('warehouse_id');
+                            $shippingDate = $get('shipping_date');
+
+                            if (! $warehouseId || ! $shippingDate) {
+                                return [];
+                            }
+
+                            // 売上伝票の配送コース別件数
+                            $earningCounts = DB::connection('sakemaru')
+                                ->table('earnings')
+                                ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
+                                ->where('earnings.warehouse_id', $warehouseId)
+                                ->where('earnings.delivered_date', $shippingDate)
+                                ->where('earnings.is_delivered', 0)
+                                ->where('earnings.picking_status', 'BEFORE')
+                                ->selectRaw('delivery_courses.id as course_id, delivery_courses.code as course_code, delivery_courses.name as course_name, COUNT(*) as count')
+                                ->groupBy('delivery_courses.id', 'delivery_courses.code', 'delivery_courses.name')
+                                ->get()
+                                ->keyBy('course_id');
+
+                            // 倉庫移動伝票の配送コース別件数（仮想倉庫間移動は除外）
+                            $stockTransferCounts = DB::connection('sakemaru')
+                                ->table('stock_transfers as st')
+                                ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
+                                ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
+                                ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
+                                ->where('st.from_warehouse_id', $warehouseId)
+                                ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
+                                ->where('st.is_active', true)
+                                ->where('st.picking_status', 'BEFORE')
+                                ->where(function ($query) {
+                                    $query->where(function ($q) {
+                                        $q->where('fw.is_virtual', false)
+                                            ->orWhere('tw.is_virtual', false);
+                                    })
+                                        ->where(function ($q) {
+                                            $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
+                                        });
+                                })
+                                ->selectRaw('dc.id as course_id, dc.code as course_code, dc.name as course_name, COUNT(*) as count')
+                                ->groupBy('dc.id', 'dc.code', 'dc.name')
+                                ->get()
+                                ->keyBy('course_id');
+
+                            // 両方をマージしてオプション生成
+                            $allCourseIds = $earningCounts->keys()->merge($stockTransferCounts->keys())->unique();
+
+                            $options = [];
+                            foreach ($allCourseIds as $courseId) {
+                                $earningData = $earningCounts->get($courseId);
+                                $stockTransferData = $stockTransferCounts->get($courseId);
+                                $code = $earningData->course_code ?? $stockTransferData->course_code ?? '';
+                                $name = $earningData->course_name ?? $stockTransferData->course_name ?? '不明';
+                                $earningCount = $earningData->count ?? 0;
+                                $stCount = $stockTransferData->count ?? 0;
+                                $options[$courseId] = "[{$code}] {$name}（売上{$earningCount}件 / 移動{$stCount}件）";
+                            }
+
+                            // コースコード順にソート
+                            asort($options);
+
+                            return $options;
+                        })
+                        ->required()
+                        ->live()
+                        ->visible(fn (Get $get) => $get('warehouse_id') && $get('shipping_date'))
+                        ->columns(1),
+
                     Placeholder::make('earnings_preview')
                         ->label('対象伝票')
                         ->content(function (Get $get): HtmlString {
                             $warehouseId = $get('warehouse_id');
                             $shippingDate = $get('shipping_date');
+                            $deliveryCourseIds = $get('delivery_course_ids');
 
                             if (! $warehouseId || ! $shippingDate) {
                                 return new HtmlString('<div class="text-gray-500">倉庫と出荷日を選択してください</div>');
                             }
 
-                            // Get summary by delivery course for earnings
+                            if (empty($deliveryCourseIds)) {
+                                return new HtmlString('<div class="text-gray-500">配送コースを選択してください</div>');
+                            }
+
+                            // Get summary by delivery course for earnings (selected courses only)
                             $earningSummary = DB::connection('sakemaru')
                                 ->table('earnings')
                                 ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
@@ -72,13 +149,14 @@ class ListWaves extends ListRecords
                                 ->where('earnings.delivered_date', $shippingDate)
                                 ->where('earnings.is_delivered', 0)
                                 ->where('earnings.picking_status', 'BEFORE')
+                                ->whereIn('earnings.delivery_course_id', $deliveryCourseIds)
                                 ->selectRaw('delivery_courses.id as course_id, delivery_courses.name as course_name, COUNT(*) as count')
                                 ->groupBy('delivery_courses.id', 'delivery_courses.name')
                                 ->orderBy('delivery_courses.name')
                                 ->get()
                                 ->keyBy('course_id');
 
-                            // Get summary by delivery course for stock_transfers
+                            // Get summary by delivery course for stock_transfers (selected courses only)
                             // 仮想倉庫間移動は対象外（物理的ピッキング不要）
                             $stockTransferSummary = DB::connection('sakemaru')
                                 ->table('stock_transfers as st')
@@ -86,9 +164,10 @@ class ListWaves extends ListRecords
                                 ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
                                 ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
                                 ->where('st.from_warehouse_id', $warehouseId)
-                                ->where('st.delivered_date', $shippingDate)
+                                ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
                                 ->where('st.is_active', true)
                                 ->where('st.picking_status', 'BEFORE')
+                                ->whereIn('st.delivery_course_id', $deliveryCourseIds)
                                 // 仮想倉庫間移動は対象外
                                 ->where(function ($query) {
                                     $query->where(function ($q) {
@@ -107,7 +186,7 @@ class ListWaves extends ListRecords
 
                             // 両方とも空の場合
                             if ($earningSummary->isEmpty() && $stockTransferSummary->isEmpty()) {
-                                return new HtmlString('<div class="text-gray-500">対象となる伝票がありません</div>');
+                                return new HtmlString('<div class="text-gray-500">選択した配送コースに対象伝票がありません</div>');
                             }
 
                             // Merge summaries by delivery course
@@ -191,6 +270,7 @@ class ListWaves extends ListRecords
     {
         $warehouseId = $data['warehouse_id'];
         $shippingDate = $data['shipping_date'];
+        $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
 
         // Get eligible earnings grouped by delivery_course_id
         // delivery_course_id が未設定の伝票はスキップする
@@ -200,11 +280,14 @@ class ListWaves extends ListRecords
             ->where('is_delivered', 0)
             ->where('picking_status', 'BEFORE')
             ->whereNotNull('delivery_course_id')
+            ->whereIn('delivery_course_id', $deliveryCourseIds)
             ->get();
 
         // Get eligible stock_transfers grouped by delivery_course_id
         // 仮想倉庫間移動は対象外（物理的ピッキング不要）
-        $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId)->get();
+        $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId)
+            ->whereIn('st.delivery_course_id', $deliveryCourseIds)
+            ->get();
 
         if ($earnings->isEmpty() && $stockTransfers->isEmpty()) {
             Notification::make()
@@ -250,13 +333,11 @@ class ListWaves extends ListRecords
                     $courseStockTransfers = $stockTransfersByDeliveryCourse->get($deliveryCourseId, collect());
 
                     // Find or create wave setting
-                    $waveSetting = WaveSetting::where('warehouse_id', $warehouseId)
-                        ->where('delivery_course_id', $deliveryCourseId)
+                    $waveSetting = WaveSetting::where('delivery_course_id', $deliveryCourseId)
                         ->first();
 
                     if (! $waveSetting) {
                         $waveSetting = WaveSetting::create([
-                            'warehouse_id' => $warehouseId,
                             'delivery_course_id' => $deliveryCourseId,
                             'picking_start_time' => null,
                             'picking_deadline_time' => null,
@@ -778,7 +859,7 @@ class ListWaves extends ListRecords
             ->table('stock_transfers as st')
             ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
             ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
-            ->where('st.delivered_date', $shippingDate)
+            ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
             ->where('st.is_active', true)
             ->where('st.picking_status', 'BEFORE')
             ->where('st.from_warehouse_id', $warehouseId)

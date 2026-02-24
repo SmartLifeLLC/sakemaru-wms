@@ -3,6 +3,7 @@
 namespace App\Services\Shortage;
 
 use App\Models\WmsShortageAllocation;
+use App\Services\WarehouseResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -54,6 +55,9 @@ class StockTransferQueueService
             throw new \Exception("Item not found for shortage ID {$shortage->id}");
         }
 
+        // 最終配送先を実倉庫ベースで判定
+        $toWarehouseCode = $this->determineToWarehouse($shortage, $sourceWarehouse);
+
         // items配列を作成
         $items = [
             [
@@ -73,7 +77,7 @@ class StockTransferQueueService
             $allocation,
             $trade,
             $targetWarehouse,
-            $sourceWarehouse,
+            $toWarehouseCode,
             $items,
             $requestId
         ) {
@@ -86,7 +90,7 @@ class StockTransferQueueService
                 'note' => '横持ち出荷分',
                 'items' => json_encode($items, JSON_UNESCAPED_UNICODE),
                 'from_warehouse_code' => $targetWarehouse->code, // 横持ち出荷倉庫から
-                'to_warehouse_code' => $sourceWarehouse->code,   // 元倉庫へ
+                'to_warehouse_code' => $toWarehouseCode,         // 実倉庫ベースで判定
                 'request_id' => $requestId,
                 'status' => 'BEFORE',
                 'created_at' => now(),
@@ -98,12 +102,51 @@ class StockTransferQueueService
                 'allocation_id' => $allocation->id,
                 'slip_number' => $trade->serial_id,
                 'from_warehouse' => $targetWarehouse->code,
-                'to_warehouse' => $sourceWarehouse->code,
+                'to_warehouse' => $toWarehouseCode,
                 'picked_qty' => $allocation->picked_qty,
                 'quantity_type' => $allocation->assign_qty_type,
             ]);
 
             return $queueId;
         });
+    }
+
+    /**
+     * 横持ち出荷の最終配送先倉庫コードを実倉庫ベースで判定
+     *
+     * - shortage.earning_id → earnings.warehouse_id → 実倉庫解決（販売倉庫）
+     * - shortage.warehouse_id → 実倉庫解決（欠品検出倉庫）
+     * - 異なる実倉庫 → 販売倉庫の実倉庫コード（直接配送）
+     * - 同一実倉庫 → sourceWarehouse.code（既存動作維持）
+     */
+    protected function determineToWarehouse(object $shortage, object $sourceWarehouse): string
+    {
+        // 販売倉庫（earningの倉庫）を取得
+        $earningWarehouseId = null;
+        if ($shortage->earning_id) {
+            $earningWarehouseId = DB::connection('sakemaru')
+                ->table('earnings')
+                ->where('id', $shortage->earning_id)
+                ->value('warehouse_id');
+        }
+
+        // 販売倉庫が取得できない場合は既存動作
+        if (! $earningWarehouseId) {
+            return $sourceWarehouse->code;
+        }
+
+        // 欠品検出倉庫（shortageのwarehouse_id）
+        $shortageWarehouseId = $shortage->warehouse_id;
+
+        // 実倉庫が同じかチェック
+        if (WarehouseResolver::isSameRealWarehouse($earningWarehouseId, $shortageWarehouseId)) {
+            // 同一実倉庫 → 既存動作維持
+            return $sourceWarehouse->code;
+        }
+
+        // 異なる実倉庫 → 販売倉庫の実倉庫コードへ直接配送
+        $realWarehouseCode = WarehouseResolver::getRealWarehouseCode($earningWarehouseId);
+
+        return $realWarehouseCode ?? $sourceWarehouse->code;
     }
 }

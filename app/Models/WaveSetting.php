@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use App\Models\Sakemaru\DeliveryCourse;
-use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,7 +15,6 @@ class WaveSetting extends Model
 
     protected $fillable = [
         'name',
-        'warehouse_id',
         'delivery_course_id',
         'picking_start_time',
         'picking_deadline_time',
@@ -34,13 +32,19 @@ class WaveSetting extends Model
         return $this->hasMany(Wave::class, 'wms_wave_setting_id');
     }
 
-    public function warehouse(): BelongsTo
-    {
-        return $this->belongsTo(Warehouse::class);
-    }
-
     public function deliveryCourse(): BelongsTo
     {
         return $this->belongsTo(DeliveryCourse::class);
+    }
+
+    /**
+     * warehouse_id アクセサ
+     *
+     * deliveryCourse.warehouse_id から動的に取得する。
+     * 呼び出し元で ->with('deliveryCourse') を使用して N+1 を避けること。
+     */
+    public function getWarehouseIdAttribute(): ?int
+    {
+        return $this->deliveryCourse?->warehouse_id;
     }
 }

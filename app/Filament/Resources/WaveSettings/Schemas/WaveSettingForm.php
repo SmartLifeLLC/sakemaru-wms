@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WaveSettings\Schemas;
 
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TimePicker;
 use Filament\Schemas\Components\Section;
@@ -15,76 +16,61 @@ class WaveSettingForm
         return $schema
             ->components([
                 Section::make('Wave Configuration')
-                    ->description('Configure wave generation settings for warehouse and delivery course combinations')
+                    ->description('Configure wave generation settings for delivery course combinations')
                     ->schema([
                         \Filament\Forms\Components\TextInput::make('name')
                             ->label('Wave Name')
                             ->maxLength(255)
                             ->nullable(),
 
-                        Select::make('warehouse_id')
-                            ->label('Warehouse')
+                        Select::make('delivery_course_id')
+                            ->label('配送コース')
                             ->options(function () {
                                 return DB::connection('sakemaru')
-                                    ->table('warehouses')
-                                    ->selectRaw("id, CONCAT(code, ' - ', name) as label")
-                                    ->pluck('label', 'id');
+                                    ->table('delivery_courses as dc')
+                                    ->join('warehouses as w', 'dc.warehouse_id', '=', 'w.id')
+                                    ->selectRaw("dc.id, CONCAT('[', w.name, '] ', dc.code, ' - ', dc.name) as label")
+                                    ->orderBy('w.name')
+                                    ->orderBy('dc.code')
+                                    ->pluck('label', 'dc.id');
                             })
                             ->required()
                             ->searchable()
                             ->getSearchResultsUsing(function (string $search) {
                                 return DB::connection('sakemaru')
-                                    ->table('warehouses')
+                                    ->table('delivery_courses as dc')
+                                    ->join('warehouses as w', 'dc.warehouse_id', '=', 'w.id')
                                     ->where(function ($query) use ($search) {
-                                        $query->where('name', 'like', "%{$search}%")
-                                            ->orWhere('code', 'like', "%{$search}%");
+                                        $query->where('dc.name', 'like', "%{$search}%")
+                                            ->orWhere('dc.code', 'like', "%{$search}%")
+                                            ->orWhere('w.name', 'like', "%{$search}%");
                                     })
-                                    ->selectRaw("id, CONCAT(code, ' - ', name) as label")
-                                    ->pluck('label', 'id')
+                                    ->selectRaw("dc.id, CONCAT('[', w.name, '] ', dc.code, ' - ', dc.name) as label")
+                                    ->orderBy('w.name')
+                                    ->orderBy('dc.code')
+                                    ->pluck('label', 'dc.id')
                                     ->toArray();
                             })
-                            ->live()
-                            ->afterStateUpdated(function (callable $set) {
-                                $set('delivery_course_id', null);
+                            ->live(),
+
+                        Placeholder::make('warehouse_display')
+                            ->label('倉庫')
+                            ->content(function (callable $get): string {
+                                $courseId = $get('delivery_course_id');
+
+                                if (! $courseId) {
+                                    return '配送コースを選択してください';
+                                }
+
+                                $warehouse = DB::connection('sakemaru')
+                                    ->table('delivery_courses as dc')
+                                    ->join('warehouses as w', 'dc.warehouse_id', '=', 'w.id')
+                                    ->where('dc.id', $courseId)
+                                    ->selectRaw("CONCAT(w.code, ' - ', w.name) as label")
+                                    ->value('label');
+
+                                return $warehouse ?? '不明';
                             }),
-
-                        Select::make('delivery_course_id')
-                            ->label('Delivery Course')
-                            ->options(function (callable $get) {
-                                $warehouseId = $get('warehouse_id');
-
-                                if (! $warehouseId) {
-                                    return [];
-                                }
-
-                                return DB::connection('sakemaru')
-                                    ->table('delivery_courses')
-                                    ->where('warehouse_id', $warehouseId)
-                                    ->selectRaw("id, CONCAT(code, ' - ', name) as label")
-                                    ->pluck('label', 'id');
-                            })
-                            ->required()
-                            ->searchable()
-                            ->getSearchResultsUsing(function (string $search, callable $get) {
-                                $warehouseId = $get('warehouse_id');
-
-                                if (! $warehouseId) {
-                                    return [];
-                                }
-
-                                return DB::connection('sakemaru')
-                                    ->table('delivery_courses')
-                                    ->where('warehouse_id', $warehouseId)
-                                    ->where(function ($query) use ($search) {
-                                        $query->where('name', 'like', "%{$search}%")
-                                            ->orWhere('code', 'like', "%{$search}%");
-                                    })
-                                    ->selectRaw("id, CONCAT(code, ' - ', name) as label")
-                                    ->pluck('label', 'id')
-                                    ->toArray();
-                            })
-                            ->disabled(fn (callable $get) => ! $get('warehouse_id'))
-                            ->helperText('Select a warehouse first'),
 
                         TimePicker::make('picking_start_time')
                             ->label('Picking Start Time')
