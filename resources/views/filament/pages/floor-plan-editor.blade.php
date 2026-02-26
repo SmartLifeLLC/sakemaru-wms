@@ -70,7 +70,7 @@
                              width: ${zone.x2_pos - zone.x1_pos}px;
                              height: ${zone.y2_pos - zone.y1_pos}px;
                              z-index: 10;
-                             background-color: {{ $colors['location']['rectangle'] ?? '#E0F2FE' }};
+                             background-color: ${getZoneColor(zone)};
                              border-color: ${zone.is_restricted_area ? '#EF4444' : (selectedZones.includes(zone.id) ? '#1E3A8A' : '{{ $colors['location']['border'] ?? '#D1D5DB' }}')};
                              border-width: ${zone.is_restricted_area ? '2px' : (selectedZones.includes(zone.id) ? '2px' : '1px')};
                              color: {{ $textStyles['location']['color'] ?? '#6B7280' }};
@@ -2212,14 +2212,20 @@
                     return this.filteredItems;
                 },
 
-                // Check if expiration date is near (within 30 days)
-                isExpirationNear(expirationDate) {
+                isExpirationNear(alertDate) {
+                    if (!alertDate) return false;
+                    const alert = new Date(alertDate);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    return today >= alert;
+                },
+
+                isExpired(expirationDate) {
                     if (!expirationDate) return false;
                     const expDate = new Date(expirationDate);
                     const today = new Date();
-                    const diffTime = expDate - today;
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    return diffDays <= 30 && diffDays >= 0;
+                    today.setHours(0, 0, 0, 0);
+                    return today > expDate;
                 },
 
                 toggleAllStocks(checked) {
@@ -2603,11 +2609,9 @@
                 },
 
                 getZoneColor(zone) {
-                    const stockCount = zone.stock_count || 0;
-                    if (stockCount === 0) return '#f3f4f6';
-                    if (stockCount < 50) return '#fecaca';
-                    if (stockCount < 100) return '#fef9c3';
-                    return '#bbf7d0';
+                    if (zone.expiration_status === 'expired') return '#FEE2E2'; // red-100
+                    if (zone.expiration_status === 'alert') return '#FEF3C7';   // amber-100
+                    return '#E0F2FE'; // default blue
                 },
 
                 deleteZone() {

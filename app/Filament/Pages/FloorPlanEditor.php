@@ -13,6 +13,7 @@ use App\Models\WmsPickingArea;
 use App\Models\WmsWarehouseLayout;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 
 class FloorPlanEditor extends Page
@@ -275,6 +276,43 @@ class FloorPlanEditor extends Page
 
             $zoneIndex++;
         }
+
+        // Bulk query: get expiration status per location
+        $allLocationIds = collect($zoneGroups)->flatMap(fn ($g) => collect($g['locations'])->pluck('id'))->toArray();
+
+        $expirationStatuses = [];
+        if (! empty($allLocationIds)) {
+            $expirationStatuses = DB::connection('sakemaru')
+                ->table('real_stock_lots')
+                ->whereIn('location_id', $allLocationIds)
+                ->where('status', 'ACTIVE')
+                ->where('current_quantity', '>', 0)
+                ->whereNotNull('expiration_date')
+                ->select('location_id', DB::raw(implode(', ', [
+                    'MAX(CASE WHEN expiration_date < CURDATE() THEN 2 ELSE 0 END) as has_expired',
+                    'MAX(CASE WHEN alert_date IS NOT NULL AND alert_date <= CURDATE() AND expiration_date >= CURDATE() THEN 1 ELSE 0 END) as has_alert',
+                ])))
+                ->groupBy('location_id')
+                ->get()
+                ->keyBy('location_id');
+        }
+
+        // Attach expiration_status to each zone
+        foreach ($zones as &$zone) {
+            $status = null;
+            foreach ($zone['location_ids'] as $locId) {
+                $locStatus = $expirationStatuses[$locId] ?? null;
+                if ($locStatus && $locStatus->has_expired >= 2) {
+                    $status = 'expired';
+                    break; // worst case, no need to check further
+                }
+                if ($locStatus && $locStatus->has_alert >= 1) {
+                    $status = 'alert';
+                }
+            }
+            $zone['expiration_status'] = $status;
+        }
+        unset($zone);
 
         return collect($zones);
     }

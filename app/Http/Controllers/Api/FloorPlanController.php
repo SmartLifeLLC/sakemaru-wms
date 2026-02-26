@@ -358,6 +358,7 @@ class FloorPlanController extends Controller
                     'i.volume',
                     'i.volume_unit',
                     'rsl.expiration_date',
+                    'rsl.alert_date',
                     'rsl.current_quantity as total_qty',
                 ])
                 ->orderBy('i.name')
@@ -375,6 +376,7 @@ class FloorPlanController extends Controller
                     'volume' => $stock->volume,
                     'volume_unit_name' => \App\Enums\EVolumeUnit::tryFrom($stock->volume_unit)?->name() ?? $stock->volume_unit,
                     'expiration_date' => $stock->expiration_date,
+                    'alert_date' => $stock->alert_date,
                     'total_qty' => (int) $stock->total_qty,
                 ];
             }
