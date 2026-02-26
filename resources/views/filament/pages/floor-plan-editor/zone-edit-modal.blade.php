@@ -158,7 +158,8 @@
                                 <td class="px-3 py-2.5 text-right" x-text="item.volume ? (item.volume + (item.volume_unit_name || '')) : '-'"></td>
                                 <td class="px-3 py-2.5 text-center" x-text="item.volume_unit_name || '-'"></td>
                                 <td class="px-3 py-2.5 text-center"
-                                    :class="isExpirationNear(item.expiration_date) ? 'text-red-600 font-bold' : 'text-gray-500'"
+                                    :class="isExpired(item.expiration_date) ? 'text-red-600 bg-red-50 font-bold' :
+                                            isExpirationNear(item.alert_date) ? 'text-amber-600 font-bold' : 'text-gray-500'"
                                     x-text="item.expiration_date || '-'"></td>
                                 <td class="px-3 py-2.5 text-right font-bold text-lg bg-blue-50/30 dark:bg-blue-900/10" x-text="item.total_qty"></td>
                             </tr>
