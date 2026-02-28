@@ -129,6 +129,18 @@ class ContractorForm
                             ->live()
                             ->default(TransmissionType::MANUAL_CSV->value),
 
+                        Select::make('wms_transmission_contractor_id')
+                            ->label('発注データ集約先')
+                            ->options(fn ($record) => Contractor::where('is_active', true)
+                                ->when($record, fn ($q) => $q->where('id', '!=', $record->id))
+                                ->get()
+                                ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}] {$c->name}"])
+                            )
+                            ->searchable()
+                            ->nullable()
+                            ->live()
+                            ->helperText('指定した発注先の送信データに本発注先の発注データを集約する（一つのファイルで送信したい場合）'),
+
                         Select::make('wms_order_jx_setting_id')
                             ->label('JX設定')
                             ->options(fn () => WmsOrderJxSetting::where('is_active', true)->pluck('name', 'id'))
@@ -154,21 +166,31 @@ class ContractorForm
                             ->required(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::INTERNAL->value)
                             ->helperText('倉庫間移動の場合、供給元の倉庫を選択'),
 
-                        Grid::make(2)->schema([
-                            TextInput::make('wms_auto_order_generation_time')
-                                ->label('自動発注生成時刻')
-                                ->type('time')
-                                ->nullable()
-                                ->helperText('発注候補を自動生成する時刻'),
+                        TextInput::make('wms_aggregation_note')
+                            ->label('スケジュール')
+                            ->disabled()
+                            ->default('集約先の設定にしたがいます')
+                            ->dehydrated(false)
+                            ->visible(fn (Get $get) => filled($get('wms_transmission_contractor_id'))),
 
-                            TextInput::make('wms_transmission_time')
-                                ->label('送信時刻')
-                                ->type('time')
-                                ->nullable()
-                                ->helperText('指定しない場合は手動送信'),
-                        ]),
+                        Grid::make(2)
+                            ->visible(fn (Get $get) => blank($get('wms_transmission_contractor_id')))
+                            ->schema([
+                                TextInput::make('wms_auto_order_generation_time')
+                                    ->label('自動発注生成時刻')
+                                    ->type('time')
+                                    ->nullable()
+                                    ->helperText('発注候補を自動生成する時刻'),
+
+                                TextInput::make('wms_transmission_time')
+                                    ->label('送信時刻')
+                                    ->type('time')
+                                    ->nullable()
+                                    ->helperText('指定しない場合は手動送信'),
+                            ]),
 
                         Fieldset::make('送信曜日')
+                            ->visible(fn (Get $get) => blank($get('wms_transmission_contractor_id')))
                             ->schema([
                                 Toggle::make('wms_is_transmission_mon')->label('月')->inline(false),
                                 Toggle::make('wms_is_transmission_tue')->label('火')->inline(false),
@@ -180,21 +202,9 @@ class ContractorForm
                             ])
                             ->columns(7),
 
-                        Select::make('wms_transmission_contractor_id')
-                            ->label('発注データ集約先')
-                            ->options(fn () => Contractor::where('is_active', true)->pluck('name', 'id'))
-                            ->searchable()
-                            ->nullable()
-                            ->helperText('指定した発注先の送信データに本発注先の発注データを集約する（一つのファイルで送信したい場合）'),
-
                         TextInput::make('wms_format_strategy_class')
                             ->label('フォーマット戦略クラス')
-                            ->maxLength(255)
-                            ->nullable()
-                            ->visible(fn (Get $get) => in_array($get('wms_transmission_type'), [
-                                TransmissionType::JX_FINET->value,
-                                TransmissionType::FTP->value,
-                            ])),
+                            ->visible(false),
                     ]),
             ]),
         ];

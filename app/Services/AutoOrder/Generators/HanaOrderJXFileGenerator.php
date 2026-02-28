@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Log;
  *
  * 各レコードは128バイト固定長、改行なしで連結、末尾にCRLF。
  */
-class HanaOrderFileGenerator implements OrderFileGeneratorInterface
+class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 {
     /**
      * JX送信対象発注先コード
@@ -56,6 +56,11 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
     private const FILE_EXTENSION = 'dat';
 
     private const RECORD_LENGTH = 128;
+
+    /**
+     * データなし時にAレコードを含めるか
+     */
+    protected bool $addZeroRecord = true;
 
     /**
      * 発注先コード => 発注先ID のキャッシュ
@@ -775,10 +780,10 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
     }
 
     /**
-     * データなし時の空ファイルを生成（Aレコードのみ）
+     * データなし時の空ファイルを生成
      *
-     * add_zero_record=true のJX設定に対して、Aレコードのみの空ファイルを生成する。
-     * JXラッパー(1) + Aレコード(1) + JXラッパー(8) = 3レコード構成。
+     * $addZeroRecord=true: Aレコード付き空ファイル（JXラッパー(1) + Aレコード(1) + JXラッパー(8) = 3レコード）
+     * $addZeroRecord=false: JXラッパーのみ（JXラッパー(1) + JXラッパー(8) = 2レコード）
      *
      * @param  WmsOrderJxSetting  $jxSetting  JX設定
      * @return array ファイル情報（generate()と同じフォーマット）
@@ -792,8 +797,8 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
                 ->where('id', $contractorId)
                 ->value('code');
 
-        // add_zero_record=true: Aレコード付き、add_zero_record=false: レコードなし（JXラッパーのみ）
-        $innerContent = $jxSetting->add_zero_record
+        // addZeroRecord=true: Aレコード付き、addZeroRecord=false: レコードなし（JXラッパーのみ）
+        $innerContent = $this->addZeroRecord
             ? $this->generateARecord((int) $contractorCode, 1, 0, $jxSetting)
             : '';
 
@@ -805,7 +810,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
         $sjisContent = mb_convert_encoding($content, self::ENCODING, 'UTF-8');
 
         $filename = $this->generateFilename((int) $contractorCode);
-        $recordCount = $jxSetting->add_zero_record ? 3 : 2; // wrapper(1) + A?(1) + wrapper(8)
+        $recordCount = $this->addZeroRecord ? 3 : 2; // wrapper(1) + A?(1) + wrapper(8)
 
         return [
             'contractor_id' => $contractorId,

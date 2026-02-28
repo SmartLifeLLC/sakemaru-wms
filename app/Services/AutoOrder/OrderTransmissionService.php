@@ -16,7 +16,7 @@ use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
 use App\Models\WmsOrderTransmissionLog;
-use App\Services\AutoOrder\Generators\HanaOrderFileGenerator;
+use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use App\Services\JX\JxClient;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -1135,8 +1135,8 @@ class OrderTransmissionService
      *
      * 生成済みファイルのJX設定IDを確認し、まだファイルが生成されていない
      * アクティブなJX設定に対して空ファイルを生成する。
-     * add_zero_record=true: Aレコード付き空ファイル
-     * add_zero_record=false: JXラッパーのみの完全空ファイル
+     * HANA generator: Aレコード付き空ファイル
+     * HANA2 generator: JXラッパーのみの完全空ファイル
      *
      * @param  string  $batchCode  バッチコード
      * @param  array  $generatedFiles  生成済みファイル情報
@@ -1161,15 +1161,16 @@ class OrderTransmissionService
         $allActiveSettings = WmsOrderJxSetting::where('is_active', true)->get();
 
         $results = [];
-        $generator = $this->getOrderFileGenerator();
-
-        if (! ($generator instanceof HanaOrderFileGenerator)) {
-            return $results;
-        }
 
         foreach ($allActiveSettings as $jxSetting) {
             // 既にファイルが生成されている設定はスキップ
             if (in_array($jxSetting->id, $generatedSettingIds)) {
+                continue;
+            }
+
+            // JX設定にgeneratorが設定されていない場合はスキップ
+            $generator = OrderServiceFactory::generatorForJxSetting($jxSetting);
+            if (! ($generator instanceof HanaOrderJXFileGenerator)) {
                 continue;
             }
 

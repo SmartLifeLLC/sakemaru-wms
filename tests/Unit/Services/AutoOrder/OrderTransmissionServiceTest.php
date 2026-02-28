@@ -4,13 +4,14 @@ namespace Tests\Unit\Services\AutoOrder;
 
 use App\Contracts\OrderFileGeneratorInterface;
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\EOrderFileGenerator;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\EWMSClient;
 use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
-use App\Services\AutoOrder\Generators\HanaOrderFileGenerator;
+use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use App\Services\AutoOrder\OrderServiceFactory;
 use App\Services\AutoOrder\OrderTransmissionService;
 use Illuminate\Support\Facades\Storage;
@@ -68,7 +69,46 @@ class OrderTransmissionServiceTest extends TestCase
         }
 
         $generator = OrderServiceFactory::generator();
-        $this->assertInstanceOf(HanaOrderFileGenerator::class, $generator);
+        $this->assertInstanceOf(HanaOrderJXFileGenerator::class, $generator);
+    }
+
+    /**
+     * @test
+     * JX設定からgeneratorを取得できること
+     */
+    public function it_can_get_generator_from_jx_setting(): void
+    {
+        $jxSetting = WmsOrderJxSetting::where('is_active', true)->first();
+
+        if (! $jxSetting) {
+            $this->markTestSkipped('No active JX setting available');
+        }
+
+        // order_file_generatorが設定されていない場合はnull
+        if ($jxSetting->order_file_generator === null) {
+            $generator = OrderServiceFactory::generatorForJxSetting($jxSetting);
+            $this->assertNull($generator);
+
+            return;
+        }
+
+        $generator = OrderServiceFactory::generatorForJxSetting($jxSetting);
+        $this->assertInstanceOf(OrderFileGeneratorInterface::class, $generator);
+    }
+
+    /**
+     * @test
+     * EOrderFileGenerator EnumからHanaOrderJXFileGeneratorが取得できること
+     */
+    public function it_returns_hana_generator_from_enum(): void
+    {
+        $enum = EOrderFileGenerator::HANA;
+
+        $this->assertEquals('hana', $enum->value);
+        $this->assertEquals(HanaOrderJXFileGenerator::class, $enum->generatorClass());
+
+        $generator = $enum->generator();
+        $this->assertInstanceOf(HanaOrderJXFileGenerator::class, $generator);
     }
 
     /**
@@ -82,8 +122,7 @@ class OrderTransmissionServiceTest extends TestCase
 
         $this->assertIsArray($result);
         $this->assertTrue($result['success']);
-        $this->assertEmpty($result['files']);
-        $this->assertArrayHasKey('message', $result);
+        $this->assertEquals(0, $result['total_orders']);
     }
 
     /**

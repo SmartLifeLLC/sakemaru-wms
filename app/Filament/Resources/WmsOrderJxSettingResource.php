@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\AutoOrder\EOrderFileGenerator;
 use App\Enums\EMenu;
 use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsOrderJxSettingResource\Pages;
@@ -16,6 +17,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
@@ -75,10 +77,13 @@ class WmsOrderJxSettingResource extends Resource
                             ->label('発注確定時に自動送信')
                             ->default(false)
                             ->helperText('ONにすると、発注確定処理時にJXファイルを自動送信します'),
-                        Checkbox::make('add_zero_record')
-                            ->label('データなし時にAレコードを送信')
-                            ->default(true)
-                            ->helperText('OFFの場合、発注データがない時はファイルを生成しません'),
+                        Select::make('order_file_generator')
+                            ->label('ファイル生成クラス')
+                            ->options(collect(EOrderFileGenerator::cases())->mapWithKeys(
+                                fn ($e) => [$e->value => $e->label()]
+                            ))
+                            ->nullable()
+                            ->helperText('発注ファイルの生成フォーマットを選択'),
                     ]),
 
                 Section::make('JX接続情報')
@@ -230,9 +235,9 @@ class WmsOrderJxSettingResource extends Resource
                     ->label('自動送信')
                     ->boolean()
                     ->alignCenter(),
-                IconColumn::make('add_zero_record')
-                    ->label('空送信')
-                    ->boolean()
+                TextColumn::make('order_file_generator')
+                    ->label('生成クラス')
+                    ->formatStateUsing(fn ($state) => $state?->label() ?? '-')
                     ->alignCenter(),
                 IconColumn::make('test_file_path')
                     ->label('テストファイル')
