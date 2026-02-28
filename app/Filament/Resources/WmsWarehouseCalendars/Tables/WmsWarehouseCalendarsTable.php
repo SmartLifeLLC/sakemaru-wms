@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsWarehouseCalendars\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\BulkAction;
 use Filament\Actions\CreateAction;
@@ -24,6 +25,8 @@ use Illuminate\Database\Eloquent\Collection;
 
 class WmsWarehouseCalendarsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -118,6 +121,7 @@ class WmsWarehouseCalendarsTable
                 DeleteAction::make(),
             ], position: RecordActionsPosition::AfterColumns)
             ->toolbarActions([
+                static::getExportAction(),
                 CreateAction::make(),
             ])
             ->bulkActions([

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsIncomingCompleted\Tables;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -12,6 +13,8 @@ use Filament\Tables\Table;
 
 class WmsIncomingCompletedTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -254,6 +257,9 @@ class WmsIncomingCompletedTable
                     })
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる'),
+            ])
+            ->toolbarActions([
+                static::getExportAction(),
             ])
             ->defaultSort('confirmed_at', 'desc');
     }

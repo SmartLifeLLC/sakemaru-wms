@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
 use Filament\Actions\Action;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Storage;
 
 class WmsOrderDocumentsTable
 {
+    use HasExportAction;
+
     /**
      * メッセージIDでXMLファイルを検索（S3）
      */
@@ -272,6 +275,9 @@ class WmsOrderDocumentsTable
                             ->success()
                             ->send();
                     }),
+            ])
+            ->toolbarActions([
+                static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
     }

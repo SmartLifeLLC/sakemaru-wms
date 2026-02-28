@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsImportLogs\Tables;
 
+use App\Filament\Concerns\HasExportAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -9,6 +10,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WmsImportLogsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -86,6 +89,9 @@ class WmsImportLogsTable
                         'completed' => '完了',
                         'failed' => '失敗',
                     ]),
+            ])
+            ->toolbarActions([
+                static::getExportAction(),
             ])
             ->recordActions([])
             ->bulkActions([]);

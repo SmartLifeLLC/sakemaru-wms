@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsPickerAttendance\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Enums\PickerSkillLevel;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsPicker;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -20,6 +21,8 @@ use Illuminate\Support\Facades\DB;
 
 class WmsPickerAttendanceTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -90,6 +93,7 @@ class WmsPickerAttendanceTable
             ])
             ->recordActions([])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('assignWarehouse')
                         ->label('出勤倉庫指定')

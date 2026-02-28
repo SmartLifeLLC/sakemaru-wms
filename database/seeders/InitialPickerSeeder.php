@@ -45,8 +45,7 @@ class InitialPickerSeeder extends Seeder
                 continue;
             }
 
-
-            $warehouseId = Warehouse::where('code',Client::first()->default_warehouse_code)->first()->id;
+            $warehouseId = Warehouse::where('code', Client::first()->default_warehouse_code)->first()->id;
             DB::connection('sakemaru')->table('wms_pickers')->insert([
                 'code' => $code,
                 'name' => "ピッカー{$i}",

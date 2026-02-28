@@ -5,15 +5,14 @@ namespace App\Filament\Resources\WmsStockTransferCandidates\Tables;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\DeliveryCourse;
-use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
 use App\Services\AutoOrder\TransferOrderRecalculationService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
-use Filament\Support\Enums\Alignment;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -22,6 +21,7 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -30,6 +30,8 @@ use Illuminate\Database\Eloquent\Collection;
 
 class WmsStockTransferCandidatesTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -518,6 +520,7 @@ class WmsStockTransferCandidatesTable
                     }),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('bulkApprove')
                         ->label('選択を承認')

@@ -34,7 +34,7 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->generator = new HanaOrderFileGenerator();
+        $this->generator = new HanaOrderFileGenerator;
     }
 
     /**

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsOrderCandidates\Tables;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Concerns\OptimisticLockException;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Supplier;
@@ -35,6 +36,8 @@ use Illuminate\Support\Facades\DB;
 
 class WmsOrderCandidatesTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -632,6 +635,7 @@ class WmsOrderCandidatesTable
                     }),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('bulkApprove')
                         ->label('選択を承認')

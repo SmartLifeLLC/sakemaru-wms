@@ -49,6 +49,9 @@ class WmsOrderIncomingSchedule extends WmsModel
         'purchase_queue_id',
         'purchase_slip_number',
         'note',
+        'cancelled_at',
+        'cancelled_by',
+        'cancellation_reason',
     ];
 
     protected $casts = [
@@ -57,6 +60,7 @@ class WmsOrderIncomingSchedule extends WmsModel
         'actual_arrival_date' => 'date',
         'expiration_date' => 'date',
         'confirmed_at' => 'datetime',
+        'cancelled_at' => 'datetime',
         'status' => IncomingScheduleStatus::class,
         'order_source' => OrderSource::class,
         'quantity_type' => QuantityType::class,

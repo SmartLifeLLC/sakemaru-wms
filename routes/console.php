@@ -50,6 +50,14 @@ Schedule::command('wms:auto-order-calculate --skip-snapshot')
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/auto-order-calculate.log'));
 
+// 仕入先別自動発注スケジューラー (5分間隔)
+// ※ 仕入先ごとのauto_order_generation_timeに基づいて個別に発注計算を実行
+Schedule::command('wms:auto-order-scheduled')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/auto-order-scheduled.log'));
+
 // 配送コース時間切替 (15分ごと)
 Schedule::command('wms:switch-delivery-course')
     ->everyFifteenMinutes()

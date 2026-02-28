@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsPickingTasks\Tables;
 use App\Enums\EWMSLogOperationType;
 use App\Enums\EWMSLogTargetType;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsAdminOperationLog;
 use App\Models\WmsPickingItemResult;
@@ -24,6 +25,8 @@ use Illuminate\Support\Facades\Log;
 
 class WmsPickingTasksTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table, bool $isCompletedView = false, bool $isWaitingView = false): Table
     {
         return $table
@@ -817,6 +820,9 @@ class WmsPickingTasksTable
                         }
                     })
                     ->deselectRecordsAfterCompletion(),
+            ])
+            ->toolbarActions([
+                static::getExportAction(),
             ]);
         //            ->toolbarActions([
         //                BulkAction::make('assignPicker')

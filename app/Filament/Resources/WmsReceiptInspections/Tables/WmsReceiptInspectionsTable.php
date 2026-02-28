@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsReceiptInspections\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -13,6 +14,8 @@ use Filament\Tables\Table;
 
 class WmsReceiptInspectionsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -88,6 +91,7 @@ class WmsReceiptInspectionsTable
                 EditAction::make(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

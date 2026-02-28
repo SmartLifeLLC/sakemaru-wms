@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderDataFiles\Tables;
 
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Filament\Resources\WmsOrderDataFiles\Pages\ListWmsOrderDataFiles;
 use App\Mail\OrderDataMail;
 use App\Models\Sakemaru\Contractor;
@@ -16,8 +17,8 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Components\Grid;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Grid;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -26,6 +27,8 @@ use Illuminate\Support\Facades\Storage;
 
 class WmsOrderDataFilesTable
 {
+    use HasExportAction;
+
     /**
      * テンプレート内の$$VAR_XXX$$を実データに置換
      */
@@ -416,6 +419,9 @@ class WmsOrderDataFilesTable
                                 ->send();
                         }
                     }),
+            ])
+            ->toolbarActions([
+                static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
     }

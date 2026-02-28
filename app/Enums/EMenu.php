@@ -71,10 +71,12 @@ enum EMenu: string
     case EARNINGS = 'statistics.earnings';
 
     // ログ
+    case WMS_AUTO_ORDER_EXECUTION_LOG = 'logs.auto_order_execution_log';
     case WMS_PICKING_LOGS = 'logs.wms_picking_logs';
     case WMS_JX_TRANSMISSION_LOGS = 'logs.wms_jx_transmission_logs';
     case WMS_IMPORT_LOGS = 'logs.wms_import_logs';
     case WMS_QUEUE_JOBS = 'logs.wms_queue_jobs';
+    case WMS_EXPORT_LOGS = 'logs.wms_export_logs';
 
     // システム設定
     case WAVE_SETTINGS = 'settings.wave_settings';
@@ -149,10 +151,12 @@ enum EMenu: string
 
             self::EARNINGS => EMenuCategory::STATISTICS,
 
+            self::WMS_AUTO_ORDER_EXECUTION_LOG,
             self::WMS_PICKING_LOGS,
             self::WMS_JX_TRANSMISSION_LOGS,
             self::WMS_IMPORT_LOGS,
-            self::WMS_QUEUE_JOBS => EMenuCategory::LOGS,
+            self::WMS_QUEUE_JOBS,
+            self::WMS_EXPORT_LOGS => EMenuCategory::LOGS,
 
             self::WAVE_SETTINGS,
             self::DELIVERY_COURSE_SWITCH_SETTINGS,
@@ -189,6 +193,7 @@ enum EMenu: string
 
             self::WMS_SHORTAGE_ALLOCATIONS => '横持ち出荷依頼',
 
+            self::WMS_AUTO_ORDER_EXECUTION_LOG => '自動発注実行ログ',
             self::WMS_STOCK_TRANSFER_CANDIDATES => '移動候補一覧',
             self::WMS_ORDER_CANDIDATES => '発注候補一覧',
             self::WMS_ORDER_CONFIRMATION_WAITING => '発注・移動確定待ち',
@@ -225,6 +230,7 @@ enum EMenu: string
             self::WMS_JX_TRANSMISSION_LOGS => 'JX送受信履歴',
             self::WMS_IMPORT_LOGS => 'インポート履歴',
             self::WMS_QUEUE_JOBS => 'Queueジョブ',
+            self::WMS_EXPORT_LOGS => 'ダウンロードログ',
 
             self::WAVE_SETTINGS => '波動設定',
             self::DELIVERY_COURSE_SWITCH_SETTINGS => '配送コース切替設定',
@@ -262,6 +268,7 @@ enum EMenu: string
 
             self::WMS_SHORTAGE_ALLOCATIONS => 'heroicon-o-truck',
 
+            self::WMS_AUTO_ORDER_EXECUTION_LOG => 'heroicon-o-clipboard-document-check',
             self::WMS_STOCK_TRANSFER_CANDIDATES => 'heroicon-o-arrows-right-left',
             self::WMS_ORDER_CANDIDATES => 'heroicon-o-shopping-cart',
             self::WMS_ORDER_CONFIRMATION_WAITING => 'heroicon-o-clipboard-document-check',
@@ -298,6 +305,7 @@ enum EMenu: string
             self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrows-up-down',
             self::WMS_IMPORT_LOGS => 'heroicon-o-arrow-up-tray',
             self::WMS_QUEUE_JOBS => 'heroicon-o-queue-list',
+            self::WMS_EXPORT_LOGS => 'heroicon-o-arrow-down-tray',
 
             self::WAVE_SETTINGS => 'heroicon-o-cog-6-tooth',
             self::DELIVERY_COURSE_SWITCH_SETTINGS => 'heroicon-o-arrow-path-rounded-square',
@@ -382,10 +390,12 @@ enum EMenu: string
             self::EARNINGS => 1,
 
             // ログ
-            self::WMS_PICKING_LOGS => 1,
-            self::WMS_JX_TRANSMISSION_LOGS => 2,
-            self::WMS_IMPORT_LOGS => 3,
-            self::WMS_QUEUE_JOBS => 4,
+            self::WMS_AUTO_ORDER_EXECUTION_LOG => 1,
+            self::WMS_PICKING_LOGS => 2,
+            self::WMS_JX_TRANSMISSION_LOGS => 3,
+            self::WMS_IMPORT_LOGS => 4,
+            self::WMS_QUEUE_JOBS => 5,
+            self::WMS_EXPORT_LOGS => 6,
 
             // システム設定
             self::WAVE_SETTINGS => 1,

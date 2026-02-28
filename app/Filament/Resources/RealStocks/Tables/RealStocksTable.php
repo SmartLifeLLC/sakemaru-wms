@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\RealStocks\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\RealStockLot;
 use Filament\Actions\Action;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\DB;
 
 class RealStocksTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -115,6 +118,7 @@ class RealStocksTable
                 EditAction::make(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

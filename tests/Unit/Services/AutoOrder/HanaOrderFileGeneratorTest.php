@@ -2,14 +2,9 @@
 
 namespace Tests\Unit\Services\AutoOrder;
 
-use App\Enums\AutoOrder\CandidateStatus;
-use App\Enums\QuantityType;
 use App\Models\Sakemaru\Contractor;
-use App\Models\Sakemaru\Item;
-use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\Generators\HanaOrderFileGenerator;
-use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Tests\TestCase;
 
@@ -21,13 +16,12 @@ use Tests\TestCase;
  */
 class HanaOrderFileGeneratorTest extends TestCase
 {
-
     private HanaOrderFileGenerator $generator;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->generator = new HanaOrderFileGenerator();
+        $this->generator = new HanaOrderFileGenerator;
     }
 
     /**

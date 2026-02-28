@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsQueueJobs\Tables;
 use App\Enums\AutoOrder\QueueJobStatus;
 use App\Enums\AutoOrder\QueueJobType;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use Filament\Actions\Action;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Grid;
@@ -15,6 +16,8 @@ use Filament\Tables\Table;
 
 class WmsQueueJobsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -253,6 +256,9 @@ class WmsQueueJobsTable
                         ]);
                     })
                     ->visible(fn ($record) => $record->status === QueueJobStatus::FAILED),
+            ])
+            ->toolbarActions([
+                static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
     }

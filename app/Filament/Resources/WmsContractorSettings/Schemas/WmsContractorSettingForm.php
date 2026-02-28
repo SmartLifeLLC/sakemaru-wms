@@ -8,6 +8,7 @@ use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderJxSetting;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Fieldset;
@@ -73,6 +74,13 @@ class WmsContractorSettingForm
                         ->seconds(false)
                         ->visible(fn ($get) => $get('is_auto_transmission'))
                         ->required(fn ($get) => $get('is_auto_transmission')),
+
+                    TextInput::make('auto_order_generation_time')
+                        ->label('自動発注生成時刻')
+                        ->placeholder('HH:MM')
+                        ->maxLength(5)
+                        ->regex('/^([01]\d|2[0-3]):[0-5]\d$/')
+                        ->helperText('仕入先別の自動発注候補生成時刻（HH:MM形式）。未設定の場合は自動実行対象外'),
 
                     Fieldset::make('送信曜日')
                         ->schema([

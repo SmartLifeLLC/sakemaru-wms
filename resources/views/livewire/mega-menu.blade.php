@@ -66,7 +66,7 @@
                                 $itemCount = count($group['items']);
                                 $columns = match(true) {
                                     $itemCount > 10 => 3,
-                                    $itemCount > 5 => 2,
+                                    $itemCount >= 5 => 2,
                                     default => 1,
                                 };
                                 $minWidth = match($columns) {

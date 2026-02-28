@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsItemStockSnapshots\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\RealStockLot;
 use App\Models\WmsAutoOrderJobControl;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\DB;
 
 class WmsItemStockSnapshotsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -131,6 +134,9 @@ class WmsItemStockSnapshotsTable
                             ->where('item_id', $record->item_id)
                             ->exists();
                     }),
+            ])
+            ->toolbarActions([
+                static::getExportAction(),
             ])
             ->defaultSort('total_effective_piece', 'desc');
     }

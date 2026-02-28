@@ -51,20 +51,25 @@ class IncomingController extends ApiController
      *         in="query",
      *         required=true,
      *         description="作業倉庫ID（実倉庫を指定すると仮想倉庫分も取得）",
+     *
      *         @OA\Schema(type="integer", example=991)
      *     ),
+     *
      *     @OA\Parameter(
      *         name="search",
      *         in="query",
      *         required=false,
      *         description="検索キーワード（商品コード、JANコード、商品名）",
+     *
      *         @OA\Schema(type="string", example="4901234567890")
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -73,8 +78,10 @@ class IncomingController extends ApiController
      *                 @OA\Property(
      *                     property="data",
      *                     type="array",
+     *
      *                     @OA\Items(
      *                         type="object",
+     *
      *                         @OA\Property(property="item_id", type="integer", example=123),
      *                         @OA\Property(property="item_code", type="string", example="10001"),
      *                         @OA\Property(property="item_name", type="string", example="商品A"),
@@ -90,8 +97,10 @@ class IncomingController extends ApiController
      *                             property="warehouses",
      *                             type="array",
      *                             description="倉庫別の入庫予定数",
+     *
      *                             @OA\Items(
      *                                 type="object",
+     *
      *                                 @OA\Property(property="warehouse_id", type="integer"),
      *                                 @OA\Property(property="warehouse_code", type="string"),
      *                                 @OA\Property(property="warehouse_name", type="string"),
@@ -104,8 +113,10 @@ class IncomingController extends ApiController
      *                             property="schedules",
      *                             type="array",
      *                             description="個別の入庫予定",
+     *
      *                             @OA\Items(
      *                                 type="object",
+     *
      *                                 @OA\Property(property="id", type="integer"),
      *                                 @OA\Property(property="warehouse_id", type="integer"),
      *                                 @OA\Property(property="warehouse_name", type="string"),
@@ -122,6 +133,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=422, description="バリデーションエラー")
      * )
      */
@@ -189,13 +201,16 @@ class IncomingController extends ApiController
      *         in="path",
      *         required=true,
      *         description="入庫予定ID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -223,6 +238,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=404, description="入庫予定が見つかりません")
      * )
      */
@@ -255,48 +271,61 @@ class IncomingController extends ApiController
      *         in="query",
      *         required=true,
      *         description="倉庫ID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="picker_id",
      *         in="query",
      *         required=false,
      *         description="作業者ID（指定時はその作業者のデータのみ）",
+     *
      *         @OA\Schema(type="integer")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="status",
      *         in="query",
      *         required=false,
      *         description="ステータス（WORKING, COMPLETED, CANCELLED, all）。デフォルト: WORKING",
+     *
      *         @OA\Schema(type="string", enum={"WORKING", "COMPLETED", "CANCELLED", "all"}, default="WORKING")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="from_date",
      *         in="query",
      *         required=false,
      *         description="開始日（履歴絞り込み用、YYYY-MM-DD形式）",
+     *
      *         @OA\Schema(type="string", format="date", example="2026-01-01")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="to_date",
      *         in="query",
      *         required=false,
      *         description="終了日（履歴絞り込み用、YYYY-MM-DD形式）",
+     *
      *         @OA\Schema(type="string", format="date", example="2026-01-31")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="limit",
      *         in="query",
      *         required=false,
      *         description="取得件数（デフォルト: 100）",
+     *
      *         @OA\Schema(type="integer", default=100)
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -305,6 +334,7 @@ class IncomingController extends ApiController
      *                 @OA\Property(
      *                     property="data",
      *                     type="array",
+     *
      *                     @OA\Items(ref="#/components/schemas/IncomingWorkItem")
      *                 )
      *             )
@@ -369,8 +399,10 @@ class IncomingController extends ApiController
      *
      *     @OA\RequestBody(
      *         required=true,
+     *
      *         @OA\JsonContent(
      *             required={"incoming_schedule_id", "picker_id", "warehouse_id"},
+     *
      *             @OA\Property(property="incoming_schedule_id", type="integer", description="入庫予定ID"),
      *             @OA\Property(property="picker_id", type="integer", description="作業者ID"),
      *             @OA\Property(property="warehouse_id", type="integer", description="作業倉庫ID")
@@ -380,7 +412,9 @@ class IncomingController extends ApiController
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -391,6 +425,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=400, description="既に作業中 / 作業不可"),
      *     @OA\Response(response=404, description="入庫予定が見つかりません"),
      *     @OA\Response(response=422, description="バリデーションエラー")
@@ -427,6 +462,7 @@ class IncomingController extends ApiController
         if ($existingWork) {
             // Return existing work item data so frontend can resume
             $existingWork->load(['incomingSchedule', 'incomingSchedule.item', 'incomingSchedule.warehouse', 'location']);
+
             return $this->success($this->formatWorkItem($existingWork), '既存の作業を再開しました');
         }
 
@@ -493,12 +529,15 @@ class IncomingController extends ApiController
      *         in="path",
      *         required=true,
      *         description="作業データID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
      *
      *     @OA\RequestBody(
      *         required=true,
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="work_quantity", type="integer", description="入荷数量"),
      *             @OA\Property(property="work_arrival_date", type="string", format="date", description="入荷日"),
      *             @OA\Property(property="work_expiration_date", type="string", format="date", description="賞味期限"),
@@ -509,7 +548,9 @@ class IncomingController extends ApiController
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -520,6 +561,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=400, description="編集不可"),
      *     @OA\Response(response=404, description="作業データが見つかりません")
      * )
@@ -632,13 +674,16 @@ class IncomingController extends ApiController
      *         in="path",
      *         required=true,
      *         description="作業データID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -649,6 +694,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=400, description="完了不可 / 入庫予定が見つかりません"),
      *     @OA\Response(response=404, description="作業データが見つかりません"),
      *     @OA\Response(response=500, description="入庫確定に失敗")
@@ -741,13 +787,16 @@ class IncomingController extends ApiController
      *         in="path",
      *         required=true,
      *         description="作業データID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -758,6 +807,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=400, description="キャンセル不可"),
      *     @OA\Response(response=404, description="作業データが見つかりません")
      * )
@@ -765,6 +815,7 @@ class IncomingController extends ApiController
      * @OA\Schema(
      *     schema="IncomingWorkItem",
      *     type="object",
+     *
      *     @OA\Property(property="id", type="integer", description="作業データID"),
      *     @OA\Property(property="incoming_schedule_id", type="integer", description="入庫予定ID"),
      *     @OA\Property(property="picker_id", type="integer", description="作業者ID"),
@@ -1200,27 +1251,34 @@ class IncomingController extends ApiController
      *         in="query",
      *         required=true,
      *         description="倉庫ID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="search",
      *         in="query",
      *         required=false,
      *         description="検索キーワード（code1, code2, code3, nameで検索）",
+     *
      *         @OA\Schema(type="string", example="A-1")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="limit",
      *         in="query",
      *         required=false,
      *         description="取得件数（デフォルト: 50）",
+     *
      *         @OA\Schema(type="integer", default=50)
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -1229,8 +1287,10 @@ class IncomingController extends ApiController
      *                 @OA\Property(
      *                     property="data",
      *                     type="array",
+     *
      *                     @OA\Items(
      *                         type="object",
+     *
      *                         @OA\Property(property="id", type="integer"),
      *                         @OA\Property(property="code1", type="string"),
      *                         @OA\Property(property="code2", type="string"),
@@ -1242,6 +1302,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=422, description="バリデーションエラー")
      * )
      */

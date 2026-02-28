@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\JobStatus;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -14,6 +15,8 @@ use Illuminate\Contracts\View\View;
 
 class WmsAutoOrderJobControlsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -114,6 +117,9 @@ class WmsAutoOrderJobControlsTable
                             'record' => $record,
                         ]
                     )),
+            ])
+            ->toolbarActions([
+                static::getExportAction(),
             ])
             ->defaultSort('started_at', 'desc');
     }

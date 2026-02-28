@@ -3,12 +3,15 @@
 namespace App\Filament\Resources\Waves\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
 class WavesTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -87,6 +90,9 @@ class WavesTable
             ])
             ->recordActions([
                 // 編集・削除は不可
+            ])
+            ->toolbarActions([
+                static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
     }

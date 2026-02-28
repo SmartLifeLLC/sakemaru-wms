@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\ItemContractors\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\BulkActionGroup;
@@ -17,6 +18,8 @@ use Filament\Tables\Table;
 
 class ItemContractorsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -97,6 +100,7 @@ class ItemContractorsTable
                 DeleteAction::make(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

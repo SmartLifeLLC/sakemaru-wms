@@ -34,6 +34,7 @@ class WmsContractorSetting extends WmsModel
         'is_transmission_fri',
         'is_transmission_sat',
         'is_auto_transmission',
+        'auto_order_generation_time',
         'order_mail',
         'order_mail_from',
         'order_mail_title',

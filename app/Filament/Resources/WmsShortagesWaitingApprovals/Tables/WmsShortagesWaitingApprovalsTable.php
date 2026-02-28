@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsShortagesWaitingApprovals\Tables;
 use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
@@ -28,6 +29,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WmsShortagesWaitingApprovalsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -835,6 +838,9 @@ class WmsShortagesWaitingApprovalsTable
                 ]),
             ])
             ->selectCurrentPageOnly()
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->defaultSort('created_at', 'desc')
             ->modifyQueryUsing(function (Builder $query) {
                 // 承認待ちのレコードのみ表示: is_confirmed = 0 かつ status != BEFORE

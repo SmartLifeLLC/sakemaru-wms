@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsShortageAllocations\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsShortageAllocation;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
@@ -11,6 +12,8 @@ use Filament\Tables\Table;
 
 class WmsShortageAllocationsFinishedTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -150,7 +153,9 @@ class WmsShortageAllocationsFinishedTable
             ])
             ->recordActions([], position: RecordActionsPosition::BeforeColumns)
             ->bulkActions([])
-            ->toolbarActions([])
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->defaultSort('finished_at', 'desc');
     }
 }

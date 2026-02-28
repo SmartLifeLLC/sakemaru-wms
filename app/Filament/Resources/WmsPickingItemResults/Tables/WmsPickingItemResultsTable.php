@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsPickingItemResults\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\ClientSetting;
 use Filament\Forms\Components\DatePicker;
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WmsPickingItemResultsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -260,6 +263,7 @@ class WmsPickingItemResultsTable
                 //
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 //
             ]);
     }

@@ -9,6 +9,7 @@ enum IncomingScheduleStatus: string
     case CONFIRMED = 'CONFIRMED';
     case TRANSMITTED = 'TRANSMITTED';
     case CANCELLED = 'CANCELLED';
+    case PARTIAL_CANCELLED = 'PARTIAL_CANCELLED';
 
     public function label(): string
     {
@@ -18,6 +19,7 @@ enum IncomingScheduleStatus: string
             self::CONFIRMED => '入庫完了',
             self::TRANSMITTED => '連携済み',
             self::CANCELLED => 'キャンセル',
+            self::PARTIAL_CANCELLED => '一部入庫キャンセル',
         };
     }
 
@@ -29,6 +31,7 @@ enum IncomingScheduleStatus: string
             self::CONFIRMED => 'success',
             self::TRANSMITTED => 'gray',
             self::CANCELLED => 'danger',
+            self::PARTIAL_CANCELLED => 'danger',
         };
     }
 }

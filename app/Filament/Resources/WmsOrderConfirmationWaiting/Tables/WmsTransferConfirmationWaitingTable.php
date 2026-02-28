@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsOrderConfirmationWaiting\Tables;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
 use App\Models\WmsStockTransferCandidate;
 use Filament\Actions\Action;
@@ -18,6 +19,8 @@ use Illuminate\Database\Eloquent\Collection;
 
 class WmsTransferConfirmationWaitingTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -192,6 +195,7 @@ class WmsTransferConfirmationWaitingTable
                     }),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('bulkCancelApproval')
                         ->label('選択の承認取消')

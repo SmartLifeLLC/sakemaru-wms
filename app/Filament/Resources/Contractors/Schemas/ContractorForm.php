@@ -2,12 +2,23 @@
 
 namespace App\Filament\Resources\Contractors\Schemas;
 
+use App\Enums\AutoOrder\TransmissionType;
+use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\LeadTime;
+use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsOrderFtpSetting;
+use App\Models\WmsOrderJxSetting;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Schemas\Components\Fieldset;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
+use Illuminate\Support\HtmlString;
 
 class ContractorForm
 {
@@ -86,6 +97,129 @@ class ContractorForm
                             ->helperText('無効にすると選択できなくなります'),
                     ])
                     ->columns(2),
+
+                Section::make('発注メール設定')
+                    ->icon('heroicon-o-envelope')
+                    ->schema([
+                        Grid::make(2)->schema([
+                            Section::make('メール設定')
+                                ->schema([
+                                    TextInput::make('wms_order_mail')
+                                        ->label('発注先メールアドレス')
+                                        ->email(),
+                                    TextInput::make('wms_order_mail_from')
+                                        ->label('送信名'),
+                                    TextInput::make('wms_order_mail_title')
+                                        ->label('メールタイトル'),
+                                    TextEntry::make('variables_help')
+                                        ->label('利用可能な変数')
+                                        ->state(new HtmlString(
+                                            '<div class="text-xs text-gray-500 border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">'
+                                            .'<table>'
+                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_CONTRACTOR_NAME$$</td><td>発注先名</td></tr>'
+                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_WAREHOUSE_NAME$$</td><td>倉庫名</td></tr>'
+                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE$$</td><td>発注日（2026年02月14日）</td></tr>'
+                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE_SHORT$$</td><td>発注日（2026/02/14）</td></tr>'
+                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_EXPECTED_ARRIVAL_DATE$$</td><td>入荷予定日</td></tr>'
+                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_COUNT$$</td><td>発注件数</td></tr>'
+                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_TOTAL_QUANTITY$$</td><td>合計数量</td></tr>'
+                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ATTACHMENTS$$</td><td>添付ファイル一覧</td></tr>'
+                                            .'</table></div>'
+                                        )),
+                                ]),
+
+                            Section::make('メール本文')
+                                ->schema([
+                                    Textarea::make('wms_order_mail_content')
+                                        ->label('本文')
+                                        ->rows(24),
+                                ]),
+                        ]),
+                    ])
+                    ->collapsible(),
+
+                Section::make('WMS送信設定')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->schema([
+                        Select::make('wms_transmission_type')
+                            ->label('送信方式')
+                            ->options(collect(TransmissionType::cases())->mapWithKeys(fn ($t) => [$t->value => $t->label()]))
+                            ->required()
+                            ->live()
+                            ->default(TransmissionType::MANUAL_CSV->value),
+
+                        Select::make('wms_order_jx_setting_id')
+                            ->label('JX設定')
+                            ->options(fn () => WmsOrderJxSetting::where('is_active', true)->pluck('name', 'id'))
+                            ->searchable()
+                            ->nullable()
+                            ->visible(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::JX_FINET->value)
+                            ->required(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::JX_FINET->value),
+
+                        Select::make('wms_order_ftp_setting_id')
+                            ->label('FTP設定')
+                            ->options(fn () => WmsOrderFtpSetting::where('is_active', true)->pluck('name', 'id'))
+                            ->searchable()
+                            ->nullable()
+                            ->visible(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::FTP->value)
+                            ->required(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::FTP->value),
+
+                        Select::make('wms_supply_warehouse_id')
+                            ->label('供給倉庫')
+                            ->options(fn () => Warehouse::pluck('name', 'id'))
+                            ->searchable()
+                            ->nullable()
+                            ->visible(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::INTERNAL->value)
+                            ->required(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::INTERNAL->value)
+                            ->helperText('倉庫間移動の場合、供給元の倉庫を選択'),
+
+                        TextInput::make('wms_auto_order_generation_time')
+                            ->label('自動発注生成時刻')
+                            ->type('time')
+                            ->nullable()
+                            ->helperText('発注候補を自動生成する時刻'),
+
+                        TextInput::make('wms_transmission_time')
+                            ->label('送信時刻')
+                            ->type('time')
+                            ->nullable()
+                            ->helperText('指定しない場合は手動送信'),
+
+                        Fieldset::make('送信曜日')
+                            ->schema([
+                                Toggle::make('wms_is_transmission_mon')->label('月')->inline(false),
+                                Toggle::make('wms_is_transmission_tue')->label('火')->inline(false),
+                                Toggle::make('wms_is_transmission_wed')->label('水')->inline(false),
+                                Toggle::make('wms_is_transmission_thu')->label('木')->inline(false),
+                                Toggle::make('wms_is_transmission_fri')->label('金')->inline(false),
+                                Toggle::make('wms_is_transmission_sat')->label('土')->inline(false),
+                                Toggle::make('wms_is_transmission_sun')->label('日')->inline(false),
+                            ])
+                            ->columns(7),
+
+                        Toggle::make('wms_is_auto_transmission')
+                            ->label('自動送信')
+                            ->default(false)
+                            ->helperText('ONにすると指定時刻・曜日に自動送信されます'),
+
+                        Select::make('wms_transmission_contractor_id')
+                            ->label('送信先発注先')
+                            ->options(fn () => Contractor::where('is_active', true)->pluck('name', 'id'))
+                            ->searchable()
+                            ->nullable()
+                            ->helperText('別の発注先の送信設定を使用する場合に指定'),
+
+                        TextInput::make('wms_format_strategy_class')
+                            ->label('フォーマット戦略クラス')
+                            ->maxLength(255)
+                            ->nullable()
+                            ->visible(fn (Get $get) => in_array($get('wms_transmission_type'), [
+                                TransmissionType::JX_FINET->value,
+                                TransmissionType::FTP->value,
+                            ])),
+                    ])
+                    ->columns(2)
+                    ->collapsible(),
             ]);
     }
 }

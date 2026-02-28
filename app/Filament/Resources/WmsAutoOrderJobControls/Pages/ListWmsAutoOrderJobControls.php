@@ -5,11 +5,15 @@ namespace App\Filament\Resources\WmsAutoOrderJobControls\Pages;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Filament\Resources\WmsAutoOrderJobControls\WmsAutoOrderJobControlResource;
 use App\Jobs\ProcessOrderCandidateGenerationJob;
+use App\Models\Sakemaru\Contractor;
+use App\Models\WmsAutoOrderExecutionLog;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\View;
 
@@ -77,6 +81,145 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 ->action(fn () => null)
                 ->before(function () {
                     $this->resetWizard();
+                }),
+
+            Action::make('generateTransferCandidates')
+                ->label('移動候補生成')
+                ->icon('heroicon-o-arrows-right-left')
+                ->color('info')
+                ->requiresConfirmation()
+                ->modalHeading('移動候補の一括生成')
+                ->modalDescription(fn () => $this->pendingTransferCount > 0
+                    ? "未承認の移動候補が {$this->pendingTransferCount}件 あります。削除して再生成します。"
+                    : '全仕入先のINTERNAL移動候補を生成します。発注候補は生成しません。')
+                ->action(function () {
+                    // APPROVED移動候補がある場合はブロック
+                    $approvedTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
+                    if ($approvedTransferCount > 0) {
+                        Notification::make()
+                            ->title("確定待ちの移動候補が {$approvedTransferCount}件 あります")
+                            ->body('先に確定処理を行ってください')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
+                    // PENDING移動候補を削除
+                    $deletedTransfers = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->delete();
+
+                    // 進捗レコードを作成
+                    $queueProgress = WmsQueueProgress::createJob(
+                        WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
+                        auth()->id(),
+                        ['source' => 'transfer_only', 'deletedTransfers' => $deletedTransfers]
+                    );
+
+                    // Job dispatch（transferOnly=true）
+                    ProcessOrderCandidateGenerationJob::dispatch(
+                        jobId: $queueProgress->job_id,
+                        deletePending: false,
+                        contractorId: null,
+                        executionLogId: null,
+                        transferOnly: true,
+                    );
+
+                    $message = '移動候補の生成を開始しました';
+                    if ($deletedTransfers > 0) {
+                        $message .= "（PENDING移動候補 {$deletedTransfers}件 を削除）";
+                    }
+
+                    Notification::make()
+                        ->title($message)
+                        ->success()
+                        ->send();
+                }),
+
+            Action::make('forceGenerateByContractor')
+                ->label('仕入先別発注候補生成')
+                ->icon('heroicon-o-bolt')
+                ->color('success')
+                ->schema([
+                    Select::make('contractor_id')
+                        ->label('仕入先')
+                        ->options(fn () => Contractor::orderBy('code')
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}] {$c->name}"])
+                            ->toArray())
+                        ->searchable()
+                        ->required(),
+                ])
+                ->requiresConfirmation()
+                ->modalHeading('仕入先別 発注・移動候補の強制生成')
+                ->modalDescription('指定した仕入先に対して発注・移動候補を生成します。未処理の候補がある場合は削除して再生成します。')
+                ->action(function (array $data) {
+                    $contractorId = (int) $data['contractor_id'];
+
+                    // PENDING候補がある場合は削除してから再生成
+                    $deletedOrders = WmsOrderCandidate::query()
+                        ->where('status', CandidateStatus::PENDING)
+                        ->where('contractor_id', $contractorId)
+                        ->delete();
+
+                    $deletedTransfers = WmsStockTransferCandidate::query()
+                        ->where('status', CandidateStatus::PENDING)
+                        ->where('contractor_id', $contractorId)
+                        ->delete();
+
+                    // APPROVED候補がある場合はブロック
+                    $hasApprovedOrders = WmsOrderCandidate::query()
+                        ->where('status', CandidateStatus::APPROVED)
+                        ->where('contractor_id', $contractorId)
+                        ->exists();
+
+                    $hasApprovedTransfers = WmsStockTransferCandidate::query()
+                        ->where('status', CandidateStatus::APPROVED)
+                        ->where('contractor_id', $contractorId)
+                        ->exists();
+
+                    if ($hasApprovedOrders || $hasApprovedTransfers) {
+                        Notification::make()
+                            ->title('承認済みの候補があるため生成できません')
+                            ->body('先に確定処理を行ってください')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
+                    // 実行ログを記録
+                    $log = WmsAutoOrderExecutionLog::create([
+                        'contractor_id' => $contractorId,
+                        'executed_date' => today(),
+                        'status' => 'RUNNING',
+                        'started_at' => now(),
+                    ]);
+
+                    // 進捗レコードを作成
+                    $queueProgress = WmsQueueProgress::createJob(
+                        WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
+                        auth()->id(),
+                        ['contractor_id' => $contractorId, 'source' => 'force_generate']
+                    );
+
+                    // Job dispatch
+                    ProcessOrderCandidateGenerationJob::dispatch(
+                        jobId: $queueProgress->job_id,
+                        deletePending: false,
+                        contractorId: $contractorId,
+                        executionLogId: $log->id,
+                    );
+
+                    $contractorName = Contractor::find($contractorId)?->name ?? $contractorId;
+                    $message = "仕入先「{$contractorName}」の発注候補生成を開始しました";
+                    if ($deletedOrders > 0 || $deletedTransfers > 0) {
+                        $message .= "（PENDING候補 発注:{$deletedOrders}件 移動:{$deletedTransfers}件 を削除）";
+                    }
+
+                    Notification::make()
+                        ->title($message)
+                        ->success()
+                        ->send();
                 }),
         ];
     }

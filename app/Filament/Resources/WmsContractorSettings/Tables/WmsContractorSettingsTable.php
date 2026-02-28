@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsContractorSettings\Tables;
 
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -18,6 +19,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WmsContractorSettingsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -64,6 +67,11 @@ class WmsContractorSettingsTable
                     ->placeholder('-')
                     ->alignCenter(),
 
+                TextColumn::make('auto_order_generation_time')
+                    ->label('自動発注時刻')
+                    ->placeholder('-')
+                    ->alignCenter(),
+
                 TextColumn::make('transmission_days_label')
                     ->label('送信曜日')
                     ->placeholder('-')
@@ -95,6 +103,7 @@ class WmsContractorSettingsTable
                 DeleteAction::make(),
             ], position: RecordActionsPosition::BeforeColumns)
             ->toolbarActions([
+                static::getExportAction(),
                 CreateAction::make(),
             ])
             ->bulkActions([

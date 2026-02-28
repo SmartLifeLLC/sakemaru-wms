@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsContractorHolidays\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -16,6 +17,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WmsContractorHolidaysTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -56,6 +59,7 @@ class WmsContractorHolidaysTable
                 DeleteAction::make(),
             ], position: RecordActionsPosition::BeforeColumns)
             ->toolbarActions([
+                static::getExportAction(),
                 CreateAction::make(),
             ])
             ->bulkActions([

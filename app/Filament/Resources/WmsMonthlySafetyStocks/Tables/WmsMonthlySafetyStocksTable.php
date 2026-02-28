@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsMonthlySafetyStocks\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsMonthlySafetyStock;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -14,6 +15,8 @@ use Filament\Tables\Table;
 
 class WmsMonthlySafetyStocksTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -83,6 +86,7 @@ class WmsMonthlySafetyStocksTable
                     ->iconButton(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

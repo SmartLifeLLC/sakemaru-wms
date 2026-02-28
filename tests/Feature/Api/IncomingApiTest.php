@@ -53,7 +53,9 @@ class IncomingApiTest extends TestCase
     protected $connectionsToTransact = ['mysql', 'sakemaru'];
 
     private $picker;
+
     private $token;
+
     private $headers;
 
     protected function setUp(): void
@@ -71,7 +73,7 @@ class IncomingApiTest extends TestCase
 
         $this->headers = [
             'X-API-Key' => config('api.keys')[0] ?? 'test-key',
-            'Authorization' => 'Bearer ' . $this->token,
+            'Authorization' => 'Bearer '.$this->token,
             'Accept' => 'application/json',
         ];
     }
@@ -113,8 +115,8 @@ class IncomingApiTest extends TestCase
                 'result' => [
                     'data' => [
                         'id' => $schedule->id,
-                    ]
-                ]
+                    ],
+                ],
             ]);
     }
 
@@ -147,11 +149,11 @@ class IncomingApiTest extends TestCase
         if (! $schedule) {
             // Find ANY schedule and force it to PENDING
             $schedule = WmsOrderIncomingSchedule::first();
-            if (!$schedule) {
+            if (! $schedule) {
                 $this->markTestSkipped('No schedules available.');
             }
         }
-        
+
         // Ensure it is in a valid state for starting work
         $schedule->refresh();
         // Force update status (will be rolled back)
@@ -160,10 +162,9 @@ class IncomingApiTest extends TestCase
             ->where('id', $schedule->id)
             ->update([
                 'status' => 'PENDING',
-                'received_quantity' => 0
+                'received_quantity' => 0,
             ]);
         $schedule->refresh();
-
 
         // 2. Start Work
         $response = $this->withHeaders($this->headers)
@@ -186,7 +187,7 @@ class IncomingApiTest extends TestCase
                 'work_quantity' => $newQty,
                 'work_arrival_date' => now()->format('Y-m-d'),
             ]);
-        
+
         $response->assertStatus(200)
             ->assertJson(['code' => 'SUCCESS']);
 
@@ -200,15 +201,15 @@ class IncomingApiTest extends TestCase
             ->postJson("/api/incoming/work-items/{$workItemId}/complete");
 
         if ($response->status() === 500) {
-             // If it fails due to external service, we accept it as partially successful flow test locally
-             // But we want to see it succeed.
-             // $this->markTestSkipped('Complete step failed, possibly due to strict service logic: ' . $response->json('message'));
+            // If it fails due to external service, we accept it as partially successful flow test locally
+            // But we want to see it succeed.
+            // $this->markTestSkipped('Complete step failed, possibly due to strict service logic: ' . $response->json('message'));
         } else {
-             $response->assertStatus(200)
+            $response->assertStatus(200)
                 ->assertJson(['code' => 'SUCCESS']);
-             
-             // Verify status
-             $this->assertEquals('COMPLETED', WmsIncomingWorkItem::find($workItemId)->status);
+
+            // Verify status
+            $this->assertEquals('COMPLETED', WmsIncomingWorkItem::find($workItemId)->status);
         }
     }
 
@@ -217,35 +218,35 @@ class IncomingApiTest extends TestCase
      */
     public function test_cancel_work_item()
     {
-         // 1. Prepare Schedule
-         $schedule = WmsOrderIncomingSchedule::first();
-         if (!$schedule) {
-             $this->markTestSkipped('No schedules available.');
-         }
-         
-         // Note: remaining_quantity is a computed accessor, not a DB column
-         DB::connection('sakemaru')->table('wms_order_incoming_schedules')
-             ->where('id', $schedule->id)
-             ->update([
-                 'status' => 'PENDING',
-                 'received_quantity' => 0
-             ]);
+        // 1. Prepare Schedule
+        $schedule = WmsOrderIncomingSchedule::first();
+        if (! $schedule) {
+            $this->markTestSkipped('No schedules available.');
+        }
 
-         // 2. Start Work
-         $response = $this->withHeaders($this->headers)
-             ->postJson('/api/incoming/work-items', [
-                 'incoming_schedule_id' => $schedule->id,
-                 'picker_id' => $this->picker->id,
-                 'warehouse_id' => $schedule->warehouse_id,
-             ]);
-         
-         $response->assertStatus(200);
-         $workItemId = $response->json('result.data.id');
+        // Note: remaining_quantity is a computed accessor, not a DB column
+        DB::connection('sakemaru')->table('wms_order_incoming_schedules')
+            ->where('id', $schedule->id)
+            ->update([
+                'status' => 'PENDING',
+                'received_quantity' => 0,
+            ]);
 
-         // 3. Cancel Work
-         $response = $this->withHeaders($this->headers)
-             ->deleteJson("/api/incoming/work-items/{$workItemId}");
-         
+        // 2. Start Work
+        $response = $this->withHeaders($this->headers)
+            ->postJson('/api/incoming/work-items', [
+                'incoming_schedule_id' => $schedule->id,
+                'picker_id' => $this->picker->id,
+                'warehouse_id' => $schedule->warehouse_id,
+            ]);
+
+        $response->assertStatus(200);
+        $workItemId = $response->json('result.data.id');
+
+        // 3. Cancel Work
+        $response = $this->withHeaders($this->headers)
+            ->deleteJson("/api/incoming/work-items/{$workItemId}");
+
         $response->assertStatus(200)
             ->assertJson(['code' => 'SUCCESS']);
 

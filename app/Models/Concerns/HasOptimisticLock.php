@@ -2,7 +2,6 @@
 
 namespace App\Models\Concerns;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -36,7 +35,7 @@ trait HasOptimisticLock
         if ($affected === 0) {
             // 別のユーザーが更新した可能性
             throw new OptimisticLockException(
-                "データが他のユーザーによって更新されました。画面を更新して再度お試しください。"
+                'データが他のユーザーによって更新されました。画面を更新して再度お試しください。'
             );
         }
 

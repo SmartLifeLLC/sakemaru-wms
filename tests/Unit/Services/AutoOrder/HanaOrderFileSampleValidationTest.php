@@ -3,8 +3,6 @@
 namespace Tests\Unit\Services\AutoOrder;
 
 use App\Models\Sakemaru\Contractor;
-use App\Models\Sakemaru\Item;
-use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\Generators\HanaOrderFileGenerator;
 use Illuminate\Support\Collection;
@@ -35,7 +33,7 @@ class HanaOrderFileSampleValidationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->generator = new HanaOrderFileGenerator();
+        $this->generator = new HanaOrderFileGenerator;
     }
 
     /**
@@ -504,7 +502,7 @@ class HanaOrderFileSampleValidationTest extends TestCase
             $this->assertEquals(
                 self::RECORD_LENGTH,
                 strlen($record),
-                "Record {$i} in {$contractorCode} should be 128 bytes, got " . strlen($record)
+                "Record {$i} in {$contractorCode} should be 128 bytes, got ".strlen($record)
             );
         }
 

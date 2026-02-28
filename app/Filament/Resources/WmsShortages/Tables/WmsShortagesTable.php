@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsShortages\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
+use App\Filament\Concerns\HasExportAction;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
@@ -23,6 +24,8 @@ use Filament\Tables\Table;
 
 class WmsShortagesTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -831,6 +834,9 @@ class WmsShortagesTable
                     ]),
             ], position: RecordActionsPosition::BeforeColumns)
             ->selectCurrentPageOnly()
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->defaultSort('created_at', 'desc');
     }
 }

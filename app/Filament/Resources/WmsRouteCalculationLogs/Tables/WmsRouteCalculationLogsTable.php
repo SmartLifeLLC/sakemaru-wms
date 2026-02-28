@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsRouteCalculationLogs\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\ViewAction;
@@ -11,6 +12,8 @@ use Filament\Tables\Table;
 
 class WmsRouteCalculationLogsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -64,6 +67,7 @@ class WmsRouteCalculationLogsTable
                 ViewAction::make(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

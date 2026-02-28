@@ -4,6 +4,7 @@ namespace App\Filament\Resources\ExpirationAlerts\Tables;
 
 use App\Enums\EVolumeUnit;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -12,10 +13,15 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ExpirationAlertsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->striped()
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->defaultSort('expiration_date', 'asc')
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())

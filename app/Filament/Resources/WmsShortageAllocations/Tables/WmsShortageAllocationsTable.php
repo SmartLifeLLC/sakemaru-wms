@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsShortageAllocations\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
+use App\Filament\Concerns\HasExportAction;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortageAllocation;
@@ -23,6 +24,8 @@ use Illuminate\Support\Facades\DB;
 
 class WmsShortageAllocationsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -486,7 +489,9 @@ class WmsShortageAllocationsTable
                         }),
                 ]),
             ])
-            ->toolbarActions([])
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->defaultSort('created_at', 'desc')
             ->recordUrl(null);
     }

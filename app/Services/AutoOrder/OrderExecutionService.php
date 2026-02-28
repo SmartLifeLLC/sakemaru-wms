@@ -25,6 +25,7 @@ class OrderExecutionService
     public function __construct(
         private readonly OrderAuditService $auditService
     ) {}
+
     /**
      * 発注候補を確定し、入庫予定を作成（何回でも実行可能）
      *
@@ -316,7 +317,7 @@ class OrderExecutionService
      *
      * @param  int  $itemId  商品ID
      * @param  string|Carbon  $baseDate  基準日（入荷予定日）
-     * @return string|null  賞味期限（Y-m-d形式）
+     * @return string|null 賞味期限（Y-m-d形式）
      */
     private function calculateExpirationDate(int $itemId, string|Carbon $baseDate): ?string
     {

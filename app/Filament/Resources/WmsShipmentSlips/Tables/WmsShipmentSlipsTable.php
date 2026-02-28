@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsShipmentSlips\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\WmsPickingTask;
 use App\Services\Print\PrintRequestService;
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\DB;
 
 class WmsShipmentSlipsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -494,6 +497,9 @@ class WmsShipmentSlipsTable
                     })
                     ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting', 'floor', 'pickingArea']);
             })
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->defaultSort('delivery_course_code', 'asc');
     }
 

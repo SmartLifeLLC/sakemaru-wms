@@ -78,21 +78,67 @@ class OrderCandidateCalculationService
     /** @var int|null 参照する在庫スナップショットのjob_control_id */
     private ?int $snapshotJobId = null;
 
+    /** @var int|null 仕入先ID指定（null=全仕入先） */
+    private ?int $targetContractorId = null;
+
     /**
      * 発注候補計算を実行
      *
      * @param  int|null  $snapshotJobId  参照する在庫スナップショットのjob_id
+     * @param  int|null  $contractorId  仕入先指定（nullなら全仕入先一括）
+     * @param  bool  $transferOnly  trueの場合、INTERNAL移動候補のみ生成（EXTERNAL発注候補はスキップ）
      */
-    public function calculate(?int $snapshotJobId = null): WmsAutoOrderJobControl
+    public function calculate(?int $snapshotJobId = null, ?int $contractorId = null, bool $transferOnly = false): WmsAutoOrderJobControl
     {
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::ORDER_CALC)) {
             throw new \RuntimeException('Order calculation job is already running');
         }
 
-        // 発注確定待ち（APPROVED）の候補がある場合は計算不可
-        $approvedCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
-        if ($approvedCount > 0) {
-            throw new \RuntimeException("発注確定待ちの候補が {$approvedCount}件 あります。先に発注確定を行ってください。");
+        // 排他制御: 仕入先指定あり/なしで2パターン
+        if ($contractorId !== null) {
+            // パターンA: 仕入先指定あり（スケジューラー/手動強制）
+            // PENDING + APPROVED 両方チェック（仕入先単位）
+            if (! $transferOnly) {
+                $hasOrderCandidates = WmsOrderCandidate::query()
+                    ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
+                    ->where('contractor_id', $contractorId)
+                    ->exists();
+            } else {
+                $hasOrderCandidates = false;
+            }
+
+            $hasTransferCandidates = WmsStockTransferCandidate::query()
+                ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
+                ->where('contractor_id', $contractorId)
+                ->exists();
+
+            if ($hasOrderCandidates || $hasTransferCandidates) {
+                throw new \RuntimeException("仕入先ID:{$contractorId} に未処理の候補が存在します");
+            }
+        } else {
+            // パターンB: 仕入先指定なし（既存CLI互換）
+            if (! $transferOnly) {
+                $hasApprovedOrders = WmsOrderCandidate::query()
+                    ->where('status', CandidateStatus::APPROVED)
+                    ->exists();
+            } else {
+                $hasApprovedOrders = false;
+            }
+
+            $hasApprovedTransfers = WmsStockTransferCandidate::query()
+                ->where('status', CandidateStatus::APPROVED)
+                ->exists();
+
+            if ($hasApprovedOrders || $hasApprovedTransfers) {
+                if ($transferOnly) {
+                    $approvedTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
+                    throw new \RuntimeException("確定待ちの移動候補が {$approvedTransferCount}件 あります。先に確定を行ってください。");
+                }
+                $approvedOrderCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
+                $approvedTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
+                $totalCount = $approvedOrderCount + $approvedTransferCount;
+                throw new \RuntimeException("確定待ちの候補が {$totalCount}件 あります。先に確定を行ってください。");
+            }
         }
 
         $job = WmsAutoOrderJobControl::startJob(
@@ -105,6 +151,7 @@ class OrderCandidateCalculationService
 
         // スナップショットJob IDを保持（loadAllDataToMemoryで使用）
         $this->snapshotJobId = $snapshotJobId;
+        $this->targetContractorId = $contractorId;
 
         try {
             $batchCode = $job->batch_code;
@@ -125,13 +172,20 @@ class OrderCandidateCalculationService
 
             $job->updateProgress(2, 4);
 
-            // Step 3: 移動候補をメモリにロード（EXTERNAL計算用）
-            $transferCandidates = $this->loadTransferCandidatesToMemory($batchCode);
+            $orderCount = 0;
 
-            $job->updateProgress(3, 4);
+            if (! $transferOnly) {
+                // Step 3: 移動候補をメモリにロード（EXTERNAL計算用）
+                $transferCandidates = $this->loadTransferCandidatesToMemory($batchCode);
 
-            // Step 4: EXTERNAL発注候補を計算・バルクインサート
-            $orderCount = $this->createExternalOrderCandidatesBulk($batchCode, $now, $transferCandidates);
+                $job->updateProgress(3, 4);
+
+                // Step 4: EXTERNAL発注候補を計算・バルクインサート
+                $orderCount = $this->createExternalOrderCandidatesBulk($batchCode, $now, $transferCandidates);
+            } else {
+                $job->updateProgress(3, 4);
+                Log::info('transferOnlyモード: EXTERNAL発注候補の生成をスキップ');
+            }
 
             // Step 5: 計算ログをバルクインサート
             $this->insertCalculationLogs();
@@ -450,9 +504,21 @@ class OrderCandidateCalculationService
         }
 
         // INTERNAL発注先の商品を取得（safety_stock > 0、実倉庫のみ）
+        $internalContractorIds = $this->internalContractorIds;
+
+        // 仕入先指定がある場合、対象の仕入先のみに絞る
+        if ($this->targetContractorId !== null) {
+            $internalContractorIds = array_intersect($internalContractorIds, [$this->targetContractorId]);
+            if (empty($internalContractorIds)) {
+                Log::info('指定仕入先はINTERNAL発注先ではありません', ['contractor_id' => $this->targetContractorId]);
+
+                return 0;
+            }
+        }
+
         $itemContractors = DB::connection('sakemaru')
             ->table('item_contractors')
-            ->whereIn('contractor_id', $this->internalContractorIds)
+            ->whereIn('contractor_id', $internalContractorIds)
             ->whereIn('warehouse_id', $this->realWarehouseIds)
             ->where('is_auto_order', true)
             ->where('safety_stock', '>', 0)
@@ -638,12 +704,19 @@ class OrderCandidateCalculationService
     private function createExternalOrderCandidatesBulk(string $batchCode, Carbon $now, array $transferCandidates): int
     {
         // EXTERNAL発注先の商品を取得（safety_stock > 0、実倉庫のみ）
-        $itemContractors = DB::connection('sakemaru')
+        $externalQuery = DB::connection('sakemaru')
             ->table('item_contractors')
             ->whereNotIn('contractor_id', $this->internalContractorIds ?: [0])
             ->whereIn('warehouse_id', $this->realWarehouseIds)
             ->where('is_auto_order', true)
-            ->where('safety_stock', '>', 0)
+            ->where('safety_stock', '>', 0);
+
+        // 仕入先指定がある場合、対象の仕入先のみに絞る
+        if ($this->targetContractorId !== null) {
+            $externalQuery->where('contractor_id', $this->targetContractorId);
+        }
+
+        $itemContractors = $externalQuery
             ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit')
             ->get();
 

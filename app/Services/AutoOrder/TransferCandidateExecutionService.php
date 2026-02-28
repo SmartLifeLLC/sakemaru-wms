@@ -259,7 +259,7 @@ class TransferCandidateExecutionService
      *
      * @param  int  $itemId  商品ID
      * @param  string|Carbon  $baseDate  基準日（入荷予定日）
-     * @return string|null  賞味期限（Y-m-d形式）
+     * @return string|null 賞味期限（Y-m-d形式）
      */
     private function calculateExpirationDate(int $itemId, string|Carbon $baseDate): ?string
     {

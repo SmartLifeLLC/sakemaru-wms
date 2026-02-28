@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsOrderIncomingSchedules\Tables;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\ItemDefaultLocation;
@@ -14,6 +15,7 @@ use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingConfirmationService;
+use App\Services\AutoOrder\OrderCancellationService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -33,6 +35,8 @@ use Illuminate\Database\Eloquent\Collection;
 
 class WmsOrderIncomingSchedulesTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -52,7 +56,7 @@ class WmsOrderIncomingSchedulesTable
                     ->searchable(query: function ($query, string $search) {
                         $query->where(function ($q) use ($search) {
                             $q->whereHas('orderCandidate', fn ($sub) => $sub->where('batch_code', 'like', "%{$search}%"))
-                              ->orWhereHas('transferCandidate', fn ($sub) => $sub->where('batch_code', 'like', "%{$search}%"));
+                                ->orWhereHas('transferCandidate', fn ($sub) => $sub->where('batch_code', 'like', "%{$search}%"));
                         });
                     })
                     ->copyable()
@@ -468,22 +472,27 @@ class WmsOrderIncomingSchedulesTable
                     ]))
                     ->requiresConfirmation()
                     ->modalHeading('入庫予定を取消')
-                    ->modalDescription('この入庫予定を取消しますか？')
+                    ->modalDescription(fn ($record) => $record->status === IncomingScheduleStatus::PARTIAL
+                        ? "一部入庫済み（入庫済数量: {$record->received_quantity}）の入庫予定を取消します。入庫済み数量は維持され、残数量の入荷が取消されます。"
+                        : 'この入庫予定を取消しますか？')
                     ->schema([
                         Textarea::make('reason')
-                            ->label('取消理由'),
+                            ->label('取消理由')
+                            ->required(),
                     ])
                     ->action(function ($record, array $data) {
-                        $service = app(IncomingConfirmationService::class);
+                        $service = app(OrderCancellationService::class);
 
                         try {
-                            $service->cancelIncoming(
+                            $service->cancelIncomingSchedule(
                                 $record,
                                 auth()->id(),
-                                $data['reason'] ?? ''
+                                $data['reason']
                             );
+
+                            $statusLabel = $record->fresh()->status->label();
                             Notification::make()
-                                ->title('入庫予定を取消しました')
+                                ->title("入庫予定を取消しました（{$statusLabel}）")
                                 ->warning()
                                 ->send();
                         } catch (\Exception $e) {
@@ -611,6 +620,7 @@ class WmsOrderIncomingSchedulesTable
                     ->modalCancelActionLabel('閉じる'),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('bulkUpdateDates')
                         ->label('入荷日・賞味期限を更新')
@@ -725,7 +735,7 @@ class WmsOrderIncomingSchedulesTable
                                 ->label('取消理由'),
                         ])
                         ->action(function (Collection $records, array $data) {
-                            $service = app(IncomingConfirmationService::class);
+                            $service = app(OrderCancellationService::class);
                             $validRecords = $records->filter(fn ($r) => in_array($r->status, [
                                 IncomingScheduleStatus::PENDING,
                                 IncomingScheduleStatus::PARTIAL,
@@ -743,7 +753,7 @@ class WmsOrderIncomingSchedulesTable
                             $count = 0;
                             foreach ($validRecords as $record) {
                                 try {
-                                    $service->cancelIncoming($record, auth()->id(), $data['reason'] ?? '');
+                                    $service->cancelIncomingSchedule($record, auth()->id(), $data['reason'] ?? '');
                                     $count++;
                                 } catch (\Exception $e) {
                                     // Skip errors

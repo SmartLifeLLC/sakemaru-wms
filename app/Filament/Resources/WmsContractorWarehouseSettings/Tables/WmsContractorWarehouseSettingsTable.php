@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\WmsContractorWarehouseSettings\Tables;
 
+use App\Enums\AutoOrder\ConfirmationLevel;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\CreateAction;
@@ -16,6 +18,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WmsContractorWarehouseSettingsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -47,6 +51,12 @@ class WmsContractorWarehouseSettingsTable
                     ->placeholder('-')
                     ->searchable(),
 
+                TextColumn::make('confirmation_level')
+                    ->label('確定レベル')
+                    ->badge()
+                    ->formatStateUsing(fn (ConfirmationLevel $state) => $state->label())
+                    ->color(fn (ConfirmationLevel $state) => $state->color()),
+
                 TextColumn::make('created_at')
                     ->label('作成日時')
                     ->dateTime('Y-m-d H:i')
@@ -70,6 +80,7 @@ class WmsContractorWarehouseSettingsTable
                 DeleteAction::make(),
             ], position: RecordActionsPosition::BeforeColumns)
             ->toolbarActions([
+                static::getExportAction(),
                 CreateAction::make(),
             ])
             ->bulkActions([
