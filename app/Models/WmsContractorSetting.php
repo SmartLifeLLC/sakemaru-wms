@@ -67,7 +67,7 @@ class WmsContractorSetting extends WmsModel
     }
 
     /**
-     * 実際の送信設定を取得（自身 or 送信先発注先の設定）
+     * 実際の送信設定を取得（自身 or 発注データ集約先の設定）
      */
     public function getEffectiveTransmissionSettings(): self
     {

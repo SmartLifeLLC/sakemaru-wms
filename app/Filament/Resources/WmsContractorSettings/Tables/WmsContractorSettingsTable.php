@@ -53,7 +53,7 @@ class WmsContractorSettingsTable
                     ->sortable(),
 
                 TextColumn::make('transmissionContractor.name')
-                    ->label('送信先発注先')
+                    ->label('発注データ集約先')
                     ->placeholder('-')
                     ->tooltip('この発注先の発注データは、指定した発注先の設定で送信されます'),
 

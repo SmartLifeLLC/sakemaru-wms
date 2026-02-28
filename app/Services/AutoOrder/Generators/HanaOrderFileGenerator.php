@@ -29,7 +29,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
     private const JX_CONTRACTOR_CODES = [1106, 1017, 1202, 1330];
 
     /**
-     * 送信先集約マッピング（発注先コード => 送信先発注先コード）
+     * 送信先集約マッピング（発注先コード => 発注データ集約先コード）
      */
     private const TRANSMISSION_MAPPING = [
         1021 => 1106,  // カナカン酒類福井 → カナカン食品
@@ -143,7 +143,7 @@ class HanaOrderFileGenerator implements OrderFileGeneratorInterface
     }
 
     /**
-     * 送信先発注先コードでグルーピング
+     * 発注データ集約先コードでグルーピング
      */
     private function groupByTransmissionContractor(Collection $candidates): Collection
     {

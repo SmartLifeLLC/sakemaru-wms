@@ -3,9 +3,16 @@
 namespace App\Filament\Resources\Contractors\Pages;
 
 use App\Filament\Resources\Contractors\ContractorResource;
+use App\Filament\Resources\Contractors\Schemas\ContractorForm;
 use App\Models\WmsContractorSetting;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Resources\RelationManagers\RelationManagerConfiguration;
+use Filament\Schemas\Components\Livewire;
+use Filament\Schemas\Components\Tabs;
+use Filament\Schemas\Components\Tabs\Tab;
+use Filament\Schemas\Schema;
+use Filament\Support\Enums\Width;
 
 class EditContractor extends EditRecord
 {
@@ -13,9 +20,68 @@ class EditContractor extends EditRecord
 
     protected static ?string $title = '発注先編集';
 
-    public function hasCombinedRelationManagerTabsWithContent(): bool
+    protected Width | string | null $maxContentWidth = Width::Full;
+
+    /**
+     * フォームスキーマをオーバーライド
+     * 基本情報・発注メール設定のフォームタブ + リレーションマネージャータブを
+     * 一つのTabsコンポーネントにまとめる
+     */
+    public function form(Schema $schema): Schema
     {
-        return true;
+        $ownerRecord = $this->getRecord();
+        $managers = $this->getRelationManagers();
+        $managerLivewireData = ['ownerRecord' => $ownerRecord, 'pageClass' => static::class];
+
+        $relationManagerTabs = collect($managers)
+            ->map(function ($manager) use ($managerLivewireData, $ownerRecord) {
+                $normalizedManagerClass = $this->normalizeRelationManagerClass($manager);
+
+                return $normalizedManagerClass::getTabComponent($ownerRecord, static::class)
+                    ->schema(fn (): array => [
+                        Livewire::make(
+                            $normalizedManagerClass,
+                            [
+                                ...$managerLivewireData,
+                                ...(($manager instanceof RelationManagerConfiguration)
+                                    ? [...$manager->relationManager::getDefaultProperties(), ...$manager->getProperties()]
+                                    : $manager::getDefaultProperties()),
+                            ],
+                        )->key($normalizedManagerClass),
+                    ]);
+            })
+            ->all();
+
+        return $schema
+            ->columns(1)
+            ->components([
+                Tabs::make('contractor-tabs')
+                    ->contained(false)
+                    ->persistTabInQueryString('tab')
+                    ->tabs([
+                        Tab::make('基本情報')
+                            ->icon('heroicon-o-information-circle')
+                            ->schema(ContractorForm::basicInfoSchema()),
+
+                        Tab::make('発注メール設定')
+                            ->icon('heroicon-o-envelope')
+                            ->schema(ContractorForm::mailSchema()),
+
+                        ...$relationManagerTabs,
+                    ]),
+            ]);
+    }
+
+    /**
+     * content()をオーバーライドしてフォームのみ表示
+     * リレーションマネージャーはform()内のTabsに統合済み
+     */
+    public function content(Schema $schema): Schema
+    {
+        return $schema
+            ->components([
+                $this->getFormContentComponent(),
+            ]);
     }
 
     protected function getHeaderActions(): array
@@ -31,6 +97,13 @@ class EditContractor extends EditRecord
     protected function getFormActions(): array
     {
         return [];
+    }
+
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        // wms_ プレフィックスのフィールドはContractorモデルに存在しない
+        // afterSave() で WmsContractorSetting に別途保存するため除外
+        return collect($data)->reject(fn ($value, $key) => str_starts_with($key, 'wms_'))->all();
     }
 
     protected function mutateFormDataBeforeFill(array $data): array

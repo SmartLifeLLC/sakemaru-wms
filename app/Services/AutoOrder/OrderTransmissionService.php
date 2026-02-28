@@ -1119,7 +1119,7 @@ class OrderTransmissionService
         $mapping = $generator?->getTransmissionContractorMapping() ?? [];
 
         $candidates->each(function ($candidate) use ($contractorId, $document, $mapping) {
-            // この候補が送信先発注先と一致するか確認
+            // この候補が発注データ集約先と一致するか確認
             $candidateTransmissionId = $mapping[$candidate->contractor_id] ?? $candidate->contractor_id;
 
             if ($candidateTransmissionId === $contractorId) {

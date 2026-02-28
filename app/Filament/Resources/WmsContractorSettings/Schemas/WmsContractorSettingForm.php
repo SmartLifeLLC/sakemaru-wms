@@ -45,7 +45,7 @@ class WmsContractorSettingForm
                         ->required(fn ($get) => $get('transmission_type') === TransmissionType::JX_FINET->value),
 
                     Select::make('transmission_contractor_id')
-                        ->label('送信先発注先')
+                        ->label('発注データ集約先')
                         ->options(fn () => Contractor::pluck('name', 'id')->toArray())
                         ->searchable()
                         ->placeholder('別の発注先経由で送信する場合に指定')

@@ -22,10 +22,29 @@ use Illuminate\Support\HtmlString;
 
 class ContractorForm
 {
+    /**
+     * デフォルトのフォーム構成（CreateContractor用）
+     * 全フィールドをフラットに配置
+     */
     public static function configure(Schema $schema): Schema
     {
         return $schema
             ->components([
+                ...static::basicInfoSchema(),
+                ...static::mailSchema(),
+            ]);
+    }
+
+    /**
+     * 基本情報 + WMS送信設定フィールド（Grid(2)で左右配置）
+     *
+     * @return array<\Filament\Schemas\Components\Component>
+     */
+    public static function basicInfoSchema(): array
+    {
+        return [
+            Grid::make(2)->schema([
+                // 左カラム: 基本情報
                 Section::make('基本情報')
                     ->schema([
                         TextInput::make('code')
@@ -76,11 +95,7 @@ class ContractorForm
                             ->label('FAX')
                             ->maxLength(20)
                             ->placeholder('例: 03-1234-5679'),
-                    ])
-                    ->columns(3),
 
-                Section::make('設定')
-                    ->schema([
                         Select::make('lead_time_id')
                             ->label('リードタイム')
                             ->options(fn () => LeadTime::get()
@@ -96,50 +111,16 @@ class ContractorForm
                             ->default(true)
                             ->helperText('無効にすると選択できなくなります'),
                     ])
-                    ->columns(2),
+                    ->columns(3),
 
-                Section::make('発注メール設定')
-                    ->icon('heroicon-o-envelope')
-                    ->schema([
-                        Grid::make(2)->schema([
-                            Section::make('メール設定')
-                                ->schema([
-                                    TextInput::make('wms_order_mail')
-                                        ->label('発注先メールアドレス')
-                                        ->email(),
-                                    TextInput::make('wms_order_mail_from')
-                                        ->label('送信名'),
-                                    TextInput::make('wms_order_mail_title')
-                                        ->label('メールタイトル'),
-                                    TextEntry::make('variables_help')
-                                        ->label('利用可能な変数')
-                                        ->state(new HtmlString(
-                                            '<div class="text-xs text-gray-500 border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">'
-                                            .'<table>'
-                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_CONTRACTOR_NAME$$</td><td>発注先名</td></tr>'
-                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_WAREHOUSE_NAME$$</td><td>倉庫名</td></tr>'
-                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE$$</td><td>発注日（2026年02月14日）</td></tr>'
-                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE_SHORT$$</td><td>発注日（2026/02/14）</td></tr>'
-                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_EXPECTED_ARRIVAL_DATE$$</td><td>入荷予定日</td></tr>'
-                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_COUNT$$</td><td>発注件数</td></tr>'
-                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_TOTAL_QUANTITY$$</td><td>合計数量</td></tr>'
-                                            .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ATTACHMENTS$$</td><td>添付ファイル一覧</td></tr>'
-                                            .'</table></div>'
-                                        )),
-                                ]),
-
-                            Section::make('メール本文')
-                                ->schema([
-                                    Textarea::make('wms_order_mail_content')
-                                        ->label('本文')
-                                        ->rows(24),
-                                ]),
-                        ]),
-                    ])
-                    ->collapsible(),
-
+                // 右カラム: WMS送信設定
                 Section::make('WMS送信設定')
                     ->icon('heroicon-o-paper-airplane')
+                    ->afterHeader([
+                        Toggle::make('wms_is_auto_transmission')
+                            ->label('自動生成')
+                            ->default(false),
+                    ])
                     ->schema([
                         Select::make('wms_transmission_type')
                             ->label('送信方式')
@@ -173,17 +154,19 @@ class ContractorForm
                             ->required(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::INTERNAL->value)
                             ->helperText('倉庫間移動の場合、供給元の倉庫を選択'),
 
-                        TextInput::make('wms_auto_order_generation_time')
-                            ->label('自動発注生成時刻')
-                            ->type('time')
-                            ->nullable()
-                            ->helperText('発注候補を自動生成する時刻'),
+                        Grid::make(2)->schema([
+                            TextInput::make('wms_auto_order_generation_time')
+                                ->label('自動発注生成時刻')
+                                ->type('time')
+                                ->nullable()
+                                ->helperText('発注候補を自動生成する時刻'),
 
-                        TextInput::make('wms_transmission_time')
-                            ->label('送信時刻')
-                            ->type('time')
-                            ->nullable()
-                            ->helperText('指定しない場合は手動送信'),
+                            TextInput::make('wms_transmission_time')
+                                ->label('送信時刻')
+                                ->type('time')
+                                ->nullable()
+                                ->helperText('指定しない場合は手動送信'),
+                        ]),
 
                         Fieldset::make('送信曜日')
                             ->schema([
@@ -197,17 +180,12 @@ class ContractorForm
                             ])
                             ->columns(7),
 
-                        Toggle::make('wms_is_auto_transmission')
-                            ->label('自動送信')
-                            ->default(false)
-                            ->helperText('ONにすると指定時刻・曜日に自動送信されます'),
-
                         Select::make('wms_transmission_contractor_id')
-                            ->label('送信先発注先')
+                            ->label('発注データ集約先')
                             ->options(fn () => Contractor::where('is_active', true)->pluck('name', 'id'))
                             ->searchable()
                             ->nullable()
-                            ->helperText('別の発注先の送信設定を使用する場合に指定'),
+                            ->helperText('指定した発注先の送信データに本発注先の発注データを集約する（一つのファイルで送信したい場合）'),
 
                         TextInput::make('wms_format_strategy_class')
                             ->label('フォーマット戦略クラス')
@@ -217,9 +195,53 @@ class ContractorForm
                                 TransmissionType::JX_FINET->value,
                                 TransmissionType::FTP->value,
                             ])),
-                    ])
-                    ->columns(2)
-                    ->collapsible(),
-            ]);
+                    ]),
+            ]),
+        ];
+    }
+
+    /**
+     * 発注メール設定フィールド
+     *
+     * @return array<\Filament\Schemas\Components\Component>
+     */
+    public static function mailSchema(): array
+    {
+        return [
+            Grid::make(2)->schema([
+                Section::make('メール設定')
+                    ->schema([
+                        TextInput::make('wms_order_mail')
+                            ->label('発注先メールアドレス')
+                            ->email(),
+                        TextInput::make('wms_order_mail_from')
+                            ->label('送信名'),
+                        TextInput::make('wms_order_mail_title')
+                            ->label('メールタイトル'),
+                        TextEntry::make('variables_help')
+                            ->label('利用可能な変数')
+                            ->state(new HtmlString(
+                                '<div class="text-xs text-gray-500 border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">'
+                                .'<table>'
+                                .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_CONTRACTOR_NAME$$</td><td>発注先名</td></tr>'
+                                .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_WAREHOUSE_NAME$$</td><td>倉庫名</td></tr>'
+                                .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE$$</td><td>発注日（2026年02月14日）</td></tr>'
+                                .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE_SHORT$$</td><td>発注日（2026/02/14）</td></tr>'
+                                .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_EXPECTED_ARRIVAL_DATE$$</td><td>入荷予定日</td></tr>'
+                                .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_COUNT$$</td><td>発注件数</td></tr>'
+                                .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_TOTAL_QUANTITY$$</td><td>合計数量</td></tr>'
+                                .'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ATTACHMENTS$$</td><td>添付ファイル一覧</td></tr>'
+                                .'</table></div>'
+                            )),
+                    ]),
+
+                Section::make('メール本文')
+                    ->schema([
+                        Textarea::make('wms_order_mail_content')
+                            ->label('本文')
+                            ->rows(24),
+                    ]),
+            ]),
+        ];
     }
 }

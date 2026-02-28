@@ -27,7 +27,7 @@ class JxTestFileGenerator
     private const RECORD_LENGTH = 128;
 
     /**
-     * 送信先集約マッピング（発注先コード => 送信先発注先コード）
+     * 送信先集約マッピング（発注先コード => 発注データ集約先コード）
      * カナカン系は1106に集約
      */
     private const AGGREGATION_MAPPING = [
@@ -240,7 +240,7 @@ class JxTestFileGenerator
         // wms_contractor_settingsからJX設定IDに紐づく発注先を取得
         $settings = WmsContractorSetting::where('wms_order_jx_setting_id', $jxSettingId)->get();
 
-        // 送信先発注先（transmission_contractor_id = null）のみ
+        // 発注データ集約先（transmission_contractor_id = null）のみ
         return $settings
             ->filter(fn ($s) => $s->transmission_contractor_id === null)
             ->pluck('contractor_id')
@@ -252,7 +252,7 @@ class JxTestFileGenerator
      */
     private function getAllContractorIdsForJxSetting(int $jxSettingId): array
     {
-        // まず送信先発注先を取得
+        // まず発注データ集約先を取得
         $mainContractorIds = $this->getContractorIdsForJxSetting($jxSettingId);
 
         // 送信先に集約される発注先も取得
