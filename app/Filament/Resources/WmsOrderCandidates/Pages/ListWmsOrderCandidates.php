@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsOrderCandidates\Pages;
 use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\EVolumeUnit;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
@@ -513,6 +514,7 @@ class ListWmsOrderCandidates extends ListRecords
                         'original_arrival_date' => $expectedArrivalDate,
                         'status' => CandidateStatus::PENDING,
                         'lot_status' => LotStatus::RAW,
+                        'origin_type' => OriginType::USER,
                         'is_manually_modified' => true,
                         'modified_by' => auth()->id(),
                         'modified_at' => now(),

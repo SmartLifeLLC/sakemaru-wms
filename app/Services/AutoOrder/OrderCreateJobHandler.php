@@ -5,6 +5,7 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\AutoOrder\QueueJobLogLevel;
 use App\Enums\AutoOrder\QueueJobType;
 use App\Enums\QuantityType;
@@ -75,6 +76,34 @@ class OrderCreateJobHandler
 
             return ['success' => false, 'error' => $e->getMessage()];
         }
+    }
+
+    /**
+     * DemandDistributionJobHandler から委譲される公開メソッド
+     */
+    public function handleItems(WmsQueueJob $job, array $items): array
+    {
+        $batchCode = $this->getOrCreateBatchCode($job);
+        $results = [];
+        $successCount = 0;
+        $skipCount = 0;
+
+        foreach ($items as $itemData) {
+            $result = $this->processItem($job, $itemData, $batchCode);
+            $results[] = $result;
+            if ($result['status'] === 'created') {
+                $successCount++;
+            } else {
+                $skipCount++;
+            }
+        }
+
+        return [
+            'batch_code' => $batchCode,
+            'success_count' => $successCount,
+            'skip_count' => $skipCount,
+            'results' => $results,
+        ];
     }
 
     /**
@@ -275,6 +304,7 @@ class OrderCreateJobHandler
             'original_arrival_date' => $expectedArrivalDate,
             'status' => CandidateStatus::PENDING,
             'lot_status' => LotStatus::RAW,
+            'origin_type' => OriginType::DIST,
             'is_manually_modified' => true,
             'modified_by' => $job->source_user_id,
             'modified_at' => now(),

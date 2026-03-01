@@ -130,6 +130,10 @@ class WmsOrderCandidateForm
                     ->collapsible()
                     ->collapsed()
                     ->schema([
+                        TextEntry::make('origin_type')
+                            ->label('生成元')
+                            ->state(fn ($record) => $record->origin_type?->label() ?? '-'),
+
                         TextEntry::make('is_manually_modified')
                             ->label('手動修正')
                             ->state(fn ($record) => $record->is_manually_modified ? 'あり' : 'なし'),

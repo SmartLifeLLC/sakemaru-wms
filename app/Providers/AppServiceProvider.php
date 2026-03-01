@@ -13,7 +13,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->booted(function () {
+            $this->app['queue']->addConnector('custom-queue', function () {
+                return new \App\Queue\DatabaseWithCustomQueueConnector($this->app['db']);
+            });
+        });
     }
 
     /**

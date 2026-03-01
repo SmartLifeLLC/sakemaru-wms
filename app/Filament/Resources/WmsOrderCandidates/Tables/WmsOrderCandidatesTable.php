@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderCandidates\Tables;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Concerns\OptimisticLockException;
@@ -271,10 +272,11 @@ class WmsOrderCandidatesTable
                     ->label('送信')
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('is_manually_modified')
-                    ->label('手動修正')
-                    ->state(fn ($record) => $record->is_manually_modified ? '修正済' : '-')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('origin_type')
+                    ->label('生成元')
+                    ->badge()
+                    ->color(fn ($record) => $record->origin_type?->color() ?? 'gray')
+                    ->toggleable(isToggledHiddenByDefault: false),
 
                 TextColumn::make('created_at')
                     ->label('作成日時')
@@ -300,6 +302,10 @@ class WmsOrderCandidatesTable
                         CandidateStatus::PENDING->value => CandidateStatus::PENDING->label(),
                         CandidateStatus::EXCLUDED->value => CandidateStatus::EXCLUDED->label(),
                     ]),
+
+                SelectFilter::make('origin_type')
+                    ->label('生成元')
+                    ->options(OriginType::class),
 
                 SelectFilter::make('warehouse_id')
                     ->label('発注倉庫')

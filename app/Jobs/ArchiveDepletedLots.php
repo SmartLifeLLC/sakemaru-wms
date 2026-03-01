@@ -27,7 +27,6 @@ class ArchiveDepletedLots implements ShouldQueue
     public function __construct(int $retentionDays = 30)
     {
         $this->retentionDays = $retentionDays;
-        $this->onConnection('sakemaru');
         $this->onQueue('lot-archive');
     }
 

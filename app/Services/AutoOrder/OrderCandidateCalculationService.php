@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
@@ -594,6 +595,7 @@ class OrderCandidateCalculationService
                 'original_arrival_date' => $originalArrivalDate,
                 'status' => CandidateStatus::PENDING->value,
                 'lot_status' => LotStatus::RAW->value,
+                'origin_type' => OriginType::AUTO->value,
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
@@ -826,6 +828,7 @@ class OrderCandidateCalculationService
                 'original_arrival_date' => $originalArrivalDate,
                 'status' => CandidateStatus::PENDING->value,
                 'lot_status' => LotStatus::RAW->value,
+                'origin_type' => OriginType::AUTO->value,
                 'created_at' => $now,
                 'updated_at' => $now,
             ];

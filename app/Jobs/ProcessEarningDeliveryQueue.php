@@ -21,7 +21,6 @@ class ProcessEarningDeliveryQueue implements ShouldQueue
      */
     public function __construct()
     {
-        $this->onConnection('sakemaru');
         $this->onQueue('earning-delivery');
     }
 

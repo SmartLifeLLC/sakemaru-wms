@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\DeliveryCourse;
@@ -56,6 +57,7 @@ class WmsStockTransferCandidate extends WmsModel
         'is_manually_modified',
         'modified_by',
         'modified_at',
+        'origin_type',
         'exclusion_reason',
     ];
 
@@ -68,6 +70,7 @@ class WmsStockTransferCandidate extends WmsModel
         'lot_status' => LotStatus::class,
         'quantity_type' => QuantityType::class,
         'is_manually_modified' => 'boolean',
+        'origin_type' => OriginType::class,
         'lot_fee_amount' => 'decimal:2',
         'current_effective_stock' => 'integer',
         'incoming_quantity' => 'integer',
