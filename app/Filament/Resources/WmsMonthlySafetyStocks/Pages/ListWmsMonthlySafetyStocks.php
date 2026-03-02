@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsMonthlySafetyStocks\Pages;
 
+use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsMonthlySafetyStocks\Schemas\WmsMonthlySafetyStockForm;
 use App\Filament\Resources\WmsMonthlySafetyStocks\WmsMonthlySafetyStockResource;
 use App\Jobs\ImportMonthlySafetyStocksCsvJob;
@@ -9,15 +10,24 @@ use App\Jobs\ImportOrderPointAnalysisCsvJob;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsImportLog;
 use App\Models\WmsMonthlySafetyStock;
+use Archilex\AdvancedTables\AdvancedTables;
+use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Illuminate\Database\Eloquent\Builder;
 
 class ListWmsMonthlySafetyStocks extends ListRecords
 {
+    use AdvancedTables;
+    use HasWmsUserViews {
+        HasWmsUserViews::getUserViews insteadof AdvancedTables;
+        HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
+    }
+
     protected static string $resource = WmsMonthlySafetyStockResource::class;
 
     protected function getHeaderActions(): array
@@ -162,5 +172,35 @@ class ListWmsMonthlySafetyStocks extends ListRecords
             ->body('バックグラウンドで処理中です。完了まで数分かかる場合があります。')
             ->info()
             ->send();
+    }
+
+    public function getPresetViews(): array
+    {
+        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+
+        $warehouses = cache()->remember('all_warehouses_for_tabs_'.auth()->id(), 60, function () {
+            return Warehouse::query()->orderBy('code')->get(['id', 'code', 'name']);
+        });
+
+        $hasDefaultWarehouse = $userDefaultWarehouseId
+            && $warehouses->contains('id', $userDefaultWarehouseId);
+
+        $views = [
+            'default' => PresetView::make()
+                ->favorite()
+                ->label('全て')
+                ->default(! $hasDefaultWarehouse),
+        ];
+
+        foreach ($warehouses as $warehouse) {
+            $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
+            $views["wh_{$warehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
+                ->favorite()
+                ->label($warehouse->name)
+                ->default($isDefault);
+        }
+
+        return $views;
     }
 }

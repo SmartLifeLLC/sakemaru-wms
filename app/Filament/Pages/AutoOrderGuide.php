@@ -11,7 +11,7 @@ class AutoOrderGuide extends Page
 {
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBookOpen;
 
-    protected static ?string $navigationLabel = '発注ガイド';
+    protected static ?string $navigationLabel = '自動発注';
 
     protected static ?string $slug = 'auto-order-guide';
 
@@ -31,6 +31,6 @@ class AutoOrderGuide extends Page
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenuCategory::ORDER_SETTINGS->label();
+        return EMenuCategory::GUIDE_ORDER->label();
     }
 }

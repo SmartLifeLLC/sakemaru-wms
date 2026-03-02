@@ -19,7 +19,7 @@
                         @forelse($menuStructure as $tab)
                             <button
                                 type="button"
-                                class="flex items-center gap-2 px-4 py-1 text-lg font-medium transition-colors duration-200 rounded-md"
+                                class="flex items-center gap-2 px-3 py-1 text-sm font-medium transition-colors duration-200 rounded-md"
                                 :class="openTab === '{{ $tab['id'] }}' ? 'text-white bg-slate-700' : 'text-slate-200 hover:text-white hover:bg-slate-700'"
                                 @click="openTab = openTab === '{{ $tab['id'] }}' ? null : '{{ $tab['id'] }}'"
                             >
@@ -88,7 +88,7 @@
                                                 class="w-5 h-5 text-indigo-600"
                                             />
                                         @endif
-                                        <h3 class="font-bold text-slate-800 text-base">{{ $group['label'] }}</h3>
+                                        <h3 class="font-bold text-slate-800 text-sm">{{ $group['label'] }}</h3>
                                     </div>
 
                                     <!-- Menu Items -->
@@ -111,7 +111,7 @@
                                                         @endif
                                                     </div>
                                                     <div class="flex flex-col">
-                                                        <span class="text-base font-medium text-slate-700 transition-colors group-hover:text-indigo-700 group-hover:font-semibold {{ $item['isActive'] ? 'text-indigo-700 font-semibold' : '' }}">
+                                                        <span class="text-xs font-medium text-slate-700 transition-colors group-hover:text-indigo-700 group-hover:font-semibold {{ $item['isActive'] ? 'text-indigo-700 font-semibold' : '' }}">
                                                             {{ $item['label'] }}
                                                         </span>
                                                         @if(!empty($item['desc']))

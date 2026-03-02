@@ -678,6 +678,124 @@ class OrderTransmissionService
     }
 
     /**
+     * 仕入先単位で未送信の確定済み発注候補をまとめてファイル生成（バッチ横断）
+     *
+     * @param  array  $contractorIds  対象仕入先ID（親＋子）
+     * @return array{success: bool, files: array, total_orders: int, errors: array, batch_codes: array}
+     */
+    public function generateOrderFilesForContractor(array $contractorIds): array
+    {
+        $generator = $this->getOrderFileGenerator();
+
+        if (! $generator) {
+            return [
+                'success' => false,
+                'files' => [],
+                'total_orders' => 0,
+                'errors' => ['発注ファイル生成クラスが設定されていません'],
+                'batch_codes' => [],
+            ];
+        }
+
+        // JX送信対象の発注先IDを取得
+        $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        $mapping = $generator->getTransmissionContractorMapping();
+        $mappedContractorIds = array_keys($mapping);
+
+        $targetContractorIds = array_unique(array_merge($jxContractorIds, $mappedContractorIds));
+
+        // 対象仕入先かつJX対象に絞る
+        $scopedContractorIds = array_intersect($contractorIds, $targetContractorIds);
+
+        if (empty($scopedContractorIds)) {
+            return [
+                'success' => true,
+                'files' => [],
+                'total_orders' => 0,
+                'errors' => [],
+                'batch_codes' => [],
+                'message' => 'JX送信対象の発注先がありません',
+            ];
+        }
+
+        // CONFIRMED状態でファイル未生成の候補を全バッチから取得（日付制限なし）
+        $candidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
+            ->whereNull('wms_order_jx_document_id')
+            ->whereIn('contractor_id', $scopedContractorIds)
+            ->with(['warehouse', 'item', 'contractor'])
+            ->get();
+
+        $batchCodes = $candidates->pluck('batch_code')->unique()->values()->toArray();
+
+        // 代表batch_codeを使用（ファイルパス・ドキュメント記録用）
+        $representativeBatchCode = $batchCodes[0] ?? now()->format('YmdHis');
+
+        $result = $this->doGenerateOrderFiles($representativeBatchCode, $candidates, TransmissionDocumentStatus::PENDING, true);
+        $result['batch_codes'] = $batchCodes;
+
+        return $result;
+    }
+
+    /**
+     * 仕入先単位で未送信のJXドキュメントをまとめて送信（バッチ横断）
+     *
+     * @param  array  $contractorIds  対象仕入先ID（親＋子）
+     * @return array{success: bool, transmitted: array, errors: array}
+     */
+    public function transmitPendingDocumentsForContractor(array $contractorIds): array
+    {
+        // PENDING状態のドキュメントを仕入先単位で取得（バッチ横断）
+        $documents = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
+            ->whereIn('contractor_id', $contractorIds)
+            ->get();
+
+        if ($documents->isEmpty()) {
+            return [
+                'success' => true,
+                'transmitted' => [],
+                'errors' => [],
+                'message' => '送信対象のドキュメントがありません',
+            ];
+        }
+
+        $transmitted = [];
+        $errors = [];
+
+        foreach ($documents as $document) {
+            try {
+                $result = $this->transmitDocumentViaJx($document);
+
+                if ($result['success']) {
+                    $transmitted[] = [
+                        'document_id' => $document->id,
+                        'contractor_id' => $document->contractor_id,
+                        'message_id' => $result['message_id'] ?? null,
+                    ];
+                } else {
+                    $errors[] = [
+                        'document_id' => $document->id,
+                        'error' => $result['error'] ?? '送信失敗',
+                    ];
+                }
+            } catch (\Exception $e) {
+                $errors[] = [
+                    'document_id' => $document->id,
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'success' => empty($errors),
+            'transmitted' => $transmitted,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
      * 発注送信ファイルを生成（共通処理）
      */
     private function doGenerateOrderFiles(

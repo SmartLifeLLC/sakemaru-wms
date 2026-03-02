@@ -56,15 +56,17 @@ class AutoOrderScheduledCommand extends Command
                 continue;
             }
 
-            // 未処理候補（PENDING/APPROVED）がある仕入先はスキップ
+            // 未処理候補（PENDING/APPROVED）がある仕入先はスキップ（子仕入先も含む）
+            $allContractorIds = WmsContractorSetting::getContractorIdsWithChildren($contractorId);
+
             $hasPendingOrders = WmsOrderCandidate::query()
                 ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
-                ->where('contractor_id', $contractorId)
+                ->whereIn('contractor_id', $allContractorIds)
                 ->exists();
 
             $hasPendingTransfers = WmsStockTransferCandidate::query()
                 ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
-                ->where('contractor_id', $contractorId)
+                ->whereIn('contractor_id', $allContractorIds)
                 ->exists();
 
             if ($hasPendingOrders || $hasPendingTransfers) {

@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\AutoOrder\ConfirmationLevel;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,11 +19,6 @@ class WmsContractorWarehouseSetting extends WmsModel
         'warehouse_id',
         'contractor_id',
         'designated_code',
-        'confirmation_level',
-    ];
-
-    protected $casts = [
-        'confirmation_level' => ConfirmationLevel::class,
     ];
 
     public function warehouse(): BelongsTo

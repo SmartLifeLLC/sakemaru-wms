@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\WmsContractorHolidays;
 
-use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsContractorHolidays\Pages\CreateWmsContractorHoliday;
 use App\Filament\Resources\WmsContractorHolidays\Pages\EditWmsContractorHoliday;
 use App\Filament\Resources\WmsContractorHolidays\Pages\ListWmsContractorHolidays;
@@ -21,18 +20,15 @@ class WmsContractorHolidayResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCalendar;
 
+    protected static bool $shouldRegisterNavigation = false;
+
+    protected static ?string $slug = 'contractor-holidays';
+
     protected static ?string $navigationLabel = '発注先休日';
 
     protected static ?string $modelLabel = '発注先休日';
 
     protected static ?string $pluralModelLabel = '発注先休日';
-
-    protected static \UnitEnum|string|null $navigationGroup = EMenuCategory::MASTER_ORDER;
-
-    public static function getNavigationGroup(): ?string
-    {
-        return self::$navigationGroup?->label();
-    }
 
     public static function form(Schema $schema): Schema
     {

@@ -30,6 +30,10 @@ Artisan::command('inspire', function () {
 | │                                    │                  │ wms_contractor_settings.auto_order_generation_time    │
 | │                                    │                  │ に基づきスナップショット生成＋候補計算を実行           │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:auto-order-transmit            │ 5分ごと          │ 送信時刻に基づく自動送信                               │
+| │                                    │                  │ wms_contractor_settings.transmission_time             │
+| │                                    │                  │ に基づきPENDING/APPROVED→確定→ファイル生成→送信      │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
 | │ wms:switch-delivery-course         │ 15分ごと         │ 得意先の配送コースを時間帯で自動切替                   │
 | │                                    │                  │ wms_buyer_delivery_course_switch_settingsに基づく      │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
@@ -62,6 +66,14 @@ Schedule::command('wms:auto-order-scheduled')
     ->onOneServer()
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/auto-order-scheduled.log'));
+
+// 仕入先別自動送信スケジューラー (5分間隔)
+// ※ 仕入先ごとのtransmission_timeに基づいて承認→確定→ファイル生成→送信を実行
+Schedule::command('wms:auto-order-transmit')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/auto-order-transmit.log'));
 
 // 配送コース時間切替 (15分ごと)
 Schedule::command('wms:switch-delivery-course')

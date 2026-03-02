@@ -22,17 +22,19 @@ class EditWarehouse extends EditRecord
     {
         $setting = WmsWarehouseAutoOrderSetting::where('warehouse_id', $this->record->id)->first();
         $data['auto_order_enabled'] = $setting?->is_auto_order_enabled ?? false;
+        $data['confirmation_level'] = $setting?->confirmation_level?->value ?? 'STATUS2';
 
         return $data;
     }
 
     protected function afterSave(): void
     {
-        $autoOrderEnabled = $this->data['auto_order_enabled'] ?? false;
-
         WmsWarehouseAutoOrderSetting::updateOrCreate(
             ['warehouse_id' => $this->record->id],
-            ['is_auto_order_enabled' => $autoOrderEnabled]
+            [
+                'is_auto_order_enabled' => $this->data['auto_order_enabled'] ?? false,
+                'confirmation_level' => $this->data['confirmation_level'] ?? 'STATUS2',
+            ]
         );
     }
 }

@@ -5,10 +5,10 @@ namespace App\Jobs;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\ConfirmationLevel;
 use App\Models\WmsAutoOrderExecutionLog;
-use App\Models\WmsContractorWarehouseSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
+use App\Models\WmsWarehouseAutoOrderSetting;
 use App\Services\AutoOrder\OrderCandidateCalculationService;
 use App\Services\AutoOrder\OrderExecutionService;
 use App\Services\AutoOrder\StockSnapshotService;
@@ -201,12 +201,14 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
 
     /**
      * 確定レベルに応じて候補を自動承認・自動確定
+     *
+     * 倉庫単位の設定（wms_warehouse_auto_order_settings）を参照する
      */
     private function applyConfirmationLevels(string $batchCode): void
     {
-        // 倉庫×仕入先の確定レベル設定を一括取得
-        $levels = WmsContractorWarehouseSetting::all()
-            ->keyBy(fn ($s) => "{$s->warehouse_id}-{$s->contractor_id}");
+        // 倉庫別の確定レベル設定を一括取得
+        $levels = WmsWarehouseAutoOrderSetting::all()
+            ->keyBy('warehouse_id');
 
         if ($levels->isEmpty()) {
             Log::info('確定レベル設定なし、全候補STATUS1（候補表示のみ）として扱う');
@@ -224,8 +226,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
         $systemUserId = 0; // システム自動実行
 
         foreach ($orderCandidates as $candidate) {
-            $key = "{$candidate->warehouse_id}-{$candidate->contractor_id}";
-            $level = $levels[$key]->confirmation_level ?? ConfirmationLevel::STATUS1;
+            $level = $levels[$candidate->warehouse_id]->confirmation_level ?? ConfirmationLevel::STATUS1;
 
             if ($level === ConfirmationLevel::STATUS1) {
                 continue;
@@ -253,8 +254,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
             ->get();
 
         foreach ($transferCandidates as $candidate) {
-            $key = "{$candidate->satellite_warehouse_id}-{$candidate->contractor_id}";
-            $level = $levels[$key]->confirmation_level ?? ConfirmationLevel::STATUS1;
+            $level = $levels[$candidate->satellite_warehouse_id]->confirmation_level ?? ConfirmationLevel::STATUS1;
 
             if ($level === ConfirmationLevel::STATUS1) {
                 continue;

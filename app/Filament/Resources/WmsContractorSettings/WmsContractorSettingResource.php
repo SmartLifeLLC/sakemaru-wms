@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\WmsContractorSettings;
 
-use App\Enums\EMenuCategory;
 use App\Filament\Resources\WmsContractorSettings\Pages\CreateWmsContractorSetting;
 use App\Filament\Resources\WmsContractorSettings\Pages\EditWmsContractorSetting;
 use App\Filament\Resources\WmsContractorSettings\Pages\ListWmsContractorSettings;
@@ -21,18 +20,15 @@ class WmsContractorSettingResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCog6Tooth;
 
+    protected static bool $shouldRegisterNavigation = false;
+
+    protected static ?string $slug = 'contractor-settings';
+
     protected static ?string $navigationLabel = '発注先設定';
 
     protected static ?string $modelLabel = '発注先設定';
 
     protected static ?string $pluralModelLabel = '発注先設定';
-
-    protected static \UnitEnum|string|null $navigationGroup = EMenuCategory::MASTER_ORDER;
-
-    public static function getNavigationGroup(): ?string
-    {
-        return self::$navigationGroup?->label();
-    }
 
     public static function form(Schema $schema): Schema
     {

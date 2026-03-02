@@ -81,6 +81,27 @@ class WmsContractorSetting extends WmsModel
         return $this;
     }
 
+    /**
+     * 指定仕入先に集約される子仕入先IDを取得
+     */
+    public static function getChildContractorIds(int $parentContractorId): array
+    {
+        return self::where('transmission_contractor_id', $parentContractorId)
+            ->pluck('contractor_id')
+            ->toArray();
+    }
+
+    /**
+     * 親 + 子の全仕入先IDを取得（子がいない場合は自身のみ）
+     */
+    public static function getContractorIdsWithChildren(int $contractorId): array
+    {
+        $ids = [$contractorId];
+        $children = self::getChildContractorIds($contractorId);
+
+        return array_unique(array_merge($ids, $children));
+    }
+
     public function jxSetting(): BelongsTo
     {
         return $this->belongsTo(WmsOrderJxSetting::class, 'wms_order_jx_setting_id');

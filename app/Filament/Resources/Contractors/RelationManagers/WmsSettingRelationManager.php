@@ -24,7 +24,7 @@ class WmsSettingRelationManager extends RelationManager
 {
     protected static string $relationship = 'wmsSetting';
 
-    protected static ?string $title = 'WMS送信設定';
+    protected static ?string $title = '発注データ送信設定';
 
     protected static ?string $modelLabel = '送信設定';
 

@@ -79,8 +79,8 @@ class OrderCandidateCalculationService
     /** @var int|null 参照する在庫スナップショットのjob_control_id */
     private ?int $snapshotJobId = null;
 
-    /** @var int|null 仕入先ID指定（null=全仕入先） */
-    private ?int $targetContractorId = null;
+    /** @var array|null 仕入先ID指定（null=全仕入先、親+子仕入先を含む） */
+    private ?array $targetContractorIds = null;
 
     /**
      * 発注候補計算を実行
@@ -98,11 +98,13 @@ class OrderCandidateCalculationService
         // 排他制御: 仕入先指定あり/なしで2パターン
         if ($contractorId !== null) {
             // パターンA: 仕入先指定あり（スケジューラー/手動強制）
-            // PENDING + APPROVED 両方チェック（仕入先単位）
+            // 親+子仕入先を展開してチェック
+            $allContractorIds = WmsContractorSetting::getContractorIdsWithChildren($contractorId);
+
             if (! $transferOnly) {
                 $hasOrderCandidates = WmsOrderCandidate::query()
                     ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
-                    ->where('contractor_id', $contractorId)
+                    ->whereIn('contractor_id', $allContractorIds)
                     ->exists();
             } else {
                 $hasOrderCandidates = false;
@@ -110,11 +112,11 @@ class OrderCandidateCalculationService
 
             $hasTransferCandidates = WmsStockTransferCandidate::query()
                 ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
-                ->where('contractor_id', $contractorId)
+                ->whereIn('contractor_id', $allContractorIds)
                 ->exists();
 
             if ($hasOrderCandidates || $hasTransferCandidates) {
-                throw new \RuntimeException("仕入先ID:{$contractorId} に未処理の候補が存在します");
+                throw new \RuntimeException("仕入先ID:{$contractorId}（+子仕入先）に未処理の候補が存在します");
             }
         } else {
             // パターンB: 仕入先指定なし（既存CLI互換）
@@ -152,7 +154,9 @@ class OrderCandidateCalculationService
 
         // スナップショットJob IDを保持（loadAllDataToMemoryで使用）
         $this->snapshotJobId = $snapshotJobId;
-        $this->targetContractorId = $contractorId;
+        $this->targetContractorIds = $contractorId !== null
+            ? WmsContractorSetting::getContractorIdsWithChildren($contractorId)
+            : null;
 
         try {
             $batchCode = $job->batch_code;
@@ -508,10 +512,10 @@ class OrderCandidateCalculationService
         $internalContractorIds = $this->internalContractorIds;
 
         // 仕入先指定がある場合、対象の仕入先のみに絞る
-        if ($this->targetContractorId !== null) {
-            $internalContractorIds = array_intersect($internalContractorIds, [$this->targetContractorId]);
+        if ($this->targetContractorIds !== null) {
+            $internalContractorIds = array_intersect($internalContractorIds, $this->targetContractorIds);
             if (empty($internalContractorIds)) {
-                Log::info('指定仕入先はINTERNAL発注先ではありません', ['contractor_id' => $this->targetContractorId]);
+                Log::info('指定仕入先はINTERNAL発注先ではありません', ['contractor_ids' => $this->targetContractorIds]);
 
                 return 0;
             }
@@ -717,9 +721,9 @@ class OrderCandidateCalculationService
             ->where('safety_stock', '>', 0)
             ->where('items.end_of_sale_type', 'NORMAL');
 
-        // 仕入先指定がある場合、対象の仕入先のみに絞る
-        if ($this->targetContractorId !== null) {
-            $externalQuery->where('contractor_id', $this->targetContractorId);
+        // 仕入先指定がある場合、対象の仕入先のみに絞る（親+子仕入先）
+        if ($this->targetContractorIds !== null) {
+            $externalQuery->whereIn('contractor_id', $this->targetContractorIds);
         }
 
         $itemContractors = $externalQuery

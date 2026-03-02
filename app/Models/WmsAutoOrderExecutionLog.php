@@ -13,7 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $contractor_id
  * @property \Carbon\Carbon $executed_date
  * @property int|null $job_control_id
- * @property string $status RUNNING/SUCCESS/FAILED
+ * @property string $status RUNNING/SUCCESS/FAILED（候補生成）
+ * @property string|null $transmission_status RUNNING/SUCCESS/FAILED（送信）
  * @property string|null $error_details
  * @property \Carbon\Carbon $started_at
  * @property \Carbon\Carbon|null $finished_at
@@ -27,6 +28,7 @@ class WmsAutoOrderExecutionLog extends WmsModel
         'executed_date',
         'job_control_id',
         'status',
+        'transmission_status',
         'error_details',
         'started_at',
         'finished_at',

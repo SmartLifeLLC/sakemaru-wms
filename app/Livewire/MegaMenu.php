@@ -91,6 +91,13 @@ class MegaMenu extends Component
                     EMenuCategory::TEST_DATA,
                 ],
             ],
+            'guide' => [
+                'label' => 'システム解説',
+                'icon' => 'fa-book-open',
+                'categories' => [
+                    EMenuCategory::GUIDE_ORDER,
+                ],
+            ],
         ];
 
         $structure = [];

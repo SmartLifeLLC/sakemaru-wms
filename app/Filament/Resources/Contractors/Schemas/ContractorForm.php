@@ -113,8 +113,8 @@ class ContractorForm
                     ])
                     ->columns(3),
 
-                // 右カラム: WMS送信設定
-                Section::make('WMS送信設定')
+                // 右カラム: 発注データ送信設定
+                Section::make('発注データ送信設定')
                     ->icon('heroicon-o-paper-airplane')
                     ->afterHeader([
                         Toggle::make('wms_is_auto_transmission')

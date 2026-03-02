@@ -24,6 +24,7 @@ class RealStocksTable
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([

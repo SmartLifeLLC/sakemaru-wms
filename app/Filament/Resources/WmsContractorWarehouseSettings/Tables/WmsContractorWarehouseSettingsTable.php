@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\WmsContractorWarehouseSettings\Tables;
 
-use App\Enums\AutoOrder\ConfirmationLevel;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
@@ -50,12 +49,6 @@ class WmsContractorWarehouseSettingsTable
                     ->label('納入先指定コード')
                     ->placeholder('-')
                     ->searchable(),
-
-                TextColumn::make('confirmation_level')
-                    ->label('確定レベル')
-                    ->badge()
-                    ->formatStateUsing(fn (ConfirmationLevel $state) => $state->label())
-                    ->color(fn (ConfirmationLevel $state) => $state->color()),
 
                 TextColumn::make('created_at')
                     ->label('作成日時')

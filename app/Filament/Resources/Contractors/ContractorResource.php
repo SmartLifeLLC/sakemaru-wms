@@ -3,11 +3,13 @@
 namespace App\Filament\Resources\Contractors;
 
 use App\Enums\EMenu;
+use App\Enums\EMenuCategory;
 use App\Filament\Resources\Contractors\Pages\CreateContractor;
 use App\Filament\Resources\Contractors\Pages\EditContractor;
 use App\Filament\Resources\Contractors\Pages\ListContractors;
 use App\Filament\Resources\Contractors\RelationManagers\ContractorSuppliersRelationManager;
 use App\Filament\Resources\Contractors\RelationManagers\DeliveryDaysRelationManager;
+use App\Filament\Resources\Contractors\RelationManagers\HolidaysRelationManager;
 use App\Filament\Resources\Contractors\RelationManagers\WarehouseSettingsRelationManager;
 use App\Filament\Resources\Contractors\Schemas\ContractorForm;
 use App\Filament\Resources\Contractors\Tables\ContractorsTable;
@@ -24,7 +26,7 @@ class ContractorResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedTruck;
 
-    protected static ?string $navigationLabel = null;
+    protected static ?string $navigationLabel = '発注先';
 
     protected static ?string $modelLabel = '発注先';
 
@@ -32,12 +34,7 @@ class ContractorResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenu::CONTRACTORS->category()->label();
-    }
-
-    public static function getNavigationLabel(): string
-    {
-        return EMenu::CONTRACTORS->label();
+        return EMenuCategory::MASTER_ORDER->label();
     }
 
     public static function getNavigationSort(): ?int
@@ -61,6 +58,7 @@ class ContractorResource extends Resource
             ContractorSuppliersRelationManager::class,
             DeliveryDaysRelationManager::class,
             WarehouseSettingsRelationManager::class,
+            HolidaysRelationManager::class,
         ];
     }
 
