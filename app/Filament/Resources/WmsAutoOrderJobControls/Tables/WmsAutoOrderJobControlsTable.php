@@ -6,8 +6,11 @@ use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\JobStatus;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\PaginationOptions;
+use App\Enums\QueueProgressStatus;
 use App\Filament\Concerns\HasExportAction;
+use App\Models\WmsQueueProgress;
 use Filament\Actions\Action;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -98,6 +101,30 @@ class WmsAutoOrderJobControlsTable
                         ->mapWithKeys(fn ($case) => [$case->value => $case->label()])),
             ])
             ->recordActions([
+                Action::make('forceCancel')
+                    ->label('強制中断')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn ($record) => $record->status === JobStatus::RUNNING
+                        && $record->started_at
+                        && $record->started_at->diffInMinutes(now()) >= 10)
+                    ->requiresConfirmation()
+                    ->modalHeading('ジョブの強制中断')
+                    ->modalDescription(fn ($record) => "このジョブ（{$record->batch_code}）を強制中断しますか？\n開始から".$record->started_at->diffInMinutes(now()).'分経過しています。')
+                    ->action(function ($record) {
+                        $record->markAsFailed('管理者による強制中断（タイムアウト）');
+
+                        // 対応するwms_queue_progressもFAILEDにする
+                        WmsQueueProgress::where('job_type', WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION)
+                            ->whereIn('status', [QueueProgressStatus::PENDING, QueueProgressStatus::PROCESSING])
+                            ->each(fn ($job) => $job->markAsFailed('管理者による強制中断'));
+
+                        Notification::make()
+                            ->title("ジョブ {$record->batch_code} を強制中断しました")
+                            ->success()
+                            ->send();
+                    }),
+
                 Action::make('viewResult')
                     ->label('結果')
                     ->icon('heroicon-o-document-magnifying-glass')
@@ -121,6 +148,6 @@ class WmsAutoOrderJobControlsTable
             ->toolbarActions([
                 static::getExportAction(),
             ])
-            ->defaultSort('started_at', 'desc');
+            ->defaultSort('id', 'desc');
     }
 }

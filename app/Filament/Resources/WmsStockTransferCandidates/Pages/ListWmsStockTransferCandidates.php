@@ -190,6 +190,18 @@ class ListWmsStockTransferCandidates extends ListRecords
                         return;
                     }
 
+                    // 販売終了品チェック
+                    $item = Item::find($data['item_id']);
+                    if ($item && $item->end_of_sale_type !== 'NORMAL') {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body('販売終了品のため移動対象外です')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
                     // 確定待ち（PENDING）のジョブを検索し、あればそのbatch_codeを使用
                     // なければ在庫スナップショットを新規生成
                     $pendingJob = WmsAutoOrderJobControl::findPendingSettlement();

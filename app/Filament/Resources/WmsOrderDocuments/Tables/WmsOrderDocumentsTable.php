@@ -236,7 +236,7 @@ class WmsOrderDocumentsTable
                     ->modalDescription('このファイルをJX-FINETで送信しますか？')
                     ->action(function (WmsOrderJxDocument $record) {
                         $service = app(OrderTransmissionService::class);
-                        $result = $service->transmitOrderFilesViaJx($record->batch_code);
+                        $result = $service->transmitDocumentById($record->id);
 
                         if ($result['success']) {
                             Notification::make()
@@ -244,10 +244,9 @@ class WmsOrderDocumentsTable
                                 ->success()
                                 ->send();
                         } else {
-                            $errorMsg = implode(', ', array_map(fn ($e) => $e['error'] ?? '', $result['errors']));
                             Notification::make()
                                 ->title('送信に失敗しました')
-                                ->body($errorMsg)
+                                ->body($result['error'] ?? '送信失敗')
                                 ->danger()
                                 ->send();
                         }

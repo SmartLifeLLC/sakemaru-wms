@@ -11,7 +11,6 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,6 +23,7 @@ class WmsContractorWarehouseSettingsTable
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['contractor', 'warehouse']))
             ->columns([
                 TextColumn::make('contractor.code')
@@ -78,7 +78,7 @@ class WmsContractorWarehouseSettingsTable
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),
-            ], position: RecordActionsPosition::BeforeColumns)
+            ])
             ->toolbarActions([
                 static::getExportAction(),
                 CreateAction::make(),

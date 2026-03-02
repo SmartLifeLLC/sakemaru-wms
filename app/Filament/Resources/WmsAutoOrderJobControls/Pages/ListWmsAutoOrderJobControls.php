@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsAutoOrderJobControls\Pages;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\QueueProgressStatus;
 use App\Filament\Resources\WmsAutoOrderJobControls\WmsAutoOrderJobControlResource;
 use App\Jobs\ProcessOrderCandidateGenerationJob;
 use App\Models\Sakemaru\Contractor;
@@ -43,6 +44,9 @@ class ListWmsAutoOrderJobControls extends ListRecords
     // Queue進捗管理
     public ?string $currentJobId = null;
 
+    // アクティブジョブ検知
+    public ?array $stuckJob = null;
+
     public function mount(): void
     {
         parent::mount();
@@ -50,6 +54,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
         $this->pendingCount = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
         $this->pendingTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
         $this->approvedCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
+        $this->checkForStuckJob();
     }
 
     protected function getHeaderActions(): array
@@ -76,6 +81,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                             'pendingTransferCount' => $this->pendingTransferCount,
                             'approvedCount' => $this->approvedCount,
                             'currentJobId' => $this->currentJobId,
+                            'stuckJob' => $this->stuckJob,
                         ]),
                 ])
                 ->action(fn () => null)
@@ -233,10 +239,58 @@ class ListWmsAutoOrderJobControls extends ListRecords
         $this->results = [];
         $this->errorMessage = null;
         $this->currentJobId = null;
+        $this->stuckJob = null;
         // ウィザード開始時のみカウントを取得（毎回のレンダリングで実行しない）
         $this->pendingCount = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
         $this->pendingTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
         $this->approvedCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
+        $this->checkForStuckJob();
+    }
+
+    /**
+     * アクティブ（PENDING/PROCESSING）のままスタックしたジョブを検知
+     */
+    private function checkForStuckJob(): void
+    {
+        $activeJob = WmsQueueProgress::where('job_type', WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION)
+            ->whereIn('status', [QueueProgressStatus::PENDING, QueueProgressStatus::PROCESSING])
+            ->latest()
+            ->first();
+
+        if ($activeJob) {
+            $this->stuckJob = [
+                'id' => $activeJob->id,
+                'job_id' => $activeJob->job_id,
+                'status' => $activeJob->status->label(),
+                'progress' => $activeJob->progress,
+                'message' => $activeJob->message,
+                'started_at' => $activeJob->started_at?->format('Y-m-d H:i:s'),
+                'created_at' => $activeJob->created_at?->format('Y-m-d H:i:s'),
+            ];
+        }
+    }
+
+    /**
+     * スタックしたジョブを強制的にFAILEDにマーク
+     */
+    public function forceCancel(): void
+    {
+        $activeJobs = WmsQueueProgress::where('job_type', WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION)
+            ->whereIn('status', [QueueProgressStatus::PENDING, QueueProgressStatus::PROCESSING])
+            ->get();
+
+        $count = 0;
+        foreach ($activeJobs as $job) {
+            $job->markAsFailed('管理者による強制中断');
+            $count++;
+        }
+
+        $this->stuckJob = null;
+
+        Notification::make()
+            ->title("{$count}件のジョブを強制中断しました")
+            ->success()
+            ->send();
     }
 
     public function executeStep1Delete(): void

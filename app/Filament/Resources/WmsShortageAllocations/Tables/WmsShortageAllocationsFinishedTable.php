@@ -6,7 +6,6 @@ use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsShortageAllocation;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
@@ -18,6 +17,7 @@ class WmsShortageAllocationsFinishedTable
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -151,7 +151,7 @@ class WmsShortageAllocationsFinishedTable
                     ->relationship('targetWarehouse', 'name')
                     ->searchable(),
             ])
-            ->recordActions([], position: RecordActionsPosition::BeforeColumns)
+            ->recordActions([])
             ->bulkActions([])
             ->toolbarActions([
                 static::getExportAction(),

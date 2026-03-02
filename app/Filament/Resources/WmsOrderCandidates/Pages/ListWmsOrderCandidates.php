@@ -402,6 +402,16 @@ class ListWmsOrderCandidates extends ListRecords
                         return;
                     }
 
+                    if ($item->end_of_sale_type !== 'NORMAL') {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body('販売終了品のため発注対象外です')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
                     $capacityCase = $item->capacity_case ?? 1;
                     $caseQty = (int) ($data['case_qty'] ?? 0);
                     $pieceQty = (int) ($data['piece_qty'] ?? 0);

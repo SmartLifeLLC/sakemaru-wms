@@ -50,6 +50,8 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
      */
     public function handle(): void
     {
+        ini_set('memory_limit', '-1');
+
         $progress = WmsQueueProgress::findByJobId($this->jobId);
 
         if (! $progress) {

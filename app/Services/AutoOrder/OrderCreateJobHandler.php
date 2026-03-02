@@ -211,6 +211,19 @@ class OrderCreateJobHandler
             ];
         }
 
+        // 販売終了品チェック
+        if ($item->end_of_sale_type !== 'NORMAL') {
+            $reason = '販売終了品のため発注対象外です';
+            $job->addLog(QueueJobLogLevel::WARNING->value, "アイテムをスキップ: {$reason}", ['item_id' => $itemId, 'end_of_sale_type' => $item->end_of_sale_type]);
+
+            return [
+                'warehouse_id' => $warehouseId,
+                'item_id' => $itemId,
+                'status' => 'skipped',
+                'reason' => $reason,
+            ];
+        }
+
         // 入数チェック
         $capacityCase = $item->capacity_case ?? 1;
         if ($quantity % $capacityCase !== 0) {

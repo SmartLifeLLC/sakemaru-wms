@@ -249,6 +249,20 @@ class TransferCreateJobHandler
             ];
         }
 
+        // 販売終了品チェック
+        if ($item->end_of_sale_type !== 'NORMAL') {
+            $reason = '販売終了品のため移動対象外です';
+            $job->addLog(QueueJobLogLevel::WARNING->value, "アイテムをスキップ: {$reason}", ['item_id' => $itemId, 'end_of_sale_type' => $item->end_of_sale_type]);
+
+            return [
+                'satellite_warehouse_id' => $satelliteWarehouseId,
+                'hub_warehouse_id' => $hubWarehouseId,
+                'item_id' => $itemId,
+                'status' => 'skipped',
+                'reason' => $reason,
+            ];
+        }
+
         // 重複チェック
         $existsCandidate = WmsStockTransferCandidate::where('satellite_warehouse_id', $satelliteWarehouseId)
             ->where('hub_warehouse_id', $hubWarehouseId)

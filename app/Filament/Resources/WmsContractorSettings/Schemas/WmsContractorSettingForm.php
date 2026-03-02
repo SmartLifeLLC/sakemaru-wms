@@ -24,7 +24,7 @@ class WmsContractorSettingForm
                 ->schema([
                     Select::make('contractor_id')
                         ->label('発注先')
-                        ->options(fn () => Contractor::pluck('name', 'id')->toArray())
+                        ->options(fn () => Contractor::all()->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}] {$c->name}"])->toArray())
                         ->searchable()
                         ->required()
                         ->unique(ignoreRecord: true),
@@ -42,14 +42,16 @@ class WmsContractorSettingForm
                         ->searchable()
                         ->placeholder('JX設定を選択')
                         ->visible(fn ($get) => $get('transmission_type') === TransmissionType::JX_FINET->value)
-                        ->required(fn ($get) => $get('transmission_type') === TransmissionType::JX_FINET->value),
+                        ->required(fn ($get) => $get('transmission_type') === TransmissionType::JX_FINET->value && empty($get('transmission_contractor_id')))
+                        ->helperText(fn ($get) => ! empty($get('transmission_contractor_id')) ? '集約先が設定されているため任意です' : null),
 
                     Select::make('transmission_contractor_id')
                         ->label('発注データ集約先')
-                        ->options(fn () => Contractor::pluck('name', 'id')->toArray())
+                        ->options(fn () => Contractor::all()->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}] {$c->name}"])->toArray())
                         ->searchable()
                         ->placeholder('別の発注先経由で送信する場合に指定')
-                        ->helperText('この発注先の発注データを別の発注先の設定で送信する場合に指定してください（例: カナカン系の発注先はカナカンの設定で送信）'),
+                        ->helperText('この発注先の発注データを別の発注先の設定で送信する場合に指定してください（例: カナカン系の発注先はカナカンの設定で送信）')
+                        ->live(),
 
                     Select::make('supply_warehouse_id')
                         ->label('供給倉庫')

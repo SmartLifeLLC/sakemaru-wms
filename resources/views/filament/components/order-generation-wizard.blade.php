@@ -71,8 +71,48 @@
         </div>
     @endif
 
+    {{-- スタックしたジョブの警告UI --}}
+    @if (!empty($stuckJob) && !$errorMessage)
+        <div class="p-6 bg-warning-50 dark:bg-warning-900/20 border border-warning-300 dark:border-warning-700 rounded-lg">
+            <div class="flex items-start gap-4">
+                <div class="p-3 bg-warning-100 dark:bg-warning-900/30 rounded-full">
+                    <x-heroicon-o-exclamation-triangle class="w-6 h-6 text-warning-600 dark:text-warning-400" />
+                </div>
+                <div class="flex-1">
+                    <h3 class="text-lg font-medium text-warning-800 dark:text-warning-200">実行中のジョブが残っています</h3>
+                    <p class="mt-1 text-sm text-warning-700 dark:text-warning-300">
+                        前回のジョブが正常に終了していません。新しいジョブを実行するには、先にこのジョブを中断してください。
+                    </p>
+                    <div class="mt-3 text-sm text-warning-600 dark:text-warning-400 space-y-1">
+                        <p>状態: <span class="font-bold">{{ $stuckJob['status'] }}</span></p>
+                        <p>進捗: <span class="font-bold">{{ $stuckJob['progress'] }}%</span></p>
+                        @if ($stuckJob['message'])
+                            <p>メッセージ: {{ $stuckJob['message'] }}</p>
+                        @endif
+                        <p>開始日時: {{ $stuckJob['started_at'] ?? $stuckJob['created_at'] }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end gap-3">
+                <x-filament::button
+                    color="gray"
+                    wire:click="closeWizard"
+                >
+                    閉じる
+                </x-filament::button>
+                <x-filament::button
+                    color="danger"
+                    wire:click="forceCancel"
+                    wire:confirm="このジョブを強制中断しますか？処理中のデータは中途半端な状態になる可能性があります。"
+                >
+                    強制中断
+                </x-filament::button>
+            </div>
+        </div>
+    @endif
+
     {{-- 発注確定待ちがある場合のブロック表示 --}}
-    @if ($approvedCount > 0 && !$errorMessage)
+    @if ($approvedCount > 0 && !$errorMessage && empty($stuckJob))
         <div class="p-6 bg-danger-50 dark:bg-danger-900/20 border border-danger-200 dark:border-danger-800 rounded-lg">
             <div class="flex items-start gap-4">
                 <div class="p-3 bg-danger-100 dark:bg-danger-900/30 rounded-full">
@@ -104,7 +144,7 @@
                 </x-filament::button>
             </div>
         </div>
-    @elseif ($step === 0 && !$isProcessing && !$errorMessage)
+    @elseif ($step === 0 && !$isProcessing && !$errorMessage && empty($stuckJob))
     {{-- ステップ0: 削除確認 --}}
         <div class="p-6 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <div class="flex items-start gap-4">

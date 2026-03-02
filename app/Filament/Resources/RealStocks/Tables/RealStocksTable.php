@@ -48,11 +48,6 @@ class RealStocksTable
                     ->sortable()
                     ->searchable(),
 
-                TextColumn::make('lot_no')
-                    ->label('ロット番号')
-                    ->searchable()
-                    ->toggleable(),
-
                 TextColumn::make('activeLots.expiration_date')
                     ->label('賞味期限')
                     ->date('Y-m-d')

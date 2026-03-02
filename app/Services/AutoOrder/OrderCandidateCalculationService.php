@@ -519,11 +519,13 @@ class OrderCandidateCalculationService
 
         $itemContractors = DB::connection('sakemaru')
             ->table('item_contractors')
+            ->join('items', 'item_contractors.item_id', '=', 'items.id')
             ->whereIn('contractor_id', $internalContractorIds)
             ->whereIn('warehouse_id', $this->realWarehouseIds)
             ->where('is_auto_order', true)
             ->where('safety_stock', '>', 0)
-            ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit')
+            ->where('items.end_of_sale_type', 'NORMAL')
+            ->select('item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit')
             ->get();
 
         $insertData = [];
@@ -705,13 +707,15 @@ class OrderCandidateCalculationService
      */
     private function createExternalOrderCandidatesBulk(string $batchCode, Carbon $now, array $transferCandidates): int
     {
-        // EXTERNAL発注先の商品を取得（safety_stock > 0、実倉庫のみ）
+        // EXTERNAL発注先の商品を取得（safety_stock > 0、実倉庫のみ、販売終了品を除外）
         $externalQuery = DB::connection('sakemaru')
             ->table('item_contractors')
+            ->join('items', 'item_contractors.item_id', '=', 'items.id')
             ->whereNotIn('contractor_id', $this->internalContractorIds ?: [0])
             ->whereIn('warehouse_id', $this->realWarehouseIds)
             ->where('is_auto_order', true)
-            ->where('safety_stock', '>', 0);
+            ->where('safety_stock', '>', 0)
+            ->where('items.end_of_sale_type', 'NORMAL');
 
         // 仕入先指定がある場合、対象の仕入先のみに絞る
         if ($this->targetContractorId !== null) {
@@ -719,7 +723,7 @@ class OrderCandidateCalculationService
         }
 
         $itemContractors = $externalQuery
-            ->select('id', 'warehouse_id', 'item_id', 'contractor_id', 'supplier_id', 'safety_stock', 'purchase_unit')
+            ->select('item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit')
             ->get();
 
         $insertData = [];

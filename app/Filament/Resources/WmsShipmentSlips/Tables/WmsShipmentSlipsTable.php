@@ -12,7 +12,6 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -28,6 +27,7 @@ class WmsShipmentSlipsTable
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -238,7 +238,7 @@ class WmsShipmentSlipsTable
                             ->{$notificationType}()
                             ->send();
                     }),
-            ], position: RecordActionsPosition::BeforeColumns)
+            ])
             ->checkIfRecordIsSelectableUsing(function (WmsPickingTask $record): bool {
                 // 印刷回数0のみチェックボックスを表示（出荷確定のみ一括処理可能）
                 $printCount = $record->wave->print_count ?? 0;

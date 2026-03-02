@@ -33,6 +33,12 @@ class InitSystemSeeder extends Seeder
         // 発注先メールテンプレート初期設定
         $this->call(ContractorMailSettingSeeder::class);
 
+        // 月別発注点初期データ
+        $this->call(MonthlySafetyStockInitSeeder::class);
+
+        // 自動発注対象の初期設定（CSVベース）
+        $this->call(AutoOrderCandidateInitSeeder::class);
+
         // 今後追加予定の初期設定
         // $this->call(InitialPickingAreaSeeder::class);
         // $this->call(InitialWaveSettingSeeder::class);

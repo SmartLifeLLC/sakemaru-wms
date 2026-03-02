@@ -16,7 +16,6 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
-use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
@@ -32,6 +31,7 @@ class WmsShortageAllocationsTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -414,7 +414,7 @@ class WmsShortageAllocationsTable
                                 ->send();
                         }
                     }),
-            ], position: RecordActionsPosition::BeforeColumns)
+            ])
             ->bulkActions([
                 BulkActionGroup::make([
                     BulkAction::make('bulkComplete')

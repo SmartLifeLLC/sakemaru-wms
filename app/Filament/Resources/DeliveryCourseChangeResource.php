@@ -14,7 +14,6 @@ use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -197,6 +196,7 @@ class DeliveryCourseChangeResource extends Resource
         return $table
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->columns([
                 TextColumn::make('serial_id')
                     ->label('伝票番号')
@@ -430,7 +430,7 @@ class DeliveryCourseChangeResource extends Resource
                     ->modalHeading('配送コース変更確認')
                     ->modalDescription('この伝票の配送コースを変更します。よろしいですか？')
                     ->modalSubmitActionLabel('変更する'),
-            ], position: RecordActionsPosition::BeforeColumns)
+            ])
             ->bulkActions([
                 BulkAction::make('bulkChangeDeliveryCourse')
                     ->label('一括配送コース変更')

@@ -16,7 +16,6 @@ use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
@@ -31,6 +30,7 @@ class WmsPickingTasksTable
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -697,7 +697,7 @@ class WmsPickingTasksTable
                 //                    })
                 //                    ->visible(fn ($record) => !$isWaitingView && !$isCompletedView),
 
-            ], position: RecordActionsPosition::BeforeColumns)
+            ])
             ->defaultSort('created_at', 'desc')
             ->checkIfRecordIsSelectableUsing(fn ($record) => $record->status !== WmsPickingTask::STATUS_COMPLETED)
             ->bulkActions([

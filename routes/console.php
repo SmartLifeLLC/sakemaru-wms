@@ -28,13 +28,6 @@ Schedule::command('wms:sync-monthly-safety-stocks')
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/auto-order-monthly-safety-stocks.log'));
 
-// 在庫スナップショット生成 (毎日 5:00)
-Schedule::command('wms:snapshot-stocks')
-    ->dailyAt('05:00')
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->appendOutputTo(storage_path('logs/auto-order-snapshot.log'));
-
 // 倉庫カレンダー生成 (毎月1日 4:00)
 Schedule::command('wms:generate-calendars --months=3')
     ->monthlyOn(1, '04:00')
@@ -42,16 +35,8 @@ Schedule::command('wms:generate-calendars --months=3')
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/auto-order-calendars.log'));
 
-// 自動発注一括計算 (毎日 6:00)
-// ※ スナップショット完了後に実行
-Schedule::command('wms:auto-order-calculate --skip-snapshot')
-    ->dailyAt('06:00')
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->appendOutputTo(storage_path('logs/auto-order-calculate.log'));
-
 // 仕入先別自動発注スケジューラー (5分間隔)
-// ※ 仕入先ごとのauto_order_generation_timeに基づいて個別に発注計算を実行
+// ※ 仕入先ごとのauto_order_generation_timeに基づいてスナップショット生成＋発注計算を実行
 Schedule::command('wms:auto-order-scheduled')
     ->everyFiveMinutes()
     ->onOneServer()

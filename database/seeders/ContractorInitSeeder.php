@@ -43,6 +43,7 @@ class ContractorInitSeeder extends Seeder
                 $setting->update([
                     'auto_order_generation_time' => $isJxFinet ? self::JX_FINET_AUTO_ORDER_TIME : self::DEFAULT_AUTO_ORDER_TIME,
                     'transmission_time' => $isJxFinet ? self::JX_FINET_TRANSMISSION_TIME : self::DEFAULT_TRANSMISSION_TIME,
+                    'is_auto_transmission' => $isJxFinet,
                 ]);
                 $updated++;
             } else {
@@ -51,6 +52,7 @@ class ContractorInitSeeder extends Seeder
                     'transmission_type' => TransmissionType::MANUAL_CSV,
                     'auto_order_generation_time' => self::DEFAULT_AUTO_ORDER_TIME,
                     'transmission_time' => self::DEFAULT_TRANSMISSION_TIME,
+                    'is_auto_transmission' => false,
                 ]);
                 $created++;
             }
