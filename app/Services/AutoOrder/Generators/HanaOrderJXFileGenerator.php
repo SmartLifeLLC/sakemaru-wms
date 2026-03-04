@@ -4,6 +4,7 @@ namespace App\Services\AutoOrder\Generators;
 
 use App\Contracts\OrderFileGeneratorInterface;
 use App\Models\WmsContractorSetting;
+use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsOrderJxSetting;
 use App\Services\JX\JxDataWrapper;
 use Carbon\Carbon;
@@ -235,8 +236,17 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
             foreach ($chunks as $chunk) {
                 $firstCandidate = $chunk->first();
 
+                // 確定済み入荷予定からslip_numberを取得（あればDB値を使用）
+                $dbSlipNumber = null;
+                if ($firstCandidate->id) {
+                    $schedule = WmsOrderIncomingSchedule::where('order_candidate_id', $firstCandidate->id)
+                        ->whereNotNull('slip_number')
+                        ->first();
+                    $dbSlipNumber = $schedule?->slip_number;
+                }
+
                 // Bレコード（伝票ヘッダ）
-                $records[] = $this->generateBRecord($firstCandidate, $bRecordSeq);
+                $records[] = $this->generateBRecord($firstCandidate, $bRecordSeq, $dbSlipNumber);
 
                 // Dレコード（伝票明細）- 各Bレコード内で1から開始
                 $dRecordSeq = 1;
@@ -325,16 +335,20 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      * 93-94: 直送区分 X(02) - "00" 固定
      * 95-128: FILLER X(34)
      */
-    private function generateBRecord($candidate, int $seq): string
+    private function generateBRecord($candidate, int $seq, ?string $slipNumber = null): string
     {
         $warehouse = $candidate->warehouse;
         $contractor = $candidate->contractor;
         $orderDate = Carbon::now();
         $deliveryDate = $candidate->expected_arrival_date ?? $orderDate->copy()->addDays(2);
 
-        // 伝票番号を生成（YYYYMMDD + 連番3桁）
-        // 例: 20260125001, 20260125002, ...
-        $slipNumber = $orderDate->format('Ymd').str_pad($seq, 3, '0', STR_PAD_LEFT);
+        // 伝票番号: DB保存値があればそれを使用、なければ従来通り動的生成
+        // DB値はハイフン付き（20260305-00001）なのでハイフンを除去して11桁にする
+        if ($slipNumber) {
+            $slipNumber = str_replace('-', '', $slipNumber);
+        } else {
+            $slipNumber = $orderDate->format('Ymd').str_pad($seq, 3, '0', STR_PAD_LEFT);
+        }
 
         // 入庫倉庫コード（0埋め4桁）
         $warehouseCode = str_pad((string) ($warehouse?->code ?? ''), 4, '0', STR_PAD_LEFT);

@@ -202,6 +202,7 @@ class TransferCandidateExecutionService
     {
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
 
+        $orderDate = now()->format('Y-m-d');
         $schedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $candidate->satellite_warehouse_id,
             'item_id' => $candidate->item_id,
@@ -213,10 +214,11 @@ class TransferCandidateExecutionService
             'source_warehouse_id' => $candidate->hub_warehouse_id,
             'stock_transfer_id' => null,  // Core処理完了後に同期
             'order_source' => OrderSource::TRANSFER,
+            'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
             'expected_quantity' => $candidate->transfer_quantity,
             'received_quantity' => 0,
             'quantity_type' => $candidate->quantity_type,
-            'order_date' => now()->format('Y-m-d'),
+            'order_date' => $orderDate,
             'expected_arrival_date' => $candidate->expected_arrival_date,
             'expiration_date' => $expirationDate,
             'status' => IncomingScheduleStatus::PENDING,

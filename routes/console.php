@@ -34,6 +34,10 @@ Artisan::command('inspire', function () {
 | │                                    │                  │ wms_contractor_settings.transmission_time             │
 | │                                    │                  │ に基づきPENDING/APPROVED→確定→ファイル生成→送信      │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:incoming-receive-scheduled      │ 5分ごと          │ 入荷データ自動受信                                     │
+| │                                    │                  │ wms_contractor_settings.receive_time                  │
+| │                                    │                  │ に基づきJXデータ取得→パース→照合を実行               │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
 | │ wms:switch-delivery-course         │ 15分ごと         │ 得意先の配送コースを時間帯で自動切替                   │
 | │                                    │                  │ wms_buyer_delivery_course_switch_settingsに基づく      │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
@@ -74,6 +78,14 @@ Schedule::command('wms:auto-order-transmit')
     ->onOneServer()
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/auto-order-transmit.log'));
+
+// 入荷データ自動受信スケジューラー (5分間隔)
+// ※ 仕入先ごとのreceive_timeに基づいてJXデータ取得→パース→照合を実行
+Schedule::command('wms:incoming-receive-scheduled')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
 
 // 配送コース時間切替 (15分ごと)
 Schedule::command('wms:switch-delivery-course')

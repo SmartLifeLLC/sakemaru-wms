@@ -9,6 +9,7 @@ enum EMenu: string
     case WMS_ORDER_INCOMING_SCHEDULES = 'inbound.wms_order_incoming_schedules';
     case WMS_INCOMING_COMPLETED = 'inbound.wms_incoming_completed';
     case WMS_INCOMING_TRANSMITTED = 'inbound.wms_incoming_transmitted';
+    case WMS_INCOMING_RECEIVED_DATA = 'inbound.wms_incoming_received_data';
     case PURCHASES = 'inbound.purchases';
     case RECEIPT_INSPECTIONS = 'inbound.receipt_inspections';
 
@@ -94,6 +95,7 @@ enum EMenu: string
             self::WMS_ORDER_INCOMING_SCHEDULES,
             self::WMS_INCOMING_COMPLETED,
             self::WMS_INCOMING_TRANSMITTED,
+            self::WMS_INCOMING_RECEIVED_DATA,
             self::PURCHASES,
             self::RECEIPT_INSPECTIONS => EMenuCategory::INBOUND,
 
@@ -174,6 +176,7 @@ enum EMenu: string
             self::WMS_ORDER_INCOMING_SCHEDULES => '入庫予定',
             self::WMS_INCOMING_COMPLETED => '入庫完了',
             self::WMS_INCOMING_TRANSMITTED => '仕入連携済み',
+            self::WMS_INCOMING_RECEIVED_DATA => '入荷データ受信',
             self::PURCHASES => '発注データ',
             self::RECEIPT_INSPECTIONS => '入荷検品',
 
@@ -249,6 +252,7 @@ enum EMenu: string
             self::WMS_ORDER_INCOMING_SCHEDULES => 'heroicon-o-inbox-arrow-down',
             self::WMS_INCOMING_COMPLETED => 'heroicon-o-check-circle',
             self::WMS_INCOMING_TRANSMITTED => 'heroicon-o-cloud-arrow-up',
+            self::WMS_INCOMING_RECEIVED_DATA => 'heroicon-o-arrow-down-tray',
             self::PURCHASES => 'heroicon-o-shopping-cart',
             self::RECEIPT_INSPECTIONS => 'heroicon-o-clipboard-document-check',
 
@@ -324,8 +328,9 @@ enum EMenu: string
             self::WMS_ORDER_INCOMING_SCHEDULES => 2,
             self::WMS_INCOMING_COMPLETED => 3,
             self::WMS_INCOMING_TRANSMITTED => 4,
-            self::PURCHASES => 5,
-            self::RECEIPT_INSPECTIONS => 6,
+            self::WMS_INCOMING_RECEIVED_DATA => 5,
+            self::PURCHASES => 6,
+            self::RECEIPT_INSPECTIONS => 7,
 
             // 出荷管理
             self::WAVES => 0,

@@ -70,6 +70,13 @@ class WmsOrderIncomingSchedulesTable
                     ->sortable()
                     ->width('90px'),
 
+                TextColumn::make('slip_number')
+                    ->label('伝票番号')
+                    ->searchable()
+                    ->copyable()
+                    ->placeholder('-')
+                    ->width('130px'),
+
                 TextColumn::make('order_source')
                     ->label('入庫区分')
                     ->badge()

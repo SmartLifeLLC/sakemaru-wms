@@ -36,6 +36,13 @@ class WmsIncomingCompletedTable
                     ->sortable()
                     ->width('80px'),
 
+                TextColumn::make('slip_number')
+                    ->label('伝票番号')
+                    ->searchable()
+                    ->copyable()
+                    ->placeholder('-')
+                    ->width('130px'),
+
                 TextColumn::make('order_source')
                     ->label('区分')
                     ->badge()

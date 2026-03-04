@@ -117,6 +117,64 @@ class WmsContractorSettingForm
                         ->columns(7)
                         ->visible(fn ($get) => $get('is_auto_transmission')),
                 ]),
+
+            Section::make('入荷データ受信設定')
+                ->schema([
+                    Toggle::make('is_receive_enabled')
+                        ->label('自動受信を有効にする')
+                        ->helperText('有効にすると、指定した曜日・時刻に入荷データを自動受信します')
+                        ->live(),
+
+                    Select::make('receive_format')
+                        ->label('受信形式')
+                        ->options([
+                            'JX' => 'JX（128バイト固定長）',
+                            'CSV' => 'CSV',
+                        ])
+                        ->default('JX')
+                        ->visible(fn ($get) => $get('is_receive_enabled')),
+
+                    TextInput::make('receive_time')
+                        ->label('受信時刻')
+                        ->placeholder('HH:MM')
+                        ->maxLength(5)
+                        ->regex('/^([01]\d|2[0-3]):[0-5]\d$/')
+                        ->visible(fn ($get) => $get('is_receive_enabled'))
+                        ->required(fn ($get) => $get('is_receive_enabled')),
+
+                    Fieldset::make('受信曜日')
+                        ->schema([
+                            Checkbox::make('is_receive_sun')
+                                ->label('日')
+                                ->inline(),
+
+                            Checkbox::make('is_receive_mon')
+                                ->label('月')
+                                ->inline(),
+
+                            Checkbox::make('is_receive_tue')
+                                ->label('火')
+                                ->inline(),
+
+                            Checkbox::make('is_receive_wed')
+                                ->label('水')
+                                ->inline(),
+
+                            Checkbox::make('is_receive_thu')
+                                ->label('木')
+                                ->inline(),
+
+                            Checkbox::make('is_receive_fri')
+                                ->label('金')
+                                ->inline(),
+
+                            Checkbox::make('is_receive_sat')
+                                ->label('土')
+                                ->inline(),
+                        ])
+                        ->columns(7)
+                        ->visible(fn ($get) => $get('is_receive_enabled')),
+                ]),
         ]);
     }
 }

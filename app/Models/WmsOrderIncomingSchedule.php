@@ -10,6 +10,7 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\Warehouse;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -36,6 +37,7 @@ class WmsOrderIncomingSchedule extends WmsModel
         'stock_transfer_id',
         'manual_order_number',
         'order_source',
+        'slip_number',
         'expected_quantity',
         'received_quantity',
         'quantity_type',
@@ -182,6 +184,29 @@ class WmsOrderIncomingSchedule extends WmsModel
     }
 
     // Methods
+
+    /**
+     * 伝票番号を採番
+     *
+     * フォーマット: {YYYYMMDD}-{連番5桁}
+     * 例: 20260305-00001
+     *
+     * @param  string|null  $orderDate  発注日（Y-m-d形式）。nullの場合は今日
+     */
+    public static function generateSlipNumber(?string $orderDate = null): string
+    {
+        $date = $orderDate ?? now()->format('Y-m-d');
+        $dateStr = Carbon::parse($date)->format('Ymd');
+        $prefix = $dateStr . '-';
+
+        $maxSlip = self::where('slip_number', 'like', $prefix . '%')
+            ->orderByRaw("CAST(SUBSTRING(slip_number, 10) AS UNSIGNED) DESC")
+            ->value('slip_number');
+
+        $nextSeq = $maxSlip ? (int) substr($maxSlip, 9) + 1 : 1;
+
+        return $prefix . str_pad($nextSeq, 5, '0', STR_PAD_LEFT);
+    }
 
     /**
      * 入庫数量を追加

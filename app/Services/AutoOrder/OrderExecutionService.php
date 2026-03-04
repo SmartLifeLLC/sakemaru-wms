@@ -163,6 +163,7 @@ class OrderExecutionService
                     continue;
                 }
 
+                $orderDate = now()->format('Y-m-d');
                 $schedule = WmsOrderIncomingSchedule::create([
                     'warehouse_id' => $warehouseId,
                     'item_id' => $candidate->item_id,
@@ -171,10 +172,11 @@ class OrderExecutionService
                     'supplier_id' => $supplierId,
                     'order_candidate_id' => $candidate->id,
                     'order_source' => OrderSource::AUTO,
+                    'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
                     'expected_quantity' => $quantity,
                     'received_quantity' => 0,
                     'quantity_type' => $candidate->quantity_type,
-                    'order_date' => now()->format('Y-m-d'),
+                    'order_date' => $orderDate,
                     'expected_arrival_date' => $candidate->expected_arrival_date,
                     'expiration_date' => $expirationDate,
                     'status' => IncomingScheduleStatus::PENDING,
@@ -184,6 +186,7 @@ class OrderExecutionService
             }
         } else {
             // demand_breakdownがない場合は従来通り発注元倉庫に入庫予定を作成
+            $orderDate = now()->format('Y-m-d');
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,
                 'item_id' => $candidate->item_id,
@@ -192,10 +195,11 @@ class OrderExecutionService
                 'supplier_id' => $supplierId,
                 'order_candidate_id' => $candidate->id,
                 'order_source' => OrderSource::AUTO,
+                'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
                 'expected_quantity' => $candidate->order_quantity,
                 'received_quantity' => 0,
                 'quantity_type' => $candidate->quantity_type,
-                'order_date' => now()->format('Y-m-d'),
+                'order_date' => $orderDate,
                 'expected_arrival_date' => $candidate->expected_arrival_date,
                 'expiration_date' => $expirationDate,
                 'status' => IncomingScheduleStatus::PENDING,
@@ -256,6 +260,7 @@ class OrderExecutionService
         $expirationDate = $data['expiration_date']
             ?? $this->calculateExpirationDate($data['item_id'], $data['expected_arrival_date']);
 
+        $orderDate = $data['order_date'] ?? now()->format('Y-m-d');
         $incomingSchedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $data['warehouse_id'],
             'item_id' => $data['item_id'],
@@ -264,10 +269,11 @@ class OrderExecutionService
             'supplier_id' => $data['supplier_id'] ?? null,
             'manual_order_number' => $data['order_number'] ?? null,
             'order_source' => OrderSource::MANUAL,
+            'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
             'expected_quantity' => $data['expected_quantity'],
             'received_quantity' => 0,
             'quantity_type' => $data['quantity_type'] ?? 'PIECE',
-            'order_date' => $data['order_date'] ?? now()->format('Y-m-d'),
+            'order_date' => $orderDate,
             'expected_arrival_date' => $data['expected_arrival_date'],
             'expiration_date' => $expirationDate,
             'status' => IncomingScheduleStatus::PENDING,
