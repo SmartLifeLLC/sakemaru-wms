@@ -7,6 +7,8 @@ use App\Filament\Concerns\HasExportAction;
 use App\Jobs\ProcessOrderCandidateGenerationJob;
 use App\Models\Sakemaru\Contractor;
 use App\Models\WmsAutoOrderExecutionLog;
+use App\Models\WmsContractorSetting;
+use App\Models\WmsOrderJxDocument;
 use App\Models\WmsQueueProgress;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
@@ -34,13 +36,18 @@ class WmsAutoOrderExecutionLogsTable
                     ->date('Y-m-d')
                     ->sortable(),
 
+                TextColumn::make('contractor.code')
+                    ->label('仕入先CD')
+                    ->searchable()
+                    ->sortable(),
+
                 TextColumn::make('contractor.name')
                     ->label('仕入先名')
                     ->searchable()
                     ->sortable(),
 
                 TextColumn::make('status')
-                    ->label('ステータス')
+                    ->label('生成')
                     ->badge()
                     ->color(fn (string $state) => match ($state) {
                         'RUNNING' => 'info',
@@ -49,19 +56,36 @@ class WmsAutoOrderExecutionLogsTable
                         default => 'gray',
                     }),
 
+                TextColumn::make('transmission_status')
+                    ->label('送信')
+                    ->badge()
+                    ->placeholder('-')
+                    ->formatStateUsing(fn (?string $state) => match ($state) {
+                        'RUNNING' => '送信中',
+                        'SUCCESS' => '送信済',
+                        'FAILED' => '送信失敗',
+                        default => '-',
+                    })
+                    ->color(fn (?string $state) => match ($state) {
+                        'RUNNING' => 'info',
+                        'SUCCESS' => 'success',
+                        'FAILED' => 'danger',
+                        default => 'gray',
+                    }),
+
                 TextColumn::make('started_at')
-                    ->label('開始日時')
-                    ->dateTime('Y-m-d H:i:s')
+                    ->label('開始')
+                    ->dateTime('H:i:s')
                     ->sortable(),
 
                 TextColumn::make('finished_at')
-                    ->label('完了日時')
-                    ->dateTime('Y-m-d H:i:s')
+                    ->label('完了')
+                    ->dateTime('H:i:s')
                     ->placeholder('-')
                     ->sortable(),
 
                 TextColumn::make('error_details')
-                    ->label('エラー内容')
+                    ->label('エラー')
                     ->limit(50)
                     ->placeholder('-')
                     ->tooltip(fn ($record) => $record->error_details),
@@ -99,6 +123,30 @@ class WmsAutoOrderExecutionLogsTable
                     ]),
             ])
             ->recordActions([
+                Action::make('viewTransmission')
+                    ->label('送信詳細')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->color('info')
+                    ->visible(fn ($record) => $record->transmission_status !== null)
+                    ->modalHeading('送信詳細')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('閉じる')
+                    ->modalWidth('4xl')
+                    ->modalContent(function ($record) {
+                        $allContractorIds = WmsContractorSetting::getContractorIdsWithChildren($record->contractor_id);
+
+                        $documents = WmsOrderJxDocument::whereIn('contractor_id', $allContractorIds)
+                            ->where('order_date', $record->executed_date)
+                            ->with(['warehouse', 'contractor'])
+                            ->orderBy('id')
+                            ->get();
+
+                        return view('filament.components.transmission-detail-modal', [
+                            'record' => $record,
+                            'documents' => $documents,
+                        ]);
+                    }),
+
                 Action::make('viewError')
                     ->label('エラー詳細')
                     ->icon('heroicon-o-exclamation-triangle')

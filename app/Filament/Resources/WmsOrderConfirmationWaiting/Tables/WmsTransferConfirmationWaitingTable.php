@@ -7,11 +7,15 @@ use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
+use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -174,6 +178,84 @@ class WmsTransferConfirmationWaitingTable
                     ->searchable(),
             ])
             ->recordActions([
+                Action::make('viewDetail')
+                    ->label('詳細')
+                    ->icon('heroicon-o-eye')
+                    ->color('gray')
+                    ->modalHeading('移動候補詳細')
+                    ->modalWidth('6xl')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('閉じる')
+                    ->schema(function (?WmsStockTransferCandidate $record): array {
+                        if (! $record) {
+                            return [];
+                        }
+
+                        $log = WmsOrderCalculationLog::where('batch_code', $record->batch_code)
+                            ->where('warehouse_id', $record->satellite_warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->first();
+
+                        $details = $log?->calculation_details ?? [];
+                        $item = $record->item;
+                        $capacityText = '-';
+                        if ($item) {
+                            $parts = [];
+                            if ($item->capacity_case) {
+                                $parts[] = "ケース: {$item->capacity_case}";
+                            }
+                            if ($item->capacity_carton) {
+                                $parts[] = "ボール: {$item->capacity_carton}";
+                            }
+                            $capacityText = implode(' / ', $parts) ?: '-';
+                        }
+
+                        return [
+                            Grid::make(3)
+                                ->schema([
+                                    View::make('filament.components.stock-transfer-left-panel')
+                                        ->viewData([
+                                            'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
+                                            'satelliteWarehouseName' => $record->satelliteWarehouse ? "[{$record->satelliteWarehouse->code}]{$record->satelliteWarehouse->name}" : '-',
+                                            'hubWarehouseName' => $record->hubWarehouse ? "[{$record->hubWarehouse->code}]{$record->hubWarehouse->name}" : '-',
+                                            'deliveryCourseName' => $record->deliveryCourse?->name ?? '-',
+                                            'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+                                            'expectedArrivalDate' => $record->expected_arrival_date
+                                                ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
+                                                : '-',
+                                            'itemCode' => $item?->code ?? '-',
+                                            'itemName' => $item?->name ?? '-',
+                                            'packaging' => $item?->packaging ?? '-',
+                                            'capacityText' => $capacityText,
+                                        ])
+                                        ->columnSpan(1),
+
+                                    Section::make('移動情報')
+                                        ->schema([
+                                            View::make('filament.components.stock-transfer-right-panel')
+                                                ->viewData([
+                                                    'suggestedQuantity' => $record->suggested_quantity ?? 0,
+                                                    'transferQuantity' => $record->transfer_quantity ?? 0,
+                                                    'hasCalculationLog' => ! empty($details),
+                                                    'formula' => $details['計算式'] ?? '-',
+                                                    'effectiveStock' => $details['有効在庫'] ?? 0,
+                                                    'incomingStock' => $details['入庫予定数'] ?? 0,
+                                                    'hasTransferIncoming' => isset($details['移動入庫予定']),
+                                                    'transferIncoming' => $details['移動入庫予定'] ?? 0,
+                                                    'hasTransferOutgoing' => isset($details['移動出庫予定']),
+                                                    'transferOutgoing' => $details['移動出庫予定'] ?? 0,
+                                                    'safetyStock' => $details['安全在庫'] ?? 0,
+                                                    'calculatedAvailable' => $details['利用可能在庫'] ?? 0,
+                                                    'shortageQty' => $details['不足数'] ?? 0,
+                                                    'purchaseUnit' => $details['最小仕入単位'] ?? 1,
+                                                    'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,
+                                                ]),
+                                        ])
+                                        ->columnSpan(2),
+                                ]),
+                        ];
+                    }),
+
                 Action::make('cancelApproval')
                     ->label('承認取消')
                     ->icon('heroicon-o-x-mark')

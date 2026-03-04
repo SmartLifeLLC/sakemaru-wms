@@ -34,7 +34,7 @@ class ListWmsMonthlySafetyStocks extends ListRecords
     {
         return [
             Action::make('importCsv')
-                ->label('CSVインポート')
+                ->label('発注点CSVインポート')
                 ->icon('heroicon-o-arrow-up-tray')
                 ->color('gray')
                 ->schema([
@@ -45,7 +45,7 @@ class ListWmsMonthlySafetyStocks extends ListRecords
                         ->required()
                         ->disk('local')
                         ->directory('csv-imports')
-                        ->helperText('フォーマット: item_code,warehouse_code,contractor_code,month,safety_stock'),
+                        ->helperText('フォーマット: warehouse_code, item_code, month, ..., order_point_int（10列目）。発注先はitem_contractorsから自動取得。'),
                 ])
                 ->action(function (array $data) {
                     $this->dispatchImportJob($data['csv_file']);
@@ -107,15 +107,15 @@ class ListWmsMonthlySafetyStocks extends ListRecords
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('gray')
                 ->action(function () {
-                    $headers = ['item_code', 'warehouse_code', 'contractor_code', 'month', 'safety_stock'];
-                    $example = ['10001', 'WH001', 'CNT001', '1', '100'];
+                    $headers = ['warehouse_code', 'item_code', 'month', 'avg_daily_sales', 'std_daily_sales', 'avg_daily_orders', 'lead_time_days', 'safety_stock', 'order_point', 'order_point_int', 'total_sales_qty', 'total_order_qty', 'sales_days_count', 'calendar_days'];
+                    $example = ['1', '100001', '3', '1.5', '0.5', '1.0', '2', '10', '13', '13', '45', '30', '30', '31'];
 
                     $csv = implode(',', $headers)."\n".implode(',', $example)."\n";
 
                     return response()->streamDownload(function () use ($csv) {
                         echo "\xEF\xBB\xBF"; // BOM for Excel
                         echo $csv;
-                    }, 'monthly_safety_stocks_template.csv');
+                    }, 'monthly_order_points_template.csv');
                 }),
 
             CreateAction::make()

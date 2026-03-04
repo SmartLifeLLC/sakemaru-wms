@@ -2,11 +2,8 @@
 
 namespace App\Services\AutoOrder;
 
-use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
-use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
-use App\Models\WmsStockTransferCandidate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -52,21 +49,9 @@ class OrderCancellationService
                 'cancellation_reason' => $reason,
             ]);
 
-            // 2. 発注候補のステータスを戻す（APPROVEDに戻す＝再確定可能に）
-            if ($schedule->order_candidate_id) {
-                WmsOrderCandidate::where('id', $schedule->order_candidate_id)
-                    ->update(['status' => CandidateStatus::APPROVED]);
-            }
-
-            // 3. 移動候補のステータスを戻す + stock_transfer_queue CANCEL
-            if ($schedule->transfer_candidate_id) {
-                WmsStockTransferCandidate::where('id', $schedule->transfer_candidate_id)
-                    ->update(['status' => CandidateStatus::APPROVED]);
-
-                // stock_transfer_queue に CANCEL アクションを追加
-                if ($schedule->stock_transfer_id) {
-                    $this->createCancelQueue($schedule);
-                }
+            // 2. 移動候補の場合、stock_transfer_queue に CANCEL を追加
+            if ($schedule->transfer_candidate_id && $schedule->stock_transfer_id) {
+                $this->createCancelQueue($schedule);
             }
 
             Log::info('入庫予定をキャンセル', [

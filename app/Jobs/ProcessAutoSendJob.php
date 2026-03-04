@@ -133,12 +133,12 @@ class ProcessAutoSendJob implements ShouldQueue
         Log::info('Auto-send: order candidates force-approved', ['count' => $approvedOrders, 'batch_code' => $this->batchCode]);
 
         // Step 2: 残りPENDING移動候補を強制承認（在庫確認含む）
+        // Note: 移動候補はINTERNAL contractor IDを持つため、batch_codeでスコープする
         $progress->update(['progress' => 25, 'message' => '移動候補を承認中...']);
 
         $approvalService = app(TransferCandidateApprovalService::class);
         $pendingTransfers = WmsStockTransferCandidate::where('batch_code', $this->batchCode)
             ->where('status', CandidateStatus::PENDING)
-            ->whereIn('contractor_id', $allContractorIds)
             ->get();
 
         $approvedTransfers = 0;
@@ -213,13 +213,23 @@ class ProcessAutoSendJob implements ShouldQueue
         $results['steps']['approve_orders'] = $approvedOrders;
         Log::info('Auto-send: order candidates force-approved (all batches)', ['count' => $approvedOrders, 'contractor_id' => $this->contractorId]);
 
-        // Step 2: 残りPENDING移動候補を強制承認（全バッチ）
+        // Step 2: 残りPENDING移動候補を強制承認（関連バッチ）
+        // Note: 移動候補はINTERNAL contractor IDを持つため、EXTERNAL contractor IDではヒットしない
+        //       発注候補のbatch_codeから関連する移動候補を特定する
         $progress->update(['progress' => 25, 'message' => '移動候補を承認中...']);
 
+        $relatedBatchCodes = WmsOrderCandidate::whereIn('contractor_id', $allContractorIds)
+            ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED, CandidateStatus::CONFIRMED])
+            ->distinct()
+            ->pluck('batch_code')
+            ->toArray();
+
         $approvalService = app(TransferCandidateApprovalService::class);
-        $pendingTransfers = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
-            ->whereIn('contractor_id', $allContractorIds)
-            ->get();
+        $pendingTransfers = ! empty($relatedBatchCodes)
+            ? WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                ->whereIn('batch_code', $relatedBatchCodes)
+                ->get()
+            : collect();
 
         $approvedTransfers = 0;
         foreach ($pendingTransfers as $transfer) {
@@ -236,13 +246,15 @@ class ProcessAutoSendJob implements ShouldQueue
 
         $results['steps']['approve_transfers'] = $approvedTransfers;
 
-        // Step 3: APPROVED移動候補を確定（全バッチ）
+        // Step 3: APPROVED移動候補を確定（関連バッチ）
         $progress->update(['progress' => 40, 'message' => '移動候補を確定中...']);
 
         $transferExecutionService = app(TransferCandidateExecutionService::class);
-        $approvedTransferCandidates = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
-            ->whereIn('contractor_id', $allContractorIds)
-            ->get();
+        $approvedTransferCandidates = ! empty($relatedBatchCodes)
+            ? WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
+                ->whereIn('batch_code', $relatedBatchCodes)
+                ->get()
+            : collect();
 
         $executedTransfers = 0;
         foreach ($approvedTransferCandidates as $candidate) {

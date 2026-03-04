@@ -220,7 +220,7 @@ class OrderCandidateCalculationService
     }
 
     /**
-     * 必要なデータのみをメモリにロード（safety_stock > 0の商品のみ）
+     * 必要なデータのみをメモリにロード（is_auto_order有効な商品）
      */
     private function loadAllDataToMemory(): void
     {
@@ -239,7 +239,7 @@ class OrderCandidateCalculationService
 
         Log::info('自動発注有効な実倉庫をロード', ['count' => count($this->realWarehouseIds)]);
 
-        // JOINでsafety_stock > 0の商品のスナップショットのみを取得（実倉庫のみ）
+        // JOINでis_auto_order有効な商品のスナップショットを取得（実倉庫のみ）
         // snapshotJobIdが指定されている場合、そのジョブのスナップショットのみを使用
         // （過去のスナップショットの古いincoming値が混入するのを防止）
         $snapshotQuery = DB::connection('sakemaru')
@@ -250,7 +250,7 @@ class OrderCandidateCalculationService
             })
             ->whereIn('s.warehouse_id', $this->realWarehouseIds)
             ->where('ic.is_auto_order', true)
-            ->where('ic.safety_stock', '>', 0);
+            ->where('ic.safety_stock', '>=', 0);
 
         if ($this->snapshotJobId) {
             $snapshotQuery->where('s.job_control_id', $this->snapshotJobId);
@@ -508,27 +508,25 @@ class OrderCandidateCalculationService
             return 0;
         }
 
-        // INTERNAL発注先の商品を取得（safety_stock > 0、実倉庫のみ）
+        // INTERNAL発注先の商品を取得（is_auto_order有効、実倉庫のみ）
         $internalContractorIds = $this->internalContractorIds;
 
-        // 仕入先指定がある場合、対象の仕入先のみに絞る
-        if ($this->targetContractorIds !== null) {
-            $internalContractorIds = array_intersect($internalContractorIds, $this->targetContractorIds);
-            if (empty($internalContractorIds)) {
-                Log::info('指定仕入先はINTERNAL発注先ではありません', ['contractor_ids' => $this->targetContractorIds]);
-
-                return 0;
-            }
-        }
+        // Note: 仕入先指定がある場合でも、INTERNAL発注先は常に全件処理する
+        // （外部発注先のスケジュール実行時にも移動候補を生成するため）
 
         $itemContractors = DB::connection('sakemaru')
             ->table('item_contractors')
             ->join('items', 'item_contractors.item_id', '=', 'items.id')
-            ->whereIn('contractor_id', $internalContractorIds)
-            ->whereIn('warehouse_id', $this->realWarehouseIds)
-            ->where('is_auto_order', true)
-            ->where('safety_stock', '>', 0)
+            ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
+            ->whereIn('item_contractors.contractor_id', $internalContractorIds)
+            ->whereIn('item_contractors.warehouse_id', $this->realWarehouseIds)
+            ->where('item_contractors.is_auto_order', true)
+            ->where('item_contractors.safety_stock', '>=', 0)
             ->where('items.end_of_sale_type', 'NORMAL')
+            ->where('items.is_ended', false)
+            ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
+            ->where(fn ($q) => $q->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
+            ->where('contractors.is_auto_change_order', true)
             ->select('item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit')
             ->get();
 
@@ -559,13 +557,22 @@ class OrderCandidateCalculationService
             // 必要数計算（不足数）
             $shortageQty = $ic->safety_stock - ($effectiveStock + $incomingStock);
 
-            if ($shortageQty <= 0) {
+            if ($shortageQty < 0) {
                 continue;
             }
 
-            // 最小仕入単位で切り上げ
-            $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
-            $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
+            // 発注点0かつ在庫0の場合、最低1個を発注（在庫切れ補充）
+            if ($shortageQty === 0 && (int) $ic->safety_stock === 0) {
+                if ($effectiveStock > 0 || $incomingStock > 0) {
+                    continue;
+                }
+                $shortageQty = 1;
+            } elseif ($shortageQty === 0) {
+                continue;
+            }
+
+            // 移動候補はバラ発注可能（仕入れ単位の切り上げなし）
+            $orderQty = $shortageQty;
 
             // 配送コースIDを取得（移動元 → 移動先）
             $deliveryCourseId = $this->transferDeliveryCourses[$supplyWarehouseId][$ic->warehouse_id] ?? null;
@@ -595,7 +602,7 @@ class OrderCandidateCalculationService
                 'calculated_available' => $effectiveStock + $incomingStock,
                 'shortage_qty' => $shortageQty,
                 'safety_stock' => $ic->safety_stock,
-                'purchase_unit' => $purchaseUnit,
+                'purchase_unit' => max(1, (int) ($ic->purchase_unit ?? 1)),
                 'quantity_type' => QuantityType::PIECE->value,
                 'expected_arrival_date' => $arrivalDate,
                 'original_arrival_date' => $originalArrivalDate,
@@ -645,11 +652,8 @@ class OrderCandidateCalculationService
                     '安全在庫' => $ic->safety_stock,
                     '利用可能在庫' => $effectiveStock + $incomingStock,
                     '不足数' => $shortageQty,
-                    '最小仕入単位' => $purchaseUnit,
-                    '単位調整後数量' => $orderQty,
-                    '単位調整説明' => $purchaseUnit > 1
-                        ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}"
-                        : '最小仕入単位が1のため調整なし',
+                    '発注数量' => $orderQty,
+                    '備考' => '移動候補はバラ発注可能（仕入れ単位切り上げなし）',
                     '到着日調整' => $arrivalInfo['shifted_days'],
                     '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
                 ], JSON_UNESCAPED_UNICODE),
@@ -711,15 +715,20 @@ class OrderCandidateCalculationService
      */
     private function createExternalOrderCandidatesBulk(string $batchCode, Carbon $now, array $transferCandidates): int
     {
-        // EXTERNAL発注先の商品を取得（safety_stock > 0、実倉庫のみ、販売終了品を除外）
+        // EXTERNAL発注先の商品を取得（is_auto_order有効、実倉庫のみ、販売終了品を除外）
         $externalQuery = DB::connection('sakemaru')
             ->table('item_contractors')
             ->join('items', 'item_contractors.item_id', '=', 'items.id')
-            ->whereNotIn('contractor_id', $this->internalContractorIds ?: [0])
-            ->whereIn('warehouse_id', $this->realWarehouseIds)
-            ->where('is_auto_order', true)
-            ->where('safety_stock', '>', 0)
-            ->where('items.end_of_sale_type', 'NORMAL');
+            ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
+            ->whereNotIn('item_contractors.contractor_id', $this->internalContractorIds ?: [0])
+            ->whereIn('item_contractors.warehouse_id', $this->realWarehouseIds)
+            ->where('item_contractors.is_auto_order', true)
+            ->where('item_contractors.safety_stock', '>=', 0)
+            ->where('items.end_of_sale_type', 'NORMAL')
+            ->where('items.is_ended', false)
+            ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
+            ->where(fn ($q) => $q->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
+            ->where('contractors.is_auto_change_order', true);
 
         // 仕入先指定がある場合、対象の仕入先のみに絞る（親+子仕入先）
         if ($this->targetContractorIds !== null) {
@@ -749,7 +758,17 @@ class OrderCandidateCalculationService
             // 必要数計算（不足数）
             $shortageQty = $ic->safety_stock - $calculatedStock;
 
-            if ($shortageQty <= 0) {
+            if ($shortageQty < 0) {
+                continue;
+            }
+
+            // 発注点0かつ在庫0の場合、最低1個を発注（在庫切れ補充）
+            if ($shortageQty === 0 && (int) $ic->safety_stock === 0) {
+                if ($calculatedStock > 0) {
+                    continue;
+                }
+                $shortageQty = 1;
+            } elseif ($shortageQty === 0) {
                 continue;
             }
 

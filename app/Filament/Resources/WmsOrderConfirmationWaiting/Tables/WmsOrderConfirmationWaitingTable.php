@@ -101,6 +101,12 @@ class WmsOrderConfirmationWaitingTable
                     ->toggleable()
                     ->width('120px'),
 
+                TextColumn::make('current_effective_stock')
+                    ->label('現在庫')
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('60px'),
+
                 TextColumn::make('suggested_quantity')
                     ->label('算出数')
                     ->numeric()

@@ -49,22 +49,14 @@ class AutoOrderTransmitCommand extends Command
         foreach ($settings as $setting) {
             $contractorId = $setting->contractor_id;
 
-            // 当日の候補生成が完了（SUCCESS）しているかチェック
-            $executionLog = WmsAutoOrderExecutionLog::where('contractor_id', $contractorId)
+            // 当日すでに送信済み or 処理中かチェック（重複dispatch防止）
+            $todayLog = WmsAutoOrderExecutionLog::where('contractor_id', $contractorId)
                 ->where('executed_date', today())
-                ->where('status', 'SUCCESS')
+                ->latest('id')
                 ->first();
 
-            if (! $executionLog) {
-                $this->line("  仕入先ID:{$contractorId} → スキップ（候補生成未完了）");
-                $skipped++;
-
-                continue;
-            }
-
-            // すでに送信済み or 処理中かチェック（重複dispatch防止）
-            if (in_array($executionLog->transmission_status, ['RUNNING', 'SUCCESS'])) {
-                $this->line("  仕入先ID:{$contractorId} → スキップ（送信{$executionLog->transmission_status}）");
+            if ($todayLog && in_array($todayLog->transmission_status, ['RUNNING', 'SUCCESS'])) {
+                $this->line("  仕入先ID:{$contractorId} → スキップ（送信{$todayLog->transmission_status}）");
                 $skipped++;
 
                 continue;
@@ -77,13 +69,19 @@ class AutoOrderTransmitCommand extends Command
             $hasUnsentOrders = WmsOrderCandidate::whereIn('contractor_id', $allContractorIds)
                 ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED, CandidateStatus::CONFIRMED])
                 ->where(function ($q) {
-                    // CONFIRMED候補はJXドキュメント未リンクのもののみ
                     $q->where('status', '!=', CandidateStatus::CONFIRMED)
                         ->orWhereNull('wms_order_jx_document_id');
                 })
                 ->exists();
 
-            $hasUnsentTransfers = WmsStockTransferCandidate::whereIn('contractor_id', $allContractorIds)
+            // 移動候補はINTERNAL contractor IDを持つため、発注候補のbatch_codeから関連を特定
+            $relatedBatchCodes = WmsOrderCandidate::whereIn('contractor_id', $allContractorIds)
+                ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED, CandidateStatus::CONFIRMED])
+                ->distinct()
+                ->pluck('batch_code')
+                ->toArray();
+
+            $hasUnsentTransfers = ! empty($relatedBatchCodes) && WmsStockTransferCandidate::whereIn('batch_code', $relatedBatchCodes)
                 ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
                 ->exists();
 
@@ -94,7 +92,15 @@ class AutoOrderTransmitCommand extends Command
                 continue;
             }
 
-            // transmission_status を RUNNING に更新
+            // 実行ログを取得 or 作成（当日のログがなければ送信専用ログを作成）
+            $executionLog = $todayLog ?? WmsAutoOrderExecutionLog::create([
+                'contractor_id' => $contractorId,
+                'executed_date' => $now->toDateString(),
+                'status' => 'SUCCESS',
+                'started_at' => $now,
+                'finished_at' => $now,
+            ]);
+
             $executionLog->update(['transmission_status' => 'RUNNING']);
 
             // ProcessAutoSendJob dispatch（batchCode=null で全バッチ統合処理）

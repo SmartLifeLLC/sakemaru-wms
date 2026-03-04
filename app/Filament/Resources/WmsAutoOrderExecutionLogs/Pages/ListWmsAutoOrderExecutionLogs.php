@@ -16,6 +16,10 @@ class ListWmsAutoOrderExecutionLogs extends ListRecords
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with(['contractor'])
+                ->when(
+                    ! request()->has('tableFilters'),
+                    fn ($q) => $q->where('executed_date', today())
+                )
                 ->orderBy('id', 'desc')
             );
     }

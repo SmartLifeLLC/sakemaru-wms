@@ -8,7 +8,7 @@
         </div>
 
         <div>
-            <dt class="modal-label">在庫依頼倉庫</dt>
+            <dt class="modal-label">依頼倉庫</dt>
             <dd class="modal-value">{{ $satelliteWarehouseName }}</dd>
         </div>
 
@@ -17,9 +17,23 @@
             <dd class="modal-value">{{ $hubWarehouseName }}</dd>
         </div>
 
+        @if(!empty($deliveryCourseName) && $deliveryCourseName !== '-')
         <div>
-            <dt class="modal-label">入荷予定日</dt>
-            <dd class="modal-value">{{ $expectedArrivalDate }}</dd>
+            <dt class="modal-label">配送コース</dt>
+            <dd class="modal-value">{{ $deliveryCourseName }}</dd>
+        </div>
+        @endif
+
+        @if(!empty($contractorName) && $contractorName !== '-')
+        <div>
+            <dt class="modal-label">発注先</dt>
+            <dd class="modal-value">{{ $contractorName }}</dd>
+        </div>
+        @endif
+
+        <div>
+            <dt class="modal-label">移動出荷日</dt>
+            <dd class="modal-value font-bold text-primary-600 dark:text-primary-400">{{ $expectedArrivalDate }}</dd>
         </div>
     </div>
 

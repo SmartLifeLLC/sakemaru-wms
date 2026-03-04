@@ -2,6 +2,7 @@
 
 namespace App\Services\JX;
 
+use App\Enums\AutoOrder\EOrderFileGenerator;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsContractorSetting;
@@ -54,14 +55,16 @@ class JxTestFileGenerator
     public function generateEmptyFile(int $jxSettingId): array
     {
         $jxSetting = WmsOrderJxSetting::findOrFail($jxSettingId);
+        $addARecord = $this->shouldAddARecord($jxSetting);
 
         Log::info('[JxTestFileGenerator] 空ファイル生成開始', [
             'jx_setting_id' => $jxSettingId,
-            'add_zero_record' => $jxSetting->add_zero_record,
+            'order_file_generator' => $jxSetting->order_file_generator?->value,
+            'add_a_record' => $addARecord,
         ]);
 
-        // add_zero_record=true: Aレコードのみ、add_zero_record=false: レコードなし（JXラッパーのみ）
-        $content = $jxSetting->add_zero_record
+        // HANA: Aレコードのみ、HANA2: レコードなし（JXラッパーのみ）
+        $content = $addARecord
             ? $this->generateARecord($jxSetting, 1, 0)
             : '';
 
@@ -82,10 +85,21 @@ class JxTestFileGenerator
             'filename' => $filename,
             'file_path' => $savePath,
             'file_size' => strlen($sjisContent),
-            'record_count' => 1,
+            'record_count' => $addARecord ? 1 : 0,
             'order_count' => 0,
             'content' => $sjisContent,
         ];
+    }
+
+    /**
+     * Aレコードを付与すべきか判定（order_file_generator enum基準）
+     *
+     * HANA（デフォルト）: Aレコードあり
+     * HANA2: Aレコードなし
+     */
+    private function shouldAddARecord(WmsOrderJxSetting $jxSetting): bool
+    {
+        return $jxSetting->order_file_generator !== EOrderFileGenerator::HANA2;
     }
 
     /**

@@ -27,11 +27,13 @@ class AutoOrderScheduledCommand extends Command
         $this->info("=== 仕入先別自動発注スケジューラー ({$currentTime}) ===");
 
         // 自動発注対象の仕入先を取得（集約先が設定されている場合はスキップ＝集約先のスケジュールに従う）
+        // is_auto_change_order=false の発注先は自動発注対象外
         $settings = WmsContractorSetting::query()
             ->whereNull('transmission_contractor_id')
             ->whereNotNull('auto_order_generation_time')
             ->where('auto_order_generation_time', '<=', $currentTime)
             ->where($currentDayColumn, true)
+            ->whereHas('contractor', fn ($q) => $q->where('is_auto_change_order', true))
             ->get();
 
         if ($settings->isEmpty()) {

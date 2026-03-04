@@ -107,6 +107,40 @@ class AutoOrderCandidateInitSeeder extends Seeder
                 ['OFF（対象外）', number_format($totalCount - $onCount)],
             ]
         );
+
+        // ============================================================
+        // contractors.is_auto_change_order の初期設定
+        // ============================================================
+        $this->command->info('');
+        $this->command->info('contractors.is_auto_change_order の初期設定を開始します...');
+
+        // Step 1: 全件ONにする
+        $allOnCount = $db->update('UPDATE contractors SET is_auto_change_order = 1 WHERE is_auto_change_order = 0');
+        $this->command->info("  → {$allOnCount}件をON（自動発注対象）に変更");
+
+        // Step 2: 除外対象の発注先コードをOFFにする
+        $excludeCodes = [
+            1000, 1068, 1239, 1262, 1293, 1544, 1592,
+            9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008,
+            9010, 9011, 9013, 9023, 9024,
+            9101, 9102, 9201, 9202,
+            9999, 90000,
+        ];
+
+        $placeholders = implode(',', array_fill(0, count($excludeCodes), '?'));
+        $excludeOffCount = $db->update(
+            "UPDATE contractors SET is_auto_change_order = 0 WHERE code IN ({$placeholders})",
+            $excludeCodes
+        );
+        $this->command->info("  → {$excludeOffCount}件をOFF（自動発注対象外）に変更");
+
+        $this->command->table(
+            ['項目', '件数'],
+            [
+                ['ON（自動発注対象）', number_format($allOnCount - $excludeOffCount)],
+                ['OFF（対象外コード）', number_format($excludeOffCount)],
+            ]
+        );
     }
 
     private function insertBatch($db, array $batch): void
