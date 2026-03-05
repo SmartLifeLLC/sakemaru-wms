@@ -146,6 +146,7 @@ class IncomingTransmissionService
                 'item_code' => $schedule->item?->code ?? '',
                 'quantity' => $schedule->received_quantity,
                 'quantity_type' => $schedule->quantity_type?->value ?? 'PIECE',
+                'shortage_quantity' => $schedule->shortage_quantity ?? 0,
             ];
 
             // 賞味期限がある場合のみ追加（仕様書: 指定がない場合は基幹側で自動計算）
@@ -193,11 +194,18 @@ class IncomingTransmissionService
             if ($schedule->order_candidate_id) {
                 $parts[] = "候補ID:{$schedule->order_candidate_id}";
             }
+        } elseif ($schedule->order_source->value === 'RECEIVED') {
+            $parts[] = '受信データ';
         } else {
             $parts[] = '手動発注';
             if ($schedule->manual_order_number) {
                 $parts[] = "発注番号:{$schedule->manual_order_number}";
             }
+        }
+
+        // 欠品数がある場合は備考に追記
+        if ($schedule->shortage_quantity > 0) {
+            $parts[] = "欠品数:{$schedule->shortage_quantity}";
         }
 
         return implode(' / ', $parts);

@@ -48,6 +48,8 @@ class WmsOrderIncomingSchedule extends WmsModel
         'status',
         'confirmed_at',
         'confirmed_by',
+        'is_receive_matched',
+        'shortage_quantity',
         'purchase_queue_id',
         'purchase_slip_number',
         'note',
@@ -66,6 +68,8 @@ class WmsOrderIncomingSchedule extends WmsModel
         'status' => IncomingScheduleStatus::class,
         'order_source' => OrderSource::class,
         'quantity_type' => QuantityType::class,
+        'is_receive_matched' => 'boolean',
+        'shortage_quantity' => 'integer',
     ];
 
     // Relationships
@@ -188,8 +192,9 @@ class WmsOrderIncomingSchedule extends WmsModel
     /**
      * 伝票番号を採番
      *
-     * フォーマット: {YYYYMMDD}-{連番5桁}
-     * 例: 20260305-00001
+     * フォーマット: {YYYYMMDD}{連番3桁} = 11桁数字のみ
+     * 例: 20260305001
+     * JX Bレコードの伝票番号フィールド（11バイト）にそのまま格納可能
      *
      * @param  string|null  $orderDate  発注日（Y-m-d形式）。nullの場合は今日
      */
@@ -197,15 +202,15 @@ class WmsOrderIncomingSchedule extends WmsModel
     {
         $date = $orderDate ?? now()->format('Y-m-d');
         $dateStr = Carbon::parse($date)->format('Ymd');
-        $prefix = $dateStr . '-';
 
-        $maxSlip = self::where('slip_number', 'like', $prefix . '%')
-            ->orderByRaw("CAST(SUBSTRING(slip_number, 10) AS UNSIGNED) DESC")
+        $maxSlip = self::where('slip_number', 'like', $dateStr.'%')
+            ->where('slip_number', 'REGEXP', '^[0-9]{11}$')
+            ->orderByRaw('CAST(SUBSTRING(slip_number, 9) AS UNSIGNED) DESC')
             ->value('slip_number');
 
-        $nextSeq = $maxSlip ? (int) substr($maxSlip, 9) + 1 : 1;
+        $nextSeq = $maxSlip ? (int) substr($maxSlip, 8) + 1 : 1;
 
-        return $prefix . str_pad($nextSeq, 5, '0', STR_PAD_LEFT);
+        return $dateStr.str_pad($nextSeq, 3, '0', STR_PAD_LEFT);
     }
 
     /**

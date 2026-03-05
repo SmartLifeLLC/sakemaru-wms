@@ -169,7 +169,7 @@ class JxIncomingParser implements IncomingFormatParserInterface
      */
     private function parseBRecord(string $record, WmsIncomingReceivedFile $fileRecord): WmsIncomingReceivedSlip
     {
-        // 伝票番号[4-14] 11桁 → ハイフン付きフォーマットに変換
+        // 伝票番号[4-14] 11桁数字のみ（DB保存フォーマットと同一）
         $rawSlipNumber = $this->trimField($record, 3, 11);
         $slipNumber = $this->formatSlipNumber($rawSlipNumber);
 
@@ -273,23 +273,13 @@ class JxIncomingParser implements IncomingFormatParserInterface
     }
 
     /**
-     * 11桁伝票番号をハイフン付きフォーマットに変換
+     * 伝票番号を正規化
      *
-     * 20260305001 → 20260305-001 (先頭8桁日付-残り)
-     * ハイフン付きの場合はそのまま返す
+     * JX Bレコードの11桁をそのまま使用（ハイフンなし、数字のみ）
+     * 旧形式のハイフン付きデータが来た場合はハイフンを除去
      */
     private function formatSlipNumber(string $raw): string
     {
-        // 既にハイフンがある場合はそのまま
-        if (str_contains($raw, '-')) {
-            return $raw;
-        }
-
-        // 8桁日付 + 残りの数字
-        if (strlen($raw) >= 9 && ctype_digit(substr($raw, 0, 8))) {
-            return substr($raw, 0, 8) . '-' . substr($raw, 8);
-        }
-
-        return $raw;
+        return str_replace('-', '', $raw);
     }
 }

@@ -39,7 +39,7 @@ class ListWmsIncomingReceivedData extends ListRecords
                         ->required()
                         ->disk('local')
                         ->directory('temp/jx-incoming')
-                        ->acceptedFileTypes(['text/plain', 'application/octet-stream'])
+                        ->acceptedFileTypes(['text/plain', 'application/octet-stream', '.dat', '.txt'])
                         ->maxSize(10240),
                 ])
                 ->action(function (array $data) {

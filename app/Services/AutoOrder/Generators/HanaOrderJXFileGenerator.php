@@ -342,10 +342,9 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $orderDate = Carbon::now();
         $deliveryDate = $candidate->expected_arrival_date ?? $orderDate->copy()->addDays(2);
 
-        // 伝票番号: DB保存値があればそれを使用、なければ従来通り動的生成
-        // DB値はハイフン付き（20260305-00001）なのでハイフンを除去して11桁にする
+        // 伝票番号: DB保存値（11桁数字のみ）をそのまま使用、なければ動的生成
         if ($slipNumber) {
-            $slipNumber = str_replace('-', '', $slipNumber);
+            $slipNumber = substr($slipNumber, 0, 11);
         } else {
             $slipNumber = $orderDate->format('Ymd').str_pad($seq, 3, '0', STR_PAD_LEFT);
         }

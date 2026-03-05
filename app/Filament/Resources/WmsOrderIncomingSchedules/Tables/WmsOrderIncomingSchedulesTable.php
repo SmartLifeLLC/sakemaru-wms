@@ -84,11 +84,13 @@ class WmsOrderIncomingSchedulesTable
                         OrderSource::AUTO => '発注',
                         OrderSource::MANUAL => '手動',
                         OrderSource::TRANSFER => '移動',
+                        OrderSource::RECEIVED => '受信',
                     })
                     ->color(fn (OrderSource $state): string => match ($state) {
                         OrderSource::AUTO => 'info',
                         OrderSource::MANUAL => 'gray',
                         OrderSource::TRANSFER => 'warning',
+                        OrderSource::RECEIVED => 'success',
                     })
                     ->width('60px'),
 
@@ -222,6 +224,22 @@ class WmsOrderIncomingSchedulesTable
                             ->send();
                     }),
 
+                TextColumn::make('shortage_quantity')
+                    ->label('欠品数')
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($state) => $state > 0 ? 'danger' : null)
+                    ->placeholder('0')
+                    ->width('70px'),
+
+                TextColumn::make('is_receive_matched')
+                    ->label('照合')
+                    ->formatStateUsing(fn ($state) => $state ? '済' : '-')
+                    ->badge()
+                    ->color(fn ($state) => $state ? 'success' : 'gray')
+                    ->alignCenter()
+                    ->width('50px'),
+
                 TextColumn::make('quantity_type')
                     ->label('単位')
                     ->formatStateUsing(fn ($state) => match ($state?->value ?? $state) {
@@ -319,6 +337,7 @@ class WmsOrderIncomingSchedulesTable
                         'AUTO' => '発注',
                         'MANUAL' => '手動',
                         'TRANSFER' => '移動',
+                        'RECEIVED' => '受信',
                     ]),
 
                 SelectFilter::make('warehouse_id')
@@ -580,6 +599,7 @@ class WmsOrderIncomingSchedulesTable
                                                 OrderSource::AUTO => '発注',
                                                 OrderSource::MANUAL => '手動',
                                                 OrderSource::TRANSFER => '移動',
+                                                OrderSource::RECEIVED => '受信',
                                                 default => '-',
                                             },
                                             'orderDate' => $record->order_date?->format('Y/m/d') ?? '-',
