@@ -120,9 +120,11 @@ class IncomingController extends ApiController
      *                                 @OA\Property(property="id", type="integer"),
      *                                 @OA\Property(property="warehouse_id", type="integer"),
      *                                 @OA\Property(property="warehouse_name", type="string"),
-     *                                 @OA\Property(property="expected_quantity", type="integer"),
-     *                                 @OA\Property(property="received_quantity", type="integer"),
-     *                                 @OA\Property(property="remaining_quantity", type="integer"),
+     *                                 @OA\Property(property="expected_quantity", type="integer", description="発注数"),
+     *                                 @OA\Property(property="shipped_quantity", type="integer", nullable=true, description="発注先出荷実績数（未受信時null）"),
+     *                                 @OA\Property(property="received_quantity", type="integer", description="入庫済み数"),
+     *                                 @OA\Property(property="remaining_quantity", type="integer", description="残入庫数（expected - received）"),
+     *                                 @OA\Property(property="shortage_quantity", type="integer", nullable=true, description="欠品数（expected - shipped）"),
      *                                 @OA\Property(property="quantity_type", type="string", enum={"PIECE", "CASE"}),
      *                                 @OA\Property(property="expected_arrival_date", type="string", format="date"),
      *                                 @OA\Property(property="status", type="string", enum={"PENDING", "PARTIAL"})
@@ -228,9 +230,13 @@ class IncomingController extends ApiController
      *                     @OA\Property(property="item_name", type="string"),
      *                     @OA\Property(property="search_code", type="string"),
      *                     @OA\Property(property="jan_codes", type="array", @OA\Items(type="string")),
-     *                     @OA\Property(property="expected_quantity", type="integer"),
-     *                     @OA\Property(property="received_quantity", type="integer"),
-     *                     @OA\Property(property="remaining_quantity", type="integer"),
+     *                     @OA\Property(property="expected_quantity", type="integer", description="発注数"),
+     *                     @OA\Property(property="shipped_quantity", type="integer", nullable=true, description="発注先出荷実績数（未受信時null）"),
+     *                     @OA\Property(property="received_quantity", type="integer", description="入庫済み数"),
+     *                     @OA\Property(property="remaining_quantity", type="integer", description="残入庫数"),
+     *                     @OA\Property(property="shortage_quantity", type="integer", nullable=true, description="欠品数"),
+     *                     @OA\Property(property="unit_price", type="number", nullable=true, description="自社単価"),
+     *                     @OA\Property(property="partner_unit_price", type="number", nullable=true, description="仕入先単価"),
      *                     @OA\Property(property="quantity_type", type="string"),
      *                     @OA\Property(property="expected_arrival_date", type="string", format="date"),
      *                     @OA\Property(property="status", type="string")
@@ -394,7 +400,7 @@ class IncomingController extends ApiController
      *     path="/api/incoming/work-items",
      *     tags={"Incoming"},
      *     summary="入荷作業開始",
-     *     description="入庫予定に対する入荷作業を開始し、作業データを作成",
+     *     description="入庫予定に対する入荷作業を開始し、作業データを作成。work_quantityのデフォルト値は発注先出荷実績(shipped_quantity)がある場合はshipped-received、なければexpected-receivedで計算。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\RequestBody(
@@ -479,12 +485,19 @@ class IncomingController extends ApiController
                 $defaultExpirationDate = Carbon::today()->addDays($item->default_expiration_days)->format('Y-m-d');
             }
 
+            // デフォルト作業数量:
+            // shipped_quantity がある場合はそちらを基準にする（発注先出荷実績 - 入庫済み）
+            // ない場合は従来通り remaining_quantity（発注数 - 入庫済み）
+            $defaultWorkQuantity = ($schedule->shipped_quantity !== null && $schedule->shipped_quantity > 0)
+                ? max(0, $schedule->shipped_quantity - $schedule->received_quantity)
+                : $schedule->remaining_quantity;
+
             $workItem = WmsIncomingWorkItem::create([
                 'incoming_schedule_id' => $schedule->id,
                 'picker_id' => $request->input('picker_id'),
                 'warehouse_id' => $warehouseId,
                 'location_id' => $locationId,
-                'work_quantity' => $schedule->remaining_quantity,
+                'work_quantity' => $defaultWorkQuantity,
                 'work_arrival_date' => now()->format('Y-m-d'),
                 'work_expiration_date' => $defaultExpirationDate,
                 'status' => WmsIncomingWorkItem::STATUS_WORKING,
@@ -666,7 +679,7 @@ class IncomingController extends ApiController
      *     path="/api/incoming/work-items/{id}/complete",
      *     tags={"Incoming"},
      *     summary="入荷作業完了",
-     *     description="入荷作業を完了し、入庫確定処理を実行。全量入庫または一部入庫を判定して処理。",
+     *     description="入荷作業を完了し、入庫確定処理を実行。received_quantity = 既存received + work_quantityで計算。work_quantity >= remaining_quantityなら全量入庫（CONFIRMED）、それ以外は一部入庫（PARTIAL）。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
@@ -724,12 +737,16 @@ class IncomingController extends ApiController
                 $remainingQty = $schedule->remaining_quantity;
                 $locationId = $workItem->location_id;
 
+                // 全量入庫の受け入れ数量 = 既に受け入れ済み + 今回の作業数量
+                // （expected_quantityではなく、実際のカウントを使用）
+                $totalReceived = $schedule->received_quantity + $workQuantity;
+
                 if ($workQuantity >= $remainingQty) {
                     // 全量入庫
                     $this->confirmationService->confirmIncoming(
                         $schedule,
                         $workItem->picker_id,
-                        $schedule->expected_quantity,
+                        $totalReceived,
                         $workItem->work_arrival_date?->format('Y-m-d'),
                         $workItem->work_expiration_date?->format('Y-m-d'),
                         $locationId
@@ -849,9 +866,11 @@ class IncomingController extends ApiController
      *         @OA\Property(property="item_name", type="string"),
      *         @OA\Property(property="warehouse_id", type="integer"),
      *         @OA\Property(property="warehouse_name", type="string"),
-     *         @OA\Property(property="expected_quantity", type="integer"),
-     *         @OA\Property(property="received_quantity", type="integer"),
-     *         @OA\Property(property="remaining_quantity", type="integer"),
+     *         @OA\Property(property="expected_quantity", type="integer", description="発注数"),
+     *         @OA\Property(property="shipped_quantity", type="integer", nullable=true, description="発注先出荷実績数（未受信時null）"),
+     *         @OA\Property(property="received_quantity", type="integer", description="入庫済み数"),
+     *         @OA\Property(property="remaining_quantity", type="integer", description="残入庫数"),
+     *         @OA\Property(property="shortage_quantity", type="integer", nullable=true, description="欠品数"),
      *         @OA\Property(property="quantity_type", type="string")
      *     )
      * )
@@ -998,8 +1017,10 @@ class IncomingController extends ApiController
                 'warehouse_id' => $schedule->warehouse_id,
                 'warehouse_name' => $schedule->warehouse?->name,
                 'expected_quantity' => $schedule->expected_quantity,
+                'shipped_quantity' => $schedule->shipped_quantity,
                 'received_quantity' => $schedule->received_quantity,
                 'remaining_quantity' => $schedule->remaining_quantity,
+                'shortage_quantity' => $schedule->shortage_quantity,
                 'quantity_type' => $schedule->quantity_type?->value,
                 'expected_arrival_date' => $schedule->expected_arrival_date?->format('Y-m-d'),
                 'expiration_date' => $schedule->expiration_date?->format('Y-m-d'),
@@ -1043,8 +1064,12 @@ class IncomingController extends ApiController
             'contractor_id' => $schedule->contractor_id,
             'contractor_name' => $schedule->contractor?->name,
             'expected_quantity' => $schedule->expected_quantity,
+            'shipped_quantity' => $schedule->shipped_quantity,
             'received_quantity' => $schedule->received_quantity,
             'remaining_quantity' => $schedule->remaining_quantity,
+            'shortage_quantity' => $schedule->shortage_quantity,
+            'unit_price' => $schedule->unit_price,
+            'partner_unit_price' => $schedule->partner_unit_price,
             'quantity_type' => $schedule->quantity_type?->value,
             'order_date' => $schedule->order_date?->format('Y-m-d'),
             'expected_arrival_date' => $schedule->expected_arrival_date?->format('Y-m-d'),
@@ -1090,8 +1115,10 @@ class IncomingController extends ApiController
                 'warehouse_id' => $schedule->warehouse_id,
                 'warehouse_name' => $schedule->warehouse?->name,
                 'expected_quantity' => $schedule->expected_quantity,
+                'shipped_quantity' => $schedule->shipped_quantity,
                 'received_quantity' => $schedule->received_quantity,
                 'remaining_quantity' => $schedule->remaining_quantity,
+                'shortage_quantity' => $schedule->shortage_quantity,
                 'quantity_type' => $schedule->quantity_type?->value,
                 'expected_arrival_date' => $schedule->expected_arrival_date?->format('Y-m-d'),
                 'status' => $schedule->status?->value,

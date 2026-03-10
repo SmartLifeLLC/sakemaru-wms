@@ -10,6 +10,8 @@ enum EMenu: string
     case WMS_INCOMING_COMPLETED = 'inbound.wms_incoming_completed';
     case WMS_INCOMING_TRANSMITTED = 'inbound.wms_incoming_transmitted';
     case WMS_INCOMING_RECEIVED_DATA = 'inbound.wms_incoming_received_data';
+    case WMS_INCOMING_IMPORT_LOGS = 'inbound.wms_incoming_import_logs';
+    case WMS_INCOMING_IMPORT_ERRORS = 'inbound.wms_incoming_import_errors';
     case PURCHASES = 'inbound.purchases';
     case RECEIPT_INSPECTIONS = 'inbound.receipt_inspections';
 
@@ -96,6 +98,8 @@ enum EMenu: string
             self::WMS_INCOMING_COMPLETED,
             self::WMS_INCOMING_TRANSMITTED,
             self::WMS_INCOMING_RECEIVED_DATA,
+            self::WMS_INCOMING_IMPORT_LOGS,
+            self::WMS_INCOMING_IMPORT_ERRORS,
             self::PURCHASES,
             self::RECEIPT_INSPECTIONS => EMenuCategory::INBOUND,
 
@@ -177,6 +181,8 @@ enum EMenu: string
             self::WMS_INCOMING_COMPLETED => '入庫完了',
             self::WMS_INCOMING_TRANSMITTED => '仕入連携済み',
             self::WMS_INCOMING_RECEIVED_DATA => '入荷データ受信',
+            self::WMS_INCOMING_IMPORT_LOGS => '取込ログ',
+            self::WMS_INCOMING_IMPORT_ERRORS => '取込エラー',
             self::PURCHASES => '発注データ',
             self::RECEIPT_INSPECTIONS => '入荷検品',
 
@@ -253,6 +259,8 @@ enum EMenu: string
             self::WMS_INCOMING_COMPLETED => 'heroicon-o-check-circle',
             self::WMS_INCOMING_TRANSMITTED => 'heroicon-o-cloud-arrow-up',
             self::WMS_INCOMING_RECEIVED_DATA => 'heroicon-o-arrow-down-tray',
+            self::WMS_INCOMING_IMPORT_LOGS => 'heroicon-o-document-text',
+            self::WMS_INCOMING_IMPORT_ERRORS => 'heroicon-o-exclamation-circle',
             self::PURCHASES => 'heroicon-o-shopping-cart',
             self::RECEIPT_INSPECTIONS => 'heroicon-o-clipboard-document-check',
 
@@ -329,8 +337,10 @@ enum EMenu: string
             self::WMS_INCOMING_COMPLETED => 3,
             self::WMS_INCOMING_TRANSMITTED => 4,
             self::WMS_INCOMING_RECEIVED_DATA => 5,
-            self::PURCHASES => 6,
-            self::RECEIPT_INSPECTIONS => 7,
+            self::WMS_INCOMING_IMPORT_LOGS => 6,
+            self::WMS_INCOMING_IMPORT_ERRORS => 7,
+            self::PURCHASES => 8,
+            self::RECEIPT_INSPECTIONS => 9,
 
             // 出荷管理
             self::WAVES => 0,

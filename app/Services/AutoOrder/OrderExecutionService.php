@@ -23,7 +23,8 @@ use Illuminate\Support\Facades\Log;
 class OrderExecutionService
 {
     public function __construct(
-        private readonly OrderAuditService $auditService
+        private readonly OrderAuditService $auditService,
+        private readonly PurchasePriceService $purchasePriceService = new PurchasePriceService,
     ) {}
 
     /**
@@ -152,6 +153,12 @@ class OrderExecutionService
         $supplierId = $this->getSupplierIdFromCandidate($candidate);
         $searchCode = $this->getSearchCodeForItem($candidate->item_id);
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
+        $prices = $this->purchasePriceService->getPrice(
+            $candidate->item_id,
+            $supplierId,
+            $candidate->warehouse_id,
+            now()->toDateString()
+        );
 
         // demand_breakdownがある場合は各倉庫ごとに入庫予定を作成
         if (! empty($candidate->demand_breakdown)) {
@@ -180,6 +187,8 @@ class OrderExecutionService
                     'expected_arrival_date' => $candidate->expected_arrival_date,
                     'expiration_date' => $expirationDate,
                     'status' => IncomingScheduleStatus::PENDING,
+                    'unit_price' => $prices['unit_price'],
+                    'case_price' => $prices['case_price'],
                 ]);
 
                 $incomingSchedules->push($schedule);
@@ -203,6 +212,8 @@ class OrderExecutionService
                 'expected_arrival_date' => $candidate->expected_arrival_date,
                 'expiration_date' => $expirationDate,
                 'status' => IncomingScheduleStatus::PENDING,
+                'unit_price' => $prices['unit_price'],
+                'case_price' => $prices['case_price'],
             ]);
 
             $incomingSchedules->push($schedule);
@@ -261,12 +272,20 @@ class OrderExecutionService
             ?? $this->calculateExpirationDate($data['item_id'], $data['expected_arrival_date']);
 
         $orderDate = $data['order_date'] ?? now()->format('Y-m-d');
+        $supplierId = $data['supplier_id'] ?? null;
+        $prices = $this->purchasePriceService->getPrice(
+            $data['item_id'],
+            $supplierId,
+            $data['warehouse_id'],
+            $orderDate
+        );
+
         $incomingSchedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $data['warehouse_id'],
             'item_id' => $data['item_id'],
             'search_code' => $searchCode,
             'contractor_id' => $data['contractor_id'],
-            'supplier_id' => $data['supplier_id'] ?? null,
+            'supplier_id' => $supplierId,
             'manual_order_number' => $data['order_number'] ?? null,
             'order_source' => OrderSource::MANUAL,
             'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
@@ -277,6 +296,8 @@ class OrderExecutionService
             'expected_arrival_date' => $data['expected_arrival_date'],
             'expiration_date' => $expirationDate,
             'status' => IncomingScheduleStatus::PENDING,
+            'unit_price' => $prices['unit_price'],
+            'case_price' => $prices['case_price'],
             'note' => $data['note'] ?? null,
         ]);
 

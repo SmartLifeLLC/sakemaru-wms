@@ -8,6 +8,7 @@ use App\Models\Sakemaru\LeadTime;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderFtpSetting;
 use App\Models\WmsOrderJxSetting;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -31,97 +32,107 @@ class ContractorForm
         return $schema
             ->components([
                 ...static::basicInfoSchema(),
+                ...static::transmissionSchema(),
                 ...static::mailSchema(),
             ]);
     }
 
     /**
-     * 基本情報 + WMS送信設定フィールド（Grid(2)で左右配置）
+     * 基本情報フィールド
      *
      * @return array<\Filament\Schemas\Components\Component>
      */
     public static function basicInfoSchema(): array
     {
         return [
-            Grid::make(2)->schema([
-                // 左カラム: 基本情報
-                Section::make('基本情報')
-                    ->schema([
-                        TextInput::make('code')
-                            ->label('発注先コード')
-                            ->required()
-                            ->unique(ignoreRecord: true)
-                            ->maxLength(255)
-                            ->placeholder('例: C001'),
+            Section::make('基本情報')
+                ->schema([
+                    TextInput::make('code')
+                        ->label('発注先コード')
+                        ->required()
+                        ->unique(ignoreRecord: true)
+                        ->maxLength(255)
+                        ->placeholder('例: C001'),
 
-                        TextInput::make('name')
-                            ->label('発注先名')
-                            ->required()
-                            ->maxLength(255)
-                            ->placeholder('例: 株式会社サンプル'),
+                    TextInput::make('name')
+                        ->label('発注先名')
+                        ->required()
+                        ->maxLength(255)
+                        ->placeholder('例: 株式会社サンプル'),
 
-                        TextInput::make('nickname')
-                            ->label('略称')
-                            ->maxLength(255)
-                            ->placeholder('例: サンプル'),
+                    TextInput::make('nickname')
+                        ->label('略称')
+                        ->maxLength(255)
+                        ->placeholder('例: サンプル'),
 
-                        TextInput::make('kana_name')
-                            ->label('カナ名')
-                            ->maxLength(255)
-                            ->placeholder('例: カブシキガイシャサンプル'),
+                    TextInput::make('kana_name')
+                        ->label('カナ名')
+                        ->maxLength(255)
+                        ->placeholder('例: カブシキガイシャサンプル'),
 
-                        TextInput::make('postal_code')
-                            ->label('郵便番号')
-                            ->maxLength(10)
-                            ->placeholder('例: 123-4567'),
+                    TextInput::make('postal_code')
+                        ->label('郵便番号')
+                        ->maxLength(10)
+                        ->placeholder('例: 123-4567'),
 
-                        TextInput::make('address1')
-                            ->label('住所1')
-                            ->maxLength(255)
-                            ->placeholder('例: 東京都渋谷区'),
+                    TextInput::make('address1')
+                        ->label('住所1')
+                        ->maxLength(255)
+                        ->placeholder('例: 東京都渋谷区'),
 
-                        TextInput::make('address2')
-                            ->label('住所2')
-                            ->maxLength(255)
-                            ->placeholder('例: 1-2-3 サンプルビル'),
+                    TextInput::make('address2')
+                        ->label('住所2')
+                        ->maxLength(255)
+                        ->placeholder('例: 1-2-3 サンプルビル'),
 
-                        TextInput::make('tel')
-                            ->label('電話番号')
-                            ->tel()
-                            ->maxLength(20)
-                            ->placeholder('例: 03-1234-5678'),
+                    TextInput::make('tel')
+                        ->label('電話番号')
+                        ->tel()
+                        ->maxLength(20)
+                        ->placeholder('例: 03-1234-5678'),
 
-                        TextInput::make('fax')
-                            ->label('FAX')
-                            ->maxLength(20)
-                            ->placeholder('例: 03-1234-5679'),
+                    TextInput::make('fax')
+                        ->label('FAX')
+                        ->maxLength(20)
+                        ->placeholder('例: 03-1234-5679'),
 
-                        Select::make('lead_time_id')
-                            ->label('リードタイム')
-                            ->options(fn () => LeadTime::get()
-                                ->mapWithKeys(fn ($lt) => [
-                                    $lt->id => "コード:{$lt->code} (日:{$lt->lead_time_sun} 月:{$lt->lead_time_mon} 火:{$lt->lead_time_tue} 水:{$lt->lead_time_wed} 木:{$lt->lead_time_thu} 金:{$lt->lead_time_fri} 土:{$lt->lead_time_sat})",
-                                ])
-                            )
-                            ->searchable()
-                            ->nullable(),
+                    Select::make('lead_time_id')
+                        ->label('リードタイム')
+                        ->options(fn () => LeadTime::get()
+                            ->mapWithKeys(fn ($lt) => [
+                                $lt->id => "コード:{$lt->code} (日:{$lt->lead_time_sun} 月:{$lt->lead_time_mon} 火:{$lt->lead_time_tue} 水:{$lt->lead_time_wed} 木:{$lt->lead_time_thu} 金:{$lt->lead_time_fri} 土:{$lt->lead_time_sat})",
+                            ])
+                        )
+                        ->searchable()
+                        ->nullable(),
 
-                        Toggle::make('is_active')
-                            ->label('有効')
-                            ->default(true)
-                            ->helperText('無効にすると選択できなくなります'),
-                    ])
-                    ->columns(3),
+                    Toggle::make('is_active')
+                        ->label('有効')
+                        ->default(true)
+                        ->helperText('無効にすると選択できなくなります'),
+                ])
+                ->columns(3),
+        ];
+    }
 
-                // 右カラム: 発注データ送信設定
-                Section::make('発注データ送信設定')
-                    ->icon('heroicon-o-paper-airplane')
-                    ->afterHeader([
-                        Toggle::make('wms_is_auto_transmission')
-                            ->label('自動生成')
-                            ->default(false),
-                    ])
-                    ->schema([
+    /**
+     * 送受信設定フィールド
+     *
+     * @return array<\Filament\Schemas\Components\Component>
+     */
+    public static function transmissionSchema(): array
+    {
+        return [
+            // 送信設定
+            Section::make('送信設定')
+                ->icon('heroicon-o-paper-airplane')
+                ->afterHeader([
+                    Toggle::make('wms_is_auto_transmission')
+                        ->label('自動生成')
+                        ->default(false),
+                ])
+                ->schema([
+                    Grid::make(3)->schema([
                         Select::make('wms_transmission_type')
                             ->label('送信方式')
                             ->options(collect(TransmissionType::cases())->mapWithKeys(fn ($t) => [$t->value => $t->label()]))
@@ -139,7 +150,7 @@ class ContractorForm
                             ->searchable()
                             ->nullable()
                             ->live()
-                            ->helperText('指定した発注先の送信データに本発注先の発注データを集約する（一つのファイルで送信したい場合）'),
+                            ->helperText('一つのファイルで送信したい場合'),
 
                         Select::make('wms_order_jx_setting_id')
                             ->label('JX設定')
@@ -165,48 +176,87 @@ class ContractorForm
                             ->visible(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::INTERNAL->value)
                             ->required(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::INTERNAL->value)
                             ->helperText('倉庫間移動の場合、供給元の倉庫を選択'),
-
-                        TextInput::make('wms_aggregation_note')
-                            ->label('スケジュール')
-                            ->disabled()
-                            ->default('集約先の設定にしたがいます')
-                            ->dehydrated(false)
-                            ->visible(fn (Get $get) => filled($get('wms_transmission_contractor_id'))),
-
-                        Grid::make(2)
-                            ->visible(fn (Get $get) => blank($get('wms_transmission_contractor_id')))
-                            ->schema([
-                                TextInput::make('wms_auto_order_generation_time')
-                                    ->label('自動発注生成時刻')
-                                    ->type('time')
-                                    ->nullable()
-                                    ->helperText('発注候補を自動生成する時刻'),
-
-                                TextInput::make('wms_transmission_time')
-                                    ->label('送信時刻')
-                                    ->type('time')
-                                    ->nullable()
-                                    ->helperText('指定しない場合は手動送信'),
-                            ]),
-
-                        Fieldset::make('送信曜日')
-                            ->visible(fn (Get $get) => blank($get('wms_transmission_contractor_id')))
-                            ->schema([
-                                Toggle::make('wms_is_transmission_mon')->label('月')->inline(false),
-                                Toggle::make('wms_is_transmission_tue')->label('火')->inline(false),
-                                Toggle::make('wms_is_transmission_wed')->label('水')->inline(false),
-                                Toggle::make('wms_is_transmission_thu')->label('木')->inline(false),
-                                Toggle::make('wms_is_transmission_fri')->label('金')->inline(false),
-                                Toggle::make('wms_is_transmission_sat')->label('土')->inline(false),
-                                Toggle::make('wms_is_transmission_sun')->label('日')->inline(false),
-                            ])
-                            ->columns(7),
-
-                        TextInput::make('wms_format_strategy_class')
-                            ->label('フォーマット戦略クラス')
-                            ->visible(false),
                     ]),
-            ]),
+
+                    TextInput::make('wms_aggregation_note')
+                        ->label('スケジュール')
+                        ->disabled()
+                        ->default('集約先の設定にしたがいます')
+                        ->dehydrated(false)
+                        ->visible(fn (Get $get) => filled($get('wms_transmission_contractor_id'))),
+
+                    Grid::make(2)
+                        ->visible(fn (Get $get) => blank($get('wms_transmission_contractor_id')))
+                        ->schema([
+                            TextInput::make('wms_auto_order_generation_time')
+                                ->label('自動発注生成時刻')
+                                ->type('time')
+                                ->nullable()
+                                ->helperText('発注候補を自動生成する時刻'),
+
+                            TextInput::make('wms_transmission_time')
+                                ->label('送信時刻')
+                                ->type('time')
+                                ->nullable()
+                                ->helperText('指定しない場合は手動送信'),
+                        ]),
+
+                    Fieldset::make('送信曜日')
+                        ->visible(fn (Get $get) => blank($get('wms_transmission_contractor_id')))
+                        ->schema([
+                            Toggle::make('wms_is_transmission_mon')->label('月')->inline(false),
+                            Toggle::make('wms_is_transmission_tue')->label('火')->inline(false),
+                            Toggle::make('wms_is_transmission_wed')->label('水')->inline(false),
+                            Toggle::make('wms_is_transmission_thu')->label('木')->inline(false),
+                            Toggle::make('wms_is_transmission_fri')->label('金')->inline(false),
+                            Toggle::make('wms_is_transmission_sat')->label('土')->inline(false),
+                            Toggle::make('wms_is_transmission_sun')->label('日')->inline(false),
+                        ])
+                        ->columns(7),
+
+                    TextInput::make('wms_format_strategy_class')
+                        ->label('フォーマット戦略クラス')
+                        ->visible(false),
+                ]),
+
+            // 受信設定
+            Section::make('受信設定')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->schema([
+                    Grid::make(3)->schema([
+                        Toggle::make('wms_is_receive_enabled')
+                            ->label('自動受信')
+                            ->live(),
+
+                        Select::make('wms_receive_format')
+                            ->label('受信形式')
+                            ->options([
+                                'JX' => 'JX（128バイト固定長）',
+                                'CSV' => 'CSV',
+                            ])
+                            ->default('JX')
+                            ->visible(fn (Get $get) => $get('wms_is_receive_enabled')),
+
+                        TextInput::make('wms_receive_time')
+                            ->label('受信時刻')
+                            ->type('time')
+                            ->visible(fn (Get $get) => $get('wms_is_receive_enabled'))
+                            ->required(fn (Get $get) => $get('wms_is_receive_enabled')),
+                    ]),
+
+                    Fieldset::make('受信曜日')
+                        ->visible(fn (Get $get) => $get('wms_is_receive_enabled'))
+                        ->schema([
+                            Checkbox::make('wms_is_receive_mon')->label('月')->inline(),
+                            Checkbox::make('wms_is_receive_tue')->label('火')->inline(),
+                            Checkbox::make('wms_is_receive_wed')->label('水')->inline(),
+                            Checkbox::make('wms_is_receive_thu')->label('木')->inline(),
+                            Checkbox::make('wms_is_receive_fri')->label('金')->inline(),
+                            Checkbox::make('wms_is_receive_sat')->label('土')->inline(),
+                            Checkbox::make('wms_is_receive_sun')->label('日')->inline(),
+                        ])
+                        ->columns(7),
+                ]),
         ];
     }
 

@@ -4,11 +4,13 @@ namespace App\Filament\Resources\WmsIncomingReceivedData\Pages;
 
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsIncomingReceivedData\WmsIncomingReceivedDataResource;
+use App\Services\AutoOrder\IncomingParsers\ActCsvIncomingParser;
 use App\Services\AutoOrder\IncomingReceiveService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
@@ -43,10 +45,10 @@ class ListWmsIncomingReceivedData extends ListRecords
                         ->maxSize(10240),
                 ])
                 ->action(function (array $data) {
-                    $filePath = storage_path('app/private/' . $data['jx_file']);
+                    $filePath = storage_path('app/private/'.$data['jx_file']);
                     if (! file_exists($filePath)) {
                         // Filament 4ではprivateなしのパスの場合もある
-                        $filePath = storage_path('app/' . $data['jx_file']);
+                        $filePath = storage_path('app/'.$data['jx_file']);
                     }
 
                     if (! file_exists($filePath)) {
@@ -79,6 +81,69 @@ class ListWmsIncomingReceivedData extends ListRecords
                             ->send();
                     } finally {
                         // 一時ファイル削除
+                        @unlink($filePath);
+                    }
+                }),
+
+            Action::make('uploadCsvFile')
+                ->label('CSVデータ取込')
+                ->icon('heroicon-o-document-arrow-up')
+                ->color('success')
+                ->modalHeading('CSVデータの取込')
+                ->modalDescription('発注先出荷実績CSVファイル（Shift_JIS、カンマ区切り）をアップロードしてください。')
+                ->schema([
+                    Radio::make('contractor_id')
+                        ->label('発注先')
+                        ->options([
+                            '1497' => 'アクト中食（1497）',
+                        ])
+                        ->required()
+                        ->default('1497'),
+
+                    FileUpload::make('csv_file')
+                        ->label('CSVファイル')
+                        ->required()
+                        ->disk('local')
+                        ->directory('temp/csv-incoming')
+                        ->acceptedFileTypes(['text/csv', 'text/plain', 'application/octet-stream', '.csv'])
+                        ->maxSize(10240),
+                ])
+                ->action(function (array $data) {
+                    $filePath = storage_path('app/private/'.$data['csv_file']);
+                    if (! file_exists($filePath)) {
+                        $filePath = storage_path('app/'.$data['csv_file']);
+                    }
+
+                    if (! file_exists($filePath)) {
+                        Notification::make()
+                            ->title('ファイルが見つかりません')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
+                    $content = file_get_contents($filePath);
+                    $filename = basename($data['csv_file']);
+                    $contractorCode = $data['contractor_id'];
+                    $contractorId = \App\Models\Sakemaru\Contractor::where('code', $contractorCode)->value('id');
+
+                    try {
+                        $parser = new ActCsvIncomingParser;
+                        $file = $parser->parse($content, $filename, $contractorId);
+
+                        Notification::make()
+                            ->title('CSVデータを取り込みました')
+                            ->body("伝票数: {$file->parsed_slip_count}件 / 明細数: {$file->parsed_detail_count}件")
+                            ->success()
+                            ->send();
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('取込エラー')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    } finally {
                         @unlink($filePath);
                     }
                 }),

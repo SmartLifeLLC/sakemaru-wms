@@ -49,6 +49,12 @@ class WmsOrderIncomingSchedule extends WmsModel
         'confirmed_at',
         'confirmed_by',
         'is_receive_matched',
+        'shipped_quantity',
+        'unit_price',
+        'case_price',
+        'partner_unit_price',
+        'partner_case_price',
+        'price_type',
         'shortage_quantity',
         'purchase_queue_id',
         'purchase_slip_number',
@@ -70,6 +76,11 @@ class WmsOrderIncomingSchedule extends WmsModel
         'quantity_type' => QuantityType::class,
         'is_receive_matched' => 'boolean',
         'shortage_quantity' => 'integer',
+        'shipped_quantity' => 'integer',
+        'unit_price' => 'decimal:2',
+        'case_price' => 'decimal:2',
+        'partner_unit_price' => 'decimal:2',
+        'partner_case_price' => 'decimal:2',
     ];
 
     // Relationships

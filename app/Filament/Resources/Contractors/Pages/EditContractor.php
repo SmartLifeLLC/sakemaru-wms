@@ -63,6 +63,10 @@ class EditContractor extends EditRecord
                             ->icon('heroicon-o-information-circle')
                             ->schema(ContractorForm::basicInfoSchema()),
 
+                        Tab::make('送受信設定')
+                            ->icon('heroicon-o-arrows-right-left')
+                            ->schema(ContractorForm::transmissionSchema()),
+
                         Tab::make('発注メール設定')
                             ->icon('heroicon-o-envelope')
                             ->schema(ContractorForm::mailSchema()),
@@ -131,6 +135,16 @@ class EditContractor extends EditRecord
             $data['wms_is_auto_transmission'] = $wmsSetting->is_auto_transmission;
             $data['wms_transmission_contractor_id'] = $wmsSetting->transmission_contractor_id;
             $data['wms_format_strategy_class'] = $wmsSetting->format_strategy_class;
+            $data['wms_is_receive_enabled'] = $wmsSetting->is_receive_enabled;
+            $data['wms_receive_format'] = $wmsSetting->receive_format;
+            $data['wms_receive_time'] = $wmsSetting->receive_time;
+            $data['wms_is_receive_mon'] = $wmsSetting->is_receive_mon;
+            $data['wms_is_receive_tue'] = $wmsSetting->is_receive_tue;
+            $data['wms_is_receive_wed'] = $wmsSetting->is_receive_wed;
+            $data['wms_is_receive_thu'] = $wmsSetting->is_receive_thu;
+            $data['wms_is_receive_fri'] = $wmsSetting->is_receive_fri;
+            $data['wms_is_receive_sat'] = $wmsSetting->is_receive_sat;
+            $data['wms_is_receive_sun'] = $wmsSetting->is_receive_sun;
         }
 
         return $data;
@@ -161,6 +175,16 @@ class EditContractor extends EditRecord
             'is_auto_transmission' => $data['wms_is_auto_transmission'] ?? false,
             'transmission_contractor_id' => $data['wms_transmission_contractor_id'] ?? null,
             'format_strategy_class' => $data['wms_format_strategy_class'] ?? null,
+            'is_receive_enabled' => $data['wms_is_receive_enabled'] ?? false,
+            'receive_format' => $data['wms_receive_format'] ?? null,
+            'receive_time' => $data['wms_receive_time'] ?? null,
+            'is_receive_mon' => $data['wms_is_receive_mon'] ?? false,
+            'is_receive_tue' => $data['wms_is_receive_tue'] ?? false,
+            'is_receive_wed' => $data['wms_is_receive_wed'] ?? false,
+            'is_receive_thu' => $data['wms_is_receive_thu'] ?? false,
+            'is_receive_fri' => $data['wms_is_receive_fri'] ?? false,
+            'is_receive_sat' => $data['wms_is_receive_sat'] ?? false,
+            'is_receive_sun' => $data['wms_is_receive_sun'] ?? false,
         ];
 
         $wmsSetting = WmsContractorSetting::findOrCreateByContractor($this->record->id);

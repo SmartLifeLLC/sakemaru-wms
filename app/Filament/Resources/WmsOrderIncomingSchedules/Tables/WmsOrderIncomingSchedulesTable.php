@@ -174,6 +174,14 @@ class WmsOrderIncomingSchedulesTable
                     ->alignEnd()
                     ->width('70px'),
 
+                TextColumn::make('shipped_quantity')
+                    ->label('発注先出荷実績')
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('70px')
+                    ->placeholder('-')
+                    ->color(fn ($record) => $record->shipped_quantity > 0 && $record->shipped_quantity < $record->expected_quantity ? 'warning' : null),
+
                 TextColumn::make('remaining')
                     ->label('残数')
                     ->state(fn ($record) => $record->remaining_quantity)
@@ -239,6 +247,44 @@ class WmsOrderIncomingSchedulesTable
                     ->color(fn ($state) => $state ? 'success' : 'gray')
                     ->alignCenter()
                     ->width('50px'),
+
+                TextColumn::make('unit_price')
+                    ->label('自社単価')
+                    ->money('JPY')
+                    ->alignEnd()
+                    ->width('90px')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('partner_unit_price')
+                    ->label('仕入先単価')
+                    ->money('JPY')
+                    ->alignEnd()
+                    ->width('90px')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('price_mismatch')
+                    ->label('単価差')
+                    ->state(function ($record) {
+                        if ($record->price_type === 'CASE') {
+                            if ($record->case_price !== null && $record->partner_case_price !== null
+                                && (float) $record->case_price !== (float) $record->partner_case_price) {
+                                return '不一致';
+                            }
+                        } elseif ($record->price_type === 'PIECE') {
+                            if ($record->unit_price !== null && $record->partner_unit_price !== null
+                                && (float) $record->unit_price !== (float) $record->partner_unit_price) {
+                                return '不一致';
+                            }
+                        }
+
+                        return null;
+                    })
+                    ->badge()
+                    ->color('warning')
+                    ->placeholder('-')
+                    ->alignCenter()
+                    ->width('60px')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('quantity_type')
                     ->label('単位')

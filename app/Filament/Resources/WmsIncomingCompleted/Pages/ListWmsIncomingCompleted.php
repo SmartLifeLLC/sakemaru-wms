@@ -100,6 +100,11 @@ class ListWmsIncomingCompleted extends ListRecords
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('order_source', 'MANUAL'))
                 ->favorite()
                 ->label('手動発注'),
+
+            'received' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('order_source', 'RECEIVED'))
+                ->favorite()
+                ->label('発注なし（発注先出荷実績）'),
         ];
     }
 }
