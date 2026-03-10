@@ -242,7 +242,7 @@
             });
         }
     }"
-    x-init="$nextTick(async () => { await initMap(); if (map) { setTimeout(() => map.invalidateSize(), 200); setTimeout(() => map.invalidateSize(), 600); } $watch('state', () => updateRoute(), { deep: true }); })"
+    x-init="$nextTick(async () => { await initMap(); if (map) { setTimeout(() => map.invalidateSize(), 200); setTimeout(() => map.invalidateSize(), 600); } updateRoute(); $watch('state', () => updateRoute(), { deep: true }); })"
     >
         <!-- 2カラムレイアウト: 左=情報＋フォーム / 右=マップ -->
         <div class="grid grid-cols-12 gap-4 -mt-2" style="height: 78vh;">

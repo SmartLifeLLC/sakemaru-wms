@@ -37,6 +37,26 @@ class WarehouseResolver
     }
 
     /**
+     * 指定倉庫と同一実倉庫に属する全倉庫IDを取得
+     *
+     * 例: resolveAllWarehouseIds(91) → [91, 92, 93]
+     *     (91=実倉庫, 92,93=91をstock_warehouse_idとして持つ仮想倉庫)
+     */
+    public static function resolveAllWarehouseIds(int $warehouseId): array
+    {
+        $realId = self::resolveRealWarehouseId($warehouseId);
+
+        return DB::connection('sakemaru')
+            ->table('warehouses')
+            ->where(function ($q) use ($realId) {
+                $q->where('id', $realId)
+                    ->orWhere('stock_warehouse_id', $realId);
+            })
+            ->pluck('id')
+            ->toArray();
+    }
+
+    /**
      * 倉庫IDから実倉庫のコードを取得する
      */
     public static function getRealWarehouseCode(int $warehouseId): ?string

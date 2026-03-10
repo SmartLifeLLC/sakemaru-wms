@@ -704,6 +704,9 @@ class GenerateWavesCommand extends Command
         int $warehouseId,
         int $deliveryCourseId
     ) {
+        // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
+        $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
+
         return DB::connection('sakemaru')
             ->table('stock_transfers as st')
             ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
@@ -713,7 +716,7 @@ class GenerateWavesCommand extends Command
             ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
             ->where('st.is_active', true)
             ->where('st.picking_status', 'BEFORE')
-            ->where('st.from_warehouse_id', $warehouseId)
+            ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->where('st.delivery_course_id', $deliveryCourseId)
             // 仮想倉庫間移動は対象外
             ->where(function ($query) {

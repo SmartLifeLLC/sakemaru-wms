@@ -212,7 +212,6 @@ class WmsShortagesWaitingApprovalsTable
                     ->label('欠品編集')
                     ->icon('heroicon-o-truck')
                     ->color('warning')
-                    ->hidden(fn (WmsShortage $record) => $record->is_confirmed)
                     ->modalHeading('欠品対応-横持ち出荷指示')
                     ->modalSubmitActionLabel('保存')
                     ->modalWidth('7xl')

@@ -681,6 +681,7 @@ class WmsShortagesTable
                     )
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
+                    ->modalWidth('7xl')
                     ->schema([
                         Section::make('商品情報')
                             ->schema([
@@ -831,6 +832,106 @@ class WmsShortagesTable
                                     ];
                                 })->toArray();
                             }),
+
+                        Section::make('配送ルート')
+                            ->schema([
+                                View::make('filament.components.proxy-shipment-route-map')
+                                    ->viewData(function (WmsShortage $record): array {
+                                        // 確定済み横持ち出荷倉庫IDを取得
+                                        $selectedWarehouseIds = $record->allocations()
+                                            ->whereNotIn('status', ['CANCELLED'])
+                                            ->pluck('target_warehouse_id')
+                                            ->map(fn ($id) => (int) $id)
+                                            ->unique()
+                                            ->values()
+                                            ->toArray();
+
+                                        // マップ用位置情報データ
+                                        $locations = [];
+
+                                        // 1. 出発倉庫（departure）
+                                        $departureWarehouse = $record->warehouse;
+                                        if ($departureWarehouse && $departureWarehouse->latitude && $departureWarehouse->longitude) {
+                                            $locations[] = [
+                                                'id' => $departureWarehouse->id,
+                                                'name' => $departureWarehouse->name,
+                                                'lat' => (float) $departureWarehouse->latitude,
+                                                'lng' => (float) $departureWarehouse->longitude,
+                                                'type' => 'departure',
+                                            ];
+                                        }
+
+                                        // 2. 横持ち出荷倉庫（warehouse）
+                                        $proxyWarehouses = \DB::connection('sakemaru')
+                                            ->table('warehouses')
+                                            ->join('ret_stores', 'warehouses.code', '=', 'ret_stores.code')
+                                            ->whereNotNull('ret_stores.pos_store_code')
+                                            ->whereNotNull('warehouses.latitude')
+                                            ->whereNotNull('warehouses.longitude')
+                                            ->where('warehouses.id', '!=', $record->warehouse_id)
+                                            ->select('warehouses.id', 'warehouses.name', 'warehouses.latitude', 'warehouses.longitude')
+                                            ->get();
+
+                                        // 在庫情報を取得
+                                        $stocks = \DB::connection('sakemaru')
+                                            ->table('real_stocks')
+                                            ->select([
+                                                'real_stocks.warehouse_id',
+                                                \DB::raw('SUM(real_stocks.current_quantity) as total_pieces'),
+                                            ])
+                                            ->where('real_stocks.item_id', $record->item_id)
+                                            ->where('real_stocks.current_quantity', '>', 0)
+                                            ->groupBy('real_stocks.warehouse_id')
+                                            ->pluck('total_pieces', 'warehouse_id');
+
+                                        $caseSize = $record->item->capacity_case ?? 1;
+
+                                        foreach ($proxyWarehouses as $wh) {
+                                            $stockInfo = null;
+                                            if ($stocks->has($wh->id)) {
+                                                $totalPieces = (int) $stocks->get($wh->id);
+                                                $cases = floor($totalPieces / $caseSize);
+                                                $stockInfo = $cases.'CS / '.$totalPieces.'バラ';
+                                            }
+                                            $locations[] = [
+                                                'id' => (int) $wh->id,
+                                                'name' => $wh->name,
+                                                'lat' => (float) $wh->latitude,
+                                                'lng' => (float) $wh->longitude,
+                                                'type' => 'warehouse',
+                                                'stock_info' => $stockInfo,
+                                            ];
+                                        }
+
+                                        // 3. 納品先（customer）: 同一配送コース内の得意先
+                                        if ($record->wave_id && $record->delivery_course_id) {
+                                            $courseShortages = WmsShortage::where('wave_id', $record->wave_id)
+                                                ->where('delivery_course_id', $record->delivery_course_id)
+                                                ->with('trade.partner')
+                                                ->get();
+
+                                            $addedPartnerIds = [];
+                                            foreach ($courseShortages as $s) {
+                                                $partner = $s->trade?->partner;
+                                                if ($partner && $partner->latitude && $partner->longitude && ! in_array($partner->id, $addedPartnerIds)) {
+                                                    $locations[] = [
+                                                        'id' => $partner->id,
+                                                        'name' => $partner->name,
+                                                        'lat' => (float) $partner->latitude,
+                                                        'lng' => (float) $partner->longitude,
+                                                        'type' => 'customer',
+                                                    ];
+                                                    $addedPartnerIds[] = $partner->id;
+                                                }
+                                            }
+                                        }
+
+                                        return [
+                                            'locations' => $locations,
+                                            'selected_warehouse_ids' => $selectedWarehouseIds,
+                                        ];
+                                    }),
+                            ]),
                     ]),
             ])
             ->selectCurrentPageOnly()

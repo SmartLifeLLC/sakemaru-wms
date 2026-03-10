@@ -90,7 +90,7 @@ class PickingRouteVisualization extends Page
         $this->selectedDate = now()->format('Y-m-d');
 
         // Set default warehouse if available
-        $firstWarehouse = Warehouse::where('is_active', true)->orderBy('code')->first();
+        $firstWarehouse = Warehouse::where('is_active', true)->where('is_virtual', false)->orderBy('code')->first();
         if ($firstWarehouse) {
             $this->selectedWarehouseId = $firstWarehouse->id;
 
@@ -236,6 +236,7 @@ class PickingRouteVisualization extends Page
     public function warehouses()
     {
         return Warehouse::where('is_active', true)
+            ->where('is_virtual', false)
             ->orderBy('code')
             ->get(['id', 'code', 'name']);
     }
