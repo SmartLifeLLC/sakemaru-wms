@@ -11,13 +11,15 @@ use App\Models\WmsAdminOperationLog;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
+use App\Services\PickingList\PickingListPdfService;
+use App\Services\PickingList\PickingListService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Enums\RecordActionsPosition;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -419,6 +421,34 @@ class WmsPickingTasksTable
                     ->color('primary')
                     ->url(fn ($record) => WmsPickingTaskResource::getUrl('execute', ['record' => $record->id]))
                     ->visible(fn ($record) => in_array($record->status, ['PICKING_READY', 'PICKING'])),
+
+                Action::make('printSecondaryList')
+                    ->label('2次リスト')
+                    ->icon('heroicon-o-printer')
+                    ->color('info')
+                    ->action(function ($record) {
+                        try {
+                            $service = new PickingListService;
+                            $data = $service->generateSecondaryList($record->id);
+
+                            if (empty($data['items'])) {
+                                Notification::make()->title('ピッキング明細がありません')->warning()->send();
+
+                                return;
+                            }
+
+                            $pdfService = new PickingListPdfService;
+                            $pdf = $pdfService->renderSecondaryPdf($data);
+
+                            return response()->streamDownload(
+                                fn () => print ($pdf),
+                                "picking-list-2nd-{$record->id}.pdf",
+                                ['Content-Type' => 'application/pdf']
+                            );
+                        } catch (\Exception $e) {
+                            Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
+                        }
+                    }),
 
                 //                Action::make('change_delivery_course')
                 //                    ->label('一括コース変更')

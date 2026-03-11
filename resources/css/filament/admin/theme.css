@@ -631,3 +631,34 @@ html.fi {
 .picker-assign-modal .fi-modal-footer > * {
     justify-content: flex-end !important;
 }
+
+/* ピッキングリスト出力モーダル - ヘッダー紺色 */
+.picking-list-modal .fi-modal-header {
+    background-color: #1e293b !important;
+    border-radius: 0.75rem 0.75rem 0 0;
+    padding: 0.75rem 1rem;
+}
+
+.picking-list-modal .fi-modal-header .fi-modal-heading {
+    color: #ffffff !important;
+}
+
+.picking-list-modal .fi-modal-header .fi-modal-description {
+    color: #94a3b8 !important;
+}
+
+.picking-list-modal .fi-modal-header .fi-modal-close-btn {
+    color: #ffffff !important;
+}
+
+.picking-list-modal .fi-modal-header .fi-modal-close-btn:hover {
+    color: #cbd5e1 !important;
+}
+
+.picking-list-modal .fi-modal-footer {
+    justify-content: flex-end !important;
+}
+
+.picking-list-modal .fi-modal-footer > * {
+    justify-content: flex-end !important;
+}
