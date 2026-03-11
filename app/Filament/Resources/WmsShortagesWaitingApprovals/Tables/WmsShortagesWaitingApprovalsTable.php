@@ -22,6 +22,7 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -34,7 +35,7 @@ class WmsShortagesWaitingApprovalsTable
     {
         return $table
             ->striped()
-            ->extraAttributes(['class' => 'sticky-actions'])
+            ->extraAttributes(['class' => 'sticky-actions-left'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -750,7 +751,7 @@ class WmsShortagesWaitingApprovalsTable
                                 ->send();
                         }
                     }),
-            ])
+            ], position: RecordActionsPosition::BeforeColumns)
             ->bulkActions([
                 BulkActionGroup::make([
                     BulkAction::make('confirmShortage')

@@ -31,7 +31,8 @@ class ListWmsShipmentSlips extends ListRecords
     {
         return [
             'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', ClientSetting::systemDateYMD()))->favorite()->label('当日')->default(),
-            'all' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', ClientSetting::systemYesterdayYMD()))->favorite()->label('前日')->default(),
+            'yesterday' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', ClientSetting::systemYesterdayYMD()))->favorite()->label('前日'),
+            'all' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query)->favorite()->label('ALL'),
         ];
     }
 

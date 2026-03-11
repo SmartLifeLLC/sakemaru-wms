@@ -7,7 +7,6 @@ use App\Enums\EWMSLogTargetType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsPickingTasks\Widgets\PickingTaskInfoWidget;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingItemEditResource;
-use App\Filament\Widgets\PendingTasksWidget;
 use App\Models\WmsAdminOperationLog;
 use App\Models\WmsPickingTask;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -295,28 +294,7 @@ class ListWmsPickingItemEdits extends ListRecords
 
     protected function getFooterWidgets(): array
     {
-        if (! $this->pickingTaskId) {
-            return [];
-        }
-
-        $task = WmsPickingTask::find($this->pickingTaskId);
-
-        if (! $task) {
-            return [];
-        }
-
-        // Show pending tasks widget for PENDING and PICKING_READY statuses
-        // so users can navigate to next task after completing preparation
-        if (! in_array($task->status, [WmsPickingTask::STATUS_PENDING, WmsPickingTask::STATUS_PICKING_READY])) {
-            return [];
-        }
-
-        return [
-            PendingTasksWidget::make([
-                'warehouseId' => $task->warehouse_id,
-                'currentTaskId' => (int) $this->pickingTaskId,
-            ]),
-        ];
+        return [];
     }
 
     public function getFooterWidgetsColumns(): int|array

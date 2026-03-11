@@ -49,7 +49,13 @@ php artisan make:migration     # マイグレーション作成 → OK
    - データベース設計
    - ビジネスロジック
 
-3. **欠品管理仕様**: `storage/specifications/wms-shortage-allocations/20251115-shorage-algorithm.md`
+3. **モーダルデザイン仕様**: `storage/specifications/20260311/modal-design/spec.md`
+   - 新規モーダル作成時は必ず参照すること
+   - 共通Bladeコンポーネント (`components/modal/*`) を使用
+   - 6種類のモーダルタイプ別テンプレート
+   - フォーム要素・ボタン・バッジの統一スタイル
+
+4. **欠品管理仕様**: `storage/specifications/wms-shortage-allocations/20251115-shorage-algorithm.md`
    - 欠品検出と代理出荷のアルゴリズム
    - データ構造と状態管理
 

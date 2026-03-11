@@ -17,6 +17,7 @@ use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -30,7 +31,7 @@ class WmsPickingTasksTable
     {
         return $table
             ->striped()
-            ->extraAttributes(['class' => 'sticky-actions'])
+            ->extraAttributes(['class' => 'sticky-actions-left'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -399,13 +400,6 @@ class WmsPickingTasksTable
                     }),
             ])
             ->recordActions([
-                Action::make('execute')
-                    ->label('ピッキング実施')
-                    ->icon('heroicon-o-play')
-                    ->color('primary')
-                    ->url(fn ($record) => WmsPickingTaskResource::getUrl('execute', ['record' => $record->id]))
-                    ->visible(fn ($record) => in_array($record->status, ['PICKING_READY', 'PICKING'])),
-
                 Action::make('edit_items')
                     ->label('明細確認')
                     ->icon('heroicon-o-list-bullet')
@@ -418,6 +412,13 @@ class WmsPickingTasksTable
                         ],
                     ]))
                     ->visible(fn ($record) => $isWaitingView),
+
+                Action::make('execute')
+                    ->label('ピッキング実施')
+                    ->icon('heroicon-o-play')
+                    ->color('primary')
+                    ->url(fn ($record) => WmsPickingTaskResource::getUrl('execute', ['record' => $record->id]))
+                    ->visible(fn ($record) => in_array($record->status, ['PICKING_READY', 'PICKING'])),
 
                 //                Action::make('change_delivery_course')
                 //                    ->label('一括コース変更')
@@ -697,7 +698,7 @@ class WmsPickingTasksTable
                 //                    })
                 //                    ->visible(fn ($record) => !$isWaitingView && !$isCompletedView),
 
-            ])
+            ], position: RecordActionsPosition::BeforeColumns)
             ->defaultSort('created_at', 'desc')
             ->checkIfRecordIsSelectableUsing(fn ($record) => $record->status !== WmsPickingTask::STATUS_COMPLETED)
             ->bulkActions([

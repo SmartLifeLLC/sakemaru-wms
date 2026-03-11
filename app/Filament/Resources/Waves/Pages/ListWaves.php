@@ -12,12 +12,11 @@ use App\Models\WmsPickingItemResult;
 use App\Services\StockAllocationService;
 use App\Services\WarehouseResolver;
 use Filament\Actions\Action;
-use Filament\Forms\Components\CheckboxList;
-use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
-use Filament\Forms\Components\Select;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
@@ -41,29 +40,49 @@ class ListWaves extends ListRecords
                 ->modalHeading('出荷波動生成')
                 ->modalDescription('対象伝票を選択して波動を生成します。同じ時間帯に既存の波動がある場合でも、新規波動として生成されます。')
                 ->modalSubmitActionLabel('波動を生成')
-                ->modalWidth('4xl')
-                ->form([
-                    Select::make('warehouse_id')
-                        ->label('倉庫')
-                        ->options(Warehouse::query()->where('is_virtual', false)->pluck('name', 'id'))
-                        ->default(fn () => auth()->user()?->default_warehouse_id)
-                        ->required()
-                        ->live(),
+                ->modalWidth('6xl')
+                ->extraModalWindowAttributes(['class' => 'wave-modal'])
+                ->schema([
+                    Grid::make(2)->schema([
+                        ViewField::make('warehouse_id')
+                            ->label('倉庫')
+                            ->view('filament.forms.components.warehouse-select')
+                            ->viewData([
+                                'warehouses' => Warehouse::query()
+                                    ->where('is_virtual', false)
+                                    ->orderBy('code')
+                                    ->get()
+                                    ->map(fn ($w) => [
+                                        'id' => $w->id,
+                                        'code' => $w->code,
+                                        'name' => $w->name,
+                                        'label' => "[{$w->code}] {$w->name}",
+                                    ])
+                                    ->values()
+                                    ->toArray(),
+                            ])
+                            ->default(fn () => auth()->user()?->default_warehouse_id)
+                            ->required()
+                            ->live(),
 
-                    DatePicker::make('shipping_date')
-                        ->label('出荷日')
-                        ->default(fn () => ClientSetting::systemDate()->format('Y-m-d'))
-                        ->required()
-                        ->live(),
+                        ViewField::make('shipping_date')
+                            ->label('出荷日')
+                            ->view('filament.forms.components.date-input')
+                            ->default(fn () => ClientSetting::systemDate()->format('Y-m-d'))
+                            ->required()
+                            ->live(),
+                    ]),
 
-                    CheckboxList::make('delivery_course_ids')
+                    Grid::make(2)->schema([
+                    ViewField::make('delivery_course_ids')
                         ->label('配送コース')
-                        ->options(function (Get $get): array {
+                        ->view('filament.forms.components.checkbox-grid')
+                        ->viewData(function (Get $get): array {
                             $warehouseId = $get('warehouse_id');
                             $shippingDate = $get('shipping_date');
 
                             if (! $warehouseId || ! $shippingDate) {
-                                return [];
+                                return ['options' => []];
                             }
 
                             // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
@@ -117,18 +136,20 @@ class ListWaves extends ListRecords
                                 $name = $earningData->course_name ?? $stockTransferData->course_name ?? '不明';
                                 $earningCount = $earningData->count ?? 0;
                                 $stCount = $stockTransferData->count ?? 0;
-                                $options[$courseId] = "[{$code}] {$name}（売上{$earningCount}件 / 移動{$stCount}件）";
+                                $options[] = [
+                                    'id' => $courseId,
+                                    'label' => "[{$code}] {$name}（売上{$earningCount} / 移動{$stCount}）",
+                                ];
                             }
 
                             // コースコード順にソート
-                            asort($options);
+                            usort($options, fn ($a, $b) => strcmp($a['label'], $b['label']));
 
-                            return $options;
+                            return ['options' => $options];
                         })
                         ->required()
                         ->live()
-                        ->visible(fn (Get $get) => $get('warehouse_id') && $get('shipping_date'))
-                        ->columns(1),
+                        ->visible(fn (Get $get) => $get('warehouse_id') && $get('shipping_date')),
 
                     Placeholder::make('earnings_preview')
                         ->label('対象伝票')
@@ -138,11 +159,11 @@ class ListWaves extends ListRecords
                             $deliveryCourseIds = $get('delivery_course_ids');
 
                             if (! $warehouseId || ! $shippingDate) {
-                                return new HtmlString('<div class="text-gray-500">倉庫と出荷日を選択してください</div>');
+                                return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-warehouse text-2xl mb-2"></i><p class="text-sm">倉庫と出荷日を選択してください</p></div>');
                             }
 
                             if (empty($deliveryCourseIds)) {
-                                return new HtmlString('<div class="text-gray-500">配送コースを選択してください</div>');
+                                return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-route text-2xl mb-2"></i><p class="text-sm">配送コースを選択してください</p></div>');
                             }
 
                             // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
@@ -193,7 +214,7 @@ class ListWaves extends ListRecords
 
                             // 両方とも空の場合
                             if ($earningSummary->isEmpty() && $stockTransferSummary->isEmpty()) {
-                                return new HtmlString('<div class="text-gray-500">選択した配送コースに対象伝票がありません</div>');
+                                return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">選択した配送コースに対象伝票がありません</p></div>');
                             }
 
                             // Merge summaries by delivery course
@@ -219,41 +240,46 @@ class ListWaves extends ListRecords
 
                             $html = '<div class="space-y-3">';
 
-                            // Summary by delivery course
-                            $html .= '<div class="overflow-x-auto"><table class="w-full text-sm border-collapse">';
-                            $html .= '<thead><tr class="bg-gray-100 dark:bg-gray-800">';
-                            $html .= '<th class="border px-3 py-2 text-left">配送コース</th>';
-                            $html .= '<th class="border px-3 py-2 text-right">売上伝票</th>';
-                            $html .= '<th class="border px-3 py-2 text-right">移動伝票</th>';
-                            $html .= '<th class="border px-3 py-2 text-right">合計</th>';
-                            $html .= '</tr></thead><tbody>';
+                            // Summary table with max-height scroll
+                            $html .= '<div class="border border-slate-200 dark:border-gray-700 rounded-lg overflow-hidden">';
+                            $html .= '<div class="max-h-60 overflow-y-auto">';
+                            $html .= '<table class="w-full text-sm">';
+                            $html .= '<thead class="bg-slate-50 dark:bg-gray-900 sticky top-0 z-10">';
+                            $html .= '<tr>';
+                            $html .= '<th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">配送コース</th>';
+                            $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">売上伝票</th>';
+                            $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">移動伝票</th>';
+                            $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">合計</th>';
+                            $html .= '</tr></thead>';
+                            $html .= '<tbody class="divide-y divide-slate-200 dark:divide-gray-700">';
 
                             foreach ($mergedSummary as $row) {
                                 $rowTotal = $row['earning_count'] + $row['stock_transfer_count'];
-                                $html .= '<tr class="hover:bg-gray-50 dark:hover:bg-gray-700">';
-                                $html .= "<td class=\"border px-3 py-2\">{$row['course_name']}</td>";
-                                $html .= "<td class=\"border px-3 py-2 text-right\">{$row['earning_count']}件</td>";
-                                $html .= "<td class=\"border px-3 py-2 text-right text-purple-600 dark:text-purple-400\">{$row['stock_transfer_count']}件</td>";
-                                $html .= "<td class=\"border px-3 py-2 text-right font-medium\">{$rowTotal}件</td>";
+                                $html .= '<tr class="hover:bg-slate-50 dark:hover:bg-gray-700 transition-colors">';
+                                $html .= "<td class=\"px-3 py-2 text-sm text-slate-700 dark:text-gray-300\">{$row['course_name']}</td>";
+                                $html .= "<td class=\"px-3 py-2 text-sm text-right text-slate-700 dark:text-gray-300\">{$row['earning_count']}件</td>";
+                                $html .= "<td class=\"px-3 py-2 text-sm text-right text-purple-600 dark:text-purple-400\">{$row['stock_transfer_count']}件</td>";
+                                $html .= "<td class=\"px-3 py-2 text-sm text-right font-bold text-slate-800 dark:text-gray-200\">{$rowTotal}件</td>";
                                 $html .= '</tr>';
                             }
 
-                            $html .= '</tbody></table></div>';
+                            $html .= '</tbody></table></div></div>';
 
-                            // Total
-                            $html .= '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">';
-                            $html .= '<span class="font-medium">合計</span>';
-                            $html .= '<div class="text-right">';
-                            $html .= '<span class="text-sm text-gray-600 dark:text-gray-400 mr-4">売上: '.$totalEarningCount.'件</span>';
-                            $html .= '<span class="text-sm text-purple-600 dark:text-purple-400 mr-4">移動: '.$totalStockTransferCount.'件</span>';
+                            // Total summary bar
+                            $html .= '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">';
+                            $html .= '<span class="text-sm font-bold text-slate-700 dark:text-gray-200">合計</span>';
+                            $html .= '<div class="flex items-center gap-4">';
+                            $html .= '<span class="text-xs text-slate-500 dark:text-gray-400">売上: <span class="font-bold text-slate-700 dark:text-gray-200">'.$totalEarningCount.'件</span></span>';
+                            $html .= '<span class="text-xs text-purple-500 dark:text-purple-400">移動: <span class="font-bold">'.$totalStockTransferCount.'件</span></span>';
                             $html .= '<span class="text-lg font-bold text-blue-600 dark:text-blue-400">'.$totalCount.'件</span>';
                             $html .= '</div>';
                             $html .= '</div>';
 
                             // Warning for large volume
                             if ($totalCount > 100) {
-                                $html .= '<div class="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg text-yellow-700 dark:text-yellow-400 text-sm">';
-                                $html .= '<span class="font-medium">注意:</span> 伝票数が多いため、生成に時間がかかる場合があります。';
+                                $html .= '<div class="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-400 text-xs">';
+                                $html .= '<i class="fa fa-exclamation-triangle"></i>';
+                                $html .= '<span><span class="font-bold">注意:</span> 伝票数が多いため、生成に時間がかかる場合があります。</span>';
                                 $html .= '</div>';
                             }
 
@@ -261,6 +287,7 @@ class ListWaves extends ListRecords
 
                             return new HtmlString($html);
                         }),
+                    ]),
                 ])
                 ->action(function (array $data): void {
                     $this->generateManualWave($data);

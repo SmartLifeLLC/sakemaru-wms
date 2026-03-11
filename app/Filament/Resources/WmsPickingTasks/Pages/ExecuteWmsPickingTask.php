@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsPickingTasks\Pages;
 
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsPickingTask;
+use App\Models\WmsShortage;
 use App\Services\Shortage\PickingShortageDetector;
 use Filament\Actions\Action;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -301,12 +302,36 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 }
             }
 
-            // 欠品がある場合はステータスをSHORTAGE、ない場合はCOMPLETED
-            $hasShortage = $this->record->pickingItemResults()
-                ->where('has_shortage', true)
+            // 未対応の欠品があるかどうかでステータスを判定
+            // has_physical_shortage（ピッキング時欠品）は常に未対応
+            // has_soft_shortage（引当時欠品）は対応済みの場合は除外
+            $hasPhysicalShortage = $this->record->pickingItemResults()
+                ->where('has_physical_shortage', true)
                 ->exists();
 
-            $taskStatus = $hasShortage ? 'SHORTAGE' : 'COMPLETED';
+            $hasUnresolvedSoftShortage = false;
+            if (! $hasPhysicalShortage) {
+                // 引当時欠品のうち、wms_shortagesで未対応（status=BEFORE）のものがあるか確認
+                $softShortageItems = $this->record->pickingItemResults()
+                    ->where('has_soft_shortage', true)
+                    ->get();
+
+                foreach ($softShortageItems as $item) {
+                    $unresolvedShortage = WmsShortage::where('wave_id', $this->record->wave_id)
+                        ->where('warehouse_id', $this->record->warehouse_id)
+                        ->where('item_id', $item->item_id)
+                        ->where('trade_item_id', $item->trade_item_id)
+                        ->where('status', WmsShortage::STATUS_BEFORE)
+                        ->exists();
+
+                    if ($unresolvedShortage) {
+                        $hasUnresolvedSoftShortage = true;
+                        break;
+                    }
+                }
+            }
+
+            $taskStatus = ($hasPhysicalShortage || $hasUnresolvedSoftShortage) ? 'SHORTAGE' : 'COMPLETED';
 
             // タスクを完了または欠品状態に
             $this->record->update([

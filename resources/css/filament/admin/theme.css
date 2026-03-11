@@ -505,3 +505,98 @@ html.fi {
 .dark .sticky-actions .fi-ta-table tbody tr:nth-child(even) td:last-child {
     background-color: #111827 !important;
 }
+
+/* アクションカラム左固定（sticky-actions-leftクラスを持つテーブル） */
+.sticky-actions-left {
+    position: relative;
+}
+
+.sticky-actions-left .fi-ta-table {
+    overflow-x: auto;
+    max-height: calc(100vh - 250px);
+    overflow-y: auto;
+}
+
+/* ヘッダー行を上部固定 */
+.sticky-actions-left .fi-ta-table thead {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 20 !important;
+}
+
+.sticky-actions-left .fi-ta-table thead th {
+    background-color: rgb(249, 250, 251) !important;
+}
+
+.dark .sticky-actions-left .fi-ta-table thead th {
+    background-color: rgb(31, 41, 55) !important;
+}
+
+/* アクション列を左固定 */
+.sticky-actions-left .fi-ta-actions-cell,
+.sticky-actions-left .fi-ta-row td:first-child {
+    position: sticky !important;
+    left: 0 !important;
+    z-index: 10 !important;
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* ヘッダーのアクション列: 左+上の両方固定 */
+.sticky-actions-left .fi-ta-header-cell:first-child {
+    position: sticky !important;
+    left: 0 !important;
+    background-color: rgb(249, 250, 251) !important;
+    z-index: 21 !important;
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+.dark .sticky-actions-left .fi-ta-header-cell:first-child {
+    background-color: rgb(31, 41, 55) !important;
+}
+
+.sticky-actions-left .fi-ta-table tbody tr:nth-child(odd) td:first-child {
+    background-color: #f5f9ff !important;
+}
+
+.sticky-actions-left .fi-ta-table tbody tr:nth-child(even) td:first-child {
+    background-color: #ffffff !important;
+}
+
+.dark .sticky-actions-left .fi-ta-table tbody tr:nth-child(odd) td:first-child {
+    background-color: #1e2a3b !important;
+}
+
+.dark .sticky-actions-left .fi-ta-table tbody tr:nth-child(even) td:first-child {
+    background-color: #111827 !important;
+}
+
+/* 波動生成モーダル - ヘッダー紺色 */
+.wave-modal .fi-modal-header {
+    background-color: #1e293b !important;
+    border-radius: 0.75rem 0.75rem 0 0;
+    padding: 0.75rem 1rem;
+}
+
+.wave-modal .fi-modal-header .fi-modal-heading {
+    color: #ffffff !important;
+}
+
+.wave-modal .fi-modal-header .fi-modal-description {
+    color: #94a3b8 !important;
+}
+
+.wave-modal .fi-modal-header .fi-modal-close-btn {
+    color: #ffffff !important;
+}
+
+.wave-modal .fi-modal-header .fi-modal-close-btn:hover {
+    color: #cbd5e1 !important;
+}
+
+.wave-modal .fi-modal-footer {
+    justify-content: flex-end !important;
+}
+
+.wave-modal .fi-modal-footer > * {
+    justify-content: flex-end !important;
+}
