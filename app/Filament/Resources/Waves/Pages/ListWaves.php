@@ -138,14 +138,17 @@ class ListWaves extends ListRecords
                                 $stCount = $stockTransferData->count ?? 0;
                                 $options[] = [
                                     'id' => $courseId,
-                                    'label' => "[{$code}] {$name}（売上{$earningCount} / 移動{$stCount}）",
+                                    'label' => $name,
                                 ];
                             }
 
                             // コースコード順にソート
                             usort($options, fn ($a, $b) => strcmp($a['label'], $b['label']));
 
-                            return ['options' => $options];
+                            return [
+                                'options' => $options,
+                                'searchPlaceholder' => 'コース検索...',
+                            ];
                         })
                         ->required()
                         ->live()

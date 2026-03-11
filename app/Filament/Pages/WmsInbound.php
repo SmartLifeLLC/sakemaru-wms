@@ -9,6 +9,8 @@ use Filament\Support\Icons\Heroicon;
 
 class WmsInbound extends Page
 {
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedArrowDownTray;
 
     protected string $view = 'filament.pages.wms-inbound';

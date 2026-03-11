@@ -62,7 +62,7 @@
                 <input
                     x-model.debounce.150ms="search"
                     type="text"
-                    placeholder="コース検索..."
+                    placeholder="{{ $searchPlaceholder ?? '検索...' }}"
                     class="w-full pl-7 pr-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-gray-600 bg-slate-50 dark:bg-gray-800 text-slate-800 dark:text-gray-200 placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 >
             </div>
@@ -100,7 +100,7 @@
             </div>
             <div x-show="filtered.length === 0" class="py-6 text-center text-xs text-slate-400 dark:text-gray-500">
                 <i class="fa fa-search mb-1 block text-lg"></i>
-                該当するコースがありません
+                {{ $emptyMessage ?? '該当する項目がありません' }}
             </div>
         </div>
     </div>
