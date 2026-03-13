@@ -389,9 +389,13 @@ class IncomingReceiveService
             return 0;
         }
 
-        // 発注先特定: b_contractor_code → contractors.code
+        // 発注先特定: 受信ファイルの contractor_id → b_contractor_code（contractors.code）の順で解決
         $contractor = null;
-        if ($slip->b_contractor_code) {
+        $receivedFile = $slip->file;
+        if ($receivedFile?->contractor_id) {
+            $contractor = Contractor::find($receivedFile->contractor_id);
+        }
+        if (! $contractor && $slip->b_contractor_code) {
             $contractor = Contractor::where('code', $slip->b_contractor_code)->first();
         }
 
@@ -409,9 +413,13 @@ class IncomingReceiveService
             $isShortage = $detail->is_shortage || $detail->total_quantity === 0;
             $shippedQty = $isShortage ? 0 : $detail->total_quantity;
 
-            // 同一伝票番号+商品の既存スケジュールがあればスキップ（再実行時の重複防止）
+            // 同一伝票番号+商品の既存スケジュールがあればスキップ（再実行時の重複防止、キャンセル済みは除外）
             $existingSchedule = WmsOrderIncomingSchedule::where('slip_number', $slip->slip_number)
                 ->where('item_id', $itemId)
+                ->whereNotIn('status', [
+                    IncomingScheduleStatus::CANCELLED->value,
+                    IncomingScheduleStatus::PARTIAL_CANCELLED->value,
+                ])
                 ->first();
 
             if ($existingSchedule) {
@@ -424,6 +432,18 @@ class IncomingReceiveService
                 continue;
             }
 
+            // 仕入先単価を明細から取得（d_unit_price は下2桁小数の整数表現）
+            $rawUnitPrice = $detail->d_unit_price;
+            $partnerPrice = is_numeric($rawUnitPrice) ? (float) $rawUnitPrice / 100 : null;
+
+            $caseQty = (int) ($detail->d_case_quantity ?? 0);
+            $priceType = $caseQty > 0 ? 'CASE' : 'PIECE';
+            $partnerUnitPrice = $priceType === 'PIECE' ? $partnerPrice : null;
+            $partnerCasePrice = $priceType === 'CASE' ? $partnerPrice : null;
+
+            // 賞味期限: 商品マスタの default_expiration_days から算出
+            $expirationDate = $this->calculateExpirationDate($itemId, $deliveryDate);
+
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $warehouse->id,
                 'item_id' => $itemId,
@@ -435,8 +455,12 @@ class IncomingReceiveService
                 'received_quantity' => $shippedQty, // 発注先出荷実績をプリセット（検品時に不一致なら変更）
                 'shortage_quantity' => 0,
                 'is_receive_matched' => true,
+                'partner_unit_price' => $partnerUnitPrice,
+                'partner_case_price' => $partnerCasePrice,
+                'price_type' => $priceType,
                 'order_date' => $orderDate,
                 'expected_arrival_date' => $deliveryDate,
+                'expiration_date' => $expirationDate,
                 'actual_arrival_date' => null,
                 'status' => IncomingScheduleStatus::PENDING,
                 'confirmed_at' => null,
@@ -582,9 +606,27 @@ class IncomingReceiveService
             $shippedQty = $matchedDetail->total_quantity;
             $shortageQty = max(0, $schedule->expected_quantity - $shippedQty);
 
+            // 仕入先単価を明細から取得（d_unit_price は下2桁小数の整数表現）
+            $rawUnitPrice = $matchedDetail->d_unit_price;
+            $partnerPrice = is_numeric($rawUnitPrice) ? (float) $rawUnitPrice / 100 : null;
+
+            $caseQty = (int) ($matchedDetail->d_case_quantity ?? 0);
+            $priceType = $caseQty > 0 ? 'CASE' : 'PIECE';
+            $partnerUnitPrice = $priceType === 'PIECE' ? $partnerPrice : null;
+            $partnerCasePrice = $priceType === 'CASE' ? $partnerPrice : null;
+
+            // 賞味期限: 未設定の場合、商品マスタの default_expiration_days から算出
+            $expirationDate = $schedule->expiration_date
+                ?? $this->calculateExpirationDate($schedule->item_id, $schedule->expected_arrival_date);
+
             $schedule->update([
+                'shipped_quantity' => $shippedQty,
                 'received_quantity' => $shippedQty,
                 'shortage_quantity' => $shortageQty,
+                'partner_unit_price' => $partnerUnitPrice,
+                'partner_case_price' => $partnerCasePrice,
+                'price_type' => $priceType,
+                'expiration_date' => $expirationDate,
                 'is_receive_matched' => true,
             ]);
             // ステータスはPENDINGのまま（Handy検品で確定）
@@ -595,5 +637,24 @@ class IncomingReceiveService
                 'is_receive_matched' => true,
             ]);
         }
+    }
+
+    /**
+     * 商品マスタの default_expiration_days から賞味期限を算出
+     */
+    private function calculateExpirationDate(?int $itemId, $baseDate): ?string
+    {
+        if (! $itemId || ! $baseDate) {
+            return null;
+        }
+
+        $item = Item::find($itemId);
+        if (! $item || ! $item->default_expiration_days) {
+            return null;
+        }
+
+        $base = $baseDate instanceof Carbon ? $baseDate : Carbon::parse($baseDate);
+
+        return $base->copy()->addDays($item->default_expiration_days)->format('Y-m-d');
     }
 }

@@ -2,8 +2,10 @@
 
 namespace App\Filament\Resources\WmsIncomingReceivedData\Tables;
 
+use App\Enums\AutoOrder\OrderSource;
 use App\Enums\PaginationOptions;
-use App\Models\WmsIncomingReceivedFile;
+use App\Models\WmsIncomingImportError;
+use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingReceiveService;
 use Filament\Actions\Action;
 use Filament\Infolists\Components\TextEntry;
@@ -187,7 +189,7 @@ class WmsIncomingReceivedDataTable
                             })->toArray();
 
                             $sections[] = Section::make("伝票 #{$slip->slip_number}")
-                                ->description("{$statusLabel} | 明細: {$slip->details->count()}件" . ($slip->shortage_count > 0 ? " | 欠品: {$slip->shortage_count}件" : ''))
+                                ->description("{$statusLabel} | 明細: {$slip->details->count()}件".($slip->shortage_count > 0 ? " | 欠品: {$slip->shortage_count}件" : ''))
                                 ->icon($statusIcon)
                                 ->collapsed($index > 2)
                                 ->schema([
@@ -223,69 +225,93 @@ class WmsIncomingReceivedDataTable
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる'),
 
-                Action::make('matchSchedules')
-                    ->label('照合')
+                Action::make('matchAndApply')
+                    ->label('照合・適用')
                     ->icon('heroicon-o-magnifying-glass')
                     ->color('info')
                     ->visible(fn ($record) => in_array($record->status, ['PENDING', 'MATCHED']))
                     ->requiresConfirmation()
-                    ->modalHeading('入荷予定と照合')
-                    ->modalDescription('受信データの伝票番号で入荷予定を検索し、照合を実行します。')
+                    ->modalHeading('照合・適用')
+                    ->modalDescription('受信データを入荷予定と照合し、結果を適用します。')
                     ->action(function ($record) {
                         $service = app(IncomingReceiveService::class);
 
                         try {
-                            $result = $service->matchWithSchedules($record);
+                            $matchResult = $service->matchWithSchedules($record);
+
+                            // 照合後に自動適用
+                            $record->refresh();
+                            $applyResult = ['applied' => 0, 'errors' => []];
+                            if ($record->status === 'MATCHED') {
+                                $applyResult = $service->applyMatched($record);
+                            }
+
+                            $body = "照合: {$matchResult['matched']}件";
+                            if ($matchResult['shortage'] > 0) {
+                                $body .= " / 欠品: {$matchResult['shortage']}件";
+                            }
+                            if ($matchResult['unmatched'] > 0) {
+                                $body .= " / 未一致: {$matchResult['unmatched']}件";
+                            }
+                            if ($applyResult['applied'] > 0) {
+                                $body .= " / 適用: {$applyResult['applied']}件";
+                            }
 
                             Notification::make()
-                                ->title('照合が完了しました')
-                                ->body("照合済み: {$result['matched']}件 / 欠品: {$result['shortage']}件 / 未一致: {$result['unmatched']}件")
+                                ->title('照合・適用が完了しました')
+                                ->body($body)
                                 ->success()
                                 ->send();
                         } catch (\Exception $e) {
                             Notification::make()
-                                ->title('照合エラー')
+                                ->title('照合・適用エラー')
                                 ->body($e->getMessage())
                                 ->danger()
                                 ->send();
                         }
                     }),
 
-                Action::make('applyMatched')
-                    ->label('適用')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->visible(fn ($record) => $record->status === 'MATCHED')
+                Action::make('deleteWithSchedules')
+                    ->label('削除')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
                     ->requiresConfirmation()
-                    ->modalHeading('照合結果を入荷予定に適用')
-                    ->modalDescription('照合済みの受信データを入荷予定に反映します。適用後は元に戻せません。')
+                    ->modalHeading('受信データを削除')
+                    ->modalDescription(function ($record) {
+                        $scheduleCount = WmsOrderIncomingSchedule::where('order_source', OrderSource::RECEIVED)
+                            ->whereIn('slip_number', $record->slips()->pluck('slip_number'))
+                            ->count();
+
+                        return $scheduleCount > 0
+                            ? "この受信データと関連する入荷予定 {$scheduleCount}件 を物理削除します。この操作は元に戻せません。"
+                            : 'この受信データを物理削除します。この操作は元に戻せません。';
+                    })
                     ->action(function ($record) {
-                        $service = app(IncomingReceiveService::class);
+                        $slipNumbers = $record->slips()->pluck('slip_number')->toArray();
 
-                        try {
-                            $result = $service->applyMatched($record);
-
-                            if (empty($result['errors'])) {
-                                Notification::make()
-                                    ->title('適用が完了しました')
-                                    ->body("適用件数: {$result['applied']}件")
-                                    ->success()
-                                    ->send();
-                            } else {
-                                $errorCount = count($result['errors']);
-                                Notification::make()
-                                    ->title('一部エラーが発生しました')
-                                    ->body("適用: {$result['applied']}件 / エラー: {$errorCount}件")
-                                    ->warning()
-                                    ->send();
-                            }
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->title('適用エラー')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
+                        // 関連する入荷予定を物理削除（RECEIVED由来のもの）
+                        $deletedSchedules = 0;
+                        if (! empty($slipNumbers)) {
+                            $deletedSchedules = WmsOrderIncomingSchedule::where('order_source', OrderSource::RECEIVED)
+                                ->whereIn('slip_number', $slipNumbers)
+                                ->delete();
                         }
+
+                        // エラーレコード削除
+                        WmsIncomingImportError::where('received_file_id', $record->id)->delete();
+
+                        // 明細 → 伝票 → ファイルの順で削除
+                        foreach ($record->slips as $slip) {
+                            $slip->details()->delete();
+                        }
+                        $record->slips()->delete();
+                        $record->delete();
+
+                        Notification::make()
+                            ->title('削除しました')
+                            ->body("受信データと関連入荷予定 {$deletedSchedules}件 を削除しました")
+                            ->success()
+                            ->send();
                     }),
             ])
             ->defaultSort('id', 'desc');

@@ -25,6 +25,14 @@ class ActCsvIncomingParser implements IncomingFormatParserInterface
     /** 送料JANコード */
     private const SHIPPING_JAN_CODE = '9999999999996';
 
+    /** 得意先コード → 酒丸倉庫コード マッピング */
+    private const SHOP_WAREHOUSE_MAP = [
+        '934' => '91',   // 本部むすびの蔵
+        '607' => '901',  // オレンジ冷凍倉庫
+        '618' => '10',   // 敦賀
+        '122' => '21',   // 江守
+    ];
+
     /** CSVカラムインデックス（0-indexed） */
     private const COL_SHOP_CODE = 0;       // 得意先コード
 
@@ -174,7 +182,8 @@ class ActCsvIncomingParser implements IncomingFormatParserInterface
 
         // 日付パース（YYYY/MM/DD形式）
         $slipDate = $firstRow[self::COL_SLIP_DATE] ?? null;
-        $shopCode = trim($firstRow[self::COL_SHOP_CODE] ?? '');
+        $rawShopCode = ltrim(trim($firstRow[self::COL_SHOP_CODE] ?? ''), '0');
+        $shopCode = self::SHOP_WAREHOUSE_MAP[$rawShopCode] ?? $rawShopCode;
 
         $contractorCode = trim($firstRow[28] ?? ''); // 仕入先コード（col 28）
 

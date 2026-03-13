@@ -39,6 +39,15 @@ class InitSystemSeeder extends Seeder
         // 自動発注対象の初期設定（CSVベース）
         $this->call(AutoOrderCandidateInitSeeder::class);
 
+        // ピッカー割り当て戦略の初期設定
+        $this->call(WmsPickingAssignmentStrategySeeder::class);
+
+        // オレンジ冷凍倉庫の新設 + コントラクタ設定
+        $this->call(OrangeWarehouseSeeder::class);
+
+        // アクト中食冷凍商品のitem_contractors設定
+        $this->call(AkutoFrozenItemContractorSeeder::class);
+
         // 今後追加予定の初期設定
         // $this->call(InitialPickingAreaSeeder::class);
         // $this->call(InitialWaveSettingSeeder::class);

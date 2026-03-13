@@ -248,6 +248,25 @@ class WmsOrderIncomingSchedulesTable
                     ->alignCenter()
                     ->width('50px'),
 
+                TextColumn::make('purchase_unit_price')
+                    ->label('仕入単価')
+                    ->state(function ($record) {
+                        // 発注由来 → 自社単価を優先
+                        if ($record->order_source !== OrderSource::RECEIVED) {
+                            return $record->unit_price ?? $record->case_price;
+                        }
+
+                        // 受信由来 → 仕入先単価（price_typeに応じて）
+                        $priceType = $record->price_type ?? 'PIECE';
+
+                        return $priceType === 'CASE'
+                            ? $record->partner_case_price
+                            : $record->partner_unit_price;
+                    })
+                    ->money('JPY')
+                    ->alignEnd()
+                    ->width('90px'),
+
                 TextColumn::make('unit_price')
                     ->label('自社単価')
                     ->money('JPY')
