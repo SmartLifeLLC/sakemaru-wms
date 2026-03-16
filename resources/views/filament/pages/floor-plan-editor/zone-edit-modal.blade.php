@@ -1,5 +1,6 @@
 {{-- Zone Edit Modal --}}
-<x-modal.container size="6xl" alpine-var="showEditModal" z-index="100">
+<template x-teleport="body">
+<x-modal.container size="7xl" alpine-var="showEditModal" z-index="9999">
     {{-- Modal Header --}}
     <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900 rounded-t-lg">
         <div class="flex items-center gap-4 flex-wrap">
@@ -180,3 +181,4 @@
         </button>
     </x-modal.footer>
 </x-modal.container>
+</template>
