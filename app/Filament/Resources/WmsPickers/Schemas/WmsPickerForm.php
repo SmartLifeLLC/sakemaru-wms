@@ -75,18 +75,8 @@ class WmsPickerForm
                                 }
                                 $level = PickerSkillLevel::tryFrom((int) $state);
 
-                                return $level?->description() ?? '';
+                                return $level ? $level->description() . '（速度係数: ' . $level->rate() . 'x）' : '';
                             }),
-
-                        TextInput::make('picking_speed_rate')
-                            ->label('作業速度係数')
-                            ->numeric()
-                            ->default(1.00)
-                            ->step(0.1)
-                            ->minValue(0.5)
-                            ->maxValue(2.0)
-                            ->suffix('x')
-                            ->helperText('0.5〜2.0 (1.0が標準速度)'),
 
                         Toggle::make('can_access_restricted_area')
                             ->label('制限エリアアクセス可')

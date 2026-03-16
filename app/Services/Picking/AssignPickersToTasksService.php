@@ -2,6 +2,7 @@
 
 namespace App\Services\Picking;
 
+use App\Enums\PickingStrategyType;
 use App\Models\WmsPicker;
 use App\Models\WmsPickingAssignmentStrategy;
 use App\Models\WmsPickingTask;
@@ -55,10 +56,11 @@ class AssignPickersToTasksService
             ];
         }
 
-        // 未割当タスクを取得
+        // 未割当タスクを取得（商品数をカウント）
         $unassignedTasks = WmsPickingTask::where('warehouse_id', $warehouseId)
             ->whereNull('picker_id')
             ->whereIn('status', [WmsPickingTask::STATUS_PENDING, WmsPickingTask::STATUS_PICKING_READY])
+            ->withCount('pickingItemResults as item_count')
             ->with('pickingArea')
             ->get();
 
@@ -70,51 +72,160 @@ class AssignPickersToTasksService
             ];
         }
 
-        // 倉庫991の場合は2F優先ロジックを適用
-        if ($warehouseId === 991) {
-            return $this->assignWithFloorPriority($unassignedTasks, $pickers);
-        }
+        // 配送コースでグルーピング
+        $groups = $this->groupByDeliveryCourse($unassignedTasks, $warehouseId);
 
-        // 通常の均等割り当て
-        return $this->assignEqually($unassignedTasks, $pickers);
+        // 戦略に基づいて割り当て
+        return match ($strategy->strategy_key) {
+            PickingStrategyType::EQUAL => $this->assignByItemCountEqual($groups, $pickers),
+            PickingStrategyType::SKILL_BASED => $this->assignByItemCountSkillBased($groups, $pickers, $strategy),
+            default => [
+                'success' => false,
+                'assigned_count' => 0,
+                'message' => "未対応の戦略タイプです: {$strategy->strategy_key?->value}",
+            ],
+        };
     }
 
     /**
-     * 991倉庫向け: 2F優先 → 1F均等割り当て
+     * 指定倉庫の割り当て済みタスクを解除する（PICKING_READYのみ）
+     *
+     * @param  int  $warehouseId  倉庫ID
+     * @return array ['success' => bool, 'unassigned_count' => int, 'message' => string]
      */
-    protected function assignWithFloorPriority(Collection $tasks, Collection $pickers): array
+    public function unassign(int $warehouseId): array
     {
-        // 2Fタスク (floor_id = 2) と 1Fタスク (floor_id = 1) に分離
-        $floor2Tasks = $tasks->filter(fn ($task) => $task->floor_id === 2);
-        $floor1Tasks = $tasks->filter(fn ($task) => $task->floor_id === 1);
-        $otherTasks = $tasks->filter(fn ($task) => ! in_array($task->floor_id, [1, 2]));
+        $count = WmsPickingTask::where('warehouse_id', $warehouseId)
+            ->whereNotNull('picker_id')
+            ->where('status', WmsPickingTask::STATUS_PICKING_READY)
+            ->update([
+                'picker_id' => null,
+                'status' => WmsPickingTask::STATUS_PENDING,
+            ]);
 
+        return [
+            'success' => true,
+            'unassigned_count' => $count,
+            'message' => "{$count}件の割り当てを解除しました",
+        ];
+    }
+
+    /**
+     * タスクを配送コースでグルーピング
+     *
+     * delivery_course_id が NULL のタスクは warehouse_id で1グループにまとめる
+     */
+    protected function groupByDeliveryCourse(Collection $tasks, int $warehouseId): Collection
+    {
+        $grouped = $tasks->groupBy(function ($task) use ($warehouseId) {
+            return $task->delivery_course_id ?? "warehouse_{$warehouseId}";
+        });
+
+        // 各グループのサマリーを作成し、合計商品数の降順でソート（First Fit Decreasing）
+        return $grouped->map(fn ($groupTasks, $key) => [
+            'key' => $key,
+            'tasks' => $groupTasks,
+            'total_items' => $groupTasks->sum('item_count'),
+        ])->sortByDesc('total_items')->values();
+    }
+
+    /**
+     * EQUAL戦略: 商品数均等割り当て
+     *
+     * 配送コース単位のグループを商品数降順で処理し、
+     * 累計商品数が最少のピッカーに割り当てる（First Fit Decreasing）
+     */
+    protected function assignByItemCountEqual(Collection $groups, Collection $pickers): array
+    {
+        // ピッカーごとの累計商品数を初期化
+        $pickerItemCounts = $pickers->mapWithKeys(fn ($p) => [$p->id => 0])->toArray();
+
+        return $this->distributeGroupsToPickers($groups, $pickers, $pickerItemCounts);
+    }
+
+    /**
+     * SKILL_BASED戦略: スキルレベル比率での商品数割り当て
+     *
+     * 各ピッカーのスキルレートに基づいて「重み付き累計商品数」を計算し、
+     * 重み付き累計が最少のピッカーに割り当てることで、スキルに応じた比率を実現する
+     */
+    protected function assignByItemCountSkillBased(Collection $groups, Collection $pickers, WmsPickingAssignmentStrategy $strategy): array
+    {
+        // パラメータからカスタムスキルレートを取得
+        $customSkillRates = $strategy->getParameter('skill_rates');
+
+        // ピッカーごとの累計商品数を初期化（重み付き）
+        $pickerItemCounts = $pickers->mapWithKeys(fn ($p) => [$p->id => 0])->toArray();
+
+        // ピッカーごとのスキルレートをマッピング
+        // カスタムレートがあればそれを優先、なければ PickerSkillLevel Enum の rate() を使用
+        $pickerSkillRates = [];
+        foreach ($pickers as $picker) {
+            if ($customSkillRates) {
+                $skillLevel = $picker->skill_level?->value ?? 3;
+                $pickerSkillRates[$picker->id] = (float) ($customSkillRates[(string) $skillLevel] ?? 1.0);
+            } else {
+                $pickerSkillRates[$picker->id] = $picker->skill_level?->rate() ?? 1.0;
+            }
+        }
+
+        return $this->distributeGroupsToPickers($groups, $pickers, $pickerItemCounts, $pickerSkillRates);
+    }
+
+    /**
+     * グループをピッカーに配分する共通処理
+     *
+     * @param  Collection  $groups  配送コース別グループ（商品数降順ソート済み）
+     * @param  Collection  $pickers  ピッカーコレクション
+     * @param  array  $pickerItemCounts  ピッカーごとの累計商品数
+     * @param  array|null  $pickerSkillRates  ピッカーごとのスキルレート（null=均等）
+     */
+    protected function distributeGroupsToPickers(
+        Collection $groups,
+        Collection $pickers,
+        array $pickerItemCounts,
+        ?array $pickerSkillRates = null
+    ): array {
         $totalAssigned = 0;
-        $pickerTaskCounts = $pickers->mapWithKeys(fn ($p) => [$p->id => 0])->toArray();
 
         DB::connection('sakemaru')->beginTransaction();
 
         try {
-            // 1. 2Fのタスクを均等に割り当て
-            $result2F = $this->distributeTasksToPickers($floor2Tasks, $pickers, $pickerTaskCounts);
-            $totalAssigned += $result2F['assigned'];
-            $pickerTaskCounts = $result2F['counts'];
+            foreach ($groups as $group) {
+                $tasks = $group['tasks'];
+                $groupItemCount = $group['total_items'];
 
-            // 2. 1Fのタスクを均等に割り当て
-            $result1F = $this->distributeTasksToPickers($floor1Tasks, $pickers, $pickerTaskCounts);
-            $totalAssigned += $result1F['assigned'];
-            $pickerTaskCounts = $result1F['counts'];
+                // グループ内の全タスクを担当できるピッカーを探す
+                $eligiblePickerId = $this->findEligiblePickerForGroup(
+                    $tasks,
+                    $pickers,
+                    $pickerItemCounts,
+                    $pickerSkillRates
+                );
 
-            // 3. その他のタスク（floor_idが1,2以外）を均等に割り当て
-            $resultOther = $this->distributeTasksToPickers($otherTasks, $pickers, $pickerTaskCounts);
-            $totalAssigned += $resultOther['assigned'];
+                if ($eligiblePickerId === null) {
+                    continue;
+                }
+
+                // グループ内の全タスクを同一ピッカーに割り当て
+                foreach ($tasks as $task) {
+                    $task->update([
+                        'picker_id' => $eligiblePickerId,
+                        'status' => WmsPickingTask::STATUS_PICKING_READY,
+                    ]);
+                    $totalAssigned++;
+                }
+
+                // 累計商品数を加算
+                $pickerItemCounts[$eligiblePickerId] += $groupItemCount;
+            }
 
             DB::connection('sakemaru')->commit();
 
             return [
                 'success' => true,
                 'assigned_count' => $totalAssigned,
-                'message' => "{$totalAssigned}件のタスクを割り当てました（2F: {$result2F['assigned']}件, 1F: {$result1F['assigned']}件）",
+                'message' => "{$totalAssigned}件のタスクを割り当てました",
             ];
         } catch (\Exception $e) {
             DB::connection('sakemaru')->rollBack();
@@ -128,49 +239,31 @@ class AssignPickersToTasksService
     }
 
     /**
-     * タスクをピッカーに均等に配分
+     * グループを担当できるピッカーを探す
+     *
+     * グループ内の全タスクを担当可能で、累計商品数（重み付き）が最少のピッカーを選択
      */
-    protected function distributeTasksToPickers(Collection $tasks, Collection $pickers, array $pickerTaskCounts): array
-    {
-        $assigned = 0;
-
-        foreach ($tasks as $task) {
-            // このタスクを担当できるピッカーを探す
-            $eligiblePickerId = $this->findEligiblePicker($task, $pickers, $pickerTaskCounts);
-
-            if ($eligiblePickerId === null) {
-                // 担当できるピッカーがいない場合はスキップ
-                continue;
-            }
-
-            // タスクを割り当て
-            $task->update([
-                'picker_id' => $eligiblePickerId,
-                'status' => WmsPickingTask::STATUS_PICKING_READY,
-            ]);
-
-            $pickerTaskCounts[$eligiblePickerId]++;
-            $assigned++;
-        }
-
-        return [
-            'assigned' => $assigned,
-            'counts' => $pickerTaskCounts,
-        ];
-    }
-
-    /**
-     * タスクを担当できるピッカーを探す（均等割り当てのため、タスク数が最も少ないピッカーを優先）
-     */
-    protected function findEligiblePicker(WmsPickingTask $task, Collection $pickers, array $pickerTaskCounts): ?int
-    {
+    protected function findEligiblePickerForGroup(
+        Collection $tasks,
+        Collection $pickers,
+        array $pickerItemCounts,
+        ?array $pickerSkillRates = null
+    ): ?int {
         $eligiblePickers = [];
 
         foreach ($pickers as $picker) {
-            if ($this->canPickerHandleTask($picker, $task)) {
+            // グループ内の全タスクを担当できるかチェック
+            $canHandleAll = $tasks->every(fn ($task) => $this->canPickerHandleTask($picker, $task));
+
+            if ($canHandleAll) {
+                // 重み付き累計商品数を計算
+                $actualCount = $pickerItemCounts[$picker->id] ?? 0;
+                $skillRate = $pickerSkillRates[$picker->id] ?? 1.0;
+                $weightedCount = $skillRate > 0 ? $actualCount / $skillRate : PHP_FLOAT_MAX;
+
                 $eligiblePickers[] = [
                     'picker_id' => $picker->id,
-                    'task_count' => $pickerTaskCounts[$picker->id] ?? 0,
+                    'weighted_count' => $weightedCount,
                 ];
             }
         }
@@ -179,8 +272,8 @@ class AssignPickersToTasksService
             return null;
         }
 
-        // タスク数が最も少ないピッカーを選択
-        usort($eligiblePickers, fn ($a, $b) => $a['task_count'] <=> $b['task_count']);
+        // 重み付き累計商品数が最少のピッカーを選択
+        usort($eligiblePickers, fn ($a, $b) => $a['weighted_count'] <=> $b['weighted_count']);
 
         return $eligiblePickers[0]['picker_id'];
     }
@@ -197,45 +290,13 @@ class AssignPickersToTasksService
 
         // 2. ピッキングエリアのチェック（タスクにエリアが設定されている場合）
         if ($task->wms_picking_area_id) {
-            // ピッカーが担当できるエリアを取得
             $pickerAreaIds = $picker->pickingAreas->pluck('id')->toArray();
 
-            // ピッカーに担当エリアが設定されている場合は、そのエリアのみ担当可能
             if (! empty($pickerAreaIds) && ! in_array($task->wms_picking_area_id, $pickerAreaIds)) {
                 return false;
             }
         }
 
         return true;
-    }
-
-    /**
-     * 通常の均等割り当て
-     */
-    protected function assignEqually(Collection $tasks, Collection $pickers): array
-    {
-        $pickerTaskCounts = $pickers->mapWithKeys(fn ($p) => [$p->id => 0])->toArray();
-
-        DB::connection('sakemaru')->beginTransaction();
-
-        try {
-            $result = $this->distributeTasksToPickers($tasks, $pickers, $pickerTaskCounts);
-
-            DB::connection('sakemaru')->commit();
-
-            return [
-                'success' => true,
-                'assigned_count' => $result['assigned'],
-                'message' => "{$result['assigned']}件のタスクを割り当てました",
-            ];
-        } catch (\Exception $e) {
-            DB::connection('sakemaru')->rollBack();
-
-            return [
-                'success' => false,
-                'assigned_count' => 0,
-                'message' => '割り当て処理中にエラーが発生しました: '.$e->getMessage(),
-            ];
-        }
     }
 }

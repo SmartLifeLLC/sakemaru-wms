@@ -653,19 +653,19 @@ class PickingTaskController extends Controller
     }
 
     /**
-     * POST /api/picking/tasks/{wms_picking_item_result_id}/update
+     * POST /api/picking/tasks/{itemResultId}/update
      *
      * ピッキング実績登録
      *
      * @OA\Post(
-     *     path="/api/picking/tasks/{wms_picking_item_result_id}/update",
+     *     path="/api/picking/tasks/{itemResultId}/update",
      *     tags={"Picking Tasks"},
      *     summary="Update picking result",
      *     description="Update picked quantity for a specific item in the picking task",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
-     *         name="wms_picking_item_result_id",
+     *         name="itemResultId",
      *         in="path",
      *         description="Picking Item Result ID",
      *         required=true,
@@ -1034,19 +1034,19 @@ class PickingTaskController extends Controller
     }
 
     /**
-     * POST /api/picking/tasks/{wms_picking_item_result_id}/cancel
+     * POST /api/picking/tasks/{itemResultId}/cancel
      *
      * ピッキングアイテムキャンセル
      *
      * @OA\Post(
-     *     path="/api/picking/tasks/{wms_picking_item_result_id}/cancel",
+     *     path="/api/picking/tasks/{itemResultId}/cancel",
      *     tags={"Picking Tasks"},
      *     summary="Cancel picking item result",
      *     description="Reset picking item result to PENDING status with picked_qty = 0",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
-     *         name="wms_picking_item_result_id",
+     *         name="itemResultId",
      *         in="path",
      *         description="Picking Item Result ID",
      *         required=true,

@@ -48,12 +48,6 @@ class WmsPickersTable
                     ->color(fn ($state) => $state?->color() ?? 'gray')
                     ->sortable(),
 
-                TextColumn::make('picking_speed_rate')
-                    ->label('作業速度')
-                    ->formatStateUsing(fn ($state) => $state ? number_format($state, 2).'x' : '-')
-                    ->sortable()
-                    ->alignCenter(),
-
                 IconColumn::make('is_available_for_picking')
                     ->label('稼働可')
                     ->boolean()

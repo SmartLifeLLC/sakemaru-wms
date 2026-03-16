@@ -29,11 +29,11 @@ class WavesTable
                     ->searchable()
                     ->sortable(),
 
-                TextColumn::make('waveSetting.warehouse.code')
+                TextColumn::make('waveSetting.deliveryCourse.warehouse.code')
                     ->label('倉庫コード')
                     ->sortable(),
 
-                TextColumn::make('waveSetting.warehouse.name')
+                TextColumn::make('waveSetting.deliveryCourse.warehouse.name')
                     ->label('倉庫名')
                     ->sortable(),
 

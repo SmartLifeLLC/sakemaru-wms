@@ -162,10 +162,14 @@ class ListWmsPickingWaitings extends ListRecords
                                 );
                             }
 
-                            $unassignedCount = WmsPickingTask::where('warehouse_id', $warehouseId)
+                            $unassignedTasks = WmsPickingTask::where('warehouse_id', $warehouseId)
                                 ->whereNull('picker_id')
                                 ->where('status', 'PENDING')
-                                ->count();
+                                ->withCount('pickingItemResults as item_count')
+                                ->get();
+
+                            $unassignedCount = $unassignedTasks->count();
+                            $totalItemCount = $unassignedTasks->sum('item_count');
 
                             if ($unassignedCount === 0) {
                                 return new HtmlString(
@@ -177,7 +181,7 @@ class ListWmsPickingWaitings extends ListRecords
                             }
 
                             $pickerCount = is_array($pickerIds) ? count($pickerIds) : 0;
-                            $perPicker = $pickerCount > 0 ? ceil($unassignedCount / $pickerCount) : 0;
+                            $perPicker = $pickerCount > 0 ? ceil($totalItemCount / $pickerCount) : 0;
 
                             return new HtmlString(
                                 '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">'
@@ -186,11 +190,14 @@ class ListWmsPickingWaitings extends ListRecords
                                 . '未割当タスク: <span class="font-bold text-slate-700 dark:text-gray-200">' . $unassignedCount . '件</span>'
                                 . '</span>'
                                 . '<span class="text-xs text-slate-500 dark:text-gray-400">'
+                                . '商品数: <span class="font-bold text-slate-700 dark:text-gray-200">' . number_format($totalItemCount) . '件</span>'
+                                . '</span>'
+                                . '<span class="text-xs text-slate-500 dark:text-gray-400">'
                                 . '選択ピッカー: <span class="font-bold text-blue-600 dark:text-blue-400">' . $pickerCount . '名</span>'
                                 . '</span>'
                                 . '</div>'
                                 . '<span class="text-xs text-slate-400 dark:text-gray-500">'
-                                . '約 <span class="font-bold">' . $perPicker . '件</span>/人'
+                                . '約 <span class="font-bold">' . number_format($perPicker) . '商品</span>/人'
                                 . '</span>'
                                 . '</div>'
                             );
@@ -219,6 +226,80 @@ class ListWmsPickingWaitings extends ListRecords
                             ->danger()
                             ->send();
                     }
+                }),
+
+            Action::make('unassignPickers')
+                ->label('割り当て解除')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->color('warning')
+                ->modalHeading('ピッカー割り当て解除')
+                ->modalDescription('選択した倉庫の「ピッキング準備完了」タスクの割り当てを解除します。作業中のタスクは解除されません。')
+                ->modalSubmitActionLabel('解除実行')
+                ->modalWidth('lg')
+                ->schema([
+                    ViewField::make('unassign_warehouse_id')
+                        ->label('対象倉庫')
+                        ->view('filament.forms.components.warehouse-select')
+                        ->viewData([
+                            'warehouses' => Warehouse::query()
+                                ->where('is_active', true)
+                                ->orderBy('code')
+                                ->get()
+                                ->map(fn ($w) => [
+                                    'id' => $w->id,
+                                    'code' => $w->code,
+                                    'name' => $w->name,
+                                    'label' => "[{$w->code}] {$w->name}",
+                                ])
+                                ->values()
+                                ->toArray(),
+                        ])
+                        ->default($defaultWarehouseId)
+                        ->required()
+                        ->live(),
+
+                    Placeholder::make('unassign_preview')
+                        ->label('解除対象')
+                        ->content(function (Get $get): HtmlString {
+                            $warehouseId = $get('unassign_warehouse_id');
+
+                            if (! $warehouseId) {
+                                return new HtmlString(
+                                    '<div class="text-center py-4 text-slate-400 dark:text-gray-500 text-sm">倉庫を選択してください</div>'
+                                );
+                            }
+
+                            $readyCount = WmsPickingTask::where('warehouse_id', $warehouseId)
+                                ->whereNotNull('picker_id')
+                                ->where('status', WmsPickingTask::STATUS_PICKING_READY)
+                                ->count();
+
+                            if ($readyCount === 0) {
+                                return new HtmlString(
+                                    '<div class="text-center py-4 text-slate-400 dark:text-gray-500 text-sm">解除対象のタスクはありません</div>'
+                                );
+                            }
+
+                            return new HtmlString(
+                                '<div class="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-100 dark:border-amber-800">'
+                                . '<span class="text-sm text-slate-600 dark:text-gray-300">'
+                                . '解除対象: <span class="font-bold text-amber-600 dark:text-amber-400">' . $readyCount . '件</span>'
+                                . '（ピッキング準備完了）'
+                                . '</span>'
+                                . '</div>'
+                            );
+                        })
+                        ->visible(fn (Get $get) => $get('unassign_warehouse_id')),
+                ])
+                ->action(function (array $data) {
+                    $service = new AssignPickersToTasksService;
+                    $result = $service->unassign($data['unassign_warehouse_id']);
+
+                    Notification::make()
+                        ->title('割り当て解除完了')
+                        ->body($result['message'])
+                        ->success()
+                        ->send();
                 }),
         ];
     }

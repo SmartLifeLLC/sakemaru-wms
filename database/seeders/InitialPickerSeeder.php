@@ -52,7 +52,6 @@ class InitialPickerSeeder extends Seeder
                 'password' => Hash::make($code),
                 'default_warehouse_id' => $warehouseId,
                 'skill_level' => PickerSkillLevel::SENIOR->value,
-                'picking_speed_rate' => 1.00,
                 'can_access_restricted_area' => false,
                 'is_active' => true,
                 'is_available_for_picking' => false,

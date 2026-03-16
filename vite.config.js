@@ -12,7 +12,9 @@ export default defineConfig({
                 'resources/js/handy/incoming-app.js',
                 'resources/js/handy/login-app.js',
                 'resources/js/handy/home-app.js',
-                'resources/js/handy/outgoing-app.js'
+                'resources/js/handy/outgoing-app.js',
+                'resources/js/handy-v2/app.js',
+                'resources/css/handy-v2/app.css'
             ],
             refresh: true,
         }),

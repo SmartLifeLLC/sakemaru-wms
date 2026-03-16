@@ -26,7 +26,6 @@ class WmsPicker extends Model
         'can_access_restricted_area',
         'is_active',
         'skill_level',
-        'picking_speed_rate',
         'is_available_for_picking',
         'current_warehouse_id',
     ];
@@ -39,7 +38,6 @@ class WmsPicker extends Model
         'is_active' => 'boolean',
         'can_access_restricted_area' => 'boolean',
         'skill_level' => PickerSkillLevel::class,
-        'picking_speed_rate' => 'decimal:2',
         'is_available_for_picking' => 'boolean',
     ];
 

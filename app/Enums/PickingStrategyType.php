@@ -9,32 +9,28 @@ enum PickingStrategyType: string implements HasColor, HasLabel
 {
     case EQUAL = 'equal';
     case SKILL_BASED = 'skill_based';
-    case ZONE_PRIORITY = 'zone_priority';
 
     public function getLabel(): ?string
     {
         return match ($this) {
-            self::EQUAL => '均等割り当て',
-            self::SKILL_BASED => 'スキルレベル考慮',
-            self::ZONE_PRIORITY => 'エリア優先',
+            self::EQUAL => '商品数均等割り当て',
+            self::SKILL_BASED => 'スキルレベル考慮割り当て',
         };
     }
 
     public function getColor(): string|array|null
     {
         return match ($this) {
-            self::EQUAL => 'gray',
-            self::SKILL_BASED => 'info',
-            self::ZONE_PRIORITY => 'warning',
+            self::EQUAL => 'info',
+            self::SKILL_BASED => 'warning',
         };
     }
 
     public function getDescription(): string
     {
         return match ($this) {
-            self::EQUAL => 'タスクを作業者に均等に配分します',
-            self::SKILL_BASED => '作業者のスキルレベルに応じてタスクを配分します',
-            self::ZONE_PRIORITY => '特定のエリア（温度帯など）を優先して割り当てます',
+            self::EQUAL => '商品数ベースで均等に配分します。配送コース単位でまとめて割り当てます。',
+            self::SKILL_BASED => 'スキルレベルに応じて商品数の割り当て比率を調整します。',
         };
     }
 
@@ -43,5 +39,14 @@ enum PickingStrategyType: string implements HasColor, HasLabel
         return collect(self::cases())->mapWithKeys(
             fn (self $case) => [$case->value => $case->getLabel()]
         )->toArray();
+    }
+
+    /**
+     * デフォルトのスキルレート（SKILL_BASED戦略用）
+     * PickerSkillLevel Enum の rate() から導出
+     */
+    public static function defaultSkillRates(): array
+    {
+        return PickerSkillLevel::rateMap();
     }
 }

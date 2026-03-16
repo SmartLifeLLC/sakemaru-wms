@@ -590,11 +590,11 @@ class TestDataGenerator extends Page
                     $warehouseCode = $warehouse->code;
 
                     $pickerConfigs = [
-                        ['skill' => PickerSkillLevel::TRAINEE, 'speed' => 0.80],
-                        ['skill' => PickerSkillLevel::JUNIOR, 'speed' => 0.80],
-                        ['skill' => PickerSkillLevel::SENIOR, 'speed' => 1.00],
-                        ['skill' => PickerSkillLevel::EXPERT, 'speed' => 1.00],
-                        ['skill' => PickerSkillLevel::MASTER, 'speed' => 1.20],
+                        ['skill' => PickerSkillLevel::TRAINEE],
+                        ['skill' => PickerSkillLevel::JUNIOR],
+                        ['skill' => PickerSkillLevel::SENIOR],
+                        ['skill' => PickerSkillLevel::EXPERT],
+                        ['skill' => PickerSkillLevel::MASTER],
                     ];
 
                     $existingMaxSeq = WmsPicker::where('code', 'like', "{$warehouseCode}-%")
@@ -611,7 +611,7 @@ class TestDataGenerator extends Page
                     foreach ($pickerConfigs as $index => $config) {
                         $seq = $existingMaxSeq + $index + 1;
                         $code = "{$warehouseCode}-".str_pad($seq, 3, '0', STR_PAD_LEFT);
-                        $name = $config['skill']->label().' '.number_format($config['speed'], 1).'x';
+                        $name = $config['skill']->label().' '.number_format($config['skill']->rate(), 1).'x';
 
                         WmsPicker::create([
                             'code' => $code,
@@ -619,7 +619,6 @@ class TestDataGenerator extends Page
                             'password' => Hash::make('password'),
                             'default_warehouse_id' => $warehouse->id,
                             'skill_level' => $config['skill']->value,
-                            'picking_speed_rate' => $config['speed'],
                             'is_active' => true,
                             'can_access_restricted_area' => false,
                             'is_available_for_picking' => false,

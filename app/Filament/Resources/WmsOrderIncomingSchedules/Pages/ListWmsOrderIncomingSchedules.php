@@ -54,13 +54,28 @@ class ListWmsOrderIncomingSchedules extends ListRecords
 
                     Select::make('item_id')
                         ->label('商品')
-                        ->options(fn () => Item::query()
-                            ->where('is_active', true)
-                            ->orderBy('code')
-                            ->limit(500)
-                            ->get()
-                            ->mapWithKeys(fn ($i) => [$i->id => "[{$i->code}]{$i->name}"]))
                         ->searchable()
+                        ->getSearchResultsUsing(function (string $search): array {
+                            if (mb_strlen($search) < 2) {
+                                return [];
+                            }
+
+                            return Item::query()
+                                ->where('is_active', true)
+                                ->where(fn ($q) => $q
+                                    ->where('code', 'like', "%{$search}%")
+                                    ->orWhere('name', 'like', "%{$search}%"))
+                                ->orderBy('code')
+                                ->limit(50)
+                                ->get()
+                                ->mapWithKeys(fn ($i) => [$i->id => "[{$i->code}]{$i->name}"])
+                                ->toArray();
+                        })
+                        ->getOptionLabelUsing(function ($value): ?string {
+                            $item = Item::find($value);
+
+                            return $item ? "[{$item->code}]{$item->name}" : null;
+                        })
                         ->required(),
 
                     Select::make('contractor_id')
