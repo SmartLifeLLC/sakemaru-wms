@@ -21,6 +21,9 @@ class PickingRouteController extends Controller
      */
     public function getPickingRoute(Request $request)
     {
+        set_time_limit(0);
+        ini_set('memory_limit', '-1');
+
         $validator = Validator::make($request->all(), [
             'warehouse_id' => 'required|integer',
             'floor_id' => 'required|integer',

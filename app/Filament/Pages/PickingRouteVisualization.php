@@ -539,6 +539,9 @@ class PickingRouteVisualization extends Page
      */
     public function recalculatePickingRoute(int $taskId): void
     {
+        set_time_limit(0);
+        ini_set('memory_limit', '-1');
+
         $task = WmsPickingTask::with('pickingItemResults')->find($taskId);
 
         if (! $task) {
