@@ -67,6 +67,12 @@ class PickingTaskController extends Controller
             $destinationWarehouse = $itemResult->stockTransfer->to_warehouse?->name ?? null;
         }
 
+        // Get location code
+        $location = $itemResult->location;
+        $locationCode = $location
+            ? trim("{$location->code1} {$location->code2} {$location->code3}")
+            : null;
+
         return [
             'wms_picking_item_result_id' => $itemResult->id,
             'source_type' => $itemResult->source_type ?? 'EARNING',
@@ -89,6 +95,10 @@ class PickingTaskController extends Controller
             'slip_number' => $itemResult->source_type === 'STOCK_TRANSFER'
                 ? $itemResult->stock_transfer_id
                 : $itemResult->earning_id,
+            'location' => $location ? [
+                'code' => $locationCode,
+                'name' => $location->name ?? null,
+            ] : null,
         ];
     }
 
@@ -188,7 +198,15 @@ class PickingTaskController extends Controller
      *                             @OA\Property(property="planned_qty", type="string", example="2.00"),
      *                             @OA\Property(property="picked_qty", type="string", example="0.00"),
      *                             @OA\Property(property="status", type="string", example="PENDING", description="Item status: PENDING (not started), PICKING (in progress), COMPLETED, SHORTAGE"),
-     *                             @OA\Property(property="slip_number", type="integer", example=1, description="Earning ID used as slip number")
+     *                             @OA\Property(property="slip_number", type="integer", example=1, description="Earning ID used as slip number"),
+     *                             @OA\Property(
+     *                                 property="location",
+     *                                 type="object",
+     *                                 nullable=true,
+     *                                 description="Location information (null if not set)",
+     *                                 @OA\Property(property="code", type="string", example="R01 A 5", description="Location code (code1 code2 code3)"),
+     *                                 @OA\Property(property="name", type="string", example="常温棚A-5", nullable=true, description="Location name")
+     *                             )
      *                         )
      *                     )
      *                 )
@@ -247,6 +265,7 @@ class PickingTaskController extends Controller
             'pickingItemResults.item.item_search_information',
             'pickingItemResults.earning',
             'pickingItemResults.stockTransfer.to_warehouse',
+            'pickingItemResults.location',
         ])
             ->where('warehouse_id', $warehouseId)
             ->whereIn('status', ['PENDING', 'PICKING_READY', 'PICKING']);
@@ -364,6 +383,7 @@ class PickingTaskController extends Controller
             'pickingItemResults.item.item_search_information',
             'pickingItemResults.earning',
             'pickingItemResults.stockTransfer.to_warehouse',
+            'pickingItemResults.location',
         ])->find($id);
 
         if (! $task) {
@@ -519,6 +539,18 @@ class PickingTaskController extends Controller
             }
         }
 
+        // Get location
+        $location = null;
+        if ($itemResult->location_id) {
+            $location = DB::connection('sakemaru')
+                ->table('locations')
+                ->where('id', $itemResult->location_id)
+                ->first(['code1', 'code2', 'code3', 'name']);
+        }
+        $locationCode = $location
+            ? trim("{$location->code1} {$location->code2} {$location->code3}")
+            : null;
+
         $data = [
             'wms_picking_item_result_id' => $itemResult->id,
             'item_id' => $itemResult->item_id,
@@ -535,6 +567,10 @@ class PickingTaskController extends Controller
             'picked_qty' => $itemResult->picked_qty ?? 0,
             'status' => $itemResult->status,
             'slip_number' => $itemResult->earning_id,
+            'location' => $location ? [
+                'code' => $locationCode,
+                'name' => $location->name ?? null,
+            ] : null,
         ];
 
         return response()->json([
