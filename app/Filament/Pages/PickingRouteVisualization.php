@@ -169,62 +169,8 @@ class PickingRouteVisualization extends Page
             $this->pickingEndY = 0;
         }
 
-        // Sync location positions within zone groups (code1+code2)
-        // Ensures API route calculation uses the same coordinates as the displayed zones
-        $this->syncLocationPositions();
-
         // Always load picking areas (regardless of layout existence)
         $this->loadPickingAreas();
-    }
-
-    /**
-     * Sync location positions within zone groups (code1+code2).
-     * The floor plan editor saves position to one location per group,
-     * but other locations in the same group may have stale/missing positions.
-     * This ensures all locations share the same position so that
-     * A* route calculation targets the correct coordinates.
-     */
-    private function syncLocationPositions(): void
-    {
-        if (! $this->selectedFloorId) {
-            return;
-        }
-
-        $locations = Location::where('floor_id', $this->selectedFloorId)
-            ->whereNotNull('code1')
-            ->whereNotNull('code2')
-            ->where('code1', '!=', 'ZZ')
-            ->get();
-
-        $groups = $locations->groupBy(fn ($loc) => $loc->code1.'-'.$loc->code2);
-
-        foreach ($groups as $groupLocs) {
-            $source = $groupLocs->first(fn ($loc) => $loc->x1_pos > 0 || $loc->y1_pos > 0);
-            if (! $source) {
-                continue;
-            }
-
-            $idsToUpdate = [];
-            foreach ($groupLocs as $loc) {
-                if ($loc->id === $source->id) {
-                    continue;
-                }
-                if ($loc->x1_pos == $source->x1_pos && $loc->y1_pos == $source->y1_pos
-                    && $loc->x2_pos == $source->x2_pos && $loc->y2_pos == $source->y2_pos) {
-                    continue;
-                }
-                $idsToUpdate[] = $loc->id;
-            }
-
-            if (! empty($idsToUpdate)) {
-                Location::whereIn('id', $idsToUpdate)->update([
-                    'x1_pos' => $source->x1_pos,
-                    'y1_pos' => $source->y1_pos,
-                    'x2_pos' => $source->x2_pos,
-                    'y2_pos' => $source->y2_pos,
-                ]);
-            }
-        }
     }
 
     /**
