@@ -178,6 +178,7 @@ class GenerateWavesCommand extends Command
                         $tradeItem->quantity,
                         $tradeItem->quantity_type ?? 'PIECE',
                         $earningId,
+                        $tradeItem->id,
                         'EARNING',
                         $buyerId
                     );
@@ -437,6 +438,7 @@ class GenerateWavesCommand extends Command
                             $tradeItem->quantity,
                             $tradeItem->quantity_type ?? 'PIECE',
                             $stockTransferId,
+                            $tradeItem->id,
                             'STOCK_TRANSFER', // source_type
                             null // buyer_id
                         );

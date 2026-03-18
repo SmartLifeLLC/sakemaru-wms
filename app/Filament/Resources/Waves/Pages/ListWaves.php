@@ -693,6 +693,7 @@ class ListWaves extends ListRecords
                 $tradeItem->quantity,
                 $tradeItem->quantity_type ?? 'PIECE',
                 $earningId,
+                $tradeItem->id,
                 'EARNING',
                 $buyerId
             );
@@ -933,6 +934,7 @@ class ListWaves extends ListRecords
                 $tradeItem->quantity,
                 $tradeItem->quantity_type ?? 'PIECE',
                 $stockTransferId,
+                $tradeItem->id,
                 'STOCK_TRANSFER',
                 null // buyer_id
             );
