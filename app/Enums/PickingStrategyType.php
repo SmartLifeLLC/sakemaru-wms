@@ -9,12 +9,14 @@ enum PickingStrategyType: string implements HasColor, HasLabel
 {
     case EQUAL = 'equal';
     case SKILL_BASED = 'skill_based';
+    case ZONE_PRIORITY = 'zone_priority';
 
     public function getLabel(): ?string
     {
         return match ($this) {
             self::EQUAL => '商品数均等割り当て',
             self::SKILL_BASED => 'スキルレベル考慮割り当て',
+            self::ZONE_PRIORITY => 'ゾーン優先割り当て',
         };
     }
 
@@ -23,6 +25,7 @@ enum PickingStrategyType: string implements HasColor, HasLabel
         return match ($this) {
             self::EQUAL => 'info',
             self::SKILL_BASED => 'warning',
+            self::ZONE_PRIORITY => 'success',
         };
     }
 
@@ -31,6 +34,7 @@ enum PickingStrategyType: string implements HasColor, HasLabel
         return match ($this) {
             self::EQUAL => '商品数ベースで均等に配分します。配送コース単位でまとめて割り当てます。',
             self::SKILL_BASED => 'スキルレベルに応じて商品数の割り当て比率を調整します。',
+            self::ZONE_PRIORITY => 'ゾーン（エリア）を優先して割り当てます。',
         };
     }
 
