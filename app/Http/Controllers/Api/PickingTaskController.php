@@ -61,6 +61,11 @@ class PickingTaskController extends Controller
             }
         }
 
+        // Get customer info from earning.trade.partner
+        $partner = $itemResult->earning?->trade?->partner;
+        $customerCode = $partner?->code;
+        $customerName = $partner?->name;
+
         // Get destination warehouse for stock_transfer
         $destinationWarehouse = null;
         if ($itemResult->source_type === 'STOCK_TRANSFER' && $itemResult->stockTransfer) {
@@ -92,6 +97,8 @@ class PickingTaskController extends Controller
             'planned_qty' => $itemResult->planned_qty,
             'picked_qty' => $itemResult->picked_qty ?? 0,
             'status' => $itemResult->status,
+            'customer_code' => $customerCode,
+            'customer_name' => $customerName,
             'slip_number' => $itemResult->source_type === 'STOCK_TRANSFER'
                 ? $itemResult->stock_transfer_id
                 : $itemResult->earning_id,
@@ -198,6 +205,8 @@ class PickingTaskController extends Controller
      *                             @OA\Property(property="planned_qty", type="string", example="2.00"),
      *                             @OA\Property(property="picked_qty", type="string", example="0.00"),
      *                             @OA\Property(property="status", type="string", example="PENDING", description="Item status: PENDING (not started), PICKING (in progress), COMPLETED, SHORTAGE"),
+     *                             @OA\Property(property="customer_code", type="string", example="C001", nullable=true, description="Customer partner code from trade"),
+     *                             @OA\Property(property="customer_name", type="string", example="居酒屋A", nullable=true, description="Customer partner name from trade"),
      *                             @OA\Property(property="slip_number", type="integer", example=1, description="Earning ID used as slip number"),
      *                             @OA\Property(
      *                                 property="location",
@@ -318,7 +327,7 @@ class PickingTaskController extends Controller
             // Add item results to picking list, sorted by item_id
             // Note: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
             $itemResults = $task->pickingItemResults()
-                ->with(['item.item_search_information'])
+                ->with(['item.item_search_information', 'earning.trade.partner'])
                 ->where('planned_qty', '>', 0) // Filter out items with 0 planned quantity (complete shortage)
                 ->orderBy('item_id', 'asc')
                 ->get();
@@ -405,7 +414,7 @@ class PickingTaskController extends Controller
         // Build picking list
         $pickingList = [];
         $itemResults = $task->pickingItemResults()
-            ->with(['item.item_search_information'])
+            ->with(['item.item_search_information', 'earning.trade.partner'])
             ->where('planned_qty', '>', 0)
             ->orderBy('item_id', 'asc')
             ->get();
@@ -566,6 +575,8 @@ class PickingTaskController extends Controller
             'planned_qty' => $itemResult->planned_qty,
             'picked_qty' => $itemResult->picked_qty ?? 0,
             'status' => $itemResult->status,
+            'customer_code' => $itemResult->earning?->trade?->partner?->code,
+            'customer_name' => $itemResult->earning?->trade?->partner?->name,
             'slip_number' => $itemResult->earning_id,
             'location' => $location ? [
                 'code' => $locationCode,
