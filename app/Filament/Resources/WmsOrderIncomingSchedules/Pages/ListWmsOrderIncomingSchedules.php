@@ -193,23 +193,39 @@ class ListWmsOrderIncomingSchedules extends ListRecords
 
         // デフォルト倉庫が入庫予定に存在するかチェック
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
         // プリセットビュー構築
-        $views = [
-            'default' => PresetView::make()
-                ->favorite()
-                ->label('全て')
-                ->default(! $hasDefaultWarehouse),
-        ];
+        if ($defaultWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->favorite()
+                    ->label($defaultWarehouse->name)
+                    ->default(),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
+
+        $views['all'] = PresetView::make()
+            ->favorite()
+            ->label('全て');
 
         // 倉庫別タブを追加
         foreach ($warehouses as $warehouse) {
-            $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
+            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                continue;
+            }
             $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
-                ->label($warehouse->name)
-                ->default($isDefault);
+                ->label($warehouse->name);
         }
 
         return $views;

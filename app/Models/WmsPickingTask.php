@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\ClientPrinterDriver;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Floor;
+use App\Models\Sakemaru\User;
 use App\Models\Sakemaru\Warehouse;
 use App\Services\WarehouseMismatchTransferService;
 use Illuminate\Database\Eloquent\Model;
@@ -27,6 +29,8 @@ class WmsPickingTask extends Model
 
     public const STATUS_COMPLETED = 'COMPLETED';
 
+    public const STATUS_SHORTAGE = 'SHORTAGE';
+
     public const STATUS_SHIPPED = 'SHIPPED';
 
     protected $fillable = [
@@ -46,6 +50,9 @@ class WmsPickingTask extends Model
         'started_at',
         'completed_at',
         'print_requested_count',
+        'last_printed_at',
+        'last_printed_by',
+        'last_printed_printer_id',
     ];
 
     protected $casts = [
@@ -55,6 +62,7 @@ class WmsPickingTask extends Model
         'temperature_type' => \App\Enums\TemperatureType::class,
         'is_restricted_area' => 'boolean',
         'print_requested_count' => 'integer',
+        'last_printed_at' => 'datetime',
     ];
 
     /**
@@ -225,6 +233,16 @@ class WmsPickingTask extends Model
     public function picker(): BelongsTo
     {
         return $this->belongsTo(WmsPicker::class, 'picker_id');
+    }
+
+    public function lastPrintedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'last_printed_by');
+    }
+
+    public function lastPrintedPrinter(): BelongsTo
+    {
+        return $this->belongsTo(ClientPrinterDriver::class, 'last_printed_printer_id');
     }
 
     /**

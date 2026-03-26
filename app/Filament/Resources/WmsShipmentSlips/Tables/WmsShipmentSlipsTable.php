@@ -13,9 +13,9 @@ use App\Services\Shortage\ShortageApprovalService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -66,7 +66,7 @@ class WmsShipmentSlipsTable
                     ->label('ステータス')
                     ->badge()
                     ->state(function ($record) {
-                        $allCompleted = $record->grouped_tasks->every(fn ($task) => $task->status === 'COMPLETED');
+                        $allCompleted = $record->grouped_tasks->every(fn ($task) => in_array($task->status, ['COMPLETED', 'SHIPPED']));
                         $anyPicking = $record->grouped_tasks->contains(fn ($task) => $task->status === 'PICKING');
 
                         if ($allCompleted) {
@@ -93,6 +93,30 @@ class WmsShipmentSlipsTable
                 TextColumn::make('wave.print_count')
                     ->label('印刷回数')
                     ->suffix('回')
+                    ->alignCenter(),
+
+                TextColumn::make('last_printed_at')
+                    ->label('最終印刷時刻')
+                    ->state(fn ($record) => $record->last_printed_at)
+                    ->dateTime('Y-m-d H:i')
+                    ->placeholder('-')
+                    ->alignCenter(),
+
+                TextColumn::make('lastPrintedByUser.name')
+                    ->label('最終印刷者')
+                    ->placeholder('-')
+                    ->alignCenter(),
+
+                TextColumn::make('last_printed_printer_name')
+                    ->label('最終印刷先')
+                    ->state(function ($record) {
+                        if (! $record->last_printed_at) {
+                            return null;
+                        }
+
+                        return $record->lastPrintedPrinter?->name ?? 'PDFのみ';
+                    })
+                    ->placeholder('-')
                     ->alignCenter(),
 
                 TextColumn::make('task_count')
@@ -283,9 +307,20 @@ class WmsShipmentSlipsTable
 
                         $tasksToUpdate = $query->get();
 
-                        // print_requested_countをインクリメント
+                        // print_requested_countをインクリメント + COMPLETED/SHORTAGEタスクをSHIPPEDに変更 + 最終印刷情報を記録
+                        $printedAt = now();
+                        $printedBy = auth()->id();
                         foreach ($tasksToUpdate as $task) {
                             $task->increment('print_requested_count');
+                            $updateData = [
+                                'last_printed_at' => $printedAt,
+                                'last_printed_by' => $printedBy,
+                                'last_printed_printer_id' => $selectedPrinterId,
+                            ];
+                            if (in_array($task->status, [WmsPickingTask::STATUS_COMPLETED, WmsPickingTask::STATUS_SHORTAGE])) {
+                                $updateData['status'] = WmsPickingTask::STATUS_SHIPPED;
+                            }
+                            $task->update($updateData);
                         }
 
                         // Waveの印刷回数をインクリメント、初回出荷確定時はstatusをCOMPLETEDに更新
@@ -500,9 +535,20 @@ class WmsShipmentSlipsTable
 
                                     $tasksToUpdate = $query->get();
 
-                                    // print_requested_countをインクリメント
+                                    // print_requested_countをインクリメント + COMPLETED/SHORTAGEタスクをSHIPPEDに変更 + 最終印刷情報を記録
+                                    $printedAt = now();
+                                    $printedBy = auth()->id();
                                     foreach ($tasksToUpdate as $task) {
                                         $task->increment('print_requested_count');
+                                        $updateData = [
+                                            'last_printed_at' => $printedAt,
+                                            'last_printed_by' => $printedBy,
+                                            'last_printed_printer_id' => null,
+                                        ];
+                                        if (in_array($task->status, [WmsPickingTask::STATUS_COMPLETED, WmsPickingTask::STATUS_SHORTAGE])) {
+                                            $updateData['status'] = WmsPickingTask::STATUS_SHIPPED;
+                                        }
+                                        $task->update($updateData);
                                     }
 
                                     // Waveの印刷回数をインクリメント、初回出荷確定時はstatusをCOMPLETEDに更新
@@ -571,7 +617,7 @@ class WmsShipmentSlipsTable
                         ->from('wms_picking_tasks')
                         ->groupBy('delivery_course_id', 'wave_id', 'shipment_date');
                 })
-                    ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting']);
+                    ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting', 'lastPrintedByUser', 'lastPrintedPrinter']);
             })
             ->toolbarActions([
                 static::getExportAction(),

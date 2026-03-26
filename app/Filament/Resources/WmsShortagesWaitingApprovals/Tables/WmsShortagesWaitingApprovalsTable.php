@@ -751,6 +751,37 @@ class WmsShortagesWaitingApprovalsTable
                                 ->send();
                         }
                     }),
+
+                // 欠品対応取り消しアクション（未承認のみ）
+                Action::make('cancelShortage')
+                    ->label('取り消し')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn (WmsShortage $record) => ! $record->is_confirmed)
+                    ->requiresConfirmation()
+                    ->modalHeading('欠品対応を取り消しますか？')
+                    ->modalDescription('横持ち出荷指示を削除し、欠品ステータスを未対応に戻します。Android側で再編集が可能になります。')
+                    ->action(function (WmsShortage $record) {
+                        try {
+                            // 関連する横持ち出荷指示を削除
+                            $deletedCount = $record->allocations()->delete();
+
+                            // ステータスをBEFOREに戻す
+                            $record->update(['status' => WmsShortage::STATUS_BEFORE]);
+
+                            Notification::make()
+                                ->title('取り消しました')
+                                ->body("欠品対応を取り消しました。".($deletedCount > 0 ? "横持ち出荷指示{$deletedCount}件を削除しました。" : ''))
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('エラー')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
             ], position: RecordActionsPosition::BeforeColumns)
             ->bulkActions([
                 BulkActionGroup::make([

@@ -29,7 +29,7 @@ class ListWmsPickingTasks extends ListRecords
         return [
             'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING_READY'))->favorite()->label('ピッキング前')->default(),
             'PICKING' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING'))->favorite()->label('ピッキング中'),
-            'SHORTAGE' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->whereHas('pickingItemResults', fn ($q) => $q->where('has_soft_shortage', true)))->favorite()->label('欠品対応待ち'),
+            'SHORTAGE' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where(fn ($q) => $q->whereHas('pickingItemResults', fn ($sq) => $sq->where('has_soft_shortage', true))->orWhere('status', 'SHORTAGE')))->favorite()->label('欠品対応待ち'),
             'COMPLETED_TODAY' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED')->whereDate('shipment_date', ClientSetting::systemDateYMD()))->favorite()->label('ピッキング完了(本日出荷)'),
             'COMPLETED_ALL' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED'))->favorite()->label('ピッキング完了(すべて)'),
 

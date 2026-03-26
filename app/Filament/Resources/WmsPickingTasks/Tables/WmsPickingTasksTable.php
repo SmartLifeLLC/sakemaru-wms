@@ -76,7 +76,11 @@ class WmsPickingTasksTable
                     ->badge()
                     ->color(fn ($state) => $state > 0 ? 'warning' : 'gray')
                     ->state(function ($record) {
-                        // planned_qty - picked_qty の合計を計算
+                        // ピッキング完了後のみ庫内欠品を計算（ピッキング中は未確定のため表示しない）
+                        if (! in_array($record->status, ['COMPLETED', 'SHORTAGE'])) {
+                            return 0;
+                        }
+
                         return $record->pickingItemResults->sum(function ($item) {
                             return max(0, ($item->planned_qty ?? 0) - ($item->picked_qty ?? 0));
                         });
@@ -413,7 +417,7 @@ class WmsPickingTasksTable
                             ],
                         ],
                     ]))
-                    ->visible(fn ($record) => $isWaitingView),
+                    ->visible(fn ($record) => $isWaitingView || $record->status === 'COMPLETED'),
 
                 Action::make('execute')
                     ->label('ピッキング実施')
@@ -853,6 +857,103 @@ class WmsPickingTasksTable
                     ->deselectRecordsAfterCompletion(),
             ])
             ->toolbarActions([
+                Action::make('forceShipAll')
+                    ->label('全件強制出荷')
+                    ->icon('heroicon-o-truck')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->modalHeading('全件強制出荷確認')
+                    ->modalDescription('現在表示中のすべての未完了タスクを強制出荷します。すべての商品のピッキング数を予定数に自動設定し、出荷完了にします。この操作は取り消せません。')
+                    ->action(function (Table $table) {
+                        // 現在のテーブルクエリから未完了タスクを取得
+                        $tasks = $table->getQuery()
+                            ->where('status', '!=', WmsPickingTask::STATUS_COMPLETED)
+                            ->with('pickingItemResults')
+                            ->get();
+
+                        if ($tasks->isEmpty()) {
+                            Notification::make()
+                                ->title('対象なし')
+                                ->body('未完了のタスクがありません')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        $completedCount = 0;
+                        $itemCount = 0;
+                        $errors = [];
+
+                        DB::connection('sakemaru')->transaction(function () use ($tasks, &$completedCount, &$itemCount, &$errors) {
+                            foreach ($tasks as $task) {
+                                try {
+                                    // 全アイテムのpicked_qtyを予定数に設定
+                                    foreach ($task->pickingItemResults as $item) {
+                                        $item->update([
+                                            'picked_qty' => $item->planned_qty,
+                                            'shortage_qty' => 0,
+                                            'status' => 'COMPLETED',
+                                            'picked_at' => $item->picked_at ?? now(),
+                                        ]);
+                                        $itemCount++;
+                                    }
+
+                                    // タスクを完了
+                                    $task->update([
+                                        'status' => WmsPickingTask::STATUS_COMPLETED,
+                                        'completed_at' => $task->completed_at ?? now(),
+                                    ]);
+
+                                    // 関連する伝票のピッキングステータスを更新
+                                    $earningIds = $task->pickingItemResults()
+                                        ->distinct('earning_id')
+                                        ->whereNotNull('earning_id')
+                                        ->pluck('earning_id')
+                                        ->toArray();
+
+                                    if (! empty($earningIds)) {
+                                        DB::connection('sakemaru')
+                                            ->table('earnings')
+                                            ->whereIn('id', $earningIds)
+                                            ->update([
+                                                'picking_status' => 'COMPLETED',
+                                                'updated_at' => now(),
+                                            ]);
+                                    }
+
+                                    $completedCount++;
+
+                                    Log::info('Picking task force shipped (all)', [
+                                        'task_id' => $task->id,
+                                        'wave_id' => $task->wave_id,
+                                    ]);
+                                } catch (\Exception $e) {
+                                    $errors[] = "タスクID {$task->id}: {$e->getMessage()}";
+                                    Log::error('Force ship all failed', [
+                                        'task_id' => $task->id,
+                                        'error' => $e->getMessage(),
+                                    ]);
+                                }
+                            }
+                        });
+
+                        if (! empty($errors)) {
+                            Notification::make()
+                                ->title('一部エラーが発生しました')
+                                ->body(implode("\n", $errors))
+                                ->danger()
+                                ->send();
+                        }
+
+                        if ($completedCount > 0) {
+                            Notification::make()
+                                ->title('全件強制出荷しました')
+                                ->body("{$completedCount}件のタスク（{$itemCount}件の商品）を自動完了し、出荷可能状態にしました")
+                                ->success()
+                                ->send();
+                        }
+                    }),
                 static::getExportAction(),
             ]);
         //            ->toolbarActions([

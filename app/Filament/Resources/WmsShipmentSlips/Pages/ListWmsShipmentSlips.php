@@ -6,6 +6,8 @@ use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsShipmentSlips\Tables\WmsShipmentSlipsTable;
 use App\Filament\Resources\WmsShipmentSlips\WmsShipmentSlipsResource;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsPickingTask;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Resources\Pages\ListRecords;
@@ -29,11 +31,64 @@ class ListWmsShipmentSlips extends ListRecords
 
     public function getPresetViews(): array
     {
-        return [
-            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', ClientSetting::systemDateYMD()))->favorite()->label('当日')->default(),
-            'yesterday' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', ClientSetting::systemYesterdayYMD()))->favorite()->label('前日'),
-            'all' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query)->favorite()->label('ALL'),
+        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        $systemDate = ClientSetting::systemDateYMD();
+
+        // system_date のタスクが存在する倉庫のみタブ表示
+        $warehouseIds = WmsPickingTask::where('shipment_date', $systemDate)
+            ->distinct()
+            ->pluck('warehouse_id')
+            ->toArray();
+
+        $warehouses = Warehouse::whereIn('id', $warehouseIds)
+            ->where('is_virtual', false)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
+
+        $defaultWarehouse = $userDefaultWarehouseId
+            ? $warehouses->firstWhere('id', $userDefaultWarehouseId)
+            : null;
+
+        $defaultFilterData = [
+            'shipment_date' => ['shipment_date' => $systemDate],
         ];
+
+        if ($defaultWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->defaultFilters($defaultFilterData)
+                    ->favorite()
+                    ->label($defaultWarehouse->name)
+                    ->default(),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->defaultFilters($defaultFilterData)
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
+
+        $views['all'] = PresetView::make()
+            ->defaultFilters($defaultFilterData)
+            ->label('全て')
+            ->favorite();
+
+        foreach ($warehouses as $warehouse) {
+            if ($defaultWarehouse && $warehouse->id === $defaultWarehouse->id) {
+                continue;
+            }
+            $views["wh_{$warehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label($warehouse->name);
+        }
+
+        return $views;
     }
 
     protected function paginateTableQuery(Builder $query): Paginator

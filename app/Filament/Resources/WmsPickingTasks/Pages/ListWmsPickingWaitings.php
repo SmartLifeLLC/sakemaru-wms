@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsPickingTasks\Pages;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsPickingTasks\Tables\WmsPickingTasksTable;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingWaitingResource;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsPicker;
 use App\Models\WmsPickingAssignmentStrategy;
@@ -306,27 +307,72 @@ class ListWmsPickingWaitings extends ListRecords
 
     public function getPresetViews(): array
     {
-        $user = Auth::user();
-        $user->loadMissing('warehouse');
+        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        $systemDate = ClientSetting::systemDateYMD();
 
-        return [
-            'default' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $user->warehouse->id))
-                ->label($user->warehouse->name)
-                ->favorite()
-                ->default(),
+        // PENDINGタスクが存在する倉庫のみタブ表示
+        $warehouseIds = WmsPickingTask::where('status', WmsPickingTask::STATUS_PENDING)
+            ->where('shipment_date', $systemDate)
+            ->distinct()
+            ->pluck('warehouse_id')
+            ->toArray();
 
-            'with_shortage' => PresetView::make()
+        $warehouses = Warehouse::whereIn('id', $warehouseIds)
+            ->where('is_virtual', false)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
+
+        $hasDefaultWarehouse = $userDefaultWarehouseId
+            && $warehouses->contains('id', $userDefaultWarehouseId);
+        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
+
+        if ($defaultWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query
+                        ->where('shipment_date', $systemDate)
+                        ->where('warehouse_id', $userDefaultWarehouseId)
+                    )
+                    ->favorite()
+                    ->label($defaultWarehouse->name)
+                    ->default(),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', $systemDate))
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
+
+        $views['all'] = PresetView::make()
+            ->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', $systemDate))
+            ->label('全て')
+            ->favorite();
+
+        foreach ($warehouses as $warehouse) {
+            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                continue;
+            }
+            $views["wh_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query
-                    ->where('warehouse_id', $user->warehouse->id)
-                    ->whereHas('pickingItemResults', fn ($q) => $q->where('has_soft_shortage', true)))
-                ->label('引当欠品あり')
-                ->favorite(),
+                    ->where('shipment_date', $systemDate)
+                    ->where('warehouse_id', $warehouse->id)
+                )
+                ->favorite()
+                ->label($warehouse->name);
+        }
 
-            'all' => PresetView::make()
-                ->label('全データ')
-                ->favorite(),
-        ];
+        $views['with_shortage'] = PresetView::make()
+            ->modifyQueryUsing(fn (Builder $query) => $query
+                ->where('shipment_date', $systemDate)
+                ->whereHas('pickingItemResults', fn ($q) => $q->where('has_soft_shortage', true)))
+            ->label('引当欠品あり')
+            ->favorite();
+
+        return $views;
     }
 
     public function table(Table $table): Table

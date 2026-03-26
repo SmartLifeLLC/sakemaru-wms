@@ -77,14 +77,22 @@ class WmsPickingItemEditResource extends Resource
                     ->state(fn ($record) => $record->ordered_qty_type === 'PIECE' ? $record->ordered_qty : '-')
                     ->alignment('center'),
 
-                TextInputColumn::make('planned_qty')
-                    ->width('50px')
+                TextColumn::make('planned_qty')
                     ->label('引当数')
+                    ->alignCenter(),
+
+                TextInputColumn::make('picked_qty')
+                    ->width('50px')
+                    ->label('ピック数')
                     ->rules(['required', 'numeric', 'min:0'])
                     ->type('number')
                     ->step(1)
                     ->alignCenter()
-                    ->disabled(fn ($record) => ! $record->pickingTask || $record->pickingTask->status !== \App\Models\WmsPickingTask::STATUS_PENDING)
+                    ->disabled(fn ($record) => ! $record->pickingTask || ! in_array($record->pickingTask->status, [
+                        \App\Models\WmsPickingTask::STATUS_PICKING_READY,
+                        'PICKING',
+                        'COMPLETED',
+                    ]))
                     ->extraCellAttributes([
                         'class' => 'p-0',
                     ])
@@ -106,24 +114,26 @@ class WmsPickingItemEditResource extends Resource
                             return;
                         }
 
-                        if ($state > $record->ordered_qty) {
+                        if ($state > $record->planned_qty) {
                             Notification::make()
                                 ->title('エラー')
-                                ->body("引当数は受注数（{$record->ordered_qty}）を超えることはできません")
+                                ->body("ピック数は引当数（{$record->planned_qty}）を超えることはできません")
                                 ->danger()
                                 ->send();
 
                             return;
                         }
 
-                        $record->planned_qty = $state;
+                        $record->picked_qty = (int) $state;
+                        $record->shortage_qty = max(0, $record->planned_qty - (int) $state);
                         $record->save();
 
                         Notification::make()
-                            ->title('引当数を更新しました')
+                            ->title('ピック数を更新しました')
                             ->success()
                             ->send();
                     }),
+
                 TextColumn::make('shortage_qty')
                     ->label('欠品数')
                     ->state(fn ($record) => max(0, $record->ordered_qty - $record->planned_qty))

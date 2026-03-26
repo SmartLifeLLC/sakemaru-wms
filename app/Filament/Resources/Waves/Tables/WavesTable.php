@@ -10,7 +10,10 @@ use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Forms\Components\DatePicker;
+use Illuminate\Database\Eloquent\Builder;
 use Filament\Tables\Table;
 
 class WavesTable
@@ -83,6 +86,16 @@ class WavesTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Filter::make('shipping_date')
+                    ->label('出荷日')
+                    ->form([
+                        DatePicker::make('shipping_date')
+                            ->label('出荷日'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['shipping_date'], fn (Builder $q, $date) => $q->where('shipping_date', $date))
+                    ),
+
                 SelectFilter::make('status')
                     ->label('出荷状況')
                     ->options([

@@ -422,23 +422,39 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
             // デフォルト倉庫が移動確定待ちに存在するかチェック
             $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+            $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
             // プリセットビュー構築（データがなくても「全て」タブは常に表示）
-            $views = [
-                'default' => PresetView::make()
-                    ->favorite()
-                    ->label('全て')
-                    ->default(! $hasDefaultWarehouse || empty($warehouses)),
-            ];
+            if ($defaultWarehouse) {
+                $views = [
+                    'default' => PresetView::make()
+                        ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $userDefaultWarehouseId))
+                        ->favorite()
+                        ->label($defaultWarehouse->name)
+                        ->default(),
+                ];
+            } else {
+                $views = [
+                    'default' => PresetView::make()
+                        ->favorite()
+                        ->label('全て')
+                        ->default(),
+                ];
+            }
+
+            $views['all'] = PresetView::make()
+                ->favorite()
+                ->label('全て');
 
             // 倉庫タブを追加（データがある場合のみ）
             foreach ($warehouses as $warehouse) {
-                $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
+                if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                    continue;
+                }
                 $views["default_{$warehouse->id}"] = PresetView::make()
                     ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $warehouse->id))
                     ->favorite()
-                    ->label($warehouse->name)
-                    ->default($isDefault);
+                    ->label($warehouse->name);
             }
 
             return $views;
@@ -467,23 +483,39 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
         // デフォルト倉庫が発注確定待ちに存在するかチェック
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
         // プリセットビュー構築（データがなくても「全て」タブは常に表示）
-        $views = [
-            'default' => PresetView::make()
-                ->favorite()
-                ->label('全て')
-                ->default(! $hasDefaultWarehouse || empty($warehouses)),
-        ];
+        if ($defaultWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->favorite()
+                    ->label($defaultWarehouse->name)
+                    ->default(),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
+
+        $views['all'] = PresetView::make()
+            ->favorite()
+            ->label('全て');
 
         // 倉庫タブを追加（データがある場合のみ）
         foreach ($warehouses as $warehouse) {
-            $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
+            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                continue;
+            }
             $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
-                ->label($warehouse->name)
-                ->default($isDefault);
+                ->label($warehouse->name);
         }
 
         return $views;

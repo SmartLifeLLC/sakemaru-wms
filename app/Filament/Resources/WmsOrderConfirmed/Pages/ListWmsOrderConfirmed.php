@@ -50,33 +50,49 @@ class ListWmsOrderConfirmed extends ListRecords
 
         // デフォルト倉庫が発注確定済みに存在するかチェック
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
         // プリセットビュー構築（キーはdefaultプレフィックスで統一）
-        $views = [
-            'default' => PresetView::make()
-                ->favorite()
-                ->label('全て')
-                ->default(! $hasDefaultWarehouse || $warehouses->isEmpty()),
+        if ($defaultWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->favorite()
+                    ->label($defaultWarehouse->name)
+                    ->default(),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
 
-            'default_confirmed' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::CONFIRMED))
-                ->favorite()
-                ->label('確定済み'),
+        $views['all'] = PresetView::make()
+            ->favorite()
+            ->label('全て');
 
-            'default_executed' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::EXECUTED))
-                ->favorite()
-                ->label('送信済み'),
-        ];
+        $views['default_confirmed'] = PresetView::make()
+            ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::CONFIRMED))
+            ->favorite()
+            ->label('確定済み');
+
+        $views['default_executed'] = PresetView::make()
+            ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::EXECUTED))
+            ->favorite()
+            ->label('送信済み');
 
         // 倉庫タブを追加（データがある場合のみ）
         foreach ($warehouses as $warehouse) {
-            $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
+            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                continue;
+            }
             $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
-                ->label($warehouse->name)
-                ->default($isDefault);
+                ->label($warehouse->name);
         }
 
         return $views;

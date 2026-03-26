@@ -2,7 +2,8 @@
     :component="$getFieldWrapperView()"
     :field="$field"
 >
-    <div x-data="{
+    <div wire:key="checkbox-grid-{{ $getStatePath() }}-{{ md5(json_encode($options)) }}"
+         x-data="{
         state: $wire.entangle('{{ $getStatePath() }}').live,
         options: @js($options),
         search: '',

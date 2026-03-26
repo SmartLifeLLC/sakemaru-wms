@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Waves\Pages;
 
+use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\Waves\WaveResource;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Earning;
@@ -13,6 +14,8 @@ use App\Services\PickingList\PickingListPdfService;
 use App\Services\PickingList\PickingListService;
 use App\Services\StockAllocationService;
 use App\Services\WarehouseResolver;
+use Archilex\AdvancedTables\AdvancedTables;
+use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\ViewField;
@@ -20,6 +23,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
@@ -30,7 +34,68 @@ use Illuminate\Support\HtmlString;
  */
 class ListWaves extends ListRecords
 {
+    use AdvancedTables;
+    use HasWmsUserViews {
+        HasWmsUserViews::getUserViews insteadof AdvancedTables;
+        HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
+    }
+
     protected static string $resource = WaveResource::class;
+
+    public function getPresetViews(): array
+    {
+        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        $systemDate = ClientSetting::systemDateYMD();
+
+        $warehouses = cache()->remember('wave_warehouses_for_tabs_'.auth()->id(), 60, function () {
+            return Warehouse::query()->where('is_virtual', false)->orderBy('code')->get(['id', 'code', 'name']);
+        });
+
+        $hasDefaultWarehouse = $userDefaultWarehouseId
+            && $warehouses->contains('id', $userDefaultWarehouseId);
+        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
+
+        if ($defaultWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query
+                        ->where('shipping_date', $systemDate)
+                        ->whereHas('waveSetting.deliveryCourse', fn (Builder $q) => $q->where('warehouse_id', $userDefaultWarehouseId))
+                    )
+                    ->favorite()
+                    ->label($defaultWarehouse->name)
+                    ->default(),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('shipping_date', $systemDate))
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
+
+        $views['all'] = PresetView::make()
+            ->modifyQueryUsing(fn (Builder $query) => $query->where('shipping_date', $systemDate))
+            ->favorite()
+            ->label('全て');
+
+        foreach ($warehouses as $warehouse) {
+            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                continue;
+            }
+            $views["wh_{$warehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query
+                    ->where('shipping_date', $systemDate)
+                    ->whereHas('waveSetting.deliveryCourse', fn (Builder $q) => $q->where('warehouse_id', $warehouse->id))
+                )
+                ->favorite()
+                ->label($warehouse->name);
+        }
+
+        return $views;
+    }
 
     protected function getHeaderActions(): array
     {
@@ -256,6 +321,7 @@ class ListWaves extends ListRecords
                                     ->table('earnings')
                                     ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
                                     ->whereIn('earnings.warehouse_id', $warehouseIds)
+                                    ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
                                     ->where('earnings.delivered_date', $shippingDate)
                                     ->where('earnings.is_delivered', 0)
                                     ->where('earnings.picking_status', 'BEFORE')
@@ -271,6 +337,7 @@ class ListWaves extends ListRecords
                                     ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
                                     ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
                                     ->whereIn('st.from_warehouse_id', $warehouseIds)
+                                    ->whereIn('dc.warehouse_id', $warehouseIds)
                                     ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
                                     ->where('st.is_active', true)
                                     ->where('st.picking_status', 'BEFORE')
@@ -340,6 +407,7 @@ class ListWaves extends ListRecords
                                     ->table('earnings')
                                     ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
                                     ->whereIn('earnings.warehouse_id', $warehouseIds)
+                                    ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
                                     ->where('earnings.delivered_date', $shippingDate)
                                     ->where('earnings.is_delivered', 0)
                                     ->where('earnings.picking_status', 'BEFORE')
@@ -358,6 +426,7 @@ class ListWaves extends ListRecords
                                     ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
                                     ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
                                     ->whereIn('st.from_warehouse_id', $warehouseIds)
+                                    ->whereIn('dc.warehouse_id', $warehouseIds)
                                     ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
                                     ->where('st.is_active', true)
                                     ->where('st.picking_status', 'BEFORE')
@@ -475,6 +544,14 @@ class ListWaves extends ListRecords
         // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
+        // 指定倉庫に紐づく配送コースのみに絞り込み
+        $validCourseIds = DB::connection('sakemaru')
+            ->table('delivery_courses')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('id', $deliveryCourseIds)
+            ->pluck('id')
+            ->toArray();
+
         // Get eligible earnings grouped by delivery_course_id
         // delivery_course_id が未設定の伝票はスキップする
         $earnings = Earning::query()
@@ -483,13 +560,13 @@ class ListWaves extends ListRecords
             ->where('is_delivered', 0)
             ->where('picking_status', 'BEFORE')
             ->whereNotNull('delivery_course_id')
-            ->whereIn('delivery_course_id', $deliveryCourseIds)
+            ->whereIn('delivery_course_id', $validCourseIds)
             ->get();
 
         // Get eligible stock_transfers grouped by delivery_course_id
         // 仮想倉庫間移動は対象外（物理的ピッキング不要）
         $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId)
-            ->whereIn('st.delivery_course_id', $deliveryCourseIds)
+            ->whereIn('st.delivery_course_id', $validCourseIds)
             ->get();
 
         if ($earnings->isEmpty() && $stockTransfers->isEmpty()) {
@@ -1065,12 +1142,14 @@ class ListWaves extends ListRecords
 
         return DB::connection('sakemaru')
             ->table('stock_transfers as st')
+            ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
             ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
             ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
             ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
             ->where('st.is_active', true)
             ->where('st.picking_status', 'BEFORE')
             ->whereIn('st.from_warehouse_id', $warehouseIds)
+            ->whereIn('dc.warehouse_id', $warehouseIds)
             ->whereNotNull('st.delivery_course_id')
             // 仮想倉庫間移動は対象外
             ->where(function ($query) {

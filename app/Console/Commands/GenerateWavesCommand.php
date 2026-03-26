@@ -253,9 +253,9 @@ class GenerateWavesCommand extends Command
                         }
                     }
 
-                    // Group by floor_id only (no CASE/PIECE separation)
-                    // All items on the same floor go into one picking task
-                    $groupKey = ($floorId ?? 'null');
+                    // Group by floor_id × picking_area_id
+                    // All items on the same floor and picking area go into one picking task
+                    $groupKey = ($floorId ?? 'null').'_'.($pickingAreaId ?? 'null');
                     if (! isset($itemsByGroup[$groupKey])) {
                         $itemsByGroup[$groupKey] = [
                             'floor_id' => $floorId,
@@ -485,12 +485,13 @@ class GenerateWavesCommand extends Command
                             $pickingAreaId = $defaultArea->id ?? null;
                         }
 
-                        // Find or create picking task for this floor
-                        $groupKey = 'ST_'.($floorId ?? 'null');
+                        // Find or create picking task for this floor × picking area
+                        $groupKey = 'ST_'.($floorId ?? 'null').'_'.($pickingAreaId ?? 'null');
                         $existingTask = DB::connection('sakemaru')
                             ->table('wms_picking_tasks')
                             ->where('wave_id', $wave->id)
                             ->where('floor_id', $floorId)
+                            ->where('wms_picking_area_id', $pickingAreaId)
                             ->first();
 
                         if ($existingTask) {
