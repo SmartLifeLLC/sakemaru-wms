@@ -77,9 +77,63 @@ class WmsPickingItemEditResource extends Resource
                     ->state(fn ($record) => $record->ordered_qty_type === 'PIECE' ? $record->ordered_qty : '-')
                     ->alignment('center'),
 
-                TextColumn::make('planned_qty')
+                TextInputColumn::make('planned_qty')
+                    ->width('50px')
                     ->label('引当数')
-                    ->alignCenter(),
+                    ->rules(['required', 'numeric', 'min:0'])
+                    ->type('number')
+                    ->step(1)
+                    ->alignCenter()
+                    ->disabled(fn ($record) => ! $record->pickingTask || ! in_array($record->pickingTask->status, [
+                        \App\Models\WmsPickingTask::STATUS_PENDING,
+                        \App\Models\WmsPickingTask::STATUS_PICKING_READY,
+                    ]))
+                    ->extraCellAttributes([
+                        'class' => 'p-0',
+                    ])
+                    ->extraInputAttributes([
+                        'class' => 'w-16 !h-7 !p-0 text-center border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 border focus:border-primary-500 focus:ring-primary-500 !text-xs',
+                        'min' => '0',
+                        'step' => '1',
+                        'inputmode' => 'numeric',
+                        'pattern' => '[0-9]*',
+                    ])
+                    ->afterStateUpdated(function ($record, $state) {
+                        if (! is_numeric($state) || $state < 0) {
+                            Notification::make()
+                                ->title('エラー')
+                                ->body('有効な数値を入力してください')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $newPlannedQty = (int) $state;
+
+                        if ($newPlannedQty > $record->ordered_qty) {
+                            Notification::make()
+                                ->title('エラー')
+                                ->body("引当数は受注数量（{$record->ordered_qty}）を超えることはできません")
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $record->planned_qty = $newPlannedQty;
+                        // picked_qtyがplanned_qtyを超える場合は調整
+                        if ($record->picked_qty > $newPlannedQty) {
+                            $record->picked_qty = $newPlannedQty;
+                        }
+                        $record->shortage_qty = max(0, $newPlannedQty - $record->picked_qty);
+                        $record->save();
+
+                        Notification::make()
+                            ->title('引当数を更新しました')
+                            ->success()
+                            ->send();
+                    }),
 
                 TextInputColumn::make('picked_qty')
                     ->width('50px')

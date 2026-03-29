@@ -185,6 +185,26 @@ class WmsShortagesWaitingApprovalsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                \Filament\Tables\Filters\Filter::make('shipment_date')
+                    ->label('出荷日')
+                    ->form([
+                        \Filament\Forms\Components\DatePicker::make('shipment_date')
+                            ->label('出荷日'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when(
+                            $data['shipment_date'],
+                            fn (Builder $query, $date) => $query->where('shipment_date', $date),
+                        );
+                    })
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['shipment_date']) {
+                            return null;
+                        }
+
+                        return '出荷日: '.$data['shipment_date'];
+                    }),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(WmsShortage::STATUS_LABELS)

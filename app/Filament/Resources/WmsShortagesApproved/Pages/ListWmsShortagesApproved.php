@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Filament\Resources\WmsShortages\Pages;
+namespace App\Filament\Resources\WmsShortagesApproved\Pages;
 
 use App\Filament\Concerns\HasWmsUserViews;
-use App\Filament\Resources\WmsShortages\WmsShortageResource;
+use App\Filament\Resources\WmsShortagesApproved\WmsShortagesApprovedResource;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
@@ -13,7 +13,7 @@ use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class ListWmsShortages extends ListRecords
+class ListWmsShortagesApproved extends ListRecords
 {
     use AdvancedTables;
     use HasWmsUserViews {
@@ -21,11 +21,7 @@ class ListWmsShortages extends ListRecords
         HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
     }
 
-    protected static string $resource = WmsShortageResource::class;
-
-    protected static ?string $title = '';
-
-    protected string $view = 'filament.resources.wms-shortages.pages.list-wms-shortages';
+    protected static string $resource = WmsShortagesApprovedResource::class;
 
     protected function getHeaderActions(): array
     {
@@ -37,8 +33,9 @@ class ListWmsShortages extends ListRecords
         $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
         $systemDate = ClientSetting::systemDateYMD();
 
-        // system_date の欠品が存在する倉庫のみタブ表示
-        $warehouseIds = WmsShortage::where('shipment_date', $systemDate)
+        // 承認済み（is_confirmed=true）かつ当日の欠品が存在する倉庫のみタブ表示
+        $warehouseIds = WmsShortage::where('is_confirmed', true)
+            ->where('shipment_date', $systemDate)
             ->distinct()
             ->pluck('warehouse_id')
             ->toArray();

@@ -30,6 +30,7 @@ enum EMenu: string
     // 欠品管理
     case WMS_SHORTAGES = 'shortage.wms_shortages';
     case WMS_SHORTAGES_WAITING_APPROVALS = 'shortage.wms_shortages_waiting_approvals';
+    case WMS_SHORTAGES_APPROVED = 'shortage.wms_shortages_approved';
 
     // 倉庫移動
     case WMS_SHORTAGE_ALLOCATIONS = 'horizontal_shipment.wms_shortage_allocations';
@@ -114,7 +115,8 @@ enum EMenu: string
             self::WMS_SHIPMENT_SLIPS => EMenuCategory::OUTBOUND,
 
             self::WMS_SHORTAGES,
-            self::WMS_SHORTAGES_WAITING_APPROVALS => EMenuCategory::SHORTAGE,
+            self::WMS_SHORTAGES_WAITING_APPROVALS,
+            self::WMS_SHORTAGES_APPROVED => EMenuCategory::SHORTAGE,
 
             self::WMS_SHORTAGE_ALLOCATIONS => EMenuCategory::HORIZONTAL_SHIPMENT,
 
@@ -199,6 +201,7 @@ enum EMenu: string
 
             self::WMS_SHORTAGES => '欠品一覧',
             self::WMS_SHORTAGES_WAITING_APPROVALS => '承認待ち欠品',
+            self::WMS_SHORTAGES_APPROVED => '欠品承認済み',
 
             self::WMS_SHORTAGE_ALLOCATIONS => '横持ち出荷依頼',
 
@@ -277,6 +280,7 @@ enum EMenu: string
 
             self::WMS_SHORTAGES => 'heroicon-o-exclamation-triangle',
             self::WMS_SHORTAGES_WAITING_APPROVALS => 'heroicon-o-hand-raised',
+            self::WMS_SHORTAGES_APPROVED => 'heroicon-o-check-badge',
 
             self::WMS_SHORTAGE_ALLOCATIONS => 'heroicon-o-truck',
 
@@ -356,6 +360,7 @@ enum EMenu: string
             // 欠品管理
             self::WMS_SHORTAGES => 1,
             self::WMS_SHORTAGES_WAITING_APPROVALS => 2,
+            self::WMS_SHORTAGES_APPROVED => 3,
 
             // 倉庫移動
             self::WMS_SHORTAGE_ALLOCATIONS => 1,

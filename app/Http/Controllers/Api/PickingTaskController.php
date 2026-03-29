@@ -321,29 +321,34 @@ class PickingTaskController extends Controller
             $floorLabel = preg_match('/(\d+F)$/', $task->floor->name ?? '', $m) ? "({$m[1]})" : '';
             $pickingAreaName = $task->pickingArea ? ($task->pickingArea->name . $floorLabel) : '-';
 
-            // Create unique key for course + area combination
-            $groupKey = "{$deliveryCourseCode}_{$pickingAreaCode}";
+            // Create unique key per task (floor/picking_area that differ cannot be picked simultaneously)
+            $groupKey = "{$task->id}";
 
-            if (! isset($groupedData[$groupKey])) {
-                $groupedData[$groupKey] = [
-                    'course' => [
-                        'code' => $deliveryCourseCode,
-                        'name' => $deliveryCourseName,
-                    ],
-                    'picking_area' => [
-                        'code' => $pickingAreaCode,
-                        'name' => $pickingAreaName,
-                    ],
-                    'wave' => [
-                        'wms_picking_task_id' => $task->id,
-                        'wms_wave_id' => $task->wave_id,
-                    ],
-                    'started_at' => $task->started_at?->format('Y-m-d H:i:s'),
-                    'completed_at' => $task->completed_at?->format('Y-m-d H:i:s'),
-                    'is_editable' => $this->isTaskEditable($task),
-                    'picking_list' => [],
-                ];
-            }
+            $floorId = $task->floor_id;
+            $floorName = $task->floor->name ?? null;
+
+            $groupedData[$groupKey] = [
+                'course' => [
+                    'code' => $deliveryCourseCode,
+                    'name' => $deliveryCourseName,
+                ],
+                'picking_area' => [
+                    'code' => $pickingAreaCode,
+                    'name' => $pickingAreaName,
+                ],
+                'floor' => [
+                    'id' => $floorId,
+                    'name' => $floorName,
+                ],
+                'wave' => [
+                    'wms_picking_task_id' => $task->id,
+                    'wms_wave_id' => $task->wave_id,
+                ],
+                'started_at' => $task->started_at?->format('Y-m-d H:i:s'),
+                'completed_at' => $task->completed_at?->format('Y-m-d H:i:s'),
+                'is_editable' => $this->isTaskEditable($task),
+                'picking_list' => [],
+            ];
 
             // Add item results to picking list, sorted by item_id
             // Note: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos

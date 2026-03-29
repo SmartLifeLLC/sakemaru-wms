@@ -58,7 +58,8 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 'client_code' => $trade->partner->code ?? '-',
                 'client_name' => $trade->partner->name ?? '-',
                 'sales_rep_name' => $trade->earning?->buyer?->current_detail?->salesman?->name ?? '-',
-                'item_name' => $item->item_name_with_code ?? "商品{$item->item_id}",
+                'item_code' => $item->item->code ?? '-',
+                'item_name' => $item->item->name ?? "商品{$item->item_id}",
                 'location' => $item->location_display ?? '-',
                 'ordered_qty' => (int) $item->ordered_qty,
                 'ordered_qty_type_display' => $item->ordered_qty_type_display,
@@ -68,6 +69,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 'picked_qty_type_display' => $item->picked_qty_type_display,
                 'shortage_qty' => (int) $item->shortage_qty,
                 'status' => $item->status,
+                'picked_at' => $item->picked_at?->format('H:i:s'),
             ];
         })->toArray();
     }
@@ -176,7 +178,8 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     'client_code' => $trade->partner->code ?? '-',
                     'client_name' => $trade->partner->name ?? '-',
                     'sales_rep_name' => $trade->earning?->buyer?->current_detail?->salesman?->name ?? '-',
-                    'item_name' => $item->item_name_with_code ?? "商品{$item->item_id}",
+                    'item_code' => $item->item->code ?? '-',
+                'item_name' => $item->item->name ?? "商品{$item->item_id}",
                     'location' => $item->location_display ?? '-',
                     'ordered_qty' => (int) $item->ordered_qty,
                     'ordered_qty_type_display' => $item->ordered_qty_type_display,
