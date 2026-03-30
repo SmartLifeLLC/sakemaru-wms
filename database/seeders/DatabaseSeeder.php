@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
         // Seed Wave Settings
         $this->call([
             WaveSettingSeeder::class,
+            WarehouseStockTransferDeliveryCourseSeeder::class,
         ]);
     }
 }

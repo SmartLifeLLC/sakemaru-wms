@@ -424,7 +424,6 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
             $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
-            // プリセットビュー構築（データがなくても「全て」タブは常に表示）
             if ($defaultWarehouse) {
                 $views = [
                     'default' => PresetView::make()
@@ -432,6 +431,9 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                         ->favorite()
                         ->label($defaultWarehouse->name)
                         ->default(),
+                    'all' => PresetView::make()
+                        ->favorite()
+                        ->label('全て'),
                 ];
             } else {
                 $views = [
@@ -442,16 +444,11 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                 ];
             }
 
-            $views['all'] = PresetView::make()
-                ->favorite()
-                ->label('全て');
-
-            // 倉庫タブを追加（データがある場合のみ）
             foreach ($warehouses as $warehouse) {
-                if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                if ($defaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
                     continue;
                 }
-                $views["default_{$warehouse->id}"] = PresetView::make()
+                $views["wh_{$warehouse->id}"] = PresetView::make()
                     ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $warehouse->id))
                     ->favorite()
                     ->label($warehouse->name);
@@ -485,7 +482,6 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
         $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
-        // プリセットビュー構築（データがなくても「全て」タブは常に表示）
         if ($defaultWarehouse) {
             $views = [
                 'default' => PresetView::make()
@@ -493,6 +489,9 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                     ->favorite()
                     ->label($defaultWarehouse->name)
                     ->default(),
+                'all' => PresetView::make()
+                    ->favorite()
+                    ->label('全て'),
             ];
         } else {
             $views = [
@@ -503,16 +502,11 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             ];
         }
 
-        $views['all'] = PresetView::make()
-            ->favorite()
-            ->label('全て');
-
-        // 倉庫タブを追加（データがある場合のみ）
         foreach ($warehouses as $warehouse) {
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+            if ($defaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
                 continue;
             }
-            $views["default_{$warehouse->id}"] = PresetView::make()
+            $views["wh_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
                 ->label($warehouse->name);

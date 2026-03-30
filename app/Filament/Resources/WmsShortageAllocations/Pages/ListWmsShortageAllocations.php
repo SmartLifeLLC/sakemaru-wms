@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsShortageAllocations\Pages;
 
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsShortageAllocations\WmsShortageAllocationResource;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortageAllocation;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -47,31 +48,65 @@ class ListWmsShortageAllocations extends ListRecords
 
     public function getPresetViews(): array
     {
-        $views = [
-            'all' => PresetView::make()
-                ->favorite()
-                ->label('全倉庫')
-                ->default(),
+        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        $systemDate = ClientSetting::systemDateYMD();
+
+        $defaultFilterData = [
+            'shipment_date' => ['shipment_date' => $systemDate],
         ];
 
-        // 未完了の横持ち出荷依頼で使われている倉庫のみタブ表示
+        // 未完了の横持ち出荷依頼で使われている倉庫を取得
         $warehouseIds = WmsShortageAllocation::where('is_finished', false)
             ->distinct()
             ->pluck('target_warehouse_id')
             ->filter()
             ->toArray();
 
-        if (! empty($warehouseIds)) {
-            $warehouses = Warehouse::whereIn('id', $warehouseIds)
-                ->orderBy('code')
-                ->get();
+        // デフォルト倉庫がデータになくても含める
+        if ($userDefaultWarehouseId && ! in_array($userDefaultWarehouseId, $warehouseIds)) {
+            $warehouseIds[] = $userDefaultWarehouseId;
+        }
 
-            foreach ($warehouses as $warehouse) {
-                $views['warehouse_'.$warehouse->id] = PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('target_warehouse_id', $warehouse->id))
-                    ->favorite()
-                    ->label($warehouse->name);
+        $warehouses = Warehouse::whereIn('id', $warehouseIds)
+            ->where('is_virtual', false)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
+
+        $defaultWarehouse = $userDefaultWarehouseId
+            ? $warehouses->firstWhere('id', $userDefaultWarehouseId)
+            : null;
+
+        $views = [];
+
+        if ($defaultWarehouse) {
+            $views['default'] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('target_warehouse_id', $userDefaultWarehouseId))
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label($defaultWarehouse->name)
+                ->default();
+        } elseif ($warehouses->isNotEmpty()) {
+            $first = $warehouses->first();
+            $views['default'] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('target_warehouse_id', $first->id))
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label($first->name)
+                ->default();
+        }
+
+        foreach ($warehouses as $warehouse) {
+            if ($defaultWarehouse && $warehouse->id === $defaultWarehouse->id) {
+                continue;
             }
+            if (! $defaultWarehouse && $warehouse->id === $warehouses->first()->id) {
+                continue;
+            }
+            $views["wh_{$warehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('target_warehouse_id', $warehouse->id))
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label($warehouse->name);
         }
 
         return $views;

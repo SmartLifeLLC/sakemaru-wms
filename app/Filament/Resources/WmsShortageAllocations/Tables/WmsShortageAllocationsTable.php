@@ -171,6 +171,26 @@ class WmsShortageAllocationsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                \Filament\Tables\Filters\Filter::make('shipment_date')
+                    ->label('出荷日')
+                    ->form([
+                        \Filament\Forms\Components\DatePicker::make('shipment_date')
+                            ->label('出荷日'),
+                    ])
+                    ->query(function (\Illuminate\Database\Eloquent\Builder $query, array $data): \Illuminate\Database\Eloquent\Builder {
+                        return $query->when(
+                            $data['shipment_date'],
+                            fn (\Illuminate\Database\Eloquent\Builder $query, $date) => $query->where('shipment_date', $date),
+                        );
+                    })
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['shipment_date']) {
+                            return null;
+                        }
+
+                        return '出荷日: '.$data['shipment_date'];
+                    }),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options([
