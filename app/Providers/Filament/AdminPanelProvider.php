@@ -13,6 +13,9 @@ use Filament\Navigation\NavigationItem;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\Support\Facades\FilamentView;
+use Filament\View\PanelsRenderHook;
+use Illuminate\Contracts\View\View;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -85,6 +88,10 @@ class AdminPanelProvider extends PanelProvider
             )
             ->authMiddleware([
                 Authenticate::class,
-            ])->authGuard('web');
+            ])->authGuard('web')
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_START,
+                fn (): View => view('livewire.warehouse-selector-hook'),
+            );
     }
 }

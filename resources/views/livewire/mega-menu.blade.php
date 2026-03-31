@@ -10,23 +10,21 @@
                 <!-- Logo & Nav (Left) -->
                 <div class="flex items-center gap-8">
                     <!-- Logo -->
-                    <a href="/admin" class="flex items-center bg-white rounded-md px-2 py-1">
+                    <a href="/admin" class="hidden sm:flex items-center bg-white rounded-md px-2 py-1">
                         <img src="/images/logo.png" alt="酒丸蔵" class="h-6 w-auto object-contain">
                     </a>
 
                     <!-- Desktop Nav Items -->
-                    <nav class="flex items-center gap-1">
+                    <nav class="flex items-center gap-0">
                         @forelse($menuStructure as $tab)
                             <button
                                 type="button"
-                                class="flex items-center gap-2 px-3 py-1 text-sm font-medium transition-colors duration-200 rounded-md"
+                                class="flex items-center gap-1.5 px-3 py-1 text-sm font-medium transition-colors duration-200 rounded-md"
                                 :class="openTab === '{{ $tab['id'] }}' ? 'text-white bg-slate-700' : 'text-slate-200 hover:text-white hover:bg-slate-700'"
                                 @click="openTab = openTab === '{{ $tab['id'] }}' ? null : '{{ $tab['id'] }}'"
                             >
                                 <i class="fa-solid {{ $tab['icon'] }}"></i>
-                                <span>{{ $tab['label'] }}</span>
-                                <i class="fa-solid fa-chevron-down text-[12px] transition-transform duration-200"
-                                   :class="openTab === '{{ $tab['id'] }}' ? 'rotate-180' : ''"></i>
+                                <span class="hidden lg:inline">{{ $tab['label'] }}</span>
                             </button>
                         @empty
                             <span class="text-red-500 text-sm">メニューが空です</span>
@@ -34,8 +32,12 @@
                     </nav>
                 </div>
 
-                <!-- Right Side: User Menu Only -->
+                <!-- Right Side: Warehouse Selector & User Menu -->
                 <div class="flex items-center gap-3">
+                    @auth
+                        @livewire('warehouse-selector')
+                    @endauth
+
                     @if (filament()->isGlobalSearchEnabled())
                         <div class="mr-2">
                             @livewire(filament()->getGlobalSearchLivewireComponent())

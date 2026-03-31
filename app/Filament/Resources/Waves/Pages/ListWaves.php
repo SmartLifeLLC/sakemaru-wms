@@ -44,54 +44,48 @@ class ListWaves extends ListRecords
 
     public function getPresetViews(): array
     {
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
-        $systemDate = ClientSetting::systemDateYMD();
+        $user = auth()->user();
+        $selectedWarehouseId = $user?->getSelectedWarehouseId();
+        $defaultWarehouseId = $user?->default_warehouse_id;
 
-        $warehouses = cache()->remember('wave_warehouses_for_tabs_'.auth()->id(), 60, function () {
-            return Warehouse::query()->where('is_virtual', false)->orderBy('code')->get(['id', 'code', 'name']);
-        });
+        // 表示する倉庫IDを収集（選択倉庫 + default、重複除去）
+        $warehouseIds = collect([$selectedWarehouseId, $defaultWarehouseId])
+            ->filter()
+            ->unique()
+            ->values();
 
-        $hasDefaultWarehouse = $userDefaultWarehouseId
-            && $warehouses->contains('id', $userDefaultWarehouseId);
-        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
-
-        if ($defaultWarehouse) {
-            $views = [
+        if ($warehouseIds->isEmpty()) {
+            return [
                 'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query
-                        ->where('shipping_date', $systemDate)
-                        ->whereHas('waveSetting.deliveryCourse', fn (Builder $q) => $q->where('warehouse_id', $userDefaultWarehouseId))
-                    )
-                    ->favorite()
-                    ->label($defaultWarehouse->name)
-                    ->default(),
-            ];
-        } else {
-            $views = [
-                'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('shipping_date', $systemDate))
                     ->favorite()
                     ->label('全て')
                     ->default(),
             ];
         }
 
-        $views['all'] = PresetView::make()
-            ->modifyQueryUsing(fn (Builder $query) => $query->where('shipping_date', $systemDate))
-            ->favorite()
-            ->label('全て');
+        $warehouses = Warehouse::query()
+            ->whereIn('id', $warehouseIds)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
+
+        $views = [];
+        $isFirst = true;
 
         foreach ($warehouses as $warehouse) {
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
-                continue;
-            }
-            $views["wh_{$warehouse->id}"] = PresetView::make()
+            $key = $isFirst ? 'default' : "wh_{$warehouse->id}";
+            $view = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query
-                    ->where('shipping_date', $systemDate)
                     ->whereHas('waveSetting.deliveryCourse', fn (Builder $q) => $q->where('warehouse_id', $warehouse->id))
                 )
                 ->favorite()
                 ->label($warehouse->name);
+
+            if ($isFirst) {
+                $view->default();
+                $isFirst = false;
+            }
+
+            $views[$key] = $view;
         }
 
         return $views;

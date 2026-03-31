@@ -45,7 +45,7 @@ class MegaMenu extends Component
             ],
             'inbound' => [
                 'label' => '入荷',
-                'icon' => 'fa-arrow-down-to-bracket',
+                'icon' => 'fa-download',
                 'categories' => [
                     EMenuCategory::INBOUND,
                 ],
@@ -67,7 +67,7 @@ class MegaMenu extends Component
                 ],
             ],
             'master' => [
-                'label' => 'マスタ管理',
+                'label' => 'マスタ',
                 'icon' => 'fa-database',
                 'categories' => [
                     EMenuCategory::MASTER_WAREHOUSE,
@@ -76,7 +76,7 @@ class MegaMenu extends Component
                 ],
             ],
             'analysis' => [
-                'label' => '分析・レポート',
+                'label' => '統計',
                 'icon' => 'fa-chart-bar',
                 'categories' => [
                     EMenuCategory::STATISTICS,
@@ -84,7 +84,7 @@ class MegaMenu extends Component
                 ],
             ],
             'system' => [
-                'label' => 'システム設定',
+                'label' => 'システム',
                 'icon' => 'fa-cogs',
                 'categories' => [
                     EMenuCategory::SETTINGS,
@@ -92,7 +92,7 @@ class MegaMenu extends Component
                 ],
             ],
             'guide' => [
-                'label' => 'システム解説',
+                'label' => '解説',
                 'icon' => 'fa-book-open',
                 'categories' => [
                     EMenuCategory::GUIDE_ORDER,
@@ -196,7 +196,7 @@ class MegaMenu extends Component
 
         return [
             'id' => 'sakemaru_series',
-            'label' => '酒丸シリーズ',
+            'label' => '酒丸',
             'icon' => 'fa-box',
             'groups' => [
                 [

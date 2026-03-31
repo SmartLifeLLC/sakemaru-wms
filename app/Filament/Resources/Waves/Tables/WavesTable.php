@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Waves\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Models\Sakemaru\ClientSetting;
 use App\Services\PickingList\PickingListPdfService;
 use App\Services\PickingList\PickingListService;
 use Filament\Actions\Action;
@@ -90,11 +91,19 @@ class WavesTable
                     ->label('出荷日')
                     ->form([
                         DatePicker::make('shipping_date')
-                            ->label('出荷日'),
+                            ->label('出荷日')
+                            ->default(ClientSetting::systemDateYMD()),
                     ])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['shipping_date'], fn (Builder $q, $date) => $q->where('shipping_date', $date))
-                    ),
+                    )
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['shipping_date']) {
+                            return null;
+                        }
+
+                        return '出荷日: '.\Carbon\Carbon::parse($data['shipping_date'])->format('Y年m月d日');
+                    }),
 
                 SelectFilter::make('status')
                     ->label('出荷状況')

@@ -15,7 +15,7 @@
 |---|-------|------|---------|
 | P1 | Userモデル拡張 | `wms_selected_warehouse_id` のfillable・リレーション・ヘルパー追加 | Userモデルから選択倉庫を取得・更新できる |
 | P2 | 倉庫切り替えUI作成 | トップナビにドロップダウンを配置 | UIから倉庫を切り替えてDB保存される |
-| P3 | 各ページの参照切り替え | `default_warehouse_id` → `wms_selected_warehouse_id` にfallback付きで切り替え | 全ページで選択倉庫がデフォルトフィルタに反映 |
+| P3 | 各ページの参照切り替え（個別対応） | 一括置換せず、ページ改修時に個別対応 | 方針確定・対応管理リスト作成 |
 | P4 | 動作確認 | 倉庫切り替え→各ページ遷移で正しくフィルタされるか確認 | エラーなし・倉庫選択が維持される |
 
 ---
@@ -96,29 +96,31 @@
 
 ---
 
-## P3: 各ページの参照切り替え
+## P3: 各ページの参照切り替え（個別対応）
 
 ### 目的
 
-全ページで `default_warehouse_id` の直接参照を `getSelectedWarehouseId()` に置き換える。
+各ページの `default_warehouse_id` 参照を必要に応じて `getSelectedWarehouseId()` に切り替える。
+**一括置換は行わない。** ページごとに動作を確認しながら個別に対応する。
 
-### 修正対象ファイル（WmsPicker関連を除く32ファイル）
+### 方針
 
-以下のパターンを一括置換:
+- P3は一括作業としては実施しない
+- 各ページの改修・不具合対応時に、該当ページの `default_warehouse_id` → `getSelectedWarehouseId()` を個別に対応する
+- P1（Userモデルの `getSelectedWarehouseId()` ヘルパー）とP2（倉庫切り替えUI）が完了しているので、各ページで呼び出すだけ
+- 対応済みページは下記リストで管理する
 
-```php
-// Before
-$userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+### 対応済みページ
 
-// After
-$userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
-```
+| ファイル | 対応日 | 備考 |
+|---------|--------|------|
+| DashboardShortageAllocationsWidget.php | 2026-03-31 | P2実装時に対応済み |
+| ListWmsShortageAllocations.php | 2026-03-31 | 前回の改修で対応済み |
 
-### 対象ファイルカテゴリ
+### 未対応ページ（必要時に個別対応）
 
 1. **Filament ListRecords Pages**（PresetView のデフォルト倉庫）
    - ListWmsShortages, ListWmsShortagesWaitingApprovals, ListWmsShortagesApproved
-   - ListWmsShortageAllocations
    - ListWmsPickingTasks, ListWmsPickingWaitings
    - ListWmsShipmentSlips
    - ListWmsOrderCandidates, ListWmsOrderConfirmed, ListWmsOrderConfirmationWaiting
@@ -129,25 +131,19 @@ $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
    - ListWmsPickingItemEdits, ListWmsPickerAttendance
    - ListDeliveryCourseChanges, DeliveryCourseChangeResource
 
-2. **Widgets**
-   - DashboardShortageAllocationsWidget
-
-3. **Pages**
+2. **Pages**
    - FloorPlanEditor, TestDataGenerator
 
-4. **API**（変更要否を判断）
-   - AuthController — APIレスポンスで返す倉庫IDはdefault_warehouse_idのままが適切
-
-5. **変更しない**
+3. **変更しない**
    - WmsPicker.php — Pickerモデル独自のdefault_warehouse_id
    - WmsPickerForm.php — Pickerフォーム
    - WmsPickingTasksTable.php — テーブル定義
+   - AuthController — APIレスポンスで返す倉庫IDはdefault_warehouse_idのまま
 
 ### 完了条件
 
-- 全対象ファイルで `getSelectedWarehouseId()` を使用
-- WmsPicker関連は変更なし
-- APIの `default_warehouse_id` レスポンスは変更なし
+- P3自体は「個別対応方針」の確定をもって完了とする
+- 各ページの実際の切り替えは、そのページの改修時に行う
 
 ---
 
