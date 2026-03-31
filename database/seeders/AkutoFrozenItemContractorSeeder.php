@@ -25,7 +25,7 @@ class AkutoFrozenItemContractorSeeder extends Seeder
 
     private const ORANGE_CONTRACTOR_ID = 9901;
 
-    private const ORANGE_WAREHOUSE_CODE = '901';
+    private const ORANGE_WAREHOUSE_CODE = '101';
 
     private const SATELLITE_WAREHOUSE_IDS = [1, 2, 3, 4, 7, 8, 9, 10, 11, 21, 22, 23];
 

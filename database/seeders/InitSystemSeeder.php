@@ -48,6 +48,9 @@ class InitSystemSeeder extends Seeder
         // アクト中食冷凍商品のitem_contractors設定
         $this->call(AkutoFrozenItemContractorSeeder::class);
 
+        $this->call(WarehouseStockTransferDeliveryCourseSeeder::class);
+
+
         // 今後追加予定の初期設定
         // $this->call(InitialPickingAreaSeeder::class);
         // $this->call(InitialWaveSettingSeeder::class);

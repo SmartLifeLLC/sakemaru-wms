@@ -21,7 +21,8 @@ use Illuminate\Support\Facades\DB;
  */
 class OrangeWarehouseSeeder extends Seeder
 {
-    private const ORANGE_WAREHOUSE_CODE = '901';
+    private const ORANGE_WAREHOUSE_CODE = '101';
+    private const ORANGE_BRANCH_CODE = '101';
 
     private const ORANGE_CONTRACTOR_ID = 9901;
 
@@ -73,9 +74,12 @@ class OrangeWarehouseSeeder extends Seeder
         }
 
         $orange = $warehouse91->replicate(['is_virtual']);
+        $orange->id = self::ORANGE_WAREHOUSE_CODE;
         $orange->code = self::ORANGE_WAREHOUSE_CODE;
         $orange->name = 'オレンジ冷凍倉庫';
         $orange->kana_name = 'オレンジソウコ';
+        $orange->abbreviation = 'オレンジ';
+        $orange->branch_id = self::ORANGE_BRANCH_CODE;
         $orange->save();
 
         $this->command->info("  [OK] 倉庫作成: id={$orange->id}, code=901, name=オレンジ冷凍倉庫");
