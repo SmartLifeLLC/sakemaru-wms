@@ -338,8 +338,8 @@ class ListWmsStockTransferCandidates extends ListRecords
 
     public function getPresetViews(): array
     {
-        // ユーザーのデフォルト倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        // ユーザーの選択中倉庫を取得
+        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
         // PENDING の移動候補に存在する依頼倉庫（satellite_warehouse）のみ取得
         $cacheKey = 'transfer_candidates_pending_warehouses_'.auth()->id();

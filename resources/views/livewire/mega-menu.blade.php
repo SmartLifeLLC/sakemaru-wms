@@ -2,35 +2,50 @@
     <!-- Load FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
+    <script>
+        function dateBadge() {
+            return {
+                dateStr: @js($systemDateDisplay),
+                dayStr: @js($systemDayOfWeek),
+            }
+        }
+    </script>
+
     <!-- Main Navigation Bar -->
     <header class="bg-slate-800 sticky top-0 z-[35] shadow-md">
         <div class="w-full px-4 md:px-6">
             <div class="flex items-center justify-between h-10">
 
-                <!-- Logo & Nav (Left) -->
-                <div class="flex items-center gap-8">
-                    <!-- Logo -->
+                <!-- Logo & System Date -->
+                <div class="flex items-center gap-2 flex-shrink-0">
                     <a href="/admin" class="hidden sm:flex items-center bg-white rounded-md px-2 py-1">
                         <img src="/images/logo.png" alt="酒丸蔵" class="h-6 w-auto object-contain">
                     </a>
+                    <div x-data="dateBadge()" class="flex items-center gap-1.5 bg-slate-900/60 border border-slate-500/40 rounded-lg px-2.5 py-1 text-sm select-none cursor-default">
+                        <i class="fa-regular fa-calendar-days text-amber-400"></i>
+                        <span class="font-bold text-white tracking-wide" x-text="dateStr"></span>
+                        <span class="text-amber-300/80 font-semibold text-xs" x-text="dayStr"></span>
+                    </div>
+                </div>
 
-                    <!-- Desktop Nav Items -->
-                    <nav class="flex items-center gap-0">
+                <!-- Nav Items (stretch) -->
+                <nav class="flex-1 flex items-center justify-evenly">
                         @forelse($menuStructure as $tab)
                             <button
                                 type="button"
-                                class="flex items-center gap-1.5 px-3 py-1 text-sm font-medium transition-colors duration-200 rounded-md"
+                                class="flex items-center gap-1.5 px-3 py-1 text-base font-medium transition-colors duration-200 rounded-md"
                                 :class="openTab === '{{ $tab['id'] }}' ? 'text-white bg-slate-700' : 'text-slate-200 hover:text-white hover:bg-slate-700'"
                                 @click="openTab = openTab === '{{ $tab['id'] }}' ? null : '{{ $tab['id'] }}'"
                             >
                                 <i class="fa-solid {{ $tab['icon'] }}"></i>
                                 <span class="hidden lg:inline">{{ $tab['label'] }}</span>
+                                <i class="fa-solid fa-chevron-down text-[10px] transition-transform duration-200"
+                                   :class="openTab === '{{ $tab['id'] }}' ? 'rotate-180' : ''"></i>
                             </button>
                         @empty
                             <span class="text-red-500 text-sm">メニューが空です</span>
                         @endforelse
-                    </nav>
-                </div>
+                </nav>
 
                 <!-- Right Side: Warehouse Selector & User Menu -->
                 <div class="flex items-center gap-3">

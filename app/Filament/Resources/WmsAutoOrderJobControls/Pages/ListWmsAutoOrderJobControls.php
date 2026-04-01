@@ -7,12 +7,15 @@ use App\Enums\QueueProgressStatus;
 use App\Filament\Resources\WmsAutoOrderJobControls\WmsAutoOrderJobControlResource;
 use App\Jobs\ProcessOrderCandidateGenerationJob;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsAutoOrderExecutionLog;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
+use App\Models\WmsWarehouseAutoOrderSetting;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
@@ -60,7 +63,104 @@ class ListWmsAutoOrderJobControls extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('orderGenerationWizard')
+            $this->getGenerateByWarehouseAction(),
+
+            ActionGroup::make([
+                $this->getOrderGenerationWizardAction(),
+                $this->getGenerateTransferCandidatesAction(),
+                $this->getForceGenerateByContractorAction(),
+            ])
+                ->label('管理者メニュー')
+                ->icon('heroicon-o-shield-check')
+                ->color('gray')
+                ->button(),
+        ];
+    }
+
+    private function getGenerateByWarehouseAction(): Action
+    {
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        $selectedWarehouse = $selectedWarehouseId ? Warehouse::find($selectedWarehouseId) : null;
+        $selectedWarehouseName = $selectedWarehouse?->name ?? '未選択';
+
+        return Action::make('generateByWarehouse')
+            ->label('発注・移動候補生成')
+            ->icon('heroicon-o-building-storefront')
+            ->color('warning')
+            ->requiresConfirmation()
+            ->modalHeading("発注・移動候補生成（{$selectedWarehouseName}）")
+            ->modalDescription($selectedWarehouse
+                ? "倉庫「{$selectedWarehouseName}」の発注・移動候補を生成します。"
+                : '倉庫が選択されていません。トップバーから倉庫を選択してください。')
+            ->disabled(! $selectedWarehouse)
+            ->action(function () use ($selectedWarehouseId, $selectedWarehouseName) {
+                $warehouseId = $selectedWarehouseId;
+                $warehouseName = $selectedWarehouseName;
+
+                // 該当倉庫のAPPROVED候補がある場合はブロック
+                $hasApprovedOrders = WmsOrderCandidate::query()
+                    ->where('status', CandidateStatus::APPROVED)
+                    ->where('warehouse_id', $warehouseId)
+                    ->exists();
+
+                $hasApprovedTransfers = WmsStockTransferCandidate::query()
+                    ->where('status', CandidateStatus::APPROVED)
+                    ->where('satellite_warehouse_id', $warehouseId)
+                    ->exists();
+
+                if ($hasApprovedOrders || $hasApprovedTransfers) {
+                    Notification::make()
+                        ->title("倉庫「{$warehouseName}」に承認済みの候補があります")
+                        ->body('先に確定処理を行ってください')
+                        ->danger()
+                        ->send();
+
+                    return;
+                }
+
+                // 該当倉庫のPENDING候補を削除
+                $deletedOrders = WmsOrderCandidate::query()
+                    ->where('status', CandidateStatus::PENDING)
+                    ->where('warehouse_id', $warehouseId)
+                    ->delete();
+
+                $deletedTransfers = WmsStockTransferCandidate::query()
+                    ->where('status', CandidateStatus::PENDING)
+                    ->where('satellite_warehouse_id', $warehouseId)
+                    ->delete();
+
+                // 進捗レコードを作成
+                $queueProgress = WmsQueueProgress::createJob(
+                    WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
+                    auth()->id(),
+                    ['warehouse_id' => $warehouseId, 'source' => 'warehouse_specific']
+                );
+
+                // Job dispatch（warehouseId指定）
+                ProcessOrderCandidateGenerationJob::dispatch(
+                    jobId: $queueProgress->job_id,
+                    deletePending: false,
+                    contractorId: null,
+                    executionLogId: null,
+                    transferOnly: false,
+                    warehouseId: $warehouseId,
+                );
+
+                $message = "倉庫「{$warehouseName}」の発注・移動候補生成を開始しました";
+                if ($deletedOrders > 0 || $deletedTransfers > 0) {
+                    $message .= "（PENDING候補 発注:{$deletedOrders}件 移動:{$deletedTransfers}件 を削除）";
+                }
+
+                Notification::make()
+                    ->title($message)
+                    ->success()
+                    ->send();
+            });
+    }
+
+    private function getOrderGenerationWizardAction(): Action
+    {
+        return Action::make('orderGenerationWizard')
                 ->label('発注・移動候補生成')
                 ->icon('heroicon-o-sparkles')
                 ->color('primary')
@@ -87,9 +187,12 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 ->action(fn () => null)
                 ->before(function () {
                     $this->resetWizard();
-                }),
+                });
+    }
 
-            Action::make('generateTransferCandidates')
+    private function getGenerateTransferCandidatesAction(): Action
+    {
+        return Action::make('generateTransferCandidates')
                 ->label('移動候補生成')
                 ->icon('heroicon-o-arrows-right-left')
                 ->color('info')
@@ -139,9 +242,12 @@ class ListWmsAutoOrderJobControls extends ListRecords
                         ->title($message)
                         ->success()
                         ->send();
-                }),
+                });
+    }
 
-            Action::make('forceGenerateByContractor')
+    private function getForceGenerateByContractorAction(): Action
+    {
+        return Action::make('forceGenerateByContractor')
                 ->label('仕入先別発注候補生成')
                 ->icon('heroicon-o-bolt')
                 ->color('success')
@@ -226,8 +332,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                         ->title($message)
                         ->success()
                         ->send();
-                }),
-        ];
+                });
     }
 
     public function resetWizard(): void

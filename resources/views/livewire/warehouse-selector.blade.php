@@ -2,12 +2,14 @@
     <button
         @click="open = !open"
         type="button"
-        class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md
-               text-slate-200 hover:text-white hover:bg-slate-700
+        class="flex items-center gap-1.5 px-2.5 py-1 text-sm font-bold rounded-lg
+               bg-slate-900/60 border border-slate-500/40
+               text-white hover:bg-slate-700/80
                transition-colors w-56"
     >
-        <x-heroicon-o-building-storefront class="w-4 h-4 text-slate-400 flex-shrink-0" />
+        <i class="fa-solid fa-warehouse text-amber-400 flex-shrink-0 text-xs"></i>
         <span class="truncate">{{ $selectedWarehouseName }}</span>
+        <i class="fa-solid fa-chevron-down text-[9px] text-slate-400 ml-auto flex-shrink-0"></i>
     </button>
 
     <div

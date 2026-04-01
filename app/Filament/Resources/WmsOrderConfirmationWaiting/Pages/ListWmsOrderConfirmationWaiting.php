@@ -394,8 +394,8 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
     public function getPresetViews(): array
     {
-        // ユーザーのデフォルト倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        // ユーザーの選択中倉庫を取得
+        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
         // タブに応じて倉庫リストを取得
         if ($this->confirmationTab === 'transfer') {

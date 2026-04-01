@@ -13,9 +13,18 @@ class MegaMenu extends Component
 {
     public array $menuStructure = [];
 
+    public string $systemDateDisplay = '';
+
+    public string $systemDayOfWeek = '';
+
     public function mount()
     {
         $this->menuStructure = $this->buildMenuStructure();
+
+        $systemDate = ClientSetting::systemDate();
+        $weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        $this->systemDateDisplay = $systemDate->format('m.d');
+        $this->systemDayOfWeek = $weekdays[$systemDate->dayOfWeek];
     }
 
     public function render()

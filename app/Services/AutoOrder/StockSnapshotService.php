@@ -15,9 +15,11 @@ use Illuminate\Support\Facades\Log;
 class StockSnapshotService
 {
     /**
-     * 全倉庫の在庫スナップショットを生成
+     * 倉庫の在庫スナップショットを生成
+     *
+     * @param  int|null  $warehouseId  指定時はその倉庫のみ生成
      */
-    public function generateAll(): WmsAutoOrderJobControl
+    public function generateAll(?int $warehouseId = null): WmsAutoOrderJobControl
     {
         // 既に実行中のジョブがあればエラー
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::STOCK_SNAPSHOT)) {
@@ -31,6 +33,11 @@ class StockSnapshotService
             $warehouseIds = WmsWarehouseAutoOrderSetting::enabled()
                 ->pluck('warehouse_id')
                 ->toArray();
+
+            // 倉庫指定時はその倉庫のみに絞り込む
+            if ($warehouseId !== null) {
+                $warehouseIds = array_intersect($warehouseIds, [$warehouseId]);
+            }
 
             if (empty($warehouseIds)) {
                 Log::info('No warehouses enabled for auto order');

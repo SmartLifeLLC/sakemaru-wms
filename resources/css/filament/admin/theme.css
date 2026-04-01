@@ -60,7 +60,27 @@
 /* html要素のscrollbar-gutterをオーバーライド */
 html.fi {
     scrollbar-gutter: auto !important;
-    overflow: auto !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+/* mega-menu(2.5rem)に合わせてメインコンテンツの高さを調整 */
+.fi-body.fi-body-has-topbar .fi-main-ctn {
+    min-height: calc(100dvh - 2.5rem) !important;
+}
+
+/* ページ全体のわずかなはみ出しによるスクロールバーを防止 */
+.fi-main {
+    height: auto !important;
+    padding-bottom: 0 !important;
+}
+
+.fi-page {
+    padding-bottom: 0 !important;
+}
+
+.fi-page-content {
+    padding-bottom: 0 !important;
 }
 
 @layer components {
@@ -438,8 +458,9 @@ html.fi {
 }
 
 /* トップバー直下のメインコンテンツのマージン調整 */
+/* mega-menuはstickyで自身がフローに含まれるため、追加padding不要 */
 .fi-topbar ~ .fi-main-ctn {
-    padding-top: 2.5rem !important;
+    padding-top: 0 !important;
 }
 
 /* 倉庫移動メニューの2列表示 */

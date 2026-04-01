@@ -82,14 +82,18 @@ class OrderCandidateCalculationService
     /** @var array|null 仕入先ID指定（null=全仕入先、親+子仕入先を含む） */
     private ?array $targetContractorIds = null;
 
+    /** @var int|null 倉庫ID指定（null=全有効倉庫） */
+    private ?int $targetWarehouseId = null;
+
     /**
      * 発注候補計算を実行
      *
      * @param  int|null  $snapshotJobId  参照する在庫スナップショットのjob_id
      * @param  int|null  $contractorId  仕入先指定（nullなら全仕入先一括）
      * @param  bool  $transferOnly  trueの場合、INTERNAL移動候補のみ生成（EXTERNAL発注候補はスキップ）
+     * @param  int|null  $warehouseId  倉庫指定（nullなら全有効倉庫）
      */
-    public function calculate(?int $snapshotJobId = null, ?int $contractorId = null, bool $transferOnly = false): WmsAutoOrderJobControl
+    public function calculate(?int $snapshotJobId = null, ?int $contractorId = null, bool $transferOnly = false, ?int $warehouseId = null): WmsAutoOrderJobControl
     {
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::ORDER_CALC)) {
             throw new \RuntimeException('Order calculation job is already running');
@@ -119,28 +123,45 @@ class OrderCandidateCalculationService
                 throw new \RuntimeException("仕入先ID:{$contractorId}（+子仕入先）に未処理の候補が存在します");
             }
         } else {
-            // パターンB: 仕入先指定なし（既存CLI互換）
+            // パターンB: 仕入先指定なし
             if (! $transferOnly) {
-                $hasApprovedOrders = WmsOrderCandidate::query()
-                    ->where('status', CandidateStatus::APPROVED)
-                    ->exists();
+                $approvedOrderQuery = WmsOrderCandidate::query()
+                    ->where('status', CandidateStatus::APPROVED);
+                if ($warehouseId) {
+                    $approvedOrderQuery->where('warehouse_id', $warehouseId);
+                }
+                $hasApprovedOrders = $approvedOrderQuery->exists();
             } else {
                 $hasApprovedOrders = false;
             }
 
-            $hasApprovedTransfers = WmsStockTransferCandidate::query()
-                ->where('status', CandidateStatus::APPROVED)
-                ->exists();
+            $approvedTransferQuery = WmsStockTransferCandidate::query()
+                ->where('status', CandidateStatus::APPROVED);
+            if ($warehouseId) {
+                $approvedTransferQuery->where('satellite_warehouse_id', $warehouseId);
+            }
+            $hasApprovedTransfers = $approvedTransferQuery->exists();
 
             if ($hasApprovedOrders || $hasApprovedTransfers) {
+                $warehouseSuffix = $warehouseId ? "（倉庫ID:{$warehouseId}）" : '';
                 if ($transferOnly) {
-                    $approvedTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
-                    throw new \RuntimeException("確定待ちの移動候補が {$approvedTransferCount}件 あります。先に確定を行ってください。");
+                    $countQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
+                    if ($warehouseId) {
+                        $countQuery->where('satellite_warehouse_id', $warehouseId);
+                    }
+                    $approvedTransferCount = $countQuery->count();
+                    throw new \RuntimeException("確定待ちの移動候補が {$approvedTransferCount}件 あります{$warehouseSuffix}。先に確定を行ってください。");
                 }
-                $approvedOrderCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
-                $approvedTransferCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
+                $orderCountQuery = WmsOrderCandidate::where('status', CandidateStatus::APPROVED);
+                $transferCountQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
+                if ($warehouseId) {
+                    $orderCountQuery->where('warehouse_id', $warehouseId);
+                    $transferCountQuery->where('satellite_warehouse_id', $warehouseId);
+                }
+                $approvedOrderCount = $orderCountQuery->count();
+                $approvedTransferCount = $transferCountQuery->count();
                 $totalCount = $approvedOrderCount + $approvedTransferCount;
-                throw new \RuntimeException("確定待ちの候補が {$totalCount}件 あります。先に確定を行ってください。");
+                throw new \RuntimeException("確定待ちの候補が {$totalCount}件 あります{$warehouseSuffix}。先に確定を行ってください。");
             }
         }
 
@@ -157,6 +178,7 @@ class OrderCandidateCalculationService
         $this->targetContractorIds = $contractorId !== null
             ? WmsContractorSetting::getContractorIdsWithChildren($contractorId)
             : null;
+        $this->targetWarehouseId = $warehouseId;
 
         try {
             $batchCode = $job->batch_code;
@@ -230,6 +252,11 @@ class OrderCandidateCalculationService
             ->pluck('warehouse_id')
             ->toArray();
 
+        // 倉庫指定時はその倉庫のみに絞り込む
+        if ($this->targetWarehouseId !== null) {
+            $enabledWarehouseIds = array_intersect($enabledWarehouseIds, [$this->targetWarehouseId]);
+        }
+
         $this->realWarehouseIds = DB::connection('sakemaru')
             ->table('warehouses')
             ->where('is_virtual', false)
@@ -237,7 +264,7 @@ class OrderCandidateCalculationService
             ->pluck('id')
             ->toArray();
 
-        Log::info('自動発注有効な実倉庫をロード', ['count' => count($this->realWarehouseIds)]);
+        Log::info('自動発注有効な実倉庫をロード', ['count' => count($this->realWarehouseIds), 'target_warehouse' => $this->targetWarehouseId]);
 
         // JOINでis_auto_order有効な商品のスナップショットを取得（実倉庫のみ）
         // snapshotJobIdが指定されている場合、そのジョブのスナップショットのみを使用

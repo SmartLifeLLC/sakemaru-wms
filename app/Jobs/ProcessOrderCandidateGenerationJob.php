@@ -43,6 +43,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
         public ?int $contractorId = null,
         public ?int $executionLogId = null,
         public bool $transferOnly = false,
+        public ?int $warehouseId = null,
     ) {}
 
     /**
@@ -86,9 +87,20 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
                 ]);
 
                 if ($this->transferOnly) {
-                    $results['deletedTransfers'] = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->delete();
+                    $deleteQuery = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING);
+                    if ($this->warehouseId) {
+                        $deleteQuery->where('satellite_warehouse_id', $this->warehouseId);
+                    }
+                    $results['deletedTransfers'] = $deleteQuery->delete();
                 } else {
-                    $results['deleted'] = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->delete();
+                    $deleteOrderQuery = WmsOrderCandidate::where('status', CandidateStatus::PENDING);
+                    $deleteTransferQuery = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING);
+                    if ($this->warehouseId) {
+                        $deleteOrderQuery->where('warehouse_id', $this->warehouseId);
+                        $deleteTransferQuery->where('satellite_warehouse_id', $this->warehouseId);
+                    }
+                    $results['deleted'] = $deleteOrderQuery->delete();
+                    $results['deletedTransfers'] = $deleteTransferQuery->delete();
                 }
             }
 
@@ -104,7 +116,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
             ]);
 
             $snapshotService = app(StockSnapshotService::class);
-            $snapshotJob = $snapshotService->generateAll();
+            $snapshotJob = $snapshotService->generateAll($this->warehouseId);
             $results['snapshot'] = $snapshotJob->processed_records;
 
             $progress->update([
@@ -114,7 +126,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
 
             // Step 4: 発注候補計算（スナップショットのjob_idを渡す）
             $calculationService = app(OrderCandidateCalculationService::class);
-            $calcJob = $calculationService->calculate($snapshotJob->id, $this->contractorId, $this->transferOnly);
+            $calcJob = $calculationService->calculate($snapshotJob->id, $this->contractorId, $this->transferOnly, $this->warehouseId);
 
             $results['batchCode'] = $calcJob->batch_code;
             $results['calculated'] = $calcJob->processed_records;
