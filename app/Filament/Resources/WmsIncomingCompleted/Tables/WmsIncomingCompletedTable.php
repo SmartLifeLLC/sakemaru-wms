@@ -95,7 +95,7 @@ class WmsIncomingCompletedTable
                     ->width('60px'),
 
                 TextColumn::make('received_quantity')
-                    ->label('入庫数')
+                    ->label('入荷数')
                     ->numeric()
                     ->alignEnd()
                     ->width('60px'),
@@ -137,7 +137,7 @@ class WmsIncomingCompletedTable
                     ->width('85px'),
 
                 TextColumn::make('actual_arrival_date')
-                    ->label('入庫日')
+                    ->label('入荷日')
                     ->date('m/d')
                     ->sortable()
                     ->alignCenter()
@@ -170,7 +170,7 @@ class WmsIncomingCompletedTable
             ])
             ->filters([
                 SelectFilter::make('order_source')
-                    ->label('入庫区分')
+                    ->label('入荷区分')
                     ->options([
                         'AUTO' => '発注',
                         'MANUAL' => '手動',
@@ -196,7 +196,7 @@ class WmsIncomingCompletedTable
                     ->label('詳細')
                     ->icon('heroicon-o-eye')
                     ->color('gray')
-                    ->modalHeading('入庫完了詳細')
+                    ->modalHeading('入荷完了詳細')
                     ->modalWidth('lg')
                     ->infolist(function ($record): array {
                         return [
@@ -208,7 +208,7 @@ class WmsIncomingCompletedTable
                                                 ->label('倉庫')
                                                 ->state(fn () => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-'),
                                             \Filament\Infolists\Components\TextEntry::make('order_source')
-                                                ->label('入庫区分')
+                                                ->label('入荷区分')
                                                 ->state(fn () => match ($record->order_source) {
                                                     OrderSource::AUTO => '発注',
                                                     OrderSource::MANUAL => '手動',
@@ -232,12 +232,12 @@ class WmsIncomingCompletedTable
                                         ->label('発注先')
                                         ->state(fn () => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-'),
                                 ]),
-                            \Filament\Schemas\Components\Section::make('入庫情報')
+                            \Filament\Schemas\Components\Section::make('入荷情報')
                                 ->schema([
                                     \Filament\Schemas\Components\Grid::make(3)
                                         ->schema([
                                             \Filament\Infolists\Components\TextEntry::make('received_quantity')
-                                                ->label('入庫数')
+                                                ->label('入荷数')
                                                 ->state(fn () => number_format($record->received_quantity).' '.match ($record->quantity_type?->value ?? $record->quantity_type) {
                                                     'PIECE' => 'バラ',
                                                     'CASE' => 'ケース',
@@ -255,10 +255,10 @@ class WmsIncomingCompletedTable
                                     \Filament\Schemas\Components\Grid::make(3)
                                         ->schema([
                                             \Filament\Infolists\Components\TextEntry::make('expected_arrival_date')
-                                                ->label('入庫予定日')
+                                                ->label('入荷予定日')
                                                 ->state(fn () => $record->expected_arrival_date?->format('Y/m/d') ?? '-'),
                                             \Filament\Infolists\Components\TextEntry::make('actual_arrival_date')
-                                                ->label('入庫日')
+                                                ->label('入荷日')
                                                 ->state(fn () => $record->actual_arrival_date?->format('Y/m/d') ?? '-'),
                                             \Filament\Infolists\Components\TextEntry::make('confirmed_at')
                                                 ->label('確定日時')
@@ -267,7 +267,7 @@ class WmsIncomingCompletedTable
                                     \Filament\Schemas\Components\Grid::make(2)
                                         ->schema([
                                             \Filament\Infolists\Components\TextEntry::make('location')
-                                                ->label('入庫ロケーション')
+                                                ->label('入荷ロケーション')
                                                 ->state(fn () => $record->location?->display_name ?? '-'),
                                             \Filament\Infolists\Components\TextEntry::make('purchase_slip_number')
                                                 ->label('仕入伝票番号')

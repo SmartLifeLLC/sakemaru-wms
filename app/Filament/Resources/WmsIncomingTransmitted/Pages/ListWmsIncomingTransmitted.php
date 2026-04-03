@@ -41,7 +41,7 @@ class ListWmsIncomingTransmitted extends ListRecords
             'today' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereDate('actual_arrival_date', today()))
                 ->favorite()
-                ->label('本日入庫'),
+                ->label('本日入荷'),
 
             'auto' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('order_source', 'AUTO'))

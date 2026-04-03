@@ -86,7 +86,7 @@
                             ['未承認', 'gray', '確認待ち'],
                             ['承認済', 'green', '確定待ち'],
                             ['除外', 'red', '実行しない'],
-                            ['確定済', 'blue', '入庫予定作成'],
+                            ['確定済', 'blue', '入荷予定作成'],
                             ['送信済', 'purple', 'JX送信完了'],
                         ] as [$status, $color, $desc])
                         <div class="flex items-center gap-2 p-1.5 bg-{{ $color }}-50 dark:bg-{{ $color }}-900/20 rounded">
@@ -226,7 +226,7 @@
                     </div>
                     <div class="mt-2 p-2 bg-info-50 dark:bg-info-900/20 rounded text-xs text-info-700 dark:text-info-300">
                         <x-heroicon-o-information-circle class="w-3 h-3 inline" />
-                        テーブル上で直接「発注数」「入庫予定」を編集可能（承認前のみ）
+                        テーブル上で直接「発注数」「入荷予定」を編集可能（承認前のみ）
                     </div>
                     <div class="mt-2 p-2 bg-danger-50 dark:bg-danger-900/20 rounded text-xs text-danger-700 dark:text-danger-300">
                         <x-heroicon-o-exclamation-triangle class="w-3 h-3 inline" />
@@ -244,7 +244,7 @@
                         </h3>
                         <a href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}" class="text-xs text-blue-600 hover:underline">画面を開く →</a>
                     </div>
-                    <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">承認済みの候補を一括確定。入庫予定・移動伝票・発注ファイルを作成。</p>
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">承認済みの候補を一括確定。入荷予定・移動伝票・発注ファイルを作成。</p>
                     <div class="grid grid-cols-2 gap-2 text-xs mb-3">
                         <div class="p-2 bg-orange-50 dark:bg-orange-900/20 rounded border border-orange-200 dark:border-orange-800 text-center">
                             <div class="font-semibold text-orange-700 dark:text-orange-300">発注確定待ちタブ</div>
@@ -258,7 +258,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                         <div class="p-2 bg-orange-50 dark:bg-orange-900/20 rounded">
                             <span class="px-2 py-0.5 bg-orange-500 text-white rounded text-[10px]">発注・移動確定</span>
-                            <div class="mt-1 text-gray-600 dark:text-gray-400">入庫予定・移動伝票・CSVファイル作成</div>
+                            <div class="mt-1 text-gray-600 dark:text-gray-400">入荷予定・移動伝票・CSVファイル作成</div>
                         </div>
                         <div class="p-2 bg-info-50 dark:bg-info-900/20 rounded">
                             <span class="px-2 py-0.5 bg-info-500 text-white rounded text-[10px]">テストデータ生成</span>

@@ -136,7 +136,7 @@ class WmsStockTransferCandidatesTable
                     ->width('70px'),
 
                 TextColumn::make('incoming_quantity')
-                    ->label('入庫数')
+                    ->label('入荷数')
                     ->state(function ($record) {
                         // 直接カラムがあればそちらを使用
                         if ($record->incoming_quantity !== null) {

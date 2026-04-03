@@ -181,7 +181,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 $completionMessages[] = "移動伝票 {$totalTransferQueues}件（{$totalTransferCandidates}商品）";
             }
             if ($totalSchedules > 0) {
-                $completionMessages[] = "入庫予定 {$totalSchedules}件";
+                $completionMessages[] = "入荷予定 {$totalSchedules}件";
             }
             if ($totalCsvFiles > 0) {
                 $completionMessages[] = "CSVファイル {$totalCsvFiles}件";

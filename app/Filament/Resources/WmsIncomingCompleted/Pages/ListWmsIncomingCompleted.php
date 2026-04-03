@@ -33,7 +33,7 @@ class ListWmsIncomingCompleted extends ListRecords
                 ->icon('heroicon-o-paper-airplane')
                 ->color('primary')
                 ->modalHeading('仕入データ登録')
-                ->modalDescription('入庫完了データを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入庫日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
+                ->modalDescription('入荷完了データを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
                 ->requiresConfirmation()
                 ->modalSubmitActionLabel('登録')
                 ->action(function () {
@@ -45,7 +45,7 @@ class ListWmsIncomingCompleted extends ListRecords
                         if ($result['success']) {
                             Notification::make()
                                 ->title('仕入キューに登録しました')
-                                ->body("キュー: {$result['queue_count']}件 / 入庫データ: {$result['schedule_count']}件")
+                                ->body("キュー: {$result['queue_count']}件 / 入荷データ: {$result['schedule_count']}件")
                                 ->success()
                                 ->send();
                         } else {
@@ -89,7 +89,7 @@ class ListWmsIncomingCompleted extends ListRecords
             'today' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereDate('actual_arrival_date', today()))
                 ->favorite()
-                ->label('本日入庫'),
+                ->label('本日入荷'),
 
             'auto' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('order_source', 'AUTO'))

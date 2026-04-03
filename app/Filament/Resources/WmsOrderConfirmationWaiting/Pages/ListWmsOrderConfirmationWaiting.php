@@ -182,7 +182,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                         $details[] = "移動候補: {$transferApprovedCount}件 → 移動伝票生成";
                     }
                     if ($orderApprovedCount > 0) {
-                        $details[] = "発注候補: {$orderApprovedCount}件 → 発注送信データ生成・入庫予定作成";
+                        $details[] = "発注候補: {$orderApprovedCount}件 → 発注送信データ生成・入荷予定作成";
                     }
 
                     return '以下の処理を実行します。'."\n\n".

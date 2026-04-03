@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderIncomingSchedules\Tables;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\QuantityType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\ClientSetting;
@@ -45,8 +46,14 @@ class WmsOrderIncomingSchedulesTable
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'incoming-schedules-table sticky-actions'])
             ->columns([
+                TextColumn::make('id')
+                    ->label('ID')
+                    ->sortable()
+                    ->alignCenter()
+                    ->width('50px'),
+
                 TextColumn::make('order_source')
-                    ->label('入荷区分')
+                    ->label('区分')
                     ->badge()
                     ->formatStateUsing(fn (OrderSource $state): string => match ($state) {
                         OrderSource::AUTO => '発注',
@@ -61,6 +68,7 @@ class WmsOrderIncomingSchedulesTable
                         OrderSource::RECEIVED => 'success',
                     })
                     ->sortable()
+                    ->alignCenter()
                     ->width('60px'),
 
                 TextColumn::make('order_date')
@@ -97,8 +105,65 @@ class WmsOrderIncomingSchedulesTable
                     ->sortable()
                     ->grow(),
 
+                TextColumn::make('capacity_case')
+                    ->label('入り数')
+                    ->state(fn ($record) => $record->item?->capacity_case)
+                    ->numeric()
+                    ->placeholder('-')
+                    ->alignEnd()
+                    ->width('60px'),
+
                 TextColumn::make('expected_quantity')
-                    ->label('発注数')
+                    ->label('ケース')
+                    ->state(function ($record) {
+                        $qty = $record->expected_quantity ?? 0;
+                        $capacity = $record->item?->capacity_case;
+                        if (! $capacity || $capacity <= 1) {
+                            return 0;
+                        }
+
+                        return (int) ($qty / $capacity);
+                    })
+                    ->formatStateUsing(fn ($state) => $state > 0 ? number_format($state) : '-')
+                    ->alignEnd()
+                    ->width('60px'),
+
+                TextColumn::make('loose_quantity')
+                    ->label('バラ')
+                    ->state(function ($record) {
+                        $qty = $record->expected_quantity ?? 0;
+                        $capacity = $record->item?->capacity_case;
+                        if (! $capacity || $capacity <= 1) {
+                            return $qty;
+                        }
+
+                        return $qty % $capacity;
+                    })
+                    ->formatStateUsing(fn ($state) => $state > 0 ? number_format($state) : '-')
+                    ->alignEnd()
+                    ->width('60px'),
+
+                TextColumn::make('total_piece_quantity')
+                    ->label('総バラ数')
+                    ->state(function ($record) {
+                        $qty = $record->expected_quantity ?? 0;
+                        if ($qty === 0) {
+                            return 0;
+                        }
+                        $quantityType = $record->quantity_type;
+                        if ($quantityType === QuantityType::CASE) {
+                            $capacity = $record->item?->capacity_case ?? 1;
+
+                            return $qty * $capacity;
+                        }
+                        if ($quantityType === QuantityType::CARTON) {
+                            $capacity = $record->item?->capacity_carton ?? 1;
+
+                            return $qty * $capacity;
+                        }
+
+                        return $qty;
+                    })
                     ->numeric()
                     ->alignEnd()
                     ->width('70px'),
@@ -117,52 +182,20 @@ class WmsOrderIncomingSchedulesTable
                     ->placeholder('-')
                     ->width('90px'),
 
-                TextColumn::make('default_location')
+                TextColumn::make('computed_default_location')
                     ->label('ロケーション')
-                    ->state(function ($record) {
-                        if (! $record->warehouse_id || ! $record->item_id) {
-                            return null;
-                        }
-                        $location = ItemDefaultLocation::getDefaultLocation(
-                            $record->warehouse_id,
-                            $record->item_id
-                        );
-                        if (! $location) {
-                            return null;
-                        }
-
-                        return "{$location->code1}-{$location->code2}-{$location->code3}";
-                    })
                     ->placeholder('-')
                     ->alignCenter()
                     ->width('100px'),
 
-                TextColumn::make('current_stock')
+                TextColumn::make('computed_current_stock')
                     ->label('現在庫')
-                    ->state(function ($record) {
-                        if (! $record->warehouse_id || ! $record->item_id) {
-                            return null;
-                        }
-
-                        return RealStock::where('warehouse_id', $record->warehouse_id)
-                            ->where('item_id', $record->item_id)
-                            ->sum('current_quantity');
-                    })
                     ->numeric()
                     ->alignEnd()
                     ->width('70px'),
 
-                TextColumn::make('available_stock')
+                TextColumn::make('computed_available_stock')
                     ->label('有効在庫')
-                    ->state(function ($record) {
-                        if (! $record->warehouse_id || ! $record->item_id) {
-                            return null;
-                        }
-
-                        return RealStock::where('warehouse_id', $record->warehouse_id)
-                            ->where('item_id', $record->item_id)
-                            ->sum('available_quantity');
-                    })
                     ->numeric()
                     ->alignEnd()
                     ->width('70px'),
@@ -292,17 +325,6 @@ class WmsOrderIncomingSchedulesTable
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->width('60px'),
 
-                TextColumn::make('quantity_type')
-                    ->label('単位')
-                    ->formatStateUsing(fn ($state) => match ($state?->value ?? $state) {
-                        'PIECE' => 'バラ',
-                        'CASE' => 'ケース',
-                        'CARTON' => 'ボール',
-                        default => '-',
-                    })
-                    ->alignCenter()
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->width('60px'),
 
                 TextColumn::make('order_candidate_id')
                     ->label('発注候補ID')
@@ -526,18 +548,31 @@ class WmsOrderIncomingSchedulesTable
                                     'incomingStock' => $details['入庫予定数'] ?? 0,
                                     'safetyStock' => $details['安全在庫'] ?? 0,
                                     'shortageQty' => $details['不足数'] ?? 0,
+                                    'purchaseUnit' => $details['最小仕入単位'] ?? 1,
+                                    'unitAdjustmentNote' => $details['単位調整説明'] ?? '',
                                     'orderQuantity' => $orderCandidate?->order_quantity ?? $record->expected_quantity,
                                 ]),
                         ];
 
                         if ($isEditable) {
+                            $capacity = $item?->capacity_case;
+                            $expectedQty = $record->expected_quantity ?? 0;
+                            $remaining = $record->remaining_quantity;
+                            if ($capacity && $capacity > 1) {
+                                $caseCount = (int) ($expectedQty / $capacity);
+                                $looseCount = $expectedQty % $capacity;
+                                $helperText = "残{$remaining} ｜ {$caseCount}CS x {$capacity}(入数)＋{$looseCount} ＝ {$expectedQty}";
+                            } else {
+                                $helperText = "残{$remaining} ｜ 総バラ {$expectedQty}";
+                            }
+
                             $schema[] = Grid::make(4)->schema([
                                 TextInput::make('received_quantity')
-                                    ->label('入荷数量')
+                                    ->label('入荷数量（総バラ）')
                                     ->numeric()
                                     ->required()
                                     ->default($record->remaining_quantity)
-                                    ->helperText("残数: {$record->remaining_quantity}"),
+                                    ->helperText($helperText),
 
                                 DatePicker::make('actual_date')
                                     ->label('入荷日')

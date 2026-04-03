@@ -33,12 +33,12 @@
                 <dd class="modal-value">{{ number_format($effectiveStock) }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">入庫予定</dt>
+                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">入荷予定</dt>
                 <dd class="modal-value">{{ number_format($incomingStock) }}</dd>
             </div>
             @if($hasTransferIncoming)
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">移動入庫</dt>
+                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">移動入荷</dt>
                 <dd class="modal-value">{{ number_format($transferIncoming) }}</dd>
             </div>
             @endif

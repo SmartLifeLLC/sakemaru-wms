@@ -110,7 +110,7 @@ class WmsOrderCandidatesTable
                     ->alignCenter()
                     ->width('120px'),
 
-                // 在庫・発注関連カラム（順序: 現在庫→移動依頼→入庫予定→計算後在庫→発注点→不足分→入数→発注数）
+                // 在庫・発注関連カラム（順序: 現在庫→移動依頼→入荷予定→計算後在庫→発注点→不足分→入数→発注数）
                 TextColumn::make('current_stock')
                     ->label('現在庫')
                     ->state(fn ($record) => $record->current_stock ?? '-')
@@ -125,7 +125,7 @@ class WmsOrderCandidatesTable
                     ->width('55px'),
 
                 TextColumn::make('incoming_quantity_override')
-                    ->label('入庫数')
+                    ->label('入荷数')
                     ->state(fn ($record) => $record->incoming_quantity_override ?? $record->original_incoming_quantity ?? '-')
                     ->numeric()
                     ->alignEnd()

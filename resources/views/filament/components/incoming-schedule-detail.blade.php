@@ -103,8 +103,18 @@
                     <span>入荷予定: {{ number_format($incomingStock) }}</span>
                     <span>発注点: {{ number_format($safetyStock) }}</span>
                     <span class="text-red-600 dark:text-red-400">不足: {{ number_format($shortageQty) }}</span>
+                </div>
+                @if($purchaseUnit > 1)
+                <div class="flex gap-3 text-gray-600 dark:text-gray-400 mt-1 pt-1 border-t border-gray-200 dark:border-white/10">
+                    <span>最小仕入単位: {{ number_format($purchaseUnit) }}</span>
+                    <span class="text-gray-500">{{ $unitAdjustmentNote }}</span>
                     <span class="ml-auto font-bold text-primary-600 dark:text-primary-400">発注数: {{ number_format($orderQuantity) }}</span>
                 </div>
+                @else
+                <div class="flex justify-end mt-1">
+                    <span class="font-bold text-primary-600 dark:text-primary-400">発注数: {{ number_format($orderQuantity) }}</span>
+                </div>
+                @endif
             </div>
             @elseif(!$hasOrderCandidate)
             <div class="bg-gray-50 dark:bg-white/5 rounded-lg p-2 text-xs text-gray-400">

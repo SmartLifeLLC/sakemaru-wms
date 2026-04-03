@@ -161,10 +161,29 @@ class OrderExecutionService
         );
 
         // demand_breakdownがある場合は各倉庫ごとに入庫予定を作成
+        // 注意: demand_breakdownのquantityは単位調整前の不足数なので、
+        //       order_quantity（単位調整後）との比率で按分する
         if (! empty($candidate->demand_breakdown)) {
-            foreach ($candidate->demand_breakdown as $breakdown) {
+            $breakdowns = collect($candidate->demand_breakdown)->filter(fn ($b) => ($b['quantity'] ?? 0) > 0);
+            $breakdownTotal = $breakdowns->sum('quantity');
+            $orderQuantity = $candidate->order_quantity;
+
+            // 按分して端数は最後の倉庫に寄せる
+            $allocated = 0;
+            $lastIndex = $breakdowns->count() - 1;
+
+            foreach ($breakdowns->values() as $index => $breakdown) {
                 $warehouseId = $breakdown['warehouse_id'];
-                $quantity = $breakdown['quantity'];
+
+                if ($index === $lastIndex) {
+                    // 最後の倉庫に残りを割り当て
+                    $quantity = $orderQuantity - $allocated;
+                } else {
+                    $quantity = $breakdownTotal > 0
+                        ? (int) round($breakdown['quantity'] / $breakdownTotal * $orderQuantity)
+                        : 0;
+                    $allocated += $quantity;
+                }
 
                 if ($quantity <= 0) {
                     continue;

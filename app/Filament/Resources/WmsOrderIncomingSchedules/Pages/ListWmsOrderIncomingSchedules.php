@@ -156,6 +156,19 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                     'contractor',
                     'supplier',
                 ])
+                ->addSelect([
+                    'computed_current_stock' => \App\Models\Sakemaru\RealStock::selectRaw('COALESCE(SUM(current_quantity), 0)')
+                        ->whereColumn('real_stocks.warehouse_id', 'wms_order_incoming_schedules.warehouse_id')
+                        ->whereColumn('real_stocks.item_id', 'wms_order_incoming_schedules.item_id'),
+                    'computed_available_stock' => \App\Models\Sakemaru\RealStock::selectRaw('COALESCE(SUM(available_quantity), 0)')
+                        ->whereColumn('real_stocks.warehouse_id', 'wms_order_incoming_schedules.warehouse_id')
+                        ->whereColumn('real_stocks.item_id', 'wms_order_incoming_schedules.item_id'),
+                    'computed_default_location' => \App\Models\Sakemaru\Location::selectRaw("CONCAT(locations.code1, '-', locations.code2, '-', locations.code3)")
+                        ->join('item_incoming_default_locations', 'item_incoming_default_locations.location_id', '=', 'locations.id')
+                        ->whereColumn('item_incoming_default_locations.warehouse_id', 'wms_order_incoming_schedules.warehouse_id')
+                        ->whereColumn('item_incoming_default_locations.item_id', 'wms_order_incoming_schedules.item_id')
+                        ->limit(1),
+                ])
                 ->orderBy('expected_arrival_date', 'asc')
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')

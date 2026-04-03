@@ -7,7 +7,7 @@
             </svg>
         </div>
 
-        <h3 class="text-lg font-bold text-gray-800 mb-1" x-text="incoming.lastResult?.message || '入庫を確定しました'"></h3>
+        <h3 class="text-lg font-bold text-gray-800 mb-1" x-text="incoming.lastResult?.message || '入荷を確定しました'"></h3>
 
         {{-- Summary --}}
         <div class="mt-4 bg-gray-50 rounded-lg p-3 text-left space-y-2 text-sm">

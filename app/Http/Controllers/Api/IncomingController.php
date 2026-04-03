@@ -245,7 +245,7 @@ class IncomingController extends ApiController
      *         )
      *     ),
      *
-     *     @OA\Response(response=404, description="入庫予定が見つかりません")
+     *     @OA\Response(response=404, description="入荷予定が見つかりません")
      * )
      */
     public function show(int $id): JsonResponse
@@ -254,7 +254,7 @@ class IncomingController extends ApiController
             ->find($id);
 
         if (! $schedule) {
-            return $this->notFound('入庫予定が見つかりません');
+            return $this->notFound('入荷予定が見つかりません');
         }
 
         return $this->success($this->formatScheduleDetail($schedule));
@@ -433,7 +433,7 @@ class IncomingController extends ApiController
      *     ),
      *
      *     @OA\Response(response=400, description="既に作業中 / 作業不可"),
-     *     @OA\Response(response=404, description="入庫予定が見つかりません"),
+     *     @OA\Response(response=404, description="入荷予定が見つかりません"),
      *     @OA\Response(response=422, description="バリデーションエラー")
      * )
      */
@@ -452,12 +452,12 @@ class IncomingController extends ApiController
         $schedule = WmsOrderIncomingSchedule::find($request->input('incoming_schedule_id'));
 
         if (! $schedule) {
-            return $this->notFound('入庫予定が見つかりません');
+            return $this->notFound('入荷予定が見つかりません');
         }
 
         // PENDING/PARTIAL のみ新規作業可能（CONFIRMED は履歴から修正）
         if (! in_array($schedule->status, [IncomingScheduleStatus::PENDING, IncomingScheduleStatus::PARTIAL])) {
-            return $this->error('この入庫予定は作業できません（完了済みは履歴から修正してください）', 400);
+            return $this->error('この入荷予定は作業できません（完了済みは履歴から修正してください）', 400);
         }
 
         // Check if already working
@@ -703,12 +703,12 @@ class IncomingController extends ApiController
      *                 property="result",
      *                 type="object",
      *                 @OA\Property(property="data", type="null"),
-     *                 @OA\Property(property="message", type="string", example="入庫を確定しました")
+     *                 @OA\Property(property="message", type="string", example="入荷を確定しました")
      *             )
      *         )
      *     ),
      *
-     *     @OA\Response(response=400, description="完了不可 / 入庫予定が見つかりません"),
+     *     @OA\Response(response=400, description="完了不可 / 入荷予定が見つかりません"),
      *     @OA\Response(response=404, description="作業データが見つかりません"),
      *     @OA\Response(response=500, description="入庫確定に失敗")
      * )
@@ -728,7 +728,7 @@ class IncomingController extends ApiController
         $schedule = $workItem->incomingSchedule;
 
         if (! $schedule) {
-            return $this->error('入庫予定が見つかりません', 400);
+            return $this->error('入荷予定が見つかりません', 400);
         }
 
         try {
@@ -776,14 +776,14 @@ class IncomingController extends ApiController
                 'quantity' => $workItem->work_quantity,
             ]);
 
-            return $this->success(null, '入庫を確定しました');
+            return $this->success(null, '入荷を確定しました');
         } catch (\Exception $e) {
             Log::error('Failed to complete incoming work', [
                 'work_item_id' => $id,
                 'error' => $e->getMessage(),
             ]);
 
-            return $this->error('入庫確定に失敗しました: '.$e->getMessage(), 500);
+            return $this->error('入荷確定に失敗しました: '.$e->getMessage(), 500);
         }
     }
 

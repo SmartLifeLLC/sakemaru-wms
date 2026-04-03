@@ -86,6 +86,21 @@
             </div>
         </div>
 
+        @if(($purchaseUnit ?? 1) > 1)
+        <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div class="grid grid-cols-2 gap-4 mb-2">
+                <div>
+                    <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">最小仕入単位</dt>
+                    <dd class="modal-value">{{ number_format($purchaseUnit) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">単位調整</dt>
+                    <dd class="text-sm text-gray-600 dark:text-gray-400">{{ $unitAdjustmentNote ?? '' }}</dd>
+                </div>
+            </div>
+        </div>
+        @endif
+
         <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between">
                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">発注数量</span>

@@ -121,7 +121,7 @@ class ListWmsOrderCandidates extends ListRecords
                                         $contractorName = $contractor->name;
                                     }
                                 } else {
-                                    $set('contractor_error', "入庫倉庫「[{$incomingWarehouse->code}]{$incomingWarehouse->name}」に対する発注先が設定されていません");
+                                    $set('contractor_error', "入荷倉庫「[{$incomingWarehouse->code}]{$incomingWarehouse->name}」に対する発注先が設定されていません");
                                 }
 
                                 // 商品詳細を更新（発注先情報含む）
@@ -145,7 +145,7 @@ class ListWmsOrderCandidates extends ListRecords
                         }),
 
                     Placeholder::make('incoming_warehouse_info')
-                        ->label('入庫倉庫')
+                        ->label('入荷倉庫')
                         ->content(function ($get) {
                             $html = $get('incoming_warehouse_html');
                             if (! $html) {
@@ -251,7 +251,7 @@ class ListWmsOrderCandidates extends ListRecords
                                 } else {
                                     $incomingWarehouse = Warehouse::find($incomingWarehouseId);
                                     $warehouseName = $incomingWarehouse ? "[{$incomingWarehouse->code}]{$incomingWarehouse->name}" : "ID:{$incomingWarehouseId}";
-                                    $set('contractor_error', "入庫倉庫「{$warehouseName}」に対する発注先が設定されていません");
+                                    $set('contractor_error', "入荷倉庫「{$warehouseName}」に対する発注先が設定されていません");
                                 }
                             }
 
@@ -473,7 +473,7 @@ class ListWmsOrderCandidates extends ListRecords
                     }
 
                     // item_contractorsから発注先を取得
-                    // 仮想倉庫の場合は入庫倉庫（実倉庫）で検索
+                    // 仮想倉庫の場合は入荷倉庫（実倉庫）で検索
                     $orderWarehouse = Warehouse::find($data['warehouse_id']);
                     $itemContractorWarehouseId = $data['incoming_warehouse_id']
                         ?? ($orderWarehouse?->is_virtual ? $orderWarehouse->stock_warehouse_id : null)
@@ -489,7 +489,7 @@ class ListWmsOrderCandidates extends ListRecords
                             : "ID:{$itemContractorWarehouseId}";
                         Notification::make()
                             ->title('エラー')
-                            ->body("入庫倉庫「{$warehouseName}」に対する発注先が設定されていません")
+                            ->body("入荷倉庫「{$warehouseName}」に対する発注先が設定されていません")
                             ->danger()
                             ->send();
 

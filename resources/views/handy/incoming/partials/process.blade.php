@@ -40,7 +40,7 @@
             <template x-if="schedulesToProcess.length === 0">
                 <div class="flex flex-col items-center justify-center h-full text-gray-500 p-4">
                     <i class="ph ph-check-circle text-4xl text-green-500 mb-2"></i>
-                    <p class="text-handy-sm font-bold">全て入庫完了</p>
+                    <p class="text-handy-sm font-bold">全て入荷完了</p>
                     <button @click="loadHistory(); currentScreen = 'history'"
                             class="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-handy-xs">
                         履歴を確認
@@ -162,7 +162,7 @@
                         <span>出荷: <span class="text-green-700" x-text="currentSchedule?.shipped_quantity"></span> / 発注: <span class="text-amber-700" x-text="currentSchedule?.expected_quantity"></span></span>
                     </template>
                     <template x-if="currentSchedule?.shipped_quantity == null">
-                        <span>入庫予定 : <span class="text-amber-700" x-text="currentSchedule?.expected_quantity"></span></span>
+                        <span>入荷予定 : <span class="text-amber-700" x-text="currentSchedule?.expected_quantity"></span></span>
                     </template>
                 </label>
                 <input type="number"

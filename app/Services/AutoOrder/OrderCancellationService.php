@@ -33,7 +33,7 @@ class OrderCancellationService
             IncomingScheduleStatus::PENDING,
             IncomingScheduleStatus::PARTIAL,
         ])) {
-            throw new \RuntimeException('この入庫予定はキャンセルできません（ステータス: '.$schedule->status->label().'）');
+            throw new \RuntimeException('この入荷予定はキャンセルできません（ステータス: '.$schedule->status->label().'）');
         }
 
         DB::connection('sakemaru')->transaction(function () use ($schedule, $userId, $reason) {
