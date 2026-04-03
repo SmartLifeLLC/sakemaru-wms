@@ -155,6 +155,7 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                     'item',
                     'contractor',
                     'orderCandidate',
+                    'confirmedByUser',
                 ])
                 ->addSelect([
                     'computed_current_stock' => \App\Models\Sakemaru\RealStock::selectRaw('COALESCE(SUM(current_quantity), 0)')
