@@ -55,7 +55,20 @@
                     </tr>
                     <tr>
                         <td class="py-1.5 text-gray-500 dark:text-gray-400">予定日</td>
-                        <td class="py-1.5 font-bold text-primary-600 dark:text-primary-400" colspan="3">{{ $expectedArrivalDate }}</td>
+                        <td class="py-1.5" colspan="3">
+                            <div class="font-bold text-primary-600 dark:text-primary-400">{{ $expectedArrivalDate }}</div>
+                            @if(($hasOrderCandidate ?? false) && ($hasCalculationLog ?? false) && ($leadTimeDays ?? 0) > 0)
+                                <div class="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                    @if(($shiftedDays ?? 0) > 0)
+                                        {{ $orderDate }} + LT {{ $leadTimeDays }}日 → {{ $originalArrivalDate ?? '?' }}
+                                        → {{ $shiftReasons }}
+                                        → {{ $expectedArrivalDate }}
+                                    @else
+                                        {{ $orderDate }} + LT {{ $leadTimeDays }}日（調整なし）
+                                    @endif
+                                </div>
+                            @endif
+                        </td>
                     </tr>
                     <tr>
                         <td class="py-1.5 text-gray-500 dark:text-gray-400">入荷日時</td>

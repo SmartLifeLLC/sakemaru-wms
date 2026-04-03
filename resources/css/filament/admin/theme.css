@@ -487,6 +487,12 @@ html.fi {
     overflow-x: auto;
 }
 
+/* thead全体を上固定（横スクロール時にレコードがヘッダーの上に来ない） */
+.sticky-actions .fi-ta-table thead {
+    position: relative;
+    z-index: 15 !important;
+}
+
 /* 全ヘッダーセルに不透明な背景色（スクロール時に透けない） */
 .sticky-actions .fi-ta-table thead th {
     position: relative !important;

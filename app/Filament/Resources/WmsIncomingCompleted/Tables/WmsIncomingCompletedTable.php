@@ -447,13 +447,18 @@ class WmsIncomingCompletedTable
                         }
 
                         $orderCandidate = $record->orderCandidate;
+                        $transferCandidate = $record->transferCandidate;
+                        $candidate = $orderCandidate ?? $transferCandidate;
                         $log = null;
                         $details = [];
 
-                        if ($orderCandidate) {
-                            $log = WmsOrderCalculationLog::where('batch_code', $orderCandidate->batch_code)
-                                ->where('warehouse_id', $orderCandidate->warehouse_id)
-                                ->where('item_id', $orderCandidate->item_id)
+                        if ($candidate) {
+                            $warehouseId = $orderCandidate
+                                ? $orderCandidate->warehouse_id
+                                : $transferCandidate->satellite_warehouse_id;
+                            $log = WmsOrderCalculationLog::where('batch_code', $candidate->batch_code)
+                                ->where('warehouse_id', $warehouseId)
+                                ->where('item_id', $candidate->item_id)
                                 ->first();
                             $details = $log?->calculation_details ?? [];
                         }
@@ -519,12 +524,18 @@ class WmsIncomingCompletedTable
                                     'statusColor' => $record->status->color(),
                                     'currentStock' => $currentStock,
                                     'availableStock' => $availableStock,
-                                    'hasOrderCandidate' => $orderCandidate !== null,
-                                    'orderCandidateId' => $orderCandidate?->id,
-                                    'batchCodeFormatted' => $orderCandidate?->batch_code
-                                        ? \Carbon\Carbon::createFromFormat('YmdHis', $orderCandidate->batch_code)->format('Y/m/d H:i')
+                                    'hasOrderCandidate' => $candidate !== null,
+                                    'orderCandidateId' => $candidate?->id,
+                                    'batchCodeFormatted' => $candidate?->batch_code
+                                        ? \Carbon\Carbon::createFromFormat('YmdHis', $candidate->batch_code)->format('Y/m/d H:i')
                                         : null,
                                     'hasCalculationLog' => ! empty($details),
+                                    'leadTimeDays' => $log?->lead_time_days ?? 0,
+                                    'originalArrivalDate' => $candidate?->original_arrival_date
+                                        ? \Carbon\Carbon::parse($candidate->original_arrival_date)->format('m/d')
+                                        : null,
+                                    'shiftedDays' => (int) ($details['到着日調整'] ?? 0),
+                                    'shiftReasons' => $details['調整理由'] ?? '',
                                     'formula' => $details['計算式'] ?? '-',
                                     'effectiveStock' => $details['有効在庫'] ?? 0,
                                     'incomingStock' => $details['入庫予定数'] ?? 0,
@@ -534,7 +545,7 @@ class WmsIncomingCompletedTable
                                     'transferIncoming' => $details['移動入庫予定'] ?? 0,
                                     'transferOutgoing' => $details['移動出庫予定'] ?? 0,
                                     'unitAdjustmentNote' => $details['単位調整説明'] ?? '',
-                                    'orderQuantity' => $orderCandidate?->order_quantity ?? $record->expected_quantity,
+                                    'orderQuantity' => $orderCandidate?->order_quantity ?? $transferCandidate?->transfer_quantity ?? $record->expected_quantity,
                                 ]),
                         ];
                     }),

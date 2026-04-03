@@ -16,7 +16,6 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
-use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
@@ -35,23 +34,8 @@ class WmsOrderConfirmationWaitingTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
-            ->extraAttributes(['class' => 'order-confirmation-waiting-table'])
+            ->extraAttributes(['class' => 'order-confirmation-waiting-table sticky-actions'])
             ->columns([
-                TextColumn::make('batch_code')
-                    ->label('実行CD')
-                    ->searchable()
-                    ->sortable()
-                    ->copyable()
-                    ->width('120px'),
-
-                TextColumn::make('batch_code_formatted')
-                    ->label('実行時刻')
-                    ->state(function ($record) {
-                        return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
-                    })
-                    ->sortable(query: fn ($query, $direction) => $query->orderBy('batch_code', $direction))
-                    ->width('80px'),
-
                 TextColumn::make('status')
                     ->label('状態')
                     ->badge()
@@ -137,6 +121,21 @@ class WmsOrderConfirmationWaitingTable
                     ->alignCenter()
                     ->width('70px'),
 
+                TextColumn::make('batch_code')
+                    ->label('実行CD')
+                    ->searchable()
+                    ->sortable()
+                    ->copyable()
+                    ->width('120px'),
+
+                TextColumn::make('batch_code_formatted')
+                    ->label('実行時刻')
+                    ->state(function ($record) {
+                        return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
+                    })
+                    ->sortable(query: fn ($query, $direction) => $query->orderBy('batch_code', $direction))
+                    ->width('80px'),
+
                 TextColumn::make('lot_status')
                     ->label('ロット')
                     ->badge()
@@ -173,13 +172,20 @@ class WmsOrderConfirmationWaitingTable
 
                 static::contractorFilter(),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('viewDetail')
                     ->label('詳細')
                     ->icon('heroicon-o-eye')
                     ->color('gray')
                     ->modalHeading('発注候補詳細')
-                    ->modalWidth('6xl')
+                    ->modalWidth('4xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalSubmitAction(fn ($record, $action) => $record->status->isEditable()
+                        ? $action->makeModalSubmitAction('submit', [])->label('変更を保存')->color('danger')
+                        : false)
+                    ->modalCancelActionLabel('このまま閉じる')
+                    ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
                     ->fillForm(fn ($record) => [
                         'order_quantity' => $record->order_quantity,
                         'expected_arrival_date' => $record->expected_arrival_date,
@@ -208,79 +214,61 @@ class WmsOrderConfirmationWaitingTable
                             $capacityText = implode(' / ', $parts) ?: '-';
                         }
 
-                        // 入荷予定日の算出理由
-                        $leadTimeDays = $log?->lead_time_days ?? 0;
-                        $arrivalDateAdjustment = $details['到着日調整'] ?? 0;
+                        $isEditable = $record->status->isEditable();
 
-                        return [
-                            Grid::make(3)
-                                ->schema([
-                                    View::make('filament.components.order-candidate-left-panel-with-arrival')
-                                        ->viewData([
-                                            'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
-                                            'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
-                                            'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
-                                            'expectedArrivalDate' => $record->expected_arrival_date
-                                                ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
-                                                : '-',
-                                            'originalArrivalDate' => $record->original_arrival_date
-                                                ? \Carbon\Carbon::parse($record->original_arrival_date)->format('Y/m/d')
-                                                : '-',
-                                            'leadTimeDays' => $leadTimeDays,
-                                            'arrivalDateAdjustment' => $arrivalDateAdjustment,
-                                            'itemCode' => $item?->code ?? '-',
-                                            'itemName' => $item?->name ?? '-',
-                                            'packaging' => $item?->packaging ?? '-',
-                                            'capacityText' => $capacityText,
-                                        ])
-                                        ->columnSpan(1),
-
-                                    Section::make('発注情報')
-                                        ->schema([
-                                            View::make('filament.components.order-candidate-right-panel')
-                                                ->viewData([
-                                                    'selfShortageQty' => $record->self_shortage_qty ?? 0,
-                                                    'satelliteDemandQty' => $record->satellite_demand_qty ?? 0,
-                                                    'suggestedQuantity' => $record->suggested_quantity ?? 0,
-                                                    'hasCalculationLog' => ! empty($details),
-                                                    'formula' => $details['計算式'] ?? '-',
-                                                    'effectiveStock' => $details['有効在庫'] ?? 0,
-                                                    'incomingStock' => $details['入庫予定数'] ?? 0,
-                                                    'hasTransferIncoming' => isset($details['移動入庫予定']),
-                                                    'transferIncoming' => $details['移動入庫予定'] ?? 0,
-                                                    'hasTransferOutgoing' => isset($details['移動出庫予定']),
-                                                    'transferOutgoing' => $details['移動出庫予定'] ?? 0,
-                                                    'safetyStock' => $details['安全在庫'] ?? 0,
-                                                    'calculatedAvailable' => $details['利用可能在庫'] ?? 0,
-                                                    'shortageQty' => $details['不足数'] ?? 0,
-                                                    'purchaseUnit' => $details['最小仕入単位'] ?? 1,
-                                                    'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,
-                                                    'orderQuantity' => $record->order_quantity ?? 0,
-                                                ]),
-
-                                            Section::make('発注数・入荷予定日変更')
-                                                ->schema([
-                                                    Grid::make(2)
-                                                        ->schema([
-                                                            TextInput::make('order_quantity')
-                                                                ->label('発注数')
-                                                                ->numeric()
-                                                                ->required()
-                                                                ->minValue(0)
-                                                                ->disabled(! $record->status->isEditable())
-                                                                ->helperText(! $record->status->isEditable() ? 'このステータスでは変更できません' : null),
-
-                                                            DatePicker::make('expected_arrival_date')
-                                                                ->label('入荷予定日')
-                                                                ->required()
-                                                                ->disabled(! $record->status->isEditable())
-                                                                ->helperText(! $record->status->isEditable() ? 'このステータスでは変更できません' : null),
-                                                        ]),
-                                                ]),
-                                        ])
-                                        ->columnSpan(2),
+                        $schema = [
+                            View::make('filament.components.order-candidate-detail')
+                                ->viewData([
+                                    'batchCode' => $record->batch_code,
+                                    'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
+                                    'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
+                                    'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+                                    'expectedArrivalDate' => $record->expected_arrival_date
+                                        ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
+                                        : '-',
+                                    'leadTimeDays' => $log?->lead_time_days ?? 0,
+                                    'orderDate' => $record->created_at?->format('m/d') ?? '-',
+                                    'originalArrivalDate' => $record->original_arrival_date
+                                        ? \Carbon\Carbon::parse($record->original_arrival_date)->format('m/d')
+                                        : null,
+                                    'shiftedDays' => (int) ($details['到着日調整'] ?? 0),
+                                    'shiftReasons' => $details['調整理由'] ?? '',
+                                    'itemCode' => $item?->code ?? '-',
+                                    'itemName' => $item?->name ?? '-',
+                                    'packaging' => $item?->packaging ?? '-',
+                                    'capacityText' => $capacityText,
+                                    'statusLabel' => $record->status->label(),
+                                    'currentEffectiveStock' => $record->current_effective_stock ?? 0,
+                                    'suggestedQuantity' => $record->suggested_quantity ?? 0,
+                                    'orderQuantity' => $record->order_quantity ?? 0,
+                                    'hasCalculationLog' => ! empty($details),
+                                    'formula' => $details['計算式'] ?? '-',
+                                    'effectiveStock' => $details['有効在庫'] ?? 0,
+                                    'incomingStock' => $details['入庫予定数'] ?? 0,
+                                    'transferIncoming' => $details['移動入庫予定'] ?? 0,
+                                    'transferOutgoing' => $details['移動出庫予定'] ?? 0,
+                                    'safetyStock' => $details['安全在庫'] ?? 0,
+                                    'shortageQty' => $details['不足数'] ?? 0,
+                                    'purchaseUnit' => $details['最小仕入単位'] ?? 1,
+                                    'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,
                                 ]),
                         ];
+
+                        if ($isEditable) {
+                            $schema[] = Grid::make(2)->schema([
+                                TextInput::make('order_quantity')
+                                    ->label('発注数')
+                                    ->numeric()
+                                    ->required()
+                                    ->minValue(0),
+
+                                DatePicker::make('expected_arrival_date')
+                                    ->label('入荷予定日')
+                                    ->required(),
+                            ]);
+                        }
+
+                        return $schema;
                     })
                     ->action(function ($record, array $data) {
                         if (! $record->status->isEditable()) {
