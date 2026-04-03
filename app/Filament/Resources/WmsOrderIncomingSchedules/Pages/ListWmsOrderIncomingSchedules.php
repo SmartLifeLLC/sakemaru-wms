@@ -154,7 +154,7 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                     'warehouse',
                     'item',
                     'contractor',
-                    'supplier',
+                    'orderCandidate',
                 ])
                 ->addSelect([
                     'computed_current_stock' => \App\Models\Sakemaru\RealStock::selectRaw('COALESCE(SUM(current_quantity), 0)')
@@ -175,14 +175,16 @@ class ListWmsOrderIncomingSchedules extends ListRecords
             );
     }
 
-    public function getPresetViews(): array
-    {
-        // ユーザーの選択中倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
+    protected ?array $presetViewWarehouseData = null;
 
-        // 入荷予定（PENDING/PARTIAL）に存在する倉庫を取得
+    protected function getWarehouseDataForPresetViews(): array
+    {
+        if ($this->presetViewWarehouseData !== null) {
+            return $this->presetViewWarehouseData;
+        }
+
         $cacheKey = 'incoming_schedules_warehouses_'.auth()->id();
-        $warehouseData = cache()->remember($cacheKey, 30, function () {
+        $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
             $warehouseIds = WmsOrderIncomingSchedule::whereIn('status', [
                 IncomingScheduleStatus::PENDING,
                 IncomingScheduleStatus::PARTIAL,
@@ -200,6 +202,17 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                 'warehouses' => $warehouses,
             ];
         });
+
+        return $this->presetViewWarehouseData;
+    }
+
+    public function getPresetViews(): array
+    {
+        // ユーザーの選択中倉庫を取得
+        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
+
+        // 入荷予定（PENDING/PARTIAL）に存在する倉庫を取得（プロパティキャッシュ）
+        $warehouseData = $this->getWarehouseDataForPresetViews();
 
         $warehouseIds = $warehouseData['ids'];
         $warehouses = $warehouseData['warehouses'];

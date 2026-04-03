@@ -393,11 +393,6 @@ class WmsOrderIncomingSchedulesTable
 
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
-                    ->options(fn () => Warehouse::query()
-                        ->where('is_active', true)
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"]))
                     ->searchable()
                     ->getSearchResultsUsing(function (string $search): array {
                         $search = mb_convert_kana($search, 'as');
@@ -418,10 +413,6 @@ class WmsOrderIncomingSchedulesTable
                 SelectFilter::make('contractor_id')
                     ->label('発注先')
                     ->multiple()
-                    ->options(fn () => Contractor::query()
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"]))
                     ->searchable()
                     ->getSearchResultsUsing(function (string $search): array {
                         $search = mb_convert_kana($search, 'as');
