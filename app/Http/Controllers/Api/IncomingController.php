@@ -749,7 +749,8 @@ class IncomingController extends ApiController
                         $totalReceived,
                         $workItem->work_arrival_date?->format('Y-m-d'),
                         $workItem->work_expiration_date?->format('Y-m-d'),
-                        $locationId
+                        $locationId,
+                        pickerId: $workItem->picker_id
                     );
                 } else {
                     // 一部入庫
@@ -759,7 +760,8 @@ class IncomingController extends ApiController
                         $workItem->picker_id,
                         $workItem->work_arrival_date?->format('Y-m-d'),
                         $workItem->work_expiration_date?->format('Y-m-d'),
-                        $locationId
+                        $locationId,
+                        pickerId: $workItem->picker_id
                     );
                 }
 

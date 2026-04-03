@@ -336,24 +336,44 @@ class ListWmsStockTransferCandidates extends ListRecords
         return $paginator;
     }
 
-    public function getPresetViews(): array
-    {
-        // ユーザーの選択中倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
+    protected ?array $presetViewWarehouseData = null;
 
-        // PENDING の移動候補に存在する依頼倉庫（satellite_warehouse）のみ取得
+    protected function getWarehouseDataForPresetViews(): array
+    {
+        if ($this->presetViewWarehouseData !== null) {
+            return $this->presetViewWarehouseData;
+        }
+
         $cacheKey = 'transfer_candidates_pending_warehouses_'.auth()->id();
-        $warehouseIds = cache()->remember($cacheKey, 30, function () {
-            return WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+        $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
+            $warehouseIds = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
                 ->distinct()
                 ->pluck('satellite_warehouse_id')
                 ->toArray();
-        });
-        $warehouses = Warehouse::whereIn('id', $warehouseIds)->orderBy('name')->get();
 
-        // デフォルト倉庫が移動候補に存在するかチェック
+            $warehouses = Warehouse::whereIn('id', $warehouseIds)
+                ->orderBy('name')
+                ->get(['id', 'name']);
+
+            return [
+                'ids' => $warehouseIds,
+                'warehouses' => $warehouses,
+            ];
+        });
+
+        return $this->presetViewWarehouseData;
+    }
+
+    public function getPresetViews(): array
+    {
+        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
+
+        $warehouseData = $this->getWarehouseDataForPresetViews();
+        $warehouseIds = $warehouseData['ids'];
+        $warehouses = $warehouseData['warehouses'];
+
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
-        $defaultWarehouse = $hasDefaultWarehouse ? Warehouse::find($userDefaultWarehouseId) : null;
+        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
         // デフォルトタブ：デフォルト倉庫があればその倉庫名とフィルタ、なければ「全て」
         if ($defaultWarehouse) {

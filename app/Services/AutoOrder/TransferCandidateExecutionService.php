@@ -5,6 +5,7 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsStockTransferCandidate;
@@ -202,7 +203,7 @@ class TransferCandidateExecutionService
     {
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
 
-        $orderDate = now()->format('Y-m-d');
+        $orderDate = ClientSetting::systemDateYMD();
         $schedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $candidate->satellite_warehouse_id,
             'item_id' => $candidate->item_id,

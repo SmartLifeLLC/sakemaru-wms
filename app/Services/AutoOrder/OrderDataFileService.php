@@ -4,6 +4,7 @@ namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\OrderDataFileStatus;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderIncomingSchedule;
@@ -121,7 +122,7 @@ class OrderDataFileService
                 'is_test' => false,
             ],
             [
-                'order_date' => now()->toDateString(),
+                'order_date' => ClientSetting::systemDateYMD(),
                 'expected_arrival_date' => $expectedArrivalDate,
                 'file_path' => $filePath,
                 'file_size' => strlen($csvContent),

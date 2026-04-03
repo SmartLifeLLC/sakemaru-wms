@@ -33,7 +33,8 @@ class IncomingConfirmationService
         ?int $receivedQuantity = null,
         ?string $actualDate = null,
         ?string $expirationDate = null,
-        ?int $locationId = null
+        ?int $locationId = null,
+        ?int $pickerId = null
     ): WmsOrderIncomingSchedule {
         if ($schedule->status === IncomingScheduleStatus::CONFIRMED) {
             throw new \RuntimeException("Schedule {$schedule->id} is already confirmed");
@@ -46,14 +47,15 @@ class IncomingConfirmationService
         $receivedQuantity = $receivedQuantity ?? $schedule->expected_quantity;
         $actualDate = $actualDate ?? now()->format('Y-m-d');
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate, $expirationDate, $locationId) {
+        return DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate, $expirationDate, $locationId, $pickerId) {
             // 入庫予定を更新（仕入れ連携は別途行う）
             $updateData = [
                 'received_quantity' => $receivedQuantity,
                 'actual_arrival_date' => $actualDate,
                 'status' => IncomingScheduleStatus::CONFIRMED,
                 'confirmed_at' => now(),
-                'confirmed_by' => $confirmedBy,
+                'confirmed_by' => $pickerId ? null : $confirmedBy,
+                'confirmed_picker_id' => $pickerId,
             ];
 
             // 賞味期限が指定された場合のみ更新
@@ -101,7 +103,8 @@ class IncomingConfirmationService
         int $confirmedBy,
         ?string $actualDate = null,
         ?string $expirationDate = null,
-        ?int $locationId = null
+        ?int $locationId = null,
+        ?int $pickerId = null
     ): WmsOrderIncomingSchedule {
         if ($schedule->status === IncomingScheduleStatus::CONFIRMED) {
             throw new \RuntimeException("Schedule {$schedule->id} is already fully confirmed");
@@ -114,20 +117,23 @@ class IncomingConfirmationService
         $actualDate = $actualDate ?? now()->format('Y-m-d');
         $newReceivedQty = $schedule->received_quantity + $receivedQuantity;
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $newReceivedQty, $receivedQuantity, $confirmedBy, $actualDate, $expirationDate, $locationId) {
+        return DB::connection('sakemaru')->transaction(function () use ($schedule, $newReceivedQty, $receivedQuantity, $confirmedBy, $actualDate, $expirationDate, $locationId, $pickerId) {
             // ステータス判定
             $status = IncomingScheduleStatus::PARTIAL;
             if ($newReceivedQty >= $schedule->expected_quantity) {
                 $status = IncomingScheduleStatus::CONFIRMED;
             }
 
+            $isConfirmed = $status === IncomingScheduleStatus::CONFIRMED;
+
             // 入庫予定を更新（仕入れ連携は別途行う）
             $updateData = [
                 'received_quantity' => $newReceivedQty,
                 'actual_arrival_date' => $actualDate,
                 'status' => $status,
-                'confirmed_at' => $status === IncomingScheduleStatus::CONFIRMED ? now() : null,
-                'confirmed_by' => $status === IncomingScheduleStatus::CONFIRMED ? $confirmedBy : null,
+                'confirmed_at' => $isConfirmed ? now() : null,
+                'confirmed_by' => $isConfirmed ? ($pickerId ? null : $confirmedBy) : null,
+                'confirmed_picker_id' => $isConfirmed ? $pickerId : null,
             ];
 
             // 賞味期限が指定された場合のみ更新
@@ -163,7 +169,7 @@ class IncomingConfirmationService
      * @param  string|null  $actualDate  入庫日
      * @return array ['success' => int, 'failed' => int, 'errors' => array]
      */
-    public function confirmMultiple(array|Collection $scheduleIds, int $confirmedBy, ?string $actualDate = null): array
+    public function confirmMultiple(array|Collection $scheduleIds, int $confirmedBy, ?string $actualDate = null, ?int $pickerId = null): array
     {
         $success = 0;
         $failed = 0;
@@ -172,7 +178,7 @@ class IncomingConfirmationService
         foreach ($scheduleIds as $scheduleId) {
             try {
                 $schedule = WmsOrderIncomingSchedule::findOrFail($scheduleId);
-                $this->confirmIncoming($schedule, $confirmedBy, null, $actualDate);
+                $this->confirmIncoming($schedule, $confirmedBy, null, $actualDate, pickerId: $pickerId);
                 $success++;
             } catch (\Exception $e) {
                 $failed++;

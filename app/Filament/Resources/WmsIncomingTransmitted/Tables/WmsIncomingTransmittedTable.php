@@ -140,6 +140,18 @@ class WmsIncomingTransmittedTable
                     ->limit(30)
                     ->placeholder('-')
                     ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('confirmedByUser.name')
+                    ->label('入荷担当者')
+                    ->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('100px'),
+
+                TextColumn::make('confirmedByPicker.name')
+                    ->label('入荷ピッカー')
+                    ->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('100px'),
             ])
             ->filters([
                 Filter::make('actual_arrival_date')

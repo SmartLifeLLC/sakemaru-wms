@@ -5,6 +5,7 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
@@ -189,7 +190,7 @@ class OrderExecutionService
                     continue;
                 }
 
-                $orderDate = now()->format('Y-m-d');
+                $orderDate = ClientSetting::systemDateYMD();
                 $schedule = WmsOrderIncomingSchedule::create([
                     'warehouse_id' => $warehouseId,
                     'item_id' => $candidate->item_id,
@@ -214,7 +215,7 @@ class OrderExecutionService
             }
         } else {
             // demand_breakdownがない場合は従来通り発注元倉庫に入庫予定を作成
-            $orderDate = now()->format('Y-m-d');
+            $orderDate = ClientSetting::systemDateYMD();
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,
                 'item_id' => $candidate->item_id,

@@ -56,6 +56,8 @@ class WmsIncomingTransmittedResource extends Resource
                 'item',
                 'contractor',
                 'supplier',
+                'confirmedByUser',
+                'confirmedByPicker',
             ]);
     }
 

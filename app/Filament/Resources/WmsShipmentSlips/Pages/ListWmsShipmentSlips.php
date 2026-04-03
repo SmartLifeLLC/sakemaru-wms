@@ -29,21 +29,43 @@ class ListWmsShipmentSlips extends ListRecords
         return [];
     }
 
+    protected ?array $presetViewWarehouseData = null;
+
+    protected function getWarehouseDataForPresetViews(): array
+    {
+        if ($this->presetViewWarehouseData !== null) {
+            return $this->presetViewWarehouseData;
+        }
+
+        $systemDate = ClientSetting::systemDateYMD();
+        $cacheKey = 'shipment_slips_warehouses_'.auth()->id();
+        $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () use ($systemDate) {
+            $warehouseIds = WmsPickingTask::where('shipment_date', $systemDate)
+                ->distinct()
+                ->pluck('warehouse_id')
+                ->toArray();
+
+            $warehouses = Warehouse::whereIn('id', $warehouseIds)
+                ->where('is_virtual', false)
+                ->orderBy('code')
+                ->get(['id', 'code', 'name']);
+
+            return [
+                'ids' => $warehouseIds,
+                'warehouses' => $warehouses,
+            ];
+        });
+
+        return $this->presetViewWarehouseData;
+    }
+
     public function getPresetViews(): array
     {
         $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
         $systemDate = ClientSetting::systemDateYMD();
 
-        // system_date のタスクが存在する倉庫のみタブ表示
-        $warehouseIds = WmsPickingTask::where('shipment_date', $systemDate)
-            ->distinct()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        $warehouses = Warehouse::whereIn('id', $warehouseIds)
-            ->where('is_virtual', false)
-            ->orderBy('code')
-            ->get(['id', 'code', 'name']);
+        $warehouseData = $this->getWarehouseDataForPresetViews();
+        $warehouses = $warehouseData['warehouses'];
 
         $defaultWarehouse = $userDefaultWarehouseId
             ? $warehouses->firstWhere('id', $userDefaultWarehouseId)

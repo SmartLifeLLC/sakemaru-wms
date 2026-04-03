@@ -76,6 +76,9 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 ->toArray();
 
             if (empty($batchCodes) && $transferApprovedCount === 0) {
+                // 確定対象がないので、PENDING状態のジョブをキャンセル
+                WmsAutoOrderJobControl::cancelPendingSettlements();
+
                 $progress->markAsCompleted([
                     'total_transfer_queues' => 0,
                     'total_transfer_candidates' => 0,
@@ -236,6 +239,9 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         if ($progress) {
             $progress->markAsFailed('発注・移動確定ジョブが失敗しました: '.$exception->getMessage());
         }
+
+        // ジョブ失敗時は確定待ちをキャンセルして永久PENDINGを防止
+        WmsAutoOrderJobControl::cancelPendingSettlements();
 
         Log::error('Transfer/Order confirmation job failed', [
             'progress_id' => $this->progressId,

@@ -196,6 +196,7 @@ class WmsAutoOrderExecutionLogsTable
                             deletePending: false,
                             contractorId: $record->contractor_id,
                             executionLogId: $log->id,
+                            createdBy: auth()->id(),
                         );
 
                         Notification::make()

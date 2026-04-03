@@ -19,14 +19,18 @@ class StockSnapshotService
      *
      * @param  int|null  $warehouseId  指定時はその倉庫のみ生成
      */
-    public function generateAll(?int $warehouseId = null): WmsAutoOrderJobControl
+    public function generateAll(?int $warehouseId = null, ?int $createdBy = null): WmsAutoOrderJobControl
     {
         // 既に実行中のジョブがあればエラー
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::STOCK_SNAPSHOT)) {
             throw new \RuntimeException('Stock snapshot job is already running');
         }
 
-        $job = WmsAutoOrderJobControl::startJob(JobProcessName::STOCK_SNAPSHOT);
+        $job = WmsAutoOrderJobControl::startJob(
+            processName: JobProcessName::STOCK_SNAPSHOT,
+            createdBy: $createdBy,
+            warehouseId: $warehouseId,
+        );
 
         try {
             // 自動発注有効な倉庫を取得

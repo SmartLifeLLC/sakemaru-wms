@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsOrderIncomingSchedules\Pages;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Filament\Concerns\HasStockSubqueries;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderIncomingSchedules\WmsOrderIncomingScheduleResource;
 use App\Models\Sakemaru\Contractor;
@@ -25,6 +26,7 @@ use Illuminate\Database\Eloquent\Builder;
 class ListWmsOrderIncomingSchedules extends ListRecords
 {
     use AdvancedTables;
+    use HasStockSubqueries;
     use HasWmsUserViews {
         HasWmsUserViews::getUserViews insteadof AdvancedTables;
         HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
@@ -156,19 +158,12 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                     'contractor',
                     'orderCandidate',
                     'confirmedByUser',
+                    'confirmedByPicker',
                 ])
                 ->addSelect([
-                    'computed_current_stock' => \App\Models\Sakemaru\RealStock::selectRaw('COALESCE(SUM(current_quantity), 0)')
-                        ->whereColumn('real_stocks.warehouse_id', 'wms_order_incoming_schedules.warehouse_id')
-                        ->whereColumn('real_stocks.item_id', 'wms_order_incoming_schedules.item_id'),
-                    'computed_available_stock' => \App\Models\Sakemaru\RealStock::selectRaw('COALESCE(SUM(available_quantity), 0)')
-                        ->whereColumn('real_stocks.warehouse_id', 'wms_order_incoming_schedules.warehouse_id')
-                        ->whereColumn('real_stocks.item_id', 'wms_order_incoming_schedules.item_id'),
-                    'computed_default_location' => \App\Models\Sakemaru\Location::selectRaw("CONCAT(locations.code1, '-', locations.code2, '-', locations.code3)")
-                        ->join('item_incoming_default_locations', 'item_incoming_default_locations.location_id', '=', 'locations.id')
-                        ->whereColumn('item_incoming_default_locations.warehouse_id', 'wms_order_incoming_schedules.warehouse_id')
-                        ->whereColumn('item_incoming_default_locations.item_id', 'wms_order_incoming_schedules.item_id')
-                        ->limit(1),
+                    'computed_current_stock' => static::currentStockSubquery('wms_order_incoming_schedules'),
+                    'computed_available_stock' => static::availableStockSubquery('wms_order_incoming_schedules'),
+                    'computed_default_location' => static::defaultLocationSubquery('wms_order_incoming_schedules'),
                 ])
                 ->orderBy('expected_arrival_date', 'asc')
                 ->orderBy('warehouse_id')

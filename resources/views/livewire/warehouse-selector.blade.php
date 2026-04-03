@@ -5,11 +5,13 @@
         class="flex items-center gap-1.5 px-2.5 py-1 text-sm font-bold rounded-lg
                bg-slate-900/60 border border-slate-500/40
                text-white hover:bg-slate-700/80
-               transition-colors w-56"
+               transition-colors whitespace-nowrap"
     >
-        <i class="fa-solid fa-warehouse text-amber-400 flex-shrink-0 text-xs"></i>
-        <span class="truncate">{{ $selectedWarehouseName }}</span>
-        <i class="fa-solid fa-chevron-down text-[9px] text-slate-400 ml-auto flex-shrink-0"></i>
+        <div class="flex items-center gap-1.5 ml-auto">
+            <i class="fa-solid fa-warehouse text-amber-400 flex-shrink-0 text-xs"></i>
+            <span class="truncate">{{ $selectedWarehouseName }}</span>
+        </div>
+        <i class="fa-solid fa-chevron-down text-[9px] text-slate-400 flex-shrink-0 ml-1.5"></i>
     </button>
 
     <div
@@ -21,7 +23,7 @@
         x-transition:leave-start="opacity-100 scale-100"
         x-transition:leave-end="opacity-0 scale-95"
         x-cloak
-        class="absolute left-0 z-50 mt-1 w-64 max-h-80 overflow-y-auto
+        class="absolute right-0 z-50 mt-1 min-w-full w-64 max-h-80 overflow-y-auto
                bg-white dark:bg-gray-800
                border border-gray-200 dark:border-gray-700
                rounded-lg shadow-lg"

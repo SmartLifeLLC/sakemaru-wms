@@ -93,7 +93,7 @@ class OrderCandidateCalculationService
      * @param  bool  $transferOnly  trueの場合、INTERNAL移動候補のみ生成（EXTERNAL発注候補はスキップ）
      * @param  int|null  $warehouseId  倉庫指定（nullなら全有効倉庫）
      */
-    public function calculate(?int $snapshotJobId = null, ?int $contractorId = null, bool $transferOnly = false, ?int $warehouseId = null): WmsAutoOrderJobControl
+    public function calculate(?int $snapshotJobId = null, ?int $contractorId = null, bool $transferOnly = false, ?int $warehouseId = null, ?int $createdBy = null): WmsAutoOrderJobControl
     {
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::ORDER_CALC)) {
             throw new \RuntimeException('Order calculation job is already running');
@@ -170,7 +170,9 @@ class OrderCandidateCalculationService
             scope: null,
             batchCode: null,
             settlementStatus: SettlementStatus::PENDING,
-            snapshotJobId: $snapshotJobId
+            snapshotJobId: $snapshotJobId,
+            createdBy: $createdBy,
+            warehouseId: $warehouseId,
         );
 
         // スナップショットJob IDを保持（loadAllDataToMemoryで使用）

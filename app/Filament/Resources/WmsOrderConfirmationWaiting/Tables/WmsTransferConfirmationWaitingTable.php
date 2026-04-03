@@ -6,7 +6,8 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
-use App\Models\Sakemaru\Contractor;
+use App\Filament\Concerns\HasOptimizedFilters;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
 use Filament\Actions\Action;
@@ -24,6 +25,7 @@ use Illuminate\Database\Eloquent\Collection;
 class WmsTransferConfirmationWaitingTable
 {
     use HasExportAction;
+    use HasOptimizedFilters;
 
     public static function configure(Table $table): Table
     {
@@ -161,21 +163,41 @@ class WmsTransferConfirmationWaitingTable
 
                 SelectFilter::make('satellite_warehouse_id')
                     ->label('依頼倉庫')
-                    ->relationship('satelliteWarehouse', 'name'),
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    }),
 
                 SelectFilter::make('hub_warehouse_id')
                     ->label('移動元倉庫')
-                    ->relationship('hubWarehouse', 'name'),
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
 
-                SelectFilter::make('contractor_id')
-                    ->label('発注先')
-                    ->options(fn () => Contractor::query()
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($contractor) => [
-                            $contractor->id => "[{$contractor->code}]{$contractor->name}",
-                        ]))
-                    ->searchable(),
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    }),
+
+                static::contractorFilter(),
             ])
             ->recordActions([
                 Action::make('viewDetail')

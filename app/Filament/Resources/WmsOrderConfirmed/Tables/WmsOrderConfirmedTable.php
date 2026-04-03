@@ -6,8 +6,7 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
-use App\Models\Sakemaru\Contractor;
-use App\Models\Sakemaru\Warehouse;
+use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\WmsOrderCandidate;
 use Filament\Actions\Action;
 use Filament\Schemas\Components\Grid;
@@ -20,6 +19,7 @@ use Filament\Tables\Table;
 class WmsOrderConfirmedTable
 {
     use HasExportAction;
+    use HasOptimizedFilters;
 
     public static function configure(Table $table): Table
     {
@@ -166,51 +166,9 @@ class WmsOrderConfirmedTable
                         CandidateStatus::EXECUTED->value => CandidateStatus::EXECUTED->label(),
                     ]),
 
-                SelectFilter::make('warehouse_id')
-                    ->label('倉庫')
-                    ->options(fn () => Warehouse::query()
-                        ->where('is_active', true)
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"]))
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search): array {
-                        $search = mb_convert_kana($search, 'as');
+                static::warehouseFilter(),
 
-                        return Warehouse::query()
-                            ->where('is_active', true)
-                            ->where(function ($query) use ($search) {
-                                $query->where('code', 'like', "%{$search}%")
-                                    ->orWhere('name', 'like', "%{$search}%");
-                            })
-                            ->orderBy('code')
-                            ->limit(50)
-                            ->get()
-                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
-                            ->toArray();
-                    }),
-
-                SelectFilter::make('contractor_id')
-                    ->label('発注先')
-                    ->options(fn () => Contractor::query()
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"]))
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search): array {
-                        $search = mb_convert_kana($search, 'as');
-
-                        return Contractor::query()
-                            ->where(function ($query) use ($search) {
-                                $query->where('code', 'like', "%{$search}%")
-                                    ->orWhere('name', 'like', "%{$search}%");
-                            })
-                            ->orderBy('code')
-                            ->limit(50)
-                            ->get()
-                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"])
-                            ->toArray();
-                    }),
+                static::contractorFilter(),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([

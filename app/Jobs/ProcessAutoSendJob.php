@@ -102,6 +102,13 @@ class ProcessAutoSendJob implements ShouldQueue
 
             $progress->markAsFailed($e->getMessage());
 
+            // ジョブ失敗時は関連する確定待ちをキャンセルして永久PENDINGを防止
+            if ($this->batchCode) {
+                WmsAutoOrderJobControl::where('batch_code', $this->batchCode)
+                    ->where('settlement_status', SettlementStatus::PENDING)
+                    ->update(['settlement_status' => SettlementStatus::CANCELLED]);
+            }
+
             // 実行ログの送信ステータスを更新
             if ($this->executionLogId) {
                 WmsAutoOrderExecutionLog::where('id', $this->executionLogId)

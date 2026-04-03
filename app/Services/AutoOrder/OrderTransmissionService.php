@@ -9,6 +9,7 @@ use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionDocumentType;
 use App\Enums\AutoOrder\TransmissionType;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
@@ -50,7 +51,10 @@ class OrderTransmissionService
             throw new \RuntimeException($validation['message']);
         }
 
-        $job = WmsAutoOrderJobControl::startJob(JobProcessName::ORDER_TRANSMISSION);
+        $job = WmsAutoOrderJobControl::startJob(
+            processName: JobProcessName::ORDER_TRANSMISSION,
+            createdBy: auth()->id(),
+        );
         $job->update(['batch_code' => $batchCode]);
 
         try {
@@ -1019,7 +1023,7 @@ class OrderTransmissionService
                 'batch_code' => $batchCode,
                 'warehouse_id' => $firstCandidate?->warehouse_id,
                 'contractor_id' => $file['contractor_id'],
-                'order_date' => now()->toDateString(),
+                'order_date' => ClientSetting::systemDateYMD(),
                 'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
                 'file_path' => $csvPath,
                 'file_size' => strlen($csvContent),
@@ -1038,7 +1042,7 @@ class OrderTransmissionService
                     'is_test' => false,
                 ],
                 [
-                    'order_date' => now()->toDateString(),
+                    'order_date' => ClientSetting::systemDateYMD(),
                     'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
                     'file_path' => $csvPath,
                     'file_size' => strlen($csvContent),
@@ -1214,7 +1218,7 @@ class OrderTransmissionService
             'wms_order_jx_setting_id' => $file['jx_setting_id'] ?? null,
             'warehouse_id' => $warehouseId,
             'contractor_id' => $file['contractor_id'],
-            'order_date' => now()->toDateString(),
+            'order_date' => ClientSetting::systemDateYMD(),
             'expected_arrival_date' => $expectedArrivalDate,
             'document_type' => TransmissionDocumentType::PURCHASE,
             'status' => $status,

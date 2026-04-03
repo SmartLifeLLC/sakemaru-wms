@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\JobStatus;
 use App\Enums\AutoOrder\SettlementStatus;
+use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -32,6 +33,8 @@ class WmsAutoOrderJobControl extends WmsModel
         'batch_code',
         'status',
         'settlement_status',
+        'created_by',
+        'warehouse_id',
         'snapshot_job_id',
         'started_at',
         'finished_at',
@@ -74,13 +77,17 @@ class WmsAutoOrderJobControl extends WmsModel
         ?array $scope = null,
         ?string $batchCode = null,
         SettlementStatus $settlementStatus = SettlementStatus::PENDING,
-        ?int $snapshotJobId = null
+        ?int $snapshotJobId = null,
+        ?int $createdBy = null,
+        ?int $warehouseId = null
     ): self {
         return self::create([
             'process_name' => $processName,
             'batch_code' => $batchCode ?? self::generateBatchCode(),
             'status' => JobStatus::RUNNING,
             'settlement_status' => $settlementStatus,
+            'created_by' => $createdBy,
+            'warehouse_id' => $warehouseId,
             'snapshot_job_id' => $snapshotJobId,
             'started_at' => now(),
             'target_scope' => $scope,
@@ -164,6 +171,22 @@ class WmsAutoOrderJobControl extends WmsModel
     public function snapshotJob(): BelongsTo
     {
         return $this->belongsTo(self::class, 'snapshot_job_id');
+    }
+
+    /**
+     * 実行者
+     */
+    public function createdByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * 対象倉庫
+     */
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class, 'warehouse_id');
     }
 
     /**

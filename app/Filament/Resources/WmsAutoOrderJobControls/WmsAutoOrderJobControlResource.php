@@ -10,6 +10,7 @@ use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsAutoOrderJobControlResource extends Resource
 {
@@ -40,6 +41,12 @@ class WmsAutoOrderJobControlResource extends Resource
     public static function getNavigationSort(): ?int
     {
         return EMenu::WMS_AUTO_ORDER_JOBS->sort();
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->with(['createdByUser', 'warehouse']);
     }
 
     public static function table(Table $table): Table

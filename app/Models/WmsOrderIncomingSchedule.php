@@ -48,6 +48,7 @@ class WmsOrderIncomingSchedule extends WmsModel
         'status',
         'confirmed_at',
         'confirmed_by',
+        'confirmed_picker_id',
         'is_receive_matched',
         'shipped_quantity',
         'unit_price',
@@ -128,6 +129,11 @@ class WmsOrderIncomingSchedule extends WmsModel
     public function confirmedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'confirmed_by');
+    }
+
+    public function confirmedByPicker(): BelongsTo
+    {
+        return $this->belongsTo(WmsPicker::class, 'confirmed_picker_id');
     }
 
     // Scopes
@@ -243,12 +249,13 @@ class WmsOrderIncomingSchedule extends WmsModel
     /**
      * 入庫確定
      */
-    public function confirm(int $confirmedBy, ?string $actualDate = null): void
+    public function confirm(int $confirmedBy, ?string $actualDate = null, ?int $pickerId = null): void
     {
         $this->update([
             'status' => IncomingScheduleStatus::CONFIRMED,
             'confirmed_at' => now(),
-            'confirmed_by' => $confirmedBy,
+            'confirmed_by' => $pickerId ? null : $confirmedBy,
+            'confirmed_picker_id' => $pickerId,
             'actual_arrival_date' => $actualDate ?? now()->format('Y-m-d'),
             'received_quantity' => $this->expected_quantity,
         ]);

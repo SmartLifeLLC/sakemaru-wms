@@ -33,6 +33,11 @@ class ListWmsOrderConfirmed extends ListRecords
     {
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
+                ->with([
+                    'warehouse',
+                    'item',
+                    'contractor',
+                ])
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')

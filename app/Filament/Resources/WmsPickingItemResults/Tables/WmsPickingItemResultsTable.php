@@ -221,14 +221,12 @@ class WmsPickingItemResultsTable
                 SelectFilter::make('picking_task_id')
                     ->label('ピッキングタスク')
                     ->relationship('pickingTask', 'id')
-                    ->searchable()
-                    ->preload(),
+                    ->searchable(),
 
                 SelectFilter::make('earning_id')
                     ->label('伝票ID')
                     ->relationship('earning', 'id')
-                    ->searchable()
-                    ->preload(),
+                    ->searchable(),
 
                 SelectFilter::make('status')
                     ->label('ステータス')

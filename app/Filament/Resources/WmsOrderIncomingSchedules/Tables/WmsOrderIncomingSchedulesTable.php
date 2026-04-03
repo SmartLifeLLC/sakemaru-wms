@@ -4,15 +4,14 @@ namespace App\Filament\Resources\WmsOrderIncomingSchedules\Tables;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
-use App\Enums\QuantityType;
 use App\Enums\PaginationOptions;
+use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Sakemaru\ClientSetting;
-use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\ItemDefaultLocation;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\RealStock;
-use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingConfirmationService;
@@ -37,6 +36,7 @@ use Illuminate\Database\Eloquent\Collection;
 class WmsOrderIncomingSchedulesTable
 {
     use HasExportAction;
+    use HasOptimizedFilters;
 
     public static function configure(Table $table): Table
     {
@@ -325,7 +325,6 @@ class WmsOrderIncomingSchedulesTable
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->width('60px'),
 
-
                 TextColumn::make('order_candidate_id')
                     ->label('発注候補ID')
                     ->alignCenter()
@@ -356,14 +355,49 @@ class WmsOrderIncomingSchedulesTable
                     ->dateTime('m/d H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('confirmed_at')
+                    ->label('入荷日時')
+                    ->dateTime('m/d H:i')
+                    ->sortable()
+                    ->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('confirmedByUser.name')
+                    ->label('入荷担当者')
+                    ->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('100px'),
+
+                TextColumn::make('confirmedByPicker.name')
+                    ->label('入荷ピッカー')
+                    ->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('100px'),
             ])
             ->filters([
+                Filter::make('order_date')
+                    ->label('発注日')
+                    ->form([
+                        DatePicker::make('order_date')
+                            ->label('発注日'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['order_date'], fn (Builder $q, $date) => $q->where('order_date', $date))
+                    )
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['order_date']) {
+                            return null;
+                        }
+
+                        return '発注日: '.\Carbon\Carbon::parse($data['order_date'])->format('Y年m月d日');
+                    }),
+
                 Filter::make('expected_arrival_date')
                     ->label('入荷予定日')
                     ->form([
                         DatePicker::make('expected_arrival_date')
-                            ->label('入荷予定日')
-                            ->default(ClientSetting::systemDateYMD()),
+                            ->label('入荷予定日'),
                     ])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['expected_arrival_date'], fn (Builder $q, $date) => $q->where('expected_arrival_date', $date))
@@ -391,43 +425,9 @@ class WmsOrderIncomingSchedulesTable
                         'RECEIVED' => '受信',
                     ]),
 
-                SelectFilter::make('warehouse_id')
-                    ->label('倉庫')
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search): array {
-                        $search = mb_convert_kana($search, 'as');
+                static::warehouseFilter(),
 
-                        return Warehouse::query()
-                            ->where('is_active', true)
-                            ->where(function ($query) use ($search) {
-                                $query->where('code', 'like', "%{$search}%")
-                                    ->orWhere('name', 'like', "%{$search}%");
-                            })
-                            ->orderBy('code')
-                            ->limit(50)
-                            ->get()
-                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
-                            ->toArray();
-                    }),
-
-                SelectFilter::make('contractor_id')
-                    ->label('発注先')
-                    ->multiple()
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search): array {
-                        $search = mb_convert_kana($search, 'as');
-
-                        return Contractor::query()
-                            ->where(function ($query) use ($search) {
-                                $query->where('code', 'like', "%{$search}%")
-                                    ->orWhere('name', 'like', "%{$search}%");
-                            })
-                            ->orderBy('code')
-                            ->limit(50)
-                            ->get()
-                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"])
-                            ->toArray();
-                    }),
+                static::contractorFilter(),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([

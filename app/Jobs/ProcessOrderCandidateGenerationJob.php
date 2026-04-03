@@ -44,6 +44,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
         public ?int $executionLogId = null,
         public bool $transferOnly = false,
         public ?int $warehouseId = null,
+        public ?int $createdBy = null,
     ) {}
 
     /**
@@ -116,7 +117,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
             ]);
 
             $snapshotService = app(StockSnapshotService::class);
-            $snapshotJob = $snapshotService->generateAll($this->warehouseId);
+            $snapshotJob = $snapshotService->generateAll($this->warehouseId, $this->createdBy);
             $results['snapshot'] = $snapshotJob->processed_records;
 
             $progress->update([
@@ -126,7 +127,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
 
             // Step 4: 発注候補計算（スナップショットのjob_idを渡す）
             $calculationService = app(OrderCandidateCalculationService::class);
-            $calcJob = $calculationService->calculate($snapshotJob->id, $this->contractorId, $this->transferOnly, $this->warehouseId);
+            $calcJob = $calculationService->calculate($snapshotJob->id, $this->contractorId, $this->transferOnly, $this->warehouseId, $this->createdBy);
 
             $results['batchCode'] = $calcJob->batch_code;
             $results['calculated'] = $calcJob->processed_records;

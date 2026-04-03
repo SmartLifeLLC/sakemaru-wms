@@ -7,9 +7,8 @@ use App\Enums\AutoOrder\LotStatus;
 use App\Enums\AutoOrder\OriginType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Concerns\OptimisticLockException;
-use App\Models\Sakemaru\Contractor;
-use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\WarehouseContractor;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
@@ -38,6 +37,7 @@ use Illuminate\Support\Facades\DB;
 class WmsOrderCandidatesTable
 {
     use HasExportAction;
+    use HasOptimizedFilters;
 
     public static function configure(Table $table): Table
     {
@@ -285,16 +285,7 @@ class WmsOrderCandidatesTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('batch_code')
-                    ->label('実行CD')
-                    ->options(fn () => WmsOrderCandidate::query()
-                        ->select('batch_code')
-                        ->distinct()
-                        ->orderByDesc('batch_code')
-                        ->limit(50)
-                        ->pluck('batch_code', 'batch_code')
-                        ->toArray())
-                    ->searchable(),
+                static::batchCodeFilter(WmsOrderCandidate::class),
 
                 SelectFilter::make('status')
                     ->label('ステータス')
@@ -307,66 +298,11 @@ class WmsOrderCandidatesTable
                     ->label('生成元')
                     ->options(OriginType::class),
 
-                SelectFilter::make('warehouse_id')
-                    ->label('発注倉庫')
-                    ->relationship('warehouse', 'name'),
+                static::warehouseFilter()->label('発注倉庫'),
 
-                SelectFilter::make('contractor_id')
-                    ->label('発注先')
-                    ->options(fn () => Contractor::query()
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($contractor) => [
-                            $contractor->id => "[{$contractor->code}]{$contractor->name}",
-                        ]))
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search): array {
-                        // 全角英数字を半角に変換
-                        $search = mb_convert_kana($search, 'as');
+                static::contractorFilter(),
 
-                        return Contractor::query()
-                            ->where(function ($query) use ($search) {
-                                $query->where('code', 'like', "%{$search}%")
-                                    ->orWhere('name', 'like', "%{$search}%");
-                            })
-                            ->orderBy('code')
-                            ->limit(50)
-                            ->get()
-                            ->mapWithKeys(fn ($contractor) => [
-                                $contractor->id => "[{$contractor->code}]{$contractor->name}",
-                            ])
-                            ->toArray();
-                    }),
-
-                SelectFilter::make('supplier_id')
-                    ->label('仕入先')
-                    ->options(fn () => Supplier::query()
-                        ->with('partner')
-                        ->whereHas('partner')
-                        ->get()
-                        ->sortBy(fn ($s) => $s->partner?->code)
-                        ->mapWithKeys(fn ($supplier) => [
-                            $supplier->id => "[{$supplier->partner_code}]{$supplier->partner_name}",
-                        ]))
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search): array {
-                        // 全角英数字を半角に変換
-                        $search = mb_convert_kana($search, 'as');
-
-                        return Supplier::query()
-                            ->with('partner')
-                            ->whereHas('partner', function ($query) use ($search) {
-                                $query->where('code', 'like', "%{$search}%")
-                                    ->orWhere('name', 'like', "%{$search}%");
-                            })
-                            ->limit(50)
-                            ->get()
-                            ->sortBy(fn ($s) => $s->partner?->code)
-                            ->mapWithKeys(fn ($supplier) => [
-                                $supplier->id => "[{$supplier->partner_code}]{$supplier->partner_name}",
-                            ])
-                            ->toArray();
-                    }),
+                static::supplierFilter(),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([

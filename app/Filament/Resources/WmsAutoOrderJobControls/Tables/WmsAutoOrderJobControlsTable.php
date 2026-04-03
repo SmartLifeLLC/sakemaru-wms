@@ -8,13 +8,18 @@ use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\PaginationOptions;
 use App\Enums\QueueProgressStatus;
 use App\Filament\Concerns\HasExportAction;
+use App\Models\Sakemaru\ClientSetting;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsQueueProgress;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsAutoOrderJobControlsTable
 {
@@ -30,6 +35,18 @@ class WmsAutoOrderJobControlsTable
                 TextColumn::make('id')
                     ->label('ID')
                     ->sortable(),
+
+                TextColumn::make('createdByUser.name')
+                    ->label('実行者')
+                    ->placeholder('システム')
+                    ->sortable()
+                    ->width('100px'),
+
+                TextColumn::make('warehouse.name')
+                    ->label('倉庫')
+                    ->placeholder('全倉庫')
+                    ->sortable()
+                    ->width('120px'),
 
                 TextColumn::make('batch_code')
                     ->label('実行CD')
@@ -85,6 +102,24 @@ class WmsAutoOrderJobControlsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Filter::make('started_date')
+                    ->label('実行日')
+                    ->form([
+                        DatePicker::make('started_date')
+                            ->label('実行日')
+                            ->default(ClientSetting::systemDateYMD()),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['started_date'], fn (Builder $q, $date) => $q->whereDate('started_at', $date))
+                    )
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['started_date']) {
+                            return null;
+                        }
+
+                        return '実行日: '.\Carbon\Carbon::parse($data['started_date'])->format('Y年m月d日');
+                    }),
+
                 SelectFilter::make('process_name')
                     ->label('実行タイプ')
                     ->options(fn () => collect(JobProcessName::cases())
@@ -121,6 +156,25 @@ class WmsAutoOrderJobControlsTable
 
                         Notification::make()
                             ->title("ジョブ {$record->batch_code} を強制中断しました")
+                            ->success()
+                            ->send();
+                    }),
+
+                Action::make('cancelSettlement')
+                    ->label('確定待ちキャンセル')
+                    ->icon('heroicon-o-x-mark')
+                    ->color('warning')
+                    ->visible(fn ($record) => $record->settlement_status === SettlementStatus::PENDING)
+                    ->requiresConfirmation()
+                    ->modalHeading('確定待ちのキャンセル')
+                    ->modalDescription(fn ($record) => "バッチ {$record->batch_code} の確定待ち状態をキャンセルします。")
+                    ->action(function ($record) {
+                        WmsAutoOrderJobControl::where('batch_code', $record->batch_code)
+                            ->where('settlement_status', SettlementStatus::PENDING)
+                            ->update(['settlement_status' => SettlementStatus::CANCELLED]);
+
+                        Notification::make()
+                            ->title("バッチ {$record->batch_code} の確定待ちをキャンセルしました")
                             ->success()
                             ->send();
                     }),

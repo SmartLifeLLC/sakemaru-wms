@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsIncomingCompleted\Pages;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Filament\Concerns\HasStockSubqueries;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsIncomingCompleted\WmsIncomingCompletedResource;
 use App\Models\Sakemaru\Warehouse;
@@ -19,6 +20,7 @@ use Illuminate\Database\Eloquent\Builder;
 class ListWmsIncomingCompleted extends ListRecords
 {
     use AdvancedTables;
+    use HasStockSubqueries;
     use HasWmsUserViews {
         HasWmsUserViews::getUserViews insteadof AdvancedTables;
         HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
@@ -72,7 +74,12 @@ class ListWmsIncomingCompleted extends ListRecords
     {
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
-                ->with(['warehouse', 'item', 'contractor', 'location', 'orderCandidate', 'confirmedByUser'])
+                ->with(['warehouse', 'item', 'contractor', 'location', 'orderCandidate', 'confirmedByUser', 'confirmedByPicker'])
+                ->addSelect([
+                    'computed_current_stock' => static::currentStockSubquery('wms_order_incoming_schedules'),
+                    'computed_available_stock' => static::availableStockSubquery('wms_order_incoming_schedules'),
+                    'computed_default_location' => static::defaultLocationSubquery('wms_order_incoming_schedules'),
+                ])
                 ->orderBy('confirmed_at', 'desc')
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')

@@ -6,7 +6,7 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
-use App\Models\Sakemaru\Contractor;
+use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use Filament\Actions\Action;
@@ -27,6 +27,7 @@ use Illuminate\Database\Eloquent\Collection;
 class WmsOrderConfirmationWaitingTable
 {
     use HasExportAction;
+    use HasOptimizedFilters;
 
     public static function configure(Table $table): Table
     {
@@ -168,19 +169,9 @@ class WmsOrderConfirmationWaitingTable
                         CandidateStatus::CONFIRMED->value => CandidateStatus::CONFIRMED->label(),
                     ]),
 
-                SelectFilter::make('warehouse_id')
-                    ->label('在庫拠点倉庫')
-                    ->relationship('warehouse', 'name'),
+                static::warehouseFilter()->label('在庫拠点倉庫'),
 
-                SelectFilter::make('contractor_id')
-                    ->label('発注先')
-                    ->options(fn () => Contractor::query()
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($contractor) => [
-                            $contractor->id => "[{$contractor->code}]{$contractor->name}",
-                        ]))
-                    ->searchable(),
+                static::contractorFilter(),
             ])
             ->recordActions([
                 Action::make('viewDetail')

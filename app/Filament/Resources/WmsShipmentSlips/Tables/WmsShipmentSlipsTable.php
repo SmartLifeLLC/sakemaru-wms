@@ -4,8 +4,10 @@ namespace App\Filament\Resources\WmsShipmentSlips\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Sakemaru\ClientPrinterDriver;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsPickingTask;
 use App\Services\Print\PrintRequestService;
@@ -28,6 +30,7 @@ use Illuminate\Support\Facades\DB;
 class WmsShipmentSlipsTable
 {
     use HasExportAction;
+    use HasOptimizedFilters;
 
     public static function configure(Table $table): Table
     {
@@ -126,17 +129,24 @@ class WmsShipmentSlipsTable
                     ->alignCenter(),
             ])
             ->filters([
-                SelectFilter::make('warehouse_id')
-                    ->label('倉庫')
-                    ->relationship('warehouse', 'name')
-                    ->searchable()
-                    ->preload(),
+                static::warehouseFilter(),
 
                 SelectFilter::make('delivery_course_id')
                     ->label('配送コース')
-                    ->relationship('deliveryCourse', 'name')
                     ->searchable()
-                    ->preload(),
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return DeliveryCourse::query()
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"])
+                            ->toArray();
+                    }),
 
                 \Filament\Tables\Filters\Filter::make('shipment_date')
                     ->label('出荷日')

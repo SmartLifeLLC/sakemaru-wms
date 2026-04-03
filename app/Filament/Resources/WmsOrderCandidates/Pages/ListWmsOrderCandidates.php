@@ -651,20 +651,41 @@ class ListWmsOrderCandidates extends ListRecords
         return $paginator;
     }
 
-    public function getPresetViews(): array
-    {
-        // ユーザーのデフォルト倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+    protected ?array $presetViewWarehouseData = null;
 
-        // PENDING の発注候補に存在する倉庫のみ取得（キャッシュして重複クエリを防止）
+    protected function getWarehouseDataForPresetViews(): array
+    {
+        if ($this->presetViewWarehouseData !== null) {
+            return $this->presetViewWarehouseData;
+        }
+
         $cacheKey = 'order_candidates_pending_warehouses_'.auth()->id();
-        $warehouseIds = cache()->remember($cacheKey, 30, function () {
-            return WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+        $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
+            $warehouseIds = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
                 ->distinct()
                 ->pluck('warehouse_id')
                 ->toArray();
+
+            $warehouses = Warehouse::whereIn('id', $warehouseIds)
+                ->orderBy('code')
+                ->get(['id', 'name']);
+
+            return [
+                'ids' => $warehouseIds,
+                'warehouses' => $warehouses,
+            ];
         });
-        $warehouses = Warehouse::whereIn('id', $warehouseIds)->orderBy('code')->get();
+
+        return $this->presetViewWarehouseData;
+    }
+
+    public function getPresetViews(): array
+    {
+        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+
+        $warehouseData = $this->getWarehouseDataForPresetViews();
+        $warehouseIds = $warehouseData['ids'];
+        $warehouses = $warehouseData['warehouses'];
 
         // デフォルト倉庫が発注候補に存在するかチェック
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
