@@ -227,6 +227,7 @@ class WmsOrderDataFilesTable
                             ->toArray();
                     }),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 // CSV
                 Action::make('downloadCsv')

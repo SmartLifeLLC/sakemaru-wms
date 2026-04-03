@@ -54,6 +54,7 @@ class WmsContractorHolidaysTable
                     ->options(fn () => Contractor::pluck('name', 'id')->toArray())
                     ->searchable(),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),

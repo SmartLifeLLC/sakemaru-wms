@@ -151,6 +151,7 @@ class WmsShortageAllocationsFinishedTable
                     ->relationship('targetWarehouse', 'name')
                     ->searchable(),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([])
             ->bulkActions([])
             ->toolbarActions([

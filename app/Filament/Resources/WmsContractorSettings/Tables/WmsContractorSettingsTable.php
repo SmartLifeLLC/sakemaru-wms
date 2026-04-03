@@ -104,6 +104,7 @@ class WmsContractorSettingsTable
                     ->label('送信方式')
                     ->options(collect(TransmissionType::cases())->mapWithKeys(fn ($type) => [$type->value => $type->label()])->toArray()),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),

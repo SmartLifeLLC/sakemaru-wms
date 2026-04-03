@@ -140,6 +140,7 @@ class ItemContractorsTable
                     ->trueLabel('自動更新あり')
                     ->falseLabel('自動更新なし'),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),

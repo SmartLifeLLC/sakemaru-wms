@@ -3,7 +3,7 @@
 
     <div class="space-y-3">
         <div>
-            <dt class="modal-label">入庫区分</dt>
+            <dt class="modal-label">入荷区分</dt>
             <dd class="modal-value">
                 <span @class([
                     'px-2 py-0.5 rounded text-xs font-medium',

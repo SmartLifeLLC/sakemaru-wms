@@ -107,6 +107,7 @@ class WmsItemStockSnapshotsTable
                         ->value('id'))
                     ->searchable(),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('view_stock')
                     ->label('在庫詳細')

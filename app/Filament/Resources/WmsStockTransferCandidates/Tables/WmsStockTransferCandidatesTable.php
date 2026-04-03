@@ -355,6 +355,7 @@ class WmsStockTransferCandidatesTable
                             ->toArray();
                     }),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('approve')
                     ->label('承認')

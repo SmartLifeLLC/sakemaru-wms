@@ -82,6 +82,7 @@ class WmsMonthlySafetyStocksTable
                     ->label('月')
                     ->options(WmsMonthlySafetyStock::getMonthOptions()),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 DeleteAction::make()
                     ->iconButton(),

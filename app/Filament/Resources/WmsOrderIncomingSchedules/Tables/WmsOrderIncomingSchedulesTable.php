@@ -25,7 +25,6 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
-use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -61,7 +60,22 @@ class WmsOrderIncomingSchedulesTable
                         OrderSource::TRANSFER => 'warning',
                         OrderSource::RECEIVED => 'success',
                     })
+                    ->sortable()
                     ->width('60px'),
+
+                TextColumn::make('order_date')
+                    ->label('発注日')
+                    ->date('m/d')
+                    ->sortable()
+                    ->alignCenter()
+                    ->width('70px'),
+
+                TextColumn::make('expected_arrival_date')
+                    ->label('予定日')
+                    ->date('m/d')
+                    ->sortable()
+                    ->alignCenter()
+                    ->width('70px'),
 
                 TextColumn::make('item.code')
                     ->label('商品CD')
@@ -83,24 +97,10 @@ class WmsOrderIncomingSchedulesTable
                     ->sortable()
                     ->grow(),
 
-                TextColumn::make('order_date')
-                    ->label('発注日')
-                    ->date('m/d')
-                    ->sortable()
-                    ->alignCenter()
-                    ->width('70px'),
-
                 TextColumn::make('expected_quantity')
                     ->label('発注数')
                     ->numeric()
                     ->alignEnd()
-                    ->width('70px'),
-
-                TextColumn::make('expected_arrival_date')
-                    ->label('予定日')
-                    ->date('m/d')
-                    ->sortable()
-                    ->alignCenter()
                     ->width('70px'),
 
                 TextColumn::make('received_quantity')
@@ -416,60 +416,168 @@ class WmsOrderIncomingSchedulesTable
                             ->toArray();
                     }),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
-                Action::make('confirm')
-                    ->label('入荷')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->visible(fn ($record) => in_array($record->status, [
+                Action::make('viewDetail')
+                    ->label('詳細')
+                    ->icon('heroicon-o-eye')
+                    ->color('gray')
+                    ->modalHeading('入荷予定詳細')
+                    ->modalWidth('6xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalSubmitActionLabel('入荷確定')
+                    ->modalSubmitAction(fn ($record, $action) => in_array($record->status, [
                         IncomingScheduleStatus::PENDING,
                         IncomingScheduleStatus::PARTIAL,
-                    ]))
-                    ->modalHeading('入荷')
-                    ->schema(function ($record) {
-                        // デフォルトロケーションを取得
+                    ]) ? $action->makeModalSubmitAction('submit', [])->label('入荷確定')->color('danger')->requiresConfirmation()
+                        ->modalHeading('入荷確定')
+                        ->modalDescription('入荷データを確定します。よろしいですか？')
+                        ->modalSubmitActionLabel('確定する')
+                    : false)
+                    ->modalCancelActionLabel('このまま閉じる')
+                    ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
+                    ->schema(function (?WmsOrderIncomingSchedule $record): array {
+                        if (! $record) {
+                            return [];
+                        }
+
+                        // 発注候補からの計算ログを取得
+                        $orderCandidate = $record->orderCandidate;
+                        $log = null;
+                        $details = [];
+
+                        if ($orderCandidate) {
+                            $log = WmsOrderCalculationLog::where('batch_code', $orderCandidate->batch_code)
+                                ->where('warehouse_id', $orderCandidate->warehouse_id)
+                                ->where('item_id', $orderCandidate->item_id)
+                                ->first();
+                            $details = $log?->calculation_details ?? [];
+                        }
+
+                        $item = $record->item;
+                        $capacityText = '-';
+                        if ($item) {
+                            $parts = [];
+                            if ($item->capacity_case) {
+                                $parts[] = "ケース: {$item->capacity_case}";
+                            }
+                            if ($item->capacity_carton) {
+                                $parts[] = "ボール: {$item->capacity_carton}";
+                            }
+                            $capacityText = implode(' / ', $parts) ?: '-';
+                        }
+
+                        $currentStock = 0;
+                        $availableStock = 0;
+                        if ($record->warehouse_id && $record->item_id) {
+                            $stockData = RealStock::where('warehouse_id', $record->warehouse_id)
+                                ->where('item_id', $record->item_id)
+                                ->selectRaw('SUM(current_quantity) as current_qty, SUM(available_quantity) as available_qty')
+                                ->first();
+                            $currentStock = $stockData->current_qty ?? 0;
+                            $availableStock = $stockData->available_qty ?? 0;
+                        }
+
                         $defaultLocation = ItemDefaultLocation::getDefaultLocation(
                             $record->warehouse_id,
                             $record->item_id
                         );
+                        $locationText = $defaultLocation ? "{$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}" : '-';
 
-                        return [
-                            TextInput::make('received_quantity')
-                                ->label('入荷数量')
-                                ->numeric()
-                                ->required()
-                                ->default($record->remaining_quantity)
-                                ->helperText("残数: {$record->remaining_quantity}"),
+                        $isEditable = in_array($record->status, [
+                            IncomingScheduleStatus::PENDING,
+                            IncomingScheduleStatus::PARTIAL,
+                        ]);
 
-                            DatePicker::make('actual_date')
-                                ->label('入荷日')
-                                ->default(fn () => $record->actual_arrival_date ?? ClientSetting::systemDate())
-                                ->required(),
-
-                            DatePicker::make('expiration_date')
-                                ->label('賞味期限')
-                                ->default($record->expiration_date)
-                                ->helperText('商品の賞味期限を入力してください（任意）'),
-
-                            Select::make('location_id')
-                                ->label('ロケーション')
-                                ->options(fn () => Location::query()
-                                    ->where('warehouse_id', $record->warehouse_id)
-                                    ->orderBy('code1')
-                                    ->orderBy('code2')
-                                    ->orderBy('code3')
-                                    ->get()
-                                    ->mapWithKeys(fn ($loc) => [
-                                        $loc->id => "{$loc->code1}-{$loc->code2}-{$loc->code3}".($loc->name ? " ({$loc->name})" : ''),
-                                    ]))
-                                ->default($defaultLocation?->id)
-                                ->searchable()
-                                ->helperText($defaultLocation
-                                    ? "デフォルト: {$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}"
-                                    : 'デフォルトロケーション未設定'),
+                        $schema = [
+                            View::make('filament.components.incoming-schedule-detail')
+                                ->viewData([
+                                    'orderSource' => match ($record->order_source) {
+                                        OrderSource::AUTO => '発注',
+                                        OrderSource::MANUAL => '手動',
+                                        OrderSource::TRANSFER => '移動',
+                                        OrderSource::RECEIVED => '受信',
+                                        default => '-',
+                                    },
+                                    'itemCode' => $item?->code ?? '-',
+                                    'itemName' => $item?->name ?? '-',
+                                    'packaging' => $item?->packaging ?? '-',
+                                    'capacityText' => $capacityText,
+                                    'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
+                                    'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+                                    'orderDate' => $record->order_date?->format('Y/m/d') ?? '-',
+                                    'expectedArrivalDate' => $record->expected_arrival_date?->format('Y/m/d') ?? '-',
+                                    'locationText' => $locationText,
+                                    'expectedQuantity' => $record->expected_quantity ?? 0,
+                                    'receivedQuantity' => $record->received_quantity ?? 0,
+                                    'remainingQuantity' => $record->remaining_quantity ?? 0,
+                                    'status' => $record->status->label(),
+                                    'statusColor' => $record->status->color(),
+                                    'currentStock' => $currentStock,
+                                    'availableStock' => $availableStock,
+                                    'hasOrderCandidate' => $orderCandidate !== null,
+                                    'orderCandidateId' => $orderCandidate?->id,
+                                    'batchCodeFormatted' => $orderCandidate?->batch_code
+                                        ? \Carbon\Carbon::createFromFormat('YmdHis', $orderCandidate->batch_code)->format('Y/m/d H:i')
+                                        : null,
+                                    'hasCalculationLog' => ! empty($details),
+                                    'formula' => $details['計算式'] ?? '-',
+                                    'effectiveStock' => $details['有効在庫'] ?? 0,
+                                    'incomingStock' => $details['入庫予定数'] ?? 0,
+                                    'safetyStock' => $details['安全在庫'] ?? 0,
+                                    'shortageQty' => $details['不足数'] ?? 0,
+                                    'orderQuantity' => $orderCandidate?->order_quantity ?? $record->expected_quantity,
+                                ]),
                         ];
+
+                        if ($isEditable) {
+                            $schema[] = Grid::make(4)->schema([
+                                TextInput::make('received_quantity')
+                                    ->label('入荷数量')
+                                    ->numeric()
+                                    ->required()
+                                    ->default($record->remaining_quantity)
+                                    ->helperText("残数: {$record->remaining_quantity}"),
+
+                                DatePicker::make('actual_date')
+                                    ->label('入荷日')
+                                    ->default($record->actual_arrival_date ?? ClientSetting::systemDate())
+                                    ->required(),
+
+                                DatePicker::make('expiration_date')
+                                    ->label('賞味期限')
+                                    ->default($record->expiration_date),
+
+                                Select::make('location_id')
+                                    ->label('ロケーション')
+                                    ->options(fn () => Location::query()
+                                        ->where('warehouse_id', $record->warehouse_id)
+                                        ->orderBy('code1')
+                                        ->orderBy('code2')
+                                        ->orderBy('code3')
+                                        ->get()
+                                        ->mapWithKeys(fn ($loc) => [
+                                            $loc->id => "{$loc->code1}-{$loc->code2}-{$loc->code3}".($loc->name ? " ({$loc->name})" : ''),
+                                        ]))
+                                    ->default($defaultLocation?->id)
+                                    ->searchable()
+                                    ->helperText($defaultLocation
+                                        ? "デフォルト: {$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}"
+                                        : 'デフォルトロケーション未設定'),
+                            ]);
+                        }
+
+                        return $schema;
                     })
                     ->action(function ($record, array $data) {
+                        // 確定済みの場合はスキップ（閉じるだけ）
+                        if (! in_array($record->status, [
+                            IncomingScheduleStatus::PENDING,
+                            IncomingScheduleStatus::PARTIAL,
+                        ])) {
+                            return;
+                        }
+
                         $service = app(IncomingConfirmationService::class);
 
                         try {
@@ -479,7 +587,6 @@ class WmsOrderIncomingSchedulesTable
                             $locationId = $data['location_id'] ?? null;
 
                             if ($receivedQty >= $remainingQty) {
-                                // 全量入荷
                                 $service->confirmIncoming(
                                     $record,
                                     auth()->id(),
@@ -493,7 +600,6 @@ class WmsOrderIncomingSchedulesTable
                                     ->success()
                                     ->send();
                             } else {
-                                // 一部入荷
                                 $service->recordPartialIncoming(
                                     $record,
                                     $receivedQty,
@@ -527,6 +633,7 @@ class WmsOrderIncomingSchedulesTable
                     ]))
                     ->requiresConfirmation()
                     ->modalHeading('入荷予定を取消')
+                    ->extraModalWindowAttributes(['class' => 'incoming-cancel-modal'])
                     ->modalDescription(fn ($record) => $record->status === IncomingScheduleStatus::PARTIAL
                         ? "一部入荷済み（入荷済数量: {$record->received_quantity}）の入荷予定を取消します。入荷済み数量は維持され、残数量の入荷が取消されます。"
                         : 'この入荷予定を取消しますか？')
@@ -558,122 +665,6 @@ class WmsOrderIncomingSchedulesTable
                                 ->send();
                         }
                     }),
-
-                Action::make('viewDetail')
-                    ->label('詳細')
-                    ->icon('heroicon-o-eye')
-                    ->color('gray')
-                    ->modalHeading('入荷予定詳細')
-                    ->modalWidth('6xl')
-                    ->infolist(function (?WmsOrderIncomingSchedule $record): array {
-                        if (! $record) {
-                            return [];
-                        }
-
-                        // 発注候補からの計算ログを取得
-                        $orderCandidate = $record->orderCandidate;
-                        $log = null;
-                        $details = [];
-
-                        if ($orderCandidate) {
-                            $log = WmsOrderCalculationLog::where('batch_code', $orderCandidate->batch_code)
-                                ->where('warehouse_id', $orderCandidate->warehouse_id)
-                                ->where('item_id', $orderCandidate->item_id)
-                                ->first();
-                            $details = $log?->calculation_details ?? [];
-                        }
-
-                        // 商品情報
-                        $item = $record->item;
-                        $capacityText = '-';
-                        if ($item) {
-                            $parts = [];
-                            if ($item->capacity_case) {
-                                $parts[] = "ケース: {$item->capacity_case}";
-                            }
-                            if ($item->capacity_carton) {
-                                $parts[] = "ボール: {$item->capacity_carton}";
-                            }
-                            $capacityText = implode(' / ', $parts) ?: '-';
-                        }
-
-                        // 現在の在庫情報を取得
-                        $currentStock = 0;
-                        $availableStock = 0;
-                        if ($record->warehouse_id && $record->item_id) {
-                            $stockData = RealStock::where('warehouse_id', $record->warehouse_id)
-                                ->where('item_id', $record->item_id)
-                                ->selectRaw('SUM(current_quantity) as current_qty, SUM(available_quantity) as available_qty')
-                                ->first();
-                            $currentStock = $stockData->current_qty ?? 0;
-                            $availableStock = $stockData->available_qty ?? 0;
-                        }
-
-                        // ロケーション情報
-                        $location = ItemDefaultLocation::getDefaultLocation(
-                            $record->warehouse_id,
-                            $record->item_id
-                        );
-                        $locationText = $location ? "{$location->code1}-{$location->code2}-{$location->code3}" : '-';
-
-                        return [
-                            Grid::make(3)
-                                ->schema([
-                                    // 左パネル（基本情報）
-                                    View::make('filament.components.incoming-schedule-left-panel')
-                                        ->viewData([
-                                            'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
-                                            'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
-                                            'orderSource' => match ($record->order_source) {
-                                                OrderSource::AUTO => '発注',
-                                                OrderSource::MANUAL => '手動',
-                                                OrderSource::TRANSFER => '移動',
-                                                OrderSource::RECEIVED => '受信',
-                                                default => '-',
-                                            },
-                                            'orderDate' => $record->order_date?->format('Y/m/d') ?? '-',
-                                            'expectedArrivalDate' => $record->expected_arrival_date?->format('Y/m/d') ?? '-',
-                                            'locationText' => $locationText,
-                                            'itemCode' => $item?->code ?? '-',
-                                            'itemName' => $item?->name ?? '-',
-                                            'packaging' => $item?->packaging ?? '-',
-                                            'capacityText' => $capacityText,
-                                        ])
-                                        ->columnSpan(1),
-
-                                    // 右パネル（数量・在庫情報）
-                                    Section::make('入荷・在庫情報')
-                                        ->schema([
-                                            View::make('filament.components.incoming-schedule-right-panel')
-                                                ->viewData([
-                                                    'expectedQuantity' => $record->expected_quantity ?? 0,
-                                                    'receivedQuantity' => $record->received_quantity ?? 0,
-                                                    'remainingQuantity' => $record->remaining_quantity ?? 0,
-                                                    'status' => $record->status->label(),
-                                                    'statusColor' => $record->status->color(),
-                                                    'currentStock' => $currentStock,
-                                                    'availableStock' => $availableStock,
-                                                    'hasOrderCandidate' => $orderCandidate !== null,
-                                                    'orderCandidateId' => $orderCandidate?->id,
-                                                    'batchCode' => $orderCandidate?->batch_code,
-                                                    'batchCodeFormatted' => $orderCandidate?->batch_code
-                                                        ? \Carbon\Carbon::createFromFormat('YmdHis', $orderCandidate->batch_code)->format('Y/m/d H:i')
-                                                        : null,
-                                                    'hasCalculationLog' => ! empty($details),
-                                                    'formula' => $details['計算式'] ?? '-',
-                                                    'effectiveStock' => $details['有効在庫'] ?? 0,
-                                                    'incomingStock' => $details['入庫予定数'] ?? 0,
-                                                    'safetyStock' => $details['安全在庫'] ?? 0,
-                                                    'shortageQty' => $details['不足数'] ?? 0,
-                                                    'orderQuantity' => $orderCandidate?->order_quantity ?? $record->expected_quantity,
-                                                ]),
-                                        ])
-                                        ->columnSpan(2),
-                                ]),
-                        ];
-                    })
-                    ->modalSubmitAction(false)
-                    ->modalCancelActionLabel('閉じる'),
             ])
             ->toolbarActions([
                 static::getExportAction(),

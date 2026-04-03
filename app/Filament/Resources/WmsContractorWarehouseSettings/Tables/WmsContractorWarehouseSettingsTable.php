@@ -68,6 +68,7 @@ class WmsContractorWarehouseSettingsTable
                     ->options(fn () => Warehouse::pluck('name', 'id')->toArray())
                     ->searchable(),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),

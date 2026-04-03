@@ -99,6 +99,7 @@ class RealStocksTable
                     ->searchable()
                     ->preload(),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('view')
                     ->label('詳細')

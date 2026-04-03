@@ -212,6 +212,7 @@ class WmsOrderConfirmedTable
                             ->toArray();
                     }),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('viewDetail')
                     ->label('詳細')

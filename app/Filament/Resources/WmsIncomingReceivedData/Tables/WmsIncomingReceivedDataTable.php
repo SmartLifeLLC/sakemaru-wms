@@ -125,6 +125,7 @@ class WmsIncomingReceivedDataTable
                         'CSV' => 'CSV',
                     ]),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('viewSlips')
                     ->label('伝票一覧')

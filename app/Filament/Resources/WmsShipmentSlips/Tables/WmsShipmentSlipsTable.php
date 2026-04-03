@@ -152,6 +152,7 @@ class WmsShipmentSlipsTable
                     }),
             ])
             ->recordAction('')
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('print')
                     ->extraAttributes(['class' => 'whitespace-nowrap'])
