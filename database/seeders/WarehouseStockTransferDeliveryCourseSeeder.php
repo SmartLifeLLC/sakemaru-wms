@@ -67,7 +67,7 @@ class WarehouseStockTransferDeliveryCourseSeeder extends Seeder
                 'from_warehouse_id' => $fromId,
                 'to_warehouse_id' => $toId,
                 'delivery_course_id' => $courseId,
-                'picking_lead_days' => 0,
+                'picking_lead_days' => 1,
                 'creator_id' => 0,
                 'last_updater_id' => 0,
                 'created_at' => $now,

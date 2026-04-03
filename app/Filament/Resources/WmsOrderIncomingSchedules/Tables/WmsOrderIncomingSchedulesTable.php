@@ -28,9 +28,10 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\TextInputColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
 class WmsOrderIncomingSchedulesTable
@@ -45,40 +46,8 @@ class WmsOrderIncomingSchedulesTable
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'incoming-schedules-table sticky-actions'])
             ->columns([
-                TextColumn::make('batch_code')
-                    ->label('実行CD')
-                    ->state(function ($record) {
-                        // orderCandidate または transferCandidate から batch_code を取得
-                        return $record->orderCandidate?->batch_code
-                            ?? $record->transferCandidate?->batch_code
-                            ?? '-';
-                    })
-                    ->searchable(query: function ($query, string $search) {
-                        $query->where(function ($q) use ($search) {
-                            $q->whereHas('orderCandidate', fn ($sub) => $sub->where('batch_code', 'like', "%{$search}%"))
-                                ->orWhereHas('transferCandidate', fn ($sub) => $sub->where('batch_code', 'like', "%{$search}%"));
-                        });
-                    })
-                    ->copyable()
-                    ->width('120px'),
-
-                TextColumn::make('status')
-                    ->label('ステータス')
-                    ->badge()
-                    ->formatStateUsing(fn (IncomingScheduleStatus $state): string => $state->label())
-                    ->color(fn (IncomingScheduleStatus $state): string => $state->color())
-                    ->sortable()
-                    ->width('90px'),
-
-                TextColumn::make('slip_number')
-                    ->label('伝票番号')
-                    ->searchable()
-                    ->copyable()
-                    ->placeholder('-')
-                    ->width('130px'),
-
                 TextColumn::make('order_source')
-                    ->label('入庫区分')
+                    ->label('入荷区分')
                     ->badge()
                     ->formatStateUsing(fn (OrderSource $state): string => match ($state) {
                         OrderSource::AUTO => '発注',
@@ -93,30 +62,6 @@ class WmsOrderIncomingSchedulesTable
                         OrderSource::RECEIVED => 'success',
                     })
                     ->width('60px'),
-
-                TextColumn::make('warehouse.code')
-                    ->label('倉庫CD')
-                    ->searchable()
-                    ->alignCenter()
-                    ->width('50px'),
-
-                TextColumn::make('warehouse.name')
-                    ->label('倉庫名')
-                    ->searchable()
-                    ->width('120px'),
-
-                TextColumn::make('contractor.code')
-                    ->label('発注先CD')
-                    ->searchable()
-                    ->alignCenter()
-                    ->toggleable()
-                    ->width('50px'),
-
-                TextColumn::make('contractor.name')
-                    ->label('発注先名')
-                    ->searchable()
-                    ->toggleable()
-                    ->width('100px'),
 
                 TextColumn::make('item.code')
                     ->label('商品CD')
@@ -137,6 +82,60 @@ class WmsOrderIncomingSchedulesTable
                     ->searchable()
                     ->sortable()
                     ->grow(),
+
+                TextColumn::make('order_date')
+                    ->label('発注日')
+                    ->date('m/d')
+                    ->sortable()
+                    ->alignCenter()
+                    ->width('70px'),
+
+                TextColumn::make('expected_quantity')
+                    ->label('発注数')
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('70px'),
+
+                TextColumn::make('expected_arrival_date')
+                    ->label('予定日')
+                    ->date('m/d')
+                    ->sortable()
+                    ->alignCenter()
+                    ->width('70px'),
+
+                TextColumn::make('received_quantity')
+                    ->label('入荷実績')
+                    ->formatStateUsing(fn ($state) => $state > 0 ? number_format($state) : '-')
+                    ->alignEnd()
+                    ->width('70px'),
+
+                TextColumn::make('expiration_date')
+                    ->label('賞味期限')
+                    ->date('Y/m/d')
+                    ->sortable()
+                    ->alignCenter()
+                    ->placeholder('-')
+                    ->width('90px'),
+
+                TextColumn::make('default_location')
+                    ->label('ロケーション')
+                    ->state(function ($record) {
+                        if (! $record->warehouse_id || ! $record->item_id) {
+                            return null;
+                        }
+                        $location = ItemDefaultLocation::getDefaultLocation(
+                            $record->warehouse_id,
+                            $record->item_id
+                        );
+                        if (! $location) {
+                            return null;
+                        }
+
+                        return "{$location->code1}-{$location->code2}-{$location->code3}";
+                    })
+                    ->placeholder('-')
+                    ->alignCenter()
+                    ->width('100px'),
 
                 TextColumn::make('current_stock')
                     ->label('現在庫')
@@ -168,69 +167,13 @@ class WmsOrderIncomingSchedulesTable
                     ->alignEnd()
                     ->width('70px'),
 
-                TextColumn::make('expected_quantity')
-                    ->label('予定数')
-                    ->numeric()
-                    ->alignEnd()
-                    ->width('70px'),
-
                 TextColumn::make('shipped_quantity')
-                    ->label('発注先出荷実績')
+                    ->label('出荷実績')
                     ->numeric()
                     ->alignEnd()
                     ->width('70px')
                     ->placeholder('-')
                     ->color(fn ($record) => $record->shipped_quantity > 0 && $record->shipped_quantity < $record->expected_quantity ? 'warning' : null),
-
-                TextColumn::make('remaining')
-                    ->label('残数')
-                    ->state(fn ($record) => $record->remaining_quantity)
-                    ->numeric()
-                    ->alignEnd()
-                    ->color(fn ($record) => $record->remaining_quantity > 0 ? 'warning' : 'success')
-                    ->width('70px'),
-
-                TextInputColumn::make('received_quantity')
-                    ->label('入庫検品数')
-                    ->type('number')
-                    ->rules(['required', 'integer', 'min:0'])
-                    ->alignEnd()
-                    ->width('70px')
-                    ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
-                    ->disabled(fn ($record) => $record->status === IncomingScheduleStatus::CONFIRMED)
-                    ->afterStateUpdated(function ($record, $state) {
-                        if ($record->status === IncomingScheduleStatus::CONFIRMED) {
-                            Notification::make()
-                                ->title('確定済みのレコードは変更できません')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
-                        $newQty = (int) $state;
-                        $expectedQty = $record->expected_quantity;
-
-                        // ステータスを更新
-                        $newStatus = $record->status;
-                        if ($newQty >= $expectedQty) {
-                            $newStatus = IncomingScheduleStatus::CONFIRMED;
-                        } elseif ($newQty > 0) {
-                            $newStatus = IncomingScheduleStatus::PARTIAL;
-                        } else {
-                            $newStatus = IncomingScheduleStatus::PENDING;
-                        }
-
-                        $record->update([
-                            'received_quantity' => $newQty,
-                            'status' => $newStatus,
-                        ]);
-
-                        Notification::make()
-                            ->title('入庫検品数を更新しました')
-                            ->success()
-                            ->send();
-                    }),
 
                 TextColumn::make('shortage_quantity')
                     ->label('欠品数')
@@ -240,23 +183,13 @@ class WmsOrderIncomingSchedulesTable
                     ->placeholder('0')
                     ->width('70px'),
 
-                TextColumn::make('is_receive_matched')
-                    ->label('照合')
-                    ->formatStateUsing(fn ($state) => $state ? '済' : '-')
-                    ->badge()
-                    ->color(fn ($state) => $state ? 'success' : 'gray')
-                    ->alignCenter()
-                    ->width('50px'),
-
                 TextColumn::make('purchase_unit_price')
                     ->label('仕入単価')
                     ->state(function ($record) {
-                        // 発注由来 → 自社単価を優先
                         if ($record->order_source !== OrderSource::RECEIVED) {
                             return $record->unit_price ?? $record->case_price;
                         }
 
-                        // 受信由来 → 仕入先単価（price_typeに応じて）
                         $priceType = $record->price_type ?? 'PIECE';
 
                         return $priceType === 'CASE'
@@ -267,19 +200,73 @@ class WmsOrderIncomingSchedulesTable
                     ->alignEnd()
                     ->width('90px'),
 
+                // --- 以下、補助カラム ---
+
+                TextColumn::make('slip_number')
+                    ->label('伝票番号')
+                    ->searchable()
+                    ->copyable()
+                    ->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('130px'),
+
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫CD')
+                    ->searchable()
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('50px'),
+
+                TextColumn::make('warehouse.name')
+                    ->label('倉庫名')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('120px'),
+
+                TextColumn::make('contractor.code')
+                    ->label('発注先CD')
+                    ->searchable()
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('50px'),
+
+                TextColumn::make('contractor.name')
+                    ->label('発注先名')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('100px'),
+
+                TextColumn::make('remaining')
+                    ->label('残数')
+                    ->state(fn ($record) => $record->remaining_quantity)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($record) => $record->remaining_quantity > 0 ? 'warning' : 'success')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('70px'),
+
+                TextColumn::make('is_receive_matched')
+                    ->label('照合')
+                    ->formatStateUsing(fn ($state) => $state ? '済' : '-')
+                    ->badge()
+                    ->color(fn ($state) => $state ? 'success' : 'gray')
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('50px'),
+
                 TextColumn::make('unit_price')
                     ->label('自社単価')
                     ->money('JPY')
                     ->alignEnd()
-                    ->width('90px')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('90px'),
 
                 TextColumn::make('partner_unit_price')
                     ->label('仕入先単価')
                     ->money('JPY')
                     ->alignEnd()
-                    ->width('90px')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('90px'),
 
                 TextColumn::make('price_mismatch')
                     ->label('単価差')
@@ -302,8 +289,8 @@ class WmsOrderIncomingSchedulesTable
                     ->color('warning')
                     ->placeholder('-')
                     ->alignCenter()
-                    ->width('60px')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('60px'),
 
                 TextColumn::make('quantity_type')
                     ->label('単位')
@@ -314,49 +301,8 @@ class WmsOrderIncomingSchedulesTable
                         default => '-',
                     })
                     ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true)
                     ->width('60px'),
-
-                TextColumn::make('order_date')
-                    ->label('発注日')
-                    ->date('m/d')
-                    ->sortable()
-                    ->alignCenter()
-                    ->width('70px'),
-
-                TextColumn::make('expected_arrival_date')
-                    ->label('入庫予定日')
-                    ->date('m/d')
-                    ->sortable()
-                    ->alignCenter()
-                    ->width('80px'),
-
-                TextColumn::make('expiration_date')
-                    ->label('賞味期限')
-                    ->date('Y/m/d')
-                    ->sortable()
-                    ->alignCenter()
-                    ->placeholder('-')
-                    ->width('90px'),
-
-                TextColumn::make('default_location')
-                    ->label('ロケーション')
-                    ->state(function ($record) {
-                        if (! $record->warehouse_id || ! $record->item_id) {
-                            return null;
-                        }
-                        $location = ItemDefaultLocation::getDefaultLocation(
-                            $record->warehouse_id,
-                            $record->item_id
-                        );
-                        if (! $location) {
-                            return null;
-                        }
-
-                        return "{$location->code1}-{$location->code2}-{$location->code3}";
-                    })
-                    ->placeholder('-')
-                    ->alignCenter()
-                    ->width('100px'),
 
                 TextColumn::make('order_candidate_id')
                     ->label('発注候補ID')
@@ -390,6 +336,24 @@ class WmsOrderIncomingSchedulesTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Filter::make('expected_arrival_date')
+                    ->label('入荷予定日')
+                    ->form([
+                        DatePicker::make('expected_arrival_date')
+                            ->label('入荷予定日')
+                            ->default(ClientSetting::systemDateYMD()),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['expected_arrival_date'], fn (Builder $q, $date) => $q->where('expected_arrival_date', $date))
+                    )
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['expected_arrival_date']) {
+                            return null;
+                        }
+
+                        return '入荷予定日: '.\Carbon\Carbon::parse($data['expected_arrival_date'])->format('Y年m月d日');
+                    }),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(collect(IncomingScheduleStatus::cases())->mapWithKeys(fn ($status) => [
@@ -397,7 +361,7 @@ class WmsOrderIncomingSchedulesTable
                     ])),
 
                 SelectFilter::make('order_source')
-                    ->label('入庫区分')
+                    ->label('入荷区分')
                     ->options([
                         'AUTO' => '発注',
                         'MANUAL' => '手動',
@@ -454,14 +418,14 @@ class WmsOrderIncomingSchedulesTable
             ])
             ->recordActions([
                 Action::make('confirm')
-                    ->label('入庫')
+                    ->label('入荷')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->visible(fn ($record) => in_array($record->status, [
                         IncomingScheduleStatus::PENDING,
                         IncomingScheduleStatus::PARTIAL,
                     ]))
-                    ->modalHeading('入庫')
+                    ->modalHeading('入荷')
                     ->schema(function ($record) {
                         // デフォルトロケーションを取得
                         $defaultLocation = ItemDefaultLocation::getDefaultLocation(
@@ -471,7 +435,7 @@ class WmsOrderIncomingSchedulesTable
 
                         return [
                             TextInput::make('received_quantity')
-                                ->label('入庫数量')
+                                ->label('入荷数量')
                                 ->numeric()
                                 ->required()
                                 ->default($record->remaining_quantity)
@@ -515,7 +479,7 @@ class WmsOrderIncomingSchedulesTable
                             $locationId = $data['location_id'] ?? null;
 
                             if ($receivedQty >= $remainingQty) {
-                                // 全量入庫
+                                // 全量入荷
                                 $service->confirmIncoming(
                                     $record,
                                     auth()->id(),
@@ -525,11 +489,11 @@ class WmsOrderIncomingSchedulesTable
                                     $locationId
                                 );
                                 Notification::make()
-                                    ->title('入庫を確定しました')
+                                    ->title('入荷を確定しました')
                                     ->success()
                                     ->send();
                             } else {
-                                // 一部入庫
+                                // 一部入荷
                                 $service->recordPartialIncoming(
                                     $record,
                                     $receivedQty,
@@ -539,8 +503,8 @@ class WmsOrderIncomingSchedulesTable
                                     $locationId
                                 );
                                 Notification::make()
-                                    ->title('一部入庫を記録しました')
-                                    ->body("入庫数: {$receivedQty} / 残数: ".($remainingQty - $receivedQty))
+                                    ->title('一部入荷を記録しました')
+                                    ->body("入荷数: {$receivedQty} / 残数: ".($remainingQty - $receivedQty))
                                     ->success()
                                     ->send();
                             }
@@ -562,10 +526,10 @@ class WmsOrderIncomingSchedulesTable
                         IncomingScheduleStatus::PARTIAL,
                     ]))
                     ->requiresConfirmation()
-                    ->modalHeading('入庫予定を取消')
+                    ->modalHeading('入荷予定を取消')
                     ->modalDescription(fn ($record) => $record->status === IncomingScheduleStatus::PARTIAL
-                        ? "一部入庫済み（入庫済数量: {$record->received_quantity}）の入庫予定を取消します。入庫済み数量は維持され、残数量の入荷が取消されます。"
-                        : 'この入庫予定を取消しますか？')
+                        ? "一部入荷済み（入荷済数量: {$record->received_quantity}）の入荷予定を取消します。入荷済み数量は維持され、残数量の入荷が取消されます。"
+                        : 'この入荷予定を取消しますか？')
                     ->schema([
                         Textarea::make('reason')
                             ->label('取消理由')
@@ -583,7 +547,7 @@ class WmsOrderIncomingSchedulesTable
 
                             $statusLabel = $record->fresh()->status->label();
                             Notification::make()
-                                ->title("入庫予定を取消しました（{$statusLabel}）")
+                                ->title("入荷予定を取消しました（{$statusLabel}）")
                                 ->warning()
                                 ->send();
                         } catch (\Exception $e) {
@@ -599,7 +563,7 @@ class WmsOrderIncomingSchedulesTable
                     ->label('詳細')
                     ->icon('heroicon-o-eye')
                     ->color('gray')
-                    ->modalHeading('入庫予定詳細')
+                    ->modalHeading('入荷予定詳細')
                     ->modalWidth('6xl')
                     ->infolist(function (?WmsOrderIncomingSchedule $record): array {
                         if (! $record) {
@@ -678,7 +642,7 @@ class WmsOrderIncomingSchedulesTable
                                         ->columnSpan(1),
 
                                     // 右パネル（数量・在庫情報）
-                                    Section::make('入庫・在庫情報')
+                                    Section::make('入荷・在庫情報')
                                         ->schema([
                                             View::make('filament.components.incoming-schedule-right-panel')
                                                 ->viewData([
@@ -719,7 +683,7 @@ class WmsOrderIncomingSchedulesTable
                         ->icon('heroicon-o-calendar')
                         ->color('info')
                         ->modalHeading('入荷日・賞味期限の一括更新')
-                        ->modalDescription('選択した入庫予定の入荷日・賞味期限を更新します（確定は行いません）')
+                        ->modalDescription('選択した入荷予定の入荷日・賞味期限を更新します（確定は行いません）')
                         ->schema([
                             DatePicker::make('actual_arrival_date')
                                 ->label('入荷日')
@@ -774,15 +738,15 @@ class WmsOrderIncomingSchedulesTable
                         }),
 
                     BulkAction::make('bulkConfirm')
-                        ->label('選択を入庫確定')
+                        ->label('選択を入荷確定')
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->requiresConfirmation()
-                        ->modalHeading('一括入庫確定')
-                        ->modalDescription('選択した入庫予定を全量入庫確定します。')
+                        ->modalHeading('一括入荷確定')
+                        ->modalDescription('選択した入荷予定を全量入荷確定します。')
                         ->schema([
                             DatePicker::make('actual_date')
-                                ->label('入庫日')
+                                ->label('入荷日')
                                 ->default(now())
                                 ->required(),
                         ])
@@ -809,7 +773,7 @@ class WmsOrderIncomingSchedulesTable
                             );
 
                             Notification::make()
-                                ->title("{$result['success']}件を入庫確定しました")
+                                ->title("{$result['success']}件を入荷確定しました")
                                 ->body($result['failed'] > 0 ? "{$result['failed']}件でエラーが発生" : null)
                                 ->success()
                                 ->send();
@@ -821,7 +785,7 @@ class WmsOrderIncomingSchedulesTable
                         ->color('danger')
                         ->requiresConfirmation()
                         ->modalHeading('一括取消')
-                        ->modalDescription('選択した入庫予定を取消します。')
+                        ->modalDescription('選択した入荷予定を取消します。')
                         ->schema([
                             Textarea::make('reason')
                                 ->label('取消理由'),

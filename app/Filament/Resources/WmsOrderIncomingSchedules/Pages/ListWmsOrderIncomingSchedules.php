@@ -36,14 +36,14 @@ class ListWmsOrderIncomingSchedules extends ListRecords
     {
         return [
             Action::make('createManual')
-                ->label('手動入庫予定追加')
+                ->label('手動入荷予定追加')
                 ->icon('heroicon-o-plus')
                 ->color('success')
-                ->modalHeading('手動入庫予定を追加')
+                ->modalHeading('手動入荷予定を追加')
                 ->modalWidth('lg')
                 ->schema([
                     Select::make('warehouse_id')
-                        ->label('入庫倉庫')
+                        ->label('入荷倉庫')
                         ->options(fn () => Warehouse::query()
                             ->where('is_active', true)
                             ->orderBy('code')
@@ -104,7 +104,7 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                         ->required(),
 
                     DatePicker::make('expected_arrival_date')
-                        ->label('入庫予定日')
+                        ->label('入荷予定日')
                         ->required()
                         ->default(now()->addDays(3)),
 
@@ -132,7 +132,7 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                         ], auth()->id());
 
                         Notification::make()
-                            ->title('入庫予定を追加しました')
+                            ->title('入荷予定を追加しました')
                             ->success()
                             ->send();
                     } catch (\Exception $e) {
@@ -164,10 +164,10 @@ class ListWmsOrderIncomingSchedules extends ListRecords
 
     public function getPresetViews(): array
     {
-        // ユーザーのデフォルト倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        // ユーザーの選択中倉庫を取得
+        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
-        // 入庫予定（PENDING/PARTIAL）に存在する倉庫を取得
+        // 入荷予定（PENDING/PARTIAL）に存在する倉庫を取得
         $cacheKey = 'incoming_schedules_warehouses_'.auth()->id();
         $warehouseData = cache()->remember($cacheKey, 30, function () {
             $warehouseIds = WmsOrderIncomingSchedule::whereIn('status', [
@@ -180,7 +180,7 @@ class ListWmsOrderIncomingSchedules extends ListRecords
 
             $warehouses = Warehouse::whereIn('id', $warehouseIds)
                 ->orderBy('code')
-                ->get(['id', 'name', 'code']);
+                ->get(['id', 'name']);
 
             return [
                 'ids' => $warehouseIds,
@@ -191,7 +191,7 @@ class ListWmsOrderIncomingSchedules extends ListRecords
         $warehouseIds = $warehouseData['ids'];
         $warehouses = $warehouseData['warehouses'];
 
-        // デフォルト倉庫が入庫予定に存在するかチェック
+        // 選択中倉庫が入荷予定に存在するかチェック
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
         $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
@@ -203,6 +203,9 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                     ->favorite()
                     ->label($defaultWarehouse->name)
                     ->default(),
+                'all' => PresetView::make()
+                    ->favorite()
+                    ->label('全て'),
             ];
         } else {
             $views = [
@@ -213,16 +216,12 @@ class ListWmsOrderIncomingSchedules extends ListRecords
             ];
         }
 
-        $views['all'] = PresetView::make()
-            ->favorite()
-            ->label('全て');
-
         // 倉庫別タブを追加
         foreach ($warehouses as $warehouse) {
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+            if ($defaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
                 continue;
             }
-            $views["default_{$warehouse->id}"] = PresetView::make()
+            $views["wh_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
                 ->label($warehouse->name);

@@ -29,7 +29,7 @@
                 </div>
 
                 <!-- Nav Items (stretch) -->
-                <nav class="flex-1 flex items-center justify-evenly">
+                <nav class="flex-1 flex items-center justify-start gap-1">
                         @forelse($menuStructure as $tab)
                             <button
                                 type="button"

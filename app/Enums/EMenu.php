@@ -179,8 +179,8 @@ enum EMenu: string
     {
         return match ($this) {
             self::INBOUND_DASHBOARD => '入荷ダッシュボード',
-            self::WMS_ORDER_INCOMING_SCHEDULES => '入庫予定',
-            self::WMS_INCOMING_COMPLETED => '入庫完了',
+            self::WMS_ORDER_INCOMING_SCHEDULES => '入荷予定',
+            self::WMS_INCOMING_COMPLETED => '入荷完了',
             self::WMS_INCOMING_TRANSMITTED => '仕入連携済み',
             self::WMS_INCOMING_RECEIVED_DATA => '入荷データ受信',
             self::WMS_INCOMING_IMPORT_LOGS => '取込ログ',
