@@ -436,7 +436,7 @@ class WmsOrderIncomingSchedulesTable
                     ->icon('heroicon-o-eye')
                     ->color('gray')
                     ->modalHeading('入荷予定詳細')
-                    ->modalWidth('6xl')
+                    ->modalWidth('5xl')
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalSubmitActionLabel('入荷確定')
                     ->modalSubmitAction(fn ($record, $action) => in_array($record->status, [

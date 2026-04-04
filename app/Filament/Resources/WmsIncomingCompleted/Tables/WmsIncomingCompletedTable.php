@@ -436,7 +436,7 @@ class WmsIncomingCompletedTable
                     ->icon('heroicon-o-eye')
                     ->color('gray')
                     ->modalHeading('入荷完了詳細')
-                    ->modalWidth('6xl')
+                    ->modalWidth('5xl')
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')

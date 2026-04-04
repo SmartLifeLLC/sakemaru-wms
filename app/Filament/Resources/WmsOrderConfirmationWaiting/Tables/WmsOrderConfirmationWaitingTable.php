@@ -179,7 +179,7 @@ class WmsOrderConfirmationWaitingTable
                     ->icon('heroicon-o-eye')
                     ->color('gray')
                     ->modalHeading('発注候補詳細')
-                    ->modalWidth('4xl')
+                    ->modalWidth('5xl')
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalSubmitAction(fn ($record, $action) => $record->status->isEditable()
                         ? $action->makeModalSubmitAction('submit', [])->label('変更を保存')->color('danger')
