@@ -62,11 +62,14 @@
                                     @if(($shiftedDays ?? 0) > 0)
                                         {{ $orderDate }} + LT {{ $leadTimeDays }}日 → {{ $originalArrivalDate ?? '?' }}
                                         → {{ $shiftReasons }}
-                                        → {{ $expectedArrivalDate }}
+                                        → {{ $calculatedDate ?? $expectedArrivalDate }}
                                     @else
                                         {{ $orderDate }} + LT {{ $leadTimeDays }}日（調整なし）
                                     @endif
                                 </div>
+                                @if($isDateManuallyChanged ?? false)
+                                    <div class="text-xs text-blue-600 dark:text-blue-400 mt-0.5">※ 手動で {{ $calculatedDate ?? '-' }} → {{ $expectedArrivalDate }} に変更済</div>
+                                @endif
                             @endif
                         </td>
                     </tr>

@@ -80,7 +80,7 @@ class WmsIncomingCompletedTable
                     ->alignCenter()
                     ->width('85px'),
 
-                TextColumn::make('item.code')
+                TextColumn::make('item_code')
                     ->label('商品CD')
                     ->searchable()
                     ->sortable()
@@ -493,6 +493,16 @@ class WmsIncomingCompletedTable
                         );
                         $locationText = $defaultLocation ? "{$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}" : '-';
 
+                        // 手動変更判定
+                        $shiftedDays = (int) ($details['到着日調整'] ?? 0);
+                        $isDateManuallyChanged = false;
+                        $calculatedDateFormatted = null;
+                        if ($candidate?->original_arrival_date && $record->expected_arrival_date) {
+                            $calculatedDate = \Carbon\Carbon::parse($candidate->original_arrival_date)->addDays($shiftedDays);
+                            $calculatedDateFormatted = $calculatedDate->format('Y/m/d');
+                            $isDateManuallyChanged = $calculatedDate->format('Y-m-d') !== $record->expected_arrival_date->format('Y-m-d');
+                        }
+
                         return [
                             View::make('filament.components.incoming-schedule-detail')
                                 ->viewData([
@@ -503,7 +513,7 @@ class WmsIncomingCompletedTable
                                         OrderSource::RECEIVED => '受信',
                                         default => '-',
                                     },
-                                    'itemCode' => $item?->code ?? '-',
+                                    'itemCode' => $record->item_code ?? $item?->code ?? '-',
                                     'searchCode' => $record->search_code ?? '-',
                                     'itemName' => $item?->name ?? '-',
                                     'packaging' => $item?->packaging ?? '-',
@@ -534,8 +544,10 @@ class WmsIncomingCompletedTable
                                     'originalArrivalDate' => $candidate?->original_arrival_date
                                         ? \Carbon\Carbon::parse($candidate->original_arrival_date)->format('m/d')
                                         : null,
-                                    'shiftedDays' => (int) ($details['到着日調整'] ?? 0),
+                                    'shiftedDays' => $shiftedDays,
                                     'shiftReasons' => $details['調整理由'] ?? '',
+                                    'isDateManuallyChanged' => $isDateManuallyChanged,
+                                    'calculatedDate' => $calculatedDateFormatted,
                                     'formula' => $details['計算式'] ?? '-',
                                     'effectiveStock' => $details['有効在庫'] ?? 0,
                                     'incomingStock' => $details['入庫予定数'] ?? 0,

@@ -27,6 +27,7 @@ class WmsOrderIncomingSchedule extends WmsModel
     protected $fillable = [
         'warehouse_id',
         'item_id',
+        'item_code',
         'search_code',
         'contractor_id',
         'supplier_id',

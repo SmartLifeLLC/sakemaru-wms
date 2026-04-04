@@ -444,9 +444,20 @@ class IncomingReceiveService
             // 賞味期限: 商品マスタの default_expiration_days から算出
             $expirationDate = $this->calculateExpirationDate($itemId, $deliveryDate);
 
+            // 商品コード・検索コードを取得
+            $itemCode = Item::where('id', $itemId)->value('code');
+            $searchCode = DB::connection('sakemaru')
+                ->table('item_search_information')
+                ->where('item_id', $itemId)
+                ->where('is_used_for_ordering', true)
+                ->where('is_active', true)
+                ->value('search_string');
+
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $warehouse->id,
                 'item_id' => $itemId,
+                'item_code' => $itemCode,
+                'search_code' => $searchCode,
                 'contractor_id' => $contractor?->id,
                 'order_source' => OrderSource::RECEIVED,
                 'slip_number' => $slip->slip_number,

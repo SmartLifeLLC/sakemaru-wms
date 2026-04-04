@@ -293,6 +293,8 @@ class TransferCreateJobHandler
             'satellite_warehouse_id' => $satelliteWarehouseId,
             'hub_warehouse_id' => $hubWarehouseId,
             'item_id' => $itemId,
+            'item_code' => $item->code,
+            'search_code' => $this->getSearchCodeForItem($itemId),
             'contractor_id' => null,
             'delivery_course_id' => $deliveryCourseId,
             'suggested_quantity' => $transferQuantity,
@@ -367,5 +369,15 @@ class TransferCreateJobHandler
         }
 
         return $results;
+    }
+
+    private function getSearchCodeForItem(int $itemId): ?string
+    {
+        return DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('item_id', $itemId)
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->value('search_string');
     }
 }

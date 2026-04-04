@@ -194,6 +194,7 @@ class OrderExecutionService
                 $schedule = WmsOrderIncomingSchedule::create([
                     'warehouse_id' => $warehouseId,
                     'item_id' => $candidate->item_id,
+                    'item_code' => $candidate->item_code,
                     'search_code' => $searchCode,
                     'contractor_id' => $candidate->contractor_id,
                     'supplier_id' => $supplierId,
@@ -219,6 +220,7 @@ class OrderExecutionService
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,
                 'item_id' => $candidate->item_id,
+                'item_code' => $candidate->item_code,
                 'search_code' => $searchCode,
                 'contractor_id' => $candidate->contractor_id,
                 'supplier_id' => $supplierId,
@@ -300,9 +302,12 @@ class OrderExecutionService
             $orderDate
         );
 
+        $itemCode = Item::where('id', $data['item_id'])->value('code');
+
         $incomingSchedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $data['warehouse_id'],
             'item_id' => $data['item_id'],
+            'item_code' => $itemCode,
             'search_code' => $searchCode,
             'contractor_id' => $data['contractor_id'],
             'supplier_id' => $supplierId,

@@ -52,12 +52,19 @@ class WmsOrderConfirmationWaitingTable
                     ->alignCenter()
                     ->width('170px'),
 
-                TextColumn::make('item.code')
-                    ->label('商品コード')
+                TextColumn::make('item_code')
+                    ->label('商品CD')
                     ->searchable()
                     ->sortable()
                     ->alignCenter()
                     ->width('100px'),
+
+                TextColumn::make('search_code')
+                    ->label('検索CD')
+                    ->searchable()
+                    ->toggleable()
+                    ->placeholder('-')
+                    ->width('120px'),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
@@ -184,7 +191,7 @@ class WmsOrderConfirmationWaitingTable
                     ->modalSubmitAction(fn ($record, $action) => $record->status->isEditable()
                         ? $action->makeModalSubmitAction('submit', [])->label('変更を保存')->color('danger')
                         : false)
-                    ->modalCancelActionLabel('このまま閉じる')
+                    ->modalCancelActionLabel('変更せず閉じる')
                     ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
                     ->fillForm(fn ($record) => [
                         'order_quantity' => $record->order_quantity,
@@ -216,6 +223,16 @@ class WmsOrderConfirmationWaitingTable
 
                         $isEditable = $record->status->isEditable();
 
+                        // 手動変更判定
+                        $shiftedDays = (int) ($details['到着日調整'] ?? 0);
+                        $isDateManuallyChanged = false;
+                        $calculatedDateFormatted = null;
+                        if ($record->original_arrival_date && $record->expected_arrival_date) {
+                            $calculatedDate = \Carbon\Carbon::parse($record->original_arrival_date)->addDays($shiftedDays);
+                            $calculatedDateFormatted = $calculatedDate->format('Y/m/d');
+                            $isDateManuallyChanged = $calculatedDate->format('Y-m-d') !== \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y-m-d');
+                        }
+
                         $schema = [
                             View::make('filament.components.order-candidate-detail')
                                 ->viewData([
@@ -231,9 +248,12 @@ class WmsOrderConfirmationWaitingTable
                                     'originalArrivalDate' => $record->original_arrival_date
                                         ? \Carbon\Carbon::parse($record->original_arrival_date)->format('m/d')
                                         : null,
-                                    'shiftedDays' => (int) ($details['到着日調整'] ?? 0),
+                                    'shiftedDays' => $shiftedDays,
                                     'shiftReasons' => $details['調整理由'] ?? '',
-                                    'itemCode' => $item?->code ?? '-',
+                                    'isDateManuallyChanged' => $isDateManuallyChanged,
+                                    'calculatedDate' => $calculatedDateFormatted,
+                                    'itemCode' => $record->item_code ?? $item?->code ?? '-',
+                                    'searchCode' => $record->search_code ?? '-',
                                     'itemName' => $item?->name ?? '-',
                                     'packaging' => $item?->packaging ?? '-',
                                     'capacityText' => $capacityText,

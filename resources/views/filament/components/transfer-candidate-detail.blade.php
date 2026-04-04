@@ -3,6 +3,9 @@
     <div class="flex items-center gap-3 px-3 py-2 bg-slate-700 dark:bg-slate-800 rounded-lg">
         <span class="px-2 py-0.5 rounded text-xs font-bold shrink-0 bg-amber-500/20 text-amber-300">移動</span>
         <span class="text-white font-mono text-sm">{{ $itemCode }}</span>
+        @if(($searchCode ?? '-') !== '-')
+            <span class="text-slate-400 font-mono text-xs">[{{ $searchCode }}]</span>
+        @endif
         <span class="text-white font-medium text-sm truncate">{{ $itemName }}</span>
         @if($packaging && $packaging !== '-')
             <span class="text-slate-400 text-xs shrink-0">{{ $packaging }}</span>
@@ -53,11 +56,14 @@
                                     @if(($shiftedDays ?? 0) > 0)
                                         {{ $orderDate }} + LT {{ $leadTimeDays }}日 → {{ $originalArrivalDate ?? '?' }}
                                         → {{ $shiftReasons }}
-                                        → {{ $expectedArrivalDate }}
+                                        → {{ $calculatedDate ?? $expectedArrivalDate }}
                                     @else
                                         {{ $orderDate }} + LT {{ $leadTimeDays }}日（調整なし）
                                     @endif
                                 </div>
+                                @if($isDateManuallyChanged ?? false)
+                                    <div class="text-xs text-blue-600 dark:text-blue-400 mt-0.5">※ 手動で {{ $calculatedDate ?? '-' }} → {{ $expectedArrivalDate }} に変更済</div>
+                                @endif
                             @endif
                         </td>
                     </tr>
@@ -82,7 +88,7 @@
                     <div class="text-lg font-bold text-gray-900 dark:text-white">{{ number_format($suggestedQuantity) }}</div>
                 </div>
                 <div class="text-center bg-primary-50 dark:bg-primary-900/20 rounded-lg py-2 px-1">
-                    <div class="text-xs text-primary-600 dark:text-primary-400">移動数</div>
+                    <div class="text-xs text-primary-600 dark:text-primary-400">発注数</div>
                     <div class="text-lg font-bold text-primary-700 dark:text-primary-300">{{ number_format($transferQuantity) }}</div>
                 </div>
             </div>

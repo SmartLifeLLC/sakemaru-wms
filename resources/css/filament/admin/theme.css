@@ -748,6 +748,27 @@ html.fi {
     justify-content: flex-end !important;
 }
 
+/* カラム表示選択ドロップダウン: 2列表示 */
+.fi-ta-col-manager-items {
+    columns: 2 !important;
+    column-gap: 1.5rem !important;
+}
+
+/* 一括変更モーダル（コース・入荷日） */
+.bulk-update-course-date-modal .fi-modal-header {
+    display: none !important;
+}
+
+.bulk-update-course-date-modal .fi-modal-footer {
+    justify-content: flex-end !important;
+    flex-direction: row-reverse !important;
+    gap: 0.5rem !important;
+}
+
+.bulk-update-course-date-modal .fi-modal-footer > * {
+    justify-content: flex-end !important;
+}
+
 /* 入荷予定取消モーダル */
 .incoming-cancel-modal .fi-modal-header {
     background-color: #7f1d1d !important;

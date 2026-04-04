@@ -85,7 +85,7 @@ class WmsOrderIncomingSchedulesTable
                     ->alignCenter()
                     ->width('70px'),
 
-                TextColumn::make('item.code')
+                TextColumn::make('item_code')
                     ->label('商品CD')
                     ->searchable()
                     ->sortable()
@@ -447,7 +447,7 @@ class WmsOrderIncomingSchedulesTable
                         ->modalDescription('入荷データを確定します。よろしいですか？')
                         ->modalSubmitActionLabel('確定する')
                     : false)
-                    ->modalCancelActionLabel('このまま閉じる')
+                    ->modalCancelActionLabel('変更せず閉じる')
                     ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
                     ->schema(function (?WmsOrderIncomingSchedule $record): array {
                         if (! $record) {
@@ -507,6 +507,16 @@ class WmsOrderIncomingSchedulesTable
                             IncomingScheduleStatus::PARTIAL,
                         ]);
 
+                        // 手動変更判定
+                        $shiftedDays = (int) ($details['到着日調整'] ?? 0);
+                        $isDateManuallyChanged = false;
+                        $calculatedDateFormatted = null;
+                        if ($candidate?->original_arrival_date && $record->expected_arrival_date) {
+                            $calculatedDate = \Carbon\Carbon::parse($candidate->original_arrival_date)->addDays($shiftedDays);
+                            $calculatedDateFormatted = $calculatedDate->format('Y/m/d');
+                            $isDateManuallyChanged = $calculatedDate->format('Y-m-d') !== $record->expected_arrival_date->format('Y-m-d');
+                        }
+
                         $schema = [
                             View::make('filament.components.incoming-schedule-detail')
                                 ->viewData([
@@ -517,7 +527,7 @@ class WmsOrderIncomingSchedulesTable
                                         OrderSource::RECEIVED => '受信',
                                         default => '-',
                                     },
-                                    'itemCode' => $item?->code ?? '-',
+                                    'itemCode' => $record->item_code ?? $item?->code ?? '-',
                                     'searchCode' => $record->search_code ?? '-',
                                     'itemName' => $item?->name ?? '-',
                                     'packaging' => $item?->packaging ?? '-',
@@ -547,8 +557,10 @@ class WmsOrderIncomingSchedulesTable
                                     'originalArrivalDate' => $candidate?->original_arrival_date
                                         ? \Carbon\Carbon::parse($candidate->original_arrival_date)->format('m/d')
                                         : null,
-                                    'shiftedDays' => (int) ($details['到着日調整'] ?? 0),
+                                    'shiftedDays' => $shiftedDays,
                                     'shiftReasons' => $details['調整理由'] ?? '',
+                                    'isDateManuallyChanged' => $isDateManuallyChanged,
+                                    'calculatedDate' => $calculatedDateFormatted,
                                     'formula' => $details['計算式'] ?? '-',
                                     'effectiveStock' => $details['有効在庫'] ?? 0,
                                     'incomingStock' => $details['入庫予定数'] ?? 0,

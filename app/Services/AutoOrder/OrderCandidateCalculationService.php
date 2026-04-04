@@ -73,6 +73,9 @@ class OrderCandidateCalculationService
     /** @var array [item_id] => ordering_code (13桁ゼロパディング済み) */
     private array $orderingCodes = [];
 
+    /** @var array [item_id] => search_string (発注用検索コード) */
+    private array $searchCodes = [];
+
     /** @var array [item_id][supplier_id] => unit_price (仕入先別商品仕入単価) */
     private array $supplierItemPrices = [];
 
@@ -341,6 +344,16 @@ class OrderCandidateCalculationService
         }
 
         Log::info('商品マスタをロード', ['count' => count($this->itemMaster)]);
+
+        // 検索コードをメモリにロード（発注用のみ）
+        $this->searchCodes = DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->pluck('search_string', 'item_id')
+            ->toArray();
+
+        Log::info('検索コードをロード', ['count' => count($this->searchCodes)]);
 
         // 仕入先別商品仕入単価をメモリにロード（item_partner_prices.unit_price を使用）
         // 条件:
@@ -622,6 +635,8 @@ class OrderCandidateCalculationService
                 'satellite_warehouse_id' => $ic->warehouse_id,
                 'hub_warehouse_id' => $supplyWarehouseId,
                 'item_id' => $ic->item_id,
+                'item_code' => $this->itemMaster[$ic->item_id]['code'] ?? null,
+                'search_code' => $this->searchCodes[$ic->item_id] ?? null,
                 'contractor_id' => $ic->contractor_id,
                 'delivery_course_id' => $deliveryCourseId,
                 'suggested_quantity' => $orderQty,
@@ -864,6 +879,8 @@ class OrderCandidateCalculationService
                 'batch_code' => $batchCode,
                 'warehouse_id' => $ic->warehouse_id,
                 'item_id' => $ic->item_id,
+                'item_code' => $this->itemMaster[$ic->item_id]['code'] ?? null,
+                'search_code' => $this->searchCodes[$ic->item_id] ?? null,
                 'contractor_id' => $ic->contractor_id,
                 'supplier_id' => $ic->supplier_id,
                 'purchase_unit_price' => $purchaseUnitPrice,

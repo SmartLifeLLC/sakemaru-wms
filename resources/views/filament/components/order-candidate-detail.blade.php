@@ -3,6 +3,9 @@
     <div class="flex items-center gap-3 px-3 py-2 bg-slate-700 dark:bg-slate-800 rounded-lg">
         <span class="px-2 py-0.5 rounded text-xs font-bold shrink-0 bg-blue-500/20 text-blue-300">発注</span>
         <span class="text-white font-mono text-sm">{{ $itemCode }}</span>
+        @if(($searchCode ?? '-') !== '-')
+            <span class="text-slate-400 font-mono text-xs">[{{ $searchCode }}]</span>
+        @endif
         <span class="text-white font-medium text-sm truncate">{{ $itemName }}</span>
         @if($packaging && $packaging !== '-')
             <span class="text-slate-400 text-xs shrink-0">{{ $packaging }}</span>
@@ -41,11 +44,14 @@
                                     @if(($shiftedDays ?? 0) > 0)
                                         {{ $orderDate }} + LT {{ $leadTimeDays }}日 → {{ $originalArrivalDate ?? '?' }}
                                         → {{ $shiftReasons }}
-                                        → {{ $expectedArrivalDate }}
+                                        → {{ $calculatedDate ?? $expectedArrivalDate }}
                                     @else
                                         {{ $orderDate }} + LT {{ $leadTimeDays }}日（調整なし）
                                     @endif
                                 </div>
+                                @if($isDateManuallyChanged ?? false)
+                                    <div class="text-xs text-blue-600 dark:text-blue-400 mt-0.5">※ 手動で {{ $calculatedDate ?? '-' }} → {{ $expectedArrivalDate }} に変更済</div>
+                                @endif
                             @endif
                         </td>
                     </tr>

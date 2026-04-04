@@ -43,6 +43,8 @@ class WmsOrderCandidate extends WmsModel
         'batch_code',
         'warehouse_id',
         'item_id',
+        'item_code',
+        'search_code',
         'contractor_id',
         'supplier_id',
         'purchase_unit_price',

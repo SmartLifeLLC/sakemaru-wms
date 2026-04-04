@@ -207,6 +207,7 @@ class TransferCandidateExecutionService
         $schedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $candidate->satellite_warehouse_id,
             'item_id' => $candidate->item_id,
+            'item_code' => $candidate->item_code,
             'search_code' => $this->getSearchCodeForItem($candidate->item_id),
             'contractor_id' => $candidate->contractor_id,
             'supplier_id' => null,

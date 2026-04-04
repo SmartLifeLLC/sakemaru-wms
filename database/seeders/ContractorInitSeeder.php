@@ -89,8 +89,7 @@ class ContractorInitSeeder extends Seeder
     /**
      * 倉庫別の確定レベル設定
      *
-     * - 倉庫91: STATUS1（候補表示のみ）
-     * - その他: STATUS2（承認まで自動）
+     * 全倉庫: STATUS1（候補表示のみ）
      */
     private function seedWarehouseSettings(): void
     {
@@ -99,9 +98,7 @@ class ContractorInitSeeder extends Seeder
         $updated = 0;
 
         foreach ($warehouses as $warehouse) {
-            $level = (int) $warehouse->code === 91
-                ? ConfirmationLevel::STATUS1
-                : ConfirmationLevel::STATUS2;
+            $level = ConfirmationLevel::STATUS1;
 
             $existing = WmsWarehouseAutoOrderSetting::where('warehouse_id', $warehouse->id)->first();
 

@@ -305,6 +305,8 @@ class OrderCreateJobHandler
             'batch_code' => $batchCode,
             'warehouse_id' => $warehouseId,
             'item_id' => $itemId,
+            'item_code' => $item?->code,
+            'search_code' => $this->getSearchCodeForItem($itemId),
             'contractor_id' => $itemContractor->contractor_id,
             'supplier_id' => $supplierId,
             'purchase_unit_price' => $purchaseUnitPrice,
@@ -383,5 +385,15 @@ class OrderCreateJobHandler
         }
 
         return $results;
+    }
+
+    private function getSearchCodeForItem(int $itemId): ?string
+    {
+        return DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('item_id', $itemId)
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->value('search_string');
     }
 }

@@ -195,7 +195,7 @@ class OrangeWarehouseSeeder extends Seeder
                 'is_auto_order_enabled' => true,
                 'exclude_sunday_arrival' => true,
                 'exclude_holiday_arrival' => true,
-                'confirmation_level' => ConfirmationLevel::STATUS2,
+                'confirmation_level' => ConfirmationLevel::STATUS1,
             ]
         );
 

@@ -32,6 +32,8 @@ class WmsStockTransferCandidate extends WmsModel
         'satellite_warehouse_id',
         'hub_warehouse_id',
         'item_id',
+        'item_code',
+        'search_code',
         'contractor_id',
         'delivery_course_id',
         'suggested_quantity',
