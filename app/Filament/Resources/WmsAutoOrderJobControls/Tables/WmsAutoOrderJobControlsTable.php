@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\WmsAutoOrderJobControls\Tables;
 
-use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\JobStatus;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\PaginationOptions;
@@ -54,11 +53,6 @@ class WmsAutoOrderJobControlsTable
                     ->sortable()
                     ->copyable(),
 
-                TextColumn::make('process_name')
-                    ->label('実行タイプ')
-                    ->formatStateUsing(fn (JobProcessName $state): string => $state->label())
-                    ->sortable(),
-
                 TextColumn::make('status')
                     ->label('ステータス')
                     ->badge()
@@ -72,12 +66,6 @@ class WmsAutoOrderJobControlsTable
                     ->formatStateUsing(fn (SettlementStatus $state): string => $state->label())
                     ->color(fn (SettlementStatus $state): string => $state->color())
                     ->sortable(),
-
-                TextColumn::make('snapshot_job_id')
-                    ->label('参照SS')
-                    ->formatStateUsing(fn ($state) => $state ? "#{$state}" : '-')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('processed_records')
                     ->label('処理件数')
@@ -119,11 +107,6 @@ class WmsAutoOrderJobControlsTable
 
                         return '実行日: '.\Carbon\Carbon::parse($data['started_date'])->format('Y年m月d日');
                     }),
-
-                SelectFilter::make('process_name')
-                    ->label('実行タイプ')
-                    ->options(fn () => collect(JobProcessName::cases())
-                        ->mapWithKeys(fn ($case) => [$case->value => $case->label()])),
 
                 SelectFilter::make('status')
                     ->label('ステータス')
@@ -183,11 +166,8 @@ class WmsAutoOrderJobControlsTable
                     ->label('結果')
                     ->icon('heroicon-o-document-magnifying-glass')
                     ->color('info')
-                    ->visible(fn ($record) => ! empty($record->result_data) || $record->process_name === JobProcessName::STOCK_SNAPSHOT)
-                    ->modalHeading(fn ($record) => match ($record->process_name) {
-                        JobProcessName::STOCK_SNAPSHOT => "在庫スナップショット結果 - {$record->batch_code}",
-                        default => "発注・移動候補生成結果 - {$record->batch_code}",
-                    })
+                    ->visible(fn ($record) => ! empty($record->result_data))
+                    ->modalHeading(fn ($record) => "発注・移動候補生成結果 - {$record->batch_code}")
                     ->modalWidth('5xl')
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')

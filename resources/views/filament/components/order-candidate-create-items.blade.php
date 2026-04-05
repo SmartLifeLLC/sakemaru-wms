@@ -1,9 +1,9 @@
 <div x-data="{
-    rows: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, itemId: null, itemCode: '', searchCode: '', orderingCode: '', itemName: '', capacityCase: 1, searchQuery: '', caseQty: null, pieceQty: null, stock: null, showDropdown: false, searchResults: [], loading: false })),
+    rows: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, itemId: null, itemCode: '', searchCode: '', orderingCode: '', itemName: '', capacityCase: 1, searchQuery: '', caseQty: null, pieceQty: null, stock: null, incomingQty: null, showDropdown: false, searchResults: [], loading: false })),
     nextId: 11,
 
     addRow() {
-        this.rows.push({ id: this.nextId++, itemId: null, itemCode: '', searchCode: '', orderingCode: '', itemName: '', capacityCase: 1, searchQuery: '', caseQty: null, pieceQty: null, stock: null, showDropdown: false, searchResults: [], loading: false });
+        this.rows.push({ id: this.nextId++, itemId: null, itemCode: '', searchCode: '', orderingCode: '', itemName: '', capacityCase: 1, searchQuery: '', caseQty: null, pieceQty: null, stock: null, incomingQty: null, showDropdown: false, searchResults: [], loading: false });
     },
 
     removeRow(index) {
@@ -41,11 +41,15 @@
         this.rows[index].showDropdown = false;
         this.rows[index].searchResults = [];
         this.syncToWire();
-        // 現在庫を取得
+        // 現在庫・入荷予定数を取得
         const warehouseId = $wire.get('mountedActions.0.data.warehouse_id');
         if (warehouseId) {
-            const stock = await $wire.getItemStockForOrderCreate(parseInt(warehouseId), item.id);
+            const [stock, incomingQty] = await Promise.all([
+                $wire.getItemStockForOrderCreate(parseInt(warehouseId), item.id),
+                $wire.getItemIncomingQuantityForOrderCreate(parseInt(warehouseId), item.id),
+            ]);
             this.rows[index].stock = stock;
+            this.rows[index].incomingQty = incomingQty;
         }
         // 次の空行がなければ自動追加
         if (!this.rows.some(r => !r.itemId)) this.addRow();
@@ -109,6 +113,7 @@
                 <col />
                 <col style="width: 38px" />
                 <col style="width: 48px" />
+                <col style="width: 48px" />
                 <col style="width: 55px" />
                 <col style="width: 55px" />
                 <col style="width: 50px" />
@@ -121,6 +126,7 @@
                     <th class="px-2 py-1.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品名</th>
                     <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入数</th>
                     <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">現在庫</th>
+                    <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入荷予定</th>
                     <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">ケース</th>
                     <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ</th>
                     <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">発注数</th>
@@ -184,6 +190,12 @@
                             <span class="text-xs font-mono"
                                 :class="row.stock !== null ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'"
                                 x-text="row.stock !== null ? Number(row.stock).toLocaleString() : '-'"></span>
+                        </td>
+                        {{-- 入荷予定 --}}
+                        <td class="px-1.5 py-1 text-right">
+                            <span class="text-xs font-mono"
+                                :class="row.incomingQty > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'"
+                                x-text="row.incomingQty !== null ? Number(row.incomingQty).toLocaleString() : '-'"></span>
                         </td>
                         {{-- ケース --}}
                         <td class="px-1 py-1">

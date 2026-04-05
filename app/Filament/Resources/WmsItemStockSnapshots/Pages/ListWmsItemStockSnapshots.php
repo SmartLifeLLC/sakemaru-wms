@@ -7,11 +7,8 @@ use App\Filament\Resources\WmsItemStockSnapshots\WmsItemStockSnapshotResource;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsItemStockSnapshot;
-use App\Services\AutoOrder\StockSnapshotService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
-use Filament\Actions\Action;
-use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -36,34 +33,7 @@ class ListWmsItemStockSnapshots extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [
-            Action::make('regenerate')
-                ->label('スナップショット生成')
-                ->icon('heroicon-o-arrow-path')
-                ->color('warning')
-                ->requiresConfirmation()
-                ->modalHeading('スナップショット生成')
-                ->modalDescription('最新の在庫データからスナップショットを生成します。よろしいですか？')
-                ->modalSubmitActionLabel('生成する')
-                ->action(function () {
-                    try {
-                        $service = app(StockSnapshotService::class);
-                        $job = $service->generateAll();
-
-                        Notification::make()
-                            ->title('スナップショット生成完了')
-                            ->body("処理件数: {$job->processed_count} 件")
-                            ->success()
-                            ->send();
-                    } catch (\Exception $e) {
-                        Notification::make()
-                            ->title('スナップショット生成失敗')
-                            ->body($e->getMessage())
-                            ->danger()
-                            ->send();
-                    }
-                }),
-        ];
+        return [];
     }
 
     public function getPresetViews(): array

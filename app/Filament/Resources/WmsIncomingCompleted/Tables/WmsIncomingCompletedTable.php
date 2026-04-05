@@ -537,7 +537,7 @@ class WmsIncomingCompletedTable
                                     'hasOrderCandidate' => $candidate !== null,
                                     'orderCandidateId' => $candidate?->id,
                                     'batchCodeFormatted' => $candidate?->batch_code
-                                        ? \Carbon\Carbon::createFromFormat('YmdHis', $candidate->batch_code)->format('Y/m/d H:i')
+                                        ? \Carbon\Carbon::createFromFormat('YmdHis', substr($candidate->batch_code, 0, 14))->format('Y/m/d H:i')
                                         : null,
                                     'hasCalculationLog' => ! empty($details),
                                     'leadTimeDays' => $log?->lead_time_days ?? 0,

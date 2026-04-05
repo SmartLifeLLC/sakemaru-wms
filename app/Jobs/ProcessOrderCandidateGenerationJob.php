@@ -5,13 +5,13 @@ namespace App\Jobs;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\ConfirmationLevel;
 use App\Models\WmsAutoOrderExecutionLog;
+use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
 use App\Models\WmsWarehouseAutoOrderSetting;
 use App\Services\AutoOrder\OrderCandidateCalculationService;
 use App\Services\AutoOrder\OrderExecutionService;
-use App\Services\AutoOrder\StockSnapshotService;
 use App\Services\AutoOrder\TransferCandidateExecutionService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -45,6 +45,8 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
         public bool $transferOnly = false,
         public ?int $warehouseId = null,
         public ?int $createdBy = null,
+        public ?array $contractorIds = null,
+        public ?string $batchCode = null,
     ) {}
 
     /**
@@ -63,18 +65,16 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
         }
 
         try {
-            // 全体で5ステップ
+            // 全体で4ステップ
             // 1. 削除（10%）
-            // 2. スナップショット準備（20%）
-            // 3. スナップショット実行（40%）
-            // 4. 発注候補計算（80%）
-            // 5. 完了（100%）
+            // 2. 発注候補計算（60%）
+            // 3. 確定レベル適用（85%）
+            // 4. 完了（100%）
 
             $progress->markAsProcessing(100, '処理を開始しています...');
 
             $results = [
                 'deleted' => 0,
-                'snapshot' => 0,
                 'calculated' => 0,
                 'batchCode' => null,
                 'byWarehouse' => [],
@@ -87,10 +87,16 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
                     'message' => $this->transferOnly ? '未承認の移動候補を削除中...' : '未承認の発注候補を削除中...',
                 ]);
 
+                // 仕入先配列が指定されている場合、該当仕入先のみ削除
+                $scopeContractorIds = $this->getExpandedContractorIds();
+
                 if ($this->transferOnly) {
                     $deleteQuery = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING);
                     if ($this->warehouseId) {
                         $deleteQuery->where('satellite_warehouse_id', $this->warehouseId);
+                    }
+                    if ($scopeContractorIds) {
+                        $deleteQuery->whereIn('contractor_id', $scopeContractorIds);
                     }
                     $results['deletedTransfers'] = $deleteQuery->delete();
                 } else {
@@ -100,34 +106,30 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
                         $deleteOrderQuery->where('warehouse_id', $this->warehouseId);
                         $deleteTransferQuery->where('satellite_warehouse_id', $this->warehouseId);
                     }
+                    if ($scopeContractorIds) {
+                        $deleteOrderQuery->whereIn('contractor_id', $scopeContractorIds);
+                        $deleteTransferQuery->whereIn('contractor_id', $scopeContractorIds);
+                    }
                     $results['deleted'] = $deleteOrderQuery->delete();
                     $results['deletedTransfers'] = $deleteTransferQuery->delete();
                 }
             }
 
             $progress->update([
-                'progress' => 10,
-                'message' => 'スナップショットを準備中...',
-            ]);
-
-            // Step 2-3: スナップショット生成
-            $progress->update([
-                'progress' => 20,
-                'message' => 'スナップショットを生成中...',
-            ]);
-
-            $snapshotService = app(StockSnapshotService::class);
-            $snapshotJob = $snapshotService->generateAll($this->warehouseId, $this->createdBy);
-            $results['snapshot'] = $snapshotJob->processed_records;
-
-            $progress->update([
-                'progress' => 40,
+                'progress' => 15,
                 'message' => $this->transferOnly ? '移動候補を計算中...' : '発注候補を計算中...',
             ]);
 
-            // Step 4: 発注候補計算（スナップショットのjob_idを渡す）
+            // Step 2: 発注候補計算（在庫はwms_v_stock_availableから直接読み込み）
             $calculationService = app(OrderCandidateCalculationService::class);
-            $calcJob = $calculationService->calculate($snapshotJob->id, $this->contractorId, $this->transferOnly, $this->warehouseId, $this->createdBy);
+            $calcJob = $calculationService->calculate(
+                contractorId: $this->contractorId,
+                transferOnly: $this->transferOnly,
+                warehouseId: $this->warehouseId,
+                createdBy: $this->createdBy,
+                contractorIds: $this->contractorIds,
+                batchCode: $this->batchCode,
+            );
 
             $results['batchCode'] = $calcJob->batch_code;
             $results['calculated'] = $calcJob->processed_records;
@@ -210,6 +212,23 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
 
             throw $e;
         }
+    }
+
+    /**
+     * contractorIds を親+子に展開した配列を返す（未指定時はnull）
+     */
+    private function getExpandedContractorIds(): ?array
+    {
+        if ($this->contractorIds !== null && ! empty($this->contractorIds)) {
+            $expanded = [];
+            foreach ($this->contractorIds as $cId) {
+                $expanded = array_merge($expanded, WmsContractorSetting::getContractorIdsWithChildren($cId));
+            }
+
+            return array_unique($expanded);
+        }
+
+        return null;
     }
 
     /**

@@ -28,7 +28,6 @@ use Illuminate\Support\Facades\Log;
 class OrderCreateJobHandler
 {
     public function __construct(
-        private StockSnapshotService $snapshotService,
         private ContractorLeadTimeService $leadTimeService
     ) {}
 
@@ -153,11 +152,15 @@ class OrderCreateJobHandler
             return $pendingJob->batch_code;
         }
 
-        // 新規スナップショットを生成（ジョブ管理も自動作成される）
-        $snapshotJob = $this->snapshotService->generateAll();
-        $job->addLog(QueueJobLogLevel::INFO->value, '新規batch_codeを作成: '.$snapshotJob->batch_code);
+        // 新規ジョブを作成
+        $newJob = WmsAutoOrderJobControl::startJob(
+            processName: \App\Enums\AutoOrder\JobProcessName::ORDER_CALC,
+            createdBy: null,
+        );
+        $newJob->markAsSuccess(0);
+        $job->addLog(QueueJobLogLevel::INFO->value, '新規batch_codeを作成: '.$newJob->batch_code);
 
-        return $snapshotJob->batch_code;
+        return $newJob->batch_code;
     }
 
     /**

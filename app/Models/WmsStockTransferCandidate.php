@@ -43,6 +43,7 @@ class WmsStockTransferCandidate extends WmsModel
         'calculated_available',
         'shortage_qty',
         'safety_stock',
+        'hub_effective_stock',
         'purchase_unit',
         'quantity_type',
         'expected_arrival_date',

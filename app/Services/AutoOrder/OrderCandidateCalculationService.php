@@ -79,9 +79,6 @@ class OrderCandidateCalculationService
     /** @var array [item_id][supplier_id] => unit_price (仕入先別商品仕入単価) */
     private array $supplierItemPrices = [];
 
-    /** @var int|null 参照する在庫スナップショットのjob_control_id */
-    private ?int $snapshotJobId = null;
-
     /** @var array|null 仕入先ID指定（null=全仕入先、親+子仕入先を含む） */
     private ?array $targetContractorIds = null;
 
@@ -91,27 +88,43 @@ class OrderCandidateCalculationService
     /**
      * 発注候補計算を実行
      *
-     * @param  int|null  $snapshotJobId  参照する在庫スナップショットのjob_id
-     * @param  int|null  $contractorId  仕入先指定（nullなら全仕入先一括）
+     * @param  int|null  $contractorId  仕入先指定（nullなら全仕入先一括）— 単一指定（スケジューラー等）
      * @param  bool  $transferOnly  trueの場合、INTERNAL移動候補のみ生成（EXTERNAL発注候補はスキップ）
      * @param  int|null  $warehouseId  倉庫指定（nullなら全有効倉庫）
+     * @param  int|null  $createdBy  実行者ID
+     * @param  array|null  $contractorIds  仕入先ID配列（複数指定 — $contractorIdより優先）
+     * @param  string|null  $batchCode  batch_code外部指定（再利用時）
      */
-    public function calculate(?int $snapshotJobId = null, ?int $contractorId = null, bool $transferOnly = false, ?int $warehouseId = null, ?int $createdBy = null): WmsAutoOrderJobControl
+    public function calculate(?int $contractorId = null, bool $transferOnly = false, ?int $warehouseId = null, ?int $createdBy = null, ?array $contractorIds = null, ?string $batchCode = null): WmsAutoOrderJobControl
     {
         if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::ORDER_CALC)) {
             throw new \RuntimeException('Order calculation job is already running');
         }
 
-        // 排他制御: 仕入先指定あり/なしで2パターン
-        if ($contractorId !== null) {
-            // パターンA: 仕入先指定あり（スケジューラー/手動強制）
-            // 親+子仕入先を展開してチェック
-            $allContractorIds = WmsContractorSetting::getContractorIdsWithChildren($contractorId);
+        // contractorIds（配列）が指定された場合、contractorId（単一）より優先
+        // 各IDを親+子に展開してマージ
+        $expandedContractorIds = null;
+        if ($contractorIds !== null && ! empty($contractorIds)) {
+            $expandedContractorIds = [];
+            foreach ($contractorIds as $cId) {
+                $expandedContractorIds = array_merge(
+                    $expandedContractorIds,
+                    WmsContractorSetting::getContractorIdsWithChildren($cId)
+                );
+            }
+            $expandedContractorIds = array_unique($expandedContractorIds);
+        } elseif ($contractorId !== null) {
+            $expandedContractorIds = WmsContractorSetting::getContractorIdsWithChildren($contractorId);
+        }
 
+        // 排他制御: 仕入先指定あり/なしで2パターン
+        if ($expandedContractorIds !== null) {
+            // パターンA: 仕入先指定あり（スケジューラー/手動強制/倉庫別仕入先選択）
             if (! $transferOnly) {
                 $hasOrderCandidates = WmsOrderCandidate::query()
                     ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
-                    ->whereIn('contractor_id', $allContractorIds)
+                    ->whereIn('contractor_id', $expandedContractorIds)
+                    ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
                     ->exists();
             } else {
                 $hasOrderCandidates = false;
@@ -119,11 +132,13 @@ class OrderCandidateCalculationService
 
             $hasTransferCandidates = WmsStockTransferCandidate::query()
                 ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
-                ->whereIn('contractor_id', $allContractorIds)
+                ->whereIn('contractor_id', $expandedContractorIds)
+                ->when($warehouseId, fn ($q) => $q->where('satellite_warehouse_id', $warehouseId))
                 ->exists();
 
             if ($hasOrderCandidates || $hasTransferCandidates) {
-                throw new \RuntimeException("仕入先ID:{$contractorId}（+子仕入先）に未処理の候補が存在します");
+                $idLabel = $contractorIds !== null ? implode(',', $contractorIds) : (string) $contractorId;
+                throw new \RuntimeException("仕入先ID:{$idLabel}（+子仕入先）に未処理の候補が存在します");
             }
         } else {
             // パターンB: 仕入先指定なし
@@ -170,19 +185,14 @@ class OrderCandidateCalculationService
 
         $job = WmsAutoOrderJobControl::startJob(
             processName: JobProcessName::ORDER_CALC,
-            scope: null,
-            batchCode: null,
+            scope: $contractorIds !== null ? ['contractor_ids' => $contractorIds, 'source' => 'warehouse_contractor_specific'] : null,
+            batchCode: $batchCode,
             settlementStatus: SettlementStatus::PENDING,
-            snapshotJobId: $snapshotJobId,
             createdBy: $createdBy,
             warehouseId: $warehouseId,
         );
 
-        // スナップショットJob IDを保持（loadAllDataToMemoryで使用）
-        $this->snapshotJobId = $snapshotJobId;
-        $this->targetContractorIds = $contractorId !== null
-            ? WmsContractorSetting::getContractorIdsWithChildren($contractorId)
-            : null;
+        $this->targetContractorIds = $expandedContractorIds;
         $this->targetWarehouseId = $warehouseId;
 
         try {
@@ -271,51 +281,55 @@ class OrderCandidateCalculationService
 
         Log::info('自動発注有効な実倉庫をロード', ['count' => count($this->realWarehouseIds), 'target_warehouse' => $this->targetWarehouseId]);
 
-        // JOINでis_auto_order有効な商品のスナップショットを取得（実倉庫のみ）
-        // snapshotJobIdが指定されている場合、そのジョブのスナップショットのみを使用
-        // （過去のスナップショットの古いincoming値が混入するのを防止）
-        $snapshotQuery = DB::connection('sakemaru')
-            ->table('wms_item_stock_snapshots as s')
-            ->join('item_contractors as ic', function ($join) {
-                $join->on('s.warehouse_id', '=', 'ic.warehouse_id')
-                    ->on('s.item_id', '=', 'ic.item_id');
-            })
-            ->whereIn('s.warehouse_id', $this->realWarehouseIds)
-            ->where('ic.is_auto_order', true)
-            ->where('ic.safety_stock', '>=', 0);
+        // wms_v_stock_available から有効在庫を直接集計（スナップショット不使用）
+        // real_stock_id で重複排除が必要（ロット毎に行が複製されるため）
+        $warehouseIdsList = implode(',', $this->realWarehouseIds);
+        $effectiveStocks = DB::connection('sakemaru')
+            ->select("
+                SELECT warehouse_id, item_id, SUM(stock_qty) as total_effective
+                FROM (
+                    SELECT DISTINCT warehouse_id, item_id, real_stock_id, available_for_wms as stock_qty
+                    FROM wms_v_stock_available
+                    WHERE warehouse_id IN ({$warehouseIdsList})
+                ) dedup
+                GROUP BY warehouse_id, item_id
+            ");
 
-        if ($this->snapshotJobId) {
-            $snapshotQuery->where('s.job_control_id', $this->snapshotJobId);
-        } else {
-            // snapshotJobIdが未指定の場合は最新のスナップショットジョブを使用
-            $latestSnapshotJobId = DB::connection('sakemaru')
-                ->table('wms_auto_order_job_controls')
-                ->where('process_name', JobProcessName::STOCK_SNAPSHOT->value)
-                ->where('status', 'SUCCESS')
-                ->orderByDesc('id')
-                ->value('id');
-
-            if ($latestSnapshotJobId) {
-                $snapshotQuery->where('s.job_control_id', $latestSnapshotJobId);
-            }
-        }
-
-        $snapshots = $snapshotQuery
-            ->select('s.warehouse_id', 's.item_id', 's.total_effective_piece', 's.total_incoming_piece')
-            ->distinct()
-            ->get();
-
-        foreach ($snapshots as $s) {
+        foreach ($effectiveStocks as $s) {
             if (! isset($this->stockSnapshots[$s->warehouse_id])) {
                 $this->stockSnapshots[$s->warehouse_id] = [];
             }
             $this->stockSnapshots[$s->warehouse_id][$s->item_id] = [
-                'effective' => $s->total_effective_piece,
-                'incoming' => $s->total_incoming_piece,
+                'effective' => (int) $s->total_effective,
+                'incoming' => 0,
             ];
         }
 
-        Log::info('在庫スナップショットをロード（実倉庫のみ）', ['count' => $snapshots->count()]);
+        // wms_order_incoming_schedules から入荷予定数を集計
+        $incomingStocks = DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->whereIn('warehouse_id', $this->realWarehouseIds)
+            ->whereIn('status', ['PENDING', 'PARTIAL'])
+            ->selectRaw('warehouse_id, item_id, SUM(expected_quantity - received_quantity) as total_incoming')
+            ->groupBy('warehouse_id', 'item_id')
+            ->get();
+
+        foreach ($incomingStocks as $s) {
+            if (isset($this->stockSnapshots[$s->warehouse_id][$s->item_id])) {
+                $this->stockSnapshots[$s->warehouse_id][$s->item_id]['incoming'] = (int) $s->total_incoming;
+            } else {
+                if (! isset($this->stockSnapshots[$s->warehouse_id])) {
+                    $this->stockSnapshots[$s->warehouse_id] = [];
+                }
+                $this->stockSnapshots[$s->warehouse_id][$s->item_id] = [
+                    'effective' => 0,
+                    'incoming' => (int) $s->total_incoming,
+                ];
+            }
+        }
+
+        $stockCount = array_sum(array_map('count', $this->stockSnapshots));
+        Log::info('在庫データを直接ロード（実倉庫のみ）', ['count' => $stockCount]);
 
         // INTERNAL発注先設定をメモリにロード
         $settings = WmsContractorSetting::where('transmission_type', TransmissionType::INTERNAL)
@@ -553,8 +567,15 @@ class OrderCandidateCalculationService
         // INTERNAL発注先の商品を取得（is_auto_order有効、実倉庫のみ）
         $internalContractorIds = $this->internalContractorIds;
 
-        // Note: 仕入先指定がある場合でも、INTERNAL発注先は常に全件処理する
-        // （外部発注先のスケジュール実行時にも移動候補を生成するため）
+        // 仕入先指定がある場合、INTERNALもフィルタ（選択仕入先にINTERNALが含まれない場合はスキップ）
+        if ($this->targetContractorIds !== null) {
+            $internalContractorIds = array_values(array_intersect($internalContractorIds, $this->targetContractorIds));
+            if (empty($internalContractorIds)) {
+                Log::info('選択仕入先にINTERNAL発注先が含まれないため、移動候補をスキップ');
+
+                return 0;
+            }
+        }
 
         $itemContractors = DB::connection('sakemaru')
             ->table('item_contractors')
@@ -719,13 +740,19 @@ class OrderCandidateCalculationService
     /**
      * 移動候補をメモリにロード
      *
+     * 同バッチの候補 + 他バッチのPENDING候補を含める
+     * （仕入先別生成時に、先に生成された他の仕入先の移動候補の影響をEXTERNAL計算に反映するため）
+     *
      * @return array [warehouse_id][item_id] => ['incoming' => qty, 'outgoing' => qty, 'outgoing_breakdown' => [[warehouse_id, quantity], ...]]
      */
     private function loadTransferCandidatesToMemory(string $batchCode): array
     {
         $candidates = DB::connection('sakemaru')
             ->table('wms_stock_transfer_candidates')
-            ->where('batch_code', $batchCode)
+            ->where(function ($query) use ($batchCode) {
+                $query->where('batch_code', $batchCode)
+                    ->orWhere('status', CandidateStatus::PENDING->value);
+            })
             ->select('satellite_warehouse_id', 'hub_warehouse_id', 'item_id', 'transfer_quantity')
             ->get();
 

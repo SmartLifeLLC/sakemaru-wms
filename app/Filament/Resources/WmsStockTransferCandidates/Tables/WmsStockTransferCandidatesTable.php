@@ -285,7 +285,7 @@ class WmsStockTransferCandidatesTable
                 TextColumn::make('batch_code_formatted')
                     ->label('実行時刻')
                     ->state(function ($record) {
-                        return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
+                        return \Carbon\Carbon::createFromFormat('YmdHis', substr($record->batch_code, 0, 14))->format('m/d H:i');
                     })
                     ->sortable(query: fn ($query, $direction) => $query->orderBy('batch_code', $direction))
                     ->toggleable()
@@ -417,7 +417,7 @@ class WmsStockTransferCandidatesTable
                             View::make('filament.components.transfer-candidate-detail')
                                 ->viewData([
                                     'batchCode' => $record->batch_code,
-                                    'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
+                                    'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', substr($record->batch_code, 0, 14))->format('Y/m/d H:i'),
                                     'satelliteWarehouseName' => $record->satelliteWarehouse ? "[{$record->satelliteWarehouse->code}]{$record->satelliteWarehouse->name}" : '-',
                                     'hubWarehouseName' => $record->hubWarehouse ? "[{$record->hubWarehouse->code}]{$record->hubWarehouse->name}" : '-',
                                     'deliveryCourseName' => $record->deliveryCourse?->name ?? '-',

@@ -4,7 +4,9 @@ namespace App\Filament\Resources\WmsStockTransferCandidates\Pages;
 
 use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\SettlementStatus;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsStockTransferCandidates\WmsStockTransferCandidateResource;
 use App\Models\Sakemaru\DeliveryCourse;
@@ -15,7 +17,6 @@ use App\Enums\AutoOrder\TransmissionType;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
-use App\Services\AutoOrder\StockSnapshotService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -73,10 +74,21 @@ class ListWmsStockTransferCandidates extends ListRecords
     public function getItemStockForCreate(int $warehouseId, int $itemId): ?int
     {
         return (int) DB::connection('sakemaru')
-            ->table('wms_item_stock_snapshots')
+            ->table('wms_v_stock_available')
             ->where('warehouse_id', $warehouseId)
             ->where('item_id', $itemId)
-            ->value('total_effective_piece');
+            ->sum('available_quantity');
+    }
+
+    public function getItemIncomingQuantityForCreate(int $warehouseId, int $itemId): int
+    {
+        return (int) (DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->where('warehouse_id', $warehouseId)
+            ->where('item_id', $itemId)
+            ->whereIn('status', ['PENDING', 'PARTIAL'])
+            ->selectRaw('SUM(expected_quantity - received_quantity) as total_incoming')
+            ->value('total_incoming') ?? 0);
     }
 
     protected function getHeaderActions(): array
@@ -160,14 +172,26 @@ class ListWmsStockTransferCandidates extends ListRecords
                         return;
                     }
 
-                    // バッチコード取得
-                    $pendingJob = WmsAutoOrderJobControl::findPendingSettlement();
-                    if ($pendingJob) {
-                        $batchCode = $pendingJob->batch_code;
+                    // 同日・同倉庫のPENDINGジョブを再利用、なければ新規作成
+                    $satelliteWarehouseId = $data['satellite_warehouse_id'];
+                    $existingJob = WmsAutoOrderJobControl::where('process_name', JobProcessName::ORDER_CALC)
+                        ->where('settlement_status', SettlementStatus::PENDING)
+                        ->where('warehouse_id', $satelliteWarehouseId)
+                        ->whereDate('started_at', today())
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if ($existingJob) {
+                        $batchCode = $existingJob->batch_code;
                     } else {
-                        $snapshotService = app(StockSnapshotService::class);
-                        $snapshotJob = $snapshotService->generateAll();
-                        $batchCode = $snapshotJob->batch_code;
+                        $newJob = WmsAutoOrderJobControl::startJob(
+                            processName: JobProcessName::ORDER_CALC,
+                            createdBy: auth()->id(),
+                            warehouseId: $satelliteWarehouseId,
+                            batchCode: WmsAutoOrderJobControl::generateBatchCode($satelliteWarehouseId),
+                        );
+                        $batchCode = $newJob->batch_code;
+                        $newJob->markAsSuccess(0);
                     }
 
                     $created = 0;
@@ -206,6 +230,11 @@ class ListWmsStockTransferCandidates extends ListRecords
                             continue;
                         }
 
+                        // 在庫・入荷予定数をリアルタイム取得
+                        $currentStock = $this->getItemStockForCreate($data['satellite_warehouse_id'], $itemId);
+                        $hubStock = $this->getItemStockForCreate($data['hub_warehouse_id'], $itemId);
+                        $incomingQty = $this->getItemIncomingQuantityForCreate($data['satellite_warehouse_id'], $itemId);
+
                         WmsStockTransferCandidate::create([
                             'batch_code' => $batchCode,
                             'satellite_warehouse_id' => $data['satellite_warehouse_id'],
@@ -217,6 +246,9 @@ class ListWmsStockTransferCandidates extends ListRecords
                             'delivery_course_id' => $data['delivery_course_id'] ?? null,
                             'suggested_quantity' => $quantity,
                             'transfer_quantity' => $quantity,
+                            'current_effective_stock' => $currentStock,
+                            'incoming_quantity' => $incomingQty,
+                            'hub_effective_stock' => $hubStock,
                             'expected_arrival_date' => $data['expected_arrival_date'],
                             'original_arrival_date' => $data['expected_arrival_date'],
                             'status' => CandidateStatus::PENDING,
@@ -233,8 +265,8 @@ class ListWmsStockTransferCandidates extends ListRecords
                             'calculation_type' => CalculationType::INTERNAL,
                             'contractor_id' => null,
                             'source_warehouse_id' => $data['hub_warehouse_id'],
-                            'current_effective_stock' => 0,
-                            'incoming_quantity' => 0,
+                            'current_effective_stock' => $currentStock,
+                            'incoming_quantity' => $incomingQty,
                             'safety_stock_setting' => 0,
                             'lead_time_days' => 1,
                             'calculated_shortage_qty' => $quantity,
@@ -359,26 +391,7 @@ class ListWmsStockTransferCandidates extends ListRecords
         if ($items->isNotEmpty()) {
             WmsStockTransferCandidate::preloadCalculationLogs($items);
 
-            // 移動元倉庫（hub）の在庫を一括プリロード（N+1対策）
-            $hubWarehouseIds = $items->pluck('hub_warehouse_id')->unique()->values()->toArray();
-            $itemIds = $items->pluck('item_id')->unique()->values()->toArray();
-
-            if (! empty($hubWarehouseIds) && ! empty($itemIds)) {
-                $hubStocks = DB::connection('sakemaru')
-                    ->table('wms_item_stock_snapshots')
-                    ->whereIn('warehouse_id', $hubWarehouseIds)
-                    ->whereIn('item_id', $itemIds)
-                    ->select('warehouse_id', 'item_id', 'total_effective_piece')
-                    ->get()
-                    ->keyBy(fn ($row) => "{$row->warehouse_id}_{$row->item_id}");
-
-                $items->each(function ($candidate) use ($hubStocks) {
-                    $key = "{$candidate->hub_warehouse_id}_{$candidate->item_id}";
-                    $candidate->hub_effective_stock = isset($hubStocks[$key])
-                        ? (int) $hubStocks[$key]->total_effective_piece
-                        : null;
-                });
-            }
+            // HUB倉庫在庫は候補レコードの hub_effective_stock カラムから表示（スナップショット不要）
         }
 
         return $paginator;

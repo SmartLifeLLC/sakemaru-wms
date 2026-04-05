@@ -1,9 +1,9 @@
 <div x-data="{
-    rows: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, itemId: null, itemCode: '', searchCode: '', itemName: '', searchQuery: '', quantity: 1, stock: null, showDropdown: false, searchResults: [], loading: false })),
+    rows: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, itemId: null, itemCode: '', searchCode: '', itemName: '', searchQuery: '', quantity: 1, stock: null, incomingQty: null, showDropdown: false, searchResults: [], loading: false })),
     nextId: 11,
 
     addRow() {
-        this.rows.push({ id: this.nextId++, itemId: null, itemCode: '', searchCode: '', itemName: '', searchQuery: '', quantity: 1, stock: null, showDropdown: false, searchResults: [], loading: false });
+        this.rows.push({ id: this.nextId++, itemId: null, itemCode: '', searchCode: '', itemName: '', searchQuery: '', quantity: 1, stock: null, incomingQty: null, showDropdown: false, searchResults: [], loading: false });
     },
 
     removeRow(index) {
@@ -39,12 +39,16 @@
         this.rows[index].showDropdown = false;
         this.rows[index].searchResults = [];
         this.syncToWire();
-        // 現在庫を取得（依頼倉庫のselect値をDOMから読み取る）
+        // 現在庫・入荷予定数を取得（依頼倉庫のselect値をDOMから読み取る）
         const whSelect = this.$root.closest('.fi-modal-content')?.querySelector('[wire\\:model\\.live\\.debounce\\.250ms]');
         const warehouseId = whSelect?.value || $wire.get('mountedActions.0.data.satellite_warehouse_id');
         if (warehouseId) {
-            const stock = await $wire.getItemStockForCreate(parseInt(warehouseId), item.id);
+            const [stock, incomingQty] = await Promise.all([
+                $wire.getItemStockForCreate(parseInt(warehouseId), item.id),
+                $wire.getItemIncomingQuantityForCreate(parseInt(warehouseId), item.id),
+            ]);
             this.rows[index].stock = stock;
+            this.rows[index].incomingQty = incomingQty;
         }
         // 次の空行がなければ自動追加
         const hasEmpty = this.rows.some(r => !r.itemId);
@@ -58,6 +62,7 @@
         this.rows[index].itemName = '';
         this.rows[index].searchQuery = '';
         this.rows[index].stock = null;
+        this.rows[index].incomingQty = null;
         this.syncToWire();
     },
 
@@ -82,6 +87,7 @@
                 <col style="width: 80px" />
                 <col />
                 <col style="width: 50px" />
+                <col style="width: 50px" />
                 <col style="width: 65px" />
                 <col style="width: 24px" />
             </colgroup>
@@ -91,6 +97,7 @@
                     <th class="px-2 py-1.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400">検索CD</th>
                     <th class="px-2 py-1.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品名</th>
                     <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">現在庫</th>
+                    <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入荷予定</th>
                     <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">発注数</th>
                     <th class="px-2 py-1.5"></th>
                 </tr>
@@ -147,6 +154,12 @@
                             <span class="text-xs font-mono"
                                 :class="row.stock !== null ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'"
                                 x-text="row.stock !== null ? Number(row.stock).toLocaleString() : '-'"></span>
+                        </td>
+                        {{-- 入荷予定 --}}
+                        <td class="px-1.5 py-1 text-right">
+                            <span class="text-xs font-mono"
+                                :class="row.incomingQty > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'"
+                                x-text="row.incomingQty !== null ? Number(row.incomingQty).toLocaleString() : '-'"></span>
                         </td>
                         {{-- 発注数 --}}
                         <td class="px-1.5 py-1">

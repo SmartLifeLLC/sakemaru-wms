@@ -4,8 +4,10 @@ namespace App\Filament\Resources\WmsOrderCandidates\Pages;
 
 use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\AutoOrder\OriginType;
+use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderCandidates\WmsOrderCandidateResource;
@@ -16,7 +18,6 @@ use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
-use App\Services\AutoOrder\StockSnapshotService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -86,10 +87,21 @@ class ListWmsOrderCandidates extends ListRecords
     public function getItemStockForOrderCreate(int $warehouseId, int $itemId): ?int
     {
         return (int) DB::connection('sakemaru')
-            ->table('wms_item_stock_snapshots')
+            ->table('wms_v_stock_available')
             ->where('warehouse_id', $warehouseId)
             ->where('item_id', $itemId)
-            ->value('total_effective_piece');
+            ->sum('available_quantity');
+    }
+
+    public function getItemIncomingQuantityForOrderCreate(int $warehouseId, int $itemId): int
+    {
+        return (int) (DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->where('warehouse_id', $warehouseId)
+            ->where('item_id', $itemId)
+            ->whereIn('status', ['PENDING', 'PARTIAL'])
+            ->selectRaw('SUM(expected_quantity - received_quantity) as total_incoming')
+            ->value('total_incoming') ?? 0);
     }
 
     public function mount(): void
@@ -174,14 +186,26 @@ class ListWmsOrderCandidates extends ListRecords
                         return;
                     }
 
-                    // バッチコード取得
-                    $pendingJob = WmsAutoOrderJobControl::findPendingSettlement();
-                    if ($pendingJob) {
-                        $batchCode = $pendingJob->batch_code;
+                    // 同日・同倉庫のPENDINGジョブを再利用、なければ新規作成
+                    $warehouseId = $data['warehouse_id'];
+                    $existingJob = WmsAutoOrderJobControl::where('process_name', JobProcessName::ORDER_CALC)
+                        ->where('settlement_status', SettlementStatus::PENDING)
+                        ->where('warehouse_id', $warehouseId)
+                        ->whereDate('started_at', today())
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if ($existingJob) {
+                        $batchCode = $existingJob->batch_code;
                     } else {
-                        $snapshotService = app(StockSnapshotService::class);
-                        $snapshotJob = $snapshotService->generateAll();
-                        $batchCode = $snapshotJob->batch_code;
+                        $newJob = WmsAutoOrderJobControl::startJob(
+                            processName: JobProcessName::ORDER_CALC,
+                            createdBy: auth()->id(),
+                            warehouseId: $warehouseId,
+                            batchCode: WmsAutoOrderJobControl::generateBatchCode($warehouseId),
+                        );
+                        $batchCode = $newJob->batch_code;
+                        $newJob->markAsSuccess(0);
                     }
 
                     // 入荷倉庫を特定（仮想倉庫対応）
@@ -239,6 +263,10 @@ class ListWmsOrderCandidates extends ListRecords
                         $supplierId = $itemContractor->supplier_id;
                         $purchaseUnitPrice = $item->current_price?->purchase_unit_price;
 
+                        // 在庫・入荷予定数をリアルタイム取得
+                        $currentStock = $this->getItemStockForOrderCreate($data['warehouse_id'], $itemId);
+                        $incomingQty = $this->getItemIncomingQuantityForOrderCreate($incomingWarehouseId, $itemId);
+
                         WmsOrderCandidate::create([
                             'batch_code' => $batchCode,
                             'warehouse_id' => $data['warehouse_id'],
@@ -249,6 +277,8 @@ class ListWmsOrderCandidates extends ListRecords
                             'contractor_id' => $itemContractor->contractor_id,
                             'supplier_id' => $supplierId,
                             'purchase_unit_price' => $purchaseUnitPrice,
+                            'current_effective_stock' => $currentStock,
+                            'incoming_quantity' => $incomingQty,
                             'self_shortage_qty' => 0,
                             'satellite_demand_qty' => 0,
                             'suggested_quantity' => $orderQuantity,
@@ -271,8 +301,8 @@ class ListWmsOrderCandidates extends ListRecords
                             'calculation_type' => CalculationType::EXTERNAL,
                             'contractor_id' => $itemContractor->contractor_id,
                             'source_warehouse_id' => null,
-                            'current_effective_stock' => 0,
-                            'incoming_quantity' => 0,
+                            'current_effective_stock' => $currentStock,
+                            'incoming_quantity' => $incomingQty,
                             'safety_stock_setting' => 0,
                             'lead_time_days' => 0,
                             'calculated_shortage_qty' => $orderQuantity,

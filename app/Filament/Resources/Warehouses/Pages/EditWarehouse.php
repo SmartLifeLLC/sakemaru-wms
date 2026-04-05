@@ -27,6 +27,13 @@ class EditWarehouse extends EditRecord
         return $data;
     }
 
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        unset($data['auto_order_enabled'], $data['confirmation_level']);
+
+        return $data;
+    }
+
     protected function afterSave(): void
     {
         WmsWarehouseAutoOrderSetting::updateOrCreate(

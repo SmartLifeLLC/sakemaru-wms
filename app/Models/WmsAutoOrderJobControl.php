@@ -57,10 +57,16 @@ class WmsAutoOrderJobControl extends WmsModel
 
     /**
      * 新しいバッチコードを生成
+     * フォーマット: YmdHis + 倉庫ID3桁ゼロ埋め（全体実行時は000）
      */
-    public static function generateBatchCode(): string
+    public static function generateBatchCode(?int $warehouseId = null): string
     {
-        return now()->format('YmdHis');
+        $base = now()->format('YmdHis');
+        $suffix = $warehouseId
+            ? str_pad((string) $warehouseId, 3, '0', STR_PAD_LEFT)
+            : '000';
+
+        return $base . $suffix;
     }
 
     /**
@@ -70,25 +76,22 @@ class WmsAutoOrderJobControl extends WmsModel
      * @param  array|null  $scope  対象スコープ
      * @param  string|null  $batchCode  バッチコード（指定がなければ自動生成）
      * @param  SettlementStatus  $settlementStatus  確定状態（デフォルト: PENDING）
-     * @param  int|null  $snapshotJobId  参照する在庫スナップショットのjob_id
      */
     public static function startJob(
         JobProcessName $processName,
         ?array $scope = null,
         ?string $batchCode = null,
         SettlementStatus $settlementStatus = SettlementStatus::PENDING,
-        ?int $snapshotJobId = null,
         ?int $createdBy = null,
         ?int $warehouseId = null
     ): self {
         return self::create([
             'process_name' => $processName,
-            'batch_code' => $batchCode ?? self::generateBatchCode(),
+            'batch_code' => $batchCode ?? self::generateBatchCode($warehouseId),
             'status' => JobStatus::RUNNING,
             'settlement_status' => $settlementStatus,
             'created_by' => $createdBy,
             'warehouse_id' => $warehouseId,
-            'snapshot_job_id' => $snapshotJobId,
             'started_at' => now(),
             'target_scope' => $scope,
         ]);
@@ -195,7 +198,20 @@ class WmsAutoOrderJobControl extends WmsModel
     public static function findPendingSettlement(): ?self
     {
         return self::where('settlement_status', SettlementStatus::PENDING)
-            ->whereIn('process_name', [JobProcessName::STOCK_SNAPSHOT, JobProcessName::ORDER_CALC])
+            ->where('process_name', JobProcessName::ORDER_CALC)
+            ->orderBy('id', 'desc')
+            ->first();
+    }
+
+    /**
+     * 指定倉庫の当日の確定待ち（PENDING）ジョブを取得（batch_code再利用用）
+     */
+    public static function findPendingSettlementForWarehouse(int $warehouseId): ?self
+    {
+        return self::where('settlement_status', SettlementStatus::PENDING)
+            ->where('process_name', JobProcessName::ORDER_CALC)
+            ->where('warehouse_id', $warehouseId)
+            ->whereDate('started_at', today())
             ->orderBy('id', 'desc')
             ->first();
     }
@@ -206,7 +222,7 @@ class WmsAutoOrderJobControl extends WmsModel
     public static function hasPendingSettlement(): bool
     {
         return self::where('settlement_status', SettlementStatus::PENDING)
-            ->whereIn('process_name', [JobProcessName::STOCK_SNAPSHOT, JobProcessName::ORDER_CALC])
+            ->where('process_name', JobProcessName::ORDER_CALC)
             ->exists();
     }
 

@@ -15,10 +15,19 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WarehouseResource extends Resource
 {
     protected static ?string $model = Warehouse::class;
+
+    public static function getEloquentQuery(): Builder
+    {
+        $model = new Warehouse;
+        $model->onOffIsActive(false);
+
+        return $model->newQuery();
+    }
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingStorefront;
 

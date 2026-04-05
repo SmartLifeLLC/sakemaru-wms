@@ -39,7 +39,7 @@ class WmsOrderConfirmedTable
                     ->label('実行時刻')
                     ->state(function ($record) {
                         try {
-                            return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)
+                            return \Carbon\Carbon::createFromFormat('YmdHis', substr($record->batch_code, 0, 14))
                                 ->format('m月d日 H時i分');
                         } catch (\Exception $e) {
                             return '-';
@@ -193,7 +193,7 @@ class WmsOrderConfirmedTable
                                 ->schema([
                                     View::make('filament.components.order-confirmed-detail-left')
                                         ->viewData([
-                                            'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('Y/m/d H:i'),
+                                            'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', substr($record->batch_code, 0, 14))->format('Y/m/d H:i'),
                                             'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
                                             'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
                                             'itemCode' => $item?->code ?? '-',
