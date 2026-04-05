@@ -34,7 +34,6 @@ use App\Filament\Resources\WmsExportLogs\Pages\ListWmsExportLogs;
 use App\Filament\Resources\WmsImportLogs\Pages\ListWmsImportLogs;
 use App\Filament\Resources\WmsIncomingCompleted\Pages\ListWmsIncomingCompleted;
 use App\Filament\Resources\WmsIncomingTransmitted\Pages\ListWmsIncomingTransmitted;
-use App\Filament\Resources\WmsItemStockSnapshots\Pages\ListWmsItemStockSnapshots;
 use App\Filament\Resources\WmsJxTransmissionLogResource\Pages\ListWmsJxTransmissionLogs;
 use App\Filament\Resources\WmsMonthlySafetyStocks\Pages\ListWmsMonthlySafetyStocks;
 use App\Filament\Resources\WmsOrderCandidates\Pages\ListWmsOrderCandidates;
@@ -143,7 +142,6 @@ class AllPagesAccessibilityTest extends TestCase
             'TP24: ListWmsOrderDocuments' => [ListWmsOrderDocuments::class],
             'TP25: ListWmsJxTransmissionLogs' => [ListWmsJxTransmissionLogs::class],
             'TP26: ListRealStocks' => [ListRealStocks::class],
-            'TP27: ListWmsItemStockSnapshots' => [ListWmsItemStockSnapshots::class],
             'TP28: ListExpirationAlerts' => [ListExpirationAlerts::class],
             'TP29: ListWarehouses' => [ListWarehouses::class],
             'TP30: ListLocations' => [ListLocations::class],

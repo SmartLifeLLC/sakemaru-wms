@@ -158,15 +158,6 @@
                         </div>
                     </div>
                 </div>
-                <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-                    <div class="flex items-center justify-between mb-3">
-                        <h3 class="font-bold text-sm flex items-center gap-2">
-                            <x-heroicon-o-camera class="w-4 h-4 text-indigo-500" />在庫スナップショット
-                        </h3>
-                        <a href="{{ route('filament.admin.resources.wms-item-stock-snapshots.index') }}" class="text-xs text-blue-600 hover:underline">画面を開く →</a>
-                    </div>
-                    <p class="text-xs text-gray-600 dark:text-gray-400">候補計算時に取得した在庫データを確認。実行CDフィルタで絞り込み可能。</p>
-                </div>
             </div>
 
             {{-- 移動候補 --}}

@@ -63,6 +63,9 @@ class ListWmsAutoOrderJobControls extends ListRecords
     // アクティブジョブ検知
     public ?array $stuckJob = null;
 
+    // 表示基準日
+    public string $filterDate = '';
+
     // 仕入先選択
     public array $selectedContractorIds = [];
 
@@ -70,6 +73,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
     public function mount(): void
     {
+        $this->filterDate = \App\Models\Sakemaru\ClientSetting::systemDateYMD();
         parent::mount();
         // ページ表示時にカウントを取得
         $this->pendingCount = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
@@ -80,6 +84,27 @@ class ListWmsAutoOrderJobControls extends ListRecords
         // 仕入先データをページロード時に取得
         $this->contractorsData = $this->getContractorsForWarehouse();
         $this->selectedContractorIds = collect($this->contractorsData)->pluck('id')->values()->toArray();
+    }
+
+    #[\Livewire\Attributes\On('filter-date-updated')]
+    public function onFilterDateUpdated(string $filterDate): void
+    {
+        $this->filterDate = $filterDate;
+        $this->resetTable();
+    }
+
+    public function table(\Filament\Tables\Table $table): \Filament\Tables\Table
+    {
+        return parent::table($table)
+            ->modifyQueryUsing(fn (\Illuminate\Database\Eloquent\Builder $query) => $query->whereDate('started_at', $this->filterDate));
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            \App\Filament\Widgets\DateFilterWidget::class,
+            \App\Filament\Widgets\OrderStatusWidget::class,
+        ];
     }
 
     protected function getHeaderActions(): array
@@ -105,24 +130,74 @@ class ListWmsAutoOrderJobControls extends ListRecords
         $selectedWarehouse = $selectedWarehouseId ? Warehouse::find($selectedWarehouseId) : null;
         $selectedWarehouseName = $selectedWarehouse?->name ?? '未選択';
 
+        // HUB倉庫判定 + サテライト未発注NOTICE
+        $satelliteNotice = '';
+        if ($selectedWarehouseId) {
+            $isHub = WmsContractorSetting::where('transmission_type', 'INTERNAL')
+                ->where('supply_warehouse_id', $selectedWarehouseId)
+                ->exists();
+
+            if ($isHub) {
+                $hubWarehouseIds = WmsContractorSetting::where('transmission_type', 'INTERNAL')
+                    ->whereNotNull('supply_warehouse_id')
+                    ->distinct()
+                    ->pluck('supply_warehouse_id')
+                    ->toArray();
+
+                $satelliteWarehouseIds = WmsWarehouseAutoOrderSetting::where('is_auto_order_enabled', true)
+                    ->whereNotIn('warehouse_id', $hubWarehouseIds)
+                    ->pluck('warehouse_id')
+                    ->toArray();
+
+                // 当日の確定済みジョブの倉庫IDを取得
+                $confirmedWarehouseIds = WmsAutoOrderJobControl::where('process_name', 'ORDER_CALC')
+                    ->whereDate('started_at', today())
+                    ->where('settlement_status', 'CONFIRMED')
+                    ->whereNotNull('warehouse_id')
+                    ->pluck('warehouse_id')
+                    ->toArray();
+
+                $unconfirmedWarehouses = Warehouse::whereIn('id', $satelliteWarehouseIds)
+                    ->whereNotIn('id', $confirmedWarehouseIds)
+                    ->orderBy('code')
+                    ->pluck('name')
+                    ->toArray();
+
+                if (! empty($unconfirmedWarehouses)) {
+                    $satelliteNotice = 'サテライト倉庫の発注が未完了です。サテライト倉庫の発注完了後にHUB倉庫の発注を行うことを推奨します。';
+                }
+            }
+        }
+
+        $baseDescription = $selectedWarehouse
+            ? "倉庫「{$selectedWarehouseName}」の発注・移動候補を生成します。対象の仕入先を選択してください。"
+            : '倉庫が選択されていません。トップバーから倉庫を選択してください。';
+
         return Action::make('generateByWarehouse')
             ->label('発注・移動候補生成')
             ->icon('heroicon-o-building-storefront')
             ->color('warning')
             ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
             ->modalHeading("発注・移動候補生成（{$selectedWarehouseName}）")
-            ->modalDescription($selectedWarehouse
-                ? "倉庫「{$selectedWarehouseName}」の発注・移動候補を生成します。対象の仕入先を選択してください。"
-                : '倉庫が選択されていません。トップバーから倉庫を選択してください。')
+            ->modalDescription($baseDescription)
             ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
             ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('生成開始')->color('danger'))
             ->modalCancelActionLabel('発注せず閉じる')
             ->disabled(! $selectedWarehouse)
-            ->schema([
+            ->schema(array_filter([
+                $satelliteNotice
+                    ? \Filament\Forms\Components\Placeholder::make('satellite_notice')
+                        ->hiddenLabel()
+                        ->content(new \Illuminate\Support\HtmlString(
+                            '<div class="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:border-red-800 dark:text-red-300">'
+                            . e($satelliteNotice)
+                            . '</div>'
+                        ))
+                    : null,
                 ViewField::make('contractor_selector')
                     ->view('filament.components.contractor-selection')
                     ->hiddenLabel(),
-            ])
+            ]))
             ->action(function () use ($selectedWarehouseId, $selectedWarehouseName) {
                 $warehouseId = $selectedWarehouseId;
                 $warehouseName = $selectedWarehouseName;
@@ -430,7 +505,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->get()
             ->map(fn ($c) => [
                 'id' => $c->id,
-                'code' => $c->code,
+                'code' => (string) $c->code,
                 'name' => $c->name,
                 'transmission_type' => $c->transmission_type ?? 'UNKNOWN',
                 'transmission_type_label' => $c->transmission_type
@@ -634,13 +709,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
     {
         $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
-        // データが存在する倉庫のみ取得
-        $warehouseIds = WmsAutoOrderJobControl::whereNotNull('warehouse_id')
-            ->distinct()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        $warehouses = Warehouse::whereIn('id', $warehouseIds)
+        // トップメニューと同じ在庫拠点倉庫（is_active=true, is_virtual=false）
+        $warehouses = Warehouse::where('is_virtual', false)
             ->orderBy('code')
             ->get(['id', 'name']);
 

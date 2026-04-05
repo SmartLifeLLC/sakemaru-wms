@@ -3,6 +3,8 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Widgets\DashboardShortageAllocationsWidget;
+use App\Filament\Widgets\DateFilterWidget;
+use App\Filament\Widgets\OrderStatusWidget;
 use BackedEnum;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -15,7 +17,7 @@ class Dashboard extends Page
 
     protected static ?string $navigationLabel = 'ダッシュボード';
 
-    protected static ?string $title = 'ダッシュボード';
+    protected static ?string $title = '';
 
     protected static ?string $slug = '/';
 
@@ -29,7 +31,9 @@ class Dashboard extends Page
     protected function getHeaderWidgets(): array
     {
         return [
+            DateFilterWidget::class,
             DashboardShortageAllocationsWidget::class,
+            OrderStatusWidget::class,
         ];
     }
 

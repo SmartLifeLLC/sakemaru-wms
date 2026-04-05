@@ -54,6 +54,14 @@ class WmsAutoOrderJobControlResource extends Resource
         return WmsAutoOrderJobControlsTable::configure($table);
     }
 
+    public static function getWidgets(): array
+    {
+        return [
+            \App\Filament\Widgets\DateFilterWidget::class,
+            \App\Filament\Widgets\OrderStatusWidget::class,
+        ];
+    }
+
     public static function getRelations(): array
     {
         return [

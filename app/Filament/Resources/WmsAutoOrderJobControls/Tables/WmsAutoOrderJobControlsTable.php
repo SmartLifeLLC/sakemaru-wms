@@ -90,24 +90,6 @@ class WmsAutoOrderJobControlsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                Filter::make('started_date')
-                    ->label('実行日')
-                    ->form([
-                        DatePicker::make('started_date')
-                            ->label('実行日')
-                            ->default(ClientSetting::systemDateYMD()),
-                    ])
-                    ->query(fn (Builder $query, array $data) => $query
-                        ->when($data['started_date'], fn (Builder $q, $date) => $q->whereDate('started_at', $date))
-                    )
-                    ->indicateUsing(function (array $data): ?string {
-                        if (! $data['started_date']) {
-                            return null;
-                        }
-
-                        return '実行日: '.\Carbon\Carbon::parse($data['started_date'])->format('Y年m月d日');
-                    }),
-
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(fn () => collect(JobStatus::cases())

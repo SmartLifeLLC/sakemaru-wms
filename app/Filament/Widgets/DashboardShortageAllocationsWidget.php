@@ -7,6 +7,7 @@ use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortageAllocation;
 use Filament\Widgets\Widget;
+use Livewire\Attributes\On;
 
 class DashboardShortageAllocationsWidget extends Widget
 {
@@ -27,8 +28,16 @@ class DashboardShortageAllocationsWidget extends Widget
     public function mount(): void
     {
         $this->filterDate = ClientSetting::systemDateYMD();
-        $this->defaultWarehouseId = auth()->user()?->default_warehouse_id;
+        $this->defaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
+        $this->loadWarehouses();
+        $this->loadAllocations();
+    }
+
+    #[On('filter-date-updated')]
+    public function onFilterDateUpdated(string $filterDate): void
+    {
+        $this->filterDate = $filterDate;
         $this->loadWarehouses();
         $this->loadAllocations();
     }
@@ -68,12 +77,6 @@ class DashboardShortageAllocationsWidget extends Widget
     public function setWarehouse(string $warehouseId): void
     {
         $this->activeWarehouse = $warehouseId;
-        $this->loadAllocations();
-    }
-
-    public function updatedFilterDate(): void
-    {
-        $this->loadWarehouses();
         $this->loadAllocations();
     }
 

@@ -86,6 +86,47 @@ This WMS system integrates with a core business system (基幹システム) by:
 - **Vite** (Asset bundling)
 - **MySQL** (Production database via `sakemaru` connection)
 
+### Tailwind CSS 4 の注意事項
+
+**Tailwind CSS 4.x** を使用（`@tailwindcss/vite` プラグイン経由）。v3 とは設定方法が大きく異なる。
+
+#### 動的クラスの safelist
+
+Blade 内の PHP `match()` / 三項演算子で生成されるクラスは Tailwind のスキャナが検出できない場合がある。
+
+```css
+/* ❌ v3の方法 — Tailwind CSS 4 では廃止・無効 */
+/* tailwind.config.js の safelist は読み込まれない */
+
+/* ✅ v4の正しい方法 — @source inline() を CSS に記述 */
+@source inline("bg-green-100 bg-orange-50 text-green-700 border-orange-300 dark:bg-green-900");
+```
+
+- `@source inline("...")` は **1行で記述**（改行するとパースエラー）
+- 記述場所: `resources/css/filament/admin/theme.css`（Filament テーマ用）
+- `dark:` バリアントも明示的に含める必要がある
+
+#### Livewire と配列キーの型
+
+Livewire 3 は public array プロパティの **int 型キーを string に変換**する（JSONシリアライズ時）。Blade でアクセスする際は `(string)` キャストが必要:
+
+```php
+// Widget 側: キーを string で統一
+$this->data[(string) $id] = 'value';
+
+// Blade 側: string でアクセス
+$status = $data[(string) $item['id']] ?? 'default';
+```
+
+#### ビルドコマンド
+
+```bash
+npm run build    # Vite 本番ビルド（Tailwind CSS も含む）
+npm run dev      # Vite dev サーバー（HMR）
+```
+
+---
+
 ## Development Commands
 
 ```bash
@@ -252,6 +293,126 @@ Action::make('viewResult')
             ]),
     ]);
 ```
+
+### モーダルデザインルール
+
+新規モーダル作成時は `storage/specifications/20260311/modal-design/spec.md` を必ず参照。
+
+**共通Bladeコンポーネント** (`resources/views/components/modal/`):
+- `container.blade.php` — サイズ指定（sm〜7xl）、Alpine.js制御、backdrop + transition
+- `header.blade.php` — アイコン + タイトル + 閉じるボタン、`bg-slate-50`
+- `content.blade.php` — スクロール可能コンテンツ領域
+- `footer.blade.php` — ボタン配置（justify: end）、`bg-slate-50`
+- `form-group.blade.php` — ラベル付きフォームグループ
+- `confirm.blade.php` — 確認ダイアログ（red/orange/blue）
+
+**Filament Action モーダル**:
+```php
+// 詳細モーダルの標準パターン
+Action::make('viewDetail')
+    ->modalWidth('5xl')                    // 詳細系は5xl統一
+    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+    ->modalSubmitAction(false)
+    ->modalCancelActionLabel('閉じる')      // 閉じるのみ
+    ->infolist(fn ($record) => [...]);
+
+// フォーム付きモーダル（発注生成等）
+Action::make('generate')
+    ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
+    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('生成開始')->color('danger'))
+    ->modalCancelActionLabel('発注せず閉じる')
+    ->schema([...]);
+```
+
+---
+
+### テーブルデザインルール
+
+詳細は `storage/specifications/table-design-specification.md` を参照。
+
+**カラム命名規則**:
+- コード系ラベルは「CD」表記: 商品CD、倉庫CD、仕入先CD
+- コードと名前は別カラムに分離（結合しない）
+- 商品名は `->grow()` で全体表示、`->wrap()` 禁止
+- 日付は24時間表記: `->date('m/d H:i')`
+
+**フィルター表示**: `[コード]名前` 形式、コードでも検索可能
+```php
+// HasOptimizedFilters トレイトを使用
+->getOptionLabelFromRecordUsing(fn ($record) => "[{$record->code}]{$record->name}")
+->getSearchResultsUsing(fn (string $search) => /* mb_convert_kana($search, 'as') で全角→半角変換 */)
+```
+
+---
+
+### 操作列の固定（sticky-actions）
+
+テーブルの操作列（アクションボタン）は右固定が標準。CSSは `resources/css/filament/admin/theme.css` で定義。
+
+```php
+// テーブルに適用（全テーブル共通）
+$table->extraAttributes(['class' => 'sticky-actions'])
+
+// 左固定が必要な場合（ピッキングタスク等）
+$table->extraAttributes(['class' => 'sticky-actions-left'])
+```
+
+**CSS仕様**:
+- `.sticky-actions` — 最終列を `position: sticky; right: 0` で固定、z-index管理
+- `.sticky-actions-left` — 先頭列を左固定
+- ストライプ背景色: light `#f5f9ff` / `#ffffff`、dark `#1e2a3b` / `#111827`
+- `::before` 左ボーダー（2px gray）で視覚的区切り
+
+---
+
+### クエリ最適化パターン
+
+**OOM回避**: `result_data` 等の巨大JSONカラムがあるテーブルでは `select *` + `ORDER BY` でソートバッファOOMが発生する。PKインデックスを利用した `orderBy('id', 'desc')` を使用。
+
+**Eager Loading**: Resource の `getEloquentQuery()` で必要なリレーションのみ `->with()`:
+```php
+public static function getEloquentQuery(): Builder
+{
+    return parent::getEloquentQuery()
+        ->with(['createdByUser', 'warehouse']);  // 必要最小限
+}
+```
+
+**サブクエリ集計**: `HasStockSubqueries` トレイト（`app/Filament/Concerns/`）
+```php
+// selectRaw + whereColumn で在庫集計
+$subquery = DB::connection('sakemaru')->table('real_stocks')
+    ->selectRaw('COALESCE(SUM(quantity), 0)')
+    ->whereColumn('item_id', "{$mainTable}.item_id");
+```
+
+**フィルター最適化**: `HasOptimizedFilters` トレイト（`app/Filament/Concerns/`）
+- `warehouseFilter()` — 倉庫選択フィルタ（コード/名前検索対応）
+- `contractorFilter()` — 仕入先複数選択フィルタ
+- `batchCodeFilter()` — バッチコード選択（`limit(50)` で制限）
+- `statusFilter()` — Enum ベースのステータスフィルタ
+
+---
+
+### 共通トレイト（`app/Filament/Concerns/`）
+
+| トレイト | 用途 |
+|---------|------|
+| `HasExportAction` | CSV/XLSXエクスポート。`toolbarActions([static::getExportAction()])` で全テーブル共通 |
+| `HasOptimizedFilters` | 再利用可能なフィルタビルダー。全角→半角変換、`[CD]名前` 表示 |
+| `HasStockSubqueries` | 在庫集計サブクエリ（current/available/defaultLocation） |
+| `HasWmsUserViews` | AdvancedTables プラグイン統合。ユーザービュー管理 |
+
+**トレイト競合解決**:
+```php
+use AdvancedTables;
+use HasWmsUserViews {
+    HasWmsUserViews::getUserViews insteadof AdvancedTables;
+    HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
+}
+```
+
+---
 
 ### Stock Allocation Strategy
 

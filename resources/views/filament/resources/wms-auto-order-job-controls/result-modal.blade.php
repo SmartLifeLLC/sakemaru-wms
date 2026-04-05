@@ -1,42 +1,4 @@
 <div class="space-y-4">
-    @php
-        $isSnapshot = ($record->process_name ?? null)?->value === 'STOCK_SNAPSHOT';
-    @endphp
-
-    @if ($isSnapshot)
-        {{-- 在庫スナップショット結果 --}}
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <div class="p-3 bg-slate-50 dark:bg-gray-900 rounded-lg border border-slate-200 dark:border-gray-700">
-                <div class="text-2xl font-bold text-primary-600 dark:text-primary-400">{{ number_format($record->processed_records ?? 0) }}</div>
-                <div class="text-xs text-slate-500 dark:text-gray-400">スナップショット件数</div>
-            </div>
-            <div class="p-3 bg-slate-50 dark:bg-gray-900 rounded-lg border border-slate-200 dark:border-gray-700">
-                <div class="text-2xl font-bold text-slate-800 dark:text-white">{{ $record->started_at?->format('Y-m-d H:i:s') ?? '-' }}</div>
-                <div class="text-xs text-slate-500 dark:text-gray-400">開始日時</div>
-            </div>
-            <div class="p-3 bg-slate-50 dark:bg-gray-900 rounded-lg border border-slate-200 dark:border-gray-700">
-                <div class="text-2xl font-bold text-slate-800 dark:text-white">{{ $record->finished_at?->format('Y-m-d H:i:s') ?? '-' }}</div>
-                <div class="text-xs text-slate-500 dark:text-gray-400">終了日時</div>
-            </div>
-        </div>
-
-        {{-- スナップショット一覧へのリンク --}}
-        <div class="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-            <div class="flex items-center justify-between">
-                <div>
-                    <div class="font-medium text-blue-800 dark:text-blue-200">在庫スナップショット一覧</div>
-                    <div class="text-sm text-blue-600 dark:text-blue-400">このジョブで生成されたスナップショットを確認できます</div>
-                </div>
-                <a
-                    href="{{ route('filament.admin.resources.wms-item-stock-snapshots.index', ['tableFilters' => ['job_control_id' => ['value' => $record->id]]]) }}"
-                    class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
-                >
-                    <x-heroicon-o-arrow-top-right-on-square class="w-4 h-4" />
-                    スナップショットを見る
-                </a>
-            </div>
-        </div>
-    @else
         {{-- 発注・移動候補生成結果 --}}
         {{-- サマリーカード --}}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -223,5 +185,4 @@
                 生成日時: {{ \Carbon\Carbon::parse($result['generated_at'])->format('Y-m-d H:i:s') }}
             </div>
         @endif
-    @endif
 </div>

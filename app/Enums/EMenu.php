@@ -46,9 +46,6 @@ enum EMenu: string
     case WMS_ORDER_DATA_FILES = 'order_history.wms_order_data_files';
     case WMS_ORDER_DOCUMENTS = 'order_history.wms_order_documents';
 
-    // 発注解説
-    case WMS_ITEM_STOCK_SNAPSHOTS = 'order_settings.wms_item_stock_snapshots';
-
     // 在庫管理
     case REAL_STOCKS = 'inventory.real_stocks';
     case EXPIRATION_ALERTS = 'inventory.expiration_alerts';
@@ -128,8 +125,6 @@ enum EMenu: string
             self::WMS_ORDER_CONFIRMED,
             self::WMS_ORDER_DATA_FILES,
             self::WMS_ORDER_DOCUMENTS => EMenuCategory::ORDER_HISTORY,
-
-            self::WMS_ITEM_STOCK_SNAPSHOTS => EMenuCategory::ORDER_SETTINGS,
 
             self::REAL_STOCKS,
             self::EXPIRATION_ALERTS => EMenuCategory::INVENTORY,
@@ -214,8 +209,6 @@ enum EMenu: string
             self::WMS_AUTO_ORDER_JOBS => '発注・移動候補生成',
             self::WMS_ORDER_DOCUMENTS => 'JX送信ファイル',
 
-            self::WMS_ITEM_STOCK_SNAPSHOTS => '在庫スナップショット',
-
             self::REAL_STOCKS => '在庫管理',
             self::EXPIRATION_ALERTS => '賞味期限管理',
 
@@ -292,8 +285,6 @@ enum EMenu: string
             self::WMS_ORDER_DATA_FILES => 'heroicon-o-document-text',
             self::WMS_AUTO_ORDER_JOBS => 'heroicon-o-queue-list',
             self::WMS_ORDER_DOCUMENTS => 'heroicon-o-document-arrow-down',
-
-            self::WMS_ITEM_STOCK_SNAPSHOTS => 'heroicon-o-camera',
 
             self::REAL_STOCKS => 'heroicon-o-cube-transparent',
             self::EXPIRATION_ALERTS => 'heroicon-o-clock',
@@ -375,9 +366,6 @@ enum EMenu: string
             self::WMS_ORDER_CONFIRMED => 1,
             self::WMS_ORDER_DATA_FILES => 2,
             self::WMS_ORDER_DOCUMENTS => 3,
-
-            // 発注解説
-            self::WMS_ITEM_STOCK_SNAPSHOTS => 1,
 
             // 在庫管理
             self::REAL_STOCKS => 1,

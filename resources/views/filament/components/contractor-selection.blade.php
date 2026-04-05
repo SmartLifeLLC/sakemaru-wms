@@ -21,7 +21,7 @@
         if (!this.searchQuery) return this.allContractors;
         const q = this.searchQuery.toLowerCase();
         return this.allContractors.filter(c =>
-            c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
+            String(c.code).toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
         );
     },
 
