@@ -55,6 +55,9 @@ class OrangeWarehouseSeeder extends Seeder
         // Step 6: wms_warehouse_auto_order_settings
         $this->createAutoOrderSetting($orangeWarehouse->id);
 
+        // Step 7: 配送コース＆倉庫間移動配送コース設定
+        $this->createDeliveryCoursesAndMappings($orangeWarehouse->id);
+
         $this->command->info('オレンジ冷凍倉庫セットアップが完了しました');
     }
 
@@ -185,6 +188,83 @@ class OrangeWarehouseSeeder extends Seeder
         } else {
             $this->command->warn('  [WARN] contractor_id=1497 の wms_contractor_settings が見つかりません');
         }
+    }
+
+    /**
+     * 倉庫101用の配送コースを作成し、倉庫間移動配送コース設定に紐づける
+     *
+     * 倉庫91のパターン（919201=本店, 919202=二の宮店...）に倣い、
+     * 倉庫101用コード（10190XX）で各サテライト倉庫への配送コースを作成
+     */
+    private function createDeliveryCoursesAndMappings(int $orangeWarehouseId): void
+    {
+        $conn = DB::connection('sakemaru');
+
+        // 倉庫91の既存マッピングを参照して、同じサテライト倉庫に対して101用を作成
+        $existingMappings = $conn->table('warehouse_stock_transfer_delivery_courses as wstdc')
+            ->join('delivery_courses as dc', 'wstdc.delivery_course_id', '=', 'dc.id')
+            ->join('warehouses as tw', 'wstdc.to_warehouse_id', '=', 'tw.id')
+            ->where('wstdc.from_warehouse_id', 91)
+            ->select('wstdc.to_warehouse_id', 'tw.code as to_warehouse_code', 'tw.name as to_warehouse_name', 'dc.code as base_course_code', 'wstdc.picking_lead_days')
+            ->get();
+
+        if ($existingMappings->isEmpty()) {
+            $this->command->warn('  [WARN] 倉庫91の移動配送コース設定が見つかりません');
+
+            return;
+        }
+
+        $now = now();
+        $created = 0;
+
+        foreach ($existingMappings as $mapping) {
+            // コース命名規則: 101 + 倉庫91コースの下4桁（例: 919201 → 1019201）
+            $newCourseCode = (int) ('101'.substr((string) $mapping->base_course_code, -4));
+            $newCourseName = '[オレンジ]店舗（'.$mapping->to_warehouse_name.'）';
+
+            // 配送コースが既に存在するかチェック
+            $existingCourse = $conn->table('delivery_courses')
+                ->where('code', $newCourseCode)
+                ->where('warehouse_id', $orangeWarehouseId)
+                ->first();
+
+            if ($existingCourse) {
+                $courseId = $existingCourse->id;
+            } else {
+                $courseId = $conn->table('delivery_courses')->insertGetId([
+                    'client_id' => 6,
+                    'code' => $newCourseCode,
+                    'name' => $newCourseName,
+                    'warehouse_id' => $orangeWarehouseId,
+                    'is_active' => true,
+                    'creator_id' => 0,
+                    'last_updater_id' => 0,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+                $this->command->info("  [OK] 配送コース作成: code={$newCourseCode}, name={$newCourseName}");
+            }
+
+            // 倉庫間移動配送コース設定をupsert
+            $conn->table('warehouse_stock_transfer_delivery_courses')->upsert(
+                [
+                    'from_warehouse_id' => $orangeWarehouseId,
+                    'to_warehouse_id' => $mapping->to_warehouse_id,
+                    'delivery_course_id' => $courseId,
+                    'picking_lead_days' => $mapping->picking_lead_days,
+                    'creator_id' => 0,
+                    'last_updater_id' => 0,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ],
+                ['from_warehouse_id', 'to_warehouse_id'],
+                ['delivery_course_id', 'last_updater_id', 'updated_at']
+            );
+
+            $created++;
+        }
+
+        $this->command->info("  [OK] 配送コース＆マッピング: {$created}件作成/更新");
     }
 
     private function createAutoOrderSetting(int $orangeWarehouseId): void

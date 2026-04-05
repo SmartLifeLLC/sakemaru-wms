@@ -8,6 +8,11 @@
                     class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">
                     <x-heroicon-o-information-circle class="w-4 h-4 inline-block mr-1 -mt-0.5" />概要
                 </button>
+                <button @click="activeTab = 'flow'" type="button"
+                    :class="activeTab === 'flow' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400'"
+                    class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">
+                    <x-heroicon-o-clock class="w-4 h-4 inline-block mr-1 -mt-0.5" />発注の流れ
+                </button>
                 <button @click="activeTab = 'menus'" type="button"
                     :class="activeTab === 'menus' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400'"
                     class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">
@@ -31,12 +36,11 @@
                     </h3>
                     <div class="space-y-2 text-xs">
                         @foreach([
-                            ['1', '在庫スナップショット', 'blue'],
-                            ['2', '候補計算', 'blue'],
-                            ['3', '移動候補 確認・承認', 'cyan'],
-                            ['4', '発注候補 確認・承認', 'green'],
-                            ['5', '発注・移動確定', 'orange'],
-                            ['6', 'JX送信', 'purple'],
+                            ['1', '候補計算', 'blue'],
+                            ['2', '移動候補 確認・承認', 'cyan'],
+                            ['3', '発注候補 確認・承認', 'green'],
+                            ['4', '発注・移動確定', 'orange'],
+                            ['5', 'JX送信', 'purple'],
                         ] as [$num, $label, $color])
                         <div class="flex items-center gap-2 p-2 bg-{{ $color }}-50 dark:bg-{{ $color }}-900/20 rounded">
                             <span class="w-5 h-5 rounded-full bg-{{ $color }}-500 text-white flex items-center justify-center text-xs font-bold">{{ $num }}</span>
@@ -115,6 +119,291 @@
                     {{ $label }}
                 </a>
                 @endforeach
+            </div>
+        </div>
+
+        {{-- 発注の流れタブ --}}
+        <div x-show="activeTab === 'flow'" x-cloak class="flex-1 overflow-y-auto pt-4">
+            <div class="max-w-4xl mx-auto space-y-6">
+
+                {{-- 1日の発注スケジュール --}}
+                <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+                    <h3 class="font-bold text-base mb-4 flex items-center gap-2">
+                        <x-heroicon-o-clock class="w-5 h-5 text-primary-500" />1日の発注スケジュール
+                    </h3>
+                    <div class="relative pl-8 space-y-0">
+                        {{-- タイムライン縦線 --}}
+                        <div class="absolute left-3 top-2 bottom-2 w-0.5 bg-gray-200 dark:bg-gray-700"></div>
+
+                        @foreach([
+                            ['09:30', '締切の早い仕入先の発注', 'HUB倉庫（華むすびの蔵センター）の締切が早い仕入先を先行して候補生成・承認・確定', 'orange', 'heroicon-o-bolt'],
+                            ['09:30〜11:30', 'サテライト倉庫の発注', '各店舗（本店・二の宮店・坂井店等）の発注候補生成→移動候補承認→発注候補承認→確定', 'blue', 'heroicon-o-building-storefront'],
+                            ['11:30〜12:00', 'HUB倉庫の発注', '華むすびの蔵センター・オレンジ冷凍倉庫の発注候補生成→承認→確定', 'green', 'heroicon-o-building-office'],
+                            ['12:00〜', 'オレンジ倉庫 波動出荷', '波動生成→ピッキングリスト出力→オレンジ倉庫に出荷指示', 'purple', 'heroicon-o-truck'],
+                        ] as [$time, $title, $desc, $color, $icon])
+                        <div class="relative pb-5">
+                            <div class="absolute -left-5 top-1 w-4 h-4 rounded-full bg-{{ $color }}-500 border-2 border-white dark:border-gray-900 z-10"></div>
+                            <div class="bg-{{ $color }}-50 dark:bg-{{ $color }}-900/20 rounded-lg p-3 border border-{{ $color }}-200 dark:border-{{ $color }}-800">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="text-xs font-bold text-{{ $color }}-700 dark:text-{{ $color }}-300 bg-{{ $color }}-100 dark:bg-{{ $color }}-900/40 px-2 py-0.5 rounded">{{ $time }}</span>
+                                    <x-dynamic-component :component="$icon" class="w-4 h-4 text-{{ $color }}-500" />
+                                    <span class="font-semibold text-sm">{{ $title }}</span>
+                                </div>
+                                <p class="text-xs text-gray-600 dark:text-gray-400">{{ $desc }}</p>
+                            </div>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+
+                {{-- 倉庫構成 --}}
+                <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+                    <h3 class="font-bold text-base mb-3 flex items-center gap-2">
+                        <x-heroicon-o-building-office-2 class="w-5 h-5 text-primary-500" />倉庫構成
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                        <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <div class="font-bold text-blue-700 dark:text-blue-300 mb-1">HUB: 華むすびの蔵センター（91）</div>
+                            <p class="text-gray-600 dark:text-gray-400">メインセンター。全店舗への移動出荷元。</p>
+                        </div>
+                        <div class="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                            <div class="font-bold text-purple-700 dark:text-purple-300 mb-1">HUB: オレンジ冷凍倉庫（101）</div>
+                            <p class="text-gray-600 dark:text-gray-400">外部倉庫だがHUBと同じ運用。冷凍品専門。波動出荷が必要。</p>
+                        </div>
+                        <div class="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                            <div class="font-bold text-green-700 dark:text-green-300 mb-1">サテライト: 各店舗（15店舗）</div>
+                            <p class="text-gray-600 dark:text-gray-400">本店・二の宮店・坂井店・武生店・光陽店・鯖江店・プラザ店・ヴィオ店・敦賀店・越前店・江守店・小浜店・SD前店・金沢店・営業部卸</p>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- サテライト倉庫の発注手順 --}}
+                <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+                    <h3 class="font-bold text-base mb-4 flex items-center gap-2">
+                        <x-heroicon-o-building-storefront class="w-5 h-5 text-blue-500" />サテライト倉庫の発注手順
+                    </h3>
+                    <div class="space-y-4">
+                        {{-- Step 1 --}}
+                        <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <div class="bg-blue-500 text-white px-4 py-2 text-sm font-semibold flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">1</span>
+                                発注・移動候補生成
+                            </div>
+                            <div class="p-4 text-xs space-y-2">
+                                <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
+                                    <x-heroicon-o-computer-desktop class="w-4 h-4" />
+                                    <span>画面:</span>
+                                    <a href="{{ route('filament.admin.resources.wms-auto-order-job-controls.index') }}" class="text-blue-600 hover:underline">発注・移動候補生成</a>
+                                </div>
+                                <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
+                                    <li>トップバーで対象の倉庫を選択（例: 二の宮店）</li>
+                                    <li><span class="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded text-[10px] font-semibold">発注・移動候補生成</span> ボタンをクリック</li>
+                                    <li>仕入先を確認（デフォルト全選択）、必要に応じて絞り込み</li>
+                                    <li><span class="px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded text-[10px] font-semibold">生成開始</span> をクリック</li>
+                                </ol>
+                                <div class="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-blue-700 dark:text-blue-300">
+                                    <x-heroicon-o-light-bulb class="w-3 h-3 inline" />
+                                    発注ステータスWidget で各倉庫の完了状況を確認できます
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Step 2 --}}
+                        <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <div class="bg-cyan-500 text-white px-4 py-2 text-sm font-semibold flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">2</span>
+                                移動候補の確認・承認
+                            </div>
+                            <div class="p-4 text-xs space-y-2">
+                                <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
+                                    <x-heroicon-o-computer-desktop class="w-4 h-4" />
+                                    <span>画面:</span>
+                                    <a href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}" class="text-blue-600 hover:underline">移動候補一覧</a>
+                                </div>
+                                <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
+                                    <li>倉庫タブで対象倉庫を選択</li>
+                                    <li>移動候補の数量・移動先を確認</li>
+                                    <li>問題なければ一括承認、不要なものは除外</li>
+                                </ol>
+                                <div class="mt-2 p-2 bg-orange-50 dark:bg-orange-900/20 rounded text-orange-700 dark:text-orange-300">
+                                    <x-heroicon-o-exclamation-triangle class="w-3 h-3 inline" />
+                                    移動数量を変更すると発注候補の数量が自動再計算されます
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Step 3 --}}
+                        <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <div class="bg-green-500 text-white px-4 py-2 text-sm font-semibold flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">3</span>
+                                発注候補の確認・承認
+                            </div>
+                            <div class="p-4 text-xs space-y-2">
+                                <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
+                                    <x-heroicon-o-computer-desktop class="w-4 h-4" />
+                                    <span>画面:</span>
+                                    <a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-blue-600 hover:underline">発注候補一覧</a>
+                                </div>
+                                <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
+                                    <li>倉庫タブで対象倉庫を選択</li>
+                                    <li>発注数量・入荷予定日を確認（テーブル上で直接編集可能）</li>
+                                    <li>一括承認</li>
+                                </ol>
+                            </div>
+                        </div>
+
+                        {{-- Step 4 --}}
+                        <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <div class="bg-orange-500 text-white px-4 py-2 text-sm font-semibold flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">4</span>
+                                発注・移動確定
+                            </div>
+                            <div class="p-4 text-xs space-y-2">
+                                <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
+                                    <x-heroicon-o-computer-desktop class="w-4 h-4" />
+                                    <span>画面:</span>
+                                    <a href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}" class="text-blue-600 hover:underline">発注・移動確定待ち</a>
+                                </div>
+                                <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
+                                    <li>移動確定待ちタブで承認済み移動候補を確認</li>
+                                    <li>発注確定待ちタブで承認済み発注候補を確認</li>
+                                    <li><span class="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-[10px] font-semibold">発注・移動確定</span> ボタンをクリック</li>
+                                    <li>処理完了まで待機（プログレスバー表示）</li>
+                                </ol>
+                                <div class="mt-2 p-2 bg-gray-50 dark:bg-gray-800 rounded text-gray-600 dark:text-gray-400">
+                                    <x-heroicon-o-information-circle class="w-3 h-3 inline" />
+                                    結果: 移動伝票生成 + 発注CSVファイル生成 + 入荷予定作成
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- HUB倉庫の発注手順 --}}
+                <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+                    <h3 class="font-bold text-base mb-3 flex items-center gap-2">
+                        <x-heroicon-o-building-office class="w-5 h-5 text-green-500" />HUB倉庫の発注手順
+                    </h3>
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
+                        サテライト倉庫と同じ Step 1〜4 の手順です。以下の違いに注意してください。
+                    </p>
+                    <div class="space-y-2">
+                        <div class="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800 text-xs">
+                            <div class="font-semibold text-orange-700 dark:text-orange-300 mb-1">
+                                <x-heroicon-o-exclamation-triangle class="w-4 h-4 inline -mt-0.5" />
+                                サテライト未完了時の警告
+                            </div>
+                            <p class="text-gray-600 dark:text-gray-400">HUB倉庫の発注候補生成時、サテライト倉庫の発注が未完了の場合はモーダルに赤色の警告が表示されます。サテライト倉庫の発注を先に完了させることを推奨します。</p>
+                        </div>
+                        <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 text-xs">
+                            <div class="font-semibold text-blue-700 dark:text-blue-300 mb-1">
+                                <x-heroicon-o-information-circle class="w-4 h-4 inline -mt-0.5" />
+                                在庫計算の仕組み
+                            </div>
+                            <p class="text-gray-600 dark:text-gray-400">サテライト倉庫の移動出荷分が考慮された在庫計算が行われるため、サテライト倉庫の発注確定後にHUB倉庫の発注を行うのが理想的です。</p>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- オレンジ倉庫の出荷手順 --}}
+                <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+                    <h3 class="font-bold text-base mb-4 flex items-center gap-2">
+                        <x-heroicon-o-truck class="w-5 h-5 text-purple-500" />オレンジ倉庫の出荷手順
+                    </h3>
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
+                        発注確定後、オレンジ冷凍倉庫からサテライト店舗への在庫移動を実施します。
+                    </p>
+                    <div class="space-y-4">
+                        {{-- Step 5 --}}
+                        <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <div class="bg-purple-500 text-white px-4 py-2 text-sm font-semibold flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">5</span>
+                                波動生成
+                            </div>
+                            <div class="p-4 text-xs space-y-2">
+                                <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
+                                    <x-heroicon-o-computer-desktop class="w-4 h-4" />
+                                    <span>画面:</span>
+                                    <a href="{{ route('filament.admin.resources.waves.index') }}" class="text-blue-600 hover:underline">波動管理</a>
+                                </div>
+                                <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
+                                    <li>倉庫「オレンジ冷凍倉庫」を選択</li>
+                                    <li>出荷日を選択</li>
+                                    <li>配送コースを選択（移動伝票のコースが表示される）</li>
+                                    <li><span class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-[10px] font-semibold">波動生成</span> をクリック</li>
+                                </ol>
+                            </div>
+                        </div>
+
+                        {{-- Step 6 --}}
+                        <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <div class="bg-indigo-500 text-white px-4 py-2 text-sm font-semibold flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">6</span>
+                                ピッキング・出荷指示
+                            </div>
+                            <div class="p-4 text-xs space-y-2">
+                                <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
+                                    <x-heroicon-o-computer-desktop class="w-4 h-4" />
+                                    <span>画面:</span>
+                                    <a href="{{ route('filament.admin.resources.wms-picking-tasks.index') }}" class="text-blue-600 hover:underline">ピッキングタスク</a>
+                                </div>
+                                <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
+                                    <li>ピッキングリストを出力</li>
+                                    <li>オレンジ倉庫に出荷指示を送付</li>
+                                    <li>ウェブ上でピッキング完了処理を実施</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- 注意事項 --}}
+                <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+                    <h3 class="font-bold text-base mb-3 flex items-center gap-2">
+                        <x-heroicon-o-exclamation-triangle class="w-5 h-5 text-orange-500" />注意事項
+                    </h3>
+                    <div class="space-y-3 text-xs">
+                        <div class="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border-l-3 border-purple-500">
+                            <div class="font-semibold text-purple-700 dark:text-purple-300 mb-1">オレンジ冷凍倉庫について</div>
+                            <ul class="list-disc list-inside text-gray-600 dark:text-gray-400 space-y-1">
+                                <li>外部倉庫だが、内部のHUB倉庫と同じ動きになる</li>
+                                <li>サテライト倉庫はオレンジ倉庫にも在庫移動依頼を出す</li>
+                                <li>オレンジ倉庫は在庫移動のための波動出荷が必要</li>
+                                <li>ピッキングリストを出力し、オレンジ倉庫に出荷指示を実施</li>
+                                <li>ウェブ上でピッキングを実施（実際の在庫分の移動）</li>
+                                <li>オレンジ倉庫の在庫管理が必要</li>
+                            </ul>
+                        </div>
+                        <div class="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border-l-3 border-orange-500">
+                            <div class="font-semibold text-orange-700 dark:text-orange-300 mb-1">発注順序について</div>
+                            <p class="text-gray-600 dark:text-gray-400">サテライト倉庫の移動発注が未実施でもHUB倉庫の発注は可能です。ただし、その場合は移動出荷分が在庫計算に考慮されません。</p>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- よくある質問 --}}
+                <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+                    <h3 class="font-bold text-base mb-3 flex items-center gap-2">
+                        <x-heroicon-o-question-mark-circle class="w-5 h-5 text-primary-500" />よくある質問
+                    </h3>
+                    <div class="space-y-3 text-xs">
+                        @foreach([
+                            ['サテライト倉庫の発注をせずにHUB倉庫の発注をしてもよいか？', '可能です。ただし移動出荷分が在庫計算に含まれないため、正確な発注数量にならない場合があります。'],
+                            ['発注候補の数量を変更したい場合は？', '承認前であればテーブル上で直接編集が可能です。「発注数」列をクリックして値を変更してください。'],
+                            ['誤って確定してしまった場合は？', '確定済み画面（発注確定済み）から確認してください。JX送信前であれば対応が可能です。'],
+                        ] as [$question, $answer])
+                        <div class="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                            <div class="font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-start gap-1">
+                                <span class="text-primary-500 font-bold">Q.</span> {{ $question }}
+                            </div>
+                            <div class="text-gray-600 dark:text-gray-400 pl-5 flex items-start gap-1">
+                                <span class="text-green-500 font-bold">A.</span> {{ $answer }}
+                            </div>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+
             </div>
         </div>
 
@@ -219,10 +508,6 @@
                         <x-heroicon-o-information-circle class="w-3 h-3 inline" />
                         テーブル上で直接「発注数」「入荷予定」を編集可能（承認前のみ）
                     </div>
-                    <div class="mt-2 p-2 bg-danger-50 dark:bg-danger-900/20 rounded text-xs text-danger-700 dark:text-danger-300">
-                        <x-heroicon-o-exclamation-triangle class="w-3 h-3 inline" />
-                        移動候補に未承認があると承認できません
-                    </div>
                 </div>
             </div>
 
@@ -326,8 +611,9 @@
                 @foreach([
                     ['月別発注点', 'wms-monthly-safety-stocks', 'heroicon-o-calendar-days', 'orange', '商品ごとに月別の発注点を設定', '発注マスタ'],
                     ['倉庫カレンダー', 'wms-warehouse-calendars', 'heroicon-o-calendar', 'red', '休日は次営業日に自動調整', '倉庫マスタ'],
-                    ['発注先休日', 'wms-contractor-holidays', 'heroicon-o-calendar', 'pink', '休日は前営業日に発注', '発注マスタ'],
+                    ['発注先休日', 'contractor-holidays', 'heroicon-o-calendar', 'pink', '休日は前営業日に発注', '発注マスタ'],
                     ['発注先別ロット', 'warehouse-contractors', 'heroicon-o-building-storefront', 'indigo', '最小発注単位・リードタイム', '発注マスタ'],
+                    ['移動配送コース', 'warehouse-stock-transfer-delivery-courses', 'heroicon-o-truck', 'teal', '倉庫間移動の配送コース設定', '倉庫マスタ'],
                     ['JX接続設定', 'wms-order-jx-settings', 'heroicon-o-server', 'purple', '送信先コード・ファイル形式', '発注マスタ'],
                 ] as [$label, $route, $icon, $color, $desc, $category])
                 <a href="{{ route('filament.admin.resources.'.$route.'.index') }}"
