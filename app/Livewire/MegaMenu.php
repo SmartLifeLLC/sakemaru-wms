@@ -132,6 +132,7 @@ class MegaMenu extends Component
                                     'url' => $item->getUrl(),
                                     'isActive' => $item->isActive(),
                                     'icon' => $this->getIconString($item->getIcon()),
+                                    'openInSplitView' => $item->shouldOpenUrlInNewTab(),
                                 ])->toArray(),
                             ];
                         }
@@ -163,44 +164,39 @@ class MegaMenu extends Component
      */
     protected function buildSakemaruSeriesTab(): ?array
     {
-        $clientSetting = ClientSetting::authSetting();
+        $appUrl = config('app.url');
+        $parsed = parse_url($appUrl);
+        $scheme = $parsed['scheme'] ?? 'https';
+        $host = $parsed['host'] ?? 'localhost';
+
+        // wms.sakemaru.test → sakemaru.test
+        $baseDomain = preg_replace('/^[^.]+\./', '', $host);
 
         $sakemaruSystems = [
-            ['key' => 'has_sakemaru_search', 'label' => '酒丸千里眼', 'subdomain' => 'search', 'desc' => '高度検索システム'],
-            ['key' => 'has_sakemaru_trade', 'label' => '酒丸乃蓮', 'subdomain' => 'trade', 'desc' => '取引管理システム'],
-            ['key' => 'has_sakemaru_documents', 'label' => '酒丸帳場', 'subdomain' => 'documents', 'desc' => '帳票管理システム'],
-            ['key' => 'has_sakemaru_delivery', 'label' => '酒丸飛脚', 'subdomain' => 'delivery', 'desc' => '配送管理システム'],
-            ['key' => 'has_sakemaru_insights', 'label' => '酒丸算盤', 'subdomain' => 'insights', 'desc' => '分析・レポートシステム'],
-            ['key' => 'has_sakemaru_knowledge', 'label' => '酒丸通い帳', 'subdomain' => 'knowledge', 'desc' => 'ナレッジ管理システム'],
+            ['label' => '酒丸（基幹システム）', 'subdomain' => null, 'desc' => '基幹業務システム'],
+            ['label' => '酒丸千里眼', 'subdomain' => 'search', 'desc' => '高度検索システム'],
+            ['label' => '酒丸乃蓮', 'subdomain' => 'trade', 'desc' => '取引管理システム'],
+            ['label' => '酒丸帳場', 'subdomain' => 'documents', 'desc' => '帳票管理システム'],
+            ['label' => '酒丸飛脚', 'subdomain' => 'delivery', 'desc' => '配送管理システム'],
+            ['label' => '酒丸算盤', 'subdomain' => 'insights', 'desc' => '分析・レポートシステム'],
+            ['label' => '酒丸通い帳', 'subdomain' => 'knowledge', 'desc' => 'ナレッジ管理システム'],
         ];
 
         $items = [];
 
-        // 酒丸（基幹システム）は常に表示
-        $items[] = [
-            'label' => '酒丸（基幹システム）',
-            'url' => config('app.core_url'),
-            'isActive' => false,
-            'icon' => null,
-            'external' => true,
-            'desc' => '基幹業務システム',
-        ];
-
         foreach ($sakemaruSystems as $system) {
-            if ($clientSetting?->{$system['key']} ?? false) {
-                $items[] = [
-                    'label' => $system['label'],
-                    'url' => ClientSetting::getSakemaruSubdomainUrl($system['subdomain']),
-                    'isActive' => false,
-                    'icon' => null,
-                    'external' => true,
-                    'desc' => $system['desc'],
-                ];
-            }
-        }
+            $url = $system['subdomain']
+                ? "{$scheme}://{$system['subdomain']}.{$baseDomain}"
+                : "{$scheme}://{$baseDomain}";
 
-        if (empty($items)) {
-            return null;
+            $items[] = [
+                'label' => $system['label'],
+                'url' => $url,
+                'isActive' => false,
+                'icon' => null,
+                'openInSplitView' => true,
+                'desc' => $system['desc'],
+            ];
         }
 
         return [
@@ -209,7 +205,7 @@ class MegaMenu extends Component
             'icon' => 'fa-box',
             'groups' => [
                 [
-                    'label' => '外部システム連携',
+                    'label' => '酒丸シリーズ',
                     'icon' => 'heroicon-o-arrow-top-right-on-square',
                     'items' => $items,
                 ],
