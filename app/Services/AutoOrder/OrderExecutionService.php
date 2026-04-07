@@ -5,6 +5,7 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\QuantityType;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderCandidate;
@@ -204,6 +205,7 @@ class OrderExecutionService
                     'expected_quantity' => $quantity,
                     'received_quantity' => 0,
                     'quantity_type' => $candidate->quantity_type,
+                    'price_type' => $candidate->quantity_type === QuantityType::CASE ? 'CASE' : 'PIECE',
                     'order_date' => $orderDate,
                     'expected_arrival_date' => $candidate->expected_arrival_date,
                     'expiration_date' => $expirationDate,
@@ -230,6 +232,7 @@ class OrderExecutionService
                 'expected_quantity' => $candidate->order_quantity,
                 'received_quantity' => 0,
                 'quantity_type' => $candidate->quantity_type,
+                'price_type' => $candidate->quantity_type === QuantityType::CASE ? 'CASE' : 'PIECE',
                 'order_date' => $orderDate,
                 'expected_arrival_date' => $candidate->expected_arrival_date,
                 'expiration_date' => $expirationDate,

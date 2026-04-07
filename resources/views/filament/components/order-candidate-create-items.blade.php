@@ -56,50 +56,57 @@
     },
 
     onCaseInput(index) {
-        if (this.rows[index].caseQty !== null && this.rows[index].caseQty !== '') {
-            this.rows[index].pieceQty = null;
-        }
         this.syncToWire();
     },
 
     onPieceInput(index) {
-        if (this.rows[index].pieceQty !== null && this.rows[index].pieceQty !== '') {
-            this.rows[index].caseQty = null;
-        }
         this.syncToWire();
     },
 
-    orderQty(row) {
-        const cap = row.capacityCase || 1;
-        if (row.caseQty > 0) return row.caseQty * cap;
-        if (row.pieceQty > 0) return Math.ceil(row.pieceQty / cap) * cap;
-        return 0;
+    hasQty(row) {
+        return (row.caseQty > 0) || (row.pieceQty > 0);
     },
 
-    isRoundedUp(row) {
-        if (!row.pieceQty || row.pieceQty <= 0) return false;
-        const cap = row.capacityCase || 1;
-        return row.pieceQty % cap !== 0;
+    displayQty(row) {
+        const parts = [];
+        if (row.caseQty > 0) parts.push(row.caseQty + 'CS');
+        if (row.pieceQty > 0) parts.push(row.pieceQty + 'PC');
+        return parts.join('+') || '-';
     },
 
     syncToWire() {
-        const items = this.rows
-            .filter(r => r.itemId && this.orderQty(r) > 0)
-            .map(r => ({
+        const items = this.rows.flatMap(r => {
+            if (!r.itemId) return [];
+            const entries = [];
+            if (r.caseQty > 0) entries.push({
                 item_id: r.itemId,
                 item_code: r.itemCode,
                 search_code: r.searchCode,
                 ordering_code: r.orderingCode,
                 capacity_case: r.capacityCase,
-                case_qty: r.caseQty || 0,
-                piece_qty: r.pieceQty || 0,
-                order_quantity: this.orderQty(r),
-            }));
+                quantity_type: 'CASE',
+                case_qty: r.caseQty,
+                piece_qty: 0,
+                order_quantity: r.caseQty,
+            });
+            if (r.pieceQty > 0) entries.push({
+                item_id: r.itemId,
+                item_code: r.itemCode,
+                search_code: r.searchCode,
+                ordering_code: r.orderingCode,
+                capacity_case: r.capacityCase,
+                quantity_type: 'PIECE',
+                case_qty: 0,
+                piece_qty: r.pieceQty,
+                order_quantity: r.pieceQty,
+            });
+            return entries;
+        });
         $wire.set('orderCandidateItems', items);
     },
 
     get validCount() {
-        return this.rows.filter(r => r.itemId && this.orderQty(r) > 0).length;
+        return this.rows.filter(r => r.itemId && this.hasQty(r)).length;
     }
 }" x-init="$wire.set('orderCandidateItems', [])" class="space-y-2">
 
@@ -221,15 +228,10 @@
                         </td>
                         {{-- 発注数 --}}
                         <td class="px-1.5 py-1 text-right">
-                            <template x-if="orderQty(row) > 0">
-                                <div>
-                                    <span class="text-xs font-mono font-bold text-primary-600 dark:text-primary-400" x-text="Number(orderQty(row)).toLocaleString()"></span>
-                                    <template x-if="isRoundedUp(row)">
-                                        <div class="text-[10px] text-amber-600 dark:text-amber-400">切上</div>
-                                    </template>
-                                </div>
+                            <template x-if="hasQty(row)">
+                                <span class="text-xs font-mono font-bold text-primary-600 dark:text-primary-400" x-text="displayQty(row)"></span>
                             </template>
-                            <template x-if="orderQty(row) === 0">
+                            <template x-if="!hasQty(row)">
                                 <span class="text-xs text-gray-400">-</span>
                             </template>
                         </td>

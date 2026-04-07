@@ -4,6 +4,7 @@ namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\QuantityType;
 use App\Models\WmsOrderIncomingSchedule;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -274,6 +275,10 @@ class IncomingConfirmationService
                 'schedule_id' => $schedule->id,
                 'received_quantity' => $receivedQuantity ?? $schedule->expected_quantity,
                 'quantity_type' => $schedule->quantity_type->value,
+                'capacity_case' => $schedule->item?->capacity_case ?? 1,
+                'piece_quantity' => $schedule->quantity_type === QuantityType::CASE
+                    ? ($receivedQuantity ?? $schedule->expected_quantity) * ($schedule->item?->capacity_case ?? 1)
+                    : ($receivedQuantity ?? $schedule->expected_quantity),
             ], JSON_UNESCAPED_UNICODE),
             'note' => "入荷検品確定 Schedule ID: {$schedule->id}",
             'status' => 'BEFORE',

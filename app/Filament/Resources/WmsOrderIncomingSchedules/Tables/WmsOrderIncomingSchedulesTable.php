@@ -118,6 +118,9 @@ class WmsOrderIncomingSchedulesTable
                     ->state(function ($record) {
                         $qty = $record->expected_quantity ?? 0;
                         $capacity = $record->item?->capacity_case;
+                        if ($record->quantity_type === QuantityType::CASE) {
+                            return $qty; // order_quantityがケース数
+                        }
                         if (! $capacity || $capacity <= 1) {
                             return 0;
                         }
@@ -132,6 +135,9 @@ class WmsOrderIncomingSchedulesTable
                     ->label('バラ')
                     ->state(function ($record) {
                         $qty = $record->expected_quantity ?? 0;
+                        if ($record->quantity_type === QuantityType::CASE) {
+                            return 0; // ケース行にバラ端数はない
+                        }
                         $capacity = $record->item?->capacity_case;
                         if (! $capacity || $capacity <= 1) {
                             return $qty;

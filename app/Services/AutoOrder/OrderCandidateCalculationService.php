@@ -79,6 +79,9 @@ class OrderCandidateCalculationService
     /** @var array [item_id][supplier_id] => unit_price (仕入先別商品仕入単価) */
     private array $supplierItemPrices = [];
 
+    /** @var array [item_id][supplier_id] => case_price (仕入先別商品ケース単価) */
+    private array $supplierItemCasePrices = [];
+
     /** @var array|null 仕入先ID指定（null=全仕入先、親+子仕入先を含む） */
     private ?array $targetContractorIds = null;
 
@@ -346,7 +349,7 @@ class OrderCandidateCalculationService
         // 商品マスタをメモリにロード
         $items = DB::connection('sakemaru')
             ->table('items')
-            ->select('id', 'code', 'name', 'packaging')
+            ->select('id', 'code', 'name', 'packaging', 'capacity_case')
             ->get();
 
         foreach ($items as $item) {
@@ -354,6 +357,7 @@ class OrderCandidateCalculationService
                 'code' => $item->code,
                 'name' => $item->name,
                 'packaging' => $item->packaging,
+                'capacity_case' => (int) ($item->capacity_case ?? 1),
             ];
         }
 
@@ -381,7 +385,8 @@ class OrderCandidateCalculationService
                 SELECT
                     ipp.item_id,
                     s.id AS supplier_id,
-                    ipp.unit_price
+                    ipp.unit_price,
+                    ipp.case_price
                 FROM item_partner_prices ipp
                 INNER JOIN (
                     SELECT item_id, partner_id, MAX(start_date) AS max_start_date
@@ -406,6 +411,7 @@ class OrderCandidateCalculationService
 
         foreach ($supplierItemPrices as $row) {
             $this->supplierItemPrices[$row->item_id][$row->supplier_id] = $row->unit_price;
+            $this->supplierItemCasePrices[$row->item_id][$row->supplier_id] = $row->case_price;
         }
 
         Log::info('仕入先別商品仕入単価をロード', ['count' => count($supplierItemPrices)]);
@@ -899,8 +905,12 @@ class OrderCandidateCalculationService
             // 発注コードを取得
             $orderingCode = $this->orderingCodes[$ic->item_id] ?? null;
 
-            // 仕入単価を取得（仕入先別単価）
-            $purchaseUnitPrice = $this->supplierItemPrices[$ic->item_id][$ic->supplier_id] ?? null;
+            // 仕入単価を取得（仕入先別ケース単価）
+            $purchaseUnitPrice = $this->supplierItemCasePrices[$ic->item_id][$ic->supplier_id] ?? null;
+
+            // ケース数に変換（orderQtyはバラ数、purchase_unitで切上げ済み）
+            $capacityCase = $this->itemMaster[$ic->item_id]['capacity_case'] ?? 1;
+            $orderQtyCase = $capacityCase > 1 ? intdiv($orderQty, $capacityCase) : $orderQty;
 
             $insertData[] = [
                 'batch_code' => $batchCode,
@@ -917,13 +927,13 @@ class OrderCandidateCalculationService
                 'demand_breakdown' => ! empty($demandBreakdown) ? json_encode($demandBreakdown, JSON_UNESCAPED_UNICODE) : null,
                 'origin_warehouse_ids' => ! empty($originWarehouseIds) ? implode(',', $originWarehouseIds) : null,
                 'suggested_quantity' => $orderQty,
-                'order_quantity' => $orderQty,
+                'order_quantity' => $orderQtyCase,
                 'current_effective_stock' => $effectiveStock,
                 'incoming_quantity' => $incomingStock,
                 'safety_stock' => $ic->safety_stock,
                 'calculated_shortage_qty' => $shortageQty,
                 'purchase_unit' => $purchaseUnit,
-                'quantity_type' => QuantityType::PIECE->value,
+                'quantity_type' => QuantityType::CASE->value,
                 'expected_arrival_date' => $arrivalDate,
                 'original_arrival_date' => $originalArrivalDate,
                 'status' => CandidateStatus::PENDING->value,
@@ -952,7 +962,7 @@ class OrderCandidateCalculationService
                 'safety_stock_setting' => $ic->safety_stock,
                 'lead_time_days' => $leadTimeDays,
                 'calculated_shortage_qty' => $shortageQty,
-                'calculated_order_quantity' => $orderQty,
+                'calculated_order_quantity' => $orderQtyCase,
                 'calculation_details' => json_encode([
                     '商品コード' => $itemInfo['code'] ?? null,
                     '商品名' => $itemInfo['name'] ?? null,
@@ -973,9 +983,11 @@ class OrderCandidateCalculationService
                     '利用可能在庫' => $calculatedStock,
                     '不足数' => $shortageQty,
                     '最小仕入単位' => $purchaseUnit,
-                    '単位調整後数量' => $orderQty,
+                    '単位調整後数量(バラ)' => $orderQty,
+                    '発注数量(ケース)' => $orderQtyCase,
+                    'ケース入数' => $capacityCase,
                     '単位調整説明' => $purchaseUnit > 1
-                        ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}"
+                        ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}バラ → {$orderQtyCase}ケース"
                         : '最小仕入単位が1のため調整なし',
                     '到着日調整' => $arrivalInfo['shifted_days'],
                     '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),

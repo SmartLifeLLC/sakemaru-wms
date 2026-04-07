@@ -80,7 +80,7 @@ class OrderStatusWidget extends Widget
 
         // 指定日のORDER_CALCジョブを取得（倉庫別の最新ステータス）
         $jobs = WmsAutoOrderJobControl::where('process_name', JobProcessName::ORDER_CALC)
-            ->whereDate('started_at', $this->filterDate)
+            ->where('target_date', $this->filterDate)
             ->whereNotNull('warehouse_id')
             ->where('status', '!=', 'FAILED')
             ->orderBy('id', 'desc')
@@ -91,12 +91,12 @@ class OrderStatusWidget extends Widget
         $allWarehouseIds = array_merge($hubWarehouseIds, array_values($satelliteWarehouseIds));
 
         foreach ($allWarehouseIds as $warehouseId) {
-            $latestJob = $jobs->firstWhere('warehouse_id', $warehouseId);
+            $warehouseJobs = $jobs->where('warehouse_id', $warehouseId);
             $key = (string) $warehouseId;
 
-            if (! $latestJob) {
+            if ($warehouseJobs->isEmpty()) {
                 $this->warehouseStatuses[$key] = 'none';
-            } elseif ($latestJob->settlement_status === SettlementStatus::CONFIRMED) {
+            } elseif ($warehouseJobs->contains('settlement_status', SettlementStatus::CONFIRMED)) {
                 $this->warehouseStatuses[$key] = 'confirmed';
             } else {
                 $this->warehouseStatuses[$key] = 'pending';

@@ -238,12 +238,17 @@ class ListWmsOrderCandidates extends ListRecords
                             continue;
                         }
 
-                        // 重複チェック
+                        // quantity_type の判定
+                        $quantityTypeValue = $itemData['quantity_type'] ?? 'PIECE';
+                        $quantityType = QuantityType::from($quantityTypeValue);
+
+                        // 重複チェック（同じ商品×同じquantity_type）
                         if (WmsOrderCandidate::where('warehouse_id', $data['warehouse_id'])
                             ->where('item_id', $itemId)
+                            ->where('quantity_type', $quantityType)
                             ->where('status', CandidateStatus::PENDING)
                             ->exists()) {
-                            $errors[] = "[{$itemCode}] {$item->name}: 既に存在";
+                            $errors[] = "[{$itemCode}] {$item->name} ({$quantityType->name()}): 既に存在";
 
                             continue;
                         }
@@ -261,7 +266,11 @@ class ListWmsOrderCandidates extends ListRecords
 
                         $contractor = Contractor::find($itemContractor->contractor_id);
                         $supplierId = $itemContractor->supplier_id;
-                        $purchaseUnitPrice = $item->current_price?->purchase_unit_price;
+
+                        // quantity_type に応じた単価
+                        $purchaseUnitPrice = $quantityType === QuantityType::CASE
+                            ? $item->current_price?->purchase_case_price
+                            : $item->current_price?->purchase_unit_price;
 
                         // 在庫・入荷予定数をリアルタイム取得
                         $currentStock = $this->getItemStockForOrderCreate($data['warehouse_id'], $itemId);
@@ -283,7 +292,7 @@ class ListWmsOrderCandidates extends ListRecords
                             'satellite_demand_qty' => 0,
                             'suggested_quantity' => $orderQuantity,
                             'order_quantity' => $orderQuantity,
-                            'quantity_type' => QuantityType::PIECE,
+                            'quantity_type' => $quantityType,
                             'expected_arrival_date' => $data['expected_arrival_date'],
                             'original_arrival_date' => $data['expected_arrival_date'],
                             'status' => CandidateStatus::PENDING,
@@ -467,7 +476,7 @@ class ListWmsOrderCandidates extends ListRecords
 
     public function getPresetViews(): array
     {
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
         $warehouseData = $this->getWarehouseDataForPresetViews();
         $warehouseIds = $warehouseData['ids'];
@@ -495,11 +504,7 @@ class ListWmsOrderCandidates extends ListRecords
             ];
         }
 
-        $views['all'] = PresetView::make()
-            ->favorite()
-            ->label('全て');
-
-        // 倉庫タブを追加
+        // 他の倉庫タブ（デフォルト倉庫は除外）
         foreach ($warehouses as $warehouse) {
             if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
                 continue;

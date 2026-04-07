@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\JobStatus;
 use App\Enums\AutoOrder\SettlementStatus;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -35,6 +36,7 @@ class WmsAutoOrderJobControl extends WmsModel
         'settlement_status',
         'created_by',
         'warehouse_id',
+        'target_date',
         'snapshot_job_id',
         'started_at',
         'finished_at',
@@ -93,6 +95,7 @@ class WmsAutoOrderJobControl extends WmsModel
             'created_by' => $createdBy,
             'warehouse_id' => $warehouseId,
             'started_at' => now(),
+            'target_date' => ClientSetting::systemDateYMD(),
             'target_scope' => $scope,
         ]);
     }

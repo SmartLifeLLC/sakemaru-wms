@@ -159,8 +159,9 @@ class WmsOrderCandidatesTable
                     ->label('発注数')
                     ->type('number')
                     ->rules(['required', 'integer', 'min:0'])
+                    ->suffix(fn ($record) => $record->quantity_type?->name() ?? 'バラ')
                     ->alignEnd()
-                    ->width('70px')
+                    ->width('85px')
                     ->summarize(
                         Sum::make()
                             ->label('合計')

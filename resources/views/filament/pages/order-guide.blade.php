@@ -1,33 +1,32 @@
 <div class="livewire-root"><x-filament-panels::page>
-    <div x-data="{ activeTab: 'overview', menuTab: 'generation' }" class="h-[calc(100vh-120px)] flex flex-col">
-        {{-- タブナビゲーション --}}
-        <div class="border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-            <nav class="-mb-px flex flex-wrap gap-x-6" aria-label="Tabs">
-                <button @click="activeTab = 'overview'" type="button"
-                    :class="activeTab === 'overview' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400'"
-                    class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">
-                    <x-heroicon-o-information-circle class="w-4 h-4 inline-block mr-1 -mt-0.5" />概要
+    <div x-data="{ activeTab: 'overview', menuTab: 'generation' }" class="h-[calc(100vh-120px)] flex gap-0">
+
+        {{-- 左ナビパネル --}}
+        <div class="flex-shrink-0 w-40 border-r border-gray-200 dark:border-gray-700 overflow-y-auto bg-gray-50 dark:bg-gray-900">
+            <nav class="py-2 space-y-0.5">
+                @foreach([
+                    ['overview', '概要', 'heroicon-o-information-circle'],
+                    ['flow', '発注の流れ', 'heroicon-o-clock'],
+                    ['menus', 'メニュー詳細', 'heroicon-o-squares-2x2'],
+                    ['settings', '設定', 'heroicon-o-cog-6-tooth'],
+                ] as [$key, $label, $icon])
+                <button @click="activeTab = '{{ $key }}'" type="button"
+                    :class="activeTab === '{{ $key }}'
+                        ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 border-l-2 border-primary-500'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 border-l-2 border-transparent'"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-left transition-colors">
+                    <x-dynamic-component :component="$icon" class="w-4 h-4 flex-shrink-0" />
+                    <span>{{ $label }}</span>
                 </button>
-                <button @click="activeTab = 'flow'" type="button"
-                    :class="activeTab === 'flow' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400'"
-                    class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">
-                    <x-heroicon-o-clock class="w-4 h-4 inline-block mr-1 -mt-0.5" />発注の流れ
-                </button>
-                <button @click="activeTab = 'menus'" type="button"
-                    :class="activeTab === 'menus' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400'"
-                    class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">
-                    <x-heroicon-o-squares-2x2 class="w-4 h-4 inline-block mr-1 -mt-0.5" />メニュー詳細
-                </button>
-                <button @click="activeTab = 'settings'" type="button"
-                    :class="activeTab === 'settings' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400'"
-                    class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">
-                    <x-heroicon-o-cog-6-tooth class="w-4 h-4 inline-block mr-1 -mt-0.5" />設定
-                </button>
+                @endforeach
             </nav>
         </div>
 
+        {{-- 右コンテンツ --}}
+        <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
+
         {{-- 概要タブ --}}
-        <div x-show="activeTab === 'overview'" x-cloak class="flex-1 overflow-y-auto pt-4">
+        <div x-show="activeTab === 'overview'" x-cloak class="flex-1 overflow-y-auto p-4">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {{-- 全体の流れ --}}
                 <div class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
@@ -113,17 +112,17 @@
                     ['発注ファイル', 'wms-order-data-files', 'heroicon-o-document-text', 'green'],
                     ['JX送信', 'wms-order-documents', 'heroicon-o-paper-airplane', 'purple'],
                 ] as [$label, $route, $icon, $color])
-                <a href="{{ route('filament.admin.resources.'.$route.'.index') }}"
+                <x-split-link href="{{ route('filament.admin.resources.'.$route.'.index') }}"
                    class="p-2 bg-{{ $color }}-50 dark:bg-{{ $color }}-900/20 rounded border border-{{ $color }}-200 dark:border-{{ $color }}-800 hover:bg-{{ $color }}-100 dark:hover:bg-{{ $color }}-900/30 text-center text-xs">
                     <x-dynamic-component :component="$icon" class="w-4 h-4 mx-auto mb-1 text-{{ $color }}-500" />
                     {{ $label }}
-                </a>
+                </x-split-link>
                 @endforeach
             </div>
         </div>
 
         {{-- 発注の流れタブ --}}
-        <div x-show="activeTab === 'flow'" x-cloak class="flex-1 overflow-y-auto pt-4">
+        <div x-show="activeTab === 'flow'" x-cloak class="flex-1 overflow-y-auto p-4">
             <div class="max-w-4xl mx-auto space-y-6">
 
                 {{-- 1日の発注スケジュール --}}
@@ -193,7 +192,7 @@
                                 <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
                                     <x-heroicon-o-computer-desktop class="w-4 h-4" />
                                     <span>画面:</span>
-                                    <a href="{{ route('filament.admin.resources.wms-auto-order-job-controls.index') }}" class="text-blue-600 hover:underline">発注・移動候補生成</a>
+                                    <x-split-link href="{{ route('filament.admin.resources.wms-auto-order-job-controls.index') }}">発注・移動候補生成</x-split-link>
                                 </div>
                                 <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
                                     <li>トップバーで対象の倉庫を選択（例: 二の宮店）</li>
@@ -218,7 +217,7 @@
                                 <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
                                     <x-heroicon-o-computer-desktop class="w-4 h-4" />
                                     <span>画面:</span>
-                                    <a href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}" class="text-blue-600 hover:underline">移動候補一覧</a>
+                                    <x-split-link href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}">移動候補一覧</x-split-link>
                                 </div>
                                 <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
                                     <li>倉庫タブで対象倉庫を選択</li>
@@ -242,7 +241,7 @@
                                 <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
                                     <x-heroicon-o-computer-desktop class="w-4 h-4" />
                                     <span>画面:</span>
-                                    <a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-blue-600 hover:underline">発注候補一覧</a>
+                                    <x-split-link href="{{ route('filament.admin.resources.wms-order-candidates.index') }}">発注候補一覧</x-split-link>
                                 </div>
                                 <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
                                     <li>倉庫タブで対象倉庫を選択</li>
@@ -262,7 +261,7 @@
                                 <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
                                     <x-heroicon-o-computer-desktop class="w-4 h-4" />
                                     <span>画面:</span>
-                                    <a href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}" class="text-blue-600 hover:underline">発注・移動確定待ち</a>
+                                    <x-split-link href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}">発注・移動確定待ち</x-split-link>
                                 </div>
                                 <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
                                     <li>移動確定待ちタブで承認済み移動候補を確認</li>
@@ -324,7 +323,7 @@
                                 <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
                                     <x-heroicon-o-computer-desktop class="w-4 h-4" />
                                     <span>画面:</span>
-                                    <a href="{{ route('filament.admin.resources.waves.index') }}" class="text-blue-600 hover:underline">波動管理</a>
+                                    <x-split-link href="{{ route('filament.admin.resources.waves.index') }}">波動管理</x-split-link>
                                 </div>
                                 <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
                                     <li>倉庫「オレンジ冷凍倉庫」を選択</li>
@@ -345,7 +344,7 @@
                                 <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400 mb-2">
                                     <x-heroicon-o-computer-desktop class="w-4 h-4" />
                                     <span>画面:</span>
-                                    <a href="{{ route('filament.admin.resources.wms-picking-tasks.index') }}" class="text-blue-600 hover:underline">ピッキングタスク</a>
+                                    <x-split-link href="{{ route('filament.admin.resources.wms-picking-tasks.index') }}">ピッキングタスク</x-split-link>
                                 </div>
                                 <ol class="list-decimal list-inside space-y-1 text-gray-700 dark:text-gray-300">
                                     <li>ピッキングリストを出力</li>
@@ -408,7 +407,7 @@
         </div>
 
         {{-- メニュー詳細タブ --}}
-        <div x-show="activeTab === 'menus'" x-cloak class="flex-1 overflow-y-auto pt-3">
+        <div x-show="activeTab === 'menus'" x-cloak class="flex-1 overflow-y-auto p-4">
             {{-- サブタブ --}}
             <div class="flex flex-wrap gap-1 mb-3">
                 @foreach([
@@ -433,7 +432,7 @@
                         <h3 class="font-bold text-sm flex items-center gap-2">
                             <x-heroicon-o-queue-list class="w-4 h-4 text-blue-500" />発注・移動候補生成
                         </h3>
-                        <a href="{{ route('filament.admin.resources.wms-auto-order-job-controls.index') }}" class="text-xs text-blue-600 hover:underline">画面を開く →</a>
+                        <x-split-link href="{{ route('filament.admin.resources.wms-auto-order-job-controls.index') }}" class="text-xs">画面を開く →</x-split-link>
                     </div>
                     <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">在庫スナップショットを取得し、移動候補・発注候補を生成するジョブを実行・管理します。</p>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
@@ -456,7 +455,7 @@
                         <h3 class="font-bold text-sm flex items-center gap-2">
                             <x-heroicon-o-arrows-right-left class="w-4 h-4 text-cyan-500" />移動候補一覧
                         </h3>
-                        <a href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}" class="text-xs text-blue-600 hover:underline">画面を開く →</a>
+                        <x-split-link href="{{ route('filament.admin.resources.wms-stock-transfer-candidates.index') }}" class="text-xs">画面を開く →</x-split-link>
                     </div>
                     <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">Hub倉庫からSatellite倉庫への倉庫間移動候補を確認・承認します。</p>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
@@ -487,7 +486,7 @@
                         <h3 class="font-bold text-sm flex items-center gap-2">
                             <x-heroicon-o-shopping-cart class="w-4 h-4 text-green-500" />発注候補一覧
                         </h3>
-                        <a href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-xs text-blue-600 hover:underline">画面を開く →</a>
+                        <x-split-link href="{{ route('filament.admin.resources.wms-order-candidates.index') }}" class="text-xs">画面を開く →</x-split-link>
                     </div>
                     <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">問屋への発注候補を確認・承認。発注数量や入荷予定日を変更可能。</p>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
@@ -518,7 +517,7 @@
                         <h3 class="font-bold text-sm flex items-center gap-2">
                             <x-heroicon-o-clipboard-document-check class="w-4 h-4 text-orange-500" />発注・移動確定待ち
                         </h3>
-                        <a href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}" class="text-xs text-blue-600 hover:underline">画面を開く →</a>
+                        <x-split-link href="{{ route('filament.admin.resources.wms-order-confirmation-waiting.index') }}" class="text-xs">画面を開く →</x-split-link>
                     </div>
                     <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">承認済みの候補を一括確定。入荷予定・移動伝票・発注ファイルを作成。</p>
                     <div class="grid grid-cols-2 gap-2 text-xs mb-3">
@@ -553,7 +552,7 @@
                             <h3 class="font-bold text-sm flex items-center gap-2">
                                 <x-heroicon-o-check-badge class="w-4 h-4 text-blue-500" />発注確定済み
                             </h3>
-                            <a href="{{ route('filament.admin.resources.wms-order-confirmed.index') }}" class="text-xs text-blue-600 hover:underline">→</a>
+                            <x-split-link href="{{ route('filament.admin.resources.wms-order-confirmed.index') }}" class="text-xs">→</x-split-link>
                         </div>
                         <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">確定済み・送信済みの発注履歴</p>
                         <div class="p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs">
@@ -568,7 +567,7 @@
                             <h3 class="font-bold text-sm flex items-center gap-2">
                                 <x-heroicon-o-document-text class="w-4 h-4 text-green-500" />発注ファイル
                             </h3>
-                            <a href="{{ route('filament.admin.resources.wms-order-data-files.index') }}" class="text-xs text-blue-600 hover:underline">→</a>
+                            <x-split-link href="{{ route('filament.admin.resources.wms-order-data-files.index') }}" class="text-xs">→</x-split-link>
                         </div>
                         <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">確定で生成されたCSVファイル</p>
                         <div class="flex gap-1 text-xs mb-2">
@@ -587,7 +586,7 @@
                             <h3 class="font-bold text-sm flex items-center gap-2">
                                 <x-heroicon-o-paper-airplane class="w-4 h-4 text-purple-500" />JX送信
                             </h3>
-                            <a href="{{ route('filament.admin.resources.wms-order-documents.index') }}" class="text-xs text-blue-600 hover:underline">→</a>
+                            <x-split-link href="{{ route('filament.admin.resources.wms-order-documents.index') }}" class="text-xs">→</x-split-link>
                         </div>
                         <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">JX-FINET経由で問屋へ送信</p>
                         <div class="space-y-1 text-xs">
@@ -606,7 +605,7 @@
         </div>
 
         {{-- 設定タブ --}}
-        <div x-show="activeTab === 'settings'" x-cloak class="flex-1 overflow-y-auto pt-4">
+        <div x-show="activeTab === 'settings'" x-cloak class="flex-1 overflow-y-auto p-4">
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 @foreach([
                     ['月別発注点', 'wms-monthly-safety-stocks', 'heroicon-o-calendar-days', 'orange', '商品ごとに月別の発注点を設定', '発注マスタ'],
@@ -616,7 +615,7 @@
                     ['移動配送コース', 'warehouse-stock-transfer-delivery-courses', 'heroicon-o-truck', 'teal', '倉庫間移動の配送コース設定', '倉庫マスタ'],
                     ['JX接続設定', 'wms-order-jx-settings', 'heroicon-o-server', 'purple', '送信先コード・ファイル形式', '発注マスタ'],
                 ] as [$label, $route, $icon, $color, $desc, $category])
-                <a href="{{ route('filament.admin.resources.'.$route.'.index') }}"
+                <x-split-link href="{{ route('filament.admin.resources.'.$route.'.index') }}"
                    class="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3 hover:border-{{ $color }}-300 transition-colors">
                     <div class="flex items-center gap-2 mb-1">
                         <x-dynamic-component :component="$icon" class="w-4 h-4 text-{{ $color }}-500" />
@@ -624,9 +623,11 @@
                         <span class="text-[10px] bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded ml-auto">{{ $category }}</span>
                     </div>
                     <p class="text-xs text-gray-500">{{ $desc }}</p>
-                </a>
+                </x-split-link>
                 @endforeach
             </div>
         </div>
+
+        </div>{{-- /右コンテンツ --}}
     </div>
 </x-filament-panels::page></div>
