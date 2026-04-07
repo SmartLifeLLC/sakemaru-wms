@@ -623,20 +623,15 @@ class OrderCandidateCalculationService
             $effectiveStock = $stock['effective'] ?? 0;
             $incomingStock = $stock['incoming'] ?? 0;
 
-            // 必要数計算（不足数）
-            $shortageQty = $ic->safety_stock - ($effectiveStock + $incomingStock);
-
-            if ($shortageQty < 0) {
+            // 発注点0 = 自動発注しない
+            if ((int) $ic->safety_stock === 0) {
                 continue;
             }
 
-            // 発注点0かつ在庫0の場合、最低1個を発注（在庫切れ補充）
-            if ($shortageQty === 0 && (int) $ic->safety_stock === 0) {
-                if ($effectiveStock > 0 || $incomingStock > 0) {
-                    continue;
-                }
-                $shortageQty = 1;
-            } elseif ($shortageQty === 0) {
+            // 必要数計算（不足数）
+            $shortageQty = $ic->safety_stock - ($effectiveStock + $incomingStock);
+
+            if ($shortageQty <= 0) {
                 continue;
             }
 
@@ -832,20 +827,15 @@ class OrderCandidateCalculationService
             // 計算用在庫
             $calculatedStock = $effectiveStock + $incomingStock + $incomingFromTransfer - $outgoingToTransfer;
 
-            // 必要数計算（不足数）
-            $shortageQty = $ic->safety_stock - $calculatedStock;
-
-            if ($shortageQty < 0) {
+            // 発注点0 = 自動発注しない
+            if ((int) $ic->safety_stock === 0) {
                 continue;
             }
 
-            // 発注点0かつ在庫0の場合、最低1個を発注（在庫切れ補充）
-            if ($shortageQty === 0 && (int) $ic->safety_stock === 0) {
-                if ($calculatedStock > 0) {
-                    continue;
-                }
-                $shortageQty = 1;
-            } elseif ($shortageQty === 0) {
+            // 必要数計算（不足数）
+            $shortageQty = $ic->safety_stock - $calculatedStock;
+
+            if ($shortageQty <= 0) {
                 continue;
             }
 

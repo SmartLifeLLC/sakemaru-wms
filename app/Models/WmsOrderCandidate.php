@@ -14,6 +14,7 @@ use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
@@ -103,6 +104,34 @@ class WmsOrderCandidate extends WmsModel
         'purchase_unit' => 'integer',
         'purchase_unit_price' => 'decimal:2',
     ];
+
+    /**
+     * ケース数量アクセサ（テーブルのインライン編集用）
+     */
+    protected function caseQuantity(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->quantity_type === QuantityType::CASE ? $this->order_quantity : 0,
+            set: fn ($value) => [
+                'order_quantity' => (int) $value,
+                'quantity_type' => QuantityType::CASE->value,
+            ],
+        );
+    }
+
+    /**
+     * バラ数量アクセサ（テーブルのインライン編集用）
+     */
+    protected function pieceQuantity(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->quantity_type === QuantityType::PIECE ? $this->order_quantity : 0,
+            set: fn ($value) => [
+                'order_quantity' => (int) $value,
+                'quantity_type' => QuantityType::PIECE->value,
+            ],
+        );
+    }
 
     public function warehouse(): BelongsTo
     {

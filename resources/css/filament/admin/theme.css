@@ -184,6 +184,8 @@ html.fi {
         @apply mt-0;
     }
 
+
+
     .fi-section {
         @apply py-0 my-0;
     }
@@ -749,6 +751,7 @@ html.fi {
 .incoming-detail-modal .fi-modal-footer {
     justify-content: flex-end !important;
 }
+
 
 /* カラム表示選択ドロップダウン: 2列表示 */
 .fi-ta-col-manager-items {

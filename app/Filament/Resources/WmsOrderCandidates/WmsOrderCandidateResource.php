@@ -51,7 +51,8 @@ class WmsOrderCandidateResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::EXCLUDED]);
+            ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::EXCLUDED])
+            ->with(['item.current_price']);
     }
 
     public static function table(Table $table): Table
