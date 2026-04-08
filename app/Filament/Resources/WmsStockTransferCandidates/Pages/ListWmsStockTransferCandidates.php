@@ -9,9 +9,14 @@ use App\Enums\AutoOrder\LotStatus;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsStockTransferCandidates\WmsStockTransferCandidateResource;
+use App\Enums\QuantityType;
+use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
+use App\Models\Sakemaru\ItemCategory;
+use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\StatsItemWarehouseSalesSummary;
 use App\Models\WmsAutoOrderJobControl;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Models\WmsContractorSetting;
@@ -71,6 +76,141 @@ class ListWmsStockTransferCandidates extends ListRecords
             ->toArray();
     }
 
+    public function searchItemsForModal(
+        int $warehouseId,
+        ?string $itemCode = null,
+        ?string $janCode = null,
+        ?string $itemName = null,
+        ?int $contractorId = null,
+        ?int $category1Id = null,
+        ?int $category2Id = null,
+        ?int $category3Id = null,
+        ?string $lastShippedFrom = null,
+        ?string $lastShippedTo = null,
+        int $page = 1,
+        int $perPage = 25,
+    ): array {
+        $query = Item::query()
+            ->select([
+                'items.id',
+                'items.code',
+                'items.name',
+                'items.packaging',
+                'items.capacity_case',
+            ])
+            ->with('piece_jan_code_information')
+            ->where('items.end_of_sale_type', 'NORMAL');
+
+        if ($itemCode && strlen($itemCode) >= 1) {
+            $itemCode = mb_convert_kana($itemCode, 'as');
+            $query->where('items.code', 'like', "%{$itemCode}%");
+        }
+
+        if ($janCode && strlen($janCode) >= 1) {
+            $janCode = mb_convert_kana($janCode, 'as');
+            $query->whereHas('piece_jan_code_information', function ($sq) use ($janCode) {
+                $sq->where('search_string', 'like', "%{$janCode}%");
+            });
+        }
+
+        if ($itemName && strlen($itemName) >= 2) {
+            $itemName = mb_convert_kana($itemName, 'as');
+            $query->where('items.name', 'like', "%{$itemName}%");
+        }
+
+        if ($contractorId) {
+            $query->whereHas('item_contractors', function ($q) use ($contractorId, $warehouseId) {
+                $q->where('contractor_id', $contractorId)
+                    ->where('warehouse_id', $warehouseId);
+            });
+        }
+
+        if ($category1Id) {
+            $query->where('items.item_category1_id', $category1Id);
+        }
+        if ($category2Id) {
+            $query->where('items.item_category2_id', $category2Id);
+        }
+        if ($category3Id) {
+            $query->where('items.item_category3_id', $category3Id);
+        }
+
+        if ($lastShippedFrom || $lastShippedTo) {
+            $query->whereExists(function ($q) use ($warehouseId, $lastShippedFrom, $lastShippedTo) {
+                $q->select(DB::raw(1))
+                    ->from('stats_item_warehouse_sales_summaries')
+                    ->whereColumn('stats_item_warehouse_sales_summaries.item_id', 'items.id')
+                    ->where('stats_item_warehouse_sales_summaries.warehouse_id', $warehouseId);
+                if ($lastShippedFrom) {
+                    $q->where('stats_item_warehouse_sales_summaries.last_shipped_at', '>=', $lastShippedFrom);
+                }
+                if ($lastShippedTo) {
+                    $q->where('stats_item_warehouse_sales_summaries.last_shipped_at', '<=', $lastShippedTo);
+                }
+            });
+        }
+
+        $query->orderBy('items.code');
+        $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+
+        $itemIds = collect($paginator->items())->pluck('id')->toArray();
+        $summaries = StatsItemWarehouseSalesSummary::where('warehouse_id', $warehouseId)
+            ->whereIn('item_id', $itemIds)
+            ->get()
+            ->keyBy('item_id');
+
+        $itemContractors = ItemContractor::where('warehouse_id', $warehouseId)
+            ->whereIn('item_id', $itemIds)
+            ->with('contractor')
+            ->get()
+            ->keyBy('item_id');
+
+        // 既存PENDING候補の数量を取得
+        $pendingCandidates = WmsStockTransferCandidate::where('satellite_warehouse_id', $warehouseId)
+            ->where('status', CandidateStatus::PENDING)
+            ->whereIn('item_id', $itemIds)
+            ->get()
+            ->keyBy('item_id');
+
+        $data = collect($paginator->items())->map(function ($item) use ($summaries, $itemContractors, $pendingCandidates) {
+            $summary = $summaries->get($item->id);
+            $ic = $itemContractors->get($item->id);
+            $pending = $pendingCandidates->get($item->id);
+
+            return [
+                'id' => $item->id,
+                'code' => $item->code,
+                'name' => $item->name,
+                'packaging' => $item->packaging,
+                'capacity_case' => $item->capacity_case ?? 1,
+                'search_code' => $item->piece_jan_code_information?->search_string ?? '',
+                'contractor_name' => $ic?->contractor
+                    ? "[{$ic->contractor->code}]{$ic->contractor->name}"
+                    : null,
+                'last_shipped_at' => $summary?->last_shipped_at?->format('m/d'),
+                'last_3d_qty' => $summary?->last_3d_qty ?? 0,
+                'last_7d_qty' => $summary?->last_7d_qty ?? 0,
+                'pending_qty' => $pending?->transfer_quantity ?? null,
+            ];
+        })->values()->toArray();
+
+        return [
+            'data' => $data,
+            'total' => $paginator->total(),
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+        ];
+    }
+
+    public function getSubCategories(int $parentId): array
+    {
+        return ItemCategory::where('parent_id', $parentId)
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get(['id', 'name'])
+            ->toArray();
+    }
+
     public function getItemStockForCreate(int $warehouseId, int $itemId): ?int
     {
         return (int) DB::connection('sakemaru')
@@ -99,7 +239,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ->icon('heroicon-o-plus')
                 ->color('success')
                 ->modalHeading('移動発注を追加')
-                ->modalWidth('4xl')
+                ->modalWidth('7xl')
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('追加する')->color('danger'))
                 ->modalCancelActionLabel('変更せず閉じる')
@@ -199,11 +339,15 @@ class ListWmsStockTransferCandidates extends ListRecords
 
                     foreach ($items as $itemData) {
                         $itemId = $itemData['item_id'];
-                        $quantity = (int) ($itemData['quantity'] ?? 0);
+                        $totalPieceQty = (int) ($itemData['quantity'] ?? 0);
                         $itemCode = $itemData['item_code'] ?? null;
                         $searchCode = $itemData['search_code'] ?? null;
+                        $capacityCase = (int) ($itemData['capacity_case'] ?? 1);
+                        if ($capacityCase < 1) {
+                            $capacityCase = 1;
+                        }
 
-                        if ($quantity < 1) {
+                        if ($totalPieceQty < 1) {
                             $errors[] = "[{$itemCode}]: 数量が不正です";
 
                             continue;
@@ -230,12 +374,16 @@ class ListWmsStockTransferCandidates extends ListRecords
                             continue;
                         }
 
+                        // ケース/バラ自動分割
+                        $caseQty = intdiv($totalPieceQty, $capacityCase);
+                        $pieceQty = $totalPieceQty % $capacityCase;
+
                         // 在庫・入荷予定数をリアルタイム取得
                         $currentStock = $this->getItemStockForCreate($data['satellite_warehouse_id'], $itemId);
                         $hubStock = $this->getItemStockForCreate($data['hub_warehouse_id'], $itemId);
                         $incomingQty = $this->getItemIncomingQuantityForCreate($data['satellite_warehouse_id'], $itemId);
 
-                        WmsStockTransferCandidate::create([
+                        $commonFields = [
                             'batch_code' => $batchCode,
                             'satellite_warehouse_id' => $data['satellite_warehouse_id'],
                             'hub_warehouse_id' => $data['hub_warehouse_id'],
@@ -244,8 +392,6 @@ class ListWmsStockTransferCandidates extends ListRecords
                             'search_code' => $searchCode,
                             'contractor_id' => null,
                             'delivery_course_id' => $data['delivery_course_id'] ?? null,
-                            'suggested_quantity' => $quantity,
-                            'transfer_quantity' => $quantity,
                             'current_effective_stock' => $currentStock,
                             'incoming_quantity' => $incomingQty,
                             'hub_effective_stock' => $hubStock,
@@ -256,7 +402,27 @@ class ListWmsStockTransferCandidates extends ListRecords
                             'is_manually_modified' => true,
                             'modified_by' => auth()->id(),
                             'modified_at' => now(),
-                        ]);
+                        ];
+
+                        // ケース行を作成（ケース数 > 0 の場合）
+                        if ($caseQty > 0) {
+                            WmsStockTransferCandidate::create(array_merge($commonFields, [
+                                'suggested_quantity' => $caseQty,
+                                'transfer_quantity' => $caseQty,
+                                'quantity_type' => QuantityType::CASE,
+                            ]));
+                            $created++;
+                        }
+
+                        // バラ行を作成（バラ数 > 0 の場合）
+                        if ($pieceQty > 0) {
+                            WmsStockTransferCandidate::create(array_merge($commonFields, [
+                                'suggested_quantity' => $pieceQty,
+                                'transfer_quantity' => $pieceQty,
+                                'quantity_type' => QuantityType::PIECE,
+                            ]));
+                            $created++;
+                        }
 
                         WmsOrderCalculationLog::create([
                             'batch_code' => $batchCode,
@@ -269,17 +435,15 @@ class ListWmsStockTransferCandidates extends ListRecords
                             'incoming_quantity' => $incomingQty,
                             'safety_stock_setting' => 0,
                             'lead_time_days' => 1,
-                            'calculated_shortage_qty' => $quantity,
-                            'calculated_order_quantity' => $quantity,
+                            'calculated_shortage_qty' => $totalPieceQty,
+                            'calculated_order_quantity' => $totalPieceQty,
                             'calculation_details' => [
                                 'manual_entry' => true,
                                 'created_by' => auth()->id(),
                                 'created_at' => now()->toDateTimeString(),
-                                'formula' => '手動追加',
+                                'formula' => "手動追加（ケース:{$caseQty} バラ:{$pieceQty}）",
                             ],
                         ]);
-
-                        $created++;
                     }
 
                     $this->transferOrderItems = [];

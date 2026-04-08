@@ -13,8 +13,10 @@ use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderCandidates\WmsOrderCandidateResource;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
+use App\Models\Sakemaru\ItemCategory;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\StatsItemWarehouseSalesSummary;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
@@ -84,6 +86,176 @@ class ListWmsOrderCandidates extends ListRecords
             ->toArray();
     }
 
+    public function searchItemsForModal(
+        int $warehouseId,
+        ?string $itemCode = null,
+        ?string $janCode = null,
+        ?string $itemName = null,
+        ?int $contractorId = null,
+        ?int $category1Id = null,
+        ?int $category2Id = null,
+        ?int $category3Id = null,
+        ?string $lastShippedFrom = null,
+        ?string $lastShippedTo = null,
+        int $page = 1,
+        int $perPage = 25,
+    ): array {
+        $query = Item::query()
+            ->select([
+                'items.id',
+                'items.code',
+                'items.name',
+                'items.packaging',
+                'items.capacity_case',
+            ])
+            ->with('piece_jan_code_information')
+            ->where('items.end_of_sale_type', 'NORMAL');
+
+        // 商品CD検索
+        if ($itemCode && strlen($itemCode) >= 1) {
+            $itemCode = mb_convert_kana($itemCode, 'as');
+            $query->where('items.code', 'like', "%{$itemCode}%");
+        }
+
+        // JANコード検索
+        if ($janCode && strlen($janCode) >= 1) {
+            $janCode = mb_convert_kana($janCode, 'as');
+            $query->whereHas('piece_jan_code_information', function ($sq) use ($janCode) {
+                $sq->where('search_string', 'like', "%{$janCode}%");
+            });
+        }
+
+        // 商品名検索
+        if ($itemName && strlen($itemName) >= 2) {
+            $itemName = mb_convert_kana($itemName, 'as');
+            $query->where('items.name', 'like', "%{$itemName}%");
+        }
+
+        // 発注先フィルタ
+        if ($contractorId) {
+            $query->whereHas('item_contractors', function ($q) use ($contractorId, $warehouseId) {
+                $q->where('contractor_id', $contractorId)
+                    ->where('warehouse_id', $warehouseId);
+            });
+        }
+
+        // カテゴリフィルタ
+        if ($category1Id) {
+            $query->where('items.item_category1_id', $category1Id);
+        }
+        if ($category2Id) {
+            $query->where('items.item_category2_id', $category2Id);
+        }
+        if ($category3Id) {
+            $query->where('items.item_category3_id', $category3Id);
+        }
+
+        // 最終出荷日フィルタ（summariesテーブルから）
+        if ($lastShippedFrom || $lastShippedTo) {
+            $query->whereExists(function ($q) use ($warehouseId, $lastShippedFrom, $lastShippedTo) {
+                $q->select(DB::raw(1))
+                    ->from('stats_item_warehouse_sales_summaries')
+                    ->whereColumn('stats_item_warehouse_sales_summaries.item_id', 'items.id')
+                    ->where('stats_item_warehouse_sales_summaries.warehouse_id', $warehouseId);
+                if ($lastShippedFrom) {
+                    $q->where('stats_item_warehouse_sales_summaries.last_shipped_at', '>=', $lastShippedFrom);
+                }
+                if ($lastShippedTo) {
+                    $q->where('stats_item_warehouse_sales_summaries.last_shipped_at', '<=', $lastShippedTo);
+                }
+            });
+        }
+
+        $query->orderBy('items.code');
+
+        // ページネーション
+        $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+
+        // 出荷実績サマリを一括取得
+        $itemIds = collect($paginator->items())->pluck('id')->toArray();
+        $summaries = StatsItemWarehouseSalesSummary::where('warehouse_id', $warehouseId)
+            ->whereIn('item_id', $itemIds)
+            ->get()
+            ->keyBy('item_id');
+
+        // 発注先情報を一括取得
+        // 入荷倉庫を特定（仮想倉庫対応）
+        $orderWarehouse = Warehouse::find($warehouseId);
+        $incomingWarehouseId = ($orderWarehouse?->is_virtual && $orderWarehouse->stock_warehouse_id)
+            ? $orderWarehouse->stock_warehouse_id
+            : $warehouseId;
+
+        $itemContractors = ItemContractor::where('warehouse_id', $incomingWarehouseId)
+            ->whereIn('item_id', $itemIds)
+            ->with('contractor')
+            ->get()
+            ->keyBy('item_id');
+
+        // 既存PENDING候補の数量を取得
+        $pendingCandidates = WmsOrderCandidate::where('warehouse_id', $warehouseId)
+            ->where('status', CandidateStatus::PENDING)
+            ->whereIn('item_id', $itemIds)
+            ->get()
+            ->groupBy('item_id');
+
+        // 結果を整形
+        $data = collect($paginator->items())->map(function ($item) use ($summaries, $itemContractors, $pendingCandidates) {
+            $summary = $summaries->get($item->id);
+            $ic = $itemContractors->get($item->id);
+            $pending = $pendingCandidates->get($item->id);
+
+            $searchInfo = $item->piece_jan_code_information;
+
+            $pendingCaseQty = 0;
+            $pendingPieceQty = 0;
+            if ($pending) {
+                foreach ($pending as $candidate) {
+                    if ($candidate->quantity_type === QuantityType::CASE) {
+                        $pendingCaseQty += $candidate->order_quantity;
+                    } else {
+                        $pendingPieceQty += $candidate->order_quantity;
+                    }
+                }
+            }
+
+            return [
+                'id' => $item->id,
+                'code' => $item->code,
+                'name' => $item->name,
+                'packaging' => $item->packaging,
+                'capacity_case' => $item->capacity_case ?? 1,
+                'search_code' => $searchInfo?->search_string ?? '',
+                'ordering_code' => ($searchInfo && $searchInfo->is_used_for_ordering)
+                    ? str_pad($searchInfo->search_string ?? '', 13, '0', STR_PAD_LEFT)
+                    : '',
+                'contractor_name' => $ic?->contractor
+                    ? "[{$ic->contractor->code}]{$ic->contractor->name}"
+                    : null,
+                'last_shipped_at' => $summary?->last_shipped_at?->format('m/d'),
+                'last_3d_qty' => $summary?->last_3d_qty ?? 0,
+                'last_7d_qty' => $summary?->last_7d_qty ?? 0,
+                'pending_case_qty' => $pendingCaseQty ?: null,
+                'pending_piece_qty' => $pendingPieceQty ?: null,
+            ];
+        })->values()->toArray();
+
+        return [
+            'data' => $data,
+            'total' => $paginator->total(),
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+        ];
+    }
+
+    public function getSubCategories(int $parentId): array
+    {
+        return ItemCategory::where('parent_id', $parentId)
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get(['id', 'name'])
+            ->toArray();
+    }
+
     public function getItemStockForOrderCreate(int $warehouseId, int $itemId): ?int
     {
         return (int) DB::connection('sakemaru')
@@ -126,7 +298,7 @@ class ListWmsOrderCandidates extends ListRecords
                 ->icon('heroicon-o-plus')
                 ->color('success')
                 ->modalHeading('発注候補を追加')
-                ->modalWidth('5xl')
+                ->modalWidth('7xl')
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('追加する')->color('danger'))
                 ->modalCancelActionLabel('変更せず閉じる')

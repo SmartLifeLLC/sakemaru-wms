@@ -1,268 +1,383 @@
 <div x-data="{
-    rows: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, itemId: null, itemCode: '', searchCode: '', orderingCode: '', itemName: '', capacityCase: 1, searchQuery: '', caseQty: null, pieceQty: null, stock: null, incomingQty: null, showDropdown: false, searchResults: [], loading: false })),
-    nextId: 11,
-
-    addRow() {
-        this.rows.push({ id: this.nextId++, itemId: null, itemCode: '', searchCode: '', orderingCode: '', itemName: '', capacityCase: 1, searchQuery: '', caseQty: null, pieceQty: null, stock: null, incomingQty: null, showDropdown: false, searchResults: [], loading: false });
+    filters: {
+        itemCode: '',
+        janCode: '',
+        itemName: '',
+        contractorId: '',
+        category1Id: '',
+        category2Id: '',
+        category3Id: '',
+        lastShippedFrom: '',
+        lastShippedTo: '',
     },
+    results: [],
+    quantities: {},
+    totalCount: 0,
+    currentPage: 1,
+    lastPage: 1,
+    perPage: 25,
+    loading: false,
+    searched: false,
+    categories2: [],
+    categories3: [],
 
-    removeRow(index) {
-        if (this.rows.length > 1) {
-            this.rows.splice(index, 1);
-            this.syncToWire();
-        }
-    },
-
-    async search(index) {
-        const query = this.rows[index].searchQuery;
-        if (query.length < 2) {
-            this.rows[index].searchResults = [];
-            this.rows[index].showDropdown = false;
+    async search(page = 1) {
+        const warehouseId = $wire.get('mountedActions.0.data.warehouse_id');
+        if (!warehouseId) {
+            alert('発注倉庫を選択してください');
             return;
         }
-        this.rows[index].loading = true;
+        this.loading = true;
+        this.currentPage = page;
         try {
-            const results = await $wire.searchItemsForOrderCreate(query);
-            this.rows[index].searchResults = results;
-            this.rows[index].showDropdown = true;
+            const result = await $wire.searchItemsForModal(
+                parseInt(warehouseId),
+                this.filters.itemCode || null,
+                this.filters.janCode || null,
+                this.filters.itemName || null,
+                this.filters.contractorId ? parseInt(this.filters.contractorId) : null,
+                this.filters.category1Id ? parseInt(this.filters.category1Id) : null,
+                this.filters.category2Id ? parseInt(this.filters.category2Id) : null,
+                this.filters.category3Id ? parseInt(this.filters.category3Id) : null,
+                this.filters.lastShippedFrom || null,
+                this.filters.lastShippedTo || null,
+                page,
+                this.perPage
+            );
+            this.results = result.data;
+            this.totalCount = result.total;
+            this.currentPage = result.current_page;
+            this.lastPage = result.last_page;
+            this.searched = true;
+
+            // 既存PENDING数量をプリセット
+            this.results.forEach(item => {
+                const key = String(item.id);
+                if (!(key in this.quantities)) {
+                    this.quantities[key] = {
+                        caseQty: item.pending_case_qty || null,
+                        pieceQty: item.pending_piece_qty || null,
+                    };
+                }
+            });
         } finally {
-            this.rows[index].loading = false;
+            this.loading = false;
         }
     },
 
-    async selectItem(index, item) {
-        this.rows[index].itemId = item.id;
-        this.rows[index].itemCode = item.code;
-        this.rows[index].searchCode = item.search_code || '';
-        this.rows[index].orderingCode = item.ordering_code || '';
-        this.rows[index].itemName = item.name;
-        this.rows[index].capacityCase = item.capacity_case || 1;
-        this.rows[index].searchQuery = item.code;
-        this.rows[index].showDropdown = false;
-        this.rows[index].searchResults = [];
-        this.syncToWire();
-        // 現在庫・入荷予定数を取得
-        const warehouseId = $wire.get('mountedActions.0.data.warehouse_id');
-        if (warehouseId) {
-            const [stock, incomingQty] = await Promise.all([
-                $wire.getItemStockForOrderCreate(parseInt(warehouseId), item.id),
-                $wire.getItemIncomingQuantityForOrderCreate(parseInt(warehouseId), item.id),
-            ]);
-            this.rows[index].stock = stock;
-            this.rows[index].incomingQty = incomingQty;
+    resetFilters() {
+        this.filters = { itemCode: '', janCode: '', itemName: '', contractorId: '', category1Id: '', category2Id: '', category3Id: '', lastShippedFrom: '', lastShippedTo: '' };
+        this.categories2 = [];
+        this.categories3 = [];
+        this.results = [];
+        this.searched = false;
+        this.totalCount = 0;
+    },
+
+    async loadCategories2() {
+        this.filters.category2Id = '';
+        this.filters.category3Id = '';
+        this.categories3 = [];
+        if (this.filters.category1Id) {
+            this.categories2 = await $wire.getSubCategories(parseInt(this.filters.category1Id));
+        } else {
+            this.categories2 = [];
         }
-        // 次の空行がなければ自動追加
-        if (!this.rows.some(r => !r.itemId)) this.addRow();
     },
 
-    onCaseInput(index) {
+    async loadCategories3() {
+        this.filters.category3Id = '';
+        if (this.filters.category2Id) {
+            this.categories3 = await $wire.getSubCategories(parseInt(this.filters.category2Id));
+        } else {
+            this.categories3 = [];
+        }
+    },
+
+    onQtyChange() {
         this.syncToWire();
-    },
-
-    onPieceInput(index) {
-        this.syncToWire();
-    },
-
-    hasQty(row) {
-        return (row.caseQty > 0) || (row.pieceQty > 0);
-    },
-
-    displayQty(row) {
-        const parts = [];
-        if (row.caseQty > 0) parts.push(row.caseQty + 'CS');
-        if (row.pieceQty > 0) parts.push(row.pieceQty + 'PC');
-        return parts.join('+') || '-';
     },
 
     syncToWire() {
-        const items = this.rows.flatMap(r => {
-            if (!r.itemId) return [];
-            const entries = [];
-            if (r.caseQty > 0) entries.push({
-                item_id: r.itemId,
-                item_code: r.itemCode,
-                search_code: r.searchCode,
-                ordering_code: r.orderingCode,
-                capacity_case: r.capacityCase,
-                quantity_type: 'CASE',
-                case_qty: r.caseQty,
-                piece_qty: 0,
-                order_quantity: r.caseQty,
-            });
-            if (r.pieceQty > 0) entries.push({
-                item_id: r.itemId,
-                item_code: r.itemCode,
-                search_code: r.searchCode,
-                ordering_code: r.orderingCode,
-                capacity_case: r.capacityCase,
-                quantity_type: 'PIECE',
-                case_qty: 0,
-                piece_qty: r.pieceQty,
-                order_quantity: r.pieceQty,
-            });
-            return entries;
-        });
+        const items = [];
+        for (const [itemId, qty] of Object.entries(this.quantities)) {
+            const item = this.results.find(r => String(r.id) === itemId);
+            if (!item) continue;
+            if ((qty.caseQty > 0) || (qty.pieceQty > 0)) {
+                if (qty.caseQty > 0) {
+                    items.push({
+                        item_id: parseInt(itemId),
+                        item_code: item.code,
+                        search_code: item.search_code || '',
+                        ordering_code: item.ordering_code || '',
+                        capacity_case: item.capacity_case || 1,
+                        quantity_type: 'CASE',
+                        case_qty: qty.caseQty,
+                        piece_qty: 0,
+                        order_quantity: qty.caseQty,
+                    });
+                }
+                if (qty.pieceQty > 0) {
+                    items.push({
+                        item_id: parseInt(itemId),
+                        item_code: item.code,
+                        search_code: item.search_code || '',
+                        ordering_code: item.ordering_code || '',
+                        capacity_case: item.capacity_case || 1,
+                        quantity_type: 'PIECE',
+                        case_qty: 0,
+                        piece_qty: qty.pieceQty,
+                        order_quantity: qty.pieceQty,
+                    });
+                }
+            }
+        }
         $wire.set('orderCandidateItems', items);
     },
 
     get validCount() {
-        return this.rows.filter(r => r.itemId && this.hasQty(r)).length;
-    }
-}" x-init="$wire.set('orderCandidateItems', [])" class="space-y-2">
+        let count = 0;
+        for (const qty of Object.values(this.quantities)) {
+            if ((qty.caseQty > 0) || (qty.pieceQty > 0)) count++;
+        }
+        return count;
+    },
 
-    {{-- テーブル --}}
-    <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-y-auto"
-         :style="rows.length > 10 ? 'max-height: 352px' : ''">
-        <table class="w-full text-sm table-fixed">
-            <colgroup>
-                <col style="width: 110px" />
-                <col style="width: 90px" />
-                <col />
-                <col style="width: 38px" />
-                <col style="width: 48px" />
-                <col style="width: 48px" />
-                <col style="width: 55px" />
-                <col style="width: 55px" />
-                <col style="width: 50px" />
-                <col style="width: 24px" />
-            </colgroup>
-            <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-white/10">
-                <tr class="divide-x divide-gray-200 dark:divide-white/10">
-                    <th class="px-2 py-1.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品CD</th>
-                    <th class="px-2 py-1.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400">発注CD</th>
-                    <th class="px-2 py-1.5 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品名</th>
-                    <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入数</th>
-                    <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">現在庫</th>
-                    <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入荷予定</th>
-                    <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">ケース</th>
-                    <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ</th>
-                    <th class="px-2 py-1.5 text-right text-xs font-medium text-gray-500 dark:text-gray-400">発注数</th>
-                    <th class="px-2 py-1.5"></th>
-                </tr>
-            </thead>
-            <tbody>
-                <template x-for="(row, index) in rows" :key="row.id">
-                    <tr :class="index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-blue-50/30 dark:bg-blue-950/20'"
-                        class="divide-x divide-gray-200 dark:divide-white/10 border-t border-gray-200 dark:border-white/10">
-                        {{-- 商品検索 --}}
-                        <td class="px-1.5 py-1 relative overflow-visible">
-                            <div class="relative">
-                                <input type="text"
-                                    x-model="row.searchQuery"
-                                    @input.debounce.300ms="search(index)"
-                                    @focus="if (row.searchResults.length) row.showDropdown = true"
-                                    placeholder="コード or 名前"
-                                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-1.5 py-1 text-xs font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
-                                />
-                                <template x-if="row.loading">
-                                    <div class="absolute right-2 top-1/2 -translate-y-1/2">
-                                        <svg class="animate-spin h-3 w-3 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                                        </svg>
-                                    </div>
-                                </template>
-                                {{-- 検索結果ドロップダウン --}}
-                                <div x-show="row.showDropdown && row.searchResults.length > 0"
-                                     x-cloak
-                                     @click.outside="row.showDropdown = false"
-                                     class="absolute z-[100] left-0 mt-1 w-[420px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                                    <template x-for="item in row.searchResults" :key="item.id">
-                                        <button type="button"
-                                            @click="selectItem(index, item)"
-                                            class="w-full text-left px-3 py-1.5 hover:bg-primary-50 dark:hover:bg-primary-900/30 text-xs border-b border-gray-100 dark:border-gray-700 last:border-0 flex items-center gap-2">
-                                            <span class="font-mono font-medium text-gray-900 dark:text-white shrink-0" x-text="item.code"></span>
-                                            <span class="text-gray-500 dark:text-gray-400 shrink-0" x-show="item.search_code" x-text="'[' + item.search_code + ']'"></span>
-                                            <span class="text-gray-700 dark:text-gray-300 truncate" x-text="item.name"></span>
-                                            <span class="ml-auto text-gray-400 shrink-0" x-text="'入数:' + item.capacity_case"></span>
-                                        </button>
-                                    </template>
-                                </div>
-                            </div>
-                        </td>
-                        {{-- 発注CD --}}
-                        <td class="px-1.5 py-1">
-                            <span class="text-xs text-gray-500 dark:text-gray-400 font-mono" x-text="row.orderingCode || '-'"></span>
-                        </td>
-                        {{-- 商品名 --}}
-                        <td class="px-1.5 py-1">
-                            <span class="text-xs text-gray-700 dark:text-gray-300" x-text="row.itemName || '-'"></span>
-                        </td>
-                        {{-- 入数 --}}
-                        <td class="px-1.5 py-1 text-right">
-                            <span class="text-xs font-mono text-gray-500 dark:text-gray-400" x-text="row.itemId ? row.capacityCase : '-'"></span>
-                        </td>
-                        {{-- 現在庫 --}}
-                        <td class="px-1.5 py-1 text-right">
-                            <span class="text-xs font-mono"
-                                :class="row.stock !== null ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'"
-                                x-text="row.stock !== null ? Number(row.stock).toLocaleString() : '-'"></span>
-                        </td>
-                        {{-- 入荷予定 --}}
-                        <td class="px-1.5 py-1 text-right">
-                            <span class="text-xs font-mono"
-                                :class="row.incomingQty > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'"
-                                x-text="row.incomingQty !== null ? Number(row.incomingQty).toLocaleString() : '-'"></span>
-                        </td>
-                        {{-- ケース --}}
-                        <td class="px-1 py-1">
-                            <input type="number"
-                                x-model.number="row.caseQty"
-                                @input="onCaseInput(index)"
-                                min="1"
-                                :disabled="!row.itemId"
-                                placeholder=""
-                                class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-1 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:opacity-40 focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
-                            />
-                        </td>
-                        {{-- バラ --}}
-                        <td class="px-1 py-1">
-                            <input type="number"
-                                x-model.number="row.pieceQty"
-                                @input="onPieceInput(index)"
-                                min="1"
-                                :disabled="!row.itemId"
-                                placeholder=""
-                                class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-1 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:opacity-40 focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
-                            />
-                        </td>
-                        {{-- 発注数 --}}
-                        <td class="px-1.5 py-1 text-right">
-                            <template x-if="hasQty(row)">
-                                <span class="text-xs font-mono font-bold text-primary-600 dark:text-primary-400" x-text="displayQty(row)"></span>
-                            </template>
-                            <template x-if="!hasQty(row)">
-                                <span class="text-xs text-gray-400">-</span>
-                            </template>
-                        </td>
-                        {{-- 削除 --}}
-                        <td class="px-0.5 py-1 text-center">
-                            <button type="button"
-                                @click="removeRow(index)"
-                                x-show="rows.length > 1"
-                                class="text-gray-400 hover:text-red-500 transition-colors p-0.5">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                </svg>
-                            </button>
-                        </td>
-                    </tr>
-                </template>
-            </tbody>
-        </table>
+    getQty(itemId) {
+        const key = String(itemId);
+        if (!(key in this.quantities)) {
+            this.quantities[key] = { caseQty: null, pieceQty: null };
+        }
+        return this.quantities[key];
+    }
+}" x-init="$wire.set('orderCandidateItems', [])" class="space-y-3">
+
+    {{-- 検索フィルタ --}}
+    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-2">
+        <div class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">商品検索フィルタ</div>
+        <div class="grid grid-cols-5 gap-2">
+            <div>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">商品CD</label>
+                <input type="text" x-model="filters.itemCode" @keydown.enter="search(1)"
+                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">JANコード</label>
+                <input type="text" x-model="filters.janCode" @keydown.enter="search(1)"
+                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">商品名</label>
+                <input type="text" x-model="filters.itemName" @keydown.enter="search(1)"
+                    placeholder="2文字以上"
+                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">発注先</label>
+                <select x-model="filters.contractorId"
+                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+                    <option value="">全て</option>
+                    @foreach(\App\Models\Sakemaru\Contractor::orderBy('code')->get() as $contractor)
+                        <option value="{{ $contractor->id }}">[{{ $contractor->code }}]{{ $contractor->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">大分類</label>
+                <select x-model="filters.category1Id" @change="loadCategories2()"
+                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+                    <option value="">全て</option>
+                    @foreach(\App\Models\Sakemaru\ItemCategory::where('depth', 1)->where('is_active', true)->orderBy('code')->get() as $cat)
+                        <option value="{{ $cat->id }}">{{ $cat->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+        </div>
+        <div class="grid grid-cols-5 gap-2">
+            <div>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">中分類</label>
+                <select x-model="filters.category2Id" @change="loadCategories3()"
+                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+                    <option value="">全て</option>
+                    <template x-for="cat in categories2" :key="cat.id">
+                        <option :value="cat.id" x-text="cat.name"></option>
+                    </template>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">小分類</label>
+                <select x-model="filters.category3Id"
+                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+                    <option value="">全て</option>
+                    <template x-for="cat in categories3" :key="cat.id">
+                        <option :value="cat.id" x-text="cat.name"></option>
+                    </template>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">最終出荷日(から)</label>
+                <input type="date" x-model="filters.lastShippedFrom"
+                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">最終出荷日(まで)</label>
+                <input type="date" x-model="filters.lastShippedTo"
+                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+            </div>
+            <div class="flex items-end gap-1">
+                <button type="button" @click="search(1)"
+                    class="px-3 py-1 bg-primary-600 text-white rounded text-xs font-medium hover:bg-primary-700">
+                    検索
+                </button>
+                <button type="button" @click="resetFilters()"
+                    class="px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-xs font-medium hover:bg-gray-300 dark:hover:bg-gray-600">
+                    リセット
+                </button>
+            </div>
+        </div>
     </div>
 
-    {{-- フッター --}}
-    <div class="flex items-center justify-between">
-        <button type="button" @click="addRow()"
-                class="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 font-medium">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+    {{-- ローディング --}}
+    <div x-show="loading" class="flex items-center justify-center py-6">
+        <svg class="animate-spin h-5 w-5 text-primary-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <span class="text-sm text-gray-500">検索中...</span>
+    </div>
+
+    {{-- 検索結果テーブル --}}
+    <div x-show="searched && !loading" x-cloak>
+        <div class="flex items-center justify-between mb-1">
+            <div class="text-xs text-gray-500 dark:text-gray-400">
+                検索結果: <span class="font-bold" x-text="totalCount"></span>件
+                <span x-show="validCount > 0" class="ml-2 text-primary-600 dark:text-primary-400 font-bold">
+                    （<span x-text="validCount"></span>件入力済み）
+                </span>
+            </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-y-auto" style="max-height: 320px">
+            <table class="w-full text-sm table-fixed">
+                <colgroup>
+                    <col style="width: 70px" />
+                    <col />
+                    <col style="width: 60px" />
+                    <col style="width: 38px" />
+                    <col style="width: 100px" />
+                    <col style="width: 65px" />
+                    <col style="width: 40px" />
+                    <col style="width: 40px" />
+                    <col style="width: 55px" />
+                    <col style="width: 55px" />
+                </colgroup>
+                <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-white/10">
+                    <tr class="divide-x divide-gray-200 dark:divide-white/10">
+                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品CD</th>
+                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品名</th>
+                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">規格</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入数</th>
+                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">発注先</th>
+                        <th class="px-1.5 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">最終出荷</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">3d</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7d</th>
+                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">ケース</th>
+                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="(item, index) in results" :key="item.id">
+                        <tr :class="index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-blue-50/30 dark:bg-blue-950/20'"
+                            class="divide-x divide-gray-200 dark:divide-white/10 border-t border-gray-200 dark:border-white/10">
+                            <td class="px-1.5 py-0.5">
+                                <span class="text-xs font-mono text-gray-900 dark:text-white" x-text="item.code"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5">
+                                <span class="text-xs text-gray-700 dark:text-gray-300 truncate block" x-text="item.name"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5">
+                                <span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.packaging || '-'"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono text-gray-500 dark:text-gray-400" x-text="item.capacity_case"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5">
+                                <span class="text-xs text-gray-500 dark:text-gray-400 truncate block" x-text="item.contractor_name || '-'"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-center">
+                                <span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.last_shipped_at || '-'"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono" :class="item.last_3d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_3d_qty || 0"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono" :class="item.last_7d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_7d_qty || 0"></span>
+                            </td>
+                            <td class="px-0.5 py-0.5">
+                                <input type="number"
+                                    :value="getQty(item.id).caseQty"
+                                    @input="getQty(item.id).caseQty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
+                                    min="0"
+                                    placeholder=""
+                                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                                />
+                            </td>
+                            <td class="px-0.5 py-0.5">
+                                <input type="number"
+                                    :value="getQty(item.id).pieceQty"
+                                    @input="getQty(item.id).pieceQty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
+                                    min="0"
+                                    placeholder=""
+                                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                                />
+                            </td>
+                        </tr>
+                    </template>
+                    <template x-if="results.length === 0">
+                        <tr>
+                            <td colspan="10" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                                検索結果がありません
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        {{-- ページネーション --}}
+        <div x-show="lastPage > 1" class="flex items-center justify-center gap-1 mt-2">
+            <button type="button" @click="search(currentPage - 1)" :disabled="currentPage <= 1"
+                class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700">
+                &lt;
+            </button>
+            <template x-for="p in lastPage" :key="p">
+                <button type="button" @click="search(p)"
+                    :class="p === currentPage ? 'bg-primary-600 text-white border-primary-600' : 'border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                    class="px-2 py-0.5 text-xs rounded border" x-text="p"
+                    x-show="Math.abs(p - currentPage) <= 2 || p === 1 || p === lastPage">
+                </button>
+            </template>
+            <button type="button" @click="search(currentPage + 1)" :disabled="currentPage >= lastPage"
+                class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700">
+                &gt;
+            </button>
+        </div>
+    </div>
+
+    {{-- 未検索時 --}}
+    <div x-show="!searched && !loading" class="flex items-center justify-center py-8">
+        <div class="text-center text-sm text-gray-400 dark:text-gray-500">
+            <svg class="mx-auto h-8 w-8 mb-2 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
             </svg>
-            行を追加
-        </button>
+            検索条件を入力して「検索」ボタンを押してください
+        </div>
+    </div>
+
+    {{-- フッター情報 --}}
+    <div class="flex items-center justify-end">
         <div class="text-xs text-gray-500 dark:text-gray-400">
-            <span x-text="validCount"></span>件の商品を追加
+            <span x-text="validCount"></span>件の商品を追加予定
         </div>
     </div>
 </div>
