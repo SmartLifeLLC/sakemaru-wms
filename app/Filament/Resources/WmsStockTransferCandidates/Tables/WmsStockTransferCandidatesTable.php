@@ -266,6 +266,22 @@ class WmsStockTransferCandidatesTable
                             ->send();
                     }),
 
+                TextColumn::make('sales_3d')
+                    ->label('3d')
+                    ->state(fn ($record) => $record->salesSummary?->last_3d_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('45px')
+                    ->color(fn ($record) => ($record->salesSummary?->last_3d_qty ?? 0) > 0 ? null : 'gray'),
+
+                TextColumn::make('sales_7d')
+                    ->label('7d')
+                    ->state(fn ($record) => $record->salesSummary?->last_7d_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('45px')
+                    ->color(fn ($record) => ($record->salesSummary?->last_7d_qty ?? 0) > 0 ? null : 'gray'),
+
                 TextColumn::make('expected_arrival_date')
                     ->label('入荷予定')
                     ->date('m/d')

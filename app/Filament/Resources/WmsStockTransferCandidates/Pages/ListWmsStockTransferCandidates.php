@@ -555,7 +555,17 @@ class ListWmsStockTransferCandidates extends ListRecords
         if ($items->isNotEmpty()) {
             WmsStockTransferCandidate::preloadCalculationLogs($items);
 
-            // HUB倉庫在庫は候補レコードの hub_effective_stock カラムから表示（スナップショット不要）
+            // 出荷実績サマリを一括プリロード（N+1対策）
+            $warehouseItemPairs = $items->map(fn ($r) => ['warehouse_id' => $r->satellite_warehouse_id, 'item_id' => $r->item_id]);
+            $warehouseIds = $warehouseItemPairs->pluck('warehouse_id')->unique()->toArray();
+            $itemIds = $warehouseItemPairs->pluck('item_id')->unique()->toArray();
+            $summaries = StatsItemWarehouseSalesSummary::whereIn('warehouse_id', $warehouseIds)
+                ->whereIn('item_id', $itemIds)
+                ->get()
+                ->keyBy(fn ($s) => "{$s->warehouse_id}_{$s->item_id}");
+            $items->each(function ($record) use ($summaries) {
+                $record->salesSummary = $summaries->get("{$record->satellite_warehouse_id}_{$record->item_id}");
+            });
         }
 
         return $paginator;

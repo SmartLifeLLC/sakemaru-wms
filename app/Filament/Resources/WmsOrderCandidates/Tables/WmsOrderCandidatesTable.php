@@ -264,6 +264,20 @@ class WmsOrderCandidatesTable
                         }
                     }),
 
+                TextColumn::make('sales_3d')
+                    ->label('3d')
+                    ->state(fn ($record) => $record->salesSummary?->last_3d_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($record) => ($record->salesSummary?->last_3d_qty ?? 0) > 0 ? null : 'gray'),
+
+                TextColumn::make('sales_7d')
+                    ->label('7d')
+                    ->state(fn ($record) => $record->salesSummary?->last_7d_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($record) => ($record->salesSummary?->last_7d_qty ?? 0) > 0 ? null : 'gray'),
+
                 TextColumn::make('item.capacity_case')
                     ->label('入数')
                     ->numeric()

@@ -270,6 +270,7 @@
                     <col style="width: 40px" />
                     <col style="width: 55px" />
                     <col style="width: 55px" />
+                    <col style="width: 50px" />
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-white/10">
                     <tr class="divide-x divide-gray-200 dark:divide-white/10">
@@ -283,6 +284,7 @@
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7d</th>
                         <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">ケース</th>
                         <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ</th>
+                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">総バラ</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -331,11 +333,16 @@
                                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                                 />
                             </td>
+                            <td class="px-1 py-0.5 text-right">
+                                <span class="text-xs font-mono font-semibold"
+                                    :class="((getQty(item.id).caseQty || 0) * (item.capacity_case || 1) + (getQty(item.id).pieceQty || 0)) > 0 ? 'text-primary-600 dark:text-primary-400' : 'text-gray-400'"
+                                    x-text="(getQty(item.id).caseQty || 0) * (item.capacity_case || 1) + (getQty(item.id).pieceQty || 0) || ''"></span>
+                            </td>
                         </tr>
                     </template>
                     <template x-if="results.length === 0">
                         <tr>
-                            <td colspan="10" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                            <td colspan="11" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
                                 検索結果がありません
                             </td>
                         </tr>
