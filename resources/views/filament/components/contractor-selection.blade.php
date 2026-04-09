@@ -16,6 +16,7 @@
     searchQuery: '',
     allContractors: @js($data),
     selectedIds: @js($contractorIds),
+    expanded: false,
 
     get filteredContractors() {
         if (!this.searchQuery) return this.allContractors;
@@ -71,24 +72,35 @@
     }
 }" x-effect="$wire.set('selectedContractorIds', selectedIds, false)" class="space-y-3">
 
-    {{-- 全選択状態 --}}
-    <div x-show="isAllSelected" class="space-y-3">
-        <div class="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 px-4 py-3">
-            <div class="flex items-center gap-2">
+    {{-- ヘッダー: 選択状況 + 展開ボタン --}}
+    <div class="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 px-4 py-2.5">
+        <div class="flex items-center gap-2">
+            <template x-if="isAllSelected">
                 <x-heroicon-m-check-circle class="w-5 h-5 text-success-500" />
-                <span class="text-sm text-gray-700 dark:text-gray-300">すべての仕入先が選択されています</span>
-                <span class="text-sm text-gray-500 dark:text-gray-400" x-text="`（${allContractors.length}件）`"></span>
-            </div>
-            <button type="button"
-                    @click="deselectAll()"
-                    class="text-xs px-3 py-1.5 rounded-md bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-300 dark:border-gray-500 transition">
-                仕入先を選択する
-            </button>
+            </template>
+            <template x-if="!isAllSelected && selectedCount > 0">
+                <x-heroicon-m-minus-circle class="w-5 h-5 text-warning-500" />
+            </template>
+            <template x-if="selectedCount === 0">
+                <x-heroicon-m-x-circle class="w-5 h-5 text-danger-500" />
+            </template>
+            <span class="text-sm text-gray-700 dark:text-gray-300">
+                <span x-show="isAllSelected">すべての仕入先が選択されています</span>
+                <span x-show="!isAllSelected" x-text="`${selectedCount}/${allContractors.length}件 選択中`"></span>
+            </span>
         </div>
+        <button type="button"
+                @click="expanded = !expanded"
+                class="text-xs px-3 py-1.5 rounded-md bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-300 dark:border-gray-500 transition flex items-center gap-1">
+            <span x-text="expanded ? '閉じる' : '選択を変更'"></span>
+            <svg class="w-3.5 h-3.5 transition-transform" :class="expanded && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+        </button>
     </div>
 
-    {{-- 個別選択状態 --}}
-    <div x-show="!isAllSelected" class="space-y-3">
+    {{-- 展開時: 検索 + チェックボックスリスト --}}
+    <div x-show="expanded" x-collapse class="space-y-3">
         <div class="flex items-center gap-3">
             <div class="relative flex-1">
                 <input type="text"
@@ -99,7 +111,6 @@
                     <x-heroicon-m-magnifying-glass class="w-4 h-4 text-gray-400" />
                 </div>
             </div>
-            <span class="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap" x-text="`${selectedCount}/${allContractors.length}件選択`"></span>
         </div>
 
         <div class="flex items-center gap-2">
@@ -107,6 +118,11 @@
                     @click="selectAll()"
                     class="text-xs px-3 py-1.5 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-300 transition">
                 すべて選択
+            </button>
+            <button type="button"
+                    @click="deselectAll()"
+                    class="text-xs px-3 py-1.5 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-300 transition">
+                すべて解除
             </button>
             <button type="button"
                     @click="toggleAllVisible()"

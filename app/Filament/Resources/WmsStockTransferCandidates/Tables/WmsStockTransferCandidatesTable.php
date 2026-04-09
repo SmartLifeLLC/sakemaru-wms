@@ -267,7 +267,7 @@ class WmsStockTransferCandidatesTable
                     }),
 
                 TextColumn::make('sales_3d')
-                    ->label('3d')
+                    ->label('3日')
                     ->state(fn ($record) => $record->salesSummary?->last_3d_qty ?? 0)
                     ->numeric()
                     ->alignEnd()
@@ -275,12 +275,20 @@ class WmsStockTransferCandidatesTable
                     ->color(fn ($record) => ($record->salesSummary?->last_3d_qty ?? 0) > 0 ? null : 'gray'),
 
                 TextColumn::make('sales_7d')
-                    ->label('7d')
+                    ->label('7日')
                     ->state(fn ($record) => $record->salesSummary?->last_7d_qty ?? 0)
                     ->numeric()
                     ->alignEnd()
                     ->width('45px')
                     ->color(fn ($record) => ($record->salesSummary?->last_7d_qty ?? 0) > 0 ? null : 'gray'),
+
+                TextColumn::make('sales_30d')
+                    ->label('30日')
+                    ->state(fn ($record) => $record->salesSummary?->last_30d_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->width('45px')
+                    ->color(fn ($record) => ($record->salesSummary?->last_30d_qty ?? 0) > 0 ? null : 'gray'),
 
                 TextColumn::make('expected_arrival_date')
                     ->label('入荷予定')

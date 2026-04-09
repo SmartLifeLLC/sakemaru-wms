@@ -280,8 +280,9 @@
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入数</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">発注先</th>
                         <th class="px-1.5 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">最終出荷</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">3d</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7d</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">3日</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7日</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">30日</th>
                         <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">ケース</th>
                         <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ</th>
                         <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">総バラ</th>
@@ -315,6 +316,9 @@
                             <td class="px-1.5 py-0.5 text-right">
                                 <span class="text-xs font-mono" :class="item.last_7d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_7d_qty || 0"></span>
                             </td>
+                            <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono" :class="item.last_30d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_30d_qty || 0"></span>
+                            </td>
                             <td class="px-0.5 py-0.5">
                                 <input type="number"
                                     :value="getQty(item.id).caseQty"
@@ -342,7 +346,7 @@
                     </template>
                     <template x-if="results.length === 0">
                         <tr>
-                            <td colspan="11" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                            <td colspan="12" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
                                 検索結果がありません
                             </td>
                         </tr>

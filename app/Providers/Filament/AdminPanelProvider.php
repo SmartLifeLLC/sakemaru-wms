@@ -77,7 +77,7 @@ class AdminPanelProvider extends PanelProvider
             ->plugins([
                 StickyTableHeaderPlugin::make(),
                 AdvancedTablesPlugin::make()
-                    ->userViewsEnabled(true)
+                    ->userViewsEnabled(false)
                     ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
                     ->resourceNavigationSort(1000)
                     ->userView(\App\Models\FilamentFilterSets\UserView::class)

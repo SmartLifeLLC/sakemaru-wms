@@ -7,9 +7,7 @@ use App\Enums\QueueProgressStatus;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsAutoOrderJobControls\WmsAutoOrderJobControlResource;
 use App\Jobs\ProcessOrderCandidateGenerationJob;
-use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
-use App\Models\WmsAutoOrderExecutionLog;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
@@ -71,6 +69,11 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
     public array $contractorsData = [];
 
+    // 倉庫選択（仕入先別生成用）
+    public array $selectedWarehouseIds = [];
+
+    public array $warehousesData = [];
+
     public function mount(): void
     {
         $this->filterDate = \App\Models\Sakemaru\ClientSetting::systemDateYMD();
@@ -84,6 +87,10 @@ class ListWmsAutoOrderJobControls extends ListRecords
         // 仕入先データをページロード時に取得
         $this->contractorsData = $this->getContractorsForWarehouse();
         $this->selectedContractorIds = collect($this->contractorsData)->pluck('id')->values()->toArray();
+
+        // 倉庫データ（仕入先別生成用）
+        $this->warehousesData = $this->getActiveWarehouses();
+        $this->selectedWarehouseIds = collect($this->warehousesData)->pluck('id')->values()->toArray();
     }
 
     #[\Livewire\Attributes\On('filter-date-updated')]
@@ -386,47 +393,73 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->label('仕入先別発注候補生成')
             ->icon('heroicon-o-bolt')
             ->color('success')
-            ->schema([
-                Select::make('contractor_id')
-                    ->label('仕入先')
-                    ->options(fn () => Contractor::orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}] {$c->name}"])
-                        ->toArray())
-                    ->searchable()
-                    ->required(),
-            ])
-            ->requiresConfirmation()
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
             ->modalHeading('仕入先別 発注・移動候補の強制生成')
             ->modalDescription('指定した仕入先に対して発注・移動候補を生成します。未処理の候補がある場合は削除して再生成します。')
-            ->action(function (array $data) {
-                $contractorId = (int) $data['contractor_id'];
+            ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
+            ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('生成開始')->color('danger'))
+            ->modalCancelActionLabel('発注せず閉じる')
+            ->schema([
+                \Filament\Forms\Components\Placeholder::make('warehouse_label')
+                    ->hiddenLabel()
+                    ->content(new \Illuminate\Support\HtmlString(
+                        '<div class="text-sm font-semibold text-gray-700 dark:text-gray-300">対象倉庫</div>'
+                    )),
+                ViewField::make('warehouse_selector_force')
+                    ->view('filament.components.warehouse-selection')
+                    ->hiddenLabel(),
+                \Filament\Forms\Components\Placeholder::make('contractor_label')
+                    ->hiddenLabel()
+                    ->content(new \Illuminate\Support\HtmlString(
+                        '<div class="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-2">対象仕入先</div>'
+                    )),
+                ViewField::make('contractor_selector_force')
+                    ->view('filament.components.contractor-selection')
+                    ->hiddenLabel(),
+            ])
+            ->action(function () {
+                $contractorIds = $this->selectedContractorIds;
+                $warehouseIds = $this->selectedWarehouseIds;
 
-                // PENDING候補がある場合は削除してから再生成
-                $deletedOrders = WmsOrderCandidate::query()
-                    ->where('status', CandidateStatus::PENDING)
-                    ->where('contractor_id', $contractorId)
-                    ->delete();
+                if (empty($contractorIds)) {
+                    Notification::make()
+                        ->title('仕入先が選択されていません')
+                        ->body('最低1つの仕入先を選択してください')
+                        ->danger()
+                        ->send();
 
-                $deletedTransfers = WmsStockTransferCandidate::query()
-                    ->where('status', CandidateStatus::PENDING)
-                    ->where('contractor_id', $contractorId)
-                    ->delete();
+                    return;
+                }
+
+                if (empty($warehouseIds)) {
+                    Notification::make()
+                        ->title('倉庫が選択されていません')
+                        ->body('最低1つの倉庫を選択してください')
+                        ->danger()
+                        ->send();
+
+                    return;
+                }
+
+                // 選択仕入先を親+子に展開
+                $allContractorIds = $this->expandContractorIds($contractorIds);
 
                 // APPROVED候補がある場合はブロック
                 $hasApprovedOrders = WmsOrderCandidate::query()
                     ->where('status', CandidateStatus::APPROVED)
-                    ->where('contractor_id', $contractorId)
+                    ->whereIn('warehouse_id', $warehouseIds)
+                    ->whereIn('contractor_id', $allContractorIds)
                     ->exists();
 
                 $hasApprovedTransfers = WmsStockTransferCandidate::query()
                     ->where('status', CandidateStatus::APPROVED)
-                    ->where('contractor_id', $contractorId)
+                    ->whereIn('satellite_warehouse_id', $warehouseIds)
+                    ->whereIn('contractor_id', $allContractorIds)
                     ->exists();
 
                 if ($hasApprovedOrders || $hasApprovedTransfers) {
                     Notification::make()
-                        ->title('承認済みの候補があるため生成できません')
+                        ->title('選択した倉庫・仕入先に承認済みの候補があります')
                         ->body('先に確定処理を行ってください')
                         ->danger()
                         ->send();
@@ -434,32 +467,45 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     return;
                 }
 
-                // 実行ログを記録
-                $log = WmsAutoOrderExecutionLog::create([
-                    'contractor_id' => $contractorId,
-                    'executed_date' => today(),
-                    'status' => 'RUNNING',
-                    'started_at' => now(),
-                ]);
+                // PENDING候補がある場合は削除してから再生成
+                $deletedOrders = WmsOrderCandidate::query()
+                    ->where('status', CandidateStatus::PENDING)
+                    ->whereIn('warehouse_id', $warehouseIds)
+                    ->whereIn('contractor_id', $allContractorIds)
+                    ->delete();
 
-                // 進捗レコードを作成
-                $queueProgress = WmsQueueProgress::createJob(
-                    WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
-                    auth()->id(),
-                    ['contractor_id' => $contractorId, 'source' => 'force_generate']
-                );
+                $deletedTransfers = WmsStockTransferCandidate::query()
+                    ->where('status', CandidateStatus::PENDING)
+                    ->whereIn('satellite_warehouse_id', $warehouseIds)
+                    ->whereIn('contractor_id', $allContractorIds)
+                    ->delete();
 
-                // Job dispatch
-                ProcessOrderCandidateGenerationJob::dispatch(
-                    jobId: $queueProgress->job_id,
-                    deletePending: false,
-                    contractorId: $contractorId,
-                    executionLogId: $log->id,
-                    createdBy: auth()->id(),
-                );
+                // 倉庫ごとにJobをdispatch
+                $dispatchedCount = 0;
+                foreach ($warehouseIds as $warehouseId) {
+                    $existingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse($warehouseId);
+                    $batchCode = $existingJob?->batch_code;
 
-                $contractorName = Contractor::find($contractorId)?->name ?? $contractorId;
-                $message = "仕入先「{$contractorName}」の発注候補生成を開始しました";
+                    $queueProgress = WmsQueueProgress::createJob(
+                        WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
+                        auth()->id(),
+                        ['warehouse_id' => $warehouseId, 'contractor_ids' => $contractorIds, 'source' => 'force_generate']
+                    );
+
+                    ProcessOrderCandidateGenerationJob::dispatch(
+                        jobId: $queueProgress->job_id,
+                        deletePending: false,
+                        warehouseId: $warehouseId,
+                        contractorIds: $contractorIds,
+                        createdBy: auth()->id(),
+                        batchCode: $batchCode,
+                    );
+
+                    $dispatchedCount++;
+                }
+
+                $contractorCount = count($contractorIds);
+                $message = "倉庫{$dispatchedCount}件 × 仕入先{$contractorCount}件の発注候補生成を開始しました";
                 if ($deletedOrders > 0 || $deletedTransfers > 0) {
                     $message .= "（PENDING候補 発注:{$deletedOrders}件 移動:{$deletedTransfers}件 を削除）";
                 }
@@ -512,6 +558,23 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     ? \App\Enums\AutoOrder\TransmissionType::tryFrom($c->transmission_type)?->label() ?? $c->transmission_type
                     : '未設定',
                 'generation_time' => $c->auto_order_generation_time,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * アクティブな実倉庫一覧を取得（仕入先別生成の倉庫選択用）
+     */
+    public function getActiveWarehouses(): array
+    {
+        return Warehouse::where('is_active', true)
+            ->where('is_virtual', false)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name'])
+            ->map(fn ($w) => [
+                'id' => $w->id,
+                'code' => (string) $w->code,
+                'name' => $w->name,
             ])
             ->toArray();
     }

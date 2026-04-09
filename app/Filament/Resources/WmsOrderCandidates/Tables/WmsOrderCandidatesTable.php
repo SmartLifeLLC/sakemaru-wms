@@ -265,18 +265,25 @@ class WmsOrderCandidatesTable
                     }),
 
                 TextColumn::make('sales_3d')
-                    ->label('3d')
+                    ->label('3日')
                     ->state(fn ($record) => $record->salesSummary?->last_3d_qty ?? 0)
                     ->numeric()
                     ->alignEnd()
                     ->color(fn ($record) => ($record->salesSummary?->last_3d_qty ?? 0) > 0 ? null : 'gray'),
 
                 TextColumn::make('sales_7d')
-                    ->label('7d')
+                    ->label('7日')
                     ->state(fn ($record) => $record->salesSummary?->last_7d_qty ?? 0)
                     ->numeric()
                     ->alignEnd()
                     ->color(fn ($record) => ($record->salesSummary?->last_7d_qty ?? 0) > 0 ? null : 'gray'),
+
+                TextColumn::make('sales_30d')
+                    ->label('30日')
+                    ->state(fn ($record) => $record->salesSummary?->last_30d_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($record) => ($record->salesSummary?->last_30d_qty ?? 0) > 0 ? null : 'gray'),
 
                 TextColumn::make('item.capacity_case')
                     ->label('入数')

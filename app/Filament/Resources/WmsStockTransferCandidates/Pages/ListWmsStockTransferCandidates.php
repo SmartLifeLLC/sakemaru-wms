@@ -190,6 +190,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                 'last_shipped_at' => $summary?->last_shipped_at?->format('m/d'),
                 'last_3d_qty' => $summary?->last_3d_qty ?? 0,
                 'last_7d_qty' => $summary?->last_7d_qty ?? 0,
+                'last_30d_qty' => $summary?->last_30d_qty ?? 0,
                 'pending_qty' => $pending?->transfer_quantity ?? null,
             ];
         })->values()->toArray();
@@ -383,6 +384,11 @@ class ListWmsStockTransferCandidates extends ListRecords
                         $hubStock = $this->getItemStockForCreate($data['hub_warehouse_id'], $itemId);
                         $incomingQty = $this->getItemIncomingQuantityForCreate($data['satellite_warehouse_id'], $itemId);
 
+                        // 発注点取得
+                        $safetyStock = ItemContractor::where('warehouse_id', $data['satellite_warehouse_id'])
+                            ->where('item_id', $itemId)
+                            ->value('safety_stock');
+
                         $commonFields = [
                             'batch_code' => $batchCode,
                             'satellite_warehouse_id' => $data['satellite_warehouse_id'],
@@ -394,6 +400,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                             'delivery_course_id' => $data['delivery_course_id'] ?? null,
                             'current_effective_stock' => $currentStock,
                             'incoming_quantity' => $incomingQty,
+                            'safety_stock' => $safetyStock,
                             'hub_effective_stock' => $hubStock,
                             'expected_arrival_date' => $data['expected_arrival_date'],
                             'original_arrival_date' => $data['expected_arrival_date'],
@@ -433,7 +440,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                             'source_warehouse_id' => $data['hub_warehouse_id'],
                             'current_effective_stock' => $currentStock,
                             'incoming_quantity' => $incomingQty,
-                            'safety_stock_setting' => 0,
+                            'safety_stock_setting' => $safetyStock ?? 0,
                             'lead_time_days' => 1,
                             'calculated_shortage_qty' => $totalPieceQty,
                             'calculated_order_quantity' => $totalPieceQty,

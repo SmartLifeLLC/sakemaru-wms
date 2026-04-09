@@ -82,6 +82,9 @@ class OrderCandidateCalculationService
     /** @var array [item_id][supplier_id] => case_price (仕入先別商品ケース単価) */
     private array $supplierItemCasePrices = [];
 
+    /** @var array [warehouse_id][item_id] => last_3d_qty (3日間販売数量) */
+    private array $salesSummaries3d = [];
+
     /** @var array|null 仕入先ID指定（null=全仕入先、親+子仕入先を含む） */
     private ?array $targetContractorIds = null;
 
@@ -547,6 +550,23 @@ class OrderCandidateCalculationService
         }
 
         Log::info('発注コードをロード', ['count' => count($this->orderingCodes)]);
+
+        // 3日間販売サマリをプリロード（発注点0でも販売実績があれば発注する判定用）
+        $salesSummaries = DB::connection('sakemaru')
+            ->table('stats_item_warehouse_sales_summaries')
+            ->whereIn('warehouse_id', $this->realWarehouseIds)
+            ->where('last_3d_qty', '>', 0)
+            ->select('warehouse_id', 'item_id', 'last_3d_qty')
+            ->get();
+
+        foreach ($salesSummaries as $s) {
+            if (! isset($this->salesSummaries3d[$s->warehouse_id])) {
+                $this->salesSummaries3d[$s->warehouse_id] = [];
+            }
+            $this->salesSummaries3d[$s->warehouse_id][$s->item_id] = (int) $s->last_3d_qty;
+        }
+
+        Log::info('3日間販売サマリをロード', ['count' => count($salesSummaries)]);
     }
 
     /**
@@ -623,16 +643,28 @@ class OrderCandidateCalculationService
             $effectiveStock = $stock['effective'] ?? 0;
             $incomingStock = $stock['incoming'] ?? 0;
 
-            // 発注点0 = 自動発注しない
+            // 見込み在庫
+            $projectedStock = $effectiveStock + $incomingStock;
+
+            // 3日間販売実績ベース発注判定フラグ
+            $isSalesBasedOrder = false;
+            $sales3dQty = 0;
+
             if ((int) $ic->safety_stock === 0) {
-                continue;
-            }
+                // 発注点0: 3日間販売実績があり見込み在庫が下回る場合のみ発注
+                $sales3dQty = $this->salesSummaries3d[$ic->warehouse_id][$ic->item_id] ?? 0;
+                if ($sales3dQty <= 0 || $projectedStock >= $sales3dQty) {
+                    continue;
+                }
+                $isSalesBasedOrder = true;
+                $shortageQty = $sales3dQty - $projectedStock;
+            } else {
+                // 通常の発注点ベース計算
+                $shortageQty = $ic->safety_stock - $projectedStock;
 
-            // 必要数計算（不足数）
-            $shortageQty = $ic->safety_stock - ($effectiveStock + $incomingStock);
-
-            if ($shortageQty <= 0) {
-                continue;
+                if ($shortageQty <= 0) {
+                    continue;
+                }
             }
 
             // 移動候補はバラ発注可能（仕入れ単位の切り上げなし）
@@ -700,7 +732,7 @@ class OrderCandidateCalculationService
                 'lead_time_days' => $leadTimeDays,
                 'calculated_shortage_qty' => $shortageQty,
                 'calculated_order_quantity' => $orderQty,
-                'calculation_details' => json_encode([
+                'calculation_details' => json_encode(array_merge([
                     '商品コード' => $itemInfo['code'] ?? null,
                     '商品名' => $itemInfo['name'] ?? null,
                     '規格' => $itemInfo['packaging'] ?? null,
@@ -712,17 +744,30 @@ class OrderCandidateCalculationService
                     '発注倉庫名' => $warehouseInfo['name'] ?? null,
                     '供給元倉庫コード' => $supplyWarehouseInfo['code'] ?? null,
                     '供給元倉庫名' => $supplyWarehouseInfo['name'] ?? null,
+                ], $isSalesBasedOrder ? [
+                    '計算タイプ' => '3日間販売実績ベース自動発注',
+                    '計算式' => '3日間販売数量 - (有効在庫 + 入庫予定)',
+                    '3日間販売数量' => $sales3dQty,
+                    '有効在庫' => $effectiveStock,
+                    '入庫予定数' => $incomingStock,
+                    '見込み在庫' => $projectedStock,
+                    '安全在庫' => 0,
+                    '不足数' => $shortageQty,
+                    '発注数量' => $orderQty,
+                    '備考' => "発注点未設定だが3日間に販売実績{$sales3dQty}バラあり、見込み在庫{$projectedStock}が下回るため自動発注",
+                ] : [
                     '計算式' => '安全在庫 - (有効在庫 + 入庫予定)',
                     '有効在庫' => $effectiveStock,
                     '入庫予定数' => $incomingStock,
                     '安全在庫' => $ic->safety_stock,
-                    '利用可能在庫' => $effectiveStock + $incomingStock,
+                    '利用可能在庫' => $projectedStock,
                     '不足数' => $shortageQty,
                     '発注数量' => $orderQty,
                     '備考' => '移動候補はバラ発注可能（仕入れ単位切り上げなし）',
+                ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],
                     '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
-                ], JSON_UNESCAPED_UNICODE),
+                ]), JSON_UNESCAPED_UNICODE),
             ];
         }
 
@@ -827,16 +872,25 @@ class OrderCandidateCalculationService
             // 計算用在庫
             $calculatedStock = $effectiveStock + $incomingStock + $incomingFromTransfer - $outgoingToTransfer;
 
-            // 発注点0 = 自動発注しない
+            // 3日間販売実績ベース発注判定フラグ
+            $isSalesBasedOrder = false;
+            $sales3dQty = 0;
+
             if ((int) $ic->safety_stock === 0) {
-                continue;
-            }
+                // 発注点0: 3日間販売実績があり見込み在庫が下回る場合のみ発注
+                $sales3dQty = $this->salesSummaries3d[$ic->warehouse_id][$ic->item_id] ?? 0;
+                if ($sales3dQty <= 0 || $calculatedStock >= $sales3dQty) {
+                    continue;
+                }
+                $isSalesBasedOrder = true;
+                $shortageQty = $sales3dQty - $calculatedStock;
+            } else {
+                // 通常の発注点ベース計算
+                $shortageQty = $ic->safety_stock - $calculatedStock;
 
-            // 必要数計算（不足数）
-            $shortageQty = $ic->safety_stock - $calculatedStock;
-
-            if ($shortageQty <= 0) {
-                continue;
+                if ($shortageQty <= 0) {
+                    continue;
+                }
             }
 
             // 最小仕入単位で切り上げ
@@ -953,7 +1007,7 @@ class OrderCandidateCalculationService
                 'lead_time_days' => $leadTimeDays,
                 'calculated_shortage_qty' => $shortageQty,
                 'calculated_order_quantity' => $orderQtyCase,
-                'calculation_details' => json_encode([
+                'calculation_details' => json_encode(array_merge([
                     '商品コード' => $itemInfo['code'] ?? null,
                     '商品名' => $itemInfo['name'] ?? null,
                     '規格' => $itemInfo['packaging'] ?? null,
@@ -964,6 +1018,26 @@ class OrderCandidateCalculationService
                     '発注先名' => $contractorInfo['name'] ?? null,
                     '発注倉庫コード' => $warehouseInfo['code'] ?? null,
                     '発注倉庫名' => $warehouseInfo['name'] ?? null,
+                ], $isSalesBasedOrder ? [
+                    '計算タイプ' => '3日間販売実績ベース自動発注',
+                    '計算式' => '3日間販売数量 - (有効在庫 + 入庫予定 + 移動入庫 - 移動出庫)',
+                    '3日間販売数量' => $sales3dQty,
+                    '有効在庫' => $effectiveStock,
+                    '入庫予定数' => $incomingStock,
+                    '移動入庫予定' => $incomingFromTransfer,
+                    '移動出庫予定' => $outgoingToTransfer,
+                    '見込み在庫' => $calculatedStock,
+                    '安全在庫' => 0,
+                    '不足数' => $shortageQty,
+                    '最小仕入単位' => $purchaseUnit,
+                    '単位調整後数量(バラ)' => $orderQty,
+                    '発注数量(ケース)' => $orderQtyCase,
+                    'ケース入数' => $capacityCase,
+                    '単位調整説明' => $purchaseUnit > 1
+                        ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}バラ → {$orderQtyCase}ケース"
+                        : '最小仕入単位が1のため調整なし',
+                    '備考' => "発注点未設定だが3日間に販売実績{$sales3dQty}バラあり、見込み在庫{$calculatedStock}が下回るため自動発注",
+                ] : [
                     '計算式' => '安全在庫 - (有効在庫 + 入庫予定 + 移動入庫 - 移動出庫)',
                     '有効在庫' => $effectiveStock,
                     '入庫予定数' => $incomingStock,
@@ -979,9 +1053,10 @@ class OrderCandidateCalculationService
                     '単位調整説明' => $purchaseUnit > 1
                         ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}バラ → {$orderQtyCase}ケース"
                         : '最小仕入単位が1のため調整なし',
+                ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],
                     '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
-                ], JSON_UNESCAPED_UNICODE),
+                ]), JSON_UNESCAPED_UNICODE),
             ];
         }
 
