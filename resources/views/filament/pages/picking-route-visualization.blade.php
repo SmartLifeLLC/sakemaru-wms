@@ -758,6 +758,7 @@
                     this.routeLines = [];
                     if (!this.showRouteLines || this.pickingItems.length === 0) return;
 
+                    // Use A* optimized paths as-is (they navigate through walkable areas)
                     if (this.routePaths && this.routePaths.length > 0) {
                         this.routeLines = this.routePaths.map(pathSegment => ({
                             path: pathSegment.path,
@@ -768,6 +769,7 @@
                         return;
                     }
 
+                    // Fallback: straight lines between zone centers (when no A* paths available)
                     if (this.zones.length === 0) return;
 
                     const startPoint = { x: this.$wire.pickingStartX || 0, y: this.$wire.pickingStartY || 0 };
@@ -776,7 +778,7 @@
                     const locationCenters = {};
                     this.pickingItems.forEach(item => {
                         if (!item.location_id) return;
-                        const zone = this.zones.find(z => z.id === item.location_id);
+                        const zone = this.findZoneByLocationId(item.location_id);
                         if (zone && !locationCenters[item.location_id]) {
                             locationCenters[item.location_id] = {
                                 x: (zone.x1 + zone.x2) / 2,
@@ -893,13 +895,23 @@
                     return `${x},${y} ${x1},${y1} ${x2},${y2}`;
                 },
 
+                findZoneByLocationId(locationId) {
+                    return this.zones.find(z =>
+                        z.location_ids && z.location_ids.includes(locationId)
+                    );
+                },
+
                 hasPickingItems(zoneId) {
-                    return this.pickingItems.some(item => item.location_id === zoneId);
+                    const zone = this.zones.find(z => z.id === zoneId);
+                    if (!zone || !zone.location_ids) return false;
+                    return this.pickingItems.some(item => zone.location_ids.includes(item.location_id));
                 },
 
                 getZoneWalkingOrders(zoneId) {
+                    const zone = this.zones.find(z => z.id === zoneId);
+                    if (!zone || !zone.location_ids) return [];
                     return this.pickingItems
-                        .filter(item => item.location_id === zoneId)
+                        .filter(item => zone.location_ids.includes(item.location_id))
                         .map(item => item.walking_order)
                         .filter((v, i, a) => a.indexOf(v) === i)
                         .sort((a, b) => a - b);

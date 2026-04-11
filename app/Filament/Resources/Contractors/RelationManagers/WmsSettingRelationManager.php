@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Contractors\RelationManagers;
 
 use App\Enums\AutoOrder\TransmissionType;
+use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderFtpSetting;
 use App\Models\WmsOrderJxSetting;
@@ -23,7 +24,7 @@ class WmsSettingRelationManager extends RelationManager
 {
     protected static string $relationship = 'wmsSetting';
 
-    protected static ?string $title = 'WMS送信設定';
+    protected static ?string $title = '発注データ送信設定';
 
     protected static ?string $modelLabel = '送信設定';
 
@@ -37,6 +38,18 @@ class WmsSettingRelationManager extends RelationManager
                     ->required()
                     ->live()
                     ->default(TransmissionType::MANUAL_CSV->value),
+
+                Select::make('transmission_contractor_id')
+                    ->label('発注データ集約先')
+                    ->options(fn ($livewire) => Contractor::where('is_active', true)
+                        ->where('id', '!=', $livewire->getOwnerRecord()->id)
+                        ->get()
+                        ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}] {$c->name}"])
+                    )
+                    ->searchable()
+                    ->nullable()
+                    ->live()
+                    ->helperText('指定した発注先の送信データに本発注先の発注データを集約する'),
 
                 Select::make('wms_order_jx_setting_id')
                     ->label('JX設定')
@@ -63,13 +76,22 @@ class WmsSettingRelationManager extends RelationManager
                     ->required(fn (Get $get) => $get('transmission_type') === TransmissionType::INTERNAL->value)
                     ->helperText('倉庫間移動の場合、供給元の倉庫を選択'),
 
+                TextInput::make('aggregation_note')
+                    ->label('スケジュール')
+                    ->disabled()
+                    ->default('集約先の設定にしたがいます')
+                    ->dehydrated(false)
+                    ->visible(fn (Get $get) => filled($get('transmission_contractor_id'))),
+
                 TextInput::make('transmission_time')
                     ->label('送信時刻')
                     ->type('time')
                     ->nullable()
+                    ->visible(fn (Get $get) => blank($get('transmission_contractor_id')))
                     ->helperText('指定しない場合は手動送信'),
 
                 Fieldset::make('送信曜日')
+                    ->visible(fn (Get $get) => blank($get('transmission_contractor_id')))
                     ->schema([
                         Toggle::make('is_transmission_mon')->label('月')->inline(false),
                         Toggle::make('is_transmission_tue')->label('火')->inline(false),
@@ -84,16 +106,12 @@ class WmsSettingRelationManager extends RelationManager
                 Toggle::make('is_auto_transmission')
                     ->label('自動送信')
                     ->default(false)
+                    ->visible(fn (Get $get) => blank($get('transmission_contractor_id')))
                     ->helperText('ONにすると指定時刻・曜日に自動送信されます'),
 
                 TextInput::make('format_strategy_class')
                     ->label('フォーマット戦略クラス')
-                    ->maxLength(255)
-                    ->nullable()
-                    ->visible(fn (Get $get) => in_array($get('transmission_type'), [
-                        TransmissionType::JX_FINET->value,
-                        TransmissionType::FTP->value,
-                    ])),
+                    ->visible(false),
             ]);
     }
 

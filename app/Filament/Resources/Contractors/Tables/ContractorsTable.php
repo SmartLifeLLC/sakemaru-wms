@@ -2,24 +2,31 @@
 
 namespace App\Filament\Resources\Contractors\Tables;
 
+use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ContractorsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['wmsSetting.transmissionContractor']))
             ->columns([
                 TextColumn::make('code')
                     ->label('コード')
@@ -64,6 +71,35 @@ class ContractorsTable
                     ->sortable()
                     ->alignCenter(),
 
+                TextColumn::make('wmsSetting.transmission_type')
+                    ->label('送信方式')
+                    ->badge()
+                    ->color(fn (?TransmissionType $state): string => match ($state) {
+                        TransmissionType::JX_FINET => 'success',
+                        TransmissionType::FTP => 'info',
+                        TransmissionType::MANUAL_CSV => 'gray',
+                        TransmissionType::INTERNAL => 'warning',
+                        default => 'gray',
+                    })
+                    ->placeholder('-')
+                    ->toggleable(),
+
+                TextColumn::make('wmsSetting.transmissionContractor.name')
+                    ->label('集約先')
+                    ->placeholder('-')
+                    ->toggleable(),
+
+                TextColumn::make('wmsSetting.transmission_days_label')
+                    ->label('送信曜日')
+                    ->placeholder('-')
+                    ->toggleable(),
+
+                IconColumn::make('wmsSetting.is_auto_transmission')
+                    ->label('自動送信')
+                    ->boolean()
+                    ->alignCenter()
+                    ->toggleable(),
+
                 TextColumn::make('created_at')
                     ->label('登録日時')
                     ->dateTime('Y-m-d H:i')
@@ -82,12 +118,22 @@ class ContractorsTable
                     ->placeholder('すべて')
                     ->trueLabel('自動発注のみ')
                     ->falseLabel('手動発注のみ'),
+
+                SelectFilter::make('transmission_type')
+                    ->label('送信方式')
+                    ->options(collect(TransmissionType::cases())
+                        ->mapWithKeys(fn (TransmissionType $type) => [$type->value => $type->label()])
+                        ->toArray())
+                    ->modifyQueryUsing(fn (Builder $query, array $data) => $data['value']
+                        ? $query->whereHas('wmsSetting', fn (Builder $q) => $q->where('transmission_type', $data['value']))
+                        : $query),
             ])
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

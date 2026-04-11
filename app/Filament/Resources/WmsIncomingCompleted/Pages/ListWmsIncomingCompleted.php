@@ -3,8 +3,10 @@
 namespace App\Filament\Resources\WmsIncomingCompleted\Pages;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Filament\Concerns\HasStockSubqueries;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsIncomingCompleted\WmsIncomingCompletedResource;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingTransmissionService;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -18,6 +20,7 @@ use Illuminate\Database\Eloquent\Builder;
 class ListWmsIncomingCompleted extends ListRecords
 {
     use AdvancedTables;
+    use HasStockSubqueries;
     use HasWmsUserViews {
         HasWmsUserViews::getUserViews insteadof AdvancedTables;
         HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
@@ -33,7 +36,7 @@ class ListWmsIncomingCompleted extends ListRecords
                 ->icon('heroicon-o-paper-airplane')
                 ->color('primary')
                 ->modalHeading('仕入データ登録')
-                ->modalDescription('入庫完了データを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入庫日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
+                ->modalDescription('入荷完了データを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
                 ->requiresConfirmation()
                 ->modalSubmitActionLabel('登録')
                 ->action(function () {
@@ -45,7 +48,7 @@ class ListWmsIncomingCompleted extends ListRecords
                         if ($result['success']) {
                             Notification::make()
                                 ->title('仕入キューに登録しました')
-                                ->body("キュー: {$result['queue_count']}件 / 入庫データ: {$result['schedule_count']}件")
+                                ->body("キュー: {$result['queue_count']}件 / 入荷データ: {$result['schedule_count']}件")
                                 ->success()
                                 ->send();
                         } else {
@@ -71,35 +74,87 @@ class ListWmsIncomingCompleted extends ListRecords
     {
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
-                ->with(['warehouse', 'item', 'contractor', 'location'])
+                ->with(['warehouse', 'item', 'contractor', 'location', 'orderCandidate', 'confirmedByUser', 'confirmedByPicker'])
+                ->addSelect([
+                    'computed_current_stock' => static::currentStockSubquery('wms_order_incoming_schedules'),
+                    'computed_available_stock' => static::availableStockSubquery('wms_order_incoming_schedules'),
+                    'computed_default_location' => static::defaultLocationSubquery('wms_order_incoming_schedules'),
+                ])
                 ->orderBy('confirmed_at', 'desc')
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')
             );
     }
 
+    protected ?array $presetViewWarehouseData = null;
+
+    protected function getWarehouseDataForPresetViews(): array
+    {
+        if ($this->presetViewWarehouseData !== null) {
+            return $this->presetViewWarehouseData;
+        }
+
+        $cacheKey = 'incoming_completed_warehouses_'.auth()->id();
+        $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
+            $warehouseIds = WmsOrderIncomingSchedule::where('status', IncomingScheduleStatus::CONFIRMED)
+                ->distinct()
+                ->pluck('warehouse_id')
+                ->toArray();
+
+            $warehouses = Warehouse::whereIn('id', $warehouseIds)
+                ->orderBy('code')
+                ->get(['id', 'name']);
+
+            return [
+                'ids' => $warehouseIds,
+                'warehouses' => $warehouses,
+            ];
+        });
+
+        return $this->presetViewWarehouseData;
+    }
+
     public function getPresetViews(): array
     {
-        return [
-            'all' => PresetView::make()
-                ->favorite()
-                ->label('全て')
-                ->default(),
+        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
-            'today' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereDate('actual_arrival_date', today()))
-                ->favorite()
-                ->label('本日入庫'),
+        $warehouseData = $this->getWarehouseDataForPresetViews();
+        $warehouseIds = $warehouseData['ids'];
+        $warehouses = $warehouseData['warehouses'];
 
-            'auto' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('order_source', 'AUTO'))
-                ->favorite()
-                ->label('自動発注'),
+        $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
-            'manual' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('order_source', 'MANUAL'))
+        if ($defaultWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->favorite()
+                    ->label($defaultWarehouse->name)
+                    ->default(),
+                'all' => PresetView::make()
+                    ->favorite()
+                    ->label('全て'),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
+
+        foreach ($warehouses as $warehouse) {
+            if ($defaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                continue;
+            }
+            $views["wh_{$warehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
-                ->label('手動発注'),
-        ];
+                ->label($warehouse->name);
+        }
+
+        return $views;
     }
 }

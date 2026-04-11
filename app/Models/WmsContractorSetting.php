@@ -34,10 +34,21 @@ class WmsContractorSetting extends WmsModel
         'is_transmission_fri',
         'is_transmission_sat',
         'is_auto_transmission',
+        'auto_order_generation_time',
         'order_mail',
         'order_mail_from',
         'order_mail_title',
         'order_mail_content',
+        'is_receive_enabled',
+        'receive_format',
+        'receive_time',
+        'is_receive_sun',
+        'is_receive_mon',
+        'is_receive_tue',
+        'is_receive_wed',
+        'is_receive_thu',
+        'is_receive_fri',
+        'is_receive_sat',
     ];
 
     protected $casts = [
@@ -50,6 +61,14 @@ class WmsContractorSetting extends WmsModel
         'is_transmission_fri' => 'boolean',
         'is_transmission_sat' => 'boolean',
         'is_auto_transmission' => 'boolean',
+        'is_receive_enabled' => 'boolean',
+        'is_receive_sun' => 'boolean',
+        'is_receive_mon' => 'boolean',
+        'is_receive_tue' => 'boolean',
+        'is_receive_wed' => 'boolean',
+        'is_receive_thu' => 'boolean',
+        'is_receive_fri' => 'boolean',
+        'is_receive_sat' => 'boolean',
     ];
 
     public function contractor(): BelongsTo
@@ -66,7 +85,7 @@ class WmsContractorSetting extends WmsModel
     }
 
     /**
-     * 実際の送信設定を取得（自身 or 送信先発注先の設定）
+     * 実際の送信設定を取得（自身 or 発注データ集約先の設定）
      */
     public function getEffectiveTransmissionSettings(): self
     {
@@ -78,6 +97,27 @@ class WmsContractorSetting extends WmsModel
         }
 
         return $this;
+    }
+
+    /**
+     * 指定仕入先に集約される子仕入先IDを取得
+     */
+    public static function getChildContractorIds(int $parentContractorId): array
+    {
+        return self::where('transmission_contractor_id', $parentContractorId)
+            ->pluck('contractor_id')
+            ->toArray();
+    }
+
+    /**
+     * 親 + 子の全仕入先IDを取得（子がいない場合は自身のみ）
+     */
+    public static function getContractorIdsWithChildren(int $contractorId): array
+    {
+        $ids = [$contractorId];
+        $children = self::getChildContractorIds($contractorId);
+
+        return array_unique(array_merge($ids, $children));
     }
 
     public function jxSetting(): BelongsTo
@@ -141,6 +181,56 @@ class WmsContractorSetting extends WmsModel
             4 => $this->is_transmission_thu,
             5 => $this->is_transmission_fri,
             6 => $this->is_transmission_sat,
+            default => false,
+        };
+    }
+
+    /**
+     * 受信曜日を日本語で取得
+     */
+    public function getReceiveDaysLabelAttribute(): string
+    {
+        $days = [];
+        if ($this->is_receive_sun) {
+            $days[] = '日';
+        }
+        if ($this->is_receive_mon) {
+            $days[] = '月';
+        }
+        if ($this->is_receive_tue) {
+            $days[] = '火';
+        }
+        if ($this->is_receive_wed) {
+            $days[] = '水';
+        }
+        if ($this->is_receive_thu) {
+            $days[] = '木';
+        }
+        if ($this->is_receive_fri) {
+            $days[] = '金';
+        }
+        if ($this->is_receive_sat) {
+            $days[] = '土';
+        }
+
+        return empty($days) ? '-' : implode('・', $days);
+    }
+
+    /**
+     * 指定された曜日に受信するかどうか
+     *
+     * @param  int  $dayOfWeek  0=日, 1=月, ..., 6=土
+     */
+    public function shouldReceiveOn(int $dayOfWeek): bool
+    {
+        return match ($dayOfWeek) {
+            0 => $this->is_receive_sun,
+            1 => $this->is_receive_mon,
+            2 => $this->is_receive_tue,
+            3 => $this->is_receive_wed,
+            4 => $this->is_receive_thu,
+            5 => $this->is_receive_fri,
+            6 => $this->is_receive_sat,
             default => false,
         };
     }

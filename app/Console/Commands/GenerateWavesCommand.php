@@ -8,6 +8,7 @@ use App\Models\Wave;
 use App\Models\WaveSetting;
 use App\Models\WmsPickingItemResult;
 use App\Services\StockAllocationService;
+use App\Services\WarehouseResolver;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -42,7 +43,8 @@ class GenerateWavesCommand extends Command
 
         // Get wave settings where picking_start_time has already passed
         // This allows earnings to be entered up until the picking start time
-        $waveSettings = WaveSetting::whereTime('picking_start_time', '<=', $currentTime->format('H:i:s'))
+        $waveSettings = WaveSetting::with('deliveryCourse')
+            ->whereTime('picking_start_time', '<=', $currentTime->format('H:i:s'))
             ->get();
 
         if ($waveSettings->isEmpty()) {
@@ -57,6 +59,16 @@ class GenerateWavesCommand extends Command
         $skippedCount = 0;
 
         foreach ($waveSettings as $setting) {
+            // warehouse_id is now resolved via accessor (deliveryCourse->warehouse_id)
+            $warehouseId = $setting->warehouse_id;
+
+            if (! $warehouseId) {
+                $this->warn("Wave setting {$setting->id} has no associated warehouse (delivery_course_id: {$setting->delivery_course_id}). Skipping.");
+                $skippedCount++;
+
+                continue;
+            }
+
             // Check if wave already exists for this setting and date
             $existingWave = Wave::where('wms_wave_setting_id', $setting->id)
                 ->where('shipping_date', $shippingDate)
@@ -68,10 +80,10 @@ class GenerateWavesCommand extends Command
             }
 
             // Check if there are eligible earnings for this wave
+            // Filter by delivery_course_id only (warehouse_id is no longer on wave_setting)
             $earningsCount = Earning::where('delivered_date', $shippingDate)
                 ->where('is_delivered', 0)
                 ->where('picking_status', 'BEFORE')
-                ->where('warehouse_id', $setting->warehouse_id)
                 ->where('delivery_course_id', $setting->delivery_course_id)
                 ->count();
 
@@ -79,23 +91,23 @@ class GenerateWavesCommand extends Command
             // 仮想倉庫間移動は対象外（物理的ピッキング不要）
             $stockTransfersCount = $this->getEligibleStockTransfersQuery(
                 $shippingDate,
-                $setting->warehouse_id,
+                $warehouseId,
                 $setting->delivery_course_id
             )->count();
 
             if ($earningsCount === 0 && $stockTransfersCount === 0) {
-                $this->line("No eligible earnings or stock_transfers found for warehouse {$setting->warehouse_id}, course {$setting->delivery_course_id}. Skipping.");
+                $this->line("No eligible earnings or stock_transfers found for course {$setting->delivery_course_id}. Skipping.");
                 $skippedCount++;
 
                 continue;
             }
 
             // Create wave within transaction
-            DB::transaction(function () use ($setting, $shippingDate, $earningsCount, &$createdCount) {
+            DB::transaction(function () use ($setting, $shippingDate, $earningsCount, $warehouseId, &$createdCount) {
                 // Get warehouse and course codes for wave_no generation
                 $warehouse = DB::connection('sakemaru')
                     ->table('warehouses')
-                    ->where('id', $setting->warehouse_id)
+                    ->where('id', $warehouseId)
                     ->first();
 
                 $course = DB::connection('sakemaru')
@@ -121,11 +133,10 @@ class GenerateWavesCommand extends Command
 
                 $wave->update(['wave_no' => $waveNo]);
 
-                // Get earnings for this wave
+                // Get earnings for this wave (filter by delivery_course_id only)
                 $earnings = Earning::where('delivered_date', $shippingDate)
                     ->where('is_delivered', 0)
                     ->where('picking_status', 'BEFORE')
-                    ->where('warehouse_id', $setting->warehouse_id)
                     ->where('delivery_course_id', $setting->delivery_course_id)
                     ->get();
 
@@ -162,11 +173,12 @@ class GenerateWavesCommand extends Command
                     $allocationService = new StockAllocationService;
                     $result = $allocationService->allocateForItem(
                         $wave->id,
-                        $setting->warehouse_id,
+                        $warehouseId,
                         $tradeItem->item_id,
                         $tradeItem->quantity,
                         $tradeItem->quantity_type ?? 'PIECE',
                         $earningId,
+                        $tradeItem->id,
                         'EARNING',
                         $buyerId
                     );
@@ -193,12 +205,6 @@ class GenerateWavesCommand extends Command
 
                     $reservationResults[$tradeItem->id] = $reservationResult;
 
-                    // Skip items with zero allocation (complete shortage) - REMOVED
-                    // We now process them to create shortage records
-                    // if ($result['allocated'] == 0) {
-                    //     continue;
-                    // }
-
                     // Get picking area ID, floor ID, temperature_type, and is_restricted_area from primary location
                     $pickingAreaId = null;
                     $floorId = null;
@@ -223,7 +229,7 @@ class GenerateWavesCommand extends Command
                             ->table('real_stocks as rs')
                             ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
                             ->join('locations as l', 'rsl.location_id', '=', 'l.id')
-                            ->where('rs.warehouse_id', $setting->warehouse_id)
+                            ->where('rs.warehouse_id', $warehouseId)
                             ->where('rs.item_id', $tradeItem->item_id)
                             ->whereNotNull('l.wms_picking_area_id')
                             ->select('l.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
@@ -238,7 +244,7 @@ class GenerateWavesCommand extends Command
                             // If still no picking area found, assign to first active picking area as default
                             $defaultArea = DB::connection('sakemaru')
                                 ->table('wms_picking_areas')
-                                ->where('warehouse_id', $setting->warehouse_id)
+                                ->where('warehouse_id', $warehouseId)
                                 ->where('is_active', true)
                                 ->orderBy('display_order', 'asc')
                                 ->first();
@@ -247,9 +253,9 @@ class GenerateWavesCommand extends Command
                         }
                     }
 
-                    // Group by floor_id only (no CASE/PIECE separation)
-                    // All items on the same floor go into one picking task
-                    $groupKey = ($floorId ?? 'null');
+                    // Group by floor_id × picking_area_id
+                    // All items on the same floor and picking area go into one picking task
+                    $groupKey = ($floorId ?? 'null').'_'.($pickingAreaId ?? 'null');
                     if (! isset($itemsByGroup[$groupKey])) {
                         $itemsByGroup[$groupKey] = [
                             'floor_id' => $floorId,
@@ -298,10 +304,14 @@ class GenerateWavesCommand extends Command
                         continue;
                     }
 
+                    // 仮想倉庫判定: 同一実倉庫ならピッキングスキップ
+                    // earning.warehouse_id (販売倉庫) と配送コース倉庫が同一実倉庫かチェック
+                    $skipPicking = false;
+
                     $pickingTaskId = DB::connection('sakemaru')->table('wms_picking_tasks')->insertGetId([
                         'wave_id' => $wave->id,
                         'wms_picking_area_id' => $groupData['picking_area_id'],
-                        'warehouse_id' => $setting->warehouse_id,
+                        'warehouse_id' => $warehouseId,
                         'warehouse_code' => $warehouse->code,
                         'floor_id' => $groupData['floor_id'],
                         'temperature_type' => $groupData['temperature_type'], // First item's temperature type (for display only)
@@ -321,12 +331,23 @@ class GenerateWavesCommand extends Command
                         $reservationResult = $reservationResults[$tradeItem->id];
                         $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
 
+                        // 仮想倉庫判定: earning の warehouse_id と配送コース倉庫が同一実倉庫か
+                        $earning = $earnings->firstWhere('trade_id', $tradeItem->trade_id);
+                        $earningWarehouseId = $earning->warehouse_id ?? null;
+                        $itemSkipPicking = false;
+
+                        if ($earningWarehouseId && $earningWarehouseId != $warehouseId) {
+                            $itemSkipPicking = WarehouseResolver::isSameRealWarehouse($earningWarehouseId, $warehouseId);
+                        }
+
                         // quantity_typeは必須フィールド
                         if (! $tradeItem->quantity_type) {
                             throw new \RuntimeException(
                                 "quantity_type must be specified for trade_item ID {$tradeItem->id}"
                             );
                         }
+
+                        $itemStatus = $itemSkipPicking ? 'COMPLETED' : 'PENDING';
 
                         DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
                             'picking_task_id' => $pickingTaskId,
@@ -343,22 +364,34 @@ class GenerateWavesCommand extends Command
                             'ordered_qty_type' => $tradeItem->quantity_type, // From trade_items.quantity_type (must be specified)
                             'planned_qty' => $reservationResult['allocated_qty'], // Allocated quantity from reservations
                             'planned_qty_type' => $tradeItem->quantity_type, // Same as ordered (for now)
-                            'picked_qty' => 0, // Will be set by picker during picking
+                            'picked_qty' => $itemSkipPicking ? $reservationResult['allocated_qty'] : 0, // Auto-complete if same real warehouse
                             'picked_qty_type' => $tradeItem->quantity_type, // Will be set by picker
                             'shortage_qty' => 0, // Will be set by picker during picking
-                            'status' => 'PENDING', // Changed: PENDING is initial state (not PICKING)
+                            'status' => $itemStatus, // Changed: PENDING is initial state (not PICKING)
                             'picker_id' => null,
                             'created_at' => now(),
                             'updated_at' => now(),
                         ]);
+
+                        // 同一実倉庫の場合は earning の picking_status も COMPLETED に設定
+                        if ($itemSkipPicking && $earningId) {
+                            DB::connection('sakemaru')
+                                ->table('earnings')
+                                ->where('id', $earningId)
+                                ->update([
+                                    'picking_status' => 'COMPLETED',
+                                    'updated_at' => now(),
+                                ]);
+                        }
                     }
                 }
 
-                // Update all earnings picking_status to BEFORE_PICKING
+                // Update all earnings picking_status to BEFORE_PICKING (except those already set to COMPLETED)
                 if (! empty($earningIds)) {
                     DB::connection('sakemaru')
                         ->table('earnings')
                         ->whereIn('id', $earningIds)
+                        ->where('picking_status', 'BEFORE')
                         ->update([
                             'picking_status' => 'BEFORE_PICKING',
                             'updated_at' => now(),
@@ -370,7 +403,7 @@ class GenerateWavesCommand extends Command
                 // ============================================================
                 $stockTransfers = $this->getEligibleStockTransfersQuery(
                     $shippingDate,
-                    $setting->warehouse_id,
+                    $warehouseId,
                     $setting->delivery_course_id
                 )->get();
 
@@ -400,11 +433,12 @@ class GenerateWavesCommand extends Command
                         $allocationService = new StockAllocationService;
                         $result = $allocationService->allocateForItem(
                             $wave->id,
-                            $setting->warehouse_id,
+                            $warehouseId,
                             $tradeItem->item_id,
                             $tradeItem->quantity,
                             $tradeItem->quantity_type ?? 'PIECE',
                             $stockTransferId,
+                            $tradeItem->id,
                             'STOCK_TRANSFER', // source_type
                             null // buyer_id
                         );
@@ -444,19 +478,20 @@ class GenerateWavesCommand extends Command
                         if ($pickingAreaId === null) {
                             $defaultArea = DB::connection('sakemaru')
                                 ->table('wms_picking_areas')
-                                ->where('warehouse_id', $setting->warehouse_id)
+                                ->where('warehouse_id', $warehouseId)
                                 ->where('is_active', true)
                                 ->orderBy('display_order', 'asc')
                                 ->first();
                             $pickingAreaId = $defaultArea->id ?? null;
                         }
 
-                        // Find or create picking task for this floor
-                        $groupKey = 'ST_'.($floorId ?? 'null');
+                        // Find or create picking task for this floor × picking area
+                        $groupKey = 'ST_'.($floorId ?? 'null').'_'.($pickingAreaId ?? 'null');
                         $existingTask = DB::connection('sakemaru')
                             ->table('wms_picking_tasks')
                             ->where('wave_id', $wave->id)
                             ->where('floor_id', $floorId)
+                            ->where('wms_picking_area_id', $pickingAreaId)
                             ->first();
 
                         if ($existingTask) {
@@ -465,7 +500,7 @@ class GenerateWavesCommand extends Command
                             $pickingTaskId = DB::connection('sakemaru')->table('wms_picking_tasks')->insertGetId([
                                 'wave_id' => $wave->id,
                                 'wms_picking_area_id' => $pickingAreaId,
-                                'warehouse_id' => $setting->warehouse_id,
+                                'warehouse_id' => $warehouseId,
                                 'warehouse_code' => $warehouse->code,
                                 'floor_id' => $floorId,
                                 'delivery_course_id' => $setting->delivery_course_id,
@@ -672,6 +707,9 @@ class GenerateWavesCommand extends Command
         int $warehouseId,
         int $deliveryCourseId
     ) {
+        // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
+        $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
+
         return DB::connection('sakemaru')
             ->table('stock_transfers as st')
             ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
@@ -681,7 +719,7 @@ class GenerateWavesCommand extends Command
             ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
             ->where('st.is_active', true)
             ->where('st.picking_status', 'BEFORE')
-            ->where('st.from_warehouse_id', $warehouseId)
+            ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->where('st.delivery_course_id', $deliveryCourseId)
             // 仮想倉庫間移動は対象外
             ->where(function ($query) {

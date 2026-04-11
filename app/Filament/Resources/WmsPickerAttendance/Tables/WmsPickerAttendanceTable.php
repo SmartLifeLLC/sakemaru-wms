@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsPickerAttendance\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Enums\PickerSkillLevel;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsPicker;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -20,6 +21,8 @@ use Illuminate\Support\Facades\DB;
 
 class WmsPickerAttendanceTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -49,12 +52,6 @@ class WmsPickerAttendanceTable
                     ->formatStateUsing(fn ($state) => $state?->label() ?? '-')
                     ->color(fn ($state) => $state?->color() ?? 'gray')
                     ->sortable(),
-
-                TextColumn::make('picking_speed_rate')
-                    ->label('作業速度')
-                    ->formatStateUsing(fn ($state) => $state ? number_format($state, 2).'x' : '-')
-                    ->sortable()
-                    ->alignCenter(),
 
                 IconColumn::make('is_available_for_picking')
                     ->label('稼働可')
@@ -90,6 +87,7 @@ class WmsPickerAttendanceTable
             ])
             ->recordActions([])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('assignWarehouse')
                         ->label('出勤倉庫指定')

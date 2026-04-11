@@ -153,6 +153,16 @@ class PickingApiTest extends TestCase
             $task->update(['status' => 'PICKING', 'completed_at' => null]);
         }
 
+        // Ensure all item results have picked_qty set (simulate picking completion)
+        $task->pickingItemResults()
+            ->where('planned_qty', '>', 0)
+            ->where('picked_qty', 0)
+            ->update([
+                'picked_qty' => DB::raw('planned_qty'),
+                'status' => 'PICKING',
+                'updated_at' => now(),
+            ]);
+
         $statusBefore = $task->status;
 
         // Call complete API

@@ -3,87 +3,129 @@
 namespace App\Filament\Resources\ItemContractors\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextInputColumn;
+use Filament\Tables\Columns\ToggleColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
+use Filament\Forms\Components\TextInput;
 use Filament\Tables\Table;
 
 class ItemContractorsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->columns([
                 TextColumn::make('item.code')
-                    ->label('商品コード')
+                    ->label('商品CD')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->width('80px'),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
                     ->searchable()
                     ->sortable()
-                    ->limit(30),
+                    ->grow(),
+
+                TextColumn::make('warehouse.code')
+                    ->label('倉庫CD')
+                    ->sortable()
+                    ->width('70px'),
 
                 TextColumn::make('warehouse.name')
-                    ->label('倉庫')
-                    ->searchable()
-                    ->sortable(),
+                    ->label('倉庫名')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('contractor.code')
+                    ->label('発注先CD')
+                    ->sortable()
+                    ->width('80px'),
 
                 TextColumn::make('contractor.name')
-                    ->label('発注先')
-                    ->searchable()
+                    ->label('発注先名')
                     ->sortable(),
 
+                TextColumn::make('supplier.partner.code')
+                    ->label('仕入先CD')
+                    ->sortable()
+                    ->width('80px'),
+
                 TextColumn::make('supplier.partner.name')
-                    ->label('仕入先')
-                    ->sortable()
-                    ->toggleable(),
+                    ->label('仕入先名')
+                    ->sortable(),
 
-                TextColumn::make('safety_stock')
+                TextInputColumn::make('safety_stock')
                     ->label('安全在庫')
-                    ->numeric()
-                    ->sortable()
-                    ->alignEnd(),
-
-                TextColumn::make('max_stock')
-                    ->label('最大在庫')
-                    ->numeric()
+                    ->type('number')
+                    ->rules(['integer', 'min:0'])
                     ->sortable()
                     ->alignEnd()
-                    ->toggleable(),
+                    ->width('100px'),
 
-                IconColumn::make('is_auto_order')
+                TextInputColumn::make('max_stock')
+                    ->label('最大在庫')
+                    ->type('number')
+                    ->rules(['integer', 'min:0'])
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('100px'),
+
+                ToggleColumn::make('is_auto_order')
                     ->label('自動発注')
-                    ->boolean()
                     ->sortable()
                     ->alignCenter(),
 
-                TextColumn::make('created_at')
-                    ->label('登録日時')
-                    ->dateTime('Y-m-d H:i')
+                ToggleColumn::make('use_safety_stock_auto_update')
+                    ->label('在庫自動更新')
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->alignCenter(),
             ])
             ->filters([
-                SelectFilter::make('warehouse_id')
-                    ->label('倉庫')
-                    ->options(fn () => Warehouse::where('is_active', true)->pluck('name', 'id'))
-                    ->searchable(),
+                Filter::make('item_code')
+                    ->label('商品CD')
+                    ->schema([
+                        TextInput::make('item_code')
+                            ->label('商品CD')
+                            ->placeholder('商品コードを入力'),
+                    ])
+                    ->query(fn ($query, array $data) => $query->when(
+                        $data['item_code'] ?? null,
+                        fn ($q, $code) => $q->whereHas('item', fn ($q) => $q->where('code', $code))
+                    )),
 
                 SelectFilter::make('contractor_id')
                     ->label('発注先')
-                    ->options(fn () => Contractor::where('is_active', true)->pluck('name', 'id'))
+                    ->options(fn () => Contractor::where('is_active', true)
+                        ->orderBy('code')
+                        ->get()
+                        ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}] {$c->name}"])
+                        ->toArray())
+                    ->searchable(),
+
+                SelectFilter::make('supplier_id')
+                    ->label('仕入先')
+                    ->options(fn () => Supplier::with('partner')
+                        ->get()
+                        ->mapWithKeys(fn ($s) => [$s->id => "[{$s->partner?->code}] {$s->partner?->name}"])
+                        ->toArray())
                     ->searchable(),
 
                 TernaryFilter::make('is_auto_order')
@@ -91,12 +133,20 @@ class ItemContractorsTable
                     ->placeholder('すべて')
                     ->trueLabel('自動発注のみ')
                     ->falseLabel('手動発注のみ'),
+
+                TernaryFilter::make('use_safety_stock_auto_update')
+                    ->label('安全在庫自動更新')
+                    ->placeholder('すべて')
+                    ->trueLabel('自動更新あり')
+                    ->falseLabel('自動更新なし'),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

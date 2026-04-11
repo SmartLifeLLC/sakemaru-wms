@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api.key' => \App\Http\Middleware\ApiKeyAuth::class,
             'filament.auth' => \App\Http\Middleware\FilamentAuth::class,
             'jx.basic' => \App\Http\Middleware\JxBasicAuth::class,
+            'swagger.basic' => \App\Http\Middleware\SwaggerBasicAuth::class,
         ]);
 
         // JXサーバーエンドポイントはCSRF検証から除外

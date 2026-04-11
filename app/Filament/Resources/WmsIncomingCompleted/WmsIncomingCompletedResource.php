@@ -33,12 +33,12 @@ class WmsIncomingCompletedResource extends Resource
 
     public static function getModelLabel(): string
     {
-        return '入庫完了';
+        return '入荷完了';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '入庫完了';
+        return '入荷完了';
     }
 
     public static function getNavigationSort(): ?int

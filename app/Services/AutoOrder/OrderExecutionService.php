@@ -5,6 +5,8 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\QuantityType;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
@@ -23,8 +25,10 @@ use Illuminate\Support\Facades\Log;
 class OrderExecutionService
 {
     public function __construct(
-        private readonly OrderAuditService $auditService
+        private readonly OrderAuditService $auditService,
+        private readonly PurchasePriceService $purchasePriceService = new PurchasePriceService,
     ) {}
+
     /**
      * 発注候補を確定し、入庫予定を作成（何回でも実行可能）
      *
@@ -151,53 +155,90 @@ class OrderExecutionService
         $supplierId = $this->getSupplierIdFromCandidate($candidate);
         $searchCode = $this->getSearchCodeForItem($candidate->item_id);
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
+        $prices = $this->purchasePriceService->getPrice(
+            $candidate->item_id,
+            $supplierId,
+            $candidate->warehouse_id,
+            now()->toDateString()
+        );
 
         // demand_breakdownがある場合は各倉庫ごとに入庫予定を作成
+        // 注意: demand_breakdownのquantityは単位調整前の不足数なので、
+        //       order_quantity（単位調整後）との比率で按分する
         if (! empty($candidate->demand_breakdown)) {
-            foreach ($candidate->demand_breakdown as $breakdown) {
+            $breakdowns = collect($candidate->demand_breakdown)->filter(fn ($b) => ($b['quantity'] ?? 0) > 0);
+            $breakdownTotal = $breakdowns->sum('quantity');
+            $orderQuantity = $candidate->order_quantity;
+
+            // 按分して端数は最後の倉庫に寄せる
+            $allocated = 0;
+            $lastIndex = $breakdowns->count() - 1;
+
+            foreach ($breakdowns->values() as $index => $breakdown) {
                 $warehouseId = $breakdown['warehouse_id'];
-                $quantity = $breakdown['quantity'];
+
+                if ($index === $lastIndex) {
+                    // 最後の倉庫に残りを割り当て
+                    $quantity = $orderQuantity - $allocated;
+                } else {
+                    $quantity = $breakdownTotal > 0
+                        ? (int) round($breakdown['quantity'] / $breakdownTotal * $orderQuantity)
+                        : 0;
+                    $allocated += $quantity;
+                }
 
                 if ($quantity <= 0) {
                     continue;
                 }
 
+                $orderDate = ClientSetting::systemDateYMD();
                 $schedule = WmsOrderIncomingSchedule::create([
                     'warehouse_id' => $warehouseId,
                     'item_id' => $candidate->item_id,
+                    'item_code' => $candidate->item_code,
                     'search_code' => $searchCode,
                     'contractor_id' => $candidate->contractor_id,
                     'supplier_id' => $supplierId,
                     'order_candidate_id' => $candidate->id,
                     'order_source' => OrderSource::AUTO,
+                    'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
                     'expected_quantity' => $quantity,
                     'received_quantity' => 0,
                     'quantity_type' => $candidate->quantity_type,
-                    'order_date' => now()->format('Y-m-d'),
+                    'price_type' => $candidate->quantity_type === QuantityType::CASE ? 'CASE' : 'PIECE',
+                    'order_date' => $orderDate,
                     'expected_arrival_date' => $candidate->expected_arrival_date,
                     'expiration_date' => $expirationDate,
                     'status' => IncomingScheduleStatus::PENDING,
+                    'unit_price' => $prices['unit_price'],
+                    'case_price' => $prices['case_price'],
                 ]);
 
                 $incomingSchedules->push($schedule);
             }
         } else {
             // demand_breakdownがない場合は従来通り発注元倉庫に入庫予定を作成
+            $orderDate = ClientSetting::systemDateYMD();
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,
                 'item_id' => $candidate->item_id,
+                'item_code' => $candidate->item_code,
                 'search_code' => $searchCode,
                 'contractor_id' => $candidate->contractor_id,
                 'supplier_id' => $supplierId,
                 'order_candidate_id' => $candidate->id,
                 'order_source' => OrderSource::AUTO,
+                'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
                 'expected_quantity' => $candidate->order_quantity,
                 'received_quantity' => 0,
                 'quantity_type' => $candidate->quantity_type,
-                'order_date' => now()->format('Y-m-d'),
+                'price_type' => $candidate->quantity_type === QuantityType::CASE ? 'CASE' : 'PIECE',
+                'order_date' => $orderDate,
                 'expected_arrival_date' => $candidate->expected_arrival_date,
                 'expiration_date' => $expirationDate,
                 'status' => IncomingScheduleStatus::PENDING,
+                'unit_price' => $prices['unit_price'],
+                'case_price' => $prices['case_price'],
             ]);
 
             $incomingSchedules->push($schedule);
@@ -255,21 +296,36 @@ class OrderExecutionService
         $expirationDate = $data['expiration_date']
             ?? $this->calculateExpirationDate($data['item_id'], $data['expected_arrival_date']);
 
+        $orderDate = $data['order_date'] ?? now()->format('Y-m-d');
+        $supplierId = $data['supplier_id'] ?? null;
+        $prices = $this->purchasePriceService->getPrice(
+            $data['item_id'],
+            $supplierId,
+            $data['warehouse_id'],
+            $orderDate
+        );
+
+        $itemCode = Item::where('id', $data['item_id'])->value('code');
+
         $incomingSchedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $data['warehouse_id'],
             'item_id' => $data['item_id'],
+            'item_code' => $itemCode,
             'search_code' => $searchCode,
             'contractor_id' => $data['contractor_id'],
-            'supplier_id' => $data['supplier_id'] ?? null,
+            'supplier_id' => $supplierId,
             'manual_order_number' => $data['order_number'] ?? null,
             'order_source' => OrderSource::MANUAL,
+            'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
             'expected_quantity' => $data['expected_quantity'],
             'received_quantity' => 0,
             'quantity_type' => $data['quantity_type'] ?? 'PIECE',
-            'order_date' => $data['order_date'] ?? now()->format('Y-m-d'),
+            'order_date' => $orderDate,
             'expected_arrival_date' => $data['expected_arrival_date'],
             'expiration_date' => $expirationDate,
             'status' => IncomingScheduleStatus::PENDING,
+            'unit_price' => $prices['unit_price'],
+            'case_price' => $prices['case_price'],
             'note' => $data['note'] ?? null,
         ]);
 
@@ -316,7 +372,7 @@ class OrderExecutionService
      *
      * @param  int  $itemId  商品ID
      * @param  string|Carbon  $baseDate  基準日（入荷予定日）
-     * @return string|null  賞味期限（Y-m-d形式）
+     * @return string|null 賞味期限（Y-m-d形式）
      */
     private function calculateExpirationDate(int $itemId, string|Carbon $baseDate): ?string
     {

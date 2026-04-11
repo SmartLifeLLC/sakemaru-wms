@@ -13,6 +13,7 @@ use App\Models\WmsPickingArea;
 use App\Models\WmsWarehouseLayout;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 
 class FloorPlanEditor extends Page
@@ -275,6 +276,43 @@ class FloorPlanEditor extends Page
 
             $zoneIndex++;
         }
+
+        // Bulk query: get expiration status per location
+        $allLocationIds = collect($zoneGroups)->flatMap(fn ($g) => collect($g['locations'])->pluck('id'))->toArray();
+
+        $expirationStatuses = [];
+        if (! empty($allLocationIds)) {
+            $expirationStatuses = DB::connection('sakemaru')
+                ->table('real_stock_lots')
+                ->whereIn('location_id', $allLocationIds)
+                ->where('status', 'ACTIVE')
+                ->where('current_quantity', '>', 0)
+                ->whereNotNull('expiration_date')
+                ->select('location_id', DB::raw(implode(', ', [
+                    'MAX(CASE WHEN expiration_date < CURDATE() THEN 2 ELSE 0 END) as has_expired',
+                    'MAX(CASE WHEN alert_date IS NOT NULL AND alert_date <= CURDATE() AND expiration_date >= CURDATE() THEN 1 ELSE 0 END) as has_alert',
+                ])))
+                ->groupBy('location_id')
+                ->get()
+                ->keyBy('location_id');
+        }
+
+        // Attach expiration_status to each zone
+        foreach ($zones as &$zone) {
+            $status = null;
+            foreach ($zone['location_ids'] as $locId) {
+                $locStatus = $expirationStatuses[$locId] ?? null;
+                if ($locStatus && $locStatus->has_expired >= 2) {
+                    $status = 'expired';
+                    break; // worst case, no need to check further
+                }
+                if ($locStatus && $locStatus->has_alert >= 1) {
+                    $status = 'alert';
+                }
+            }
+            $zone['expiration_status'] = $status;
+        }
+        unset($zone);
 
         return collect($zones);
     }
@@ -887,6 +925,24 @@ class FloorPlanEditor extends Page
             ];
         })->values()->toArray();
 
+        // Picking areas
+        $pickingAreas = WmsPickingArea::where('warehouse_id', $this->selectedWarehouseId)
+            ->where('floor_id', $this->selectedFloorId)
+            ->orderBy('display_order')
+            ->get()
+            ->map(fn ($area) => [
+                'code' => $area->code,
+                'name' => $area->name,
+                'color' => $area->color,
+                'polygon' => $area->polygon,
+                'available_quantity_flags' => $area->available_quantity_flags,
+                'temperature_type' => $area->temperature_type,
+                'is_restricted_area' => $area->is_restricted_area ?? false,
+                'display_order' => $area->display_order ?? 0,
+            ])
+            ->values()
+            ->toArray();
+
         $layout = [
             'warehouse_code' => $warehouse->code,
             'warehouse_name' => $warehouse->name,
@@ -901,6 +957,13 @@ class FloorPlanEditor extends Page
             'zones' => $zones,
             'walls' => $this->walls,
             'fixed_areas' => $this->fixedAreas,
+            'picking_areas' => $pickingAreas,
+            'picking_points' => [
+                'start' => ['x' => $this->pickingStartX, 'y' => $this->pickingStartY],
+                'end' => ['x' => $this->pickingEndX, 'y' => $this->pickingEndY],
+            ],
+            'walkable_areas' => $this->walkableAreas,
+            'navmeta' => $this->navmeta,
             'exported_at' => now()->toIso8601String(),
         ];
 
@@ -956,9 +1019,38 @@ class FloorPlanEditor extends Page
                 $this->textStyles = $layout['text_styles'];
             }
 
-            // Import walls and fixed areas
-            $this->walls = $layout['walls'] ?? [];
-            $this->fixedAreas = $layout['fixed_areas'] ?? [];
+            // Import walls and fixed areas (ensure proper array casting for Livewire)
+            $this->walls = array_values(array_map(
+                fn ($wall) => array_map(fn ($v) => is_numeric($v) ? (float) $v : $v, (array) $wall),
+                $layout['walls'] ?? []
+            ));
+            $this->fixedAreas = array_values(array_map(
+                fn ($area) => array_map(fn ($v) => is_numeric($v) ? (float) $v : $v, (array) $area),
+                $layout['fixed_areas'] ?? []
+            ));
+
+            // Import picking points
+            if (isset($layout['picking_points'])) {
+                $this->pickingStartX = $layout['picking_points']['start']['x'] ?? 0;
+                $this->pickingStartY = $layout['picking_points']['start']['y'] ?? 0;
+                $this->pickingEndX = $layout['picking_points']['end']['x'] ?? 0;
+                $this->pickingEndY = $layout['picking_points']['end']['y'] ?? 0;
+            }
+
+            // Import walkable areas and navmeta
+            if (isset($layout['walkable_areas'])) {
+                $this->walkableAreas = $layout['walkable_areas'];
+            }
+            if (isset($layout['navmeta'])) {
+                $this->navmeta = $layout['navmeta'];
+            }
+
+            // Validate: picking areas require zones
+            if (isset($layout['picking_areas']) && ! empty($layout['picking_areas'])) {
+                if (! isset($layout['zones']) || empty($layout['zones'])) {
+                    throw new \Exception('ピッキングエリアをインポートするにはゾーン（ロケーション）が必要です');
+                }
+            }
 
             // Import zones (create or update locations)
             if (isset($layout['zones'])) {
@@ -1000,6 +1092,49 @@ class FloorPlanEditor extends Page
 
             // Save layout to database
             $this->saveLayout();
+
+            // Import picking areas (complete replacement)
+            if (isset($layout['picking_areas']) && ! empty($layout['picking_areas'])) {
+                // 1. Delete existing picking areas
+                $existingAreas = WmsPickingArea::where('warehouse_id', $this->selectedWarehouseId)
+                    ->where('floor_id', $this->selectedFloorId)
+                    ->get();
+
+                foreach ($existingAreas as $existingArea) {
+                    Location::where('wms_picking_area_id', $existingArea->id)
+                        ->update(['wms_picking_area_id' => null]);
+                    $existingArea->delete();
+                }
+
+                // 2. Recreate from JSON
+                foreach ($layout['picking_areas'] as $areaData) {
+                    $area = WmsPickingArea::create([
+                        'warehouse_id' => $this->selectedWarehouseId,
+                        'floor_id' => $this->selectedFloorId,
+                        'code' => uniqid(),
+                        'name' => $areaData['name'],
+                        'color' => $areaData['color'] ?? '#8B5CF6',
+                        'polygon' => $areaData['polygon'] ?? [],
+                        'available_quantity_flags' => $areaData['available_quantity_flags'] ?? null,
+                        'temperature_type' => $areaData['temperature_type'] ?? null,
+                        'is_restricted_area' => $areaData['is_restricted_area'] ?? false,
+                        'display_order' => $areaData['display_order'] ?? 0,
+                        'is_active' => true,
+                    ]);
+
+                    // Update code to match ID (existing pattern)
+                    $area->update(['code' => (string) $area->id]);
+
+                    // 3. Assign locations within polygon
+                    $this->assignLocationsToArea($area);
+
+                    // 4. Apply area settings to locations
+                    $area->applySettingsToLocations();
+                }
+            }
+
+            // Reload picking areas
+            $this->loadPickingAreas();
 
             // Reload data
             $zones = $this->zones->toArray();

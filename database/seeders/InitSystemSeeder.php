@@ -27,8 +27,29 @@ class InitSystemSeeder extends Seeder
         // 初期ピッカー生成
         $this->call(InitialPickerSeeder::class);
 
+        // 発注先時刻初期設定
+        $this->call(ContractorInitSeeder::class);
+
         // 発注先メールテンプレート初期設定
         $this->call(ContractorMailSettingSeeder::class);
+
+        // 月別発注点初期データ
+        $this->call(MonthlySafetyStockInitSeeder::class);
+
+        // 自動発注対象の初期設定（CSVベース）
+        $this->call(AutoOrderCandidateInitSeeder::class);
+
+        // ピッカー割り当て戦略の初期設定
+        $this->call(WmsPickingAssignmentStrategySeeder::class);
+
+        // オレンジ冷凍倉庫の新設 + コントラクタ設定
+        $this->call(OrangeWarehouseSeeder::class);
+
+        // アクト中食冷凍商品のitem_contractors設定
+        $this->call(AkutoFrozenItemContractorSeeder::class);
+
+        $this->call(WarehouseStockTransferDeliveryCourseSeeder::class);
+
 
         // 今後追加予定の初期設定
         // $this->call(InitialPickingAreaSeeder::class);

@@ -20,6 +20,7 @@ class WarehouseStockTransferDeliveryCourse extends Model
         'from_warehouse_id',
         'to_warehouse_id',
         'delivery_course_id',
+        'picking_lead_days',
         'creator_id',
         'last_updater_id',
     ];

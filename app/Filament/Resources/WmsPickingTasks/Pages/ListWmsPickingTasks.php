@@ -26,13 +26,17 @@ class ListWmsPickingTasks extends ListRecords
 
     public function getPresetViews(): array
     {
-        return [
-            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING_READY'))->favorite()->label('ピッキング前')->default(),
-            'PICKING' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING'))->favorite()->label('ピッキング中'),
-            'SHORTAGE' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'SHORTAGE'))->favorite()->label('欠品対応待ち'),
-            'COMPLETED_TODAY' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED')->whereDate('shipment_date', ClientSetting::systemDateYMD()))->favorite()->label('ピッキング完了(本日出荷)'),
-            'COMPLETED_ALL' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED'))->favorite()->label('ピッキング完了(すべて)'),
+        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        $defaultFilterData = $userDefaultWarehouseId
+            ? ['warehouse_id' => ['value' => (string) $userDefaultWarehouseId]]
+            : [];
 
+        return [
+            'default' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING_READY'))->defaultFilters($defaultFilterData)->favorite()->label('ピッキング前')->default(),
+            'PICKING' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING'))->defaultFilters($defaultFilterData)->favorite()->label('ピッキング中'),
+            'SHORTAGE' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where(fn ($q) => $q->whereHas('pickingItemResults', fn ($sq) => $sq->where('has_soft_shortage', true))->orWhere('status', 'SHORTAGE')))->defaultFilters($defaultFilterData)->favorite()->label('欠品対応待ち'),
+            'COMPLETED_TODAY' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED')->whereDate('shipment_date', ClientSetting::systemDateYMD()))->defaultFilters($defaultFilterData)->favorite()->label('ピッキング完了(本日出荷)'),
+            'COMPLETED_ALL' => PresetView::make()->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'COMPLETED'))->defaultFilters($defaultFilterData)->favorite()->label('ピッキング完了(すべて)'),
         ];
     }
 

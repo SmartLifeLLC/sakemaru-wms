@@ -611,11 +611,17 @@ window.handyIncomingApp = function() {
             // Get expiration date from schedule if available
             const expirationDate = schedule.expiration_date || '';
 
+            // デフォルト検品数量:
+            // shipped_quantity がある場合は出荷実績ベース、なければ発注数ベース
+            const defaultQty = (schedule.shipped_quantity != null && schedule.shipped_quantity > 0)
+                ? Math.max(0, schedule.shipped_quantity - (schedule.received_quantity || 0))
+                : (schedule.expected_quantity || 0) - (schedule.received_quantity || 0);
+
             // Reset form for this schedule (DB変更なしで入力画面へ)
             this.editingWorkItem = null;  // Clear any previous work item
             this.inputForm = {
                 schedule_id: schedule.id,
-                qty: schedule.expected_quantity || 0,
+                qty: Math.max(0, defaultQty),
                 location_search: locationSearch,
                 location_id: locationId,
                 expiration_date: expirationDate,
@@ -731,10 +737,14 @@ window.handyIncomingApp = function() {
         },
 
         onScheduleChange() {
-            // Update remaining quantity for selected schedule
+            // Update default quantity for selected schedule
+            // shipped_quantity がある場合は出荷実績ベース、なければ残数ベース
             const schedule = this.currentItem.schedules.find(s => s.id === this.inputForm.schedule_id);
             if (schedule) {
-                this.inputForm.qty = schedule.remaining_quantity;
+                const defaultQty = (schedule.shipped_quantity != null && schedule.shipped_quantity > 0)
+                    ? Math.max(0, schedule.shipped_quantity - (schedule.received_quantity || 0))
+                    : schedule.remaining_quantity;
+                this.inputForm.qty = Math.max(0, defaultQty);
             }
         },
 
@@ -778,8 +788,8 @@ window.handyIncomingApp = function() {
         get canSubmit() {
             const schedule = this.currentSchedule;
             if (!schedule) return false;
-            // qty > 0 かつ 予定数以下
-            return this.inputForm.qty > 0 && this.inputForm.qty <= schedule.expected_quantity;
+            // qty >= 0（0入力 = 欠品として確定可能。超過入荷も許可）
+            return this.inputForm.qty >= 0;
         },
 
         // ==================== Submit ====================

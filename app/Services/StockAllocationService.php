@@ -42,6 +42,7 @@ class StockAllocationService
         int $needQty,
         string $quantityType,
         int $sourceId,
+        int $sourceLineId,
         string $sourceType = 'EARNING',
         ?int $buyerId = null
     ): array {
@@ -73,6 +74,7 @@ class StockAllocationService
                 $needQty,
                 $quantityType,
                 $sourceId,
+                $sourceLineId,
                 $sourceType,
                 $startTime,
                 $buyerId
@@ -92,6 +94,7 @@ class StockAllocationService
         int $needQty,
         string $quantityType,
         int $sourceId,
+        int $sourceLineId,
         string $sourceType,
         float $startTime,
         ?int $buyerId = null
@@ -168,7 +171,7 @@ class StockAllocationService
                     'shortage_qty' => 0,
                     'source_type' => $sourceType,
                     'source_id' => $sourceId,
-                    'source_line_id' => $sourceId,
+                    'source_line_id' => $sourceLineId,
                     'wave_id' => $waveId,
                     'status' => 'RESERVED',
                     'created_by' => 0,
@@ -204,7 +207,7 @@ class StockAllocationService
                 'shortage_qty' => $shortageQty,
                 'source_type' => $sourceType,
                 'source_id' => $sourceId,
-                'source_line_id' => $sourceId,
+                'source_line_id' => $sourceLineId,
                 'wave_id' => $waveId,
                 'status' => $totalAllocated > 0 ? 'PARTIAL' : 'SHORTAGE',
                 'created_by' => 0,

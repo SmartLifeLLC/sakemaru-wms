@@ -35,9 +35,9 @@ class ClientSetting extends CustomModel
         //        if ($client_setting?->system_date) {
         //            return new Carbon($client_setting->system_date);
         //        }
-        if ($default_now) {
-            return TimeZone::TOKYO->now();
-        }
+        //        if ($default_now) {
+        //            return TimeZone::TOKYO->now();
+        //        }
 
         return new Carbon(ClientSetting::first()->system_date);
 

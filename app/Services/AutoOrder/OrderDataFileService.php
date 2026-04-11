@@ -4,8 +4,10 @@ namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\OrderDataFileStatus;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
+use App\Models\WmsOrderIncomingSchedule;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -120,7 +122,7 @@ class OrderDataFileService
                 'is_test' => false,
             ],
             [
-                'order_date' => now()->toDateString(),
+                'order_date' => ClientSetting::systemDateYMD(),
                 'expected_arrival_date' => $expectedArrivalDate,
                 'file_path' => $filePath,
                 'file_size' => strlen($csvContent),
@@ -152,21 +154,17 @@ class OrderDataFileService
      */
     private function buildCsvContent(Collection $candidates): string
     {
-        // 入荷予定日でグルーピングして伝票番号を付与
-        $slipGroups = $candidates->groupBy(function ($candidate) {
-            return $candidate->expected_arrival_date?->format('Y-m-d') ?? 'unknown';
-        });
-
-        // 伝票番号マッピングを作成
-        $slipNumberMap = [];
-        $slipNo = 1;
-        foreach ($slipGroups as $date => $group) {
-            $slipNumberMap[$date] = $slipNo++;
-        }
+        // 候補IDから入荷予定レコードを取得（伝票番号・単価情報用）
+        $candidateIds = $candidates->pluck('id')->toArray();
+        $incomingSchedules = WmsOrderIncomingSchedule::whereIn('order_candidate_id', $candidateIds)
+            ->get()
+            ->keyBy('order_candidate_id');
+        $slipNumberMap = $incomingSchedules->pluck('slip_number', 'order_candidate_id')->toArray();
 
         $headers = [
             // 伝票ヘッダー
             '伝票番号',
+            '明細行',
             '発注日',
             '入荷予定日',
             '倉庫コード',
@@ -174,37 +172,58 @@ class OrderDataFileService
             '発注先コード',
             '発注先名',
             // 明細
-            '明細行',
             '商品コード',
             '商品名',
             '規格',
             '発注コード',
             '発注数量',
             '単位',
+            '単価',
         ];
 
         $rows = [];
         $rows[] = $headers;
 
-        // 入荷予定日順でソート
-        $sortedCandidates = $candidates->sortBy('expected_arrival_date');
+        // 伝票番号順でソート
+        $sortedCandidates = $candidates->sortBy(function ($candidate) use ($slipNumberMap) {
+            return $slipNumberMap[$candidate->id] ?? '';
+        });
 
         // 明細行番号をトラック（伝票ごと）
         $lineNumbers = [];
 
         foreach ($sortedCandidates as $candidate) {
-            $arrivalDate = $candidate->expected_arrival_date?->format('Y-m-d') ?? 'unknown';
-            $slipNo = $slipNumberMap[$arrivalDate] ?? 0;
+            $slipNumber = $slipNumberMap[$candidate->id] ?? '';
 
             // 伝票内の明細行番号
-            if (! isset($lineNumbers[$slipNo])) {
-                $lineNumbers[$slipNo] = 0;
+            if (! isset($lineNumbers[$slipNumber])) {
+                $lineNumbers[$slipNumber] = 0;
             }
-            $lineNumbers[$slipNo]++;
+            $lineNumbers[$slipNumber]++;
+
+            // 単位の日本語表記
+            $quantityType = $candidate->quantity_type;
+            $unitLabel = match ($quantityType?->value ?? $quantityType) {
+                'CASE' => 'ケース',
+                'CARTON' => 'ボール',
+                default => 'バラ',
+            };
+
+            // 単価（ケース/バラに合わせて）
+            $schedule = $incomingSchedules[$candidate->id] ?? null;
+            $unitPrice = '';
+            if ($schedule) {
+                $unitPrice = match ($schedule->price_type) {
+                    'CASE' => $schedule->case_price,
+                    default => $schedule->unit_price,
+                };
+                $unitPrice = $unitPrice !== null ? (float) $unitPrice : '';
+            }
 
             $rows[] = [
                 // 伝票ヘッダー（明細分重複）
-                $slipNo,
+                $slipNumber,
+                $lineNumbers[$slipNumber],
                 now()->format('Y-m-d'),
                 $candidate->expected_arrival_date?->format('Y-m-d') ?? '',
                 $candidate->warehouse?->code ?? '',
@@ -212,13 +231,13 @@ class OrderDataFileService
                 $candidate->contractor?->code ?? '',
                 $candidate->contractor?->name ?? '',
                 // 明細
-                $lineNumbers[$slipNo],
                 $candidate->item?->code ?? '',
                 $candidate->item?->name ?? '',
                 $candidate->item?->packaging ?? '',
                 $candidate->ordering_code ?? '',
                 $candidate->order_quantity,
-                $candidate->quantity_type?->value ?? 'PIECE',
+                $unitLabel,
+                $unitPrice,
             ];
         }
 

@@ -2,18 +2,28 @@
 
 namespace App\Filament\Resources\WmsAutoOrderJobControls\Tables;
 
-use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\JobStatus;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\PaginationOptions;
+use App\Enums\QueueProgressStatus;
+use App\Filament\Concerns\HasExportAction;
+use App\Models\Sakemaru\ClientSetting;
+use App\Models\WmsAutoOrderJobControl;
+use App\Models\WmsQueueProgress;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsAutoOrderJobControlsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -25,16 +35,23 @@ class WmsAutoOrderJobControlsTable
                     ->label('ID')
                     ->sortable(),
 
+                TextColumn::make('createdByUser.name')
+                    ->label('実行者')
+                    ->placeholder('システム')
+                    ->sortable()
+                    ->width('100px'),
+
+                TextColumn::make('warehouse.name')
+                    ->label('倉庫')
+                    ->placeholder('全倉庫')
+                    ->sortable()
+                    ->width('120px'),
+
                 TextColumn::make('batch_code')
                     ->label('実行CD')
                     ->searchable()
                     ->sortable()
                     ->copyable(),
-
-                TextColumn::make('process_name')
-                    ->label('実行タイプ')
-                    ->formatStateUsing(fn (JobProcessName $state): string => $state->label())
-                    ->sortable(),
 
                 TextColumn::make('status')
                     ->label('ステータス')
@@ -49,12 +66,6 @@ class WmsAutoOrderJobControlsTable
                     ->formatStateUsing(fn (SettlementStatus $state): string => $state->label())
                     ->color(fn (SettlementStatus $state): string => $state->color())
                     ->sortable(),
-
-                TextColumn::make('snapshot_job_id')
-                    ->label('参照SS')
-                    ->formatStateUsing(fn ($state) => $state ? "#{$state}" : '-')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('processed_records')
                     ->label('処理件数')
@@ -79,11 +90,6 @@ class WmsAutoOrderJobControlsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('process_name')
-                    ->label('実行タイプ')
-                    ->options(fn () => collect(JobProcessName::cases())
-                        ->mapWithKeys(fn ($case) => [$case->value => $case->label()])),
-
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(fn () => collect(JobStatus::cases())
@@ -95,15 +101,55 @@ class WmsAutoOrderJobControlsTable
                         ->mapWithKeys(fn ($case) => [$case->value => $case->label()])),
             ])
             ->recordActions([
+                Action::make('forceCancel')
+                    ->label('強制中断')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn ($record) => $record->status === JobStatus::RUNNING
+                        && $record->started_at
+                        && $record->started_at->diffInMinutes(now()) >= 10)
+                    ->requiresConfirmation()
+                    ->modalHeading('ジョブの強制中断')
+                    ->modalDescription(fn ($record) => "このジョブ（{$record->batch_code}）を強制中断しますか？\n開始から".$record->started_at->diffInMinutes(now()).'分経過しています。')
+                    ->action(function ($record) {
+                        $record->markAsFailed('管理者による強制中断（タイムアウト）');
+
+                        // 対応するwms_queue_progressもFAILEDにする
+                        WmsQueueProgress::where('job_type', WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION)
+                            ->whereIn('status', [QueueProgressStatus::PENDING, QueueProgressStatus::PROCESSING])
+                            ->each(fn ($job) => $job->markAsFailed('管理者による強制中断'));
+
+                        Notification::make()
+                            ->title("ジョブ {$record->batch_code} を強制中断しました")
+                            ->success()
+                            ->send();
+                    }),
+
+                Action::make('cancelSettlement')
+                    ->label('確定待ちキャンセル')
+                    ->icon('heroicon-o-x-mark')
+                    ->color('warning')
+                    ->visible(fn ($record) => $record->settlement_status === SettlementStatus::PENDING)
+                    ->requiresConfirmation()
+                    ->modalHeading('確定待ちのキャンセル')
+                    ->modalDescription(fn ($record) => "バッチ {$record->batch_code} の確定待ち状態をキャンセルします。")
+                    ->action(function ($record) {
+                        WmsAutoOrderJobControl::where('batch_code', $record->batch_code)
+                            ->where('settlement_status', SettlementStatus::PENDING)
+                            ->update(['settlement_status' => SettlementStatus::CANCELLED]);
+
+                        Notification::make()
+                            ->title("バッチ {$record->batch_code} の確定待ちをキャンセルしました")
+                            ->success()
+                            ->send();
+                    }),
+
                 Action::make('viewResult')
                     ->label('結果')
                     ->icon('heroicon-o-document-magnifying-glass')
                     ->color('info')
-                    ->visible(fn ($record) => ! empty($record->result_data) || $record->process_name === JobProcessName::STOCK_SNAPSHOT)
-                    ->modalHeading(fn ($record) => match ($record->process_name) {
-                        JobProcessName::STOCK_SNAPSHOT => "在庫スナップショット結果 - {$record->batch_code}",
-                        default => "発注・移動候補生成結果 - {$record->batch_code}",
-                    })
+                    ->visible(fn ($record) => ! empty($record->result_data))
+                    ->modalHeading(fn ($record) => "発注・移動候補生成結果 - {$record->batch_code}")
                     ->modalWidth('5xl')
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
@@ -115,6 +161,9 @@ class WmsAutoOrderJobControlsTable
                         ]
                     )),
             ])
-            ->defaultSort('started_at', 'desc');
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
+            ->defaultSort('id', 'desc');
     }
 }

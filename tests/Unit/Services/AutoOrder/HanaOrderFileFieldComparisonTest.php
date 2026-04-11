@@ -4,7 +4,7 @@ namespace Tests\Unit\Services\AutoOrder;
 
 use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCandidate;
-use App\Services\AutoOrder\Generators\HanaOrderFileGenerator;
+use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Tests\TestCase;
@@ -29,12 +29,12 @@ class HanaOrderFileFieldComparisonTest extends TestCase
 
     private const RECORD_LENGTH = 128;
 
-    private HanaOrderFileGenerator $generator;
+    private HanaOrderJXFileGenerator $generator;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->generator = new HanaOrderFileGenerator();
+        $this->generator = new HanaOrderJXFileGenerator;
     }
 
     /**

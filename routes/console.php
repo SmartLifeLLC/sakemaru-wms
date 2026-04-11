@@ -10,45 +10,89 @@ Artisan::command('inspire', function () {
 
 /*
 |--------------------------------------------------------------------------
-| 自動発注スケジューラ設定
+| WMS スケジューラ設定
 |--------------------------------------------------------------------------
 |
-| 自動発注の定期実行設定
 | 本番環境では以下のcron設定が必要です:
 | * * * * * cd /path-to-project && php artisan schedule:run >> /dev/null 2>&1
+|
+| スケジュール一覧:
+| ┌────────────────────────────────────┬──────────────────┬──────────────────────────────────────────────────────┐
+| │ コマンド                           │ スケジュール     │ 内容                                                 │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:sync-monthly-safety-stocks     │ 毎月末日 01:30   │ 月別安全在庫→item_contractors.safety_stockに同期      │
+| │                                    │                  │ use_safety_stock_auto_update=falseのレコードはスキップ │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:generate-calendars --months=3  │ 毎月1日 01:00    │ 倉庫別営業日カレンダー生成（3ヶ月分）                 │
+| │                                    │                  │ 到着予定日の休日スキップ計算に使用                     │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:auto-order-scheduled           │ 5分ごと          │ 仕入先別の発注・移動候補を自動生成                     │
+| │                                    │                  │ wms_contractor_settings.auto_order_generation_time    │
+| │                                    │                  │ に基づきスナップショット生成＋候補計算を実行           │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:auto-order-transmit            │ 5分ごと          │ 送信時刻に基づく自動送信                               │
+| │                                    │                  │ wms_contractor_settings.transmission_time             │
+| │                                    │                  │ に基づきPENDING/APPROVED→確定→ファイル生成→送信      │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:incoming-receive-scheduled      │ 5分ごと          │ 入荷データ自動受信                                     │
+| │                                    │                  │ wms_contractor_settings.receive_time                  │
+| │                                    │                  │ に基づきJXデータ取得→パース→照合を実行               │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:switch-delivery-course         │ 15分ごと         │ 得意先の配送コースを時間帯で自動切替                   │
+| │                                    │                  │ wms_buyer_delivery_course_switch_settingsに基づく      │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:import-holidays                │ 毎年1月1日 03:00 │ 翌年の祝日データをインポート                           │
+| │                                    │                  │ 倉庫カレンダー生成の元データとして使用                 │
+| └────────────────────────────────────┴──────────────────┴──────────────────────────────────────────────────────┘
 |
 */
 
 // 月別安全在庫の同期 (毎月末日 4:30)
 // ※ 翌月の発注点を事前に同期（翌日から適用されるため）
 Schedule::command('wms:sync-monthly-safety-stocks')
-    ->dailyAt('04:30')
+    ->dailyAt('01:30')
     ->when(fn () => now()->isLastOfMonth())
     ->withoutOverlapping()
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/auto-order-monthly-safety-stocks.log'));
 
-// 在庫スナップショット生成 (毎日 5:00)
-Schedule::command('wms:snapshot-stocks')
-    ->dailyAt('05:00')
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->appendOutputTo(storage_path('logs/auto-order-snapshot.log'));
-
 // 倉庫カレンダー生成 (毎月1日 4:00)
 Schedule::command('wms:generate-calendars --months=3')
-    ->monthlyOn(1, '04:00')
+    ->monthlyOn(1, '01:00')
     ->withoutOverlapping()
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/auto-order-calendars.log'));
 
-// 自動発注一括計算 (毎日 6:00)
-// ※ スナップショット完了後に実行
-Schedule::command('wms:auto-order-calculate --skip-snapshot')
-    ->dailyAt('06:00')
-    ->withoutOverlapping()
+// 仕入先別自動発注スケジューラー (5分間隔)
+// ※ 仕入先ごとのauto_order_generation_timeに基づいてスナップショット生成＋発注計算を実行
+Schedule::command('wms:auto-order-scheduled')
+    ->everyFiveMinutes()
     ->onOneServer()
-    ->appendOutputTo(storage_path('logs/auto-order-calculate.log'));
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/auto-order-scheduled.log'));
+
+// 仕入先別自動送信スケジューラー (5分間隔)
+// ※ 仕入先ごとのtransmission_timeに基づいて承認→確定→ファイル生成→送信を実行
+Schedule::command('wms:auto-order-transmit')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/auto-order-transmit.log'));
+
+// 入荷データ自動受信スケジューラー (5分間隔)
+// ※ 仕入先ごとのreceive_timeに基づいてJXデータ取得→パース→照合を実行
+Schedule::command('wms:incoming-receive-scheduled')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
+
+// 配送コース時間切替 (15分ごと)
+Schedule::command('wms:switch-delivery-course')
+    ->everyFifteenMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/delivery-course-switch.log'));
 
 // 祝日データインポート (毎年1月1日 3:00)
 // ※ 年間の祝日データを取得・更新

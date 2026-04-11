@@ -7,14 +7,43 @@ use App\Enums\EVolumeUnit;
 use App\Enums\TemperatureType;
 use App\Http\Controllers\Controller;
 use App\Models\WmsPickingTask;
+use App\Models\WmsPickingItemResult;
 use App\Services\EarningDeliveryQueueService;
 use App\Services\PickingLogService;
+use App\Services\Shortage\PickingShortageDetector;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PickingTaskController extends Controller
 {
+    /**
+     * タスクが編集可能かどうかを判定
+     *
+     * 変更不可の条件:
+     * - SHIPPED: 出荷確定済み
+     * - 欠品処理が開始されている（wms_shortages.status != 'BEFORE' のレコードが存在）
+     */
+    private function isTaskEditable(WmsPickingTask $task): bool
+    {
+        if ($task->status === 'SHIPPED') {
+            return false;
+        }
+
+        // 欠品処理が開始されているかチェック
+        $hasShortageProcessing = DB::connection('sakemaru')
+            ->table('wms_shortages')
+            ->whereIn('source_pick_result_id', function ($q) use ($task) {
+                $q->select('id')
+                    ->from('wms_picking_item_results')
+                    ->where('picking_task_id', $task->id);
+            })
+            ->where('status', '!=', 'BEFORE')
+            ->exists();
+
+        return ! $hasShortageProcessing;
+    }
+
     /**
      * Format item result data for API response
      */
@@ -61,11 +90,22 @@ class PickingTaskController extends Controller
             }
         }
 
+        // Get customer info from earning.trade.partner
+        $partner = $itemResult->earning?->trade?->partner;
+        $customerCode = $partner?->code;
+        $customerName = $partner?->name;
+
         // Get destination warehouse for stock_transfer
         $destinationWarehouse = null;
         if ($itemResult->source_type === 'STOCK_TRANSFER' && $itemResult->stockTransfer) {
             $destinationWarehouse = $itemResult->stockTransfer->to_warehouse?->name ?? null;
         }
+
+        // Get location code
+        $location = $itemResult->location;
+        $locationCode = $location
+            ? trim("{$location->code1} {$location->code2} {$location->code3}")
+            : null;
 
         return [
             'wms_picking_item_result_id' => $itemResult->id,
@@ -86,9 +126,15 @@ class PickingTaskController extends Controller
             'planned_qty' => $itemResult->planned_qty,
             'picked_qty' => $itemResult->picked_qty ?? 0,
             'status' => $itemResult->status,
+            'customer_code' => $customerCode,
+            'customer_name' => $customerName,
             'slip_number' => $itemResult->source_type === 'STOCK_TRANSFER'
                 ? $itemResult->stock_transfer_id
                 : $itemResult->earning_id,
+            'location' => $location ? [
+                'code' => $locationCode,
+                'name' => $location->name ?? null,
+            ] : null,
         ];
     }
 
@@ -117,15 +163,6 @@ class PickingTaskController extends Controller
      *         name="picker_id",
      *         in="query",
      *         description="Picker ID (optional, filter tasks by specific picker)",
-     *         required=false,
-     *
-     *         @OA\Schema(type="integer", example=1)
-     *     ),
-     *
-     *     @OA\Parameter(
-     *         name="picking_area_id",
-     *         in="query",
-     *         description="Picking Area ID (optional, filter tasks by specific area)",
      *         required=false,
      *
      *         @OA\Schema(type="integer", example=1)
@@ -167,6 +204,9 @@ class PickingTaskController extends Controller
      *                         @OA\Property(property="wms_picking_task_id", type="integer", example=1, description="Picking task ID"),
      *                         @OA\Property(property="wms_wave_id", type="integer", example=5, description="Wave ID")
      *                     ),
+     *                     @OA\Property(property="started_at", type="string", example="2025-11-02 10:30:00", nullable=true, description="Task start time (null if not started)"),
+     *                     @OA\Property(property="completed_at", type="string", example="2025-11-02 11:00:00", nullable=true, description="Task completion time (null if not completed)"),
+     *                     @OA\Property(property="is_editable", type="boolean", example=true, description="Whether the task can be modified by Handy. False when SHORTAGE (shortage processing) or SHIPPED (shipment confirmed)"),
      *                     @OA\Property(
      *                         property="picking_list",
      *                         type="array",
@@ -188,7 +228,17 @@ class PickingTaskController extends Controller
      *                             @OA\Property(property="planned_qty", type="string", example="2.00"),
      *                             @OA\Property(property="picked_qty", type="string", example="0.00"),
      *                             @OA\Property(property="status", type="string", example="PENDING", description="Item status: PENDING (not started), PICKING (in progress), COMPLETED, SHORTAGE"),
-     *                             @OA\Property(property="slip_number", type="integer", example=1, description="Earning ID used as slip number")
+     *                             @OA\Property(property="customer_code", type="string", example="C001", nullable=true, description="Customer partner code from trade"),
+     *                             @OA\Property(property="customer_name", type="string", example="居酒屋A", nullable=true, description="Customer partner name from trade"),
+     *                             @OA\Property(property="slip_number", type="integer", example=1, description="Earning ID used as slip number"),
+     *                             @OA\Property(
+     *                                 property="location",
+     *                                 type="object",
+     *                                 nullable=true,
+     *                                 description="Location information (null if not set)",
+     *                                 @OA\Property(property="code", type="string", example="R01 A 5", description="Location code (code1 code2 code3)"),
+     *                                 @OA\Property(property="name", type="string", example="常温棚A-5", nullable=true, description="Location name")
+     *                             )
      *                         )
      *                     )
      *                 )
@@ -226,37 +276,32 @@ class PickingTaskController extends Controller
      * クエリパラメータ:
      * - warehouse_id (required): 倉庫ID
      * - picker_id (optional): ピッカーID
-     * - picking_area_id (optional): ピッキングエリアID
      */
     public function index(Request $request)
     {
         $validated = $request->validate([
             'warehouse_id' => 'required|integer|exists:sakemaru.warehouses,id',
             'picker_id' => 'nullable|integer|exists:sakemaru.wms_pickers,id',
-            'picking_area_id' => 'nullable|integer|exists:sakemaru.wms_picking_areas,id',
         ]);
 
         $warehouseId = $validated['warehouse_id'];
         $pickerId = $validated['picker_id'] ?? null;
-        $pickingAreaId = $validated['picking_area_id'] ?? null;
 
         // Build query for picking tasks
         $query = WmsPickingTask::with([
             'pickingArea',
+            'floor',
             'deliveryCourse',
             'pickingItemResults.item.item_search_information',
             'pickingItemResults.earning',
             'pickingItemResults.stockTransfer.to_warehouse',
+            'pickingItemResults.location',
         ])
             ->where('warehouse_id', $warehouseId)
-            ->whereIn('status', ['PENDING', 'PICKING_READY', 'PICKING']);
+            ->whereNotIn('status', ['SHIPPED']);
 
         if ($pickerId) {
             $query->where('picker_id', $pickerId);
-        }
-
-        if ($pickingAreaId) {
-            $query->where('wms_picking_area_id', $pickingAreaId);
         }
 
         $tasks = $query->get();
@@ -272,34 +317,43 @@ class PickingTaskController extends Controller
 
             $deliveryCourseCode = $task->deliveryCourse->code;
             $deliveryCourseName = $task->deliveryCourse->name;
-            $pickingAreaCode = $task->pickingArea->code ?? 'UNKNOWN';
-            $pickingAreaName = $task->pickingArea->name ?? 'Unknown Area';
+            $pickingAreaCode = $task->pickingArea->code ?? 0;
+            $floorLabel = preg_match('/(\d+F)$/', $task->floor->name ?? '', $m) ? "({$m[1]})" : '';
+            $pickingAreaName = $task->pickingArea ? ($task->pickingArea->name . $floorLabel) : '-';
 
-            // Create unique key for course + area combination
-            $groupKey = "{$deliveryCourseCode}_{$pickingAreaCode}";
+            // Create unique key per task (floor/picking_area that differ cannot be picked simultaneously)
+            $groupKey = "{$task->id}";
 
-            if (! isset($groupedData[$groupKey])) {
-                $groupedData[$groupKey] = [
-                    'course' => [
-                        'code' => $deliveryCourseCode,
-                        'name' => $deliveryCourseName,
-                    ],
-                    'picking_area' => [
-                        'code' => $pickingAreaCode,
-                        'name' => $pickingAreaName,
-                    ],
-                    'wave' => [
-                        'wms_picking_task_id' => $task->id,
-                        'wms_wave_id' => $task->wave_id,
-                    ],
-                    'picking_list' => [],
-                ];
-            }
+            $floorId = $task->floor_id;
+            $floorName = $task->floor->name ?? null;
+
+            $groupedData[$groupKey] = [
+                'course' => [
+                    'code' => $deliveryCourseCode,
+                    'name' => $deliveryCourseName,
+                ],
+                'picking_area' => [
+                    'code' => $pickingAreaCode,
+                    'name' => $pickingAreaName,
+                ],
+                'floor' => [
+                    'id' => $floorId,
+                    'name' => $floorName,
+                ],
+                'wave' => [
+                    'wms_picking_task_id' => $task->id,
+                    'wms_wave_id' => $task->wave_id,
+                ],
+                'started_at' => $task->started_at?->format('Y-m-d H:i:s'),
+                'completed_at' => $task->completed_at?->format('Y-m-d H:i:s'),
+                'is_editable' => $this->isTaskEditable($task),
+                'picking_list' => [],
+            ];
 
             // Add item results to picking list, sorted by item_id
             // Note: walking_order is no longer used. Sorting will be calculated based on location x_pos, y_pos
             $itemResults = $task->pickingItemResults()
-                ->with(['item.item_search_information'])
+                ->with(['item.item_search_information', 'earning.trade.partner'])
                 ->where('planned_qty', '>', 0) // Filter out items with 0 planned quantity (complete shortage)
                 ->orderBy('item_id', 'asc')
                 ->get();
@@ -349,7 +403,31 @@ class PickingTaskController extends Controller
      *         @OA\JsonContent(
      *
      *             @OA\Property(property="is_success", type="boolean", example=true),
-     *             @OA\Property(property="code", type="string", example="SUCCESS")
+     *             @OA\Property(property="code", type="string", example="SUCCESS"),
+     *             @OA\Property(
+     *                 property="result",
+     *                 type="object",
+     *                 @OA\Property(
+     *                     property="data",
+     *                     type="object",
+     *                     @OA\Property(property="course", type="object",
+     *                         @OA\Property(property="code", type="string", example="910072"),
+     *                         @OA\Property(property="name", type="string", example="佐藤　尚紀")
+     *                     ),
+     *                     @OA\Property(property="picking_area", type="object",
+     *                         @OA\Property(property="code", type="string", example="B"),
+     *                         @OA\Property(property="name", type="string", example="エリアB（バラ）")
+     *                     ),
+     *                     @OA\Property(property="wave", type="object",
+     *                         @OA\Property(property="wms_picking_task_id", type="integer", example=1),
+     *                         @OA\Property(property="wms_wave_id", type="integer", example=5)
+     *                     ),
+     *                     @OA\Property(property="started_at", type="string", example="2025-11-02 10:30:00", nullable=true, description="Task start time (null if not started)"),
+     *                     @OA\Property(property="completed_at", type="string", example="2025-11-02 11:00:00", nullable=true, description="Task completion time (null if not completed)"),
+     *                     @OA\Property(property="is_editable", type="boolean", example=true, description="Whether the task can be modified by Handy. False when SHORTAGE or SHIPPED"),
+     *                     @OA\Property(property="picking_list", type="array", @OA\Items(type="object"))
+     *                 )
+     *             )
      *         )
      *     ),
      *
@@ -360,13 +438,15 @@ class PickingTaskController extends Controller
     {
         $task = WmsPickingTask::with([
             'pickingArea',
+            'floor',
             'deliveryCourse',
             'pickingItemResults.item.item_search_information',
             'pickingItemResults.earning',
             'pickingItemResults.stockTransfer.to_warehouse',
+            'pickingItemResults.location',
         ])->find($id);
 
-        if (! $task) {
+        if (! $task || $task->status === WmsPickingTask::STATUS_SHIPPED) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'NOT_FOUND',
@@ -379,13 +459,14 @@ class PickingTaskController extends Controller
 
         $deliveryCourseCode = $task->deliveryCourse->code ?? 'UNKNOWN';
         $deliveryCourseName = $task->deliveryCourse->name ?? 'Unknown Course';
-        $pickingAreaCode = $task->pickingArea->code ?? 'UNKNOWN';
-        $pickingAreaName = $task->pickingArea->name ?? 'Unknown Area';
+        $pickingAreaCode = $task->pickingArea->code ?? 0;
+        $floorLabel = preg_match('/(\d+F)$/', $task->floor->name ?? '', $m) ? "({$m[1]})" : '';
+        $pickingAreaName = $task->pickingArea ? ($task->pickingArea->name . $floorLabel) : '-';
 
         // Build picking list
         $pickingList = [];
         $itemResults = $task->pickingItemResults()
-            ->with(['item.item_search_information'])
+            ->with(['item.item_search_information', 'earning.trade.partner'])
             ->where('planned_qty', '>', 0)
             ->orderBy('item_id', 'asc')
             ->get();
@@ -407,6 +488,9 @@ class PickingTaskController extends Controller
                 'wms_picking_task_id' => $task->id,
                 'wms_wave_id' => $task->wave_id,
             ],
+            'started_at' => $task->started_at?->format('Y-m-d H:i:s'),
+            'completed_at' => $task->completed_at?->format('Y-m-d H:i:s'),
+            'is_editable' => $this->isTaskEditable($task),
             'picking_list' => $pickingList,
         ];
 
@@ -519,6 +603,18 @@ class PickingTaskController extends Controller
             }
         }
 
+        // Get location
+        $location = null;
+        if ($itemResult->location_id) {
+            $location = DB::connection('sakemaru')
+                ->table('locations')
+                ->where('id', $itemResult->location_id)
+                ->first(['code1', 'code2', 'code3', 'name']);
+        }
+        $locationCode = $location
+            ? trim("{$location->code1} {$location->code2} {$location->code3}")
+            : null;
+
         $data = [
             'wms_picking_item_result_id' => $itemResult->id,
             'item_id' => $itemResult->item_id,
@@ -534,7 +630,13 @@ class PickingTaskController extends Controller
             'planned_qty' => $itemResult->planned_qty,
             'picked_qty' => $itemResult->picked_qty ?? 0,
             'status' => $itemResult->status,
+            'customer_code' => $itemResult->earning?->trade?->partner?->code,
+            'customer_name' => $itemResult->earning?->trade?->partner?->name,
             'slip_number' => $itemResult->earning_id,
+            'location' => $location ? [
+                'code' => $locationCode,
+                'name' => $location->name ?? null,
+            ] : null,
         ];
 
         return response()->json([
@@ -610,6 +712,21 @@ class PickingTaskController extends Controller
             ], 404);
         }
 
+        // Check if task is editable (not shipped or shortage processing started)
+        if (! $this->isTaskEditable($task)) {
+            return response()->json([
+                'is_success' => false,
+                'code' => 'VALIDATION_ERROR',
+                'result' => [
+                    'data' => null,
+                    'error_message' => 'このタスクは変更できません。欠品処理中または出荷確定済みです。管理者にお問い合わせください。',
+                    'errors' => [
+                        'status' => ['Task cannot be modified from Handy (shortage processing or shipped)'],
+                    ],
+                ],
+            ], 422);
+        }
+
         // Validate task can be started
         if (! in_array($task->status, ['PENDING', 'PICKING_READY', 'PICKING'])) {
             return response()->json([
@@ -653,19 +770,19 @@ class PickingTaskController extends Controller
     }
 
     /**
-     * POST /api/picking/tasks/{wms_picking_item_result_id}/update
+     * POST /api/picking/tasks/{itemResultId}/update
      *
      * ピッキング実績登録
      *
      * @OA\Post(
-     *     path="/api/picking/tasks/{wms_picking_item_result_id}/update",
+     *     path="/api/picking/tasks/{itemResultId}/update",
      *     tags={"Picking Tasks"},
      *     summary="Update picking result",
      *     description="Update picked quantity for a specific item in the picking task",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
-     *         name="wms_picking_item_result_id",
+     *         name="itemResultId",
      *         in="path",
      *         description="Picking Item Result ID",
      *         required=true,
@@ -734,6 +851,23 @@ class PickingTaskController extends Controller
                     'error_message' => 'Picking item result not found',
                 ],
             ], 404);
+        }
+
+        // Check if the parent task is editable
+        $task = WmsPickingTask::find($itemResult->picking_task_id);
+
+        if ($task && ! $this->isTaskEditable($task)) {
+            return response()->json([
+                'is_success' => false,
+                'code' => 'VALIDATION_ERROR',
+                'result' => [
+                    'data' => null,
+                    'error_message' => 'このタスクは変更できません。欠品処理中または出荷確定済みです。管理者にお問い合わせください。',
+                    'errors' => [
+                        'status' => ['Task cannot be modified from Handy (shortage processing or shipped)'],
+                    ],
+                ],
+            ], 422);
         }
 
         // Capture state before update
@@ -871,34 +1005,19 @@ class PickingTaskController extends Controller
             ], 404);
         }
 
-        // If task is already completed, return success (idempotent)
-        if ($task->status === 'COMPLETED') {
-            return response()->json([
-                'is_success' => true,
-                'code' => 'SUCCESS',
-                'result' => [
-                    'data' => [
-                        'wms_picking_task_id' => $task->id,
-                        'id' => $task->id,
-                        'status' => $task->status,
-                        'completed_at' => $task->completed_at,
-                    ],
-                    'message' => 'Picking task already completed',
-                    'debug_message' => null,
-                ],
-            ]);
-        }
+        // Allow re-completion (e.g. after updateItemResult modifies quantities)
+        // completed_at will be updated to the latest completion time
 
-        // Check if task can be completed
-        if (! in_array($task->status, ['PICKING', 'PICKING_READY', 'PENDING', 'SHORTAGE'])) {
+        // Check if task can be completed (SHIPPED or shortage processing started)
+        if (! $this->isTaskEditable($task)) {
             return response()->json([
                 'is_success' => false,
                 'code' => 'VALIDATION_ERROR',
                 'result' => [
                     'data' => null,
-                    'error_message' => 'Task cannot be completed',
+                    'error_message' => 'このタスクは変更できません。欠品処理中または出荷確定済みです。管理者にお問い合わせください。',
                     'errors' => [
-                        'status' => ["Task is already {$task->status}"],
+                        'status' => ['Task cannot be modified from Handy (shortage processing or shipped)'],
                     ],
                 ],
             ], 422);
@@ -910,11 +1029,13 @@ class PickingTaskController extends Controller
             ->whereIn('status', ['PENDING', 'PICKING'])
             ->update(['status' => 'COMPLETED', 'updated_at' => now()]);
 
-        // Check if any items with planned_qty > 0 AND picked_qty = 0 have PENDING status (not picked yet)
+        // Check if any items with planned_qty > 0 AND picked_qty = 0 AND shortage_qty = 0 have PENDING status (not picked yet)
         // Items with picked_qty > 0 are considered "picked" even if status is still PICKING
+        // Items with shortage_qty > 0 are intentional shortages and should be allowed
         $incompleteItems = $task->pickingItemResults()
             ->where('planned_qty', '>', 0)
             ->where('picked_qty', 0)
+            ->where('shortage_qty', 0)
             ->whereIn('status', ['PENDING', 'PICKING'])
             ->get();
 
@@ -954,6 +1075,21 @@ class PickingTaskController extends Controller
                     'status' => $itemStatus,
                     'updated_at' => now(),
                 ]);
+
+            // ピッキング欠品の場合、wms_shortagesにレコードを作成/更新
+            if ($itemStatus === 'SHORTAGE') {
+                $pickResult = WmsPickingItemResult::find($itemResult->id);
+                if ($pickResult) {
+                    app(PickingShortageDetector::class)->detectAndRecord($pickResult);
+                }
+            } else {
+                // 欠品が解消された場合、未処理の欠品レコードを削除
+                DB::connection('sakemaru')
+                    ->table('wms_shortages')
+                    ->where('source_pick_result_id', $itemResult->id)
+                    ->where('status', 'BEFORE')
+                    ->delete();
+            }
 
             // Note: real_stocks の数量更新は earning_delivery_queue 経由で
             // Sakemaru側の ProcessEarningDeliveryQueue Job が実行する
@@ -1034,19 +1170,19 @@ class PickingTaskController extends Controller
     }
 
     /**
-     * POST /api/picking/tasks/{wms_picking_item_result_id}/cancel
+     * POST /api/picking/tasks/{itemResultId}/cancel
      *
      * ピッキングアイテムキャンセル
      *
      * @OA\Post(
-     *     path="/api/picking/tasks/{wms_picking_item_result_id}/cancel",
+     *     path="/api/picking/tasks/{itemResultId}/cancel",
      *     tags={"Picking Tasks"},
      *     summary="Cancel picking item result",
      *     description="Reset picking item result to PENDING status with picked_qty = 0",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
-     *         name="wms_picking_item_result_id",
+     *         name="itemResultId",
      *         in="path",
      *         description="Picking Item Result ID",
      *         required=true,
@@ -1099,6 +1235,23 @@ class PickingTaskController extends Controller
                     'error_message' => 'Picking item result not found',
                 ],
             ], 404);
+        }
+
+        // Check if the parent task is editable
+        $task = WmsPickingTask::find($itemResult->picking_task_id);
+
+        if ($task && ! $this->isTaskEditable($task)) {
+            return response()->json([
+                'is_success' => false,
+                'code' => 'VALIDATION_ERROR',
+                'result' => [
+                    'data' => null,
+                    'error_message' => 'このタスクは変更できません。欠品処理中または出荷確定済みです。管理者にお問い合わせください。',
+                    'errors' => [
+                        'status' => ['Task cannot be modified from Handy (shortage processing or shipped)'],
+                    ],
+                ],
+            ], 422);
         }
 
         // Check if item can be cancelled (not already COMPLETED or SHORTAGE)

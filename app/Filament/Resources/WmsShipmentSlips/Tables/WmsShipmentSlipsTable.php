@@ -3,13 +3,21 @@
 namespace App\Filament\Resources\WmsShipmentSlips\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasOptimizedFilters;
+use App\Models\Sakemaru\ClientPrinterDriver;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\DeliveryCourse;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsPickingTask;
 use App\Services\Print\PrintRequestService;
 use App\Services\Shortage\ShortageApprovalService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -21,10 +29,14 @@ use Illuminate\Support\Facades\DB;
 
 class WmsShipmentSlipsTable
 {
+    use HasExportAction;
+    use HasOptimizedFilters;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -38,12 +50,12 @@ class WmsShipmentSlipsTable
                     ->label('配送コース名')
                     ->searchable()
                     ->sortable()
-                    ->wrap()
-                    ->limit(20),
+                    ->wrap(),
 
                 TextColumn::make('wave.wave_no')
                     ->label('波動識別ID')
-                    ->description(fn ($record) => $record->wave?->waveSetting?->name),
+                    ->description(fn ($record) => $record->wave?->waveSetting?->name)
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('shipment_date')
                     ->label('納品日')
@@ -57,7 +69,7 @@ class WmsShipmentSlipsTable
                     ->label('ステータス')
                     ->badge()
                     ->state(function ($record) {
-                        $allCompleted = $record->grouped_tasks->every(fn ($task) => $task->status === 'COMPLETED');
+                        $allCompleted = $record->grouped_tasks->every(fn ($task) => in_array($task->status, ['COMPLETED', 'SHIPPED']));
                         $anyPicking = $record->grouped_tasks->contains(fn ($task) => $task->status === 'PICKING');
 
                         if ($allCompleted) {
@@ -86,6 +98,30 @@ class WmsShipmentSlipsTable
                     ->suffix('回')
                     ->alignCenter(),
 
+                TextColumn::make('last_printed_at')
+                    ->label('最終印刷時刻')
+                    ->state(fn ($record) => $record->last_printed_at)
+                    ->dateTime('Y-m-d H:i')
+                    ->placeholder('-')
+                    ->alignCenter(),
+
+                TextColumn::make('lastPrintedByUser.name')
+                    ->label('最終印刷者')
+                    ->placeholder('-')
+                    ->alignCenter(),
+
+                TextColumn::make('last_printed_printer_name')
+                    ->label('最終印刷先')
+                    ->state(function ($record) {
+                        if (! $record->last_printed_at) {
+                            return null;
+                        }
+
+                        return $record->lastPrintedPrinter?->name ?? 'PDFのみ';
+                    })
+                    ->placeholder('-')
+                    ->alignCenter(),
+
                 TextColumn::make('task_count')
                     ->label('タスク数')
                     ->state(fn ($record) => $record->grouped_tasks->count())
@@ -93,40 +129,43 @@ class WmsShipmentSlipsTable
                     ->alignCenter(),
             ])
             ->filters([
-                SelectFilter::make('warehouse_id')
-                    ->label('倉庫')
-                    ->relationship('warehouse', 'name')
-                    ->searchable()
-                    ->preload(),
+                static::warehouseFilter(),
 
                 SelectFilter::make('delivery_course_id')
                     ->label('配送コース')
-                    ->relationship('deliveryCourse', 'name')
                     ->searchable()
-                    ->preload(),
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
 
-                SelectFilter::make('floor_id')
-                    ->label('フロア')
-                    ->relationship('floor', 'name')
-                    ->searchable()
-                    ->preload(),
+                        return DeliveryCourse::query()
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"])
+                            ->toArray();
+                    }),
 
-                SelectFilter::make('wms_picking_area_id')
-                    ->label('ピッキングエリア')
-                    ->relationship('pickingArea', 'name')
-                    ->searchable()
-                    ->preload(),
-
-                SelectFilter::make('is_restricted_area')
-                    ->label('制限エリア')
-                    ->options([
-                        '1' => 'あり',
-                        '0' => 'なし',
-                    ]),
+                \Filament\Tables\Filters\Filter::make('shipment_date')
+                    ->label('出荷日')
+                    ->form([
+                        \Filament\Forms\Components\DatePicker::make('shipment_date')
+                            ->label('出荷日'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when(
+                            $data['shipment_date'],
+                            fn (Builder $query, $date) => $query->where('shipment_date', $date),
+                        );
+                    }),
             ])
             ->recordAction('')
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('print')
+                    ->extraAttributes(['class' => 'whitespace-nowrap'])
                     ->label(function (WmsPickingTask $record) {
                         $printCount = $record->wave->print_count ?? 0;
 
@@ -165,14 +204,75 @@ class WmsShipmentSlipsTable
                             );
                         }
 
-                        return 'この配送コースの伝票を印刷します。';
+                        return 'この配送コースの伝票を印刷します。プリンターを選択してください。';
+                    })
+                    ->schema(function (WmsPickingTask $record) {
+                        return [
+                            Section::make('プリンター選択')
+                                ->schema([
+                                    Select::make('printer_warehouse_id')
+                                        ->label('倉庫')
+                                        ->options(
+                                            Warehouse::query()
+                                                ->where('is_active', true)
+                                                ->pluck('name', 'id')
+                                        )
+                                        ->default($record->warehouse_id)
+                                        ->searchable()
+                                        ->live()
+                                        ->afterStateUpdated(fn ($set) => $set('printer_driver_id', null)),
+
+                                    Select::make('printer_driver_id')
+                                        ->label('プリンター')
+                                        ->options(function (Get $get) {
+                                            $warehouseId = $get('printer_warehouse_id');
+                                            if (! $warehouseId) {
+                                                return [];
+                                            }
+
+                                            $printers = ClientPrinterDriver::query()
+                                                ->where('warehouse_id', $warehouseId)
+                                                ->where('is_active', true)
+                                                ->get()
+                                                ->mapWithKeys(fn ($p) => [$p->id => $p->display_name ?? $p->name]);
+
+                                            if ($printers->isEmpty()) {
+                                                return ['' => 'なし（PDFのみ生成）'];
+                                            }
+
+                                            return ['' => 'なし（PDFのみ生成）'] + $printers->toArray();
+                                        })
+                                        ->default(function () use ($record) {
+                                            // デフォルトは配送コース設定のプリンター
+                                            $setting = DB::connection('sakemaru')
+                                                ->table('client_printer_course_settings')
+                                                ->where('warehouse_id', $record->warehouse_id)
+                                                ->where('delivery_course_id', $record->delivery_course_id)
+                                                ->where('is_active', true)
+                                                ->value('printer_driver_id');
+
+                                            return $setting ? (string) $setting : '';
+                                        })
+                                        ->live()
+                                        ->searchable()
+                                        ->helperText(function (Get $get) {
+                                            $printerId = $get('printer_driver_id');
+                                            if (! $printerId) {
+                                                return '印刷されず、酒丸側でPDFのみが生成されます。';
+                                            }
+
+                                            return null;
+                                        }),
+                                ])
+                                ->compact(),
+                        ];
                     })
                     ->modalSubmitActionLabel(function (WmsPickingTask $record) {
                         $printCount = $record->wave->print_count ?? 0;
 
                         return $printCount === 0 ? '出荷確定(伝票印刷)' : '伝票再印刷';
                     })
-                    ->action(function (WmsPickingTask $record) {
+                    ->action(function (WmsPickingTask $record, array $data) {
                         $systemDate = ClientSetting::systemDate();
 
                         // 印刷可能性チェック
@@ -183,13 +283,19 @@ class WmsShipmentSlipsTable
                             $record->wave_id
                         );
 
+                        // モーダルで選択されたプリンター（空文字列はnullに変換）
+                        $selectedPrinterId = ! empty($data['printer_driver_id'])
+                            ? (int) $data['printer_driver_id']
+                            : null;
+
                         // 印刷依頼を作成
                         $printService = app(PrintRequestService::class);
                         $result = $printService->createPrintRequest(
                             $record->delivery_course_id,
                             $systemDate->format('Y-m-d'),
                             $record->warehouse_id,
-                            $record->wave_id
+                            $record->wave_id,
+                            $selectedPrinterId
                         );
 
                         if (! $result['success']) {
@@ -212,9 +318,20 @@ class WmsShipmentSlipsTable
 
                         $tasksToUpdate = $query->get();
 
-                        // print_requested_countをインクリメント
+                        // print_requested_countをインクリメント + COMPLETED/SHORTAGEタスクをSHIPPEDに変更 + 最終印刷情報を記録
+                        $printedAt = now();
+                        $printedBy = auth()->id();
                         foreach ($tasksToUpdate as $task) {
                             $task->increment('print_requested_count');
+                            $updateData = [
+                                'last_printed_at' => $printedAt,
+                                'last_printed_by' => $printedBy,
+                                'last_printed_printer_id' => $selectedPrinterId,
+                            ];
+                            if (in_array($task->status, [WmsPickingTask::STATUS_COMPLETED, WmsPickingTask::STATUS_SHORTAGE])) {
+                                $updateData['status'] = WmsPickingTask::STATUS_SHIPPED;
+                            }
+                            $task->update($updateData);
                         }
 
                         // Waveの印刷回数をインクリメント、初回出荷確定時はstatusをCOMPLETEDに更新
@@ -226,12 +343,26 @@ class WmsShipmentSlipsTable
                             }
                         }
 
-                        $title = $printability['can_print'] ? '印刷依頼' : '強制印刷依頼';
-                        $notificationType = $printability['can_print'] ? 'success' : 'warning';
+                        $hasPrinter = $result['has_printer'] ?? true;
+                        if (! $printability['can_print']) {
+                            $title = '強制印刷依頼';
+                            $notificationType = 'warning';
+                        } elseif (! $hasPrinter) {
+                            $title = 'PDF生成依頼';
+                            $notificationType = 'warning';
+                        } else {
+                            $title = '印刷依頼';
+                            $notificationType = 'success';
+                        }
+
+                        $bodyParts = ['伝票処理を依頼しました。（売上'.$result['earning_count'].'件、タスク'.$tasksToUpdate->count().'件）'];
+                        if (! $hasPrinter) {
+                            $bodyParts[] = '※プリンター未設定のためPDFのみ生成されます。';
+                        }
 
                         Notification::make()
                             ->title($title)
-                            ->body('伝票印刷を依頼しました。（売上'.$result['earning_count'].'件、タスク'.$tasksToUpdate->count().'件）')
+                            ->body(implode("\n", $bodyParts))
                             ->{$notificationType}()
                             ->send();
                     }),
@@ -415,9 +546,20 @@ class WmsShipmentSlipsTable
 
                                     $tasksToUpdate = $query->get();
 
-                                    // print_requested_countをインクリメント
+                                    // print_requested_countをインクリメント + COMPLETED/SHORTAGEタスクをSHIPPEDに変更 + 最終印刷情報を記録
+                                    $printedAt = now();
+                                    $printedBy = auth()->id();
                                     foreach ($tasksToUpdate as $task) {
                                         $task->increment('print_requested_count');
+                                        $updateData = [
+                                            'last_printed_at' => $printedAt,
+                                            'last_printed_by' => $printedBy,
+                                            'last_printed_printer_id' => null,
+                                        ];
+                                        if (in_array($task->status, [WmsPickingTask::STATUS_COMPLETED, WmsPickingTask::STATUS_SHORTAGE])) {
+                                            $updateData['status'] = WmsPickingTask::STATUS_SHIPPED;
+                                        }
+                                        $task->update($updateData);
                                     }
 
                                     // Waveの印刷回数をインクリメント、初回出荷確定時はstatusをCOMPLETEDに更新
@@ -480,20 +622,17 @@ class WmsShipmentSlipsTable
                     }),
             ])
             ->modifyQueryUsing(function (Builder $query) {
-                // system_dateを取得
-                $systemDate = ClientSetting::systemDate();
-
-                // shipment_dateが営業日(system_date)のもののみ
-                // 各配送コース・Wave IDごとに最初のレコードのみ取得（フロア、エリア、制限エリアは展開時に表示）
-                $query->where('shipment_date', $systemDate)
-                    ->whereIn('id', function ($subQuery) use ($systemDate) {
-                        $subQuery->select(DB::raw('MIN(id)'))
-                            ->from('wms_picking_tasks')
-                            ->where('shipment_date', $systemDate)
-                            ->groupBy('delivery_course_id', 'wave_id');
-                    })
-                    ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting', 'floor', 'pickingArea']);
+                // 各配送コース・Wave ID・出荷日ごとに最初のレコードのみ取得
+                $query->whereIn('id', function ($subQuery) {
+                    $subQuery->select(DB::raw('MIN(id)'))
+                        ->from('wms_picking_tasks')
+                        ->groupBy('delivery_course_id', 'wave_id', 'shipment_date');
+                })
+                    ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting', 'lastPrintedByUser', 'lastPrintedPrinter']);
             })
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->defaultSort('delivery_course_code', 'asc');
     }
 
@@ -507,44 +646,57 @@ class WmsShipmentSlipsTable
             return;
         }
 
-        $systemDate = ClientSetting::systemDate();
-
-        // 全レコードの配送コース・Wave IDの組み合わせを取得
+        // 全レコードの配送コース・Wave ID・出荷日の組み合わせを取得
         $groupKeys = $records->map(function ($record) {
             return [
                 'delivery_course_id' => $record->delivery_course_id,
                 'wave_id' => $record->wave_id,
+                'shipment_date' => $record->shipment_date,
             ];
         })->unique(function ($item) {
-            return $item['delivery_course_id'].'-'.($item['wave_id'] ?? 'null');
+            return $item['delivery_course_id'].'-'.($item['wave_id'] ?? 'null').'-'.$item['shipment_date'];
         });
 
         // 該当する全タスクを取得
-        $allTasks = WmsPickingTask::where('shipment_date', $systemDate)
-            ->where(function ($query) use ($groupKeys) {
-                foreach ($groupKeys as $key) {
-                    $query->orWhere(function ($q) use ($key) {
-                        $q->where('delivery_course_id', $key['delivery_course_id']);
-                        if ($key['wave_id'] !== null) {
-                            $q->where('wave_id', $key['wave_id']);
-                        } else {
-                            $q->whereNull('wave_id');
-                        }
-                    });
-                }
-            })
+        $allTasks = WmsPickingTask::where(function ($query) use ($groupKeys) {
+            foreach ($groupKeys as $key) {
+                $query->orWhere(function ($q) use ($key) {
+                    $q->where('delivery_course_id', $key['delivery_course_id'])
+                        ->where('shipment_date', $key['shipment_date']);
+                    if ($key['wave_id'] !== null) {
+                        $q->where('wave_id', $key['wave_id']);
+                    } else {
+                        $q->whereNull('wave_id');
+                    }
+                });
+            }
+        })
             ->with(['floor', 'pickingArea'])
             ->get();
 
         // グループ化してレコードに割り当て
         $groupedTasks = $allTasks->groupBy(function ($task) {
-            return $task->delivery_course_id.'-'.($task->wave_id ?? 'null');
+            return $task->delivery_course_id.'-'.($task->wave_id ?? 'null').'-'.$task->shipment_date;
         });
 
         foreach ($records as $record) {
-            $key = $record->delivery_course_id.'-'.($record->wave_id ?? 'null');
+            $key = $record->delivery_course_id.'-'.($record->wave_id ?? 'null').'-'.$record->shipment_date;
             $record->grouped_tasks = $groupedTasks->get($key, collect());
         }
+    }
+
+    /**
+     * 配送コースのプリンター設定があるかチェック
+     */
+    protected static function checkPrinterSetting(int $warehouseId, int $deliveryCourseId): bool
+    {
+        return DB::connection('sakemaru')
+            ->table('client_printer_course_settings')
+            ->where('warehouse_id', $warehouseId)
+            ->where('delivery_course_id', $deliveryCourseId)
+            ->where('is_active', true)
+            ->whereNotNull('printer_driver_id')
+            ->exists();
     }
 
     /**

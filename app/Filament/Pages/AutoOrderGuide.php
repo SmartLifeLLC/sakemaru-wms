@@ -11,9 +11,9 @@ class AutoOrderGuide extends Page
 {
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBookOpen;
 
-    protected static ?string $navigationLabel = '発注ガイド';
+    protected static ?string $navigationLabel = '発注解説';
 
-    protected static ?string $slug = 'auto-order-guide';
+    protected static ?string $slug = 'order-guide';
 
     public function getTitle(): string
     {
@@ -27,10 +27,10 @@ class AutoOrderGuide extends Page
 
     protected static ?int $navigationSort = 99;
 
-    protected string $view = 'filament.pages.auto-order-guide';
+    protected string $view = 'filament.pages.order-guide';
 
     public static function getNavigationGroup(): ?string
     {
-        return EMenuCategory::ORDER_SETTINGS->label();
+        return EMenuCategory::GUIDE_ORDER->label();
     }
 }

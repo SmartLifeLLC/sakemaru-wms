@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Waves\Pages;
 
+use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\Waves\WaveResource;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Earning;
@@ -9,14 +10,20 @@ use App\Models\Sakemaru\Warehouse;
 use App\Models\Wave;
 use App\Models\WaveSetting;
 use App\Models\WmsPickingItemResult;
+use App\Services\PickingList\PickingListPdfService;
+use App\Services\PickingList\PickingListService;
 use App\Services\StockAllocationService;
+use App\Services\WarehouseResolver;
+use Archilex\AdvancedTables\AdvancedTables;
+use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
-use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
-use Filament\Forms\Components\Select;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
@@ -27,11 +34,227 @@ use Illuminate\Support\HtmlString;
  */
 class ListWaves extends ListRecords
 {
+    use AdvancedTables;
+    use HasWmsUserViews {
+        HasWmsUserViews::getUserViews insteadof AdvancedTables;
+        HasWmsUserViews::getFavoriteUserViews insteadof AdvancedTables;
+    }
+
     protected static string $resource = WaveResource::class;
+
+    public function getPresetViews(): array
+    {
+        $user = auth()->user();
+        $selectedWarehouseId = $user?->getSelectedWarehouseId();
+        $defaultWarehouseId = $user?->default_warehouse_id;
+
+        // 表示する倉庫IDを収集（選択倉庫 + default、重複除去）
+        $warehouseIds = collect([$selectedWarehouseId, $defaultWarehouseId])
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($warehouseIds->isEmpty()) {
+            return [
+                'default' => PresetView::make()
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
+
+        $warehouses = Warehouse::query()
+            ->whereIn('id', $warehouseIds)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
+
+        $views = [];
+        $isFirst = true;
+
+        foreach ($warehouses as $warehouse) {
+            $key = $isFirst ? 'default' : "wh_{$warehouse->id}";
+            $view = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query
+                    ->whereHas('waveSetting.deliveryCourse', fn (Builder $q) => $q->where('warehouse_id', $warehouse->id))
+                )
+                ->favorite()
+                ->label($warehouse->name);
+
+            if ($isFirst) {
+                $view->default();
+                $isFirst = false;
+            }
+
+            $views[$key] = $view;
+        }
+
+        return $views;
+    }
 
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('printPickingList')
+                ->label('ピッキングリスト出力')
+                ->icon('heroicon-o-printer')
+                ->color('info')
+                ->modalHeading('ピッキングリスト出力')
+                ->modalDescription('出荷日・倉庫を選択し、対象リストを出力します')
+                ->modalSubmitActionLabel('PDF出力')
+                ->modalWidth('4xl')
+                ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
+                ->schema([
+                    ViewField::make('list_type')
+                        ->label('リスト種別')
+                        ->view('filament.forms.components.picking-list-type-select')
+                        ->default('primary')
+                        ->required()
+                        ->live(),
+
+                    Grid::make(2)->schema([
+                        ViewField::make('warehouse_id')
+                            ->label('倉庫')
+                            ->view('filament.forms.components.warehouse-select')
+                            ->viewData([
+                                'warehouses' => Warehouse::query()
+                                    ->where('is_virtual', false)
+                                    ->orderBy('code')
+                                    ->get()
+                                    ->map(fn ($w) => [
+                                        'id' => $w->id,
+                                        'code' => $w->code,
+                                        'name' => $w->name,
+                                        'label' => "[{$w->code}] {$w->name}",
+                                    ])
+                                    ->values()
+                                    ->toArray(),
+                            ])
+                            ->default(fn () => auth()->user()?->default_warehouse_id)
+                            ->required()
+                            ->live(),
+
+                        ViewField::make('shipping_date')
+                            ->label('出荷日')
+                            ->view('filament.forms.components.date-input')
+                            ->default(fn () => ClientSetting::systemDateYMD())
+                            ->required()
+                            ->live(),
+                    ]),
+
+                    Placeholder::make('wave_preview')
+                        ->label('対象波動')
+                        ->content(function (Get $get) {
+                            $warehouseId = $get('warehouse_id');
+                            $shippingDate = $get('shipping_date');
+
+                            if (! $warehouseId || ! $shippingDate) {
+                                return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">倉庫と出荷日を選択してください</p></div>');
+                            }
+
+                            $waves = Wave::query()
+                                ->join('wms_wave_settings as ws', 'wms_waves.wms_wave_setting_id', '=', 'ws.id')
+                                ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
+                                ->where('dc.warehouse_id', $warehouseId)
+                                ->where('wms_waves.shipping_date', $shippingDate)
+                                ->select(['wms_waves.*', 'dc.name as course_name'])
+                                ->orderBy('dc.name')
+                                ->get();
+
+                            if ($waves->isEmpty()) {
+                                return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">対象波動がありません</p></div>');
+                            }
+
+                            $statusLabels = [
+                                'PENDING' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">未出荷</span>',
+                                'PICKING' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">ピッキング中</span>',
+                                'SHORTAGE' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">欠品あり</span>',
+                                'COMPLETED' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400">出荷完了</span>',
+                                'CLOSED' => '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">クローズ</span>',
+                            ];
+
+                            $html = '<div class="space-y-3">';
+                            $html .= '<div class="overflow-hidden rounded-lg border border-slate-200 dark:border-gray-700">';
+                            $html .= '<div class="max-h-60 overflow-y-auto">';
+                            $html .= '<table class="w-full text-sm">';
+                            $html .= '<thead class="bg-slate-50 dark:bg-gray-900 sticky top-0 z-10"><tr>';
+                            $html .= '<th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">波動番号</th>';
+                            $html .= '<th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">コース名</th>';
+                            $html .= '<th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">状況</th>';
+                            $html .= '</tr></thead><tbody class="divide-y divide-slate-200 dark:divide-gray-700">';
+
+                            foreach ($waves as $wave) {
+                                $status = $statusLabels[$wave->status] ?? $wave->status;
+                                $html .= '<tr class="hover:bg-slate-50 dark:hover:bg-gray-700">';
+                                $html .= "<td class=\"px-3 py-2 text-slate-700 dark:text-gray-300 font-mono text-xs\">{$wave->wave_no}</td>";
+                                $html .= "<td class=\"px-3 py-2 text-slate-700 dark:text-gray-300\">{$wave->course_name}</td>";
+                                $html .= "<td class=\"px-3 py-2\">{$status}</td>";
+                                $html .= '</tr>';
+                            }
+
+                            $html .= '</tbody></table></div></div>';
+
+                            $count = $waves->count();
+                            $html .= '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">';
+                            $html .= '<span class="text-sm font-bold text-slate-700 dark:text-gray-200">合計</span>';
+                            $html .= "<span class=\"text-lg font-bold text-blue-600 dark:text-blue-400\">{$count} 波動</span>";
+                            $html .= '</div></div>';
+
+                            return new HtmlString($html);
+                        }),
+                ])
+                ->action(function (array $data) {
+                    $listType = $data['list_type'] ?? 'primary';
+                    $warehouseId = $data['warehouse_id'];
+                    $shippingDate = $data['shipping_date'];
+
+                    $waves = Wave::query()
+                        ->join('wms_wave_settings as ws', 'wms_waves.wms_wave_setting_id', '=', 'ws.id')
+                        ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
+                        ->where('dc.warehouse_id', $warehouseId)
+                        ->where('wms_waves.shipping_date', $shippingDate)
+                        ->select('wms_waves.*')
+                        ->orderBy('wms_waves.wave_no')
+                        ->get();
+
+                    if ($waves->isEmpty()) {
+                        Notification::make()->title('対象波動がありません')->warning()->send();
+
+                        return null;
+                    }
+
+                    try {
+                        $service = new PickingListService;
+                        $pdfService = new PickingListPdfService;
+
+                        $waveIds = $waves->pluck('id')->toArray();
+
+                        $pdf = match ($listType) {
+                            'primary' => $pdfService->renderBatchPrimaryPdf(
+                                $waves->map(fn ($w) => $service->generatePrimaryList($w->id))->toArray()
+                            ),
+                            'secondary' => $pdfService->renderBatchSecondaryPdf(
+                                $service->generateSecondaryBatchList($waveIds)
+                            ),
+                            'tertiary' => $pdfService->renderBatchTertiaryPdf(
+                                $service->generateTertiaryListByWaveIds($waveIds)
+                            ),
+                        };
+
+                        $dateStr = str_replace('-', '', $shippingDate);
+                        $filename = "picking-list-{$listType}-{$dateStr}.pdf";
+
+                        return response()->streamDownload(
+                            fn () => print ($pdf),
+                            $filename,
+                            ['Content-Type' => 'application/pdf']
+                        );
+                    } catch (\Exception $e) {
+                        Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
+
+                        return null;
+                    }
+                }),
+
             Action::make('generateWave')
                 ->label('出荷波動生成')
                 ->icon('heroicon-o-plus-circle')
@@ -39,142 +262,261 @@ class ListWaves extends ListRecords
                 ->modalHeading('出荷波動生成')
                 ->modalDescription('対象伝票を選択して波動を生成します。同じ時間帯に既存の波動がある場合でも、新規波動として生成されます。')
                 ->modalSubmitActionLabel('波動を生成')
-                ->modalWidth('4xl')
-                ->form([
-                    Select::make('warehouse_id')
-                        ->label('倉庫')
-                        ->options(Warehouse::query()->pluck('name', 'id'))
-                        ->default(fn () => auth()->user()?->default_warehouse_id)
-                        ->required()
-                        ->live(),
+                ->modalWidth('6xl')
+                ->extraModalWindowAttributes(['class' => 'wave-modal'])
+                ->schema([
+                    Grid::make(2)->schema([
+                        ViewField::make('warehouse_id')
+                            ->label('倉庫')
+                            ->view('filament.forms.components.warehouse-select')
+                            ->viewData([
+                                'warehouses' => Warehouse::query()
+                                    ->where('is_virtual', false)
+                                    ->orderBy('code')
+                                    ->get()
+                                    ->map(fn ($w) => [
+                                        'id' => $w->id,
+                                        'code' => $w->code,
+                                        'name' => $w->name,
+                                        'label' => "[{$w->code}] {$w->name}",
+                                    ])
+                                    ->values()
+                                    ->toArray(),
+                            ])
+                            ->default(fn () => auth()->user()?->default_warehouse_id)
+                            ->required()
+                            ->live(),
 
-                    DatePicker::make('shipping_date')
-                        ->label('出荷日')
-                        ->default(fn () => ClientSetting::systemDate()->format('Y-m-d'))
-                        ->required()
-                        ->live(),
+                        ViewField::make('shipping_date')
+                            ->label('出荷日')
+                            ->view('filament.forms.components.date-input')
+                            ->default(fn () => ClientSetting::systemDate()->format('Y-m-d'))
+                            ->required()
+                            ->live(),
+                    ]),
 
-                    Placeholder::make('earnings_preview')
-                        ->label('対象伝票')
-                        ->content(function (Get $get): HtmlString {
-                            $warehouseId = $get('warehouse_id');
-                            $shippingDate = $get('shipping_date');
+                    Grid::make(2)->schema([
+                        ViewField::make('delivery_course_ids')
+                            ->label('配送コース')
+                            ->view('filament.forms.components.checkbox-grid')
+                            ->viewData(function (Get $get): array {
+                                $warehouseId = $get('warehouse_id');
+                                $shippingDate = $get('shipping_date');
 
-                            if (! $warehouseId || ! $shippingDate) {
-                                return new HtmlString('<div class="text-gray-500">倉庫と出荷日を選択してください</div>');
-                            }
+                                if (! $warehouseId || ! $shippingDate) {
+                                    return ['options' => []];
+                                }
 
-                            // Get summary by delivery course for earnings
-                            $earningSummary = DB::connection('sakemaru')
-                                ->table('earnings')
-                                ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
-                                ->where('earnings.warehouse_id', $warehouseId)
-                                ->where('earnings.delivered_date', $shippingDate)
-                                ->where('earnings.is_delivered', 0)
-                                ->where('earnings.picking_status', 'BEFORE')
-                                ->selectRaw('delivery_courses.id as course_id, delivery_courses.name as course_name, COUNT(*) as count')
-                                ->groupBy('delivery_courses.id', 'delivery_courses.name')
-                                ->orderBy('delivery_courses.name')
-                                ->get()
-                                ->keyBy('course_id');
+                                // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
+                                $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
-                            // Get summary by delivery course for stock_transfers
-                            // 仮想倉庫間移動は対象外（物理的ピッキング不要）
-                            $stockTransferSummary = DB::connection('sakemaru')
-                                ->table('stock_transfers as st')
-                                ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
-                                ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
-                                ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
-                                ->where('st.from_warehouse_id', $warehouseId)
-                                ->where('st.delivered_date', $shippingDate)
-                                ->where('st.is_active', true)
-                                ->where('st.picking_status', 'BEFORE')
-                                // 仮想倉庫間移動は対象外
-                                ->where(function ($query) {
-                                    $query->where(function ($q) {
-                                        $q->where('fw.is_virtual', false)
-                                            ->orWhere('tw.is_virtual', false);
+                                // 売上伝票の配送コース別件数
+                                $earningCounts = DB::connection('sakemaru')
+                                    ->table('earnings')
+                                    ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
+                                    ->whereIn('earnings.warehouse_id', $warehouseIds)
+                                    ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
+                                    ->where('earnings.delivered_date', $shippingDate)
+                                    ->where('earnings.is_delivered', 0)
+                                    ->where('earnings.picking_status', 'BEFORE')
+                                    ->selectRaw('delivery_courses.id as course_id, delivery_courses.code as course_code, delivery_courses.name as course_name, COUNT(*) as count')
+                                    ->groupBy('delivery_courses.id', 'delivery_courses.code', 'delivery_courses.name')
+                                    ->get()
+                                    ->keyBy('course_id');
+
+                                // 倉庫移動伝票の配送コース別件数（仮想倉庫間移動は除外）
+                                $stockTransferCounts = DB::connection('sakemaru')
+                                    ->table('stock_transfers as st')
+                                    ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
+                                    ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
+                                    ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
+                                    ->whereIn('st.from_warehouse_id', $warehouseIds)
+                                    ->whereIn('dc.warehouse_id', $warehouseIds)
+                                    ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
+                                    ->where('st.is_active', true)
+                                    ->where('st.picking_status', 'BEFORE')
+                                    ->where(function ($query) {
+                                        $query->where(function ($q) {
+                                            $q->where('fw.is_virtual', false)
+                                                ->orWhere('tw.is_virtual', false);
+                                        })
+                                            ->where(function ($q) {
+                                                $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
+                                            });
                                     })
-                                        ->where(function ($q) {
-                                            $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
-                                        });
-                                })
-                                ->selectRaw('dc.id as course_id, dc.name as course_name, COUNT(*) as count')
-                                ->groupBy('dc.id', 'dc.name')
-                                ->orderBy('dc.name')
-                                ->get()
-                                ->keyBy('course_id');
+                                    ->selectRaw('dc.id as course_id, dc.code as course_code, dc.name as course_name, COUNT(*) as count')
+                                    ->groupBy('dc.id', 'dc.code', 'dc.name')
+                                    ->get()
+                                    ->keyBy('course_id');
 
-                            // 両方とも空の場合
-                            if ($earningSummary->isEmpty() && $stockTransferSummary->isEmpty()) {
-                                return new HtmlString('<div class="text-gray-500">対象となる伝票がありません</div>');
-                            }
+                                // 両方をマージしてオプション生成
+                                $allCourseIds = $earningCounts->keys()->merge($stockTransferCounts->keys())->unique();
 
-                            // Merge summaries by delivery course
-                            $allCourseIds = $earningSummary->keys()->merge($stockTransferSummary->keys())->unique();
-                            $mergedSummary = [];
-                            foreach ($allCourseIds as $courseId) {
-                                $earningData = $earningSummary->get($courseId);
-                                $stockTransferData = $stockTransferSummary->get($courseId);
-                                $courseName = $earningData->course_name ?? $stockTransferData->course_name ?? '不明';
-                                $mergedSummary[] = [
-                                    'course_name' => $courseName,
-                                    'earning_count' => $earningData->count ?? 0,
-                                    'stock_transfer_count' => $stockTransferData->count ?? 0,
+                                $options = [];
+                                foreach ($allCourseIds as $courseId) {
+                                    $earningData = $earningCounts->get($courseId);
+                                    $stockTransferData = $stockTransferCounts->get($courseId);
+                                    $code = $earningData->course_code ?? $stockTransferData->course_code ?? '';
+                                    $name = $earningData->course_name ?? $stockTransferData->course_name ?? '不明';
+                                    $earningCount = $earningData->count ?? 0;
+                                    $stCount = $stockTransferData->count ?? 0;
+                                    $options[] = [
+                                        'id' => $courseId,
+                                        'label' => $name,
+                                    ];
+                                }
+
+                                // コースコード順にソート
+                                usort($options, fn ($a, $b) => strcmp($a['label'], $b['label']));
+
+                                return [
+                                    'options' => $options,
+                                    'searchPlaceholder' => 'コース検索...',
                                 ];
-                            }
+                            })
+                            ->required()
+                            ->live()
+                            ->visible(fn (Get $get) => $get('warehouse_id') && $get('shipping_date')),
 
-                            // Sort by course name
-                            usort($mergedSummary, fn ($a, $b) => strcmp($a['course_name'], $b['course_name']));
+                        Placeholder::make('earnings_preview')
+                            ->label('対象伝票')
+                            ->content(function (Get $get): HtmlString {
+                                $warehouseId = $get('warehouse_id');
+                                $shippingDate = $get('shipping_date');
+                                $deliveryCourseIds = $get('delivery_course_ids');
 
-                            $totalEarningCount = $earningSummary->sum('count');
-                            $totalStockTransferCount = $stockTransferSummary->sum('count');
-                            $totalCount = $totalEarningCount + $totalStockTransferCount;
+                                if (! $warehouseId || ! $shippingDate) {
+                                    return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-warehouse text-2xl mb-2"></i><p class="text-sm">倉庫と出荷日を選択してください</p></div>');
+                                }
 
-                            $html = '<div class="space-y-3">';
+                                if (empty($deliveryCourseIds)) {
+                                    return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-route text-2xl mb-2"></i><p class="text-sm">配送コースを選択してください</p></div>');
+                                }
 
-                            // Summary by delivery course
-                            $html .= '<div class="overflow-x-auto"><table class="w-full text-sm border-collapse">';
-                            $html .= '<thead><tr class="bg-gray-100 dark:bg-gray-800">';
-                            $html .= '<th class="border px-3 py-2 text-left">配送コース</th>';
-                            $html .= '<th class="border px-3 py-2 text-right">売上伝票</th>';
-                            $html .= '<th class="border px-3 py-2 text-right">移動伝票</th>';
-                            $html .= '<th class="border px-3 py-2 text-right">合計</th>';
-                            $html .= '</tr></thead><tbody>';
+                                // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
+                                $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
-                            foreach ($mergedSummary as $row) {
-                                $rowTotal = $row['earning_count'] + $row['stock_transfer_count'];
-                                $html .= '<tr class="hover:bg-gray-50 dark:hover:bg-gray-700">';
-                                $html .= "<td class=\"border px-3 py-2\">{$row['course_name']}</td>";
-                                $html .= "<td class=\"border px-3 py-2 text-right\">{$row['earning_count']}件</td>";
-                                $html .= "<td class=\"border px-3 py-2 text-right text-purple-600 dark:text-purple-400\">{$row['stock_transfer_count']}件</td>";
-                                $html .= "<td class=\"border px-3 py-2 text-right font-medium\">{$rowTotal}件</td>";
-                                $html .= '</tr>';
-                            }
+                                // Get summary by delivery course for earnings (selected courses only)
+                                $earningSummary = DB::connection('sakemaru')
+                                    ->table('earnings')
+                                    ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
+                                    ->whereIn('earnings.warehouse_id', $warehouseIds)
+                                    ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
+                                    ->where('earnings.delivered_date', $shippingDate)
+                                    ->where('earnings.is_delivered', 0)
+                                    ->where('earnings.picking_status', 'BEFORE')
+                                    ->whereIn('earnings.delivery_course_id', $deliveryCourseIds)
+                                    ->selectRaw('delivery_courses.id as course_id, delivery_courses.name as course_name, COUNT(*) as count')
+                                    ->groupBy('delivery_courses.id', 'delivery_courses.name')
+                                    ->orderBy('delivery_courses.name')
+                                    ->get()
+                                    ->keyBy('course_id');
 
-                            $html .= '</tbody></table></div>';
+                                // Get summary by delivery course for stock_transfers (selected courses only)
+                                // 仮想倉庫間移動は対象外（物理的ピッキング不要）
+                                $stockTransferSummary = DB::connection('sakemaru')
+                                    ->table('stock_transfers as st')
+                                    ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
+                                    ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
+                                    ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
+                                    ->whereIn('st.from_warehouse_id', $warehouseIds)
+                                    ->whereIn('dc.warehouse_id', $warehouseIds)
+                                    ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
+                                    ->where('st.is_active', true)
+                                    ->where('st.picking_status', 'BEFORE')
+                                    ->whereIn('st.delivery_course_id', $deliveryCourseIds)
+                                    // 仮想倉庫間移動は対象外
+                                    ->where(function ($query) {
+                                        $query->where(function ($q) {
+                                            $q->where('fw.is_virtual', false)
+                                                ->orWhere('tw.is_virtual', false);
+                                        })
+                                            ->where(function ($q) {
+                                                $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
+                                            });
+                                    })
+                                    ->selectRaw('dc.id as course_id, dc.name as course_name, COUNT(*) as count')
+                                    ->groupBy('dc.id', 'dc.name')
+                                    ->orderBy('dc.name')
+                                    ->get()
+                                    ->keyBy('course_id');
 
-                            // Total
-                            $html .= '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">';
-                            $html .= '<span class="font-medium">合計</span>';
-                            $html .= '<div class="text-right">';
-                            $html .= '<span class="text-sm text-gray-600 dark:text-gray-400 mr-4">売上: '.$totalEarningCount.'件</span>';
-                            $html .= '<span class="text-sm text-purple-600 dark:text-purple-400 mr-4">移動: '.$totalStockTransferCount.'件</span>';
-                            $html .= '<span class="text-lg font-bold text-blue-600 dark:text-blue-400">'.$totalCount.'件</span>';
-                            $html .= '</div>';
-                            $html .= '</div>';
+                                // 両方とも空の場合
+                                if ($earningSummary->isEmpty() && $stockTransferSummary->isEmpty()) {
+                                    return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">選択した配送コースに対象伝票がありません</p></div>');
+                                }
 
-                            // Warning for large volume
-                            if ($totalCount > 100) {
-                                $html .= '<div class="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg text-yellow-700 dark:text-yellow-400 text-sm">';
-                                $html .= '<span class="font-medium">注意:</span> 伝票数が多いため、生成に時間がかかる場合があります。';
+                                // Merge summaries by delivery course
+                                $allCourseIds = $earningSummary->keys()->merge($stockTransferSummary->keys())->unique();
+                                $mergedSummary = [];
+                                foreach ($allCourseIds as $courseId) {
+                                    $earningData = $earningSummary->get($courseId);
+                                    $stockTransferData = $stockTransferSummary->get($courseId);
+                                    $courseName = $earningData->course_name ?? $stockTransferData->course_name ?? '不明';
+                                    $mergedSummary[] = [
+                                        'course_name' => $courseName,
+                                        'earning_count' => $earningData->count ?? 0,
+                                        'stock_transfer_count' => $stockTransferData->count ?? 0,
+                                    ];
+                                }
+
+                                // Sort by course name
+                                usort($mergedSummary, fn ($a, $b) => strcmp($a['course_name'], $b['course_name']));
+
+                                $totalEarningCount = $earningSummary->sum('count');
+                                $totalStockTransferCount = $stockTransferSummary->sum('count');
+                                $totalCount = $totalEarningCount + $totalStockTransferCount;
+
+                                $html = '<div class="space-y-3">';
+
+                                // Summary table with max-height scroll
+                                $html .= '<div class="border border-slate-200 dark:border-gray-700 rounded-lg overflow-hidden">';
+                                $html .= '<div class="max-h-60 overflow-y-auto">';
+                                $html .= '<table class="w-full text-sm">';
+                                $html .= '<thead class="bg-slate-50 dark:bg-gray-900 sticky top-0 z-10">';
+                                $html .= '<tr>';
+                                $html .= '<th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">配送コース</th>';
+                                $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">売上伝票</th>';
+                                $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">移動伝票</th>';
+                                $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">合計</th>';
+                                $html .= '</tr></thead>';
+                                $html .= '<tbody class="divide-y divide-slate-200 dark:divide-gray-700">';
+
+                                foreach ($mergedSummary as $row) {
+                                    $rowTotal = $row['earning_count'] + $row['stock_transfer_count'];
+                                    $html .= '<tr class="hover:bg-slate-50 dark:hover:bg-gray-700 transition-colors">';
+                                    $html .= "<td class=\"px-3 py-2 text-sm text-slate-700 dark:text-gray-300\">{$row['course_name']}</td>";
+                                    $html .= "<td class=\"px-3 py-2 text-sm text-right text-slate-700 dark:text-gray-300\">{$row['earning_count']}件</td>";
+                                    $html .= "<td class=\"px-3 py-2 text-sm text-right text-purple-600 dark:text-purple-400\">{$row['stock_transfer_count']}件</td>";
+                                    $html .= "<td class=\"px-3 py-2 text-sm text-right font-bold text-slate-800 dark:text-gray-200\">{$rowTotal}件</td>";
+                                    $html .= '</tr>';
+                                }
+
+                                $html .= '</tbody></table></div></div>';
+
+                                // Total summary bar
+                                $html .= '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">';
+                                $html .= '<span class="text-sm font-bold text-slate-700 dark:text-gray-200">合計</span>';
+                                $html .= '<div class="flex items-center gap-4">';
+                                $html .= '<span class="text-xs text-slate-500 dark:text-gray-400">売上: <span class="font-bold text-slate-700 dark:text-gray-200">'.$totalEarningCount.'件</span></span>';
+                                $html .= '<span class="text-xs text-purple-500 dark:text-purple-400">移動: <span class="font-bold">'.$totalStockTransferCount.'件</span></span>';
+                                $html .= '<span class="text-lg font-bold text-blue-600 dark:text-blue-400">'.$totalCount.'件</span>';
                                 $html .= '</div>';
-                            }
+                                $html .= '</div>';
 
-                            $html .= '</div>';
+                                // Warning for large volume
+                                if ($totalCount > 100) {
+                                    $html .= '<div class="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-400 text-xs">';
+                                    $html .= '<i class="fa fa-exclamation-triangle"></i>';
+                                    $html .= '<span><span class="font-bold">注意:</span> 伝票数が多いため、生成に時間がかかる場合があります。</span>';
+                                    $html .= '</div>';
+                                }
 
-                            return new HtmlString($html);
-                        }),
+                                $html .= '</div>';
+
+                                return new HtmlString($html);
+                            }),
+                    ]),
                 ])
                 ->action(function (array $data): void {
                     $this->generateManualWave($data);
@@ -191,20 +533,35 @@ class ListWaves extends ListRecords
     {
         $warehouseId = $data['warehouse_id'];
         $shippingDate = $data['shipping_date'];
+        $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
+
+        // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
+        $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
+
+        // 指定倉庫に紐づく配送コースのみに絞り込み
+        $validCourseIds = DB::connection('sakemaru')
+            ->table('delivery_courses')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('id', $deliveryCourseIds)
+            ->pluck('id')
+            ->toArray();
 
         // Get eligible earnings grouped by delivery_course_id
         // delivery_course_id が未設定の伝票はスキップする
         $earnings = Earning::query()
-            ->where('warehouse_id', $warehouseId)
+            ->whereIn('warehouse_id', $warehouseIds)
             ->where('delivered_date', $shippingDate)
             ->where('is_delivered', 0)
             ->where('picking_status', 'BEFORE')
             ->whereNotNull('delivery_course_id')
+            ->whereIn('delivery_course_id', $validCourseIds)
             ->get();
 
         // Get eligible stock_transfers grouped by delivery_course_id
         // 仮想倉庫間移動は対象外（物理的ピッキング不要）
-        $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId)->get();
+        $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId)
+            ->whereIn('st.delivery_course_id', $validCourseIds)
+            ->get();
 
         if ($earnings->isEmpty() && $stockTransfers->isEmpty()) {
             Notification::make()
@@ -250,13 +607,11 @@ class ListWaves extends ListRecords
                     $courseStockTransfers = $stockTransfersByDeliveryCourse->get($deliveryCourseId, collect());
 
                     // Find or create wave setting
-                    $waveSetting = WaveSetting::where('warehouse_id', $warehouseId)
-                        ->where('delivery_course_id', $deliveryCourseId)
+                    $waveSetting = WaveSetting::where('delivery_course_id', $deliveryCourseId)
                         ->first();
 
                     if (! $waveSetting) {
                         $waveSetting = WaveSetting::create([
-                            'warehouse_id' => $warehouseId,
                             'delivery_course_id' => $deliveryCourseId,
                             'picking_start_time' => null,
                             'picking_deadline_time' => null,
@@ -409,6 +764,7 @@ class ListWaves extends ListRecords
                 $tradeItem->quantity,
                 $tradeItem->quantity_type ?? 'PIECE',
                 $earningId,
+                $tradeItem->id,
                 'EARNING',
                 $buyerId
             );
@@ -649,6 +1005,7 @@ class ListWaves extends ListRecords
                 $tradeItem->quantity,
                 $tradeItem->quantity_type ?? 'PIECE',
                 $stockTransferId,
+                $tradeItem->id,
                 'STOCK_TRANSFER',
                 null // buyer_id
             );
@@ -774,14 +1131,19 @@ class ListWaves extends ListRecords
      */
     protected function getEligibleStockTransfersQuery(string $shippingDate, int $warehouseId)
     {
+        // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
+        $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
+
         return DB::connection('sakemaru')
             ->table('stock_transfers as st')
+            ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
             ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
             ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
-            ->where('st.delivered_date', $shippingDate)
+            ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
             ->where('st.is_active', true)
             ->where('st.picking_status', 'BEFORE')
-            ->where('st.from_warehouse_id', $warehouseId)
+            ->whereIn('st.from_warehouse_id', $warehouseIds)
+            ->whereIn('dc.warehouse_id', $warehouseIds)
             ->whereNotNull('st.delivery_course_id')
             // 仮想倉庫間移動は対象外
             ->where(function ($query) {

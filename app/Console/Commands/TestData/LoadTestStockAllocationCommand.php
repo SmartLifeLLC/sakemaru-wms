@@ -280,6 +280,7 @@ class LoadTestStockAllocationCommand extends Command
                     needQty: $needQty,
                     quantityType: $quantityType,
                     sourceId: 999999 + $i,
+                    sourceLineId: 999999 + $i,
                     sourceType: 'EARNING'
                 );
 

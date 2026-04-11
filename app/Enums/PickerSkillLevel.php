@@ -53,12 +53,36 @@ enum PickerSkillLevel: int
     }
 
     /**
+     * 作業速度係数（SENIOR=1.0が基準）
+     */
+    public function rate(): float
+    {
+        return match ($this) {
+            self::TRAINEE => 0.5,
+            self::JUNIOR => 0.8,
+            self::SENIOR => 1.0,
+            self::EXPERT => 1.2,
+            self::MASTER => 1.5,
+        };
+    }
+
+    /**
      * Get all skill levels as options for select fields
      */
     public static function options(): array
     {
         return collect(self::cases())
             ->mapWithKeys(fn ($case) => [$case->value => $case->label()])
+            ->toArray();
+    }
+
+    /**
+     * 全スキルレベルの速度係数マップ（戦略パラメータのデフォルト値）
+     */
+    public static function rateMap(): array
+    {
+        return collect(self::cases())
+            ->mapWithKeys(fn (self $case) => [(string) $case->value => $case->rate()])
             ->toArray();
     }
 }

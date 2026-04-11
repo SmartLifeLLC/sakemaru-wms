@@ -152,7 +152,7 @@
                             <i class="ph ph-package text-handy-3xl"></i>
                             <div class="text-left">
                                 <p class="text-handy-xl font-bold">入荷</p>
-                                <p class="text-handy-sm opacity-80">入庫処理を行う</p>
+                                <p class="text-handy-sm opacity-80">入荷処理を行う</p>
                             </div>
                         </button>
 

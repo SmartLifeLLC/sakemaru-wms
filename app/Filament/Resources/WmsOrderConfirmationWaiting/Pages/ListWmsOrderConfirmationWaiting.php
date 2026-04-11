@@ -161,28 +161,14 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                 ->color('success')
                 ->requiresConfirmation()
                 ->modalHeading('発注・移動確定')
-                ->modalDescription(function () use ($orderApprovedCount, $orderPendingCount, $transferApprovedCount, $transferPendingCount, $totalPendingCount) {
-                    // 未承認がある場合はエラーメッセージ
-                    if ($totalPendingCount > 0) {
-                        $messages = [];
-                        if ($transferPendingCount > 0) {
-                            $messages[] = "移動候補: {$transferPendingCount}件";
-                        }
-                        if ($orderPendingCount > 0) {
-                            $messages[] = "発注候補: {$orderPendingCount}件";
-                        }
-
-                        return '⚠️ 未承認の候補があります。先に全ての候補を承認または除外してください。'."\n\n".
-                            '【未承認件数】'."\n".implode("\n", $messages);
-                    }
-
+                ->modalDescription(function () use ($orderApprovedCount, $transferApprovedCount) {
                     // 承認済みの内訳を表示
                     $details = [];
                     if ($transferApprovedCount > 0) {
                         $details[] = "移動候補: {$transferApprovedCount}件 → 移動伝票生成";
                     }
                     if ($orderApprovedCount > 0) {
-                        $details[] = "発注候補: {$orderApprovedCount}件 → 発注送信データ生成・入庫予定作成";
+                        $details[] = "発注候補: {$orderApprovedCount}件 → 発注送信データ生成・入荷予定作成";
                     }
 
                     return '以下の処理を実行します。'."\n\n".
@@ -190,26 +176,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                         '処理はバックグラウンドで実行されます。';
                 })
                 ->visible($totalApprovedCount > 0 && ! $activeJob)
-                ->action(function () use ($orderPendingCount, $transferPendingCount, $totalPendingCount) {
-                    // 未承認があれば確定不可
-                    if ($totalPendingCount > 0) {
-                        $messages = [];
-                        if ($transferPendingCount > 0) {
-                            $messages[] = "移動候補: {$transferPendingCount}件";
-                        }
-                        if ($orderPendingCount > 0) {
-                            $messages[] = "発注候補: {$orderPendingCount}件";
-                        }
-
-                        Notification::make()
-                            ->title('確定できません')
-                            ->body('未承認の候補があります。'."\n".implode("\n", $messages))
-                            ->danger()
-                            ->send();
-
-                        return;
-                    }
-
+                ->action(function () {
                     // 進捗レコードを作成
                     $progress = WmsQueueProgress::createJob(
                         WmsQueueProgress::JOB_TYPE_ORDER_CONFIRMATION,
@@ -375,9 +342,15 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         cache()->forget('transfer_confirmation_approved_warehouses_'.auth()->id());
         cache()->forget('order_confirmation_approved_warehouses_'.auth()->id());
 
-        // URLパラメータ付きでリダイレクト
+        // 現在のプリセットビューを引き継いでリダイレクト
+        $params = ['tab' => $tab];
+        if ($this->activePresetView) {
+            $params['activePresetView'] = $this->activePresetView;
+            $params['currentPresetView'] = $this->activePresetView;
+        }
+
         $this->redirect(
-            static::getResource()::getUrl('index', ['tab' => $tab]),
+            static::getResource()::getUrl('index', $params),
             navigate: true
         );
     }
@@ -394,8 +367,8 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
     public function getPresetViews(): array
     {
-        // ユーザーのデフォルト倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        // ユーザーの選択中倉庫を取得
+        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
         // タブに応じて倉庫リストを取得
         if ($this->confirmationTab === 'transfer') {
@@ -422,23 +395,36 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
             // デフォルト倉庫が移動確定待ちに存在するかチェック
             $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+            $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
-            // プリセットビュー構築（データがなくても「全て」タブは常に表示）
-            $views = [
-                'default' => PresetView::make()
-                    ->favorite()
-                    ->label('全て')
-                    ->default(! $hasDefaultWarehouse || empty($warehouses)),
-            ];
+            if ($defaultWarehouse) {
+                $views = [
+                    'default' => PresetView::make()
+                        ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $userDefaultWarehouseId))
+                        ->favorite()
+                        ->label($defaultWarehouse->name)
+                        ->default(),
+                    'all' => PresetView::make()
+                        ->favorite()
+                        ->label('全て'),
+                ];
+            } else {
+                $views = [
+                    'default' => PresetView::make()
+                        ->favorite()
+                        ->label('全て')
+                        ->default(),
+                ];
+            }
 
-            // 倉庫タブを追加（データがある場合のみ）
             foreach ($warehouses as $warehouse) {
-                $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
-                $views["default_{$warehouse->id}"] = PresetView::make()
+                if ($defaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                    continue;
+                }
+                $views["wh_{$warehouse->id}"] = PresetView::make()
                     ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $warehouse->id))
                     ->favorite()
-                    ->label($warehouse->name)
-                    ->default($isDefault);
+                    ->label($warehouse->name);
             }
 
             return $views;
@@ -467,23 +453,36 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
         // デフォルト倉庫が発注確定待ちに存在するかチェック
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
-        // プリセットビュー構築（データがなくても「全て」タブは常に表示）
-        $views = [
-            'default' => PresetView::make()
-                ->favorite()
-                ->label('全て')
-                ->default(! $hasDefaultWarehouse || empty($warehouses)),
-        ];
+        if ($defaultWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->favorite()
+                    ->label($defaultWarehouse->name)
+                    ->default(),
+                'all' => PresetView::make()
+                    ->favorite()
+                    ->label('全て'),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
 
-        // 倉庫タブを追加（データがある場合のみ）
         foreach ($warehouses as $warehouse) {
-            $isDefault = $hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId;
-            $views["default_{$warehouse->id}"] = PresetView::make()
+            if ($defaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+                continue;
+            }
+            $views["wh_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
-                ->label($warehouse->name)
-                ->default($isDefault);
+                ->label($warehouse->name);
         }
 
         return $views;

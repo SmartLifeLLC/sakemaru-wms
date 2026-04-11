@@ -1,0 +1,319 @@
+@import "tailwindcss";
+
+/* ========================================
+   WMS Handy V2 - Landscape Base (1600x720px)
+   Target: 6.75" HD+ Android (720x1600px landscape)
+   ======================================== */
+
+@theme {
+    --color-wms-primary: #1e40af;
+    --color-wms-primary-dark: #1e3a8a;
+    --color-wms-header: #1e293b;
+    --color-wms-sidebar: #0f172a;
+    --color-wms-sidebar-active: #1e40af;
+    --color-wms-success: #16a34a;
+    --color-wms-warning: #f59e0b;
+    --color-wms-danger: #dc2626;
+    --color-wms-info: #0ea5e9;
+    --color-wms-bg: #f1f5f9;
+    --color-wms-card: #ffffff;
+}
+
+/* App Shell */
+.wms-app {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-wms-bg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Header */
+.wms-header {
+    height: 48px;
+    min-height: 48px;
+    background-color: var(--color-wms-header);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 10;
+}
+
+/* Body: Sidebar + Main */
+.wms-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+/* Side Navigation */
+.wms-side-nav {
+    width: 56px;
+    min-width: 56px;
+    background-color: var(--color-wms-sidebar);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 8px;
+    gap: 4px;
+    z-index: 10;
+}
+
+.wms-side-nav-item {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: #94a3b8;
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    gap: 2px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.wms-side-nav-item:hover,
+.wms-side-nav-item:active {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.wms-side-nav-item.active {
+    background-color: var(--color-wms-sidebar-active);
+    color: white;
+}
+
+.wms-side-nav-item svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* Main Content */
+.wms-main {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Touch Targets */
+.wms-touch-target {
+    min-height: 44px;
+    min-width: 44px;
+}
+
+/* Buttons */
+.wms-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 8px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+    border: none;
+    outline: none;
+}
+
+.wms-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.wms-btn-primary {
+    background-color: var(--color-wms-primary);
+    color: white;
+}
+
+.wms-btn-primary:hover:not(:disabled) {
+    background-color: var(--color-wms-primary-dark);
+}
+
+.wms-btn-success {
+    background-color: var(--color-wms-success);
+    color: white;
+}
+
+.wms-btn-danger {
+    background-color: var(--color-wms-danger);
+    color: white;
+}
+
+/* Cards */
+.wms-card {
+    background-color: var(--color-wms-card);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Input */
+.wms-input {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.15s ease;
+    background-color: white;
+}
+
+.wms-input:focus {
+    border-color: var(--color-wms-primary);
+    box-shadow: 0 0 0 2px rgba(30, 64, 175, 0.2);
+}
+
+/* Login Screen */
+.wms-login {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #2563eb 100%);
+}
+
+.wms-login-card {
+    width: 360px;
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+/* Warehouse Select Modal */
+.wms-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+}
+
+.wms-modal {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 480px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+/* Toast Notification */
+.wms-toast {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 100;
+    min-width: 240px;
+    max-width: 400px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    color: white;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: wms-toast-in 0.2s ease-out;
+}
+
+.wms-toast-success { background-color: var(--color-wms-success); }
+.wms-toast-error { background-color: var(--color-wms-danger); }
+.wms-toast-warning { background-color: var(--color-wms-warning); color: #1e293b; }
+.wms-toast-info { background-color: var(--color-wms-info); }
+
+@keyframes wms-toast-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Loading Overlay */
+.wms-loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 90;
+}
+
+.wms-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: wms-spin 0.7s linear infinite;
+}
+
+@keyframes wms-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Warehouse Grid */
+.wms-warehouse-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.wms-warehouse-item {
+    padding: 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: center;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.wms-warehouse-item:hover,
+.wms-warehouse-item:active {
+    border-color: var(--color-wms-primary);
+    background-color: #eff6ff;
+}
+
+/* Landscape orientation lock hint */
+@media (orientation: portrait) {
+    .wms-rotate-hint {
+        display: flex;
+    }
+}
+
+@media (orientation: landscape) {
+    .wms-rotate-hint {
+        display: none;
+    }
+}
+
+/* Settings Screen */
+.wms-settings-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.wms-settings-item:last-child {
+    border-bottom: none;
+}

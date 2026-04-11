@@ -1,0 +1,586 @@
+<?php
+
+namespace App\Services\PickingList;
+
+use TCPDF;
+
+/**
+ * ピッキングリストPDF描画サービス
+ *
+ * TCPDF座標描画のみ使用（HTML禁止）
+ * PurchaseOrderPdfService と同じパターン
+ */
+class PickingListPdfService
+{
+    // フォントサイズ（pt）
+    private const FONT_SIZE_TITLE = 14;
+
+    private const FONT_SIZE_HEADER = 10;
+
+    private const FONT_SIZE_NORMAL = 8;
+
+    private const FONT_SIZE_SMALL = 7;
+
+    // 行高さ（mm）
+    private const LINE_HEIGHT = 5;
+
+    private const TABLE_ROW_HEIGHT = 6;
+
+    // 罫線幅（mm）
+    private const LINE_WIDTH = 0.2;
+
+    private const LINE_WIDTH_THICK = 0.4;
+
+    // マージン（mm）
+    private const MARGIN = 10;
+
+    private const MARGIN_BOTTOM = 15;
+
+    private TCPDF $pdf;
+
+    private float $currentY;
+
+    private int $totalPages = 0;
+
+    // ========================================
+    // 1次リスト（A4横）
+    // ========================================
+
+    private const PRIMARY_PAGE_WIDTH = 297;
+
+    private const PRIMARY_PAGE_HEIGHT = 210;
+
+    private const PRIMARY_CONTENT_WIDTH = 277; // 297 - 10 - 10
+
+    private const PRIMARY_COL_WIDTHS = [
+        'no' => 12,
+        'item_code' => 30,
+        'item_name' => 100,
+        'total_qty' => 25,
+        'case_qty' => 20,
+        'piece_qty' => 20,
+        'zone' => 40,
+        'dest_count' => 15,
+        'shortage' => 15,
+    ];
+
+    /**
+     * 1次ピッキングリストPDF描画
+     */
+    public function renderPrimaryPdf(array $data): string
+    {
+        $this->initPdf('L', 'ピッキングリスト（1次）');
+        $this->pdf->AddPage();
+        $this->currentY = self::MARGIN;
+
+        $this->renderPrimaryHeader($data['header']);
+        $this->renderPrimaryTable($data['items'], $data['header']);
+        $this->renderPrimarySummary($data['summary']);
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderPageNumbers(self::PRIMARY_PAGE_WIDTH, self::PRIMARY_PAGE_HEIGHT);
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    private function renderPrimaryHeader(array $header): void
+    {
+        // タイトル
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 8, '1次ピッキングリスト（波動集約）', 0, 0, 'C');
+        $this->currentY += 10;
+
+        // ヘッダー情報（左右に配置）
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
+
+        // 左側
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(140, self::LINE_HEIGHT, '波動番号:'.($header['wave_no'] ?? ''), 0, 0, 'L');
+
+        // 右側
+        $this->pdf->SetXY(self::MARGIN + 140, $this->currentY);
+        $this->pdf->Cell(137, self::LINE_HEIGHT, '印刷日時: '.now()->format('Y-m-d H:i'), 0, 0, 'R');
+        $this->currentY += self::LINE_HEIGHT;
+
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(140, self::LINE_HEIGHT, '出荷日: '.($header['shipping_date'] ?? ''), 0, 0, 'L');
+
+        $this->pdf->SetXY(self::MARGIN + 140, $this->currentY);
+        $this->pdf->Cell(137, self::LINE_HEIGHT, '倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'R');
+        $this->currentY += self::LINE_HEIGHT;
+
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(140, self::LINE_HEIGHT, '配送コース: '.($header['course_name'] ?? ''), 0, 0, 'L');
+        $this->currentY += self::LINE_HEIGHT + 3;
+    }
+
+    private function renderPrimaryTableHeader(): void
+    {
+        $headers = ['No', '商品CD', '商品名', '総数量', 'ケース', 'バラ', 'ゾーン', '店数', '欠品'];
+        $aligns = ['C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C'];
+        $widths = array_values(self::PRIMARY_COL_WIDTHS);
+
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+
+        $x = self::MARGIN;
+        $y = $this->currentY;
+
+        // 上線
+        $tableWidth = array_sum($widths);
+        $this->pdf->Line($x, $y, $x + $tableWidth, $y);
+
+        foreach ($headers as $i => $header) {
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell($widths[$i], self::TABLE_ROW_HEIGHT, $header, 0, 0, $aligns[$i]);
+            $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+            $x += $widths[$i];
+        }
+        $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+
+        // 下線
+        $this->pdf->Line(self::MARGIN, $y + self::TABLE_ROW_HEIGHT, self::MARGIN + $tableWidth, $y + self::TABLE_ROW_HEIGHT);
+        $this->currentY = $y + self::TABLE_ROW_HEIGHT;
+    }
+
+    private function renderPrimaryTable(array $items, array $header): void
+    {
+        $this->renderPrimaryTableHeader();
+
+        $widths = array_values(self::PRIMARY_COL_WIDTHS);
+        $tableWidth = array_sum($widths);
+
+        foreach ($items as $index => $item) {
+            // 改ページチェック
+            if ($this->currentY + self::TABLE_ROW_HEIGHT > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
+                $this->pdf->AddPage();
+                $this->currentY = self::MARGIN;
+                $this->renderPrimaryHeader($header);
+                $this->renderPrimaryTableHeader();
+            }
+
+            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+            $x = self::MARGIN;
+            $y = $this->currentY;
+
+            $rowData = [
+                $index + 1,
+                $item['item_code'],
+                $this->truncateText($item['item_name'], $widths[2] - 2),
+                $item['total_qty'],
+                $item['case_qty'] ?: '',
+                $item['piece_qty'] ?: '',
+                $item['picking_zone'],
+                $item['destination_count'],
+                $item['shortage_qty'] > 0 ? $item['shortage_qty'] : '',
+            ];
+
+            $aligns = ['R', 'L', 'L', 'R', 'R', 'R', 'L', 'R', 'R'];
+
+            foreach ($rowData as $i => $value) {
+                $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
+                $cellW = $widths[$i] - ($aligns[$i] === 'L' ? 1 : 0);
+                $this->pdf->SetXY($cellX, $y);
+                $this->pdf->Cell($cellW, self::TABLE_ROW_HEIGHT, $value, 0, 0, $aligns[$i]);
+                $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+                $x += $widths[$i];
+            }
+            $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+            $this->pdf->Line(self::MARGIN, $y + self::TABLE_ROW_HEIGHT, self::MARGIN + $tableWidth, $y + self::TABLE_ROW_HEIGHT);
+
+            $this->currentY = $y + self::TABLE_ROW_HEIGHT;
+        }
+    }
+
+    private function renderPrimarySummary(array $summary): void
+    {
+        $this->currentY += 3;
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, self::LINE_HEIGHT,
+            sprintf('合計  SKU数: %d  /  総数量: %d  /  ケース計: %d  /  バラ計: %d',
+                $summary['sku_count'], $summary['total_qty'], $summary['total_case'], $summary['total_piece']
+            ), 0, 0, 'L');
+    }
+
+    // ========================================
+    // 2次リスト（A4縦）
+    // ========================================
+
+    private const SECONDARY_PAGE_WIDTH = 210;
+
+    private const SECONDARY_PAGE_HEIGHT = 297;
+
+    private const SECONDARY_CONTENT_WIDTH = 190;
+
+    private const SECONDARY_COL_WIDTHS = [
+        'location' => 30,
+        'item_code' => 28,
+        'item_name' => 72,
+        'qty' => 25,
+        'check' => 15,
+        'qty_type' => 20,
+    ];
+
+    /**
+     * 2次ピッキングリストPDF描画
+     */
+    public function renderSecondaryPdf(array $data): string
+    {
+        $this->initPdf('P', 'ピッキングリスト（2次）');
+        $this->pdf->AddPage();
+        $this->currentY = self::MARGIN;
+
+        $this->renderSecondaryHeader($data['header']);
+        $this->renderSecondaryTable($data['items'], $data['header']);
+        $this->renderSecondarySummary($data['summary']);
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderPageNumbers(self::SECONDARY_PAGE_WIDTH, self::SECONDARY_PAGE_HEIGHT);
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    private function renderSecondaryHeader(array $header): void
+    {
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(self::SECONDARY_CONTENT_WIDTH, 8, '2次ピッキングリスト（作業者別）', 0, 0, 'C');
+        $this->currentY += 10;
+
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
+
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '波動: '.($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '出荷日: '.($header['shipping_date'] ?? ''), 0, 0, 'R');
+        $this->currentY += self::LINE_HEIGHT;
+
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, 'コース: '.($header['course_name'] ?? ''), 0, 0, 'L');
+        $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, 'ピッカー: '.($header['picker_name'] ?? ''), 0, 0, 'R');
+        $this->currentY += self::LINE_HEIGHT;
+
+        if (! empty($header['area_name'])) {
+            $this->pdf->SetXY(self::MARGIN, $this->currentY);
+            $this->pdf->Cell(95, self::LINE_HEIGHT, 'エリア: '.$header['area_name'], 0, 0, 'L');
+            $this->currentY += self::LINE_HEIGHT;
+        }
+
+        $this->currentY += 3;
+    }
+
+    private function renderSecondaryTableHeader(): void
+    {
+        $headers = ['棚番', '商品CD', '商品名', '数量', 'チェック', '区分'];
+        $widths = array_values(self::SECONDARY_COL_WIDTHS);
+
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+
+        $x = self::MARGIN;
+        $y = $this->currentY;
+        $tableWidth = array_sum($widths);
+
+        $this->pdf->Line($x, $y, $x + $tableWidth, $y);
+
+        foreach ($headers as $i => $header) {
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell($widths[$i], self::TABLE_ROW_HEIGHT, $header, 0, 0, 'C');
+            $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+            $x += $widths[$i];
+        }
+        $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+        $this->pdf->Line(self::MARGIN, $y + self::TABLE_ROW_HEIGHT, self::MARGIN + $tableWidth, $y + self::TABLE_ROW_HEIGHT);
+
+        $this->currentY = $y + self::TABLE_ROW_HEIGHT;
+    }
+
+    private function renderSecondaryTable(array $items, array $header, ?callable $pageHeaderRenderer = null): void
+    {
+        $renderPageHeader = $pageHeaderRenderer ?? fn (array $h) => $this->renderSecondaryHeader($h);
+
+        $this->renderSecondaryTableHeader();
+
+        $widths = array_values(self::SECONDARY_COL_WIDTHS);
+        $tableWidth = array_sum($widths);
+        $childRowHeight = 5;
+
+        foreach ($items as $item) {
+            // 子行数を計算して改ページチェック
+            $destCount = count($item['destinations']);
+            $totalHeight = self::TABLE_ROW_HEIGHT + ($destCount * $childRowHeight);
+
+            if ($this->currentY + $totalHeight > self::SECONDARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
+                $this->pdf->AddPage();
+                $this->currentY = self::MARGIN;
+                $renderPageHeader($header);
+                $this->renderSecondaryTableHeader();
+            }
+
+            // 親行
+            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+            $x = self::MARGIN;
+            $y = $this->currentY;
+
+            $rowData = [
+                $item['location_code'],
+                $item['item_code'],
+                $this->truncateText($item['item_name'], $widths[2] - 2),
+                $item['total_pick_qty'],
+                '□',
+                $item['qty_type'],
+            ];
+            $aligns = ['L', 'L', 'L', 'R', 'C', 'L'];
+
+            foreach ($rowData as $i => $value) {
+                $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
+                $cellW = $widths[$i] - ($aligns[$i] === 'L' ? 1 : 0);
+                $this->pdf->SetXY($cellX, $y);
+                $this->pdf->Cell($cellW, self::TABLE_ROW_HEIGHT, $value, 0, 0, $aligns[$i]);
+                $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+                $x += $widths[$i];
+            }
+            $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+            $this->pdf->Line(self::MARGIN, $y + self::TABLE_ROW_HEIGHT, self::MARGIN + $tableWidth, $y + self::TABLE_ROW_HEIGHT);
+
+            $this->currentY = $y + self::TABLE_ROW_HEIGHT;
+
+            // 子行（納品先内訳）
+            if (! empty($item['destinations'])) {
+                $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+                $this->pdf->SetLineWidth(self::LINE_WIDTH);
+
+                foreach ($item['destinations'] as $dest) {
+                    $childY = $this->currentY;
+
+                    // 棚番列はスキップ、商品名列にインデント付き納品先名
+                    $destX = self::MARGIN + $widths[0]; // 棚番スキップ
+                    // 商品CD列 + 商品名列にまたがって納品先名
+                    $nameWidth = $widths[1] + $widths[2];
+                    $this->pdf->SetXY($destX + 2, $childY);
+                    $this->pdf->Cell($nameWidth - 2, $childRowHeight, '├ '.$this->truncateText($dest['name'], $nameWidth - 10), 0, 0, 'L');
+
+                    // 数量
+                    $qtyX = self::MARGIN + $widths[0] + $widths[1] + $widths[2];
+                    $this->pdf->SetXY($qtyX, $childY);
+                    $this->pdf->Cell($widths[3], $childRowHeight, $dest['qty'], 0, 0, 'R');
+
+                    // 区分
+                    $typeX = $qtyX + $widths[3] + $widths[4];
+                    $this->pdf->SetXY($typeX + 1, $childY);
+                    $this->pdf->Cell($widths[5] - 1, $childRowHeight, $dest['qty_type'], 0, 0, 'L');
+
+                    // 左右の縦線
+                    $this->pdf->Line(self::MARGIN, $childY, self::MARGIN, $childY + $childRowHeight);
+                    $this->pdf->Line(self::MARGIN + $tableWidth, $childY, self::MARGIN + $tableWidth, $childY + $childRowHeight);
+
+                    $this->currentY = $childY + $childRowHeight;
+                }
+
+                // 子行グループの下線
+                $this->pdf->SetLineWidth(self::LINE_WIDTH);
+                $this->pdf->Line(self::MARGIN, $this->currentY, self::MARGIN + $tableWidth, $this->currentY);
+            }
+        }
+    }
+
+    private function renderSecondarySummary(array $summary): void
+    {
+        $this->currentY += 3;
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(self::SECONDARY_CONTENT_WIDTH, self::LINE_HEIGHT,
+            sprintf('合計  品目数: %d  /  棚数: %d  /  総数量: %d',
+                $summary['item_count'], $summary['location_count'], $summary['total_qty']
+            ), 0, 0, 'L');
+    }
+
+    // ========================================
+    // 3次リスト（A4縦 - 配送コース別、2次と同じレイアウト）
+    // ========================================
+
+    /**
+     * 3次ピッキングリストPDF描画（配送コース別）
+     *
+     * generateTertiaryList が返す配列は2次リストと同じ構造のため、
+     * ヘッダータイトルを「3次」に変えて2次のレイアウトを再利用する。
+     *
+     * @param  array  $dataList  配送コースごとの {header, items, summary} 配列
+     */
+    public function renderTertiaryPdf(array $dataList): string
+    {
+        $this->initPdf('P', 'ピッキングリスト（3次）');
+
+        foreach ($dataList as $data) {
+            if (empty($data['items'])) {
+                continue;
+            }
+
+            $this->pdf->AddPage();
+            $this->currentY = self::MARGIN;
+
+            $this->renderTertiaryPageHeader($data['header']);
+            $this->renderSecondaryTable(
+                $data['items'],
+                $data['header'],
+                fn (array $h) => $this->renderTertiaryPageHeader($h)
+            );
+            $this->renderSecondarySummary($data['summary']);
+        }
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderPageNumbers(self::SECONDARY_PAGE_WIDTH, self::SECONDARY_PAGE_HEIGHT);
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    private function renderTertiaryPageHeader(array $header): void
+    {
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(self::SECONDARY_CONTENT_WIDTH, 8, '3次ピッキングリスト（配送コース別）', 0, 0, 'C');
+        $this->currentY += 10;
+
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
+
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '波動: '.($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '出荷日: '.($header['shipping_date'] ?? ''), 0, 0, 'R');
+        $this->currentY += self::LINE_HEIGHT;
+
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(190, self::LINE_HEIGHT, 'コース: '.($header['course_name'] ?? ''), 0, 0, 'L');
+        $this->currentY += self::LINE_HEIGHT + 3;
+    }
+
+    // ========================================
+    // バッチレンダリング（複数Wave/タスク一括）
+    // ========================================
+
+    /**
+     * 複数Waveの1次リストを1つのPDFにまとめる
+     */
+    public function renderBatchPrimaryPdf(array $dataList): string
+    {
+        $this->initPdf('L', 'ピッキングリスト（1次）一括');
+
+        foreach ($dataList as $data) {
+            if (empty($data['items'])) {
+                continue;
+            }
+
+            $this->pdf->AddPage();
+            $this->currentY = self::MARGIN;
+
+            $this->renderPrimaryHeader($data['header']);
+            $this->renderPrimaryTable($data['items'], $data['header']);
+            $this->renderPrimarySummary($data['summary']);
+        }
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderPageNumbers(self::PRIMARY_PAGE_WIDTH, self::PRIMARY_PAGE_HEIGHT);
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    /**
+     * 複数ピッカーの2次リストを1つのPDFにまとめる
+     */
+    public function renderBatchSecondaryPdf(array $dataList): string
+    {
+        $this->initPdf('P', 'ピッキングリスト（2次）一括');
+
+        foreach ($dataList as $data) {
+            if (empty($data['items'])) {
+                continue;
+            }
+
+            $this->pdf->AddPage();
+            $this->currentY = self::MARGIN;
+
+            $this->renderSecondaryHeader($data['header']);
+            $this->renderSecondaryTable($data['items'], $data['header']);
+            $this->renderSecondarySummary($data['summary']);
+        }
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderPageNumbers(self::SECONDARY_PAGE_WIDTH, self::SECONDARY_PAGE_HEIGHT);
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    /**
+     * 複数コースの3次リストを1つのPDFにまとめる
+     *
+     * dataList は配送コースごとの {header, items, summary} の配列
+     */
+    public function renderBatchTertiaryPdf(array $dataList): string
+    {
+        return $this->renderTertiaryPdf($dataList);
+    }
+
+    // ========================================
+    // 共通メソッド
+    // ========================================
+
+    private function initPdf(string $orientation, string $title): void
+    {
+        $this->pdf = new TCPDF($orientation, 'mm', 'A4', true, 'UTF-8', false);
+        $this->pdf->SetCreator('Smart WMS');
+        $this->pdf->SetAuthor('Smart WMS');
+        $this->pdf->SetTitle($title);
+        $this->pdf->SetMargins(self::MARGIN, self::MARGIN, self::MARGIN);
+        $this->pdf->SetAutoPageBreak(false);
+        $this->pdf->setPrintHeader(false);
+        $this->pdf->setPrintFooter(false);
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+    }
+
+    private function renderPageNumbers(float $pageWidth, float $pageHeight): void
+    {
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+
+        for ($i = 1; $i <= $this->totalPages; $i++) {
+            $this->pdf->setPage($i);
+            $pageText = "{$i} / {$this->totalPages}";
+            $textWidth = $this->pdf->GetStringWidth($pageText);
+            $x = ($pageWidth - $textWidth) / 2;
+            $y = $pageHeight - self::MARGIN_BOTTOM + 3;
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell($textWidth, self::LINE_HEIGHT, $pageText, 0, 0, 'C');
+        }
+    }
+
+    private function truncateText(string $text, float $maxWidthMm): string
+    {
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+        $currentWidth = $this->pdf->GetStringWidth($text);
+
+        if ($currentWidth <= $maxWidthMm) {
+            return $text;
+        }
+
+        $ellipsis = '…';
+        $ellipsisWidth = $this->pdf->GetStringWidth($ellipsis);
+        $targetWidth = $maxWidthMm - $ellipsisWidth;
+
+        $chars = mb_str_split($text);
+        $result = '';
+        $width = 0;
+
+        foreach ($chars as $char) {
+            $charWidth = $this->pdf->GetStringWidth($char);
+            if ($width + $charWidth > $targetWidth) {
+                break;
+            }
+            $result .= $char;
+            $width += $charWidth;
+        }
+
+        return $result.$ellipsis;
+    }
+}

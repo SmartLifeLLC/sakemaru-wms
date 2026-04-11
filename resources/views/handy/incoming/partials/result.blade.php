@@ -4,8 +4,8 @@
         <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-3 animate-bounce">
             <i class="ph ph-check text-handy-3xl text-green-600"></i>
         </div>
-        <h2 class="text-handy-xl font-bold text-green-800 mb-1">入庫完了</h2>
-        <p class="text-handy-sm text-gray-600 mb-4">入庫処理が完了しました</p>
+        <h2 class="text-handy-xl font-bold text-green-800 mb-1">入荷完了</h2>
+        <p class="text-handy-sm text-gray-600 mb-4">入荷処理が完了しました</p>
 
         {{-- Result Summary --}}
         <div class="bg-white border-2 border-gray-300 p-3 rounded shadow-sm w-full max-w-xs mb-6">

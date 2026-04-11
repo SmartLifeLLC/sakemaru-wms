@@ -53,6 +53,8 @@ class WmsQueueProgress extends WmsModel
 
     public const JOB_TYPE_TEST_ORDER_FILES = 'test_order_files';
 
+    public const JOB_TYPE_AUTO_SEND = 'auto_send';
+
     /**
      * 新しい進捗レコードを作成
      */

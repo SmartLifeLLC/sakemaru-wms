@@ -1,6 +1,6 @@
 <div>
-    {{-- 入庫数量情報 --}}
-    <h4 class="text-base font-medium text-gray-900 dark:text-white mb-3">入庫数量</h4>
+    {{-- 入荷数量情報 --}}
+    <h4 class="text-base font-medium text-gray-900 dark:text-white mb-3">入荷数量</h4>
 
     <div class="grid grid-cols-4 gap-4 mb-6">
         <div class="modal-info-card">
@@ -9,7 +9,7 @@
         </div>
 
         <div class="modal-info-card">
-            <dt class="modal-label">入庫済</dt>
+            <dt class="modal-label">入荷済</dt>
             <dd class="modal-value-large">{{ number_format($receivedQuantity) }}</dd>
         </div>
 
@@ -73,7 +73,7 @@
                 <dd class="modal-value">{{ number_format($effectiveStock) }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">入庫予定（当時）</dt>
+                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">入荷予定（当時）</dt>
                 <dd class="modal-value">{{ number_format($incomingStock) }}</dd>
             </div>
             <div>
@@ -85,6 +85,21 @@
                 <dd class="modal-value-danger">{{ number_format($shortageQty) }}</dd>
             </div>
         </div>
+
+        @if(($purchaseUnit ?? 1) > 1)
+        <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div class="grid grid-cols-2 gap-4 mb-2">
+                <div>
+                    <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">最小仕入単位</dt>
+                    <dd class="modal-value">{{ number_format($purchaseUnit) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">単位調整</dt>
+                    <dd class="text-sm text-gray-600 dark:text-gray-400">{{ $unitAdjustmentNote ?? '' }}</dd>
+                </div>
+            </div>
+        </div>
+        @endif
 
         <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between">
@@ -101,7 +116,7 @@
     @else
     <div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
         <p class="text-sm text-gray-500 dark:text-gray-400">
-            この入庫予定は手動登録または移動からのものです。発注計算情報はありません。
+            この入荷予定は手動登録または移動からのものです。発注計算情報はありません。
         </p>
     </div>
     @endif

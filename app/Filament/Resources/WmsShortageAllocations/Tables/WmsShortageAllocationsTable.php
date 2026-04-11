@@ -4,8 +4,10 @@ namespace App\Filament\Resources\WmsShortageAllocations\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
+use App\Filament\Concerns\HasExportAction;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
 use App\Services\Shortage\ProxyShipmentService;
 use App\Services\Shortage\StockTransferQueueService;
@@ -23,12 +25,15 @@ use Illuminate\Support\Facades\DB;
 
 class WmsShortageAllocationsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions-left'])
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -166,6 +171,26 @@ class WmsShortageAllocationsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                \Filament\Tables\Filters\Filter::make('shipment_date')
+                    ->label('出荷日')
+                    ->form([
+                        \Filament\Forms\Components\DatePicker::make('shipment_date')
+                            ->label('出荷日'),
+                    ])
+                    ->query(function (\Illuminate\Database\Eloquent\Builder $query, array $data): \Illuminate\Database\Eloquent\Builder {
+                        return $query->when(
+                            $data['shipment_date'],
+                            fn (\Illuminate\Database\Eloquent\Builder $query, $date) => $query->where('shipment_date', $date),
+                        );
+                    })
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['shipment_date']) {
+                            return null;
+                        }
+
+                        return '出荷日: '.$data['shipment_date'];
+                    }),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options([
@@ -237,21 +262,25 @@ class WmsShortageAllocationsTable
                         }
                     }),
 
-                // 追加の横持ち出荷アクション（残数量がある場合のみ）
+                // 横持ち出荷修正アクション（残数量がある場合のみ）
                 Action::make('addPartialShipment')
-                    ->label('追加横持ち出荷')
-                    ->icon('heroicon-o-plus-circle')
-                    ->color('info')
+                    ->label('修正')
+                    ->icon('heroicon-o-pencil-square')
+                    ->color('warning')
                     ->visible(fn (WmsShortageAllocation $record): bool => $record->remaining_qty > 0 && in_array($record->status, ['PICKING', 'RESERVED'])
                     )
-                    ->modalHeading('追加の横持ち出荷指示')
+                    ->modalHeading('横持ち出荷修正')
                     ->modalSubmitActionLabel('確定')
-                    ->form([
+                    ->modalWidth('7xl')
+                    ->extraModalWindowAttributes(['class' => 'proxy-shipment-modal'])
+                    ->schema([
                         \Filament\Forms\Components\ViewField::make('allocations')
-                            ->label('横持ち出荷指示')
+                            ->hiddenLabel()
                             ->live()
                             ->view('filament.forms.components.proxy-shipment-allocations')
-                            ->viewData(function (WmsShortageAllocation $record) {
+                            ->viewData(function (WmsShortageAllocation $record): array {
+                                $shortage = $record->shortage;
+
                                 // 該当商品の全倉庫在庫を取得（在庫がある倉庫のみ）
                                 $stocks = \DB::connection('sakemaru')
                                     ->table('real_stocks')
@@ -261,14 +290,13 @@ class WmsShortageAllocationsTable
                                         \DB::raw('SUM(real_stocks.current_quantity) as total_pieces'),
                                     ])
                                     ->join('warehouses', 'warehouses.id', '=', 'real_stocks.warehouse_id')
-                                    ->where('real_stocks.item_id', $record->shortage->item_id)
+                                    ->where('real_stocks.item_id', $shortage->item_id)
                                     ->where('real_stocks.current_quantity', '>', 0)
-                                    ->where('real_stocks.warehouse_id', '!=', $record->target_warehouse_id) // 現在の倉庫を除外
                                     ->groupBy('real_stocks.warehouse_id', 'warehouses.name')
                                     ->orderBy('warehouses.name')
                                     ->get();
 
-                                $caseSize = $record->shortage->item->capacity_case ?? 1;
+                                $caseSize = $shortage->item->capacity_case ?? 1;
 
                                 $stockData = $stocks->map(function ($stock) use ($caseSize) {
                                     $totalPieces = (int) $stock->total_pieces;
@@ -286,35 +314,173 @@ class WmsShortageAllocationsTable
 
                                 // 容量
                                 $volumeValue = '-';
-                                if ($record->shortage->item->volume) {
-                                    $unit = \App\Enums\EVolumeUnit::tryFrom($record->shortage->item->volume_unit);
-                                    $volumeValue = $record->shortage->item->volume.($unit ? $unit->name() : '');
+                                if ($shortage->item->volume) {
+                                    $unit = \App\Enums\EVolumeUnit::tryFrom($shortage->item->volume_unit);
+                                    $volumeValue = $shortage->item->volume.($unit ? $unit->name() : '');
                                 }
 
-                                // 欠品内訳（このレコードのコンテキストに合わせて表示）
+                                // 欠品内訳
                                 $shortageDetailsValue = "残数量: {$record->remaining_qty}";
+
+                                // 得意先の最寄倉庫を取得
+                                $partnerId = $shortage->trade->partner_id ?? null;
+                                $nearestWarehouseId = null;
+                                if ($partnerId) {
+                                    $nearest = \App\Models\WmsPartnerNearestWarehouse::where('partner_id', $partnerId)->first();
+                                    $nearestWarehouseId = $nearest?->nearest_warehouse_id;
+                                }
+
+                                // 同一配送コース内の横持ち出荷予定倉庫を取得
+                                $sameCourseAllocations = [];
+                                $courseNearestWarehouses = [];
+                                if ($shortage->wave_id && $shortage->delivery_course_id) {
+                                    $sameCourseAllocations = WmsShortageAllocation::query()
+                                        ->whereHas('shortage', function ($q) use ($shortage) {
+                                            $q->where('wave_id', $shortage->wave_id)
+                                                ->where('delivery_course_id', $shortage->delivery_course_id)
+                                                ->where('id', '!=', $shortage->id);
+                                        })
+                                        ->whereNotIn('status', ['CANCELLED'])
+                                        ->with('targetWarehouse')
+                                        ->get()
+                                        ->groupBy('target_warehouse_id')
+                                        ->map(function ($group) {
+                                            $warehouse = $group->first()->targetWarehouse;
+
+                                            return [
+                                                'warehouse_id' => $warehouse->id,
+                                                'warehouse_name' => $warehouse->name,
+                                                'allocation_count' => $group->count(),
+                                                'total_qty' => $group->sum('assign_qty'),
+                                            ];
+                                        })
+                                        ->values()
+                                        ->toArray();
+
+                                    $coursePartnerIds = WmsShortage::where('wave_id', $shortage->wave_id)
+                                        ->where('delivery_course_id', $shortage->delivery_course_id)
+                                        ->with('trade')
+                                        ->get()
+                                        ->pluck('trade.partner_id')
+                                        ->filter()
+                                        ->unique()
+                                        ->values()
+                                        ->toArray();
+
+                                    if (! empty($coursePartnerIds)) {
+                                        $nearestDistances = \App\Models\WmsPartnerWarehouseDistance::whereIn('partner_id', $coursePartnerIds)
+                                            ->orderBy('distance_km', 'asc')
+                                            ->get()
+                                            ->unique('warehouse_id')
+                                            ->take(3);
+
+                                        foreach ($nearestDistances as $dist) {
+                                            $warehouse = Warehouse::find($dist->warehouse_id);
+                                            if ($warehouse) {
+                                                $courseNearestWarehouses[] = [
+                                                    'warehouse_id' => $warehouse->id,
+                                                    'warehouse_name' => $warehouse->name,
+                                                    'distance_km' => $dist->distance_km,
+                                                ];
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // マップ用位置情報データ
+                                $locations = [];
+
+                                // 1. 出発倉庫（departure）
+                                $departureWarehouse = $shortage->warehouse;
+                                if ($departureWarehouse && $departureWarehouse->latitude && $departureWarehouse->longitude) {
+                                    $locations[] = [
+                                        'id' => $departureWarehouse->id,
+                                        'name' => $departureWarehouse->name,
+                                        'lat' => (float) $departureWarehouse->latitude,
+                                        'lng' => (float) $departureWarehouse->longitude,
+                                        'type' => 'departure',
+                                    ];
+                                }
+
+                                // 2. 横持ち出荷倉庫（warehouse）
+                                $stockByWarehouse = collect($stockData)->keyBy('warehouse_id');
+                                $proxyWarehouses = \DB::connection('sakemaru')
+                                    ->table('warehouses')
+                                    ->join('ret_stores', 'warehouses.code', '=', 'ret_stores.code')
+                                    ->whereNotNull('ret_stores.pos_store_code')
+                                    ->whereNotNull('warehouses.latitude')
+                                    ->whereNotNull('warehouses.longitude')
+                                    ->where('warehouses.id', '!=', $shortage->warehouse_id)
+                                    ->select('warehouses.id', 'warehouses.name', 'warehouses.latitude', 'warehouses.longitude')
+                                    ->get();
+
+                                foreach ($proxyWarehouses as $wh) {
+                                    $stockInfo = null;
+                                    if ($stockByWarehouse->has($wh->id)) {
+                                        $s = $stockByWarehouse->get($wh->id);
+                                        $stockInfo = $s['cases'].'CS / '.$s['total_pieces'].'バラ';
+                                    }
+                                    $locations[] = [
+                                        'id' => $wh->id,
+                                        'name' => $wh->name,
+                                        'lat' => (float) $wh->latitude,
+                                        'lng' => (float) $wh->longitude,
+                                        'type' => 'warehouse',
+                                        'stock_info' => $stockInfo,
+                                    ];
+                                }
+
+                                // 3. 納品先（customer）: 同一配送コース内の得意先
+                                if ($shortage->wave_id && $shortage->delivery_course_id) {
+                                    $courseShortages = WmsShortage::where('wave_id', $shortage->wave_id)
+                                        ->where('delivery_course_id', $shortage->delivery_course_id)
+                                        ->with('trade.partner')
+                                        ->get();
+
+                                    $addedPartnerIds = [];
+                                    foreach ($courseShortages as $s) {
+                                        $partner = $s->trade?->partner;
+                                        if ($partner && $partner->latitude && $partner->longitude && ! in_array($partner->id, $addedPartnerIds)) {
+                                            $locations[] = [
+                                                'id' => $partner->id,
+                                                'name' => $partner->name,
+                                                'lat' => (float) $partner->latitude,
+                                                'lng' => (float) $partner->longitude,
+                                                'type' => 'customer',
+                                            ];
+                                            $addedPartnerIds[] = $partner->id;
+                                        }
+                                    }
+                                }
 
                                 return [
                                     'stocks' => $stockData,
-                                    'warehouses' => Warehouse::where('id', '!=', $record->target_warehouse_id)->pluck('name', 'id')->toArray(), // 現在の倉庫を除外
-                                    'shortage_qty' => $record->remaining_qty, // この割り当ての残数を上限とする
+                                    'warehouses' => Warehouse::pluck('name', 'id')->toArray(),
+                                    'shortage_qty' => $record->remaining_qty,
                                     'qty_type' => $record->assign_qty_type,
                                     'qty_type_label' => $qtyType ? $qtyType->name() : $record->assign_qty_type,
                                     // Info Table Data
-                                    'item_code' => $record->shortage->item->code ?? '-',
-                                    'item_name' => $record->shortage->item->name ?? '-',
-                                    'capacity_case' => $record->shortage->item->capacity_case ? (string) $record->shortage->item->capacity_case : '-',
+                                    'item_code' => $shortage->item->code ?? '-',
+                                    'item_name' => $shortage->item->name ?? '-',
+                                    'capacity_case' => $shortage->item->capacity_case ? (string) $shortage->item->capacity_case : '-',
                                     'volume_value' => $volumeValue,
-                                    'partner_code' => $record->shortage->trade->partner->code ?? '-',
-                                    'partner_name' => $record->shortage->trade->partner->name ?? '-',
-                                    'warehouse_name' => $record->shortage->warehouse->name ?? '-',
-                                    'order_qty' => (string) $record->assign_qty, // 横持ち出荷指示数
-                                    'picked_qty' => (string) $record->picked_qty, // ピッキング済み数
+                                    'partner_code' => $shortage->trade->partner->code ?? '-',
+                                    'partner_name' => $shortage->trade->partner->name ?? '-',
+                                    'warehouse_name' => $shortage->warehouse->name ?? '-',
+                                    'order_qty' => (string) $record->assign_qty,
+                                    'picked_qty' => (string) $record->picked_qty,
                                     'picked_qty_label' => 'ピック数',
                                     'shortage_details' => $shortageDetailsValue,
+                                    // 倉庫推薦データ
+                                    'nearest_warehouse_id' => $nearestWarehouseId,
+                                    'same_course_allocations' => $sameCourseAllocations,
+                                    'course_nearest_warehouses' => $courseNearestWarehouses,
+                                    'has_delivery_course' => (bool) $shortage->delivery_course_id,
+                                    // マップ用位置情報
+                                    'locations' => $locations,
                                 ];
                             })
-                            ->default([]) // 新規追加なので空
+                            ->default([])
                             ->rules([
                                 function (WmsShortageAllocation $record) {
                                     return function (string $attribute, $value, \Closure $fail) use ($record) {
@@ -486,7 +652,9 @@ class WmsShortageAllocationsTable
                         }),
                 ]),
             ])
-            ->toolbarActions([])
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->defaultSort('created_at', 'desc')
             ->recordUrl(null);
     }

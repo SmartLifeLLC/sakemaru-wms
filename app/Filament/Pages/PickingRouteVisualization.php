@@ -90,7 +90,7 @@ class PickingRouteVisualization extends Page
         $this->selectedDate = now()->format('Y-m-d');
 
         // Set default warehouse if available
-        $firstWarehouse = Warehouse::where('is_active', true)->orderBy('code')->first();
+        $firstWarehouse = Warehouse::where('is_active', true)->where('is_virtual', false)->orderBy('code')->first();
         if ($firstWarehouse) {
             $this->selectedWarehouseId = $firstWarehouse->id;
 
@@ -236,6 +236,7 @@ class PickingRouteVisualization extends Page
     public function warehouses()
     {
         return Warehouse::where('is_active', true)
+            ->where('is_virtual', false)
             ->orderBy('code')
             ->get(['id', 'code', 'name']);
     }
@@ -282,21 +283,9 @@ class PickingRouteVisualization extends Page
                 $zoneGroups[$zoneKey] = [
                     'locations' => [],
                     'first_location' => $location,
-                    'max_x1' => 0,
-                    'max_y1' => 0,
-                    'max_x2' => 0,
-                    'max_y2' => 0,
                 ];
             }
             $zoneGroups[$zoneKey]['locations'][] = $location;
-
-            // Track best position (non-zero)
-            if ($location->x1_pos > 0 || $location->y1_pos > 0) {
-                $zoneGroups[$zoneKey]['max_x1'] = max($zoneGroups[$zoneKey]['max_x1'], (int) $location->x1_pos);
-                $zoneGroups[$zoneKey]['max_y1'] = max($zoneGroups[$zoneKey]['max_y1'], (int) $location->y1_pos);
-                $zoneGroups[$zoneKey]['max_x2'] = max($zoneGroups[$zoneKey]['max_x2'], (int) $location->x2_pos);
-                $zoneGroups[$zoneKey]['max_y2'] = max($zoneGroups[$zoneKey]['max_y2'], (int) $location->y2_pos);
-            }
         }
 
         // Build zones array - one entry per code1+code2 group
@@ -306,11 +295,20 @@ class PickingRouteVisualization extends Page
             $firstLoc = $group['first_location'];
             $locationIds = collect($group['locations'])->pluck('id')->toArray();
 
-            // Use stored position or auto-generate
-            $x1 = $group['max_x1'];
-            $y1 = $group['max_y1'];
-            $x2 = $group['max_x2'];
-            $y2 = $group['max_y2'];
+            // Use first location's position (match FloorPlanEditor logic)
+            $x1 = 0;
+            $y1 = 0;
+            $x2 = 0;
+            $y2 = 0;
+            foreach ($group['locations'] as $loc) {
+                if ($loc->x1_pos > 0 || $loc->y1_pos > 0) {
+                    $x1 = (int) $loc->x1_pos;
+                    $y1 = (int) $loc->y1_pos;
+                    $x2 = (int) $loc->x2_pos;
+                    $y2 = (int) $loc->y2_pos;
+                    break;
+                }
+            }
 
             // Auto-generate position if none set
             if ($x1 == 0 && $y1 == 0) {
@@ -323,13 +321,13 @@ class PickingRouteVisualization extends Page
             }
 
             $zones[] = [
-                'id' => $firstLoc->id,  // Use first location's ID as zone ID
+                'id' => $firstLoc->id,
                 'zone_key' => $zoneKey,
                 'floor_id' => $firstLoc->floor_id,
                 'warehouse_id' => $firstLoc->warehouse_id,
                 'code1' => $firstLoc->code1,
                 'code2' => $firstLoc->code2,
-                'name' => $firstLoc->code1.$firstLoc->code2,  // Zone name = code1+code2 only
+                'name' => $firstLoc->code1.$firstLoc->code2,
                 'x1' => $x1,
                 'y1' => $y1,
                 'x2' => $x2,
@@ -541,6 +539,9 @@ class PickingRouteVisualization extends Page
      */
     public function recalculatePickingRoute(int $taskId): void
     {
+        set_time_limit(0);
+        ini_set('memory_limit', '-1');
+
         $task = WmsPickingTask::with('pickingItemResults')->find($taskId);
 
         if (! $task) {

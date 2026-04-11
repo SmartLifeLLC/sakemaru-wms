@@ -17,6 +17,7 @@ class Warehouse extends CustomModel
 
     protected $casts = [];
 
+
     protected static function booted(): void
     {
         // client_idは廃止予定だが、一旦は最初のclientのIDを使用

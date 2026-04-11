@@ -2,6 +2,7 @@
 
 namespace App\Services\JX;
 
+use App\Enums\AutoOrder\EOrderFileGenerator;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsContractorSetting;
@@ -27,7 +28,7 @@ class JxTestFileGenerator
     private const RECORD_LENGTH = 128;
 
     /**
-     * 送信先集約マッピング（発注先コード => 送信先発注先コード）
+     * 送信先集約マッピング（発注先コード => 発注データ集約先コード）
      * カナカン系は1106に集約
      */
     private const AGGREGATION_MAPPING = [
@@ -54,14 +55,16 @@ class JxTestFileGenerator
     public function generateEmptyFile(int $jxSettingId): array
     {
         $jxSetting = WmsOrderJxSetting::findOrFail($jxSettingId);
+        $addARecord = $this->shouldAddARecord($jxSetting);
 
         Log::info('[JxTestFileGenerator] 空ファイル生成開始', [
             'jx_setting_id' => $jxSettingId,
-            'add_zero_record' => $jxSetting->add_zero_record,
+            'order_file_generator' => $jxSetting->order_file_generator?->value,
+            'add_a_record' => $addARecord,
         ]);
 
-        // add_zero_record=true: Aレコードのみ、add_zero_record=false: レコードなし（JXラッパーのみ）
-        $content = $jxSetting->add_zero_record
+        // HANA: Aレコードのみ、HANA2: レコードなし（JXラッパーのみ）
+        $content = $addARecord
             ? $this->generateARecord($jxSetting, 1, 0)
             : '';
 
@@ -82,10 +85,21 @@ class JxTestFileGenerator
             'filename' => $filename,
             'file_path' => $savePath,
             'file_size' => strlen($sjisContent),
-            'record_count' => 1,
+            'record_count' => $addARecord ? 1 : 0,
             'order_count' => 0,
             'content' => $sjisContent,
         ];
+    }
+
+    /**
+     * Aレコードを付与すべきか判定（order_file_generator enum基準）
+     *
+     * HANA（デフォルト）: Aレコードあり
+     * HANA2: Aレコードなし
+     */
+    private function shouldAddARecord(WmsOrderJxSetting $jxSetting): bool
+    {
+        return $jxSetting->order_file_generator !== EOrderFileGenerator::HANA2;
     }
 
     /**
@@ -240,7 +254,7 @@ class JxTestFileGenerator
         // wms_contractor_settingsからJX設定IDに紐づく発注先を取得
         $settings = WmsContractorSetting::where('wms_order_jx_setting_id', $jxSettingId)->get();
 
-        // 送信先発注先（transmission_contractor_id = null）のみ
+        // 発注データ集約先（transmission_contractor_id = null）のみ
         return $settings
             ->filter(fn ($s) => $s->transmission_contractor_id === null)
             ->pluck('contractor_id')
@@ -252,7 +266,7 @@ class JxTestFileGenerator
      */
     private function getAllContractorIdsForJxSetting(int $jxSettingId): array
     {
-        // まず送信先発注先を取得
+        // まず発注データ集約先を取得
         $mainContractorIds = $this->getContractorIdsForJxSetting($jxSettingId);
 
         // 送信先に集約される発注先も取得

@@ -2,13 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\ClientPrinterDriver;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Floor;
+use App\Models\Sakemaru\User;
 use App\Models\Sakemaru\Warehouse;
+use App\Services\WarehouseMismatchTransferService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class WmsPickingTask extends Model
 {
@@ -24,6 +28,10 @@ class WmsPickingTask extends Model
     public const STATUS_PICKING = 'PICKING';
 
     public const STATUS_COMPLETED = 'COMPLETED';
+
+    public const STATUS_SHORTAGE = 'SHORTAGE';
+
+    public const STATUS_SHIPPED = 'SHIPPED';
 
     protected $fillable = [
         'wave_id',
@@ -42,6 +50,9 @@ class WmsPickingTask extends Model
         'started_at',
         'completed_at',
         'print_requested_count',
+        'last_printed_at',
+        'last_printed_by',
+        'last_printed_printer_id',
     ];
 
     protected $casts = [
@@ -51,6 +62,7 @@ class WmsPickingTask extends Model
         'temperature_type' => \App\Enums\TemperatureType::class,
         'is_restricted_area' => 'boolean',
         'print_requested_count' => 'integer',
+        'last_printed_at' => 'datetime',
     ];
 
     /**
@@ -137,6 +149,33 @@ class WmsPickingTask extends Model
                         ]);
                 }
             }
+
+            // ステータスがSHIPPEDに変更されたときに、出荷倉庫不一致チェックを実行
+            if ($task->status === self::STATUS_SHIPPED) {
+                // このタスクに関連するearning_idを取得
+                $shippedEarningIds = DB::connection('sakemaru')
+                    ->table('wms_picking_item_results')
+                    ->where('picking_task_id', $task->id)
+                    ->whereNotNull('earning_id')
+                    ->distinct()
+                    ->pluck('earning_id')
+                    ->toArray();
+
+                if (! empty($shippedEarningIds)) {
+                    $mismatchService = new WarehouseMismatchTransferService;
+                    foreach ($shippedEarningIds as $earningId) {
+                        try {
+                            $mismatchService->createMismatchTransfer($earningId);
+                        } catch (\Exception $e) {
+                            Log::error('WarehouseMismatchTransfer failed', [
+                                'earning_id' => $earningId,
+                                'task_id' => $task->id,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
+                }
+            }
         });
     }
 
@@ -194,6 +233,16 @@ class WmsPickingTask extends Model
     public function picker(): BelongsTo
     {
         return $this->belongsTo(WmsPicker::class, 'picker_id');
+    }
+
+    public function lastPrintedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'last_printed_by');
+    }
+
+    public function lastPrintedPrinter(): BelongsTo
+    {
+        return $this->belongsTo(ClientPrinterDriver::class, 'last_printed_printer_id');
     }
 
     /**

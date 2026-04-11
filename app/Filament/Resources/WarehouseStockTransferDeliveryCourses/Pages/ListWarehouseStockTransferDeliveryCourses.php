@@ -9,6 +9,7 @@ use App\Models\Sakemaru\WarehouseStockTransferDeliveryCourse;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Columns\TextColumn;
@@ -54,6 +55,13 @@ class ListWarehouseStockTransferDeliveryCourses extends ListRecords
                             ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}] {$c->name}"]))
                         ->searchable()
                         ->required(),
+
+                    TextInput::make('picking_lead_days')
+                        ->label('ピッキングリードタイム（日数）')
+                        ->numeric()
+                        ->default(1)
+                        ->minValue(0)
+                        ->required(),
                 ])
                 ->action(function (array $data) {
                     // 同じ組み合わせが既に存在するかチェック
@@ -75,6 +83,7 @@ class ListWarehouseStockTransferDeliveryCourses extends ListRecords
                         'from_warehouse_id' => $data['from_warehouse_id'],
                         'to_warehouse_id' => $data['to_warehouse_id'],
                         'delivery_course_id' => $data['delivery_course_id'],
+                        'picking_lead_days' => $data['picking_lead_days'],
                         'creator_id' => auth()->id() ?? 0,
                         'last_updater_id' => auth()->id() ?? 0,
                     ]);
@@ -115,6 +124,11 @@ class ListWarehouseStockTransferDeliveryCourses extends ListRecords
                     ->sortable()
                     ->searchable(),
 
+                TextColumn::make('picking_lead_days')
+                    ->label('ピッキングリードタイム（日）')
+                    ->sortable()
+                    ->alignCenter(),
+
                 TextColumn::make('updated_at')
                     ->label('更新日時')
                     ->dateTime('Y/m/d H:i')
@@ -132,6 +146,7 @@ class ListWarehouseStockTransferDeliveryCourses extends ListRecords
                         'from_warehouse_id' => $record->from_warehouse_id,
                         'to_warehouse_id' => $record->to_warehouse_id,
                         'delivery_course_id' => $record->delivery_course_id,
+                        'picking_lead_days' => $record->picking_lead_days,
                     ])
                     ->schema([
                         Select::make('from_warehouse_id')
@@ -162,10 +177,17 @@ class ListWarehouseStockTransferDeliveryCourses extends ListRecords
                                 ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}] {$c->name}"]))
                             ->searchable()
                             ->required(),
+
+                        TextInput::make('picking_lead_days')
+                            ->label('ピッキングリードタイム（日数）')
+                            ->numeric()
+                            ->minValue(0)
+                            ->required(),
                     ])
                     ->action(function ($record, array $data) {
                         $record->update([
                             'delivery_course_id' => $data['delivery_course_id'],
+                            'picking_lead_days' => $data['picking_lead_days'],
                             'last_updater_id' => auth()->id() ?? 0,
                         ]);
 

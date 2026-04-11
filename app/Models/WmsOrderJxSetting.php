@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AutoOrder\EOrderFileGenerator;
 use App\Models\Sakemaru\Contractor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -39,7 +40,7 @@ class WmsOrderJxSetting extends WmsModel
         'test_file_path',
         'is_active',
         'auto_transmit_on_confirm',
-        'add_zero_record',
+        'order_file_generator',
     ];
 
     protected static function booted(): void
@@ -59,7 +60,7 @@ class WmsOrderJxSetting extends WmsModel
         'is_basic_auth' => 'boolean',
         'is_active' => 'boolean',
         'auto_transmit_on_confirm' => 'boolean',
-        'add_zero_record' => 'boolean',
+        'order_file_generator' => EOrderFileGenerator::class,
     ];
 
     protected $hidden = [

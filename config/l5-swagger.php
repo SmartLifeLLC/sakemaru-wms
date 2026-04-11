@@ -65,10 +65,18 @@ return [
              * Middleware allows to prevent unexpected access to API documentation
              */
             'middleware' => [
-                'api' => ['web', 'filament.auth'],
-                'asset' => ['web', 'filament.auth'],
-                'docs' => ['web', 'filament.auth'],
+                'api' => ['swagger.basic'],
+                'asset' => ['swagger.basic'],
+                'docs' => ['swagger.basic'],
                 'oauth2_callback' => [],
+            ],
+
+            /*
+             * Basic auth credentials for Swagger UI
+             */
+            'auth' => [
+                'username' => env('SWAGGER_AUTH_USERNAME', 'code'),
+                'password' => env('SWAGGER_AUTH_PASSWORD', 'code'),
             ],
 
             /*

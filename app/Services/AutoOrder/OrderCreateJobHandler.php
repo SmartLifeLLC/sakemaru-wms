@@ -5,6 +5,7 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\AutoOrder\QueueJobLogLevel;
 use App\Enums\AutoOrder\QueueJobType;
 use App\Enums\QuantityType;
@@ -27,7 +28,6 @@ use Illuminate\Support\Facades\Log;
 class OrderCreateJobHandler
 {
     public function __construct(
-        private StockSnapshotService $snapshotService,
         private ContractorLeadTimeService $leadTimeService
     ) {}
 
@@ -78,6 +78,34 @@ class OrderCreateJobHandler
     }
 
     /**
+     * DemandDistributionJobHandler から委譲される公開メソッド
+     */
+    public function handleItems(WmsQueueJob $job, array $items): array
+    {
+        $batchCode = $this->getOrCreateBatchCode($job);
+        $results = [];
+        $successCount = 0;
+        $skipCount = 0;
+
+        foreach ($items as $itemData) {
+            $result = $this->processItem($job, $itemData, $batchCode);
+            $results[] = $result;
+            if ($result['status'] === 'created') {
+                $successCount++;
+            } else {
+                $skipCount++;
+            }
+        }
+
+        return [
+            'batch_code' => $batchCode,
+            'success_count' => $successCount,
+            'skip_count' => $skipCount,
+            'results' => $results,
+        ];
+    }
+
+    /**
      * アイテムを処理
      */
     private function processItems(WmsQueueJob $job, array $items, array $payload): array
@@ -124,11 +152,15 @@ class OrderCreateJobHandler
             return $pendingJob->batch_code;
         }
 
-        // 新規スナップショットを生成（ジョブ管理も自動作成される）
-        $snapshotJob = $this->snapshotService->generateAll();
-        $job->addLog(QueueJobLogLevel::INFO->value, '新規batch_codeを作成: '.$snapshotJob->batch_code);
+        // 新規ジョブを作成
+        $newJob = WmsAutoOrderJobControl::startJob(
+            processName: \App\Enums\AutoOrder\JobProcessName::ORDER_CALC,
+            createdBy: null,
+        );
+        $newJob->markAsSuccess(0);
+        $job->addLog(QueueJobLogLevel::INFO->value, '新規batch_codeを作成: '.$newJob->batch_code);
 
-        return $snapshotJob->batch_code;
+        return $newJob->batch_code;
     }
 
     /**
@@ -173,6 +205,19 @@ class OrderCreateJobHandler
         if (! $item) {
             $reason = '商品が存在しません';
             $job->addLog(QueueJobLogLevel::WARNING->value, "アイテムをスキップ: {$reason}", ['item_id' => $itemId]);
+
+            return [
+                'warehouse_id' => $warehouseId,
+                'item_id' => $itemId,
+                'status' => 'skipped',
+                'reason' => $reason,
+            ];
+        }
+
+        // 販売終了品チェック
+        if ($item->end_of_sale_type !== 'NORMAL') {
+            $reason = '販売終了品のため発注対象外です';
+            $job->addLog(QueueJobLogLevel::WARNING->value, "アイテムをスキップ: {$reason}", ['item_id' => $itemId, 'end_of_sale_type' => $item->end_of_sale_type]);
 
             return [
                 'warehouse_id' => $warehouseId,
@@ -263,6 +308,8 @@ class OrderCreateJobHandler
             'batch_code' => $batchCode,
             'warehouse_id' => $warehouseId,
             'item_id' => $itemId,
+            'item_code' => $item?->code,
+            'search_code' => $this->getSearchCodeForItem($itemId),
             'contractor_id' => $itemContractor->contractor_id,
             'supplier_id' => $supplierId,
             'purchase_unit_price' => $purchaseUnitPrice,
@@ -275,6 +322,7 @@ class OrderCreateJobHandler
             'original_arrival_date' => $expectedArrivalDate,
             'status' => CandidateStatus::PENDING,
             'lot_status' => LotStatus::RAW,
+            'origin_type' => OriginType::DIST,
             'is_manually_modified' => true,
             'modified_by' => $job->source_user_id,
             'modified_at' => now(),
@@ -340,5 +388,15 @@ class OrderCreateJobHandler
         }
 
         return $results;
+    }
+
+    private function getSearchCodeForItem(int $itemId): ?string
+    {
+        return DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('item_id', $itemId)
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->value('search_string');
     }
 }

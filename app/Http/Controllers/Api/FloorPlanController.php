@@ -224,6 +224,19 @@ class FloorPlanController extends Controller
                 );
 
                 $processedLocationIds[] = $location->id;
+
+                // Sync position to ALL locations in the same zone group (code1+code2)
+                // so that A* route calculation uses correct coordinates for any location in the group
+                Location::where('floor_id', $floor->id)
+                    ->where('code1', $zone['code1'])
+                    ->where('code2', $zone['code2'])
+                    ->where('id', '!=', $location->id)
+                    ->update([
+                        'x1_pos' => $zone['x1_pos'],
+                        'y1_pos' => $zone['y1_pos'],
+                        'x2_pos' => $zone['x2_pos'],
+                        'y2_pos' => $zone['y2_pos'],
+                    ]);
             }
 
             // Delete locations that were removed from the layout (keep positions > 0)
@@ -358,6 +371,7 @@ class FloorPlanController extends Controller
                     'i.volume',
                     'i.volume_unit',
                     'rsl.expiration_date',
+                    'rsl.alert_date',
                     'rsl.current_quantity as total_qty',
                 ])
                 ->orderBy('i.name')
@@ -375,6 +389,7 @@ class FloorPlanController extends Controller
                     'volume' => $stock->volume,
                     'volume_unit_name' => \App\Enums\EVolumeUnit::tryFrom($stock->volume_unit)?->name() ?? $stock->volume_unit,
                     'expiration_date' => $stock->expiration_date,
+                    'alert_date' => $stock->alert_date,
                     'total_qty' => (int) $stock->total_qty,
                 ];
             }

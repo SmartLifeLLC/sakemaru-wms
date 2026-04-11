@@ -99,7 +99,7 @@ class WmsMonthlySafetyStock extends WmsModel
      */
     public function getMonthLabelAttribute(): string
     {
-        return $this->month . '月';
+        return $this->month.'月';
     }
 
     /**
@@ -108,7 +108,7 @@ class WmsMonthlySafetyStock extends WmsModel
     public static function getMonthOptions(): array
     {
         return collect(range(1, 12))
-            ->mapWithKeys(fn ($month) => [$month => $month . '月'])
+            ->mapWithKeys(fn ($month) => [$month => $month.'月'])
             ->toArray();
     }
 }

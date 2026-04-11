@@ -10,6 +10,7 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\Warehouse;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -26,6 +27,7 @@ class WmsOrderIncomingSchedule extends WmsModel
     protected $fillable = [
         'warehouse_id',
         'item_id',
+        'item_code',
         'search_code',
         'contractor_id',
         'supplier_id',
@@ -36,6 +38,7 @@ class WmsOrderIncomingSchedule extends WmsModel
         'stock_transfer_id',
         'manual_order_number',
         'order_source',
+        'slip_number',
         'expected_quantity',
         'received_quantity',
         'quantity_type',
@@ -46,9 +49,21 @@ class WmsOrderIncomingSchedule extends WmsModel
         'status',
         'confirmed_at',
         'confirmed_by',
+        'confirmed_picker_id',
+        'is_receive_matched',
+        'shipped_quantity',
+        'unit_price',
+        'case_price',
+        'partner_unit_price',
+        'partner_case_price',
+        'price_type',
+        'shortage_quantity',
         'purchase_queue_id',
         'purchase_slip_number',
         'note',
+        'cancelled_at',
+        'cancelled_by',
+        'cancellation_reason',
     ];
 
     protected $casts = [
@@ -57,9 +72,17 @@ class WmsOrderIncomingSchedule extends WmsModel
         'actual_arrival_date' => 'date',
         'expiration_date' => 'date',
         'confirmed_at' => 'datetime',
+        'cancelled_at' => 'datetime',
         'status' => IncomingScheduleStatus::class,
         'order_source' => OrderSource::class,
         'quantity_type' => QuantityType::class,
+        'is_receive_matched' => 'boolean',
+        'shortage_quantity' => 'integer',
+        'shipped_quantity' => 'integer',
+        'unit_price' => 'decimal:2',
+        'case_price' => 'decimal:2',
+        'partner_unit_price' => 'decimal:2',
+        'partner_case_price' => 'decimal:2',
     ];
 
     // Relationships
@@ -107,6 +130,11 @@ class WmsOrderIncomingSchedule extends WmsModel
     public function confirmedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'confirmed_by');
+    }
+
+    public function confirmedByPicker(): BelongsTo
+    {
+        return $this->belongsTo(WmsPicker::class, 'confirmed_picker_id');
     }
 
     // Scopes
@@ -180,6 +208,30 @@ class WmsOrderIncomingSchedule extends WmsModel
     // Methods
 
     /**
+     * 伝票番号を採番
+     *
+     * フォーマット: {YYYYMMDD}{連番3桁} = 11桁数字のみ
+     * 例: 20260305001
+     * JX Bレコードの伝票番号フィールド（11バイト）にそのまま格納可能
+     *
+     * @param  string|null  $orderDate  発注日（Y-m-d形式）。nullの場合は今日
+     */
+    public static function generateSlipNumber(?string $orderDate = null): string
+    {
+        $date = $orderDate ?? now()->format('Y-m-d');
+        $dateStr = Carbon::parse($date)->format('Ymd');
+
+        $maxSlip = self::where('slip_number', 'like', $dateStr.'%')
+            ->where('slip_number', 'REGEXP', '^[0-9]{11}$')
+            ->orderByRaw('CAST(SUBSTRING(slip_number, 9) AS UNSIGNED) DESC')
+            ->value('slip_number');
+
+        $nextSeq = $maxSlip ? (int) substr($maxSlip, 8) + 1 : 1;
+
+        return $dateStr.str_pad($nextSeq, 3, '0', STR_PAD_LEFT);
+    }
+
+    /**
      * 入庫数量を追加
      */
     public function addReceivedQuantity(int $quantity): void
@@ -198,12 +250,13 @@ class WmsOrderIncomingSchedule extends WmsModel
     /**
      * 入庫確定
      */
-    public function confirm(int $confirmedBy, ?string $actualDate = null): void
+    public function confirm(int $confirmedBy, ?string $actualDate = null, ?int $pickerId = null): void
     {
         $this->update([
             'status' => IncomingScheduleStatus::CONFIRMED,
             'confirmed_at' => now(),
-            'confirmed_by' => $confirmedBy,
+            'confirmed_by' => $pickerId ? null : $confirmedBy,
+            'confirmed_picker_id' => $pickerId,
             'actual_arrival_date' => $actualDate ?? now()->format('Y-m-d'),
             'received_quantity' => $this->expected_quantity,
         ]);

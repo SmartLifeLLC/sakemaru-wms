@@ -167,25 +167,22 @@
             {{-- 使い方（倉庫テストデータ） --}}
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                    倉庫テストデータの流れ
+                    在庫データの保存・復元
                 </h2>
                 <div class="space-y-4">
                     <ol class="list-decimal list-inside space-y-3 text-sm text-gray-600 dark:text-gray-400">
                         <li>
-                            <strong>WMSマスタ生成（最初に実行）:</strong> Floor、Locationのマスタデータを生成
+                            <strong>在庫データ保存:</strong> 現在のreal_stocks・real_stock_lotsをS3にCSV保存
                             <ul class="list-disc list-inside ml-6 mt-1 space-y-1">
-                                <li>フロア数、フロア名を指定（1F, 2F, B1Fなど）</li>
-                                <li>各フロアのロケーション数（ケース/バラ/両方）を設定</li>
+                                <li>スナップショット名を付けて管理可能</li>
+                                <li>複数のスナップショットを保持</li>
                             </ul>
                         </li>
                         <li>
-                            <strong>商品温度帯設定（任意）:</strong> 商品マスタに温度帯を自動設定
-                        </li>
-                        <li>
-                            <strong>在庫データ生成:</strong> 在庫を配置するロケーションを選択
+                            <strong>在庫データ読込:</strong> S3に保存されたスナップショットを選択して復元
                             <ul class="list-disc list-inside ml-6 mt-1 space-y-1">
-                                <li>「酒類在庫生成」: ALCOHOL商品を温度帯考慮で配置</li>
-                                <li>「在庫データ生成」: 指定フロアに均等配置</li>
+                                <li>既存データを完全上書き（TRUNCATE→INSERT）</li>
+                                <li>real_stocks + real_stock_lots を同時復元</li>
                             </ul>
                         </li>
                     </ol>
@@ -201,98 +198,79 @@
 
             {{-- テストデータ生成カード --}}
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {{-- WMSマスタデータ生成 --}}
+                {{-- 売上データ生成 --}}
                 <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                     <div class="flex items-center mb-4">
-                        <x-heroicon-o-cube class="w-8 h-8 text-warning-600 dark:text-warning-400 mr-3" />
+                        <x-heroicon-o-currency-yen class="w-8 h-8 text-success-600 dark:text-success-400 mr-3" />
                         <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                            WMSマスタ生成
+                            売上データ生成
                         </h2>
                     </div>
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                        Floor、Locationのマスタデータを生成します。在庫データは生成しません。
+                        BoozeCore APIを通じてテスト用の売上データ（Earnings）を生成します。
                     </p>
                     <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
                         <li class="flex items-start">
-                            <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>フロア数とフロア名を指定可能</span>
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-success-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>配送コースを複数指定可能</span>
                         </li>
                         <li class="flex items-start">
-                            <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>ロケーション数（ケース/バラ/両方）を設定</span>
-                        </li>
-                        <li class="flex items-start">
-                            <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>地下フロア（B1F, B2F...）も対応</span>
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-success-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>特定ロケーションの在庫のみ使用可能</span>
                         </li>
                     </ul>
                 </div>
 
-                {{-- 商品温度帯設定 --}}
+                {{-- 在庫データ保存 --}}
                 <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                     <div class="flex items-center mb-4">
-                        <x-heroicon-o-sun class="w-8 h-8 text-warning-600 dark:text-warning-400 mr-3" />
+                        <x-heroicon-o-arrow-down-tray class="w-8 h-8 text-success-600 dark:text-success-400 mr-3" />
                         <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                            商品温度帯設定
+                            在庫データ保存
                         </h2>
                     </div>
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                        商品名から適切な温度帯を判定し、一括で設定します。
+                        現在のreal_stocks・real_stock_lotsデータをCSVとしてS3に保存します。
                     </p>
                     <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
                         <li class="flex items-start">
-                            <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>常温/定温/冷蔵/冷凍を自動判定</span>
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-success-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>real_stocks + real_stock_lots の全データ</span>
                         </li>
                         <li class="flex items-start">
-                            <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>全商品を一括処理</span>
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-success-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>スナップショット名を付けて管理</span>
+                        </li>
+                        <li class="flex items-start">
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-success-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>S3にタイムスタンプ付きで保存</span>
                         </li>
                     </ul>
                 </div>
 
-                {{-- 酒類在庫生成 --}}
+                {{-- 在庫データ読込 --}}
                 <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                     <div class="flex items-center mb-4">
-                        <x-heroicon-o-beaker class="w-8 h-8 text-info-600 dark:text-info-400 mr-3" />
+                        <x-heroicon-o-arrow-up-tray class="w-8 h-8 text-warning-600 dark:text-warning-400 mr-3" />
                         <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                            酒類在庫生成
+                            在庫データ読込
                         </h2>
                     </div>
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                        ALCOHOL商品に対して、温度帯・制限エリアを考慮した在庫データを生成します。
+                        S3に保存されたスナップショットを選択して在庫データを復元します。
                     </p>
                     <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
                         <li class="flex items-start">
-                            <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>温度帯・制限エリア自動マッチング</span>
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>既存データを完全上書き</span>
                         </li>
                         <li class="flex items-start">
-                            <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>RARE品の割合を指定可能</span>
-                        </li>
-                    </ul>
-                </div>
-
-                {{-- 在庫データ生成 --}}
-                <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                    <div class="flex items-center mb-4">
-                        <x-heroicon-o-archive-box class="w-8 h-8 text-info-600 dark:text-info-400 mr-3" />
-                        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                            在庫データ生成
-                        </h2>
-                    </div>
-                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                        指定したロケーションに在庫データを生成します。
-                    </p>
-                    <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
-                        <li class="flex items-start">
-                            <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>フロアを指定して均等配置</span>
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>real_stocks + real_stock_lots を同時復元</span>
                         </li>
                         <li class="flex items-start">
-                            <x-heroicon-m-check-circle class="w-5 h-5 text-info-500 mr-2 flex-shrink-0 mt-0.5" />
-                            <span>有効期限を自動設定</span>
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-warning-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>復元確認ダイアログ付き</span>
                         </li>
                     </ul>
                 </div>

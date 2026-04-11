@@ -7,7 +7,7 @@
          tabindex="0"
          x-init="$el.focus(); selectedHistoryIndex = 0">
         <div class="px-2 py-0.5 bg-gray-100 border-b border-gray-200">
-            <h2 class="font-bold text-gray-700 text-handy-xs">本日の入庫履歴</h2>
+            <h2 class="font-bold text-gray-700 text-handy-xs">本日の入荷履歴</h2>
         </div>
         <div class="flex-1 overflow-y-auto" x-ref="historyList">
             {{-- Card format with minimal spacing --}}
@@ -29,7 +29,7 @@
                         {{-- 入庫予定日 / 入庫日 --}}
                         <div class="flex gap-2 text-handy-xs text-gray-600">
                             <span>予定:<span x-text="formatDateMMDD(hist.schedule?.expected_arrival_date)"></span></span>
-                            <span>入庫:<span x-text="formatDateMMDD(hist.work_arrival_date)"></span></span>
+                            <span>入荷:<span x-text="formatDateMMDD(hist.work_arrival_date)"></span></span>
                         </div>
                         {{-- 入荷数（右整列） --}}
                         <div class="text-handy-xs text-right font-bold text-blue-700" x-text="hist.work_quantity"></div>

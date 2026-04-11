@@ -124,6 +124,8 @@
                     'fi-panel-' . filament()->getId(),
                 ])
         }}
+        x-data
+        :class="$store.splitView?.dragging && 'select-none cursor-col-resize'"
     >
         {{ \Filament\Support\Facades\FilamentView::renderHook(\Filament\View\PanelsRenderHook::BODY_START, scopes: $renderHookScopes) }}
 
@@ -132,6 +134,55 @@
         @livewire(Filament\Livewire\Notifications::class)
 
         {{ \Filament\Support\Facades\FilamentView::renderHook(\Filament\View\PanelsRenderHook::SCRIPTS_BEFORE, scopes: $renderHookScopes) }}
+
+        {{-- Split View グローバルストア（Alpine読み込み前に登録する必要あり） --}}
+        <script data-navigate-once>
+            document.addEventListener('alpine:init', () => {
+                Alpine.store('splitView', {
+                    url: null,
+                    title: '',
+                    breadcrumb: '',
+                    ratio: 50,
+                    dragging: false,
+                    isSameOrigin: false,
+
+                    open(url, title, breadcrumb) {
+                        this.title = title || '';
+                        this.breadcrumb = breadcrumb || '';
+                        try {
+                            const linkUrl = new URL(url, window.location.origin);
+                            this.isSameOrigin = linkUrl.origin === window.location.origin;
+                            // トップバー非表示パラメータを常に付与（クロスオリジンでもメニュー非表示）
+                            linkUrl.searchParams.set('splitView', '1');
+                            this.url = linkUrl.toString();
+                        } catch (e) {
+                            this.isSameOrigin = false;
+                            this.url = url;
+                        }
+                    },
+                    close() {
+                        this.url = null;
+                        this.title = '';
+                        this.breadcrumb = '';
+                        this.ratio = 50;
+                        this.isSameOrigin = false;
+                    },
+                    setRatio(r) {
+                        this.ratio = r;
+                    },
+                    get isOpen() {
+                        return this.url !== null;
+                    }
+                });
+            });
+
+            // ページ遷移時に Split View を閉じる
+            document.addEventListener('livewire:navigated', () => {
+                if (Alpine.store('splitView')) {
+                    Alpine.store('splitView').close();
+                }
+            });
+        </script>
 
         @filamentScripts(withCore: true)
 

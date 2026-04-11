@@ -84,8 +84,13 @@ class ItemContractorForm
                             ->label('自動発注対象')
                             ->default(false)
                             ->helperText('自動発注の対象にする場合はON'),
+
+                        Toggle::make('use_safety_stock_auto_update')
+                            ->label('安全在庫自動更新')
+                            ->default(true)
+                            ->helperText('OFFにすると月次の安全在庫同期で上書きされません'),
                     ])
-                    ->columns(3),
+                    ->columns(4),
             ]);
     }
 }

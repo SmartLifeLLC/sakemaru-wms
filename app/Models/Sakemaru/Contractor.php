@@ -3,6 +3,7 @@
 namespace App\Models\Sakemaru;
 
 use App\Enums\AutoOrder\TransmissionType;
+use App\Models\WmsContractorHoliday;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsContractorSupplier;
 use App\Models\WmsContractorWarehouseDeliveryDay;
@@ -83,6 +84,16 @@ class Contractor extends CustomModel
     public function getOrCreateWmsSetting(): WmsContractorSetting
     {
         return WmsContractorSetting::findOrCreateByContractor($this->id);
+    }
+
+    // ==================== WMS Contractor Holidays ====================
+
+    /**
+     * 発注先の臨時休業日
+     */
+    public function holidays(): HasMany
+    {
+        return $this->hasMany(WmsContractorHoliday::class, 'contractor_id');
     }
 
     // ==================== WMS Contractor Suppliers ====================

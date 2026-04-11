@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\FloorPlanController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\Handy\HandyController;
 use App\Http\Controllers\Handy\HandyIncomingController;
+use App\Http\Controllers\Handy\HandyV2Controller;
 use App\Http\Controllers\JxServerController;
 use App\Http\Controllers\JxTransmissionLogController;
 use Illuminate\Support\Facades\Route;
@@ -21,6 +22,11 @@ Route::get('/handy/incoming', [HandyIncomingController::class, 'index'])
     ->name('handy.incoming');
 Route::get('/handy/outgoing', [HandyController::class, 'outgoing'])
     ->name('handy.outgoing');
+
+// Handy V2 - Android Web App (SPA)
+Route::get('/handy-v2/{any?}', [HandyV2Controller::class, 'index'])
+    ->where('any', '.*')
+    ->name('handy-v2');
 
 // Floor plan API routes (accessible from admin panel without API key)
 Route::prefix('api')->middleware(['web'])->group(function () {

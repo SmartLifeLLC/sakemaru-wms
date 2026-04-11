@@ -16,15 +16,13 @@ class WaveService
     /**
      * 既存Waveを検索
      *
-     * @param  int  $warehouseId  倉庫ID
      * @param  int  $deliveryCourseId  配送コースID
      * @param  string  $shippingDate  出荷日（Y-m-d形式）
      */
-    public function findExistingWave(int $warehouseId, int $deliveryCourseId, string $shippingDate): ?Wave
+    public function findExistingWave(int $deliveryCourseId, string $shippingDate): ?Wave
     {
-        return Wave::whereHas('waveSetting', function ($query) use ($warehouseId, $deliveryCourseId) {
-            $query->where('warehouse_id', $warehouseId)
-                ->where('delivery_course_id', $deliveryCourseId);
+        return Wave::whereHas('waveSetting', function ($query) use ($deliveryCourseId) {
+            $query->where('delivery_course_id', $deliveryCourseId);
         })
             ->where('shipping_date', $shippingDate)
             ->first();
@@ -36,11 +34,10 @@ class WaveService
      * 既存Waveがあればそれを返し、なければ新規生成する
      * 現在時刻の時間帯（例：14:10 → 14:00）に対応するwave_settingを優先的に使用
      *
-     * @param  int  $warehouseId  倉庫ID
      * @param  int  $deliveryCourseId  配送コースID
      * @param  string  $shippingDate  出荷日（Y-m-d形式）
      */
-    public function getOrCreateWave(int $warehouseId, int $deliveryCourseId, string $shippingDate): Wave
+    public function getOrCreateWave(int $deliveryCourseId, string $shippingDate): Wave
     {
         // 1. 現在時刻の時間帯のwave_settingを取得
         // 例：14:10:00 → 14:00:00 の時間帯を探す
@@ -48,16 +45,14 @@ class WaveService
         $currentHourStartTime = sprintf('%02d:00:00', $currentHour);
 
         // 2. 該当時間帯のwave_settingを検索
-        $waveSetting = WaveSetting::where('warehouse_id', $warehouseId)
-            ->where('delivery_course_id', $deliveryCourseId)
+        $waveSetting = WaveSetting::where('delivery_course_id', $deliveryCourseId)
             ->whereTime('picking_start_time', $currentHourStartTime)
             ->first();
 
         // 3. 該当時間帯がなければ、現在時刻以前の最新のwave_settingを取得
         if (! $waveSetting) {
             $currentTime = now()->format('H:i:s');
-            $waveSetting = WaveSetting::where('warehouse_id', $warehouseId)
-                ->where('delivery_course_id', $deliveryCourseId)
+            $waveSetting = WaveSetting::where('delivery_course_id', $deliveryCourseId)
                 ->where(function ($query) use ($currentTime) {
                     $query->whereTime('picking_start_time', '<=', $currentTime)
                         ->orWhereNull('picking_start_time'); // 臨時Waveも対象
@@ -68,7 +63,7 @@ class WaveService
 
         if (! $waveSetting) {
             // 4. wave_settingがない場合は臨時Wave生成
-            return $this->createTemporaryWave($warehouseId, $deliveryCourseId, $shippingDate);
+            return $this->createTemporaryWave($deliveryCourseId, $shippingDate);
         }
 
         // 5. 既存Waveを検索（wave_settingが見つかった場合）
@@ -98,7 +93,7 @@ class WaveService
                 'status' => 'PENDING',
             ]);
 
-            // 倉庫・配送コース情報を取得
+            // 倉庫・配送コース情報を取得（アクセサ経由）
             $warehouse = DB::connection('sakemaru')
                 ->table('warehouses')
                 ->where('id', $waveSetting->warehouse_id)
@@ -128,12 +123,11 @@ class WaveService
      *
      * wave_settingがない場合に、臨時のwave_settingとWaveを生成する
      */
-    public function createTemporaryWave(int $warehouseId, int $deliveryCourseId, string $shippingDate): Wave
+    public function createTemporaryWave(int $deliveryCourseId, string $shippingDate): Wave
     {
-        return DB::transaction(function () use ($warehouseId, $deliveryCourseId, $shippingDate) {
+        return DB::transaction(function () use ($deliveryCourseId, $shippingDate) {
             // 臨時wave_settingを作成
             $temporaryWaveSetting = WaveSetting::create([
-                'warehouse_id' => $warehouseId,
                 'delivery_course_id' => $deliveryCourseId,
                 'picking_start_time' => null, // 臨時Wave
                 'picking_deadline_time' => null,

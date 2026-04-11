@@ -5,11 +5,18 @@ namespace App\Filament\Resources\WmsPickingTasks\Tables;
 use App\Enums\EWMSLogOperationType;
 use App\Enums\EWMSLogTargetType;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasOptimizedFilters;
+use App\Models\Sakemaru\DeliveryCourse;
+use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsPickingArea;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsAdminOperationLog;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
+use App\Services\PickingList\PickingListPdfService;
+use App\Services\PickingList\PickingListService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
@@ -24,10 +31,14 @@ use Illuminate\Support\Facades\Log;
 
 class WmsPickingTasksTable
 {
+    use HasExportAction;
+    use HasOptimizedFilters;
+
     public static function configure(Table $table, bool $isCompletedView = false, bool $isWaitingView = false): Table
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions-left'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -70,7 +81,11 @@ class WmsPickingTasksTable
                     ->badge()
                     ->color(fn ($state) => $state > 0 ? 'warning' : 'gray')
                     ->state(function ($record) {
-                        // planned_qty - picked_qty の合計を計算
+                        // ピッキング完了後のみ庫内欠品を計算（ピッキング中は未確定のため表示しない）
+                        if (! in_array($record->status, ['COMPLETED', 'SHORTAGE'])) {
+                            return 0;
+                        }
+
                         return $record->pickingItemResults->sum(function ($item) {
                             return max(0, ($item->planned_qty ?? 0) - ($item->picked_qty ?? 0));
                         });
@@ -298,23 +313,36 @@ class WmsPickingTasksTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('warehouse_id')
-                    ->label('倉庫')
-                    ->relationship('warehouse', 'name')
-                    ->searchable()
-                    ->preload(),
+                static::warehouseFilter(),
 
                 SelectFilter::make('delivery_course_id')
                     ->label('配送コース')
-                    ->relationship('deliveryCourse', 'name')
                     ->searchable()
-                    ->preload(),
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return DeliveryCourse::query()
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"])
+                            ->toArray();
+                    }),
 
                 SelectFilter::make('wms_picking_area_id')
                     ->label('ピッキングエリア')
-                    ->relationship('pickingArea', 'name')
                     ->searchable()
-                    ->preload(),
+                    ->getSearchResultsUsing(function (string $search): array {
+                        return WmsPickingArea::query()
+                            ->where('name', 'like', "%{$search}%")
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($a) => [$a->id => $a->name])
+                            ->toArray();
+                    }),
 
                 SelectFilter::make('status')
                     ->label('ステータス')
@@ -396,13 +424,6 @@ class WmsPickingTasksTable
                     }),
             ])
             ->recordActions([
-                Action::make('execute')
-                    ->label('ピッキング実施')
-                    ->icon('heroicon-o-play')
-                    ->color('primary')
-                    ->url(fn ($record) => WmsPickingTaskResource::getUrl('execute', ['record' => $record->id]))
-                    ->visible(fn ($record) => in_array($record->status, ['PICKING_READY', 'PICKING'])),
-
                 Action::make('edit_items')
                     ->label('明細確認')
                     ->icon('heroicon-o-list-bullet')
@@ -414,7 +435,42 @@ class WmsPickingTasksTable
                             ],
                         ],
                     ]))
-                    ->visible(fn ($record) => $isWaitingView),
+                    ->visible(fn ($record) => $isWaitingView || $record->status === 'COMPLETED'),
+
+                Action::make('execute')
+                    ->label('ピッキング実施')
+                    ->icon('heroicon-o-play')
+                    ->color('primary')
+                    ->url(fn ($record) => WmsPickingTaskResource::getUrl('execute', ['record' => $record->id]))
+                    ->visible(fn ($record) => in_array($record->status, ['PICKING_READY', 'PICKING'])),
+
+                Action::make('printSecondaryList')
+                    ->label('2次リスト')
+                    ->icon('heroicon-o-printer')
+                    ->color('info')
+                    ->action(function ($record) {
+                        try {
+                            $service = new PickingListService;
+                            $data = $service->generateSecondaryList($record->id);
+
+                            if (empty($data['items'])) {
+                                Notification::make()->title('ピッキング明細がありません')->warning()->send();
+
+                                return;
+                            }
+
+                            $pdfService = new PickingListPdfService;
+                            $pdf = $pdfService->renderSecondaryPdf($data);
+
+                            return response()->streamDownload(
+                                fn () => print ($pdf),
+                                "picking-list-2nd-{$record->id}.pdf",
+                                ['Content-Type' => 'application/pdf']
+                            );
+                        } catch (\Exception $e) {
+                            Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
+                        }
+                    }),
 
                 //                Action::make('change_delivery_course')
                 //                    ->label('一括コース変更')
@@ -817,6 +873,106 @@ class WmsPickingTasksTable
                         }
                     })
                     ->deselectRecordsAfterCompletion(),
+            ])
+            ->toolbarActions([
+                Action::make('forceShipAll')
+                    ->label('全件強制出荷')
+                    ->icon('heroicon-o-truck')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->modalHeading('全件強制出荷確認')
+                    ->modalDescription('現在表示中のすべての未完了タスクを強制出荷します。すべての商品のピッキング数を予定数に自動設定し、出荷完了にします。この操作は取り消せません。')
+                    ->action(function (Table $table) {
+                        // 現在のテーブルクエリから未完了タスクを取得
+                        $tasks = $table->getQuery()
+                            ->where('status', '!=', WmsPickingTask::STATUS_COMPLETED)
+                            ->with('pickingItemResults')
+                            ->get();
+
+                        if ($tasks->isEmpty()) {
+                            Notification::make()
+                                ->title('対象なし')
+                                ->body('未完了のタスクがありません')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        $completedCount = 0;
+                        $itemCount = 0;
+                        $errors = [];
+
+                        DB::connection('sakemaru')->transaction(function () use ($tasks, &$completedCount, &$itemCount, &$errors) {
+                            foreach ($tasks as $task) {
+                                try {
+                                    // 全アイテムのpicked_qtyを予定数に設定
+                                    foreach ($task->pickingItemResults as $item) {
+                                        $item->update([
+                                            'picked_qty' => $item->planned_qty,
+                                            'shortage_qty' => 0,
+                                            'status' => 'COMPLETED',
+                                            'picked_at' => $item->picked_at ?? now(),
+                                        ]);
+                                        $itemCount++;
+                                    }
+
+                                    // タスクを完了
+                                    $task->update([
+                                        'status' => WmsPickingTask::STATUS_COMPLETED,
+                                        'completed_at' => $task->completed_at ?? now(),
+                                    ]);
+
+                                    // 関連する伝票のピッキングステータスを更新
+                                    $earningIds = $task->pickingItemResults()
+                                        ->distinct('earning_id')
+                                        ->whereNotNull('earning_id')
+                                        ->pluck('earning_id')
+                                        ->toArray();
+
+                                    if (! empty($earningIds)) {
+                                        DB::connection('sakemaru')
+                                            ->table('earnings')
+                                            ->whereIn('id', $earningIds)
+                                            ->update([
+                                                'picking_status' => 'COMPLETED',
+                                                'updated_at' => now(),
+                                            ]);
+                                    }
+
+                                    $completedCount++;
+
+                                    Log::info('Picking task force shipped (all)', [
+                                        'task_id' => $task->id,
+                                        'wave_id' => $task->wave_id,
+                                    ]);
+                                } catch (\Exception $e) {
+                                    $errors[] = "タスクID {$task->id}: {$e->getMessage()}";
+                                    Log::error('Force ship all failed', [
+                                        'task_id' => $task->id,
+                                        'error' => $e->getMessage(),
+                                    ]);
+                                }
+                            }
+                        });
+
+                        if (! empty($errors)) {
+                            Notification::make()
+                                ->title('一部エラーが発生しました')
+                                ->body(implode("\n", $errors))
+                                ->danger()
+                                ->send();
+                        }
+
+                        if ($completedCount > 0) {
+                            Notification::make()
+                                ->title('全件強制出荷しました')
+                                ->body("{$completedCount}件のタスク（{$itemCount}件の商品）を自動完了し、出荷可能状態にしました")
+                                ->success()
+                                ->send();
+                        }
+                    }),
+                static::getExportAction(),
             ]);
         //            ->toolbarActions([
         //                BulkAction::make('assignPicker')

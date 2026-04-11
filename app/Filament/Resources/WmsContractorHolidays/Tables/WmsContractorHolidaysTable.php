@@ -3,23 +3,26 @@
 namespace App\Filament\Resources\WmsContractorHolidays\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
 class WmsContractorHolidaysTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['contractor'])->orderBy('holiday_date', 'desc'))
@@ -51,11 +54,13 @@ class WmsContractorHolidaysTable
                     ->options(fn () => Contractor::pluck('name', 'id')->toArray())
                     ->searchable(),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),
-            ], position: RecordActionsPosition::BeforeColumns)
+            ])
             ->toolbarActions([
+                static::getExportAction(),
                 CreateAction::make(),
             ])
             ->bulkActions([

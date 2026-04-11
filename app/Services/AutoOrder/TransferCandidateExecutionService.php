@@ -5,6 +5,7 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsStockTransferCandidate;
@@ -202,9 +203,11 @@ class TransferCandidateExecutionService
     {
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
 
+        $orderDate = ClientSetting::systemDateYMD();
         $schedule = WmsOrderIncomingSchedule::create([
             'warehouse_id' => $candidate->satellite_warehouse_id,
             'item_id' => $candidate->item_id,
+            'item_code' => $candidate->item_code,
             'search_code' => $this->getSearchCodeForItem($candidate->item_id),
             'contractor_id' => $candidate->contractor_id,
             'supplier_id' => null,
@@ -213,10 +216,11 @@ class TransferCandidateExecutionService
             'source_warehouse_id' => $candidate->hub_warehouse_id,
             'stock_transfer_id' => null,  // Core処理完了後に同期
             'order_source' => OrderSource::TRANSFER,
+            'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
             'expected_quantity' => $candidate->transfer_quantity,
             'received_quantity' => 0,
             'quantity_type' => $candidate->quantity_type,
-            'order_date' => now()->format('Y-m-d'),
+            'order_date' => $orderDate,
             'expected_arrival_date' => $candidate->expected_arrival_date,
             'expiration_date' => $expirationDate,
             'status' => IncomingScheduleStatus::PENDING,
@@ -259,7 +263,7 @@ class TransferCandidateExecutionService
      *
      * @param  int  $itemId  商品ID
      * @param  string|Carbon  $baseDate  基準日（入荷予定日）
-     * @return string|null  賞味期限（Y-m-d形式）
+     * @return string|null 賞味期限（Y-m-d形式）
      */
     private function calculateExpirationDate(int $itemId, string|Carbon $baseDate): ?string
     {

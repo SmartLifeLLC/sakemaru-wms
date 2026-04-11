@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsPickers\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Enums\PickerSkillLevel;
+use App\Filament\Concerns\HasExportAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -16,6 +17,8 @@ use Filament\Tables\Table;
 
 class WmsPickersTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -44,12 +47,6 @@ class WmsPickersTable
                     ->formatStateUsing(fn ($state) => $state?->label() ?? '-')
                     ->color(fn ($state) => $state?->color() ?? 'gray')
                     ->sortable(),
-
-                TextColumn::make('picking_speed_rate')
-                    ->label('作業速度')
-                    ->formatStateUsing(fn ($state) => $state ? number_format($state, 2).'x' : '-')
-                    ->sortable()
-                    ->alignCenter(),
 
                 IconColumn::make('is_available_for_picking')
                     ->label('稼働可')
@@ -96,6 +93,7 @@ class WmsPickersTable
                 DeleteAction::make(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

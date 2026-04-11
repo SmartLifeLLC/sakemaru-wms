@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsMonthlySafetyStocks\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsMonthlySafetyStock;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -14,10 +15,13 @@ use Filament\Tables\Table;
 
 class WmsMonthlySafetyStocksTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -78,11 +82,13 @@ class WmsMonthlySafetyStocksTable
                     ->label('月')
                     ->options(WmsMonthlySafetyStock::getMonthOptions()),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 DeleteAction::make()
                     ->iconButton(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

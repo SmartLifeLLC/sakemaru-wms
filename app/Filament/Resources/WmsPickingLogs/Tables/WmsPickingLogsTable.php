@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsPickingLogs\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsPicker;
 use Filament\Actions\ViewAction;
@@ -15,6 +16,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WmsPickingLogsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -218,7 +221,9 @@ class WmsPickingLogsTable
                     ->modalWidth('7xl')
                     ->modalContent(fn ($record) => view('filament.resources.wms-picking-logs.view-modal', ['record' => $record])),
             ])
-            ->toolbarActions([])
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->bulkActions([]);
     }
 }

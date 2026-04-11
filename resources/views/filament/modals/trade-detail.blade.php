@@ -1,38 +1,39 @@
 <div class="space-y-4">
     @if(empty($trade))
-        <div class="text-center text-gray-500">
-            <p>伝票情報が見つかりません</p>
+        <div class="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-gray-500">
+            <i class="fa fa-file-alt text-3xl mb-3"></i>
+            <p class="text-sm">伝票情報が見つかりません</p>
         </div>
     @else
         {{-- 上部エリア：基本情報・納品先・金額 --}}
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {{-- 左カラム：基本情報 (3カラム表示) --}}
-            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 space-y-3 border border-gray-200 dark:border-gray-700 shadow-sm">
-                <h3 class="text-sm font-bold text-gray-800 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">基本情報</h3>
+            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 space-y-3 border border-slate-200 dark:border-gray-700 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-700 dark:text-gray-200 border-b border-slate-200 dark:border-gray-700 pb-2">基本情報</h3>
                 <div class="grid grid-cols-3 gap-2 text-xs">
                     <div>
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">伝票番号</span>
-                        <span class="font-bold text-gray-800 dark:text-gray-100">{{ $trade['trade']->serial_id ?? '-' }}</span>
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">伝票番号</span>
+                        <span class="font-bold text-slate-800 dark:text-gray-100">{{ $trade['trade']->serial_id ?? '-' }}</span>
                     </div>
                     <div>
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">処理日</span>
-                        <span class="text-gray-800 dark:text-gray-100">{{ $trade['trade']->process_date ? \Carbon\Carbon::parse($trade['trade']->process_date)->format('Y-m-d') : '-' }}</span>
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">処理日</span>
+                        <span class="text-slate-700 dark:text-gray-200">{{ $trade['trade']->process_date ? \Carbon\Carbon::parse($trade['trade']->process_date)->format('Y-m-d') : '-' }}</span>
                     </div>
                     <div>
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">納品日</span>
-                        <span class="text-gray-800 dark:text-gray-100">{{ $trade['earning']->delivered_date ? \Carbon\Carbon::parse($trade['earning']->delivered_date)->format('Y-m-d') : '-' }}</span>
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">納品日</span>
+                        <span class="text-slate-700 dark:text-gray-200">{{ $trade['earning']->delivered_date ? \Carbon\Carbon::parse($trade['earning']->delivered_date)->format('Y-m-d') : '-' }}</span>
                     </div>
                     <div>
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">請求日</span>
-                        <span class="text-gray-800 dark:text-gray-100">{{ $trade['earning']->account_date ? \Carbon\Carbon::parse($trade['earning']->account_date)->format('Y-m-d') : '-' }}</span>
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">請求日</span>
+                        <span class="text-slate-700 dark:text-gray-200">{{ $trade['earning']->account_date ? \Carbon\Carbon::parse($trade['earning']->account_date)->format('Y-m-d') : '-' }}</span>
                     </div>
                     <div class="col-span-2">
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">得意先</span>
-                        <span class="text-gray-800 dark:text-gray-100">{{ $trade['partner']->code ?? '-' }} {{ $trade['partner']->name ?? '-' }}</span>
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">得意先</span>
+                        <span class="text-slate-700 dark:text-gray-200">{{ $trade['partner']->code ?? '-' }} {{ $trade['partner']->name ?? '-' }}</span>
                     </div>
                     <div class="col-span-3">
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">配送コース</span>
-                        <div class="text-gray-800 dark:text-gray-100 mb-1">
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">配送コース</span>
+                        <div class="text-slate-700 dark:text-gray-200 mb-1">
                             @if($trade['delivery_course'])
                                 {{ $trade['delivery_course']->code }} - {{ $trade['delivery_course']->name }}
                             @else
@@ -47,7 +48,7 @@
                                 <button
                                     type="button"
                                     wire:click="mountTableAction('changeDeliveryCourse', {{ $trade['trade']->id }})"
-                                    class="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-500 transition shadow-sm w-full text-center"
+                                    class="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded hover:bg-blue-700 transition shadow-sm w-full text-center"
                                 >
                                     配送コース変更
                                 </button>
@@ -57,7 +58,7 @@
                         </div>
                     </div>
                     <div class="col-span-3">
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">ステータス</span>
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">ステータス</span>
                         @php
                             $status = $trade['earning']->picking_status ?? 'PENDING';
                             $statusLabel = match($status) {
@@ -77,7 +78,7 @@
                                 default => 'gray',
                             };
                         @endphp
-                        <span class="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-{{ $statusColor }}-100 text-{{ $statusColor }}-800 dark:bg-{{ $statusColor }}-900 dark:text-{{ $statusColor }}-200">
+                        <span class="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-{{ $statusColor }}-100 text-{{ $statusColor }}-700 dark:bg-{{ $statusColor }}-900/30 dark:text-{{ $statusColor }}-400">
                             {{ $statusLabel }}
                         </span>
                     </div>
@@ -85,81 +86,81 @@
             </div>
 
             {{-- 中央カラム：納品先・備考 (2カラム表示) --}}
-            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 space-y-3 border border-gray-200 dark:border-gray-700 shadow-sm">
-                <h3 class="text-sm font-bold text-gray-800 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">納品先情報</h3>
+            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 space-y-3 border border-slate-200 dark:border-gray-700 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-700 dark:text-gray-200 border-b border-slate-200 dark:border-gray-700 pb-2">納品先情報</h3>
                 <div class="grid grid-cols-2 gap-2 text-xs">
                     <div class="col-span-2">
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">名称</span>
-                        <span class="text-gray-800 dark:text-gray-100 font-medium">
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">名称</span>
+                        <span class="text-slate-700 dark:text-gray-200 font-medium">
                             {{ $trade['buyer']->delivery_name ?? $trade['partner']->name ?? '-' }}
                         </span>
                     </div>
                     <div class="col-span-2">
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">住所</span>
-                        <span class="text-gray-800 dark:text-gray-100">
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">住所</span>
+                        <span class="text-slate-700 dark:text-gray-200">
                             〒{{ $trade['buyer']->delivery_postal_code ?? $trade['partner']->postal_code ?? '-' }}<br>
                             {{ $trade['buyer']->delivery_address1 ?? $trade['partner']->address1 ?? '-' }}
                             {{ $trade['buyer']->delivery_address2 ?? $trade['partner']->address2 ?? '' }}
                         </span>
                     </div>
                     <div>
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">TEL</span>
-                        <span class="text-gray-800 dark:text-gray-100">
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">TEL</span>
+                        <span class="text-slate-700 dark:text-gray-200">
                             {{ $trade['buyer']->delivery_tel ?? $trade['partner']->tel ?? '-' }}
                         </span>
                     </div>
                     <div>
-                        <span class="text-gray-500 dark:text-gray-400 block font-medium">担当営業</span>
-                        <span class="text-gray-800 dark:text-gray-100">
+                        <span class="text-slate-500 dark:text-gray-400 block font-medium">担当営業</span>
+                        <span class="text-slate-700 dark:text-gray-200">
                             {{ $trade['salesman']->name ?? '-' }}
                         </span>
                     </div>
                 </div>
                 @if($trade['trade']->note)
-                    <div class="pt-2 border-t border-gray-200 dark:border-gray-700">
-                        <span class="text-gray-500 dark:text-gray-400 block text-xs font-medium">備考</span>
-                        <p class="text-xs text-gray-800 dark:text-gray-100 mt-1">{{ $trade['trade']->note }}</p>
+                    <div class="pt-2 border-t border-slate-200 dark:border-gray-700">
+                        <span class="text-slate-500 dark:text-gray-400 block text-xs font-medium">備考</span>
+                        <p class="text-xs text-slate-700 dark:text-gray-200 mt-1">{{ $trade['trade']->note }}</p>
                     </div>
                 @endif
             </div>
 
             {{-- 右カラム：金額情報 --}}
-            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 space-y-3 border border-gray-200 dark:border-gray-700 shadow-sm">
-                <h3 class="text-sm font-bold text-gray-800 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">金額情報</h3>
+            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 space-y-3 border border-slate-200 dark:border-gray-700 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-700 dark:text-gray-200 border-b border-slate-200 dark:border-gray-700 pb-2">金額情報</h3>
                 <div class="space-y-1 text-xs">
                     <div class="flex justify-between">
-                        <span class="text-gray-500 dark:text-gray-400">10%対象</span>
-                        <span class="text-gray-800 dark:text-gray-100">¥{{ number_format($trade['trade_price']->subtotal_10_percent ?? 0) }}</span>
+                        <span class="text-slate-500 dark:text-gray-400">10%対象</span>
+                        <span class="text-slate-700 dark:text-gray-200">¥{{ number_format($trade['trade_price']->subtotal_10_percent ?? 0) }}</span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-gray-500 dark:text-gray-400">消費税(10%)</span>
-                        <span class="text-gray-800 dark:text-gray-100">¥{{ number_format($trade['trade_price']->tax_10_percent ?? 0) }}</span>
+                        <span class="text-slate-500 dark:text-gray-400">消費税(10%)</span>
+                        <span class="text-slate-700 dark:text-gray-200">¥{{ number_format($trade['trade_price']->tax_10_percent ?? 0) }}</span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-gray-500 dark:text-gray-400">8%対象</span>
-                        <span class="text-gray-800 dark:text-gray-100">¥{{ number_format($trade['trade_price']->subtotal_8_percent ?? 0) }}</span>
+                        <span class="text-slate-500 dark:text-gray-400">8%対象</span>
+                        <span class="text-slate-700 dark:text-gray-200">¥{{ number_format($trade['trade_price']->subtotal_8_percent ?? 0) }}</span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-gray-500 dark:text-gray-400">消費税(8%)</span>
-                        <span class="text-gray-800 dark:text-gray-100">¥{{ number_format($trade['trade_price']->tax_8_percent ?? 0) }}</span>
+                        <span class="text-slate-500 dark:text-gray-400">消費税(8%)</span>
+                        <span class="text-slate-700 dark:text-gray-200">¥{{ number_format($trade['trade_price']->tax_8_percent ?? 0) }}</span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-gray-500 dark:text-gray-400">非課税対象</span>
-                        <span class="text-gray-800 dark:text-gray-100">¥{{ number_format($trade['trade_price']->subtotal_0_percent ?? 0) }}</span>
+                        <span class="text-slate-500 dark:text-gray-400">非課税対象</span>
+                        <span class="text-slate-700 dark:text-gray-200">¥{{ number_format($trade['trade_price']->subtotal_0_percent ?? 0) }}</span>
                     </div>
-                    <div class="border-t border-gray-200 dark:border-gray-700 my-2"></div>
+                    <div class="border-t border-slate-200 dark:border-gray-700 my-2"></div>
                     <div class="flex justify-between font-semibold">
-                        <span class="text-gray-700 dark:text-gray-300">小計</span>
-                        <span class="text-gray-900 dark:text-gray-100">¥{{ number_format($trade['trade']->subtotal ?? 0) }}</span>
+                        <span class="text-slate-700 dark:text-gray-300">小計</span>
+                        <span class="text-slate-800 dark:text-gray-100">¥{{ number_format($trade['trade']->subtotal ?? 0) }}</span>
                     </div>
                     <div class="flex justify-between font-semibold">
-                        <span class="text-gray-700 dark:text-gray-300">消費税</span>
-                        <span class="text-gray-900 dark:text-gray-100">¥{{ number_format($trade['trade']->tax ?? 0) }}</span>
+                        <span class="text-slate-700 dark:text-gray-300">消費税</span>
+                        <span class="text-slate-800 dark:text-gray-100">¥{{ number_format($trade['trade']->tax ?? 0) }}</span>
                     </div>
-                    <div class="border-t-2 border-gray-300 dark:border-gray-600 my-2 pt-1">
+                    <div class="border-t-2 border-slate-300 dark:border-gray-600 my-2 pt-1">
                         <div class="flex justify-between text-base font-bold">
-                            <span class="text-gray-900 dark:text-gray-100">合計</span>
-                            <span class="text-gray-900 dark:text-gray-100">¥{{ number_format($trade['trade']->total ?? 0) }}</span>
+                            <span class="text-slate-800 dark:text-gray-100">合計</span>
+                            <span class="text-slate-800 dark:text-gray-100">¥{{ number_format($trade['trade']->total ?? 0) }}</span>
                         </div>
                     </div>
                 </div>
@@ -168,43 +169,43 @@
 
         {{-- 出荷商品リスト --}}
         <div>
-            <h3 class="text-sm font-semibold mb-2 text-gray-900 dark:text-gray-100">出荷商品リスト</h3>
-            <div class="overflow-x-auto border rounded-lg border-gray-200 dark:border-gray-700 max-h-96 overflow-y-auto">
-                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 relative">
-                    <thead class="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10">
+            <h3 class="text-sm font-bold mb-2 text-slate-700 dark:text-gray-200">出荷商品リスト</h3>
+            <div class="overflow-x-auto border border-slate-200 dark:border-gray-700 rounded-lg max-h-96 overflow-y-auto">
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-gray-700 relative">
+                    <thead class="bg-slate-50 dark:bg-gray-900 sticky top-0 z-10">
                         <tr>
-                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">No</th>
-                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">商品コード</th>
-                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">商品名</th>
-                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">規格</th>
-                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">受注数</th>
-                            <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">受注単位</th>
-                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">引当数</th>
-                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">出荷数</th>
-                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">単価</th>
-                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">金額</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">No</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">商品コード</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">商品名</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">規格</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">受注数</th>
+                            <th class="px-3 py-2 text-center text-xs font-medium text-slate-600 dark:text-gray-400">受注単位</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">引当数</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">出荷数</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">単価</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">金額</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                    <tbody class="bg-white dark:bg-gray-800 divide-y divide-slate-200 dark:divide-gray-700">
                         @forelse($trade['trade_items'] as $index => $item)
-                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-800">
-                                <td class="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-gray-100">
+                            <tr class="hover:bg-slate-50 dark:hover:bg-gray-700 transition-colors">
+                                <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-gray-200">
                                     {{ $index + 1 }}
                                 </td>
-                                <td class="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-gray-100">
+                                <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-gray-200">
                                     {{ $item->item->code ?? '-' }}
                                 </td>
-                                <td class="px-3 py-2 text-xs text-gray-900 dark:text-gray-100">
+                                <td class="px-3 py-2 text-xs text-slate-700 dark:text-gray-200">
                                     {{ $item->item->name ?? '-' }}
                                 </td>
-                                <td class="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-gray-100">
+                                <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-gray-200">
                                     @if($item->item && $item->item->volume && $item->item->volume_unit)
                                         {{ $item->item->volume }}{{ App\Enums\EVolumeUnit::tryFrom($item->item->volume_unit)?->name() ?? '' }}
                                     @else
                                         -
                                     @endif
                                 </td>
-                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-900 dark:text-gray-100">
+                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-slate-700 dark:text-gray-200">
                                     {{ number_format($item->quantity ?? 0) }}
                                 </td>
                                 <td class="px-3 py-2 whitespace-nowrap text-xs text-center">
@@ -213,26 +214,26 @@
                                         $qtyTypeLabel = App\Enums\QuantityType::tryFrom($qtyType)?->name() ?? $qtyType;
                                         $qtyTypeColor = $qtyType === 'CASE' ? 'green' : 'blue';
                                     @endphp
-                                    <span class="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-{{ $qtyTypeColor }}-100 text-{{ $qtyTypeColor }}-800 dark:bg-{{ $qtyTypeColor }}-900 dark:text-{{ $qtyTypeColor }}-200">
+                                    <span class="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-{{ $qtyTypeColor }}-100 text-{{ $qtyTypeColor }}-700 dark:bg-{{ $qtyTypeColor }}-900/30 dark:text-{{ $qtyTypeColor }}-400">
                                         {{ $qtyTypeLabel }}
                                     </span>
                                 </td>
-                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-900 dark:text-gray-100">
+                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-slate-700 dark:text-gray-200">
                                     {{ number_format($item->picking_result->planned_qty ?? 0) }}
                                 </td>
-                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-900 dark:text-gray-100">
+                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-slate-700 dark:text-gray-200">
                                     {{ number_format($item->picking_result->picked_qty ?? 0) }}
                                 </td>
-                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-900 dark:text-gray-100">
+                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-slate-700 dark:text-gray-200">
                                     ¥{{ number_format($item->price ?? 0) }}
                                 </td>
-                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-900 dark:text-gray-100 font-medium">
+                                <td class="px-3 py-2 whitespace-nowrap text-xs text-right text-slate-700 dark:text-gray-200 font-medium">
                                     ¥{{ number_format(($item->quantity ?? 0) * ($item->price ?? 0)) }}
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="10" class="px-3 py-8 text-center text-xs text-gray-500 dark:text-gray-400">
+                                <td colspan="10" class="px-3 py-8 text-center text-xs text-slate-500 dark:text-gray-400">
                                     商品データがありません
                                 </td>
                             </tr>
@@ -241,17 +242,17 @@
                 </table>
             </div>
         </div>
-        
+
         @if(!empty($trade['trade_balances']) && count($trade['trade_balances']) > 0)
-            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-                 <h3 class="text-sm font-semibold mb-2 text-gray-900 dark:text-gray-100">残高情報</h3>
+            <div class="bg-slate-50 dark:bg-gray-900 rounded-lg p-4">
+                 <h3 class="text-sm font-bold mb-2 text-slate-700 dark:text-gray-200">残高情報</h3>
                  <div class="flex flex-wrap gap-4">
                      @foreach($trade['trade_balances'] as $balance)
-                        <div class="bg-white dark:bg-gray-900 px-3 py-2 rounded shadow-sm flex items-center space-x-2">
-                            <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                        <div class="bg-white dark:bg-gray-800 px-3 py-2 rounded shadow-sm flex items-center space-x-2 border border-slate-200 dark:border-gray-700">
+                            <label class="text-xs font-medium text-slate-500 dark:text-gray-400">
                                 区分ID: {{ $balance->ledger_classification_id }}
                             </label>
-                            <p class="text-sm font-bold text-gray-900 dark:text-gray-100">
+                            <p class="text-sm font-bold text-slate-800 dark:text-gray-100">
                                 ¥{{ number_format($balance->amount) }}
                             </p>
                         </div>

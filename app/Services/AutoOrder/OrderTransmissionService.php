@@ -9,6 +9,7 @@ use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionDocumentType;
 use App\Enums\AutoOrder\TransmissionType;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
@@ -16,7 +17,7 @@ use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
 use App\Models\WmsOrderTransmissionLog;
-use App\Services\AutoOrder\Generators\HanaOrderFileGenerator;
+use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use App\Services\JX\JxClient;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -50,7 +51,10 @@ class OrderTransmissionService
             throw new \RuntimeException($validation['message']);
         }
 
-        $job = WmsAutoOrderJobControl::startJob(JobProcessName::ORDER_TRANSMISSION);
+        $job = WmsAutoOrderJobControl::startJob(
+            processName: JobProcessName::ORDER_TRANSMISSION,
+            createdBy: auth()->id(),
+        );
         $job->update(['batch_code' => $batchCode]);
 
         try {
@@ -678,6 +682,124 @@ class OrderTransmissionService
     }
 
     /**
+     * 仕入先単位で未送信の確定済み発注候補をまとめてファイル生成（バッチ横断）
+     *
+     * @param  array  $contractorIds  対象仕入先ID（親＋子）
+     * @return array{success: bool, files: array, total_orders: int, errors: array, batch_codes: array}
+     */
+    public function generateOrderFilesForContractor(array $contractorIds): array
+    {
+        $generator = $this->getOrderFileGenerator();
+
+        if (! $generator) {
+            return [
+                'success' => false,
+                'files' => [],
+                'total_orders' => 0,
+                'errors' => ['発注ファイル生成クラスが設定されていません'],
+                'batch_codes' => [],
+            ];
+        }
+
+        // JX送信対象の発注先IDを取得
+        $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        $mapping = $generator->getTransmissionContractorMapping();
+        $mappedContractorIds = array_keys($mapping);
+
+        $targetContractorIds = array_unique(array_merge($jxContractorIds, $mappedContractorIds));
+
+        // 対象仕入先かつJX対象に絞る
+        $scopedContractorIds = array_intersect($contractorIds, $targetContractorIds);
+
+        if (empty($scopedContractorIds)) {
+            return [
+                'success' => true,
+                'files' => [],
+                'total_orders' => 0,
+                'errors' => [],
+                'batch_codes' => [],
+                'message' => 'JX送信対象の発注先がありません',
+            ];
+        }
+
+        // CONFIRMED状態でファイル未生成の候補を全バッチから取得（日付制限なし）
+        $candidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
+            ->whereNull('wms_order_jx_document_id')
+            ->whereIn('contractor_id', $scopedContractorIds)
+            ->with(['warehouse', 'item', 'contractor'])
+            ->get();
+
+        $batchCodes = $candidates->pluck('batch_code')->unique()->values()->toArray();
+
+        // 代表batch_codeを使用（ファイルパス・ドキュメント記録用）
+        $representativeBatchCode = $batchCodes[0] ?? now()->format('YmdHis');
+
+        $result = $this->doGenerateOrderFiles($representativeBatchCode, $candidates, TransmissionDocumentStatus::PENDING, true);
+        $result['batch_codes'] = $batchCodes;
+
+        return $result;
+    }
+
+    /**
+     * 仕入先単位で未送信のJXドキュメントをまとめて送信（バッチ横断）
+     *
+     * @param  array  $contractorIds  対象仕入先ID（親＋子）
+     * @return array{success: bool, transmitted: array, errors: array}
+     */
+    public function transmitPendingDocumentsForContractor(array $contractorIds): array
+    {
+        // PENDING状態のドキュメントを仕入先単位で取得（バッチ横断）
+        $documents = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
+            ->whereIn('contractor_id', $contractorIds)
+            ->get();
+
+        if ($documents->isEmpty()) {
+            return [
+                'success' => true,
+                'transmitted' => [],
+                'errors' => [],
+                'message' => '送信対象のドキュメントがありません',
+            ];
+        }
+
+        $transmitted = [];
+        $errors = [];
+
+        foreach ($documents as $document) {
+            try {
+                $result = $this->transmitDocumentViaJx($document);
+
+                if ($result['success']) {
+                    $transmitted[] = [
+                        'document_id' => $document->id,
+                        'contractor_id' => $document->contractor_id,
+                        'message_id' => $result['message_id'] ?? null,
+                    ];
+                } else {
+                    $errors[] = [
+                        'document_id' => $document->id,
+                        'error' => $result['error'] ?? '送信失敗',
+                    ];
+                }
+            } catch (\Exception $e) {
+                $errors[] = [
+                    'document_id' => $document->id,
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'success' => empty($errors),
+            'transmitted' => $transmitted,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
      * 発注送信ファイルを生成（共通処理）
      */
     private function doGenerateOrderFiles(
@@ -901,7 +1023,7 @@ class OrderTransmissionService
                 'batch_code' => $batchCode,
                 'warehouse_id' => $firstCandidate?->warehouse_id,
                 'contractor_id' => $file['contractor_id'],
-                'order_date' => now()->toDateString(),
+                'order_date' => ClientSetting::systemDateYMD(),
                 'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
                 'file_path' => $csvPath,
                 'file_size' => strlen($csvContent),
@@ -920,7 +1042,7 @@ class OrderTransmissionService
                     'is_test' => false,
                 ],
                 [
-                    'order_date' => now()->toDateString(),
+                    'order_date' => ClientSetting::systemDateYMD(),
                     'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
                     'file_path' => $csvPath,
                     'file_size' => strlen($csvContent),
@@ -1096,7 +1218,7 @@ class OrderTransmissionService
             'wms_order_jx_setting_id' => $file['jx_setting_id'] ?? null,
             'warehouse_id' => $warehouseId,
             'contractor_id' => $file['contractor_id'],
-            'order_date' => now()->toDateString(),
+            'order_date' => ClientSetting::systemDateYMD(),
             'expected_arrival_date' => $expectedArrivalDate,
             'document_type' => TransmissionDocumentType::PURCHASE,
             'status' => $status,
@@ -1119,7 +1241,7 @@ class OrderTransmissionService
         $mapping = $generator?->getTransmissionContractorMapping() ?? [];
 
         $candidates->each(function ($candidate) use ($contractorId, $document, $mapping) {
-            // この候補が送信先発注先と一致するか確認
+            // この候補が発注データ集約先と一致するか確認
             $candidateTransmissionId = $mapping[$candidate->contractor_id] ?? $candidate->contractor_id;
 
             if ($candidateTransmissionId === $contractorId) {
@@ -1135,8 +1257,8 @@ class OrderTransmissionService
      *
      * 生成済みファイルのJX設定IDを確認し、まだファイルが生成されていない
      * アクティブなJX設定に対して空ファイルを生成する。
-     * add_zero_record=true: Aレコード付き空ファイル
-     * add_zero_record=false: JXラッパーのみの完全空ファイル
+     * HANA generator: Aレコード付き空ファイル
+     * HANA2 generator: JXラッパーのみの完全空ファイル
      *
      * @param  string  $batchCode  バッチコード
      * @param  array  $generatedFiles  生成済みファイル情報
@@ -1161,15 +1283,16 @@ class OrderTransmissionService
         $allActiveSettings = WmsOrderJxSetting::where('is_active', true)->get();
 
         $results = [];
-        $generator = $this->getOrderFileGenerator();
-
-        if (! ($generator instanceof HanaOrderFileGenerator)) {
-            return $results;
-        }
 
         foreach ($allActiveSettings as $jxSetting) {
             // 既にファイルが生成されている設定はスキップ
             if (in_array($jxSetting->id, $generatedSettingIds)) {
+                continue;
+            }
+
+            // JX設定にgeneratorが設定されていない場合はスキップ
+            $generator = OrderServiceFactory::generatorForJxSetting($jxSetting);
+            if (! ($generator instanceof HanaOrderJXFileGenerator)) {
                 continue;
             }
 

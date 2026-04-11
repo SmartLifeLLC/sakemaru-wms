@@ -1,6 +1,6 @@
 @extends('handy.layouts.app')
 
-@section('title', 'HANDY 入庫処理システム')
+@section('title', 'HANDY 入荷処理システム')
 
 @section('content')
 <!-- Alpine.js App Container - 480x800 WVGA optimized -->

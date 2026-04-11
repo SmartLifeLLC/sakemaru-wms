@@ -129,7 +129,7 @@ class SyncMonthlySafetyStocksCommand extends Command
             return self::SUCCESS;
 
         } catch (\Exception $e) {
-            $this->error('エラーが発生しました: ' . $e->getMessage());
+            $this->error('エラーが発生しました: '.$e->getMessage());
             Log::error('月別安全在庫同期エラー', [
                 'month' => $month,
                 'error' => $e->getMessage(),

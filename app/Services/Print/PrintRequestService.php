@@ -18,27 +18,25 @@ class PrintRequestService
      * @param  int|null  $waveId  ウェーブID (Optional)
      * @return array ['success' => bool, 'message' => string, 'queue_id' => int|null]
      */
-    public function createPrintRequest(int $deliveryCourseId, string $shipmentDate, int $warehouseId, ?int $waveId = null): array
+    public function createPrintRequest(int $deliveryCourseId, string $shipmentDate, int $warehouseId, ?int $waveId = null, ?int $overridePrinterDriverId = null): array
     {
         try {
-            // 配送コース別プリンター設定を取得
-            $printerSetting = DB::connection('sakemaru')
-                ->table('client_printer_course_settings')
-                ->where('warehouse_id', $warehouseId)
-                ->where('delivery_course_id', $deliveryCourseId)
-                ->where('is_active', true)
-                ->first();
+            if ($overridePrinterDriverId !== null) {
+                // モーダルで明示的にプリンターが選択された場合
+                $printerDriverId = $overridePrinterDriverId;
+            } else {
+                // 配送コース別プリンター設定を取得
+                $printerSetting = DB::connection('sakemaru')
+                    ->table('client_printer_course_settings')
+                    ->where('warehouse_id', $warehouseId)
+                    ->where('delivery_course_id', $deliveryCourseId)
+                    ->where('is_active', true)
+                    ->first();
 
-            if (! $printerSetting) {
-                return [
-                    'success' => false,
-                    'message' => '配送コースにプリンターが設定されていません。',
-                    'queue_id' => null,
-                ];
+                // プリンタードライバーIDを取得（未設定の場合はnull = PDF生成のみ）
+                $printerDriverId = $printerSetting?->printer_driver_id;
             }
-
-            // プリンタードライバーIDを取得
-            $printerDriverId = $printerSetting->printer_driver_id;
+            $hasPrinter = $printerDriverId !== null;
 
             // 対象のピッキングタスクを取得
             $query = WmsPickingTask::where('delivery_course_id', $deliveryCourseId)
@@ -100,15 +98,18 @@ class PrintRequestService
                 $stockTransferIds,
                 $warehouseId,
                 $printerDriverId,
+                $hasPrinter,
                 $deliveryCourseId
             ) {
                 // print_request_queueにレコードを作成
-                // printer_driver_idが指定されているため CLIENT_SLIP_PRINTER を使用
+                // printer_driver_idがある場合はプリンター印刷、なければPDF生成のみ
                 $queue = PrintRequestQueue::create([
                     'client_id' => $clientId,
                     'earning_ids' => $earningIds,
                     'stock_transfer_ids' => $stockTransferIds,
-                    'print_type' => PrintRequestQueue::PRINT_TYPE_CLIENT_SLIP_PRINTER,
+                    'print_type' => $hasPrinter
+                        ? PrintRequestQueue::PRINT_TYPE_CLIENT_SLIP_PRINTER
+                        : PrintRequestQueue::PRINT_TYPE_CLIENT_SLIP,
                     'group_by_delivery_course' => true,
                     'warehouse_id' => $warehouseId,
                     'printer_driver_id' => $printerDriverId,
@@ -147,10 +148,11 @@ class PrintRequestService
 
                 return [
                     'success' => true,
-                    'message' => '印刷依頼を作成しました。',
+                    'message' => $hasPrinter ? '印刷依頼を作成しました。' : 'PDF生成依頼を作成しました（プリンター未設定）。',
                     'queue_id' => $queue->id,
                     'earning_count' => count($earningIds),
                     'stock_transfer_count' => count($stockTransferIds),
+                    'has_printer' => $hasPrinter,
                 ];
             });
         } catch (\Exception $e) {

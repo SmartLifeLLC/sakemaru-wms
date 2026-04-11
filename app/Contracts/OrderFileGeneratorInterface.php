@@ -36,11 +36,11 @@ interface OrderFileGeneratorInterface
     public function getJxTransmissionContractorIds(): array;
 
     /**
-     * 送信先発注先IDを取得（transmission_contractor_id対応）
+     * 発注データ集約先IDを取得（transmission_contractor_id対応）
      *
      * 複数の発注先が同一の送信先に集約される場合のマッピングを返す。
      *
-     * @return array<int, int> [発注先ID => 送信先発注先ID]
+     * @return array<int, int> [発注先ID => 発注データ集約先ID]
      */
     public function getTransmissionContractorMapping(): array;
 

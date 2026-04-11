@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsShortagesWaitingApprovals\Tables;
 use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
@@ -28,10 +29,13 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WmsShortagesWaitingApprovalsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions-left'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -181,6 +185,26 @@ class WmsShortagesWaitingApprovalsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                \Filament\Tables\Filters\Filter::make('shipment_date')
+                    ->label('出荷日')
+                    ->form([
+                        \Filament\Forms\Components\DatePicker::make('shipment_date')
+                            ->label('出荷日'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when(
+                            $data['shipment_date'],
+                            fn (Builder $query, $date) => $query->where('shipment_date', $date),
+                        );
+                    })
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['shipment_date']) {
+                            return null;
+                        }
+
+                        return '出荷日: '.$data['shipment_date'];
+                    }),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(WmsShortage::STATUS_LABELS)
@@ -209,9 +233,10 @@ class WmsShortagesWaitingApprovalsTable
                     ->label('欠品編集')
                     ->icon('heroicon-o-truck')
                     ->color('warning')
-                    ->hidden(fn (WmsShortage $record) => $record->is_confirmed)
-                    ->modalHeading('欠品対応')
+                    ->modalHeading('欠品対応-横持ち出荷指示')
                     ->modalSubmitActionLabel('保存')
+                    ->modalWidth('7xl')
+                    ->extraModalWindowAttributes(['class' => 'proxy-shipment-modal'])
                     ->fillForm(function (WmsShortage $record): array {
                         $allocations = $record->allocations()
                             ->get()
@@ -231,7 +256,7 @@ class WmsShortagesWaitingApprovalsTable
                     })
                     ->schema([
                         \Filament\Forms\Components\ViewField::make('allocations')
-                            ->label('横持ち出荷指示')
+                            ->hiddenLabel()
                             ->live()
                             ->view('filament.forms.components.proxy-shipment-allocations')
                             ->viewData(function (WmsShortage $record): array {
@@ -283,6 +308,138 @@ class WmsShortagesWaitingApprovalsTable
                                 }
                                 $shortageDetailsValue = implode(' / ', $shortageDetailsParts);
 
+                                // 得意先の最寄倉庫を取得
+                                $partnerId = $record->trade->partner_id ?? null;
+                                $nearestWarehouseId = null;
+                                if ($partnerId) {
+                                    $nearest = \App\Models\WmsPartnerNearestWarehouse::where('partner_id', $partnerId)->first();
+                                    $nearestWarehouseId = $nearest?->nearest_warehouse_id;
+                                }
+
+                                // 同一配送コース内の横持ち出荷予定倉庫を取得
+                                $sameCourseAllocations = [];
+                                $courseNearestWarehouses = [];
+                                if ($record->wave_id && $record->delivery_course_id) {
+                                    $sameCourseAllocations = WmsShortageAllocation::query()
+                                        ->whereHas('shortage', function ($q) use ($record) {
+                                            $q->where('wave_id', $record->wave_id)
+                                                ->where('delivery_course_id', $record->delivery_course_id)
+                                                ->where('id', '!=', $record->id);
+                                        })
+                                        ->whereNotIn('status', ['CANCELLED'])
+                                        ->with('targetWarehouse')
+                                        ->get()
+                                        ->groupBy('target_warehouse_id')
+                                        ->map(function ($group) {
+                                            $warehouse = $group->first()->targetWarehouse;
+
+                                            return [
+                                                'warehouse_id' => $warehouse->id,
+                                                'warehouse_name' => $warehouse->name,
+                                                'allocation_count' => $group->count(),
+                                                'total_qty' => $group->sum('assign_qty'),
+                                            ];
+                                        })
+                                        ->values()
+                                        ->toArray();
+
+                                    // コース内最短倉庫を取得（同一配送コース内の得意先の最短距離倉庫）
+                                    $coursePartnerIds = WmsShortage::where('wave_id', $record->wave_id)
+                                        ->where('delivery_course_id', $record->delivery_course_id)
+                                        ->with('trade')
+                                        ->get()
+                                        ->pluck('trade.partner_id')
+                                        ->filter()
+                                        ->unique()
+                                        ->values()
+                                        ->toArray();
+
+                                    if (! empty($coursePartnerIds)) {
+                                        $nearestDistances = \App\Models\WmsPartnerWarehouseDistance::whereIn('partner_id', $coursePartnerIds)
+                                            ->orderBy('distance_km', 'asc')
+                                            ->get()
+                                            ->unique('warehouse_id')
+                                            ->take(3);
+
+                                        foreach ($nearestDistances as $dist) {
+                                            $warehouse = Warehouse::find($dist->warehouse_id);
+                                            if ($warehouse) {
+                                                $courseNearestWarehouses[] = [
+                                                    'warehouse_id' => $warehouse->id,
+                                                    'warehouse_name' => $warehouse->name,
+                                                    'distance_km' => $dist->distance_km,
+                                                ];
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // マップ用位置情報データ
+                                $locations = [];
+
+                                // 1. 出発倉庫（departure）
+                                $departureWarehouse = $record->warehouse;
+                                if ($departureWarehouse && $departureWarehouse->latitude && $departureWarehouse->longitude) {
+                                    $locations[] = [
+                                        'id' => $departureWarehouse->id,
+                                        'name' => $departureWarehouse->name,
+                                        'lat' => (float) $departureWarehouse->latitude,
+                                        'lng' => (float) $departureWarehouse->longitude,
+                                        'type' => 'departure',
+                                    ];
+                                }
+
+                                // 2. 横持ち出荷倉庫（warehouse）: ret_stores.pos_store_code IS NOT NULL の全倉庫
+                                $stockByWarehouse = collect($stockData)->keyBy('warehouse_id');
+                                $proxyWarehouses = \DB::connection('sakemaru')
+                                    ->table('warehouses')
+                                    ->join('ret_stores', 'warehouses.code', '=', 'ret_stores.code')
+                                    ->whereNotNull('ret_stores.pos_store_code')
+                                    ->whereNotNull('warehouses.latitude')
+                                    ->whereNotNull('warehouses.longitude')
+                                    ->where('warehouses.id', '!=', $record->warehouse_id)
+                                    ->select('warehouses.id', 'warehouses.name', 'warehouses.latitude', 'warehouses.longitude')
+                                    ->get();
+
+                                foreach ($proxyWarehouses as $wh) {
+                                    $stockInfo = null;
+                                    if ($stockByWarehouse->has($wh->id)) {
+                                        $s = $stockByWarehouse->get($wh->id);
+                                        $stockInfo = $s['cases'].'CS / '.$s['total_pieces'].'バラ';
+                                    }
+                                    $locations[] = [
+                                        'id' => $wh->id,
+                                        'name' => $wh->name,
+                                        'lat' => (float) $wh->latitude,
+                                        'lng' => (float) $wh->longitude,
+                                        'type' => 'warehouse',
+                                        'stock_info' => $stockInfo,
+                                    ];
+                                }
+
+                                // 3. 納品先（customer）: 同一配送コース内の得意先
+                                if ($record->wave_id && $record->delivery_course_id) {
+                                    $courseShortages = WmsShortage::where('wave_id', $record->wave_id)
+                                        ->where('delivery_course_id', $record->delivery_course_id)
+                                        ->with('trade.partner')
+                                        ->get();
+
+                                    $addedPartnerIds = [];
+                                    foreach ($courseShortages as $s) {
+                                        $partner = $s->trade?->partner;
+                                        if ($partner && $partner->latitude && $partner->longitude && ! in_array($partner->id, $addedPartnerIds)) {
+                                            $locations[] = [
+                                                'id' => $partner->id,
+                                                'name' => $partner->name,
+                                                'lat' => (float) $partner->latitude,
+                                                'lng' => (float) $partner->longitude,
+                                                'type' => 'customer',
+                                            ];
+                                            $addedPartnerIds[] = $partner->id;
+                                        }
+                                    }
+                                }
+
                                 return [
                                     'stocks' => $stockData,
                                     'warehouses' => Warehouse::pluck('name', 'id')->toArray(),
@@ -300,6 +457,13 @@ class WmsShortagesWaitingApprovalsTable
                                     'order_qty' => (string) $record->order_qty,
                                     'picked_qty' => (string) $record->picked_qty,
                                     'shortage_details' => $shortageDetailsValue,
+                                    // 倉庫推薦データ
+                                    'nearest_warehouse_id' => $nearestWarehouseId,
+                                    'same_course_allocations' => $sameCourseAllocations,
+                                    'course_nearest_warehouses' => $courseNearestWarehouses,
+                                    'has_delivery_course' => (bool) $record->delivery_course_id,
+                                    // マップ用位置情報
+                                    'locations' => $locations,
                                 ];
                             })
                             ->default(function (WmsShortage $record) {
@@ -607,6 +771,37 @@ class WmsShortagesWaitingApprovalsTable
                                 ->send();
                         }
                     }),
+
+                // 欠品対応取り消しアクション（未承認のみ）
+                Action::make('cancelShortage')
+                    ->label('取り消し')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn (WmsShortage $record) => ! $record->is_confirmed)
+                    ->requiresConfirmation()
+                    ->modalHeading('欠品対応を取り消しますか？')
+                    ->modalDescription('横持ち出荷指示を削除し、欠品ステータスを未対応に戻します。Android側で再編集が可能になります。')
+                    ->action(function (WmsShortage $record) {
+                        try {
+                            // 関連する横持ち出荷指示を削除
+                            $deletedCount = $record->allocations()->delete();
+
+                            // ステータスをBEFOREに戻す
+                            $record->update(['status' => WmsShortage::STATUS_BEFORE]);
+
+                            Notification::make()
+                                ->title('取り消しました')
+                                ->body("欠品対応を取り消しました。".($deletedCount > 0 ? "横持ち出荷指示{$deletedCount}件を削除しました。" : ''))
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('エラー')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
             ], position: RecordActionsPosition::BeforeColumns)
             ->bulkActions([
                 BulkActionGroup::make([
@@ -694,6 +889,9 @@ class WmsShortagesWaitingApprovalsTable
                 ]),
             ])
             ->selectCurrentPageOnly()
+            ->toolbarActions([
+                static::getExportAction(),
+            ])
             ->defaultSort('created_at', 'desc')
             ->modifyQueryUsing(function (Builder $query) {
                 // 承認待ちのレコードのみ表示: is_confirmed = 0 かつ status != BEFORE

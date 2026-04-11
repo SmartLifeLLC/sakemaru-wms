@@ -5,7 +5,6 @@ namespace App\Filament\Resources\Contractors\RelationManagers;
 use App\Enums\AutoOrder\TransmissionType;
 use Filament\Actions\CreateAction;
 use Filament\Actions\EditAction;
-use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
@@ -42,9 +41,9 @@ class MailSettingRelationManager extends RelationManager
                             TextEntry::make('variables_help')
                                 ->label('利用可能な変数')
                                 ->state(new HtmlString(
-                                    '<div class="text-xs text-gray-500 border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">' . '<table>' . '<tr><td class="font-mono pr-4 py-0.5">$$VAR_CONTRACTOR_NAME$$</td><td>発注先名</td></tr>' . '<tr><td class="font-mono pr-4 py-0.5">$$VAR_WAREHOUSE_NAME$$</td><td>倉庫名</td></tr>' . '<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE$$</td><td>発注日（2026年02月14日）</td></tr>' . '<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE_SHORT$$</td><td>発注日（2026/02/14）</td></tr>' . '<tr><td class="font-mono pr-4 py-0.5">$$VAR_EXPECTED_ARRIVAL_DATE$$</td><td>入荷予定日</td></tr>' . '<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_COUNT$$</td><td>発注件数</td></tr>' . '<tr><td class="font-mono pr-4 py-0.5">$$VAR_TOTAL_QUANTITY$$</td><td>合計数量</td></tr>' . '<tr><td class="font-mono pr-4 py-0.5">$$VAR_ATTACHMENTS$$</td><td>添付ファイル一覧</td></tr>' . '</table></div>'
+                                    '<div class="text-xs text-gray-500 border rounded-lg p-3 bg-gray-50 dark:bg-gray-800 dark:border-gray-700">'.'<table>'.'<tr><td class="font-mono pr-4 py-0.5">$$VAR_CONTRACTOR_NAME$$</td><td>発注先名</td></tr>'.'<tr><td class="font-mono pr-4 py-0.5">$$VAR_WAREHOUSE_NAME$$</td><td>倉庫名</td></tr>'.'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE$$</td><td>発注日（2026年02月14日）</td></tr>'.'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_DATE_SHORT$$</td><td>発注日（2026/02/14）</td></tr>'.'<tr><td class="font-mono pr-4 py-0.5">$$VAR_EXPECTED_ARRIVAL_DATE$$</td><td>入荷予定日</td></tr>'.'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ORDER_COUNT$$</td><td>発注件数</td></tr>'.'<tr><td class="font-mono pr-4 py-0.5">$$VAR_TOTAL_QUANTITY$$</td><td>合計数量</td></tr>'.'<tr><td class="font-mono pr-4 py-0.5">$$VAR_ATTACHMENTS$$</td><td>添付ファイル一覧</td></tr>'.'</table></div>'
 
-                                ))
+                                )),
                         ]),
 
                     Section::make('メール本文')
@@ -57,7 +56,6 @@ class MailSettingRelationManager extends RelationManager
                 ]),
             ]);
     }
-
 
     public function table(Table $table): Table
     {
@@ -91,7 +89,7 @@ class MailSettingRelationManager extends RelationManager
 
                         return $data;
                     })
-                    ->visible(fn() => !$this->getOwnerRecord()->wmsMailSetting()->exists()),
+                    ->visible(fn () => ! $this->getOwnerRecord()->wmsMailSetting()->exists()),
             ])
             ->recordActions([
                 EditAction::make()

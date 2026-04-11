@@ -1,0 +1,22 @@
+{
+    "name": "WMS Handy V2",
+    "short_name": "WMS",
+    "description": "倉庫管理ハンディ端末アプリ",
+    "start_url": "/handy-v2",
+    "display": "standalone",
+    "orientation": "landscape",
+    "background_color": "#1e293b",
+    "theme_color": "#1e293b",
+    "icons": [
+        {
+            "src": "/icons/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}

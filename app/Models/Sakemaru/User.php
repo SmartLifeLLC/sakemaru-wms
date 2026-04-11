@@ -45,6 +45,7 @@ class User extends Authenticatable implements FilamentUser
         'created_at',
         'updated_at',
         'is_created_from_data_transfer',
+        'wms_selected_warehouse_id',
         'creator_id',
         'last_updater_id',
     ];
@@ -92,6 +93,16 @@ class User extends Authenticatable implements FilamentUser
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class, 'default_warehouse_id', 'id');
+    }
+
+    public function selectedWarehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class, 'wms_selected_warehouse_id', 'id');
+    }
+
+    public function getSelectedWarehouseId(): ?int
+    {
+        return $this->wms_selected_warehouse_id ?? $this->default_warehouse_id;
     }
 
     public function creator(): BelongsTo

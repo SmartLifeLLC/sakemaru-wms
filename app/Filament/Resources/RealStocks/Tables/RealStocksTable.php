@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\RealStocks\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\RealStockLot;
 use Filament\Actions\Action;
@@ -17,10 +18,13 @@ use Illuminate\Support\Facades\DB;
 
 class RealStocksTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->striped()
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -44,11 +48,6 @@ class RealStocksTable
                     ->label('商品コード')
                     ->sortable()
                     ->searchable(),
-
-                TextColumn::make('lot_no')
-                    ->label('ロット番号')
-                    ->searchable()
-                    ->toggleable(),
 
                 TextColumn::make('activeLots.expiration_date')
                     ->label('賞味期限')
@@ -100,6 +99,7 @@ class RealStocksTable
                     ->searchable()
                     ->preload(),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('view')
                     ->label('詳細')
@@ -115,6 +115,7 @@ class RealStocksTable
                 EditAction::make(),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),

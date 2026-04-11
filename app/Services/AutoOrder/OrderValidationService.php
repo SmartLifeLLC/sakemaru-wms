@@ -5,7 +5,6 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Models\WmsOrderCandidate;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * 発注バリデーションサービス
@@ -125,12 +124,12 @@ class OrderValidationService
         if ($confirmedCount > 0) {
             return [
                 'valid' => false,
-                'message' => "発注確定済みで未送信の候補が {$confirmedCount}件 あります。再計算すると入庫予定データが削除されます。",
+                'message' => "発注確定済みで未送信の候補が {$confirmedCount}件 あります。再計算すると入荷予定データが削除されます。",
                 'details' => [
                     'pending_count' => $statusCounts[CandidateStatus::PENDING->value] ?? 0,
                     'approved_count' => $statusCounts[CandidateStatus::APPROVED->value] ?? 0,
                     'confirmed_count' => $confirmedCount,
-                    'warning' => '再計算を実行すると、これらの候補と関連する入庫予定は削除されます',
+                    'warning' => '再計算を実行すると、これらの候補と関連する入荷予定は削除されます',
                 ],
             ];
         }

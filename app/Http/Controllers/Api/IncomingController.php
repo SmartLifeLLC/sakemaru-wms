@@ -51,20 +51,25 @@ class IncomingController extends ApiController
      *         in="query",
      *         required=true,
      *         description="作業倉庫ID（実倉庫を指定すると仮想倉庫分も取得）",
+     *
      *         @OA\Schema(type="integer", example=991)
      *     ),
+     *
      *     @OA\Parameter(
      *         name="search",
      *         in="query",
      *         required=false,
      *         description="検索キーワード（商品コード、JANコード、商品名）",
+     *
      *         @OA\Schema(type="string", example="4901234567890")
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -73,8 +78,10 @@ class IncomingController extends ApiController
      *                 @OA\Property(
      *                     property="data",
      *                     type="array",
+     *
      *                     @OA\Items(
      *                         type="object",
+     *
      *                         @OA\Property(property="item_id", type="integer", example=123),
      *                         @OA\Property(property="item_code", type="string", example="10001"),
      *                         @OA\Property(property="item_name", type="string", example="商品A"),
@@ -90,8 +97,10 @@ class IncomingController extends ApiController
      *                             property="warehouses",
      *                             type="array",
      *                             description="倉庫別の入庫予定数",
+     *
      *                             @OA\Items(
      *                                 type="object",
+     *
      *                                 @OA\Property(property="warehouse_id", type="integer"),
      *                                 @OA\Property(property="warehouse_code", type="string"),
      *                                 @OA\Property(property="warehouse_name", type="string"),
@@ -104,14 +113,18 @@ class IncomingController extends ApiController
      *                             property="schedules",
      *                             type="array",
      *                             description="個別の入庫予定",
+     *
      *                             @OA\Items(
      *                                 type="object",
+     *
      *                                 @OA\Property(property="id", type="integer"),
      *                                 @OA\Property(property="warehouse_id", type="integer"),
      *                                 @OA\Property(property="warehouse_name", type="string"),
-     *                                 @OA\Property(property="expected_quantity", type="integer"),
-     *                                 @OA\Property(property="received_quantity", type="integer"),
-     *                                 @OA\Property(property="remaining_quantity", type="integer"),
+     *                                 @OA\Property(property="expected_quantity", type="integer", description="発注数"),
+     *                                 @OA\Property(property="shipped_quantity", type="integer", nullable=true, description="発注先出荷実績数（未受信時null）"),
+     *                                 @OA\Property(property="received_quantity", type="integer", description="入庫済み数"),
+     *                                 @OA\Property(property="remaining_quantity", type="integer", description="残入庫数（expected - received）"),
+     *                                 @OA\Property(property="shortage_quantity", type="integer", nullable=true, description="欠品数（expected - shipped）"),
      *                                 @OA\Property(property="quantity_type", type="string", enum={"PIECE", "CASE"}),
      *                                 @OA\Property(property="expected_arrival_date", type="string", format="date"),
      *                                 @OA\Property(property="status", type="string", enum={"PENDING", "PARTIAL"})
@@ -122,6 +135,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=422, description="バリデーションエラー")
      * )
      */
@@ -189,13 +203,16 @@ class IncomingController extends ApiController
      *         in="path",
      *         required=true,
      *         description="入庫予定ID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -213,9 +230,13 @@ class IncomingController extends ApiController
      *                     @OA\Property(property="item_name", type="string"),
      *                     @OA\Property(property="search_code", type="string"),
      *                     @OA\Property(property="jan_codes", type="array", @OA\Items(type="string")),
-     *                     @OA\Property(property="expected_quantity", type="integer"),
-     *                     @OA\Property(property="received_quantity", type="integer"),
-     *                     @OA\Property(property="remaining_quantity", type="integer"),
+     *                     @OA\Property(property="expected_quantity", type="integer", description="発注数"),
+     *                     @OA\Property(property="shipped_quantity", type="integer", nullable=true, description="発注先出荷実績数（未受信時null）"),
+     *                     @OA\Property(property="received_quantity", type="integer", description="入庫済み数"),
+     *                     @OA\Property(property="remaining_quantity", type="integer", description="残入庫数"),
+     *                     @OA\Property(property="shortage_quantity", type="integer", nullable=true, description="欠品数"),
+     *                     @OA\Property(property="unit_price", type="number", nullable=true, description="自社単価"),
+     *                     @OA\Property(property="partner_unit_price", type="number", nullable=true, description="仕入先単価"),
      *                     @OA\Property(property="quantity_type", type="string"),
      *                     @OA\Property(property="expected_arrival_date", type="string", format="date"),
      *                     @OA\Property(property="status", type="string")
@@ -223,7 +244,8 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
-     *     @OA\Response(response=404, description="入庫予定が見つかりません")
+     *
+     *     @OA\Response(response=404, description="入荷予定が見つかりません")
      * )
      */
     public function show(int $id): JsonResponse
@@ -232,7 +254,7 @@ class IncomingController extends ApiController
             ->find($id);
 
         if (! $schedule) {
-            return $this->notFound('入庫予定が見つかりません');
+            return $this->notFound('入荷予定が見つかりません');
         }
 
         return $this->success($this->formatScheduleDetail($schedule));
@@ -255,48 +277,61 @@ class IncomingController extends ApiController
      *         in="query",
      *         required=true,
      *         description="倉庫ID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="picker_id",
      *         in="query",
      *         required=false,
      *         description="作業者ID（指定時はその作業者のデータのみ）",
+     *
      *         @OA\Schema(type="integer")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="status",
      *         in="query",
      *         required=false,
      *         description="ステータス（WORKING, COMPLETED, CANCELLED, all）。デフォルト: WORKING",
+     *
      *         @OA\Schema(type="string", enum={"WORKING", "COMPLETED", "CANCELLED", "all"}, default="WORKING")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="from_date",
      *         in="query",
      *         required=false,
      *         description="開始日（履歴絞り込み用、YYYY-MM-DD形式）",
+     *
      *         @OA\Schema(type="string", format="date", example="2026-01-01")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="to_date",
      *         in="query",
      *         required=false,
      *         description="終了日（履歴絞り込み用、YYYY-MM-DD形式）",
+     *
      *         @OA\Schema(type="string", format="date", example="2026-01-31")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="limit",
      *         in="query",
      *         required=false,
      *         description="取得件数（デフォルト: 100）",
+     *
      *         @OA\Schema(type="integer", default=100)
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -305,6 +340,7 @@ class IncomingController extends ApiController
      *                 @OA\Property(
      *                     property="data",
      *                     type="array",
+     *
      *                     @OA\Items(ref="#/components/schemas/IncomingWorkItem")
      *                 )
      *             )
@@ -364,13 +400,15 @@ class IncomingController extends ApiController
      *     path="/api/incoming/work-items",
      *     tags={"Incoming"},
      *     summary="入荷作業開始",
-     *     description="入庫予定に対する入荷作業を開始し、作業データを作成",
+     *     description="入庫予定に対する入荷作業を開始し、作業データを作成。work_quantityのデフォルト値は発注先出荷実績(shipped_quantity)がある場合はshipped-received、なければexpected-receivedで計算。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\RequestBody(
      *         required=true,
+     *
      *         @OA\JsonContent(
      *             required={"incoming_schedule_id", "picker_id", "warehouse_id"},
+     *
      *             @OA\Property(property="incoming_schedule_id", type="integer", description="入庫予定ID"),
      *             @OA\Property(property="picker_id", type="integer", description="作業者ID"),
      *             @OA\Property(property="warehouse_id", type="integer", description="作業倉庫ID")
@@ -380,7 +418,9 @@ class IncomingController extends ApiController
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -391,8 +431,9 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=400, description="既に作業中 / 作業不可"),
-     *     @OA\Response(response=404, description="入庫予定が見つかりません"),
+     *     @OA\Response(response=404, description="入荷予定が見つかりません"),
      *     @OA\Response(response=422, description="バリデーションエラー")
      * )
      */
@@ -411,12 +452,12 @@ class IncomingController extends ApiController
         $schedule = WmsOrderIncomingSchedule::find($request->input('incoming_schedule_id'));
 
         if (! $schedule) {
-            return $this->notFound('入庫予定が見つかりません');
+            return $this->notFound('入荷予定が見つかりません');
         }
 
         // PENDING/PARTIAL のみ新規作業可能（CONFIRMED は履歴から修正）
         if (! in_array($schedule->status, [IncomingScheduleStatus::PENDING, IncomingScheduleStatus::PARTIAL])) {
-            return $this->error('この入庫予定は作業できません（完了済みは履歴から修正してください）', 400);
+            return $this->error('この入荷予定は作業できません（完了済みは履歴から修正してください）', 400);
         }
 
         // Check if already working
@@ -427,6 +468,7 @@ class IncomingController extends ApiController
         if ($existingWork) {
             // Return existing work item data so frontend can resume
             $existingWork->load(['incomingSchedule', 'incomingSchedule.item', 'incomingSchedule.warehouse', 'location']);
+
             return $this->success($this->formatWorkItem($existingWork), '既存の作業を再開しました');
         }
 
@@ -443,12 +485,19 @@ class IncomingController extends ApiController
                 $defaultExpirationDate = Carbon::today()->addDays($item->default_expiration_days)->format('Y-m-d');
             }
 
+            // デフォルト作業数量:
+            // shipped_quantity がある場合はそちらを基準にする（発注先出荷実績 - 入庫済み）
+            // ない場合は従来通り remaining_quantity（発注数 - 入庫済み）
+            $defaultWorkQuantity = ($schedule->shipped_quantity !== null && $schedule->shipped_quantity > 0)
+                ? max(0, $schedule->shipped_quantity - $schedule->received_quantity)
+                : $schedule->remaining_quantity;
+
             $workItem = WmsIncomingWorkItem::create([
                 'incoming_schedule_id' => $schedule->id,
                 'picker_id' => $request->input('picker_id'),
                 'warehouse_id' => $warehouseId,
                 'location_id' => $locationId,
-                'work_quantity' => $schedule->remaining_quantity,
+                'work_quantity' => $defaultWorkQuantity,
                 'work_arrival_date' => now()->format('Y-m-d'),
                 'work_expiration_date' => $defaultExpirationDate,
                 'status' => WmsIncomingWorkItem::STATUS_WORKING,
@@ -493,12 +542,15 @@ class IncomingController extends ApiController
      *         in="path",
      *         required=true,
      *         description="作業データID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
      *
      *     @OA\RequestBody(
      *         required=true,
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="work_quantity", type="integer", description="入荷数量"),
      *             @OA\Property(property="work_arrival_date", type="string", format="date", description="入荷日"),
      *             @OA\Property(property="work_expiration_date", type="string", format="date", description="賞味期限"),
@@ -509,7 +561,9 @@ class IncomingController extends ApiController
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -520,6 +574,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=400, description="編集不可"),
      *     @OA\Response(response=404, description="作業データが見つかりません")
      * )
@@ -624,7 +679,7 @@ class IncomingController extends ApiController
      *     path="/api/incoming/work-items/{id}/complete",
      *     tags={"Incoming"},
      *     summary="入荷作業完了",
-     *     description="入荷作業を完了し、入庫確定処理を実行。全量入庫または一部入庫を判定して処理。",
+     *     description="入荷作業を完了し、入庫確定処理を実行。received_quantity = 既存received + work_quantityで計算。work_quantity >= remaining_quantityなら全量入庫（CONFIRMED）、それ以外は一部入庫（PARTIAL）。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
@@ -632,24 +687,28 @@ class IncomingController extends ApiController
      *         in="path",
      *         required=true,
      *         description="作業データID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
      *                 property="result",
      *                 type="object",
      *                 @OA\Property(property="data", type="null"),
-     *                 @OA\Property(property="message", type="string", example="入庫を確定しました")
+     *                 @OA\Property(property="message", type="string", example="入荷を確定しました")
      *             )
      *         )
      *     ),
-     *     @OA\Response(response=400, description="完了不可 / 入庫予定が見つかりません"),
+     *
+     *     @OA\Response(response=400, description="完了不可 / 入荷予定が見つかりません"),
      *     @OA\Response(response=404, description="作業データが見つかりません"),
      *     @OA\Response(response=500, description="入庫確定に失敗")
      * )
@@ -669,7 +728,7 @@ class IncomingController extends ApiController
         $schedule = $workItem->incomingSchedule;
 
         if (! $schedule) {
-            return $this->error('入庫予定が見つかりません', 400);
+            return $this->error('入荷予定が見つかりません', 400);
         }
 
         try {
@@ -678,15 +737,20 @@ class IncomingController extends ApiController
                 $remainingQty = $schedule->remaining_quantity;
                 $locationId = $workItem->location_id;
 
+                // 全量入庫の受け入れ数量 = 既に受け入れ済み + 今回の作業数量
+                // （expected_quantityではなく、実際のカウントを使用）
+                $totalReceived = $schedule->received_quantity + $workQuantity;
+
                 if ($workQuantity >= $remainingQty) {
                     // 全量入庫
                     $this->confirmationService->confirmIncoming(
                         $schedule,
                         $workItem->picker_id,
-                        $schedule->expected_quantity,
+                        $totalReceived,
                         $workItem->work_arrival_date?->format('Y-m-d'),
                         $workItem->work_expiration_date?->format('Y-m-d'),
-                        $locationId
+                        $locationId,
+                        pickerId: $workItem->picker_id
                     );
                 } else {
                     // 一部入庫
@@ -696,7 +760,8 @@ class IncomingController extends ApiController
                         $workItem->picker_id,
                         $workItem->work_arrival_date?->format('Y-m-d'),
                         $workItem->work_expiration_date?->format('Y-m-d'),
-                        $locationId
+                        $locationId,
+                        pickerId: $workItem->picker_id
                     );
                 }
 
@@ -713,14 +778,14 @@ class IncomingController extends ApiController
                 'quantity' => $workItem->work_quantity,
             ]);
 
-            return $this->success(null, '入庫を確定しました');
+            return $this->success(null, '入荷を確定しました');
         } catch (\Exception $e) {
             Log::error('Failed to complete incoming work', [
                 'work_item_id' => $id,
                 'error' => $e->getMessage(),
             ]);
 
-            return $this->error('入庫確定に失敗しました: '.$e->getMessage(), 500);
+            return $this->error('入荷確定に失敗しました: '.$e->getMessage(), 500);
         }
     }
 
@@ -741,13 +806,16 @@ class IncomingController extends ApiController
      *         in="path",
      *         required=true,
      *         description="作業データID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -758,6 +826,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=400, description="キャンセル不可"),
      *     @OA\Response(response=404, description="作業データが見つかりません")
      * )
@@ -765,6 +834,7 @@ class IncomingController extends ApiController
      * @OA\Schema(
      *     schema="IncomingWorkItem",
      *     type="object",
+     *
      *     @OA\Property(property="id", type="integer", description="作業データID"),
      *     @OA\Property(property="incoming_schedule_id", type="integer", description="入庫予定ID"),
      *     @OA\Property(property="picker_id", type="integer", description="作業者ID"),
@@ -798,9 +868,11 @@ class IncomingController extends ApiController
      *         @OA\Property(property="item_name", type="string"),
      *         @OA\Property(property="warehouse_id", type="integer"),
      *         @OA\Property(property="warehouse_name", type="string"),
-     *         @OA\Property(property="expected_quantity", type="integer"),
-     *         @OA\Property(property="received_quantity", type="integer"),
-     *         @OA\Property(property="remaining_quantity", type="integer"),
+     *         @OA\Property(property="expected_quantity", type="integer", description="発注数"),
+     *         @OA\Property(property="shipped_quantity", type="integer", nullable=true, description="発注先出荷実績数（未受信時null）"),
+     *         @OA\Property(property="received_quantity", type="integer", description="入庫済み数"),
+     *         @OA\Property(property="remaining_quantity", type="integer", description="残入庫数"),
+     *         @OA\Property(property="shortage_quantity", type="integer", nullable=true, description="欠品数"),
      *         @OA\Property(property="quantity_type", type="string")
      *     )
      * )
@@ -947,8 +1019,10 @@ class IncomingController extends ApiController
                 'warehouse_id' => $schedule->warehouse_id,
                 'warehouse_name' => $schedule->warehouse?->name,
                 'expected_quantity' => $schedule->expected_quantity,
+                'shipped_quantity' => $schedule->shipped_quantity,
                 'received_quantity' => $schedule->received_quantity,
                 'remaining_quantity' => $schedule->remaining_quantity,
+                'shortage_quantity' => $schedule->shortage_quantity,
                 'quantity_type' => $schedule->quantity_type?->value,
                 'expected_arrival_date' => $schedule->expected_arrival_date?->format('Y-m-d'),
                 'expiration_date' => $schedule->expiration_date?->format('Y-m-d'),
@@ -992,9 +1066,14 @@ class IncomingController extends ApiController
             'contractor_id' => $schedule->contractor_id,
             'contractor_name' => $schedule->contractor?->name,
             'expected_quantity' => $schedule->expected_quantity,
+            'shipped_quantity' => $schedule->shipped_quantity,
             'received_quantity' => $schedule->received_quantity,
             'remaining_quantity' => $schedule->remaining_quantity,
+            'shortage_quantity' => $schedule->shortage_quantity,
+            'unit_price' => $schedule->unit_price,
+            'partner_unit_price' => $schedule->partner_unit_price,
             'quantity_type' => $schedule->quantity_type?->value,
+            'capacity_case' => $schedule->item?->capacity_case ?? 1,
             'order_date' => $schedule->order_date?->format('Y-m-d'),
             'expected_arrival_date' => $schedule->expected_arrival_date?->format('Y-m-d'),
             'actual_arrival_date' => $schedule->actual_arrival_date?->format('Y-m-d'),
@@ -1039,9 +1118,12 @@ class IncomingController extends ApiController
                 'warehouse_id' => $schedule->warehouse_id,
                 'warehouse_name' => $schedule->warehouse?->name,
                 'expected_quantity' => $schedule->expected_quantity,
+                'shipped_quantity' => $schedule->shipped_quantity,
                 'received_quantity' => $schedule->received_quantity,
                 'remaining_quantity' => $schedule->remaining_quantity,
+                'shortage_quantity' => $schedule->shortage_quantity,
                 'quantity_type' => $schedule->quantity_type?->value,
+                'capacity_case' => $schedule->item?->capacity_case ?? 1,
                 'expected_arrival_date' => $schedule->expected_arrival_date?->format('Y-m-d'),
                 'status' => $schedule->status?->value,
             ] : null,
@@ -1200,27 +1282,34 @@ class IncomingController extends ApiController
      *         in="query",
      *         required=true,
      *         description="倉庫ID",
+     *
      *         @OA\Schema(type="integer")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="search",
      *         in="query",
      *         required=false,
      *         description="検索キーワード（code1, code2, code3, nameで検索）",
+     *
      *         @OA\Schema(type="string", example="A-1")
      *     ),
+     *
      *     @OA\Parameter(
      *         name="limit",
      *         in="query",
      *         required=false,
      *         description="取得件数（デフォルト: 50）",
+     *
      *         @OA\Schema(type="integer", default=50)
      *     ),
      *
      *     @OA\Response(
      *         response=200,
      *         description="成功",
+     *
      *         @OA\JsonContent(
+     *
      *             @OA\Property(property="is_success", type="boolean", example=true),
      *             @OA\Property(property="code", type="string", example="SUCCESS"),
      *             @OA\Property(
@@ -1229,8 +1318,10 @@ class IncomingController extends ApiController
      *                 @OA\Property(
      *                     property="data",
      *                     type="array",
+     *
      *                     @OA\Items(
      *                         type="object",
+     *
      *                         @OA\Property(property="id", type="integer"),
      *                         @OA\Property(property="code1", type="string"),
      *                         @OA\Property(property="code2", type="string"),
@@ -1242,6 +1333,7 @@ class IncomingController extends ApiController
      *             )
      *         )
      *     ),
+     *
      *     @OA\Response(response=422, description="バリデーションエラー")
      * )
      */

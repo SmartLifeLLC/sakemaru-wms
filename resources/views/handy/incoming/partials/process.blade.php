@@ -40,7 +40,7 @@
             <template x-if="schedulesToProcess.length === 0">
                 <div class="flex flex-col items-center justify-center h-full text-gray-500 p-4">
                     <i class="ph ph-check-circle text-4xl text-green-500 mb-2"></i>
-                    <p class="text-handy-sm font-bold">全て入庫完了</p>
+                    <p class="text-handy-sm font-bold">全て入荷完了</p>
                     <button @click="loadHistory(); currentScreen = 'history'"
                             class="mt-2 px-3 py-1 bg-blue-500 text-white rounded text-handy-xs">
                         履歴を確認
@@ -54,16 +54,24 @@
                     <tbody class="border-b" :class="selectedScheduleIndex === index ? 'bg-blue-50 border-b-2 border-blue-500' : 'border-gray-300'">
                         <tr :data-index="index">
                             <td class="px-2 pt-2 text-gray-900 font-bold" x-text="schedule.warehouse_name"></td>
-                            <td rowspan="3" class="px-1 py-1 align-middle w-20">
+                            <td rowspan="3" class="px-1 py-1 align-middle w-24">
                                 <button @click="selectedScheduleIndex = index; selectScheduleForInput(index)"
                                         class="w-full py-1 bg-blue-600 text-white font-bold rounded text-handy-xs active:bg-blue-700">
-                                    予定数<br><span class="ml-2 font-bold" x-text="schedule.expected_quantity"></span>
+                                    <template x-if="schedule.shipped_quantity != null">
+                                        <span>出荷<br><span class="font-bold" x-text="schedule.shipped_quantity"></span>/<span class="text-blue-200" x-text="schedule.expected_quantity"></span></span>
+                                    </template>
+                                    <template x-if="schedule.shipped_quantity == null">
+                                        <span>予定数<br><span class="font-bold" x-text="schedule.expected_quantity"></span></span>
+                                    </template>
                                 </button>
                             </td>
                         </tr>
                         <tr>
                             <td class="px-2 text-gray-900">
                                 予定日:<span x-text="formatDateMMDD(schedule.expected_arrival_date)"></span>
+                                <template x-if="schedule.shortage_quantity > 0">
+                                    <span class="ml-1 text-red-600 font-bold">欠品:<span x-text="schedule.shortage_quantity"></span></span>
+                                </template>
                             </td>
                         </tr>
                         <tr>
@@ -149,7 +157,13 @@
             {{-- Quantity Input (3rd, initial focus) --}}
             <div>
                 <label class="block text-gray-700 font-bold mb-1 text-handy-sm">
-                    <i class="ph ph-package mr-1"></i>入庫予定 : <span class="text-amber-700" x-text="currentSchedule?.expected_quantity"></span>
+                    <i class="ph ph-package mr-1"></i>
+                    <template x-if="currentSchedule?.shipped_quantity != null">
+                        <span>出荷: <span class="text-green-700" x-text="currentSchedule?.shipped_quantity"></span> / 発注: <span class="text-amber-700" x-text="currentSchedule?.expected_quantity"></span></span>
+                    </template>
+                    <template x-if="currentSchedule?.shipped_quantity == null">
+                        <span>入荷予定 : <span class="text-amber-700" x-text="currentSchedule?.expected_quantity"></span></span>
+                    </template>
                 </label>
                 <input type="number"
                        x-ref="qtyInput"

@@ -40,6 +40,10 @@ class ProcessWmsQueueJobsCommand extends Command
      */
     public function handle(): int
     {
+        $this->warn('このコマンドは非推奨です。queue:work を使用してください。');
+        $this->info('  php artisan queue:work');
+        $this->newLine();
+
         $startTime = now();
         $this->info('WMS Queue Job Processor started...');
 

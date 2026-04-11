@@ -54,7 +54,7 @@ class WmsOrderConfirmationWaitingResource extends Resource
             ->where('status', CandidateStatus::APPROVED)
             ->with([
                 'warehouse',
-                'item',
+                'item.current_price',
                 'contractor',
             ]);
     }

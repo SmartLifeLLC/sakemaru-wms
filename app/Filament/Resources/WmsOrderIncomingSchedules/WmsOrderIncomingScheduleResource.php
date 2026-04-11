@@ -31,12 +31,12 @@ class WmsOrderIncomingScheduleResource extends Resource
 
     public static function getModelLabel(): string
     {
-        return '入庫予定';
+        return '入荷予定';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '入庫予定';
+        return '入荷予定';
     }
 
     public static function getNavigationSort(): ?int
@@ -46,7 +46,7 @@ class WmsOrderIncomingScheduleResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        // 未入庫（PENDING）と一部入庫（PARTIAL）のみ表示
+        // 未入荷（PENDING）と一部入荷（PARTIAL）のみ表示
         return parent::getEloquentQuery()
             ->whereIn('status', [IncomingScheduleStatus::PENDING, IncomingScheduleStatus::PARTIAL])
             ->with([

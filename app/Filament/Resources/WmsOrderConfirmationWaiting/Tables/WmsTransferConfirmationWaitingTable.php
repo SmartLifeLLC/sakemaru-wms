@@ -5,42 +5,38 @@ namespace App\Filament\Resources\WmsOrderConfirmationWaiting\Tables;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
-use App\Models\Sakemaru\Contractor;
+use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasOptimizedFilters;
+use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 
 class WmsTransferConfirmationWaitingTable
 {
+    use HasExportAction;
+    use HasOptimizedFilters;
+
     public static function configure(Table $table): Table
     {
         return $table
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
-            ->extraAttributes(['class' => 'transfer-confirmation-waiting-table'])
+            ->extraAttributes(['class' => 'transfer-confirmation-waiting-table sticky-actions'])
             ->columns([
-                TextColumn::make('batch_code')
-                    ->label('実行CD')
-                    ->searchable()
-                    ->sortable()
-                    ->copyable()
-                    ->width('120px'),
-
-                TextColumn::make('batch_code_formatted')
-                    ->label('実行時刻')
-                    ->state(function ($record) {
-                        return \Carbon\Carbon::createFromFormat('YmdHis', $record->batch_code)->format('m/d H:i');
-                    })
-                    ->sortable(query: fn ($query, $direction) => $query->orderBy('batch_code', $direction))
-                    ->width('80px'),
-
                 TextColumn::make('status')
                     ->label('状態')
                     ->badge()
@@ -69,11 +65,18 @@ class WmsTransferConfirmationWaitingTable
                     ->sortable()
                     ->width('100px'),
 
-                TextColumn::make('item.code')
-                    ->label('商品コード')
+                TextColumn::make('item_code')
+                    ->label('商品CD')
                     ->searchable()
                     ->sortable()
                     ->width('100px'),
+
+                TextColumn::make('search_code')
+                    ->label('検索CD')
+                    ->searchable()
+                    ->toggleable()
+                    ->placeholder('-')
+                    ->width('120px'),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
@@ -108,11 +111,21 @@ class WmsTransferConfirmationWaitingTable
                     ->alignEnd()
                     ->width('60px'),
 
-                TextColumn::make('transfer_quantity')
+                TextInputColumn::make('transfer_quantity')
                     ->label('移動数')
-                    ->numeric()
+                    ->type('number')
+                    ->rules(['required', 'integer', 'min:0'])
                     ->alignEnd()
-                    ->width('60px'),
+                    ->width('70px')
+                    ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
+                    ->disabled(fn ($record) => ! $record->status->isEditable())
+                    ->afterStateUpdated(function ($record, $state) {
+                        $record->update([
+                            'is_manually_modified' => true,
+                            'modified_by' => auth()->id(),
+                            'modified_at' => now(),
+                        ]);
+                    }),
 
                 TextColumn::make('expected_arrival_date')
                     ->label('移動出荷日')
@@ -120,6 +133,21 @@ class WmsTransferConfirmationWaitingTable
                     ->sortable()
                     ->alignCenter()
                     ->width('70px'),
+
+                TextColumn::make('batch_code')
+                    ->label('実行CD')
+                    ->searchable()
+                    ->sortable()
+                    ->copyable()
+                    ->width('120px'),
+
+                TextColumn::make('batch_code_formatted')
+                    ->label('実行時刻')
+                    ->state(function ($record) {
+                        return \Carbon\Carbon::createFromFormat('YmdHis', substr($record->batch_code, 0, 14))->format('m/d H:i');
+                    })
+                    ->sortable(query: fn ($query, $direction) => $query->orderBy('batch_code', $direction))
+                    ->width('80px'),
 
                 TextColumn::make('lot_status')
                     ->label('ロット')
@@ -154,23 +182,195 @@ class WmsTransferConfirmationWaitingTable
 
                 SelectFilter::make('satellite_warehouse_id')
                     ->label('依頼倉庫')
-                    ->relationship('satelliteWarehouse', 'name'),
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    }),
 
                 SelectFilter::make('hub_warehouse_id')
                     ->label('移動元倉庫')
-                    ->relationship('hubWarehouse', 'name'),
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
 
-                SelectFilter::make('contractor_id')
-                    ->label('発注先')
-                    ->options(fn () => Contractor::query()
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($contractor) => [
-                            $contractor->id => "[{$contractor->code}]{$contractor->name}",
-                        ]))
-                    ->searchable(),
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    }),
+
+                static::contractorFilter(),
             ])
+            ->recordActionsColumnLabel('操作')
             ->recordActions([
+                Action::make('viewDetail')
+                    ->label('詳細')
+                    ->icon('heroicon-o-eye')
+                    ->color('gray')
+                    ->modalHeading('移動候補詳細')
+                    ->modalWidth('5xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalSubmitAction(fn ($record, $action) => $record->status->isEditable()
+                        ? $action->makeModalSubmitAction('submit', [])->label('変更を保存')->color('danger')
+                        : false)
+                    ->modalCancelActionLabel('変更せず閉じる')
+                    ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
+                    ->fillForm(fn ($record) => [
+                        'transfer_quantity' => $record->transfer_quantity,
+                        'expected_arrival_date' => $record->expected_arrival_date,
+                    ])
+                    ->schema(function (?WmsStockTransferCandidate $record): array {
+                        if (! $record) {
+                            return [];
+                        }
+
+                        $log = WmsOrderCalculationLog::where('batch_code', $record->batch_code)
+                            ->where('warehouse_id', $record->satellite_warehouse_id)
+                            ->where('item_id', $record->item_id)
+                            ->first();
+
+                        $details = $log?->calculation_details ?? [];
+                        $item = $record->item;
+                        $capacityText = '-';
+                        if ($item) {
+                            $parts = [];
+                            if ($item->capacity_case) {
+                                $parts[] = "ケース: {$item->capacity_case}";
+                            }
+                            if ($item->capacity_carton) {
+                                $parts[] = "ボール: {$item->capacity_carton}";
+                            }
+                            $capacityText = implode(' / ', $parts) ?: '-';
+                        }
+
+                        $isEditable = $record->status->isEditable();
+
+                        // 手動変更判定
+                        $shiftedDays = (int) ($details['到着日調整'] ?? 0);
+                        $isDateManuallyChanged = false;
+                        $calculatedDateFormatted = null;
+                        if ($record->original_arrival_date && $record->expected_arrival_date) {
+                            $calculatedDate = \Carbon\Carbon::parse($record->original_arrival_date)->addDays($shiftedDays);
+                            $calculatedDateFormatted = $calculatedDate->format('Y/m/d');
+                            $isDateManuallyChanged = $calculatedDate->format('Y-m-d') !== \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y-m-d');
+                        }
+
+                        $schema = [
+                            View::make('filament.components.transfer-candidate-detail')
+                                ->viewData([
+                                    'batchCode' => $record->batch_code,
+                                    'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', substr($record->batch_code, 0, 14))->format('Y/m/d H:i'),
+                                    'satelliteWarehouseName' => $record->satelliteWarehouse ? "[{$record->satelliteWarehouse->code}]{$record->satelliteWarehouse->name}" : '-',
+                                    'hubWarehouseName' => $record->hubWarehouse ? "[{$record->hubWarehouse->code}]{$record->hubWarehouse->name}" : '-',
+                                    'deliveryCourseName' => $record->deliveryCourse?->name ?? '-',
+                                    'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+                                    'expectedArrivalDate' => $record->expected_arrival_date
+                                        ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
+                                        : '-',
+                                    'leadTimeDays' => $log?->lead_time_days ?? 0,
+                                    'orderDate' => $record->created_at?->format('m/d') ?? '-',
+                                    'originalArrivalDate' => $record->original_arrival_date
+                                        ? \Carbon\Carbon::parse($record->original_arrival_date)->format('m/d')
+                                        : null,
+                                    'shiftedDays' => $shiftedDays,
+                                    'shiftReasons' => $details['調整理由'] ?? '',
+                                    'isDateManuallyChanged' => $isDateManuallyChanged,
+                                    'calculatedDate' => $calculatedDateFormatted,
+                                    'itemCode' => $record->item_code ?? $item?->code ?? '-',
+                                    'searchCode' => $record->search_code ?? '-',
+                                    'itemName' => $item?->name ?? '-',
+                                    'packaging' => $item?->packaging ?? '-',
+                                    'capacityText' => $capacityText,
+                                    'statusLabel' => $record->status->label(),
+                                    'suggestedQuantity' => $record->suggested_quantity ?? 0,
+                                    'transferQuantity' => $record->transfer_quantity ?? 0,
+                                    'hasCalculationLog' => ! empty($details),
+                                    'formula' => $details['計算式'] ?? '-',
+                                    'effectiveStock' => $details['有効在庫'] ?? 0,
+                                    'incomingStock' => $details['入庫予定数'] ?? 0,
+                                    'transferIncoming' => $details['移動入庫予定'] ?? 0,
+                                    'transferOutgoing' => $details['移動出庫予定'] ?? 0,
+                                    'safetyStock' => $details['安全在庫'] ?? 0,
+                                    'shortageQty' => $details['不足数'] ?? 0,
+                                ]),
+                        ];
+
+                        if ($isEditable) {
+                            $schema[] = Grid::make(2)->schema([
+                                TextInput::make('transfer_quantity')
+                                    ->label('移動数')
+                                    ->numeric()
+                                    ->required()
+                                    ->minValue(0),
+
+                                DatePicker::make('expected_arrival_date')
+                                    ->label('移動出荷日')
+                                    ->required(),
+                            ]);
+                        }
+
+                        return $schema;
+                    })
+                    ->action(function ($record, array $data) {
+                        if (! $record->status->isEditable()) {
+                            Notification::make()
+                                ->title('このステータスでは編集できません')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        $updated = false;
+                        $updateData = [
+                            'is_manually_modified' => true,
+                            'modified_by' => auth()->id(),
+                            'modified_at' => now(),
+                        ];
+
+                        if ($data['transfer_quantity'] != $record->transfer_quantity) {
+                            $updateData['transfer_quantity'] = $data['transfer_quantity'];
+                            $updated = true;
+                        }
+
+                        $newArrivalDate = $data['expected_arrival_date'] instanceof \Carbon\Carbon
+                            ? $data['expected_arrival_date']->format('Y-m-d')
+                            : $data['expected_arrival_date'];
+                        $currentArrivalDate = $record->expected_arrival_date
+                            ? $record->expected_arrival_date->format('Y-m-d')
+                            : null;
+
+                        if ($newArrivalDate !== $currentArrivalDate) {
+                            $updateData['expected_arrival_date'] = $newArrivalDate;
+                            $updated = true;
+                        }
+
+                        if ($updated) {
+                            $record->update($updateData);
+                            Notification::make()
+                                ->title('移動候補を更新しました')
+                                ->success()
+                                ->send();
+                        }
+                    }),
+
                 Action::make('cancelApproval')
                     ->label('承認取消')
                     ->icon('heroicon-o-x-mark')
@@ -192,6 +392,7 @@ class WmsTransferConfirmationWaitingTable
                     }),
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('bulkCancelApproval')
                         ->label('選択の承認取消')

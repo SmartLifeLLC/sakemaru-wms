@@ -5,6 +5,7 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\AutoOrder\QueueJobLogLevel;
 use App\Enums\AutoOrder\QueueJobType;
 use App\Models\Sakemaru\Item;
@@ -23,9 +24,7 @@ use Illuminate\Support\Facades\Log;
  */
 class TransferCreateJobHandler
 {
-    public function __construct(
-        private StockSnapshotService $snapshotService
-    ) {}
+    public function __construct() {}
 
     /**
      * ジョブを処理
@@ -71,6 +70,35 @@ class TransferCreateJobHandler
 
             return ['success' => false, 'error' => $e->getMessage()];
         }
+    }
+
+    /**
+     * DemandDistributionJobHandler から委譲される公開メソッド
+     */
+    public function handleItems(WmsQueueJob $job, array $items): array
+    {
+        $batchCode = $this->getOrCreateBatchCode($job);
+        $defaultArrivalDate = now()->addDay()->format('Y-m-d');
+        $results = [];
+        $successCount = 0;
+        $skipCount = 0;
+
+        foreach ($items as $itemData) {
+            $result = $this->processItem($job, $itemData, $batchCode, $defaultArrivalDate);
+            $results[] = $result;
+            if ($result['status'] === 'created') {
+                $successCount++;
+            } else {
+                $skipCount++;
+            }
+        }
+
+        return [
+            'batch_code' => $batchCode,
+            'success_count' => $successCount,
+            'skip_count' => $skipCount,
+            'results' => $results,
+        ];
     }
 
     /**
@@ -123,11 +151,15 @@ class TransferCreateJobHandler
             return $pendingJob->batch_code;
         }
 
-        // 新規スナップショットを生成（ジョブ管理も自動作成される）
-        $snapshotJob = $this->snapshotService->generateAll();
-        $job->addLog(QueueJobLogLevel::INFO->value, '新規batch_codeを作成: '.$snapshotJob->batch_code);
+        // 新規ジョブを作成
+        $newJob = WmsAutoOrderJobControl::startJob(
+            processName: \App\Enums\AutoOrder\JobProcessName::ORDER_CALC,
+            createdBy: null,
+        );
+        $newJob->markAsSuccess(0);
+        $job->addLog(QueueJobLogLevel::INFO->value, '新規batch_codeを作成: '.$newJob->batch_code);
 
-        return $snapshotJob->batch_code;
+        return $newJob->batch_code;
     }
 
     /**
@@ -219,6 +251,20 @@ class TransferCreateJobHandler
             ];
         }
 
+        // 販売終了品チェック
+        if ($item->end_of_sale_type !== 'NORMAL') {
+            $reason = '販売終了品のため移動対象外です';
+            $job->addLog(QueueJobLogLevel::WARNING->value, "アイテムをスキップ: {$reason}", ['item_id' => $itemId, 'end_of_sale_type' => $item->end_of_sale_type]);
+
+            return [
+                'satellite_warehouse_id' => $satelliteWarehouseId,
+                'hub_warehouse_id' => $hubWarehouseId,
+                'item_id' => $itemId,
+                'status' => 'skipped',
+                'reason' => $reason,
+            ];
+        }
+
         // 重複チェック
         $existsCandidate = WmsStockTransferCandidate::where('satellite_warehouse_id', $satelliteWarehouseId)
             ->where('hub_warehouse_id', $hubWarehouseId)
@@ -249,6 +295,8 @@ class TransferCreateJobHandler
             'satellite_warehouse_id' => $satelliteWarehouseId,
             'hub_warehouse_id' => $hubWarehouseId,
             'item_id' => $itemId,
+            'item_code' => $item->code,
+            'search_code' => $this->getSearchCodeForItem($itemId),
             'contractor_id' => null,
             'delivery_course_id' => $deliveryCourseId,
             'suggested_quantity' => $transferQuantity,
@@ -257,6 +305,7 @@ class TransferCreateJobHandler
             'original_arrival_date' => $expectedArrivalDate,
             'status' => CandidateStatus::PENDING,
             'lot_status' => LotStatus::RAW,
+            'origin_type' => OriginType::DIST,
             'is_manually_modified' => true,
             'modified_by' => $job->source_user_id,
             'modified_at' => now(),
@@ -322,5 +371,15 @@ class TransferCreateJobHandler
         }
 
         return $results;
+    }
+
+    private function getSearchCodeForItem(int $itemId): ?string
+    {
+        return DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('item_id', $itemId)
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->value('search_string');
     }
 }

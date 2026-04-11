@@ -22,7 +22,10 @@ class TransferCandidateApprovalService
      */
     public function approveBatch(string $batchCode, int $approvedBy): WmsAutoOrderJobControl
     {
-        $job = WmsAutoOrderJobControl::startJob(JobProcessName::TRANSFER_APPROVAL);
+        $job = WmsAutoOrderJobControl::startJob(
+            processName: JobProcessName::TRANSFER_APPROVAL,
+            createdBy: $approvedBy,
+        );
         $job->update(['batch_code' => $batchCode]);
 
         try {

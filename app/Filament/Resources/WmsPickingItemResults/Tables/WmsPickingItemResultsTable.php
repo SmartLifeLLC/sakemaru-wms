@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsPickingItemResults\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasExportAction;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\ClientSetting;
 use Filament\Forms\Components\DatePicker;
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WmsPickingItemResultsTable
 {
+    use HasExportAction;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -218,14 +221,12 @@ class WmsPickingItemResultsTable
                 SelectFilter::make('picking_task_id')
                     ->label('ピッキングタスク')
                     ->relationship('pickingTask', 'id')
-                    ->searchable()
-                    ->preload(),
+                    ->searchable(),
 
                 SelectFilter::make('earning_id')
                     ->label('伝票ID')
                     ->relationship('earning', 'id')
-                    ->searchable()
-                    ->preload(),
+                    ->searchable(),
 
                 SelectFilter::make('status')
                     ->label('ステータス')
@@ -260,6 +261,7 @@ class WmsPickingItemResultsTable
                 //
             ])
             ->toolbarActions([
+                static::getExportAction(),
                 //
             ]);
     }

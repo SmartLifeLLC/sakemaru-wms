@@ -10,12 +10,12 @@ use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
-use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
-use Filament\Widgets\AccountWidget;
-use Filament\Widgets\FilamentInfoWidget;
+use Filament\Support\Facades\FilamentView;
+use Filament\View\PanelsRenderHook;
+use Illuminate\Contracts\View\View;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -42,14 +42,9 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
-            ->pages([
-                Dashboard::class,
-            ])
+            ->pages([])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
-            ->widgets([
-                AccountWidget::class,
-                FilamentInfoWidget::class,
-            ])
+            ->widgets([])
             ->navigationGroups(
                 collect(EMenuCategory::cases())
                     ->sortBy(fn (EMenuCategory $category) => $category->sort())
@@ -82,7 +77,7 @@ class AdminPanelProvider extends PanelProvider
             ->plugins([
                 StickyTableHeaderPlugin::make(),
                 AdvancedTablesPlugin::make()
-                    ->userViewsEnabled(true)
+                    ->userViewsEnabled(false)
                     ->resourceNavigationGroup(EMenuCategory::SETTINGS->label())
                     ->resourceNavigationSort(1000)
                     ->userView(\App\Models\FilamentFilterSets\UserView::class)
@@ -93,6 +88,10 @@ class AdminPanelProvider extends PanelProvider
             )
             ->authMiddleware([
                 Authenticate::class,
-            ])->authGuard('web');
+            ])->authGuard('web')
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_START,
+                fn (): View => view('livewire.warehouse-selector-hook'),
+            );
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Warehouses\Schemas;
 
+use App\Enums\AutoOrder\ConfirmationLevel;
 use App\Models\Sakemaru\Branch;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -78,9 +79,16 @@ class WarehouseForm
                     ->schema([
                         Toggle::make('auto_order_enabled')
                             ->label('自動発注対象')
-                            ->helperText('この倉庫を自動発注計算の対象にする')
-                            ->columnSpanFull(),
+                            ->helperText('この倉庫を自動発注計算の対象にする'),
+
+                        Select::make('confirmation_level')
+                            ->label('承認レベル')
+                            ->options(collect(ConfirmationLevel::cases())
+                                ->mapWithKeys(fn (ConfirmationLevel $level) => [$level->value => $level->label()]))
+                            ->default(ConfirmationLevel::STATUS2->value)
+                            ->helperText('候補表示: 手動で承認・確定が必要 / 承認まで: 自動承認、確定は手動 / 確定まで: 承認・確定すべて自動'),
                     ])
+                    ->columns(2)
                     ->collapsible(),
             ]);
     }
