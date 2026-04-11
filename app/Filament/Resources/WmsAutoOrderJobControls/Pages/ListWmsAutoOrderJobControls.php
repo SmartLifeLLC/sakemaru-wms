@@ -120,7 +120,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
             $this->getGenerateByWarehouseAction(),
 
             ActionGroup::make([
-                $this->getOrderGenerationWizardAction(),
+//                $this->getOrderGenerationWizardAction(),
                 $this->getGenerateTransferCandidatesAction(),
                 $this->getForceGenerateByContractorAction(),
             ])
@@ -394,7 +394,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->icon('heroicon-o-bolt')
             ->color('success')
             ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
-            ->modalHeading('仕入先別 発注・移動候補の強制生成')
+            ->modalHeading('倉庫・仕入先別発注移動候補生成')
             ->modalDescription('指定した仕入先に対して発注・移動候補を生成します。未処理の候補がある場合は削除して再生成します。')
             ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
             ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('生成開始')->color('danger'))

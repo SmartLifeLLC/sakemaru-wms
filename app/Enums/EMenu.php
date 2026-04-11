@@ -70,6 +70,8 @@ enum EMenu: string
 
     // 統計データ
     case EARNINGS = 'statistics.earnings';
+    case STATS_DAILY_SALES = 'statistics.daily_sales';
+    case STATS_SALES_SUMMARIES = 'statistics.sales_summaries';
 
     // ログ
     case WMS_AUTO_ORDER_EXECUTION_LOG = 'logs.auto_order_execution_log';
@@ -152,7 +154,9 @@ enum EMenu: string
             self::WMS_PICKER_ATTENDANCE,
             self::WMS_PICKING_ASSIGNMENT_STRATEGIES => EMenuCategory::MASTER_PICKING,
 
-            self::EARNINGS => EMenuCategory::STATISTICS,
+            self::EARNINGS,
+            self::STATS_DAILY_SALES,
+            self::STATS_SALES_SUMMARIES => EMenuCategory::STATISTICS,
 
             self::WMS_AUTO_ORDER_EXECUTION_LOG,
             self::WMS_PICKING_LOGS,
@@ -230,6 +234,8 @@ enum EMenu: string
             self::FLOOR_PLAN_EDITOR => '倉庫レイアウト',
 
             self::EARNINGS => '売上データ',
+            self::STATS_DAILY_SALES => '日別商品出荷データ',
+            self::STATS_SALES_SUMMARIES => '商品別出荷サマリ',
 
             self::WMS_PICKING_LOGS => 'ピッキングログ',
             self::WMS_JX_TRANSMISSION_LOGS => 'JX送受信履歴',
@@ -307,6 +313,8 @@ enum EMenu: string
             self::FLOOR_PLAN_EDITOR => 'heroicon-o-map',
 
             self::EARNINGS => 'heroicon-o-currency-yen',
+            self::STATS_DAILY_SALES => 'heroicon-o-calendar-days',
+            self::STATS_SALES_SUMMARIES => 'heroicon-o-chart-bar-square',
 
             self::WMS_PICKING_LOGS => 'heroicon-o-rectangle-stack',
             self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrows-up-down',
@@ -396,6 +404,8 @@ enum EMenu: string
 
             // 統計データ
             self::EARNINGS => 1,
+            self::STATS_DAILY_SALES => 2,
+            self::STATS_SALES_SUMMARIES => 3,
 
             // ログ
             self::WMS_AUTO_ORDER_EXECUTION_LOG => 1,

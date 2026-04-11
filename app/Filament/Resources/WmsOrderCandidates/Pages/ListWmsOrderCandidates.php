@@ -672,22 +672,21 @@ class ListWmsOrderCandidates extends ListRecords
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
         $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
-        // プリセットビュー構築（データがなくても「全て」タブは常に表示）
+        // 「全て」タブは常に表示（キー'default'でAdvancedTablesのDefaultビューを上書き）
+        $views = [
+            'default' => PresetView::make()
+                ->favorite()
+                ->label('全て')
+                ->default(! $hasDefaultWarehouse),
+        ];
+
+        // デフォルト倉庫タブ（設定されている場合は先頭に配置してデフォルト選択）
         if ($defaultWarehouse) {
-            $views = [
-                'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
-                    ->favorite()
-                    ->label($defaultWarehouse->name)
-                    ->default(),
-            ];
-        } else {
-            $views = [
-                'default' => PresetView::make()
-                    ->favorite()
-                    ->label('全て')
-                    ->default(),
-            ];
+            $views["default_{$defaultWarehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                ->favorite()
+                ->label($defaultWarehouse->name)
+                ->default();
         }
 
         // 他の倉庫タブ（デフォルト倉庫は除外）

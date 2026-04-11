@@ -13,7 +13,17 @@ class StatsItemWarehouseDailySales extends WmsModel
 
     public $incrementing = false;
 
-    protected $primaryKey = null;
+    protected $primaryKey = 'business_date';
+
+    protected $keyType = 'string';
+
+    /**
+     * 複合PKの一意キーを返す（Filamentテーブル用）
+     */
+    public function getKey(): mixed
+    {
+        return $this->business_date?->format('Y-m-d') . '-' . $this->warehouse_id . '-' . $this->item_id;
+    }
 
     protected $fillable = [
         'warehouse_id',
