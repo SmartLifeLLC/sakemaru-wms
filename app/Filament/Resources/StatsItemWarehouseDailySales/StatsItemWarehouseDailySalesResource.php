@@ -18,6 +18,8 @@ class StatsItemWarehouseDailySalesResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCalendarDays;
 
+    protected static bool $shouldSkipAuthorization = true;
+
     public static function getNavigationGroup(): ?string
     {
         return EMenu::STATS_DAILY_SALES->category()->label();

@@ -18,6 +18,8 @@ class StatsItemWarehouseSalesSummaryResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBarSquare;
 
+    protected static bool $shouldSkipAuthorization = true;
+
     public static function getNavigationGroup(): ?string
     {
         return EMenu::STATS_SALES_SUMMARIES->category()->label();
