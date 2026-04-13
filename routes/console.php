@@ -63,13 +63,12 @@ Schedule::command('wms:generate-calendars --months=3')
     ->onOneServer()
     ->appendOutputTo(storage_path('logs/auto-order-calendars.log'));
 
-// 仕入先別自動発注スケジューラー (5分間隔)
-// ※ 仕入先ごとのauto_order_generation_timeに基づいてスナップショット生成＋発注計算を実行
-Schedule::command('wms:auto-order-scheduled')
-    ->everyFiveMinutes()
-    ->onOneServer()
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/auto-order-scheduled.log'));
+// 仕入先別自動発注スケジューラー (一時停止中 — 排他制御修正後に再有効化)
+// Schedule::command('wms:auto-order-scheduled')
+//     ->everyFiveMinutes()
+//     ->onOneServer()
+//     ->withoutOverlapping()
+//     ->appendOutputTo(storage_path('logs/auto-order-scheduled.log'));
 
 // 仕入先別自動送信スケジューラー (5分間隔)
 // ※ 仕入先ごとのtransmission_timeに基づいて承認→確定→ファイル生成→送信を実行

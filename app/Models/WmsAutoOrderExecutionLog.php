@@ -67,13 +67,14 @@ class WmsAutoOrderExecutionLog extends WmsModel
     // Methods
 
     /**
-     * 指定仕入先が当日すでに実行済み（RUNNING or SUCCESS）かチェック
+     * 指定仕入先が当日すでに実行済み（RUNNING/SUCCESS/FAILED）かチェック
+     * FAILEDも含めることで、排他制御衝突等で失敗した仕入先の無限再ディスパッチを防ぐ
      */
     public static function hasRunOrSucceededToday(int $contractorId): bool
     {
         return self::where('contractor_id', $contractorId)
             ->where('executed_date', today())
-            ->whereIn('status', ['RUNNING', 'SUCCESS'])
+            ->whereIn('status', ['RUNNING', 'SUCCESS', 'FAILED'])
             ->exists();
     }
 
