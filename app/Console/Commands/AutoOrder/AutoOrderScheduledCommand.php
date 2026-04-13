@@ -10,6 +10,7 @@ use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 
 class AutoOrderScheduledCommand extends Command
@@ -44,7 +45,7 @@ class AutoOrderScheduledCommand extends Command
 
         $this->info("対象仕入先: {$settings->count()}件");
 
-        $dispatched = 0;
+        $jobs = [];
         $skipped = 0;
 
         foreach ($settings as $setting) {
@@ -94,20 +95,25 @@ class AutoOrderScheduledCommand extends Command
                 ['contractor_id' => $contractorId, 'source' => 'scheduled']
             );
 
-            // 仕入先別に候補生成Job起動
-            ProcessOrderCandidateGenerationJob::dispatch(
+            // チェーン用にジョブを収集（直列実行で排他制御の衝突を防ぐ）
+            $jobs[] = new ProcessOrderCandidateGenerationJob(
                 jobId: $queueProgress->job_id,
                 deletePending: false,
                 contractorId: $contractorId,
                 executionLogId: $log->id,
             );
 
-            $this->line("  仕入先ID:{$contractorId} → Job dispatch完了");
-            $dispatched++;
+            $this->line("  仕入先ID:{$contractorId} → チェーンに追加");
+        }
+
+        // ジョブをチェーンで直列ディスパッチ
+        if (! empty($jobs)) {
+            Bus::chain($jobs)->dispatch();
+            $this->info('チェーンディスパッチ完了: '.count($jobs).'件');
         }
 
         $this->newLine();
-        $this->info("実行: {$dispatched}件, スキップ: {$skipped}件");
+        $this->info('実行: '.count($jobs)."件, スキップ: {$skipped}件");
         $this->info('=== 完了 ===');
 
         return self::SUCCESS;

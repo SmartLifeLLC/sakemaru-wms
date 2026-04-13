@@ -208,6 +208,9 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
             if ($this->executionLogId) {
                 $executionLog = WmsAutoOrderExecutionLog::find($this->executionLogId);
                 $executionLog?->markAsFailed($e->getMessage());
+
+                // スケジューラー経由: 例外を再throwしない（チェーン内の後続ジョブを止めない）
+                return;
             }
 
             throw $e;
