@@ -26,6 +26,7 @@ class CacheHardClearCommand extends Command
             'filament:cache-components',
             'filament:assets',
             'icons:cache',
+            'queue:restart'
 
         ];
 
