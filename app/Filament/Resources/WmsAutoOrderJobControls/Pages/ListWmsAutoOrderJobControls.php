@@ -18,13 +18,11 @@ use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\View;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
 
 class ListWmsAutoOrderJobControls extends ListRecords
 {
@@ -120,7 +118,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
             $this->getGenerateByWarehouseAction(),
 
             ActionGroup::make([
-//                $this->getOrderGenerationWizardAction(),
+                //                $this->getOrderGenerationWizardAction(),
                 $this->getGenerateTransferCandidatesAction(),
                 $this->getForceGenerateByContractorAction(),
             ])
@@ -197,8 +195,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
                         ->hiddenLabel()
                         ->content(new \Illuminate\Support\HtmlString(
                             '<div class="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:border-red-800 dark:text-red-300">'
-                            . e($satelliteNotice)
-                            . '</div>'
+                            .e($satelliteNotice)
+                            .'</div>'
                         ))
                     : null,
                 ViewField::make('contractor_selector')
@@ -238,7 +236,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
                 if ($hasApprovedOrders || $hasApprovedTransfers) {
                     Notification::make()
-                        ->title("選択した仕入先に承認済みの候補があります")
+                        ->title('選択した仕入先に承認済みの候補があります')
                         ->body('先に確定処理を行ってください')
                         ->danger()
                         ->send();
@@ -523,42 +521,25 @@ class ListWmsAutoOrderJobControls extends ListRecords
      */
     public function getContractorsForWarehouse(): array
     {
-        $warehouseId = auth()->user()?->getSelectedWarehouseId();
-        if (! $warehouseId) {
-            return [];
-        }
-
-        return DB::connection('sakemaru')
-            ->table('item_contractors')
-            ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
-            ->leftJoin('wms_contractor_settings', 'contractors.id', '=', 'wms_contractor_settings.contractor_id')
-            ->where('item_contractors.warehouse_id', $warehouseId)
-            ->where('item_contractors.is_auto_order', true)
-            ->where('contractors.is_auto_change_order', true)
-            ->where(function ($q) {
-                $q->whereNull('wms_contractor_settings.transmission_contractor_id')
-                    ->orWhereNull('wms_contractor_settings.contractor_id');
-            })
-            ->select(
-                'contractors.id',
-                'contractors.code',
-                'contractors.name',
-                'wms_contractor_settings.transmission_type',
-                'wms_contractor_settings.auto_order_generation_time'
-            )
-            ->distinct()
-            ->orderBy('contractors.code')
+        // wms_contractor_settingsベース（スケジューラーと同じ基準）
+        // 全倉庫横断で親仕入先を取得
+        return WmsContractorSetting::query()
+            ->whereNull('transmission_contractor_id')
+            ->whereHas('contractor', fn ($q) => $q->where('is_auto_change_order', true))
+            ->with('contractor:id,code,name')
             ->get()
-            ->map(fn ($c) => [
-                'id' => $c->id,
-                'code' => (string) $c->code,
-                'name' => $c->name,
-                'transmission_type' => $c->transmission_type ?? 'UNKNOWN',
-                'transmission_type_label' => $c->transmission_type
-                    ? \App\Enums\AutoOrder\TransmissionType::tryFrom($c->transmission_type)?->label() ?? $c->transmission_type
+            ->map(fn ($setting) => [
+                'id' => $setting->contractor_id,
+                'code' => (string) $setting->contractor->code,
+                'name' => $setting->contractor->name,
+                'transmission_type' => $setting->transmission_type?->value ?? 'UNKNOWN',
+                'transmission_type_label' => $setting->transmission_type
+                    ? $setting->transmission_type->label()
                     : '未設定',
-                'generation_time' => $c->auto_order_generation_time,
+                'generation_time' => $setting->auto_order_generation_time,
             ])
+            ->sortBy('code')
+            ->values()
             ->toArray();
     }
 

@@ -9,6 +9,9 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * @deprecated 未使用。将来的に削除予定。
+ */
 class ArchiveDepletedLots implements ShouldQueue
 {
     use Queueable;
@@ -27,7 +30,7 @@ class ArchiveDepletedLots implements ShouldQueue
     public function __construct(int $retentionDays = 30)
     {
         $this->retentionDays = $retentionDays;
-        $this->onQueue('lot-archive');
+        $this->onQueue('default');
     }
 
     /**
