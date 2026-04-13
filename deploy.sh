@@ -30,7 +30,6 @@ SUPERVISOR_PROGRAM="${SUPERVISOR_PROGRAM:-$(read_env SUPERVISOR_PROGRAM "")}"
 USE_NPM="${USE_NPM:-$(read_env USE_NPM 1)}"
 RUN_MIGRATE="${RUN_MIGRATE:-$(read_env RUN_MIGRATE 1)}"
 RUN_BUILD="${RUN_BUILD:-$(read_env RUN_BUILD 1)}"
-RUN_QUEUE_RESTART="${RUN_QUEUE_RESTART:-$(read_env RUN_QUEUE_RESTART 1)}"
 
 LOCK_FILE="/tmp/$(basename "$APP_DIR")-deploy.lock"
 
@@ -56,7 +55,6 @@ echo "SUPERVISOR_PROGRAM: ${SUPERVISOR_PROGRAM:-<none>}"
 echo "USE_NPM           : $USE_NPM"
 echo "RUN_MIGRATE       : $RUN_MIGRATE"
 echo "RUN_BUILD         : $RUN_BUILD"
-echo "RUN_QUEUE_RESTART : $RUN_QUEUE_RESTART"
 echo "======================================"
 
 if [[ ! -f artisan ]]; then
@@ -117,12 +115,7 @@ else
   echo "-> no frontend build"
 fi
 
-if [[ "${RUN_QUEUE_RESTART}" == "1" ]]; then
-  echo "-> laravel queue restart"
-  ${PHP_BIN} artisan queue:restart || true
-else
-  echo "-> skip laravel queue restart"
-fi
+
 
 if [[ -n "${SUPERVISOR_PROGRAM}" ]]; then
   echo "-> supervisor restart ${SUPERVISOR_PROGRAM}:*"
