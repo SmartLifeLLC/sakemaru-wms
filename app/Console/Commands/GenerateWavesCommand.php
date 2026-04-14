@@ -48,9 +48,9 @@ class GenerateWavesCommand extends Command
             ->get();
 
         if ($waveSettings->isEmpty()) {
-            $this->warn('No wave settings found with picking start time before '.$currentTime->format('H:i:s').'. Please create wave settings first.');
+            $this->info('No wave settings found with picking start time before '.$currentTime->format('H:i:s').'. Skipping.');
 
-            return 1;
+            return 0;
         }
 
         $this->info("Found {$waveSettings->count()} wave setting(s) eligible for generation");
