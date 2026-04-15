@@ -49,17 +49,39 @@ php artisan make:migration     # マイグレーション作成 → OK
    - データベース設計
    - ビジネスロジック
 
-3. **モーダルデザイン仕様**: `storage/specifications/20260311/modal-design/spec.md`
-   - 新規モーダル作成時は必ず参照すること
-   - 共通Bladeコンポーネント (`components/modal/*`) を使用
-   - 6種類のモーダルタイプ別テンプレート
-   - フォーム要素・ボタン・バッジの統一スタイル
+3. **モーダルデザイン仕様**: `~/.claude/design-knowledge/modal-design.md`（プロジェクト横断共通）
+   - **新規モーダル作成・既存モーダル修正時は必ず参照すること**
+   - ヘッダー紺色（#1e293b）、ボタン右寄せ、実行ボタン赤（danger）
+   - キャンセルは「〜せず閉じる」形式
+   - 大量選択肢のセレクトは ViewField + Alpine.js パターン
+   - CSS定義: `incoming-detail-modal` クラス（theme.css）
+   - 旧仕様書（参考）: `storage/specifications/20260311/modal-design/spec.md`
 
-4. **欠品管理仕様**: `storage/specifications/wms-shortage-allocations/20251115-shorage-algorithm.md`
+4. **メガメニュー仕様**: `~/.claude/design-knowledge/mega-menu.md`（プロジェクト横断共通）
+   - メガメニューの修正・新規タブ追加時に参照
+   - ヘッダー `bg-slate-800`、高さ 2.5rem、z-[35]
+   - 動的カラムレイアウト（1〜3列）、Split View 連携
+
+5. **テーブルタブ表示仕様**: `~/.claude/design-knowledge/table-tabs.md`（プロジェクト横断共通）
+   - 4パターン: getTabs() / PresetView / Form Schema Tabs / Sub-Navigation Tabs
+   - パターン選択ガイド・実装例・動的タブ生成・キャッシュ戦略
+   - テーブル固定高さ + 内部スクロール + sticky thead
+   - ストライプ行スタイル
+
+6. **ページスクロール制御仕様**: `~/.claude/design-knowledge/page-scroll-control.md`（プロジェクト横断共通）
+   - HTML overflow 制御、sticky カラム（右固定/左固定）
+   - Split View（左右分割パネル + ドラッグリサイズ）
+   - z-index 階層ルール
+
+7. **テーブルコンパクトデザイン仕様**: `~/.claude/design-knowledge/table-compact-design.md`（プロジェクト横断共通）
+   - 行コンパクト化、ページヘッダー余白、sticky-actions右固定、ストライプ行
+   - TextInputColumn幅固定、トップバー高さ調整
+
+8. **欠品管理仕様**: `storage/specifications/wms-shortage-allocations/20251115-shorage-algorithm.md`
    - 欠品検出と代理出荷のアルゴリズム
    - データ構造と状態管理
 
-4. **テーブルデザイン仕様**: `storage/specifications/table-design-specification.md`
+9. **テーブルデザイン仕様**: `storage/specifications/table-design-specification.md`
    - コード系ラベルは「CD」表記で統一（商品コード→商品CD）
    - コードと名前は別カラムに分離
    - 商品名は`wrap()`禁止、`grow()`で全体表示
