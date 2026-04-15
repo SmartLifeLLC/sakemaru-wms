@@ -203,6 +203,86 @@ html.fi {
     }
 }
 
+/* --- ページヘッダー・余白コンパクト化（@layer外で!important強制） --- */
+
+.fi-header-heading {
+    font-size: 1.25rem !important;
+    font-weight: 600 !important;
+    line-height: 1.75rem !important;
+}
+
+.fi-header {
+    padding: 0.25rem 0 !important;
+    margin: 0 !important;
+    gap: 0.25rem !important;
+}
+
+.fi-page-header-main-ctn {
+    padding: 0 !important;
+    margin: 0 !important;
+    margin-top: 0.25rem !important;
+    gap: 0 !important;
+}
+
+.fi-page-header {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.fi-page-main {
+    padding: 0 !important;
+    margin: 0 !important;
+    margin-top: -0.25rem !important;
+}
+
+.fi-page {
+    padding-top: 0.25rem !important;
+}
+
+.fi-ta {
+    margin-top: 0 !important;
+}
+
+.fi-section {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.fi-page-content {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0 !important;
+}
+
+.fi-page > .fi-page-content {
+    margin-top: 0 !important;
+}
+
+/* Advanced Tables Github theme: -mb-7 の重なりを緩和 */
+.fi-page-content .flex.-mb-7 {
+    margin-bottom: -0.5rem !important; /* -mb-2 equivalent */
+}
+
+/* Advanced Tables Github theme: アクティブタブのアンダーバー修正（Tailwind v4互換） */
+.advanced-tables-fav-bar-item-button::after {
+    content: "" !important;
+    height: 2px !important;
+}
+
+.fi-page-content > .grid {
+    gap: 0.25rem !important;
+}
+
+.fi-ta-header-heading {
+    font-size: 1rem !important;
+    font-weight: 500 !important;
+}
+
+.fi-ta-header {
+    padding: 0 !important;
+    margin-top: 0.25rem !important;
+    margin-bottom: 0.25rem !important;
+}
+
 /* セル（td）の上下余白を完全に潰す */
 .compact-cell {
     padding-top: 0 !important;
@@ -218,9 +298,15 @@ html.fi {
     margin-bottom: 0 !important;
 }
 
-.fi-ta-cell,
+/* セル内部要素: 上下5px確保（td > a.fi-ta-col > div構造に対応） */
 .fi-ta-cell > div,
-.fi-ta-text,
+.fi-ta-text {
+    padding-top: 5px !important;
+    padding-bottom: 5px !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    min-height: 0 !important;
+}
 .fi-input,
 .fi-select-input {
     padding-top: 0 !important;
@@ -252,7 +338,7 @@ html.fi {
 /* td（セル）の基本余白 */
 .fi-ta-cell,
 .compact-cell {
-    padding: 1px 2px !important; /* ← ここが希望の余白 */
+    padding: 5px 2px !important; /* ← ここが希望の余白 */
     height: auto !important;
     min-height: 0 !important;
 }
