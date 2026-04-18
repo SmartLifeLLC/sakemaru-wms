@@ -58,7 +58,7 @@ class ProxyShipmentQueryService
             ->toArray();
 
         return [
-            'data' => $data,
+            'items' => $data,
             'summary' => [
                 'total_count' => count($data),
                 'by_delivery_course' => $byDeliveryCourse,
@@ -83,7 +83,7 @@ class ProxyShipmentQueryService
         ])->findOrFail($allocationId);
 
         if ((int) $allocation->target_warehouse_id !== $warehouseId) {
-            abort(422, '指定された倉庫と一致しません');
+            throw new \InvalidArgumentException('指定された倉庫と一致しません');
         }
 
         return $allocation;

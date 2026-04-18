@@ -33,12 +33,12 @@ export function createProxyShipmentStore() {
                     this.shipmentDateFilter || null,
                     this.deliveryCourseFilter || null,
                 );
-                if (response.is_success && response.result) {
-                    this.allocations = response.result.data || [];
-                    this.summary = response.result.summary || null;
-                    if (response.result.meta?.business_date && !this.shipmentDateFilter) {
-                        this.shipmentDateFilter = response.result.meta.business_date;
-                        this.businessDate = response.result.meta.business_date;
+                if (response.is_success && response.result?.data) {
+                    this.allocations = response.result.data.items || [];
+                    this.summary = response.result.data.summary || null;
+                    if (response.result.data.meta?.business_date && !this.shipmentDateFilter) {
+                        this.shipmentDateFilter = response.result.data.meta.business_date;
+                        this.businessDate = response.result.data.meta.business_date;
                     }
                 }
             } finally {
@@ -81,7 +81,7 @@ export function createProxyShipmentStore() {
             if (response.is_success && response.result) {
                 this.lastResult = {
                     allocation: response.result.data,
-                    stockTransferQueueId: response.result.stock_transfer_queue_id,
+                    stockTransferQueueId: response.result.data.stock_transfer_queue_id,
                     message: response.result.message,
                 };
                 return true;
