@@ -70,8 +70,24 @@ class StockTransferQueueService
             ],
         ];
 
-        // request_idにはwms_shortage_allocations.idを使用
-        $requestId = (string) $allocation->id;
+        // request_idは "proxy-shipment-{allocation_id}" で重複防止
+        $requestId = "proxy-shipment-{$allocation->id}";
+
+        // べき等性: 同一request_idの既存queueが存在する場合はそのIDを返す
+        $existingQueueId = DB::connection('sakemaru')
+            ->table('stock_transfer_queue')
+            ->where('request_id', $requestId)
+            ->value('id');
+
+        if ($existingQueueId) {
+            Log::info('Stock transfer queue already exists (idempotent)', [
+                'queue_id' => $existingQueueId,
+                'allocation_id' => $allocation->id,
+                'request_id' => $requestId,
+            ]);
+
+            return (int) $existingQueueId;
+        }
 
         return DB::connection('sakemaru')->transaction(function () use (
             $allocation,

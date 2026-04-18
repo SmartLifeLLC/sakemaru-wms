@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\IncomingController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\Api\PickingTaskController;
+use App\Http\Controllers\Api\ProxyShipmentController;
 use Illuminate\Support\Facades\Route;
 
 // Internal API routes (for Filament pages, no API key required)
@@ -43,5 +44,12 @@ Route::middleware('api.key')->group(function () {
         Route::post('/incoming/work-items/{id}/complete', [IncomingController::class, 'completeWork']);
         Route::delete('/incoming/work-items/{id}', [IncomingController::class, 'cancelWork']);
         Route::get('/incoming/locations', [IncomingController::class, 'searchLocations']);
+
+        // Proxy shipment (横持ち出荷) endpoints
+        Route::get('/proxy-shipments', [ProxyShipmentController::class, 'index']);
+        Route::get('/proxy-shipments/{id}', [ProxyShipmentController::class, 'show']);
+        Route::post('/proxy-shipments/{id}/start', [ProxyShipmentController::class, 'start']);
+        Route::post('/proxy-shipments/{id}/update', [ProxyShipmentController::class, 'update']);
+        Route::post('/proxy-shipments/{id}/complete', [ProxyShipmentController::class, 'complete']);
     });
 });

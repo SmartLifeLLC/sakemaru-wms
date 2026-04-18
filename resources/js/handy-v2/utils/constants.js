@@ -10,6 +10,9 @@ export const SCREENS = {
     PICKING_ITEM: 'picking-item',
     PICKING_COMPLETE: 'picking-complete',
     PICKING_RESULT: 'picking-result',
+    PROXY_SHIPMENT_LIST: 'proxy-shipment-list',
+    PROXY_SHIPMENT_ITEM: 'proxy-shipment-item',
+    PROXY_SHIPMENT_RESULT: 'proxy-shipment-result',
     SETTINGS: 'settings',
 };
 
@@ -17,6 +20,7 @@ export const SCREENS = {
 export const TABS = {
     INCOMING: 'incoming',
     PICKING: 'picking',
+    PROXY_SHIPMENT: 'proxy-shipment',
     SETTINGS: 'settings',
 };
 

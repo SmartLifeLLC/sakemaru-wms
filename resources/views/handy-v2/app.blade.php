@@ -55,6 +55,17 @@
 
                     <button
                         class="wms-side-nav-item"
+                        :class="{ 'active': currentTab === TABS.PROXY_SHIPMENT }"
+                        @click="switchTab(TABS.PROXY_SHIPMENT)"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                        </svg>
+                        <span>横持</span>
+                    </button>
+
+                    <button
+                        class="wms-side-nav-item"
                         :class="{ 'active': currentTab === TABS.SETTINGS }"
                         @click="switchTab(TABS.SETTINGS)"
                     >
@@ -111,6 +122,21 @@
                     {{-- Picking: Result --}}
                     <template x-if="currentScreen === SCREENS.PICKING_RESULT">
                         @include('handy-v2.partials.picking.result')
+                    </template>
+
+                    {{-- Proxy Shipment: List --}}
+                    <template x-if="currentScreen === SCREENS.PROXY_SHIPMENT_LIST">
+                        @include('handy-v2.partials.proxy-shipment.list')
+                    </template>
+
+                    {{-- Proxy Shipment: Item --}}
+                    <template x-if="currentScreen === SCREENS.PROXY_SHIPMENT_ITEM">
+                        @include('handy-v2.partials.proxy-shipment.item')
+                    </template>
+
+                    {{-- Proxy Shipment: Result --}}
+                    <template x-if="currentScreen === SCREENS.PROXY_SHIPMENT_RESULT">
+                        @include('handy-v2.partials.proxy-shipment.result')
                     </template>
 
                     {{-- Settings --}}
