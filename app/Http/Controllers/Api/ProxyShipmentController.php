@@ -2,16 +2,16 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
 use App\Models\WmsPicker;
 use App\Models\WmsShortageAllocation;
 use App\Services\Shortage\ProxyShipmentPickingService;
 use App\Services\Shortage\ProxyShipmentQueryService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
-class ProxyShipmentController extends Controller
+class ProxyShipmentController extends ApiController
 {
     public function __construct(
         protected ProxyShipmentQueryService $queryService,
@@ -37,11 +37,7 @@ class ProxyShipmentController extends Controller
             $validated['delivery_course_id'] ?? null,
         );
 
-        return response()->json([
-            'is_success' => true,
-            'code' => 'SUCCESS',
-            'result' => $result,
-        ]);
+        return $this->success($result, '横持ち出荷一覧を取得しました');
     }
 
     /**
@@ -55,15 +51,18 @@ class ProxyShipmentController extends Controller
             'warehouse_id' => 'required|integer',
         ]);
 
-        $allocation = $this->queryService->findForWarehouse($id, $validated['warehouse_id']);
+        try {
+            $allocation = $this->queryService->findForWarehouse($id, $validated['warehouse_id']);
+        } catch (ModelNotFoundException $e) {
+            return $this->notFound($e->getMessage() ?: '横持ち出荷が見つかりません');
+        } catch (\InvalidArgumentException $e) {
+            return $this->validationError([], $e->getMessage());
+        }
 
-        return response()->json([
-            'is_success' => true,
-            'code' => 'SUCCESS',
-            'result' => [
-                'data' => $this->queryService->formatDetailResponse($allocation),
-            ],
-        ]);
+        return $this->success(
+            $this->queryService->formatDetailResponse($allocation),
+            '横持ち出荷詳細を取得しました'
+        );
     }
 
     /**
@@ -77,19 +76,21 @@ class ProxyShipmentController extends Controller
             'warehouse_id' => 'required|integer',
         ]);
 
-        $allocation = $this->findAndValidateAllocation($id, $validated['warehouse_id']);
-        $picker = $this->resolvePicker($request);
+        try {
+            $allocation = $this->findAndValidateAllocation($id, $validated['warehouse_id']);
+            $picker = $this->resolvePicker($request);
+        } catch (ModelNotFoundException $e) {
+            return $this->notFound($e->getMessage() ?: '横持ち出荷が見つかりません');
+        } catch (\InvalidArgumentException $e) {
+            return $this->validationError([], $e->getMessage());
+        }
 
         $updated = $this->pickingService->start($allocation, $picker);
 
-        return response()->json([
-            'is_success' => true,
-            'code' => 'SUCCESS',
-            'result' => [
-                'data' => $this->queryService->formatAllocation($updated),
-                'message' => '横���ち出荷を開始しました',
-            ],
-        ]);
+        return $this->success(
+            $this->queryService->formatAllocation($updated),
+            '横持ち出荷を開始しました'
+        );
     }
 
     /**
@@ -106,19 +107,21 @@ class ProxyShipmentController extends Controller
             'picked_qty' => "required|integer|min:0|max:{$allocation->assign_qty}",
         ]);
 
-        $allocation = $this->findAndValidateAllocation($id, $validated['warehouse_id']);
-        $picker = $this->resolvePicker($request);
+        try {
+            $allocation = $this->findAndValidateAllocation($id, $validated['warehouse_id']);
+            $picker = $this->resolvePicker($request);
+        } catch (ModelNotFoundException $e) {
+            return $this->notFound($e->getMessage() ?: '横持ち出荷が見つかりません');
+        } catch (\InvalidArgumentException $e) {
+            return $this->validationError([], $e->getMessage());
+        }
 
         $updated = $this->pickingService->update($allocation, $picker, $validated['picked_qty']);
 
-        return response()->json([
-            'is_success' => true,
-            'code' => 'SUCCESS',
-            'result' => [
-                'data' => $this->queryService->formatAllocation($updated),
-                'message' => 'ピック���を更新しました',
-            ],
-        ]);
+        return $this->success(
+            $this->queryService->formatAllocation($updated),
+            'ピック数を更新しました'
+        );
     }
 
     /**
@@ -133,18 +136,21 @@ class ProxyShipmentController extends Controller
             'picked_qty' => 'nullable|integer|min:0',
         ]);
 
-        $allocation = $this->findAndValidateAllocation($id, $validated['warehouse_id']);
-        $picker = $this->resolvePicker($request);
+        try {
+            $allocation = $this->findAndValidateAllocation($id, $validated['warehouse_id']);
+            $picker = $this->resolvePicker($request);
+        } catch (ModelNotFoundException $e) {
+            return $this->notFound($e->getMessage() ?: '横持ち出荷が見つかりません');
+        } catch (\InvalidArgumentException $e) {
+            return $this->validationError([], $e->getMessage());
+        }
 
         // picked_qty > assign_qty のバリデーション（picked_qtyが指定された場合）
         if (isset($validated['picked_qty']) && $validated['picked_qty'] > $allocation->assign_qty) {
-            return response()->json([
-                'is_success' => false,
-                'code' => 'VALIDATION_ERROR',
-                'result' => [
-                    'message' => "ピック数({$validated['picked_qty']})が指��数({$allocation->assign_qty})を超えています",
-                ],
-            ], 422);
+            return $this->validationError(
+                ['picked_qty' => ["ピック数({$validated['picked_qty']})が指示数({$allocation->assign_qty})を超えています"]],
+                "ピック数({$validated['picked_qty']})が指示数({$allocation->assign_qty})を超えています"
+            );
         }
 
         $result = $this->pickingService->complete(
@@ -153,19 +159,17 @@ class ProxyShipmentController extends Controller
             $validated['picked_qty'] ?? null,
         );
 
-        return response()->json([
-            'is_success' => true,
-            'code' => 'SUCCESS',
-            'result' => [
-                'data' => $this->queryService->formatAllocation($result['allocation']),
-                'stock_transfer_queue_id' => $result['stock_transfer_queue_id'],
-                'message' => '横持ち出荷を完了しました',
-            ],
-        ]);
+        $data = $this->queryService->formatAllocation($result['allocation']);
+        $data['stock_transfer_queue_id'] = $result['stock_transfer_queue_id'];
+
+        return $this->success($data, '横持ち出荷を完了しました');
     }
 
     /**
      * allocation を取得し、倉庫一致・ステータス検証
+     *
+     * @throws ModelNotFoundException
+     * @throws \InvalidArgumentException
      */
     protected function findAndValidateAllocation(int $id, int $warehouseId): WmsShortageAllocation
     {
@@ -178,15 +182,15 @@ class ProxyShipmentController extends Controller
         ])->find($id);
 
         if (! $allocation) {
-            abort(404, '横持ち出荷が見つかりません');
+            throw new ModelNotFoundException('横持ち出荷が見つかりません');
         }
 
         if ((int) $allocation->target_warehouse_id !== $warehouseId) {
-            abort(422, '指定された倉庫と一致しません');
+            throw new \InvalidArgumentException('指定された倉庫と一致しません');
         }
 
         if (! $allocation->is_confirmed) {
-            abort(422, 'この横持ち出荷はまだ確定されていません');
+            throw new \InvalidArgumentException('この横持ち出荷はまだ確定されていません');
         }
 
         // 完了済みの場合はcompleteのべき等性用にそのまま返す
@@ -198,7 +202,7 @@ class ProxyShipmentController extends Controller
             WmsShortageAllocation::STATUS_RESERVED,
             WmsShortageAllocation::STATUS_PICKING,
         ])) {
-            abort(422, 'この横持ち出荷は操作できません（ステータス: ' . $allocation->status . '）');
+            throw new \InvalidArgumentException('この横持ち出荷は操作できません（ステータス: ' . $allocation->status . '）');
         }
 
         return $allocation;
@@ -206,6 +210,8 @@ class ProxyShipmentController extends Controller
 
     /**
      * リクエストからピッカーを解決
+     *
+     * @throws \InvalidArgumentException
      */
     protected function resolvePicker(Request $request): WmsPicker
     {
@@ -215,7 +221,7 @@ class ProxyShipmentController extends Controller
             return $user;
         }
 
-        // Sanctum token の tokenable が WmsPicker ���場合
+        // Sanctum token の tokenable が WmsPicker の場合
         if ($user && method_exists($user, 'currentAccessToken')) {
             $token = $user->currentAccessToken();
             if ($token && $token->tokenable instanceof WmsPicker) {
@@ -227,6 +233,6 @@ class ProxyShipmentController extends Controller
             'user_class' => $user ? get_class($user) : 'null',
         ]);
 
-        abort(422, 'ピッカー情報を解決できません');
+        throw new \InvalidArgumentException('ピッカー情報を解決できません');
     }
 }
