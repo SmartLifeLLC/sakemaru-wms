@@ -6,6 +6,7 @@ import { createWarehouseStore } from './stores/warehouse';
 import { createNotificationStore } from './stores/notification';
 import { createIncomingStore } from './stores/incoming';
 import { createPickingStore } from './stores/picking';
+import { createProxyShipmentStore } from './stores/proxy-shipment';
 import { createBarcodeHandler } from './components/shared/barcode-input';
 import { SCREENS, TABS } from './utils/constants';
 
@@ -25,6 +26,7 @@ window.handyV2App = function () {
         notification: createNotificationStore(),
         incoming: createIncomingStore(),
         picking: createPickingStore(),
+        proxyShipment: createProxyShipmentStore(),
 
         // Barcode handler
         _barcodeHandler: null,
@@ -136,6 +138,10 @@ window.handyV2App = function () {
                 case TABS.PICKING:
                     this.currentScreen = SCREENS.PICKING_TASKS;
                     this.loadPickingTasks();
+                    break;
+                case TABS.PROXY_SHIPMENT:
+                    this.currentScreen = SCREENS.PROXY_SHIPMENT_LIST;
+                    this.loadProxyShipments();
                     break;
                 case TABS.SETTINGS:
                     this.currentScreen = SCREENS.SETTINGS;
@@ -406,6 +412,100 @@ window.handyV2App = function () {
             this.loadPickingTasks();
         },
 
+        // === Proxy Shipment: List ===
+        async loadProxyShipments() {
+            if (!this.warehouse.selectedId) return;
+            this.isLoading = true;
+            try {
+                await this.proxyShipment.loadAllocations(this.warehouse.selectedId);
+            } catch (e) {
+                this.notification.error(e.message || '横持ち出荷の取得に失敗しました');
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        async openProxyShipmentItem(alloc) {
+            if (!this.warehouse.selectedId) return;
+            this.isLoading = true;
+            try {
+                const loaded = await this.proxyShipment.loadDetail(
+                    alloc.allocation_id,
+                    this.warehouse.selectedId,
+                );
+                if (loaded) {
+                    // Start the allocation if RESERVED
+                    if (alloc.status === 'RESERVED') {
+                        await this.proxyShipment.startAllocation(
+                            alloc.allocation_id,
+                            this.warehouse.selectedId,
+                        );
+                    }
+                    this.currentScreen = SCREENS.PROXY_SHIPMENT_ITEM;
+                } else {
+                    this.notification.error('詳細の取得に失敗しました');
+                }
+            } catch (e) {
+                this.notification.error(e.message || '横持ち出荷の開始に失敗しました');
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        async updateProxyShipment() {
+            if (!this.proxyShipment.currentAllocation || !this.warehouse.selectedId) return;
+            this.isLoading = true;
+            try {
+                const success = await this.proxyShipment.updateAllocation(
+                    this.proxyShipment.currentAllocation.allocation_id,
+                    this.warehouse.selectedId,
+                    this.proxyShipment.pickedQty,
+                );
+                if (success) {
+                    this.notification.success('ピック数を更新しました');
+                } else {
+                    this.notification.error('更新に失敗しました');
+                }
+            } catch (e) {
+                this.notification.error(e.message || '更新に失敗しました');
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        async completeProxyShipment() {
+            if (!this.proxyShipment.currentAllocation || !this.warehouse.selectedId) return;
+            this.isLoading = true;
+            try {
+                const success = await this.proxyShipment.completeAllocation(
+                    this.proxyShipment.currentAllocation.allocation_id,
+                    this.warehouse.selectedId,
+                    this.proxyShipment.pickedQty,
+                );
+                if (success) {
+                    this.currentScreen = SCREENS.PROXY_SHIPMENT_RESULT;
+                    this.notification.success('横持ち出荷を完了しました');
+                } else {
+                    this.notification.error('完了に失敗しました');
+                }
+            } catch (e) {
+                this.notification.error(e.message || '完了に失敗しました');
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        backFromProxyShipmentItem() {
+            this.proxyShipment.reset();
+            this.currentScreen = SCREENS.PROXY_SHIPMENT_LIST;
+        },
+
+        backToProxyShipmentList() {
+            this.proxyShipment.reset();
+            this.currentScreen = SCREENS.PROXY_SHIPMENT_LIST;
+            this.loadProxyShipments();
+        },
+
         // === Logout ===
         async logout() {
             this.isLoading = true;
@@ -416,6 +516,7 @@ window.handyV2App = function () {
                 this.warehouse.clear();
                 this.incoming.reset();
                 this.picking.reset();
+                this.proxyShipment.resetAll();
                 this.currentScreen = SCREENS.LOGIN;
                 this.currentTab = TABS.INCOMING;
             }

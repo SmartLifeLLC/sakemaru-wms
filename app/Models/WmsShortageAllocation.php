@@ -32,6 +32,9 @@ class WmsShortageAllocation extends Model
         'finished_at',
         'finished_user_id',
         'created_by',
+        'started_at',
+        'started_picker_id',
+        'finished_picker_id',
     ];
 
     protected $casts = [
@@ -45,6 +48,7 @@ class WmsShortageAllocation extends Model
         'confirmed_at' => 'datetime',
         'is_finished' => 'boolean',
         'finished_at' => 'datetime',
+        'started_at' => 'datetime',
     ];
 
     // Status constants
@@ -96,6 +100,16 @@ class WmsShortageAllocation extends Model
         return $this->belongsTo(\App\Models\Sakemaru\DeliveryCourse::class, 'delivery_course_id');
     }
 
+    public function startedPicker(): BelongsTo
+    {
+        return $this->belongsTo(WmsPicker::class, 'started_picker_id');
+    }
+
+    public function finishedPicker(): BelongsTo
+    {
+        return $this->belongsTo(WmsPicker::class, 'finished_picker_id');
+    }
+
     // Scopes
     public function scopePending($query)
     {
@@ -120,6 +134,13 @@ class WmsShortageAllocation extends Model
     public function scopeForShortage($query, int $shortageId)
     {
         return $query->where('shortage_id', $shortageId);
+    }
+
+    public function scopeReadyForProxyPicking($query)
+    {
+        return $query->where('is_confirmed', true)
+            ->where('is_finished', false)
+            ->whereIn('status', [self::STATUS_RESERVED, self::STATUS_PICKING]);
     }
 
     public function scopeConfirmed($query)
