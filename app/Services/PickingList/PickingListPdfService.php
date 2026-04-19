@@ -458,6 +458,177 @@ class PickingListPdfService
     }
 
     // ========================================
+    // 横持ち出荷ピッキングリスト（A4横）
+    // ========================================
+
+    // 横持ち出荷: No/得意先/商品CD/JAN CD/商品名/規格/棚番/区分/数量/出荷数
+    private const PROXY_COL_WIDTHS = [
+        'no' => 10,
+        'customer' => 42,
+        'item_code' => 25,
+        'jan_code' => 32,
+        'item_name' => 62,
+        'packaging' => 22,
+        'location' => 28,
+        'qty_type' => 15,
+        'qty' => 16,
+        'ship_qty' => 25,
+    ];
+
+    /**
+     * 横持ち出荷ピッキングリストPDF描画（配送コース別ページ分割）
+     */
+    public function renderProxyShipmentPdf(array $data): string
+    {
+        if (empty($data['courses'])) {
+            return '';
+        }
+
+        $this->initPdf('L', '横持ち出荷ピッキングリスト');
+
+        foreach ($data['courses'] as $courseData) {
+            if (empty($courseData['items'])) {
+                continue;
+            }
+
+            $this->pdf->AddPage();
+            $this->currentY = self::MARGIN;
+
+            $this->renderProxyHeader($courseData['header']);
+            $this->renderProxyTable($courseData['items'], $courseData['header']);
+            $this->renderProxySummary($courseData['summary']);
+        }
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderPageNumbers(self::PRIMARY_PAGE_WIDTH, self::PRIMARY_PAGE_HEIGHT);
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    private function renderProxyHeader(array $header): void
+    {
+        // 左上: 配��コース���（大きめ）
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH / 2, 8, $header['course_name'] ?? '', 0, 0, 'L');
+
+        // 右上: タイトル
+        $this->pdf->SetXY(self::MARGIN + self::PRIMARY_CONTENT_WIDTH / 2, $this->currentY);
+        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH / 2, 8, '横持ち出荷ピッキングリス��', 0, 0, 'R');
+        $this->currentY += 10;
+
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
+
+        // 左側: 倉庫
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(140, self::LINE_HEIGHT, 'ピッキング倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'L');
+
+        // 右側: ��刷日時
+        $this->pdf->SetXY(self::MARGIN + 140, $this->currentY);
+        $this->pdf->Cell(137, self::LINE_HEIGHT, '印刷日時: '.now()->format('Y-m-d H:i'), 0, 0, 'R');
+        $this->currentY += self::LINE_HEIGHT;
+
+        // 左側: 出荷���
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(140, self::LINE_HEIGHT, '出荷日: '.($header['shipment_date'] ?? ''), 0, 0, 'L');
+
+        // 右側: 担当者名
+        $this->pdf->SetXY(self::MARGIN + 140, $this->currentY);
+        $this->pdf->Cell(137, self::LINE_HEIGHT, '担当者名: '.($header['operator_name'] ?? ''), 0, 0, 'R');
+        $this->currentY += self::LINE_HEIGHT + 3;
+    }
+
+    private function renderProxyTableHeader(): void
+    {
+        $headers = ['No', '得意先', '商品CD', 'JAN CD', '商品名', '規格', '棚番', '区分', '数量', '出荷数'];
+        $aligns = ['C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C'];
+        $widths = array_values(self::PROXY_COL_WIDTHS);
+
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+
+        $x = self::MARGIN;
+        $y = $this->currentY;
+        $tableWidth = array_sum($widths);
+
+        // 上線
+        $this->pdf->Line($x, $y, $x + $tableWidth, $y);
+
+        foreach ($headers as $i => $header) {
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell($widths[$i], self::TABLE_ROW_HEIGHT, $header, 0, 0, $aligns[$i]);
+            $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+            $x += $widths[$i];
+        }
+        $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+
+        // 下線
+        $this->pdf->Line(self::MARGIN, $y + self::TABLE_ROW_HEIGHT, self::MARGIN + $tableWidth, $y + self::TABLE_ROW_HEIGHT);
+        $this->currentY = $y + self::TABLE_ROW_HEIGHT;
+    }
+
+    private function renderProxyTable(array $items, array $header): void
+    {
+        $this->renderProxyTableHeader();
+
+        $widths = array_values(self::PROXY_COL_WIDTHS);
+        $tableWidth = array_sum($widths);
+
+        foreach ($items as $index => $item) {
+            // 改ページチェック
+            if ($this->currentY + self::TABLE_ROW_HEIGHT > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
+                $this->pdf->AddPage();
+                $this->currentY = self::MARGIN;
+                $this->renderProxyHeader($header);
+                $this->renderProxyTableHeader();
+            }
+
+            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+            $x = self::MARGIN;
+            $y = $this->currentY;
+
+            $rowData = [
+                $index + 1,
+                $this->truncateText($item['customer_name'], $widths[1] - 2),
+                $item['item_code'],
+                $item['jan_code'],
+                $this->truncateText($item['item_name'], $widths[4] - 2),
+                $this->truncateText($item['packaging'] ?? '', $widths[5] - 2),
+                $item['location_code'],
+                $item['qty_type'],
+                $item['assign_qty'],
+                '',
+            ];
+
+            $aligns = ['R', 'L', 'L', 'L', 'L', 'L', 'L', 'C', 'R', 'R'];
+
+            foreach ($rowData as $i => $value) {
+                $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
+                $cellW = $widths[$i] - ($aligns[$i] === 'L' ? 1 : 0);
+                $this->pdf->SetXY($cellX, $y);
+                $this->pdf->Cell($cellW, self::TABLE_ROW_HEIGHT, $value, 0, 0, $aligns[$i]);
+                $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+                $x += $widths[$i];
+            }
+            $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+            $this->pdf->Line(self::MARGIN, $y + self::TABLE_ROW_HEIGHT, self::MARGIN + $tableWidth, $y + self::TABLE_ROW_HEIGHT);
+
+            $this->currentY = $y + self::TABLE_ROW_HEIGHT;
+        }
+    }
+
+    private function renderProxySummary(array $summary): void
+    {
+        $this->currentY += 3;
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, self::LINE_HEIGHT,
+            sprintf('合計  明細数: %d',
+                $summary['total_items']
+            ), 0, 0, 'L');
+    }
+
+    // ========================================
     // バッチレンダリング（複数Wave/タスク一括）
     // ========================================
 

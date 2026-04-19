@@ -114,6 +114,25 @@ class WmsShortageAllocationsFinishedTable
                     })
                     ->alignment('center'),
 
+                TextColumn::make('is_synced')
+                    ->label('同期')
+                    ->badge()
+                    ->getStateUsing(function (WmsShortageAllocation $record): string {
+                        if ($record->status !== 'SHORTAGE') {
+                            return '不要';
+                        }
+
+                        return $record->is_synced ? '同期済み' : '未同期';
+                    })
+                    ->color(function (WmsShortageAllocation $record): string {
+                        if ($record->status !== 'SHORTAGE') {
+                            return 'gray';
+                        }
+
+                        return $record->is_synced ? 'success' : 'warning';
+                    })
+                    ->alignment('center'),
+
                 TextColumn::make('finished_at')
                     ->label('完了日時')
                     ->dateTime('Y-m-d H:i')

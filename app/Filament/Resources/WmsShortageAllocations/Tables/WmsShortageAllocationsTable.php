@@ -15,9 +15,9 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
-use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
@@ -33,7 +33,7 @@ class WmsShortageAllocationsTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->striped()
-            ->extraAttributes(['class' => 'sticky-actions-left'])
+            ->extraAttributes(['class' => 'sticky-actions'])
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -98,6 +98,7 @@ class WmsShortageAllocationsTable
                     ->type('number')
                     ->rules(['required', 'integer', 'min:0'])
                     ->disabled(fn (WmsShortageAllocation $record): bool => ! in_array($record->status, ['RESERVED', 'PICKING'])
+                        || $record->target_warehouse_id !== auth()->user()?->default_warehouse_id
                     )
                     ->afterStateUpdated(function (WmsShortageAllocation $record, $state) {
                         // picked_qtyがassign_qtyを超えないようにチェック
@@ -217,13 +218,24 @@ class WmsShortageAllocationsTable
                     ->label('完了')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn (WmsShortageAllocation $record): bool => ! $record->is_finished && in_array($record->status, ['PICKING', 'RESERVED'])
+                    ->visible(fn (WmsShortageAllocation $record): bool => ! $record->is_finished
+                        && in_array($record->status, ['PICKING', 'RESERVED'])
+                        && $record->target_warehouse_id === auth()->user()?->default_warehouse_id
                     )
-                    ->requiresConfirmation()
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalHeading('横持ち出荷の完了確認')
-                    ->modalDescription(fn (WmsShortageAllocation $record): string => "予定数: {$record->assign_qty}、ピック数: {$record->picked_qty}、欠品数: {$record->remaining_qty}"
+                    ->modalDescription(fn (WmsShortageAllocation $record): string => $record->remaining_qty > 0
+                        ? "予定数: {$record->assign_qty}、ピック数: {$record->picked_qty}、欠品数: {$record->remaining_qty}\n欠品として確定しますか？このまま確定すると欠品状態になります。"
+                        : "予定数: {$record->assign_qty}、ピック数: {$record->picked_qty}"
                     )
-                    ->modalSubmitActionLabel('完了')
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(
+                        fn ($action) => $action
+                            ->makeModalSubmitAction('submit', [])
+                            ->label('確定')
+                            ->color('danger')
+                    )
+                    ->modalCancelActionLabel('確定せず閉じる')
                     ->action(function (WmsShortageAllocation $record): void {
                         $record->is_finished = true;
                         $record->finished_at = now();
@@ -232,7 +244,7 @@ class WmsShortageAllocationsTable
                         // 完了時のステータス判定
                         if ($record->picked_qty >= $record->assign_qty) {
                             $record->status = 'FULFILLED';
-                        } elseif ($record->picked_qty > 0 && $record->remaining_qty > 0) {
+                        } else {
                             $record->status = 'SHORTAGE';
                         }
 
@@ -243,14 +255,15 @@ class WmsShortageAllocationsTable
                             $queueService = app(StockTransferQueueService::class);
                             $queueId = $queueService->createStockTransferQueue($record);
 
-                            $message = '横持ち出荷を完了しました';
+                            $statusLabel = $record->status === 'FULFILLED' ? '完了' : '欠品確定';
+                            $message = "横持ち出荷を{$statusLabel}しました";
                             if ($queueId) {
                                 $message .= "\n倉庫移動伝票キューID: {$queueId}";
                             }
 
                             Notification::make()
                                 ->title($message)
-                                ->body("ステータス: {$record->status}")
+                                ->body("ステータス: {$statusLabel}")
                                 ->success()
                                 ->send();
                         } catch (\Exception $e) {
@@ -267,7 +280,9 @@ class WmsShortageAllocationsTable
                     ->label('修正')
                     ->icon('heroicon-o-pencil-square')
                     ->color('warning')
-                    ->visible(fn (WmsShortageAllocation $record): bool => $record->remaining_qty > 0 && in_array($record->status, ['PICKING', 'RESERVED'])
+                    ->visible(fn (WmsShortageAllocation $record): bool => $record->remaining_qty > 0
+                        && in_array($record->status, ['PICKING', 'RESERVED'])
+                        && $record->target_warehouse_id === auth()->user()?->default_warehouse_id
                     )
                     ->modalHeading('横持ち出荷修正')
                     ->modalSubmitActionLabel('確定')
@@ -577,18 +592,32 @@ class WmsShortageAllocationsTable
                                 ->send();
                         }
                     }),
-            ], position: RecordActionsPosition::BeforeColumns)
+            ])
             ->bulkActions([
                 BulkActionGroup::make([
                     BulkAction::make('bulkComplete')
                         ->label('一括完了')
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
-                        ->requiresConfirmation()
+                        ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                         ->modalHeading('横持ち出荷の一括完了確認')
-                        ->modalDescription(fn (Collection $records): string => "選択された {$records->count()} 件の横持ち出荷を完了します。"
+                        ->modalDescription(function (Collection $records): string {
+                            $shortageRecords = $records->filter(fn ($r) => $r->remaining_qty > 0);
+                            $message = "選択された {$records->count()} 件の横持ち出荷を完了します。";
+                            if ($shortageRecords->isNotEmpty()) {
+                                $message .= "\n⚠ {$shortageRecords->count()} 件は欠品として確定されます。";
+                            }
+
+                            return $message;
+                        })
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(
+                            fn ($action) => $action
+                                ->makeModalSubmitAction('submit', [])
+                                ->label('確定')
+                                ->color('danger')
                         )
-                        ->modalSubmitActionLabel('完了')
+                        ->modalCancelActionLabel('確定せず閉じる')
                         ->action(function (Collection $records): void {
                             $userId = auth()->id();
                             $completedCount = 0;
@@ -613,7 +642,7 @@ class WmsShortageAllocationsTable
                                 if ($record->picked_qty >= $record->assign_qty) {
                                     $record->status = 'FULFILLED';
                                     $fulfilledCount++;
-                                } elseif ($record->picked_qty > 0 && $record->remaining_qty > 0) {
+                                } else {
                                     $record->status = 'SHORTAGE';
                                     $shortageCount++;
                                 }

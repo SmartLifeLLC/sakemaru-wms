@@ -35,6 +35,8 @@ class WmsShortageAllocation extends Model
         'started_at',
         'started_picker_id',
         'finished_picker_id',
+        'is_synced',
+        'is_synced_at',
     ];
 
     protected $casts = [
@@ -49,6 +51,8 @@ class WmsShortageAllocation extends Model
         'is_finished' => 'boolean',
         'finished_at' => 'datetime',
         'started_at' => 'datetime',
+        'is_synced' => 'boolean',
+        'is_synced_at' => 'datetime',
     ];
 
     // Status constants
@@ -187,6 +191,26 @@ class WmsShortageAllocation extends Model
     public function isFinished(): bool
     {
         return $this->is_finished === true;
+    }
+
+    public function isSynced(): bool
+    {
+        return $this->is_synced === true;
+    }
+
+    /**
+     * ai-core同期が必要か（欠品完了済み・未同期）
+     */
+    public function needsSync(): bool
+    {
+        return $this->status === self::STATUS_SHORTAGE && $this->is_finished && ! $this->is_synced;
+    }
+
+    public function scopeNeedingSync($query)
+    {
+        return $query->where('status', self::STATUS_SHORTAGE)
+            ->where('is_finished', true)
+            ->where('is_synced', false);
     }
 
     /**

@@ -73,10 +73,10 @@
 
 | DB カラム | API フィールド | 意味 |
 |----------|--------------|------|
-| `target_warehouse_id` | `pickup_warehouse` | **出荷元**（ピッキングする倉庫） |
-| `source_warehouse_id` | `destination_warehouse` | **送り先**（商品を届ける倉庫） |
+| `target_warehouse_id` | `pickup_warehouse` | **出荷元**（在庫がある倉庫、ピッキングする倉庫） |
+| `source_warehouse_id` | `destination_warehouse` | **届け先**（欠品発生倉庫、商品を届ける倉庫） |
 
-> Android側は `pickup_warehouse` = 今いる倉庫、`destination_warehouse` = 送り先 と理解してよい。
+> Android側は `pickup_warehouse` = 今いる倉庫（`warehouse_id` で指定した倉庫）、`destination_warehouse` = 届け先 と理解してよい。
 
 ---
 
@@ -111,7 +111,7 @@
 #### リクエスト例
 
 ```
-GET /api/proxy-shipments?warehouse_id=992&shipment_date=2026-04-19
+GET /api/proxy-shipments?warehouse_id=1&shipment_date=2026-04-19
 ```
 
 #### レスポンス
@@ -129,14 +129,14 @@ GET /api/proxy-shipments?warehouse_id=992&shipment_date=2026-04-19
           "shipment_date": "2026-04-19",
           "status": "RESERVED",
           "pickup_warehouse": {
-            "id": 992,
-            "code": "2",
-            "name": "酒丸蔵 第2倉庫"
+            "id": 1,
+            "code": "1",
+            "name": "本店"
           },
           "destination_warehouse": {
-            "id": 991,
-            "code": "1",
-            "name": "酒丸蔵 本社"
+            "id": 91,
+            "code": "91",
+            "name": "華むすびの蔵センター"
           },
           "delivery_course": {
             "id": 100,
@@ -246,7 +246,7 @@ GET /api/proxy-shipments?warehouse_id=992&shipment_date=2026-04-19
 #### リクエスト例
 
 ```
-GET /api/proxy-shipments/123?warehouse_id=992
+GET /api/proxy-shipments/123?warehouse_id=1
 ```
 
 #### レスポンス
@@ -263,8 +263,8 @@ GET /api/proxy-shipments/123?warehouse_id=992
       "shortage_id": 456,
       "shipment_date": "2026-04-19",
       "status": "RESERVED",
-      "pickup_warehouse": { "id": 992, "code": "2", "name": "酒丸蔵 第2倉庫" },
-      "destination_warehouse": { "id": 991, "code": "1", "name": "酒丸蔵 本社" },
+      "pickup_warehouse": { "id": 1, "code": "1", "name": "本店" },
+      "destination_warehouse": { "id": 91, "code": "91", "name": "華むすびの蔵センター" },
       "delivery_course": { "id": 100, "code": "910072", "name": "佐藤 尚紀" },
       "item": { "..." : "（一覧と同じ）" },
       "assign_qty": 10,
@@ -326,7 +326,7 @@ GET /api/proxy-shipments/123?warehouse_id=992
 
 ```json
 {
-  "warehouse_id": 992
+  "warehouse_id": 1
 }
 ```
 
@@ -370,7 +370,7 @@ GET /api/proxy-shipments/123?warehouse_id=992
 
 ```json
 {
-  "warehouse_id": 992,
+  "warehouse_id": 1,
   "picked_qty": 8
 }
 ```
@@ -411,7 +411,7 @@ GET /api/proxy-shipments/123?warehouse_id=992
 
 ```json
 {
-  "warehouse_id": 992,
+  "warehouse_id": 1,
   "picked_qty": 10
 }
 ```

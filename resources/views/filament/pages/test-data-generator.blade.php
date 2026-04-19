@@ -157,6 +157,33 @@
                         </li>
                     </ul>
                 </div>
+
+                {{-- 横持出荷データ生成 --}}
+                <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                    <div class="flex items-center mb-4">
+                        <x-heroicon-o-arrows-right-left class="w-8 h-8 text-danger-600 dark:text-danger-400 mr-3" />
+                        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                            横持出荷データ生成
+                        </h2>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                        売上→Wave→欠品→横持ち出荷指示を一括生成します。Androidアプリでの横持ちピッキングテスト用です。
+                    </p>
+                    <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2">
+                        <li class="flex items-start">
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-danger-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>出荷倉庫・横持ち出荷倉庫を指定</span>
+                        </li>
+                        <li class="flex items-start">
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-danger-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>確定済みRESERVEDステータスで生成</span>
+                        </li>
+                        <li class="flex items-start">
+                            <x-heroicon-m-check-circle class="w-5 h-5 text-danger-500 mr-2 flex-shrink-0 mt-0.5" />
+                            <span>モバイルアプリから即ピッキング可能</span>
+                        </li>
+                    </ul>
+                </div>
             </div>
         </div>
         @endif

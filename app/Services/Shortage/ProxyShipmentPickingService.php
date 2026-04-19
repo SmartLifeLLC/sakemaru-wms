@@ -77,8 +77,8 @@ class ProxyShipmentPickingService
      */
     public function complete(WmsShortageAllocation $allocation, WmsPicker $picker, ?int $pickedQty = null): array
     {
-        // べき等性: 完了済みの再送は200を返す
-        if ($allocation->is_finished) {
+        // べき等性: 完了済み or 欠品確定済みの再送は200を返す
+        if ($allocation->is_finished || $allocation->status === WmsShortageAllocation::STATUS_SHORTAGE) {
             $existingQueueId = $this->findExistingQueueId($allocation);
 
             return [
@@ -102,15 +102,22 @@ class ProxyShipmentPickingService
             ? WmsShortageAllocation::STATUS_FULFILLED
             : WmsShortageAllocation::STATUS_SHORTAGE;
 
-        return DB::connection('sakemaru')->transaction(function () use ($allocation, $picker, $finalStatus, $finalPickedQty) {
-            // allocation 更新
-            $allocation->update([
+        $isFulfilled = $finalStatus === WmsShortageAllocation::STATUS_FULFILLED;
+
+        return DB::connection('sakemaru')->transaction(function () use ($allocation, $picker, $finalStatus, $finalPickedQty, $isFulfilled) {
+            // allocation 更新（欠品の場合は完了にしない → 管理画面に残す）
+            $updateData = [
                 'status' => $finalStatus,
                 'picked_qty' => $finalPickedQty,
-                'is_finished' => true,
-                'finished_at' => now(),
                 'finished_picker_id' => $picker->id,
-            ]);
+            ];
+
+            if ($isFulfilled) {
+                $updateData['is_finished'] = true;
+                $updateData['finished_at'] = now();
+            }
+
+            $allocation->update($updateData);
 
             // picked_qty > 0 の場合のみ stock_transfer_queue 作成
             $queueId = null;
