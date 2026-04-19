@@ -83,6 +83,7 @@ class TestDataGenerator extends Page
             'generatePickers',
             'generatePickerWave',
             'generateEarnings',
+            'generateProxyShipment',
         ];
     }
 
@@ -981,6 +982,117 @@ class TestDataGenerator extends Page
                         Notification::make()
                             ->title('売上データを生成しました')
                             ->body($body)
+                            ->success()
+                            ->send();
+                    } else {
+                        Notification::make()
+                            ->title('エラーが発生しました')
+                            ->body($output)
+                            ->danger()
+                            ->send();
+                    }
+                } catch (\Exception $e) {
+                    Notification::make()
+                        ->title('エラー')
+                        ->body($e->getMessage())
+                        ->danger()
+                        ->send();
+                }
+            });
+    }
+
+    public function generateProxyShipmentAction(): Action
+    {
+        return Action::make('generateProxyShipment')
+            ->label('横持出荷データ生成')
+            ->icon('heroicon-o-arrows-right-left')
+            ->color('danger')
+            ->requiresConfirmation()
+            ->modalHeading('横持ち出荷テストデータを生成')
+            ->modalDescription('売上生成 → Wave生成 → 欠品検出 → 横持ち出荷指示の一連の流れを自動実行します。横持ち出荷倉庫（在庫がある倉庫）の在庫商品を使って、出荷倉庫（欠品が発生する倉庫）の売上を生成し、欠品→横持ち出荷指示→確定まで自動で行います。')
+            ->modalWidth('2xl')
+            ->schema([
+                TextInput::make('count')
+                    ->label('生成する売上伝票数')
+                    ->numeric()
+                    ->default(3)
+                    ->required()
+                    ->minValue(1)
+                    ->maxValue(20),
+
+                Select::make('delivery_course_id')
+                    ->label('配送コース')
+                    ->options(function () {
+                        return DeliveryCourse::orderBy('warehouse_id')
+                            ->orderBy('code')
+                            ->get()
+                            ->mapWithKeys(function ($course) {
+                                $warehouse = Warehouse::find($course->warehouse_id);
+                                $warehouseName = $warehouse ? "[{$warehouse->code}]" : '';
+
+                                return [$course->id => "{$warehouseName} [{$course->code}] {$course->name}"];
+                            })
+                            ->toArray();
+                    })
+                    ->required()
+                    ->searchable(),
+
+                Select::make('shortage_warehouse_id')
+                    ->label('出荷倉庫（欠品が発生する倉庫）')
+                    ->helperText('この倉庫の売上として生成されます。在庫がないため欠品が発生���ます。')
+                    ->options(
+                        Warehouse::where('is_active', true)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}] {$w->name}"])
+                    )
+                    ->required()
+                    ->searchable(),
+
+                Select::make('proxy_warehouse_id')
+                    ->label('横持ち出荷倉庫（在庫がある倉庫）')
+                    ->helperText('この倉庫に在庫がある商品を使って売上を生成します。横持���出荷のピッキング対象倉庫になります。')
+                    ->options(
+                        Warehouse::where('is_active', true)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}] {$w->name}"])
+                    )
+                    ->required()
+                    ->searchable(),
+            ])
+            ->action(function (array $data): void {
+                try {
+                    if ($data['shortage_warehouse_id'] === $data['proxy_warehouse_id']) {
+                        Notification::make()
+                            ->title('エラー')
+                            ->body('出荷倉庫と横持ち出荷倉庫は異なる倉庫を指定してください。')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
+                    $params = [
+                        '--count' => $data['count'],
+                        '--shortage-warehouse-id' => $data['shortage_warehouse_id'],
+                        '--proxy-warehouse-id' => $data['proxy_warehouse_id'],
+                        '--delivery-course-id' => $data['delivery_course_id'],
+                    ];
+
+                    $exitCode = Artisan::call('testdata:proxy-shipment', $params);
+                    $output = Artisan::output();
+
+                    if ($exitCode === 0) {
+                        $shortageWarehouse = Warehouse::find($data['shortage_warehouse_id']);
+                        $proxyWarehouse = Warehouse::find($data['proxy_warehouse_id']);
+
+                        Notification::make()
+                            ->title('横持ち出荷テストデータを生成しました')
+                            ->body(
+                                "売上 {$data['count']} 件を生成し、欠品→横持ち出荷指示→確定まで完了しました。\n"
+                                ."出荷倉庫: {$shortageWarehouse?->name}\n"
+                                ."横持ち出荷倉庫: {$proxyWarehouse?->name}\n"
+                                .'ステータス: RESERVED（モバイルアプリからピッキング可能）'
+                            )
                             ->success()
                             ->send();
                     } else {
