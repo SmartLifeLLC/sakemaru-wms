@@ -4,6 +4,8 @@ namespace App\Filament\Resources\WmsShortageAllocations\Pages;
 
 use App\Models\Sakemaru\Warehouse;
 use Archilex\AdvancedTables\Components\PresetView;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
 class ListWarehouseWmsShortageAllocations extends ListWmsShortageAllocations
@@ -13,6 +15,31 @@ class ListWarehouseWmsShortageAllocations extends ListWmsShortageAllocations
     protected function resolveWarehouseIdFromPresetView(): ?int
     {
         return auth()->user()?->getSelectedWarehouseId();
+    }
+
+    public function table(Table $table): Table
+    {
+        $table = parent::table($table);
+
+        $columns = $table->getColumns();
+        $keys = array_keys($columns);
+        $idIndex = array_search('id', $keys);
+        $position = $idIndex !== false ? $idIndex + 1 : 0;
+
+        $shipmentDateColumn = TextColumn::make('shipment_date')
+            ->label('出荷日')
+            ->date('m/d')
+            ->sortable()
+            ->alignment('center');
+        $shipmentDateColumn->table($table);
+
+        $before = array_slice($columns, 0, $position, true);
+        $after = array_slice($columns, $position, null, true);
+        $newColumns = $before + ['shipment_date' => $shipmentDateColumn] + $after;
+
+        $table->columns(array_values($newColumns));
+
+        return $table;
     }
 
     public function getPresetViews(): array
