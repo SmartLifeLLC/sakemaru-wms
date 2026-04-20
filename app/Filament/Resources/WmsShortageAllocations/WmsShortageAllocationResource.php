@@ -7,6 +7,9 @@ use App\Filament\Resources\WmsShortageAllocations\Pages\CreateWmsShortageAllocat
 use App\Filament\Resources\WmsShortageAllocations\Pages\EditWmsShortageAllocation;
 use App\Filament\Resources\WmsShortageAllocations\Pages\ListFinishedWmsShortageAllocations;
 use App\Filament\Resources\WmsShortageAllocations\Pages\ListHistoryWmsShortageAllocations;
+use App\Filament\Resources\WmsShortageAllocations\Pages\ListWarehouseFinishedWmsShortageAllocations;
+use App\Filament\Resources\WmsShortageAllocations\Pages\ListWarehouseHistoryWmsShortageAllocations;
+use App\Filament\Resources\WmsShortageAllocations\Pages\ListWarehouseWmsShortageAllocations;
 use App\Filament\Resources\WmsShortageAllocations\Pages\ListWmsShortageAllocations;
 use App\Filament\Resources\WmsShortageAllocations\Schemas\WmsShortageAllocationForm;
 use App\Filament\Resources\WmsShortageAllocations\Tables\WmsShortageAllocationsTable;
@@ -75,6 +78,9 @@ class WmsShortageAllocationResource extends Resource
             'index' => ListWmsShortageAllocations::route('/'),
             'finished' => ListFinishedWmsShortageAllocations::route('/finished'),
             'history' => ListHistoryWmsShortageAllocations::route('/history'),
+            'warehouse' => ListWarehouseWmsShortageAllocations::route('/warehouse'),
+            'warehouse-finished' => ListWarehouseFinishedWmsShortageAllocations::route('/warehouse/finished'),
+            'warehouse-history' => ListWarehouseHistoryWmsShortageAllocations::route('/warehouse/history'),
             'create' => CreateWmsShortageAllocation::route('/create'),
             'edit' => EditWmsShortageAllocation::route('/{record}/edit'),
         ];
@@ -98,6 +104,21 @@ class WmsShortageAllocationResource extends Resource
                 ->icon('heroicon-o-clock')
                 ->sort(static::getNavigationSort() + 2)
                 ->url(static::getUrl('history')),
+            \Filament\Navigation\NavigationItem::make('倉庫別横持ち出荷依頼')
+                ->group(static::getNavigationGroup())
+                ->icon('heroicon-o-building-office')
+                ->sort(static::getNavigationSort() + 3)
+                ->url(static::getUrl('warehouse')),
+            \Filament\Navigation\NavigationItem::make('倉庫別横持ち出荷完了')
+                ->group(static::getNavigationGroup())
+                ->icon('heroicon-o-building-office')
+                ->sort(static::getNavigationSort() + 4)
+                ->url(static::getUrl('warehouse-finished')),
+            \Filament\Navigation\NavigationItem::make('倉庫別横持ち出荷履歴')
+                ->group(static::getNavigationGroup())
+                ->icon('heroicon-o-building-office')
+                ->sort(static::getNavigationSort() + 5)
+                ->url(static::getUrl('warehouse-history')),
         ];
     }
 }
