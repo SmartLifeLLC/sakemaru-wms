@@ -3,7 +3,6 @@
 namespace App\Models\Sakemaru;
 
 use App\Casts\NullSetter;
-use App\Domains\JanCode;
 use App\Enums\EExternalCollaborationPartner;
 use App\Enums\EItemPartnerPriceType;
 use App\Enums\EItemSearchCodeType;
@@ -431,9 +430,9 @@ class Item extends CustomModel
         $jan_code_information = $this->piece_jan_code_information;
         if ($jan_code_information) {
             return $jan_code_information->search_string;
-        } else {
-            return JanCode::getPrivateCode($this);
         }
+
+        return '';
     }
 
     public function rank()
