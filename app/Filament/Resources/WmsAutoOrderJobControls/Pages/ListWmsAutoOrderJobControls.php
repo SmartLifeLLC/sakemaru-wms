@@ -7,6 +7,7 @@ use App\Enums\QueueProgressStatus;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsAutoOrderJobControls\WmsAutoOrderJobControlResource;
 use App\Jobs\ProcessOrderCandidateGenerationJob;
+use App\Jobs\ProcessSalesBasedOrderCandidateJob;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
@@ -116,6 +117,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
     {
         return [
             $this->getGenerateByWarehouseAction(),
+            $this->getSalesBasedGenerateAction(),
 
             ActionGroup::make([
                 //                $this->getOrderGenerationWizardAction(),
@@ -279,6 +281,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     createdBy: auth()->id(),
                     contractorIds: $contractorIds,
                     batchCode: $batchCode,
+                    originType: \App\Enums\AutoOrder\OriginType::MANUAL_SAFETY_STOCK->value,
                 );
 
                 $contractorCount = count($contractorIds);
@@ -288,6 +291,94 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 }
                 if ($batchCode) {
                     $message .= "（既存バッチ{$batchCode}に追加）";
+                }
+
+                Notification::make()
+                    ->title($message)
+                    ->success()
+                    ->send();
+            });
+    }
+
+    private function getSalesBasedGenerateAction(): Action
+    {
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        $selectedWarehouse = $selectedWarehouseId ? Warehouse::find($selectedWarehouseId) : null;
+        $selectedWarehouseName = $selectedWarehouse?->name ?? '未選択';
+
+        $existingBatchCode = null;
+        $batchNotice = '';
+        if ($selectedWarehouseId) {
+            $pendingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse($selectedWarehouseId);
+            if ($pendingJob) {
+                $existingBatchCode = $pendingJob->batch_code;
+                $batchNotice = "既存バッチ {$existingBatchCode} に候補が追加されます。";
+            }
+        }
+
+        $baseDescription = $selectedWarehouse
+            ? "倉庫「{$selectedWarehouseName}」の実績ベース発注候補を生成します。\n安全在庫が未設定で、過去3日間に出荷実績がある商品が対象です。"
+            : '倉庫が選択されていません。トップバーから倉庫を選択してください。';
+
+        return Action::make('generateSalesBased')
+            ->label('実績ベース発注候補生成')
+            ->icon('heroicon-o-chart-bar')
+            ->color('info')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+            ->modalHeading("実績ベース発注候補生成（{$selectedWarehouseName}）")
+            ->modalDescription($baseDescription)
+            ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
+            ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('生成開始')->color('danger'))
+            ->modalCancelActionLabel('発注せず閉じる')
+            ->disabled(! $selectedWarehouse)
+            ->schema(array_filter([
+                $batchNotice
+                    ? \Filament\Forms\Components\Placeholder::make('batch_notice')
+                        ->hiddenLabel()
+                        ->content(new \Illuminate\Support\HtmlString(
+                            '<div class="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300">'
+                            .e($batchNotice)
+                            .'</div>'
+                        ))
+                    : null,
+                ViewField::make('contractor_selector')
+                    ->view('filament.components.contractor-selection')
+                    ->hiddenLabel(),
+            ]))
+            ->action(function () use ($selectedWarehouseId, $selectedWarehouseName, $existingBatchCode) {
+                $warehouseId = $selectedWarehouseId;
+                $warehouseName = $selectedWarehouseName;
+                $contractorIds = $this->selectedContractorIds;
+
+                if (empty($contractorIds)) {
+                    Notification::make()
+                        ->title('仕入先が選択されていません')
+                        ->body('最低1つの仕入先を選択してください')
+                        ->danger()
+                        ->send();
+
+                    return;
+                }
+
+                $queueProgress = WmsQueueProgress::createJob(
+                    WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
+                    auth()->id(),
+                    ['warehouse_id' => $warehouseId, 'contractor_ids' => $contractorIds, 'source' => 'sales_based']
+                );
+
+                ProcessSalesBasedOrderCandidateJob::dispatch(
+                    jobId: $queueProgress->job_id,
+                    warehouseId: $warehouseId,
+                    createdBy: auth()->id(),
+                    contractorIds: $contractorIds,
+                    batchCode: $existingBatchCode,
+                    originType: \App\Enums\AutoOrder\OriginType::MANUAL_SALES_BASED->value,
+                );
+
+                $contractorCount = count($contractorIds);
+                $message = "倉庫「{$warehouseName}」の実績ベース発注候補生成を開始しました（仕入先{$contractorCount}件）";
+                if ($existingBatchCode) {
+                    $message .= "（既存バッチ{$existingBatchCode}に追加）";
                 }
 
                 Notification::make()
@@ -371,6 +462,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     executionLogId: null,
                     transferOnly: true,
                     createdBy: auth()->id(),
+                    originType: \App\Enums\AutoOrder\OriginType::MANUAL_SAFETY_STOCK->value,
                 );
 
                 $message = '移動候補の生成を開始しました';
@@ -497,6 +589,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                         contractorIds: $contractorIds,
                         createdBy: auth()->id(),
                         batchCode: $batchCode,
+                        originType: \App\Enums\AutoOrder\OriginType::MANUAL_SAFETY_STOCK->value,
                     );
 
                     $dispatchedCount++;
@@ -700,6 +793,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 jobId: $queueProgress->job_id,
                 deletePending: false,
                 createdBy: auth()->id(),
+                originType: \App\Enums\AutoOrder\OriginType::MANUAL_SAFETY_STOCK->value,
             );
 
         } catch (\Exception $e) {

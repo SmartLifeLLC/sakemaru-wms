@@ -332,4 +332,11 @@ class User extends Authenticatable implements FilamentUser
     {
         return true;
     }
+
+    public static function resolveAutomatorId(): int
+    {
+        return static::where('email', 'automator@sakemaru.ai')->value('id')
+            ?? static::where('email', 'admin@sakemaru.ai')->value('id')
+            ?? 0;
+    }
 }

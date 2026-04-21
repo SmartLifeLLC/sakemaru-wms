@@ -17,7 +17,6 @@ use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
@@ -538,6 +537,35 @@ class WmsStockTransferCandidatesTable
                                 ->send();
                         }
                     }),
+
+                Action::make('toggleAutoOrder')
+                    ->label('発注OFF')
+                    ->icon('heroicon-o-no-symbol')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->modalHeading('自動発注対象から除外')
+                    ->modalDescription(fn ($record) => "[{$record->item_code}] {$record->item?->name}\nこの商品を自動発注対象から除外しますか？")
+                    ->action(function ($record) {
+                        \App\Models\Sakemaru\ItemContractor::where('item_id', $record->item_id)
+                            ->where('contractor_id', $record->contractor_id)
+                            ->where('warehouse_id', $record->satellite_warehouse_id)
+                            ->update(['is_auto_order' => false]);
+
+                        WmsStockTransferCandidate::where('item_id', $record->item_id)
+                            ->where('contractor_id', $record->contractor_id)
+                            ->where('satellite_warehouse_id', $record->satellite_warehouse_id)
+                            ->where('status', CandidateStatus::PENDING)
+                            ->delete();
+
+                        \App\Models\WmsOrderCandidate::where('item_id', $record->item_id)
+                            ->where('contractor_id', $record->contractor_id)
+                            ->where('warehouse_id', $record->satellite_warehouse_id)
+                            ->where('status', CandidateStatus::PENDING)
+                            ->delete();
+
+                        Notification::make()->title('自動発注対象から除外しました')->success()->send();
+                    })
+                    ->visible(fn ($record) => $record->status === CandidateStatus::PENDING),
 
                 Action::make('delete')
                     ->label('削除')

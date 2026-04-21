@@ -11,6 +11,7 @@ enum JobProcessName: string
     case ORDER_EXECUTION = 'ORDER_EXECUTION';
     case ORDER_TRANSMISSION = 'ORDER_TRANSMISSION';
     case TRANSFER_APPROVAL = 'TRANSFER_APPROVAL';
+    case SALES_BASED_CALC = 'SALES_BASED_CALC';
 
     public function label(): string
     {
@@ -22,6 +23,7 @@ enum JobProcessName: string
             self::ORDER_EXECUTION => '発注実行',
             self::ORDER_TRANSMISSION => '発注送信',
             self::TRANSFER_APPROVAL => '移動承認',
+            self::SALES_BASED_CALC => '実績ベース発注計算',
         };
     }
 }
