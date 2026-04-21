@@ -197,6 +197,7 @@ class WmsAutoOrderExecutionLogsTable
                             contractorId: $record->contractor_id,
                             executionLogId: $log->id,
                             createdBy: auth()->id(),
+                            originType: \App\Enums\AutoOrder\OriginType::MANUAL_SAFETY_STOCK->value,
                         );
 
                         Notification::make()

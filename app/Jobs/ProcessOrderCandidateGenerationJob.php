@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\ConfirmationLevel;
+use App\Enums\AutoOrder\OriginType;
 use App\Models\WmsAutoOrderExecutionLog;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
@@ -47,6 +48,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
         public ?int $createdBy = null,
         public ?array $contractorIds = null,
         public ?string $batchCode = null,
+        public ?string $originType = null,
     ) {}
 
     /**
@@ -55,6 +57,8 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
     public function handle(): void
     {
         ini_set('memory_limit', '-1');
+
+        $this->createdBy ??= \App\Models\Sakemaru\User::resolveAutomatorId();
 
         $progress = WmsQueueProgress::findByJobId($this->jobId);
 
@@ -129,6 +133,7 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
                 createdBy: $this->createdBy,
                 contractorIds: $this->contractorIds,
                 batchCode: $this->batchCode,
+                originType: $this->originType ? OriginType::from($this->originType) : null,
             );
 
             $results['batchCode'] = $calcJob->batch_code;
