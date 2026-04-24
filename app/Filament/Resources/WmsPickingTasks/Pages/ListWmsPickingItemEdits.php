@@ -13,6 +13,7 @@ use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
@@ -121,8 +122,10 @@ class ListWmsPickingItemEdits extends ListRecords
                     ->color('success')
                     ->modalHeading('ピッキング準備完了')
                     ->modalDescription('担当者を選択してピッキング準備を完了します')
-                    ->modalSubmitActionLabel('ピッキング準備完了')
-                    ->modalCancelActionLabel('キャンセル')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('出庫準備完了')->color('danger'))
+                    ->modalCancelActionLabel('出庫準備せず閉じる')
                     ->fillForm(function () use ($task) {
                         return [
                             'warehouse_filter' => $task?->warehouse_id,

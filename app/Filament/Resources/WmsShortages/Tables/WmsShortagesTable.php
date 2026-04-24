@@ -15,6 +15,7 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
@@ -318,9 +319,11 @@ class WmsShortagesTable
                     ->color('warning')
                     ->hidden(fn (WmsShortage $record) => $record->is_confirmed)
                     ->modalHeading('欠品対応-横持ち出荷指示')
-                    ->modalSubmitActionLabel('欠品対応確定')
                     ->modalWidth('7xl')
                     ->extraModalWindowAttributes(['class' => 'proxy-shipment-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('欠品対応確定')->color('danger'))
+                    ->modalCancelActionLabel('確定せず閉じる')
                     ->schema([
 
                         \Filament\Forms\Components\ViewField::make('allocations')
@@ -701,6 +704,8 @@ class WmsShortagesTable
                     ->color('info')
                     ->visible(fn (WmsShortage $record): bool => $record->is_confirmed
                     )
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->modalWidth('7xl')

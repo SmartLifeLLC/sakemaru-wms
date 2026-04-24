@@ -17,6 +17,7 @@ use Filament\Actions\CreateAction;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -37,6 +38,10 @@ class ListWmsMonthlySafetyStocks extends ListRecords
                 ->label('発注点CSVインポート')
                 ->icon('heroicon-o-arrow-up-tray')
                 ->color('gray')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('インポート')->color('danger'))
+                ->modalCancelActionLabel('インポートせず閉じる')
                 ->schema([
                     FileUpload::make('csv_file')
                         ->label('CSVファイル')
@@ -55,6 +60,10 @@ class ListWmsMonthlySafetyStocks extends ListRecords
                 ->label('発注点分析CSVインポート')
                 ->icon('heroicon-o-calculator')
                 ->color('warning')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('インポート')->color('danger'))
+                ->modalCancelActionLabel('インポートせず閉じる')
                 ->schema([
                     FileUpload::make('analysis_csv_file')
                         ->label('発注点分析CSVファイル')

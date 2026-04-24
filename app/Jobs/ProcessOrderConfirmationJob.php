@@ -46,7 +46,8 @@ class ProcessOrderConfirmationJob implements ShouldQueue
 
     public function __construct(
         public string $progressId,
-        public int $userId
+        public int $userId,
+        public bool $splitByWarehouse = true
     ) {
         $this->onQueue('default');
     }
@@ -146,7 +147,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                     "バッチ {$batchCode} のCSVファイル生成中... (".($index + 1)."/{$totalBatches})"
                 );
 
-                $csvResult = $dataFileService->generateCsvFiles($batchCode);
+                $csvResult = $dataFileService->generateCsvFiles($batchCode, $this->splitByWarehouse);
                 $totalCsvFiles += $csvResult['total_files'] ?? 0;
 
                 // 2-3. JX送信ファイル生成

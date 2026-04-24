@@ -33,6 +33,7 @@ class WmsOrderDataFile extends WmsModel
         'mail_sent_by',
         'order_count',
         'total_quantity',
+        'is_mail_order',
         'status',
         'is_test',
         'csv_downloaded_at',
@@ -45,6 +46,7 @@ class WmsOrderDataFile extends WmsModel
         'csv_downloaded_at' => 'datetime',
         'fax_downloaded_at' => 'datetime',
         'mail_sent_at' => 'datetime',
+        'is_mail_order' => 'boolean',
         'status' => OrderDataFileStatus::class,
     ];
 

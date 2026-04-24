@@ -13,6 +13,7 @@ use App\Models\WmsQueueProgress;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -151,6 +152,8 @@ class WmsAutoOrderJobControlsTable
                     ->visible(fn ($record) => ! empty($record->result_data))
                     ->modalHeading(fn ($record) => "発注・移動候補生成結果 - {$record->batch_code}")
                     ->modalWidth('5xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->modalContent(fn ($record): View => view(

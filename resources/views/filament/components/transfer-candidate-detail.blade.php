@@ -106,6 +106,15 @@
                     <div class="flex justify-between"><span>移動出庫</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($transferOutgoing ?? 0) }}</span></div>
                     @endif
                     <div class="flex justify-between"><span>発注点</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($safetyStock) }}</span></div>
+                    @if($isEditable ?? false)
+                    <div class="flex justify-between items-center pt-0.5">
+                        <span class="text-blue-600 dark:text-blue-400">発注点変更</span>
+                        <input type="number"
+                               wire:model.blur="mountedActionsData.0.safety_stock"
+                               class="w-20 text-right rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-sm font-semibold text-gray-900 dark:text-white px-2 py-0.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                               min="0" step="1" />
+                    </div>
+                    @endif
                     <div class="flex justify-between"><span class="text-red-600 dark:text-red-400">不足</span><span class="font-semibold text-red-600 dark:text-red-400">{{ number_format($shortageQty) }}</span></div>
                 </div>
             </div>

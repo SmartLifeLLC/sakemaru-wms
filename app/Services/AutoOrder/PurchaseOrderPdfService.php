@@ -120,6 +120,34 @@ class PurchaseOrderPdfService
     }
 
     /**
+     * 複数DataFileからPDFを一括生成しバイナリを返す
+     */
+    public function generateBulk(Collection $dataFiles): string
+    {
+        $this->initPdf();
+
+        foreach ($dataFiles as $dataFile) {
+            $candidates = WmsOrderCandidate::where('batch_code', $dataFile->batch_code)
+                ->where('warehouse_id', $dataFile->warehouse_id)
+                ->where('contractor_id', $dataFile->contractor_id)
+                ->where('status', CandidateStatus::CONFIRMED)
+                ->with(['warehouse', 'item', 'contractor'])
+                ->orderBy('expected_arrival_date')
+                ->get();
+
+            if ($candidates->isEmpty()) {
+                continue;
+            }
+
+            $this->renderDocument($candidates, $dataFile, null);
+        }
+
+        $this->renderPageNumbers();
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    /**
      * PDFを生成しS3に保存
      */
     public function generateAndStore(WmsOrderDataFile $dataFile, ?string $communicationNotes = null): string

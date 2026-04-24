@@ -23,9 +23,10 @@ class OrderDataFileService
      * 確定済み発注候補からCSVファイルを生成
      *
      * @param  string  $batchCode  バッチコード
+     * @param  bool  $splitByWarehouse  納品先（倉庫）別にファイルを分割するか
      * @return array{success: bool, files: array, total_files: int, errors: array}
      */
-    public function generateCsvFiles(string $batchCode): array
+    public function generateCsvFiles(string $batchCode, bool $splitByWarehouse = true): array
     {
         // CONFIRMED状態の発注候補を取得
         $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
@@ -43,24 +44,25 @@ class OrderDataFileService
             ];
         }
 
-        // 倉庫×発注先でグルーピング
-        $grouped = $candidates->groupBy(function ($candidate) {
-            return "{$candidate->warehouse_id}_{$candidate->contractor_id}";
-        });
+        // グルーピング: 納品先別 or 発注先のみ
+        $grouped = $splitByWarehouse
+            ? $candidates->groupBy(fn ($candidate) => "{$candidate->warehouse_id}_{$candidate->contractor_id}")
+            : $candidates->groupBy(fn ($candidate) => (string) $candidate->contractor_id);
 
         $results = [];
         $errors = [];
 
         foreach ($grouped as $groupKey => $groupCandidates) {
             try {
-                $result = $this->generateCsvFile($batchCode, $groupCandidates);
+                $result = $this->generateCsvFile($batchCode, $groupCandidates, $splitByWarehouse);
                 $results[] = $result;
 
                 Log::info('Order data CSV file generated', [
                     'batch_code' => $batchCode,
-                    'warehouse_id' => $groupCandidates->first()->warehouse_id,
+                    'warehouse_id' => $splitByWarehouse ? $groupCandidates->first()->warehouse_id : null,
                     'contractor_id' => $groupCandidates->first()->contractor_id,
                     'order_count' => $groupCandidates->count(),
+                    'split_by_warehouse' => $splitByWarehouse,
                 ]);
             } catch (\Exception $e) {
                 $errors[] = [
@@ -86,13 +88,15 @@ class OrderDataFileService
     /**
      * 1つのCSVファイルを生成
      */
-    private function generateCsvFile(string $batchCode, Collection $candidates): array
+    private function generateCsvFile(string $batchCode, Collection $candidates, bool $splitByWarehouse = true): array
     {
         $firstCandidate = $candidates->first();
-        $warehouseId = $firstCandidate->warehouse_id;
         $contractorId = $firstCandidate->contractor_id;
-        $warehouse = $firstCandidate->warehouse;
         $contractor = $firstCandidate->contractor;
+
+        // 納品先別分割の場合は単一倉庫、まとめる場合はNULL
+        $warehouseId = $splitByWarehouse ? $firstCandidate->warehouse_id : null;
+        $warehouse = $splitByWarehouse ? $firstCandidate->warehouse : null;
 
         // 入荷予定日（グループ内で最も早い日付）
         $expectedArrivalDate = $candidates->min('expected_arrival_date');
@@ -101,11 +105,14 @@ class OrderDataFileService
         $csvContent = $this->buildCsvContent($candidates);
 
         // S3に保存
-        // ファイル名: {実行CD}_{倉庫コード}_{発注先コード}.csv
         $date = now()->format('Y-m-d');
-        $warehouseCode = $warehouse?->code ?? $warehouseId;
         $contractorCode = $contractor?->code ?? $contractorId;
-        $filename = "{$batchCode}_{$warehouseCode}_{$contractorCode}.csv";
+        if ($splitByWarehouse) {
+            $warehouseCode = $warehouse?->code ?? $warehouseId;
+            $filename = "{$batchCode}_{$warehouseCode}_{$contractorCode}.csv";
+        } else {
+            $filename = "{$batchCode}_{$contractorCode}.csv";
+        }
         $filePath = "order-data-files/{$date}/{$filename}";
 
         Storage::disk('s3')->put($filePath, $csvContent);
@@ -137,7 +144,7 @@ class OrderDataFileService
         return [
             'id' => $dataFile->id,
             'warehouse_id' => $warehouseId,
-            'warehouse_name' => $warehouse?->name,
+            'warehouse_name' => $splitByWarehouse ? $warehouse?->name : '全倉庫',
             'contractor_id' => $contractorId,
             'contractor_name' => $contractor?->name,
             'file_path' => $filePath,

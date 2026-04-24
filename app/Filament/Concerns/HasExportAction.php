@@ -9,6 +9,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 
@@ -20,6 +21,10 @@ trait HasExportAction
             ->label('ダウンロード')
             ->icon('heroicon-o-arrow-down-tray')
             ->color('gray')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+            ->modalFooterActionsAlignment(Alignment::End)
+            ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('エクスポート')->color('danger'))
+            ->modalCancelActionLabel('エクスポートせず閉じる')
             ->schema(fn (HasTable $livewire) => [
                 TextInput::make('file_name')
                     ->label('ファイル名')

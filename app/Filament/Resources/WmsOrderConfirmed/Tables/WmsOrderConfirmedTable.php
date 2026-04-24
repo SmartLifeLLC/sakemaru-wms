@@ -178,6 +178,7 @@ class WmsOrderConfirmedTable
                     ->color('gray')
                     ->modalHeading('発注確定詳細')
                     ->modalWidth('4xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->modalFooterActionsAlignment(Alignment::End)

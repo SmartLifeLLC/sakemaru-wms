@@ -20,6 +20,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
@@ -100,9 +101,11 @@ class ListWaves extends ListRecords
                 ->color('info')
                 ->modalHeading('ピッキングリスト出力')
                 ->modalDescription('出荷日・倉庫を選択し、対象リストを出力します')
-                ->modalSubmitActionLabel('PDF出力')
                 ->modalWidth('4xl')
                 ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('PDF出力')->color('danger'))
+                ->modalCancelActionLabel('出力せず閉じる')
                 ->schema([
                     ViewField::make('list_type')
                         ->label('リスト種別')
@@ -261,9 +264,11 @@ class ListWaves extends ListRecords
                 ->color('primary')
                 ->modalHeading('出荷波動生成')
                 ->modalDescription('対象伝票を選択して波動を生成します。同じ時間帯に既存の波動がある場合でも、新規波動として生成されます。')
-                ->modalSubmitActionLabel('波動を生成')
                 ->modalWidth('6xl')
                 ->extraModalWindowAttributes(['class' => 'wave-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('波動を生成')->color('danger'))
+                ->modalCancelActionLabel('生成せず閉じる')
                 ->schema([
                     Grid::make(2)->schema([
                         ViewField::make('warehouse_id')

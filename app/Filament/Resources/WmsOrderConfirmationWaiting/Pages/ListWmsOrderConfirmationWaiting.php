@@ -16,7 +16,9 @@ use App\Services\AutoOrder\OrderConfirmationCleanupService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -35,6 +37,8 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
     public ?string $activeJobId = null;
 
     public ?string $activeTestJobId = null;
+
+    public string $fileSplitMode = 'split';
 
     #[Url(as: 'tab')]
     public string $confirmationTab = 'order';
@@ -159,10 +163,9 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                 ->label("発注・移動確定 (移動:{$transferApprovedCount}件 / 発注:{$orderApprovedCount}件)")
                 ->icon('heroicon-o-check-circle')
                 ->color('success')
-                ->requiresConfirmation()
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                 ->modalHeading('発注・移動確定')
                 ->modalDescription(function () use ($orderApprovedCount, $transferApprovedCount) {
-                    // 承認済みの内訳を表示
                     $details = [];
                     if ($transferApprovedCount > 0) {
                         $details[] = "移動候補: {$transferApprovedCount}件 → 移動伝票生成";
@@ -175,8 +178,19 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                         implode("\n", $details)."\n\n".
                         '処理はバックグラウンドで実行されます。';
                 })
+                ->schema([
+                    ViewField::make('file_split_mode')
+                        ->view('filament.components.file-split-mode-selection')
+                        ->hiddenLabel()
+                        ->visible($orderApprovedCount > 0),
+                ])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('確定実行')->color('danger'))
+                ->modalCancelActionLabel('確定せず閉じる')
                 ->visible($totalApprovedCount > 0 && ! $activeJob)
-                ->action(function () {
+                ->action(function (array $data) {
+                    $splitByWarehouse = $this->fileSplitMode === 'split';
+
                     // 進捗レコードを作成
                     $progress = WmsQueueProgress::createJob(
                         WmsQueueProgress::JOB_TYPE_ORDER_CONFIRMATION,
@@ -184,7 +198,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                     );
 
                     // ジョブをディスパッチ（移動候補と発注候補を両方処理）
-                    ProcessOrderConfirmationJob::dispatch($progress->job_id, auth()->id());
+                    ProcessOrderConfirmationJob::dispatch($progress->job_id, auth()->id(), $splitByWarehouse);
 
                     $this->activeJobId = $progress->job_id;
 

@@ -12,6 +12,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -35,6 +36,10 @@ class ListWmsIncomingReceivedData extends ListRecords
                 ->color('primary')
                 ->modalHeading('JX納品データの取込')
                 ->modalDescription('JX納品伝票データファイル（Shift_JIS固定長128バイト）をアップロードしてください。FINETラッパーの有無は自動判定されます。')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('アップロード')->color('danger'))
+                ->modalCancelActionLabel('アップロードせず閉じる')
                 ->schema([
                     FileUpload::make('jx_file')
                         ->label('JXデータファイル')
@@ -91,6 +96,10 @@ class ListWmsIncomingReceivedData extends ListRecords
                 ->color('success')
                 ->modalHeading('CSVデータの取込')
                 ->modalDescription('発注先出荷実績CSVファイル（Shift_JIS、カンマ区切り）をアップロードしてください。')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('アップロード')->color('danger'))
+                ->modalCancelActionLabel('アップロードせず閉じる')
                 ->schema([
                     Radio::make('contractor_id')
                         ->label('発注先')

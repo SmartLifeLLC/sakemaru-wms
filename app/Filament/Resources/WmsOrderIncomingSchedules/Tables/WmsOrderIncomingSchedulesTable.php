@@ -24,6 +24,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
@@ -736,6 +737,10 @@ class WmsOrderIncomingSchedulesTable
                         ->color('info')
                         ->modalHeading('入荷日・賞味期限の一括更新')
                         ->modalDescription('選択した入荷予定の入荷日・賞味期限を更新します（確定は行いません）')
+                        ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('一括更新')->color('danger'))
+                        ->modalCancelActionLabel('更新せず閉じる')
                         ->schema([
                             DatePicker::make('actual_arrival_date')
                                 ->label('入荷日')
