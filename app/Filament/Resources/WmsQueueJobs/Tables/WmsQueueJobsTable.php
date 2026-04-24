@@ -7,6 +7,7 @@ use App\Enums\AutoOrder\QueueJobType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use Filament\Actions\Action;
+use Filament\Support\Enums\Alignment;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -137,6 +138,8 @@ class WmsQueueJobsTable
                     ->color('gray')
                     ->modalHeading(fn ($record) => "Queueジョブ詳細 - #{$record->id}")
                     ->modalWidth('3xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->infolist(function ($record): array {

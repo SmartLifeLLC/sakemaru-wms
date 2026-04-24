@@ -10,6 +10,7 @@ use App\Services\AutoOrder\IncomingReceiveService;
 use Filament\Actions\Action;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
@@ -133,6 +134,10 @@ class WmsIncomingReceivedDataTable
                     ->color('gray')
                     ->modalHeading(fn ($record) => "受信伝票一覧 (ID: {$record->id})")
                     ->modalWidth('7xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('閉じる')
                     ->infolist(function ($record): array {
                         $file = $record->load('slips.details');
                         $slips = $file->slips;

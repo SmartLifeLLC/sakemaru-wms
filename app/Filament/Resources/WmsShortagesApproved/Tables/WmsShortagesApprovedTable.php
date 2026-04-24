@@ -7,6 +7,7 @@ use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsShortage;
 use Filament\Actions\Action;
+use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
@@ -213,6 +214,8 @@ class WmsShortagesApprovedTable
                     ->icon('heroicon-o-eye')
                     ->color('info')
                     ->modalWidth('7xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->schema([

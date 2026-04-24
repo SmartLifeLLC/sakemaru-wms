@@ -21,6 +21,7 @@ use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -395,6 +396,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->icon('heroicon-o-sparkles')
             ->color('primary')
             ->modalWidth('4xl')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+            ->modalFooterActionsAlignment(Alignment::End)
             ->modalHeading('発注・移動候補生成')
             ->modalSubmitAction(false)
             ->modalCancelAction(false)

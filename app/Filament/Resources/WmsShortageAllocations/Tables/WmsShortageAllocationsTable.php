@@ -285,9 +285,11 @@ class WmsShortageAllocationsTable
                         && $record->target_warehouse_id === auth()->user()?->default_warehouse_id
                     )
                     ->modalHeading('横持ち出荷修正')
-                    ->modalSubmitActionLabel('確定')
                     ->modalWidth('7xl')
                     ->extraModalWindowAttributes(['class' => 'proxy-shipment-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('確定')->color('danger'))
+                    ->modalCancelActionLabel('確定せず閉じる')
                     ->schema([
                         \Filament\Forms\Components\ViewField::make('allocations')
                             ->hiddenLabel()

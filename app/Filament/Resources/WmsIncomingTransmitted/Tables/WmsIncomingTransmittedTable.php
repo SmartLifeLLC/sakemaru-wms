@@ -10,6 +10,7 @@ use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\Action;
+use Filament\Support\Enums\Alignment;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -225,6 +226,10 @@ class WmsIncomingTransmittedTable
                     ->color('gray')
                     ->modalHeading('仕入連携済み詳細')
                     ->modalWidth('lg')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('閉じる')
                     ->schema(function ($record) {
                         return [
                             \Filament\Schemas\Components\Section::make('基本情報')

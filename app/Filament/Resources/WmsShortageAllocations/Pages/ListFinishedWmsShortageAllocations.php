@@ -244,6 +244,7 @@ class ListFinishedWmsShortageAllocations extends ListRecords
                     ->icon('heroicon-o-arrow-path')
                     ->color('warning')
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalHeading('欠品データ同期')
                     ->schema(function () {
                         $warehouseId = $this->resolveWarehouseIdFromPresetView();

@@ -19,6 +19,7 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
@@ -234,9 +235,11 @@ class WmsShortagesWaitingApprovalsTable
                     ->icon('heroicon-o-truck')
                     ->color('warning')
                     ->modalHeading('欠品対応-横持ち出荷指示')
-                    ->modalSubmitActionLabel('保存')
                     ->modalWidth('7xl')
                     ->extraModalWindowAttributes(['class' => 'proxy-shipment-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('保存')->color('danger'))
+                    ->modalCancelActionLabel('保存せず閉じる')
                     ->fillForm(function (WmsShortage $record): array {
                         $allocations = $record->allocations()
                             ->get()
@@ -589,6 +592,8 @@ class WmsShortagesWaitingApprovalsTable
                     ->icon('heroicon-o-eye')
                     ->color('info')
                     ->visible(fn (WmsShortage $record) => $record->is_confirmed)
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->schema([

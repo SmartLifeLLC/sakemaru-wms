@@ -1029,6 +1029,10 @@ class OrderTransmissionService
                 'file_size' => strlen($csvContent),
                 'order_count' => $candidates->count(),
                 'total_quantity' => $candidates->sum('order_quantity'),
+                'is_mail_order' => (bool) WmsContractorSetting::where('contractor_id', $file['contractor_id'])
+                    ->whereNotNull('order_mail')
+                    ->where('order_mail', '!=', '')
+                    ->exists(),
                 'status' => OrderDataFileStatus::GENERATED,
                 'is_test' => true,
             ]);
@@ -1048,6 +1052,10 @@ class OrderTransmissionService
                     'file_size' => strlen($csvContent),
                     'order_count' => $candidates->count(),
                     'total_quantity' => $candidates->sum('order_quantity'),
+                    'is_mail_order' => (bool) WmsContractorSetting::where('contractor_id', $file['contractor_id'])
+                        ->whereNotNull('order_mail')
+                        ->where('order_mail', '!=', '')
+                        ->exists(),
                     'status' => OrderDataFileStatus::GENERATED,
                     'csv_downloaded_at' => null,
                     'csv_downloaded_by' => null,

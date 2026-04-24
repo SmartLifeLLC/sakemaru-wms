@@ -14,6 +14,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Section;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -129,6 +130,8 @@ class WmsAutoOrderExecutionLogsTable
                     ->color('info')
                     ->visible(fn ($record) => $record->transmission_status !== null)
                     ->modalHeading('送信詳細')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->modalWidth('4xl')
@@ -153,6 +156,8 @@ class WmsAutoOrderExecutionLogsTable
                     ->color('danger')
                     ->visible(fn ($record) => $record->status === 'FAILED')
                     ->modalHeading('エラー詳細')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる')
                     ->infolist(fn ($record) => [

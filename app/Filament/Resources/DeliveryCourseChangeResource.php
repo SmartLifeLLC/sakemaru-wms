@@ -12,6 +12,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -366,6 +367,8 @@ class DeliveryCourseChangeResource extends Resource
                     ->icon('heroicon-o-document-text')
                     ->color('info')
                     ->modalWidth('7xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalHeading(fn ($record) => "伝票詳細 - {$record->serial_id}")
                     ->modalContent(fn ($record) => new \Illuminate\Support\HtmlString(\Livewire\Livewire::mount('trade-detail-modal', [
                         'tradeId' => $record->id,

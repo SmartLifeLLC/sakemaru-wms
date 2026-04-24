@@ -14,6 +14,9 @@ use App\Models\WmsOrderDataFile;
 use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\PurchaseOrderPdfService;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Support\Enums\Alignment;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -22,8 +25,10 @@ use Filament\Schemas\Components\Grid;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WmsOrderDataFilesTable
 {
@@ -86,12 +91,14 @@ class WmsOrderDataFilesTable
                     ->label('倉庫CD')
                     ->searchable()
                     ->alignCenter()
-                    ->width('50px'),
+                    ->width('50px')
+                    ->placeholder('-'),
 
                 TextColumn::make('warehouse.name')
                     ->label('倉庫名')
                     ->searchable()
-                    ->width('120px'),
+                    ->width('120px')
+                    ->placeholder('全倉庫'),
 
                 TextColumn::make('contractor.code')
                     ->label('発注先CD')
@@ -115,6 +122,13 @@ class WmsOrderDataFilesTable
                     ->numeric()
                     ->alignEnd()
                     ->sortable(),
+
+                TextColumn::make('is_mail_order')
+                    ->label('送信方式')
+                    ->badge()
+                    ->formatStateUsing(fn ($state): string => $state ? 'メール送信' : '手動送信')
+                    ->color(fn ($state): string => $state ? 'success' : 'gray')
+                    ->alignCenter(),
 
                 TextColumn::make('file_size')
                     ->label('サイズ')
@@ -319,8 +333,11 @@ class WmsOrderDataFilesTable
                     ->icon('heroicon-o-envelope')
                     ->color('warning')
                     ->modalHeading('発注データをメールで送信します')
-                    ->modalSubmitActionLabel('送信')
                     ->modalWidth('7xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('送信')->color('danger'))
+                    ->modalCancelActionLabel('送信せず閉じる')
                     ->schema([
                         Grid::make(3)->schema([
                             TextInput::make('mail_to')
@@ -420,6 +437,141 @@ class WmsOrderDataFilesTable
                                 ->send();
                         }
                     }),
+            ])
+            ->bulkActions([
+                BulkActionGroup::make([
+                    BulkAction::make('bulkSendMail')
+                        ->label('メール一括送信')
+                        ->icon('heroicon-o-envelope')
+                        ->color('warning')
+                        ->requiresConfirmation()
+                        ->modalHeading('選択した発注データをメールで一括送信')
+                        ->modalDescription(function (Collection $records): string {
+                            $total = $records->count();
+                            $alreadySent = $records->filter(fn ($r) => $r->mail_sent_at !== null)->count();
+                            $noMail = $records->filter(fn ($r) => ! $r->is_mail_order)->count();
+                            $sendable = max(0, $total - $alreadySent - $noMail);
+
+                            return "選択: {$total}件 → 送信対象: {$sendable}件"
+                                . ($alreadySent + $noMail > 0 ? "（スキップ: 送信済み{$alreadySent}件 / メール未設定{$noMail}件）" : '');
+                        })
+                        ->action(function (Collection $records) {
+                            $sent = 0;
+                            $skipped = 0;
+                            $failed = 0;
+
+                            foreach ($records as $record) {
+                                if ($record->mail_sent_at !== null) {
+                                    $skipped++;
+                                    continue;
+                                }
+                                if (! $record->is_mail_order) {
+                                    $skipped++;
+                                    continue;
+                                }
+
+                                try {
+                                    $setting = WmsContractorSetting::where('contractor_id', $record->contractor_id)->first();
+                                    $email = $record->mail_to ?? $setting?->order_mail ?? $record->contractor?->email;
+                                    if (! $email) {
+                                        $skipped++;
+                                        continue;
+                                    }
+
+                                    $pdfService = app(PurchaseOrderPdfService::class);
+                                    $pdfService->generateAndStore($record, null);
+                                    $record->refresh();
+
+                                    $subject = self::replaceMailVariables($setting?->order_mail_title, $record);
+                                    $content = self::replaceMailVariables($setting?->order_mail_content, $record);
+
+                                    Mail::to($email)->send(new OrderDataMail(
+                                        dataFile: $record,
+                                        attachCsv: true,
+                                        attachFax: true,
+                                        fromName: $setting?->order_mail_from,
+                                        subject: $subject,
+                                        content: $content,
+                                    ));
+
+                                    $record->markAsMailSent(auth()->id(), $email);
+                                    $sent++;
+                                } catch (\Exception $e) {
+                                    $failed++;
+                                }
+                            }
+
+                            Notification::make()
+                                ->title('メール一括送信完了')
+                                ->body("送信: {$sent}件 / スキップ: {$skipped}件 / 失敗: {$failed}件")
+                                ->success()
+                                ->send();
+                        }),
+
+                    BulkAction::make('bulkDownloadCsv')
+                        ->label('CSV一括ダウンロード')
+                        ->icon('heroicon-o-document-text')
+                        ->color('primary')
+                        ->action(function (Collection $records): StreamedResponse {
+                            $service = app(OrderDataFileService::class);
+                            $isFirst = true;
+                            $csvContent = '';
+
+                            foreach ($records as $record) {
+                                if (! $record->file_path) {
+                                    continue;
+                                }
+
+                                $content = Storage::disk('s3')->get($record->file_path);
+                                if (! $content) {
+                                    continue;
+                                }
+
+                                if ($isFirst) {
+                                    $csvContent .= $content;
+                                    $isFirst = false;
+                                } else {
+                                    $lines = explode("\n", $content);
+                                    array_shift($lines);
+                                    $remaining = implode("\n", $lines);
+                                    if (trim($remaining) !== '') {
+                                        $csvContent .= $remaining;
+                                    }
+                                }
+
+                                $record->markAsCsvDownloaded(auth()->id());
+                            }
+
+                            $filename = 'order_data_bulk_' . now()->format('YmdHis') . '.csv';
+
+                            return response()->streamDownload(function () use ($csvContent) {
+                                echo $csvContent;
+                            }, $filename, [
+                                'Content-Type' => 'text/csv',
+                            ]);
+                        }),
+
+                    BulkAction::make('bulkDownloadFax')
+                        ->label('FAX一括ダウンロード')
+                        ->icon('heroicon-o-document')
+                        ->color('success')
+                        ->action(function (Collection $records): StreamedResponse {
+                            $pdfService = app(PurchaseOrderPdfService::class);
+                            $pdfBinary = $pdfService->generateBulk($records);
+
+                            foreach ($records as $record) {
+                                $record->markAsFaxDownloaded(auth()->id());
+                            }
+
+                            $filename = 'fax_bulk_' . now()->format('YmdHis') . '.pdf';
+
+                            return response()->streamDownload(function () use ($pdfBinary) {
+                                echo $pdfBinary;
+                            }, $filename, [
+                                'Content-Type' => 'application/pdf',
+                            ]);
+                        }),
+                ]),
             ])
             ->toolbarActions([
                 static::getExportAction(),

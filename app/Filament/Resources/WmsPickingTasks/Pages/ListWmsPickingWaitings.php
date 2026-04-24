@@ -17,6 +17,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
@@ -48,9 +49,11 @@ class ListWmsPickingWaitings extends ListRecords
                 ->color('primary')
                 ->modalHeading('ピッカー一括割り当て')
                 ->modalDescription('選択したピッカーに未割当タスクを自動的に割り当てます')
-                ->modalSubmitActionLabel('割り当て実行')
                 ->modalWidth('4xl')
                 ->extraModalWindowAttributes(['class' => 'picker-assign-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('割当')->color('danger'))
+                ->modalCancelActionLabel('割当せず閉じる')
                 ->schema([
                     Grid::make(2)->schema([
                         ViewField::make('warehouse_id')
@@ -235,8 +238,11 @@ class ListWmsPickingWaitings extends ListRecords
                 ->color('warning')
                 ->modalHeading('ピッカー割り当て解除')
                 ->modalDescription('選択した倉庫の「ピッキング準備完了」タスクの割り当てを解除します。作業中のタスクは解除されません。')
-                ->modalSubmitActionLabel('解除実行')
                 ->modalWidth('lg')
+                ->extraModalWindowAttributes(['class' => 'picker-assign-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('解除')->color('danger'))
+                ->modalCancelActionLabel('解除せず閉じる')
                 ->schema([
                     ViewField::make('unassign_warehouse_id')
                         ->label('対象倉庫')

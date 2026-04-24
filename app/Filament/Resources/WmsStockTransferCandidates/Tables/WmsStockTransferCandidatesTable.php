@@ -9,6 +9,7 @@ use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsMonthlySafetyStock;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
 use App\Services\AutoOrder\TransferOrderRecalculationService;
@@ -17,6 +18,7 @@ use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
@@ -28,6 +30,7 @@ use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 class WmsStockTransferCandidatesTable
 {
@@ -90,7 +93,7 @@ class WmsStockTransferCandidatesTable
                     ->width('100px'),
 
                 TextColumn::make('search_code')
-                    ->label('検索CD')
+                    ->label('発注CD')
                     ->searchable()
                     ->toggleable()
                     ->placeholder('-')
@@ -399,6 +402,8 @@ class WmsStockTransferCandidatesTable
                         'transfer_quantity' => $record->transfer_quantity,
                         'expected_arrival_date' => $record->expected_arrival_date,
                         'delivery_course_id' => $record->delivery_course_id,
+                        'safety_stock' => $record->safety_stock,
+                        'ordering_code' => $record->search_code ?? $record->ordering_code,
                     ])
                     ->schema(function (?WmsStockTransferCandidate $record): array {
                         if (! $record) {
@@ -473,10 +478,13 @@ class WmsStockTransferCandidatesTable
                                     'transferOutgoing' => $details['移動出庫予定'] ?? 0,
                                     'safetyStock' => $details['安全在庫'] ?? 0,
                                     'shortageQty' => $details['不足数'] ?? 0,
+                                    'isEditable' => $isEditable,
                                 ]),
                         ];
 
                         if ($isEditable) {
+                            $schema[] = Hidden::make('safety_stock');
+
                             $schema[] = Grid::make(3)->schema([
                                 TextInput::make('transfer_quantity')
                                     ->label('発注数')
@@ -493,6 +501,29 @@ class WmsStockTransferCandidatesTable
                                         ->pluck('name', 'id'))
                                     ->searchable(),
                             ]);
+
+                            $codes = DB::connection('sakemaru')
+                                ->table('item_search_information')
+                                ->where('item_id', $record->item_id)
+                                ->where('is_active', true)
+                                ->select('search_string', 'code_type', 'is_used_for_ordering')
+                                ->get();
+
+                            if ($codes->isNotEmpty()) {
+                                $codeOptions = $codes->mapWithKeys(function ($code) {
+                                    $label = $code->search_string;
+                                    if ($code->is_used_for_ordering) {
+                                        $label .= ' (現在の発注用)';
+                                    }
+                                    return [$code->search_string => $label];
+                                })->toArray();
+
+                                $schema[] = Select::make('ordering_code')
+                                    ->label('発注CD')
+                                    ->options($codeOptions)
+                                    ->searchable()
+                                    ->helperText('この商品に登録されている検索コードから発注CDを選択');
+                            }
                         }
 
                         return $schema;
@@ -500,20 +531,49 @@ class WmsStockTransferCandidatesTable
                     ->action(function ($record, array $data) {
                         $hasChanges = $data['transfer_quantity'] != $record->transfer_quantity
                             || $data['expected_arrival_date'] != $record->expected_arrival_date?->format('Y-m-d')
-                            || $data['delivery_course_id'] != $record->delivery_course_id;
+                            || $data['delivery_course_id'] != $record->delivery_course_id
+                            || (isset($data['safety_stock']) && (int) $data['safety_stock'] !== (int) $record->safety_stock)
+                            || (isset($data['ordering_code']) && $data['ordering_code'] !== ($record->search_code ?? $record->ordering_code));
 
                         if ($hasChanges) {
                             $oldQuantity = $record->transfer_quantity;
                             $newQuantity = (int) $data['transfer_quantity'];
 
-                            $record->update([
+                            $updateData = [
                                 'transfer_quantity' => $newQuantity,
                                 'expected_arrival_date' => $data['expected_arrival_date'],
                                 'delivery_course_id' => $data['delivery_course_id'],
                                 'is_manually_modified' => true,
                                 'modified_by' => auth()->id(),
                                 'modified_at' => now(),
-                            ]);
+                            ];
+
+                            if (isset($data['safety_stock']) && (int) $data['safety_stock'] !== (int) $record->safety_stock) {
+                                $newSafetyStock = (int) $data['safety_stock'];
+                                $updateData['safety_stock'] = $newSafetyStock;
+
+                                if ($record->contractor_id) {
+                                    WmsMonthlySafetyStock::updateOrCreate(
+                                        [
+                                            'item_id' => $record->item_id,
+                                            'warehouse_id' => $record->satellite_warehouse_id,
+                                            'contractor_id' => $record->contractor_id,
+                                            'month' => now()->month,
+                                        ],
+                                        [
+                                            'safety_stock' => $newSafetyStock,
+                                        ]
+                                    );
+                                }
+                            }
+
+                            if (isset($data['ordering_code']) && $data['ordering_code'] !== ($record->search_code ?? $record->ordering_code)) {
+                                $newSearchCode = $data['ordering_code'];
+                                $updateData['search_code'] = $newSearchCode;
+                                $updateData['ordering_code'] = str_pad($newSearchCode, 13, '0', STR_PAD_LEFT);
+                            }
+
+                            $record->update($updateData);
 
                             // 移動数量が変更された場合、関連発注候補を再計算
                             if ($oldQuantity !== $newQuantity) {
@@ -543,6 +603,7 @@ class WmsStockTransferCandidatesTable
                     ->icon('heroicon-o-no-symbol')
                     ->color('danger')
                     ->requiresConfirmation()
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalHeading('自動発注対象から除外')
                     ->modalDescription(fn ($record) => "[{$record->item_code}] {$record->item?->name}\nこの商品を自動発注対象から除外しますか？")
                     ->action(function ($record) {
@@ -678,10 +739,10 @@ class WmsStockTransferCandidatesTable
                         ->icon('heroicon-o-pencil-square')
                         ->color('warning')
                         ->modalHeading('')
-                        ->modalSubmitActionLabel('変更を適用')
-                        ->modalSubmitAction(fn ($action) => $action->color('danger'))
-                        ->modalCancelActionLabel('変更せず閉じる')
                         ->extraModalWindowAttributes(['class' => 'bulk-update-course-date-modal'])
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('変更を適用')->color('danger'))
+                        ->modalCancelActionLabel('変更せず閉じる')
                         ->schema(fn (Collection $records) => [
                             ViewField::make('header')
                                 ->view('filament.components.bulk-update-course-date-header', [

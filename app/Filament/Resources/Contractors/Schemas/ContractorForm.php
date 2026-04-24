@@ -273,7 +273,8 @@ class ContractorForm
                     ->schema([
                         TextInput::make('wms_order_mail')
                             ->label('発注先メールアドレス')
-                            ->email(),
+                            ->email()
+                            ->helperText('このメールアドレスが登録されていると、メール送信発注先になります。'),
                         TextInput::make('wms_order_mail_from')
                             ->label('送信名'),
                         TextInput::make('wms_order_mail_title')

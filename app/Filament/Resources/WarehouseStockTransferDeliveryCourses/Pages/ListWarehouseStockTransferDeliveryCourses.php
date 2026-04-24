@@ -11,6 +11,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -28,6 +29,10 @@ class ListWarehouseStockTransferDeliveryCourses extends ListRecords
                 ->color('primary')
                 ->modalHeading('移動配送コース設定を追加')
                 ->modalWidth('lg')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('作成')->color('danger'))
+                ->modalCancelActionLabel('作成せず閉じる')
                 ->schema([
                     Select::make('from_warehouse_id')
                         ->label('移動元倉庫')
@@ -142,6 +147,10 @@ class ListWarehouseStockTransferDeliveryCourses extends ListRecords
                     ->color('gray')
                     ->modalHeading('移動配送コース設定を編集')
                     ->modalWidth('lg')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('更新')->color('danger'))
+                    ->modalCancelActionLabel('更新せず閉じる')
                     ->fillForm(fn ($record) => [
                         'from_warehouse_id' => $record->from_warehouse_id,
                         'to_warehouse_id' => $record->to_warehouse_id,

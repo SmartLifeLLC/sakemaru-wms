@@ -22,6 +22,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -202,8 +203,10 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                 ->color('primary')
                 ->modalHeading('CSV一括登録')
                 ->modalDescription('形式: 商品CD, JANコード, 倉庫コード(必須), 入荷予定日(必須), ケース, バラ — 商品CDまたはJANコードのどちらか1つ必須 / S-JIS・UTF-8対応')
-                ->modalSubmitActionLabel('登録')
-                ->modalCancelActionLabel('キャンセル')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('登録')->color('danger'))
+                ->modalCancelActionLabel('登録せず閉じる')
                 ->schema([
                     FileUpload::make('csv_file')
                         ->label('CSVファイル')

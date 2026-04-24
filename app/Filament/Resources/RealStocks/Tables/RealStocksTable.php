@@ -7,6 +7,7 @@ use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\RealStockLot;
 use Filament\Actions\Action;
+use Filament\Support\Enums\Alignment;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -106,6 +107,8 @@ class RealStocksTable
                     ->icon('heroicon-o-eye')
                     ->modalHeading(fn (RealStock $record) => $record->item?->name ?? '在庫詳細')
                     ->modalWidth('screen')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
                     ->modalContent(fn (RealStock $record): View => view(
                         'filament.resources.real-stocks.modal.stock-detail',
                         self::getModalData($record)

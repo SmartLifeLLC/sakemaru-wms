@@ -10,6 +10,7 @@ use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Concerns\OptimisticLockException;
+use App\Models\WmsMonthlySafetyStock;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsStockTransferCandidate;
@@ -18,6 +19,8 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
@@ -398,6 +401,7 @@ class WmsOrderCandidatesTable
                 TextColumn::make('origin_type')
                     ->label('生成元')
                     ->badge()
+                    ->formatStateUsing(fn(OriginType $state): string => $state->label())
                     ->color(fn($record) => $record->origin_type?->color() ?? 'gray')
                     ->toggleable(isToggledHiddenByDefault: false)
 ,
@@ -429,7 +433,7 @@ class WmsOrderCandidatesTable
 
                 SelectFilter::make('origin_type')
                     ->label('生成元')
-                    ->options(OriginType::class),
+                    ->options(collect(OriginType::cases())->mapWithKeys(fn ($t) => [$t->value => $t->label()])),
 
                 static::warehouseFilter()->label('発注倉庫'),
 
@@ -455,6 +459,8 @@ class WmsOrderCandidatesTable
                         'case_quantity' => $record->case_quantity,
                         'piece_quantity' => $record->piece_quantity,
                         'expected_arrival_date' => $record->expected_arrival_date,
+                        'safety_stock' => $record->safety_stock,
+                        'ordering_code' => $record->search_code ?? $record->ordering_code,
                     ])
                     ->schema(function (?WmsOrderCandidate $record): array {
                         if (!$record) {
@@ -531,10 +537,13 @@ class WmsOrderCandidatesTable
                                     'shortageQty' => $details['不足数'] ?? 0,
                                     'purchaseUnit' => $details['最小仕入単位'] ?? 1,
                                     'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,
+                                    'isEditable' => $isEditable,
                                 ]),
                         ];
 
                         if ($isEditable) {
+                            $schema[] = Hidden::make('safety_stock');
+
                             $schema[] = Grid::make(3)->schema([
                                 TextInput::make('case_quantity')
                                     ->label('発注ケース')
@@ -553,6 +562,29 @@ class WmsOrderCandidatesTable
                                     ->label('入荷予定日')
                                     ->required(),
                             ]);
+
+                            $codes = DB::connection('sakemaru')
+                                ->table('item_search_information')
+                                ->where('item_id', $record->item_id)
+                                ->where('is_active', true)
+                                ->select('search_string', 'code_type', 'is_used_for_ordering')
+                                ->get();
+
+                            if ($codes->isNotEmpty()) {
+                                $codeOptions = $codes->mapWithKeys(function ($code) {
+                                    $label = $code->search_string;
+                                    if ($code->is_used_for_ordering) {
+                                        $label .= ' (現在の発注用)';
+                                    }
+                                    return [$code->search_string => $label];
+                                })->toArray();
+
+                                $schema[] = Select::make('ordering_code')
+                                    ->label('発注CD')
+                                    ->options($codeOptions)
+                                    ->searchable()
+                                    ->helperText('この商品に登録されている検索コードから発注CDを選択');
+                            }
                         }
 
                         return $schema;
@@ -600,6 +632,31 @@ class WmsOrderCandidatesTable
 
                         if ($newArrivalDate !== $currentArrivalDate) {
                             $updateData['expected_arrival_date'] = $newArrivalDate;
+                            $updated = true;
+                        }
+
+                        if (isset($data['safety_stock']) && (int) $data['safety_stock'] !== (int) $record->safety_stock) {
+                            $newSafetyStock = (int) $data['safety_stock'];
+                            $updateData['safety_stock'] = $newSafetyStock;
+                            $updated = true;
+
+                            WmsMonthlySafetyStock::updateOrCreate(
+                                [
+                                    'item_id' => $record->item_id,
+                                    'warehouse_id' => $record->warehouse_id,
+                                    'contractor_id' => $record->contractor_id,
+                                    'month' => now()->month,
+                                ],
+                                [
+                                    'safety_stock' => $newSafetyStock,
+                                ]
+                            );
+                        }
+
+                        if (isset($data['ordering_code']) && $data['ordering_code'] !== ($record->search_code ?? $record->ordering_code)) {
+                            $newSearchCode = $data['ordering_code'];
+                            $updateData['search_code'] = $newSearchCode;
+                            $updateData['ordering_code'] = str_pad($newSearchCode, 13, '0', STR_PAD_LEFT);
                             $updated = true;
                         }
 
