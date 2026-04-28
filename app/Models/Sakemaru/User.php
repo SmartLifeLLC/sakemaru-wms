@@ -4,6 +4,7 @@ namespace App\Models\Sakemaru;
 
 use Archilex\AdvancedTables\Concerns\HasViews;
 use Archilex\AdvancedTables\Support\Config;
+use App\Models\User as SharedAuthUser;
 use Filament\Models\Contracts\FilamentUser;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -345,5 +346,10 @@ class User extends Authenticatable implements FilamentUser
         return static::where('email', 'automator@sakemaru.ai')->value('id')
             ?? static::where('email', 'admin@sakemaru.ai')->value('id')
             ?? 0;
+    }
+
+    public function getMorphClass(): string
+    {
+        return SharedAuthUser::class;
     }
 }
