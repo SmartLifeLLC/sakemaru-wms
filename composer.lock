@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f450d19ec319e5ff421874e68b83f90c",
+    "content-hash": "08a61497683990ae072bd7625f1f3371",
     "packages": [
         {
             "name": "anourvalar/eloquent-serialize",
@@ -6297,11 +6297,17 @@
         },
         {
             "name": "sakemaru/auth",
-            "version": "dev-codex/shared-rbac-initial-rollout",
+            "version": "v1.1.0",
+            "source": {
+                "type": "git",
+                "url": "git@github.com:SmartLifeLLC/sakemaru-auth.git",
+                "reference": "5a1fedaf6012d44021391bcd2cf7886e2a986b3a"
+            },
             "dist": {
-                "type": "path",
-                "url": "../sakemaru-auth",
-                "reference": "430b8065d5add16727828bcba752c0c07fed5ac0"
+                "type": "zip",
+                "url": "https://api.github.com/repos/SmartLifeLLC/sakemaru-auth/zipball/5a1fedaf6012d44021391bcd2cf7886e2a986b3a",
+                "reference": "5a1fedaf6012d44021391bcd2cf7886e2a986b3a",
+                "shasum": ""
             },
             "require": {
                 "illuminate/auth": "^11.0|^12.0",
@@ -6347,10 +6353,11 @@
                 "proprietary"
             ],
             "description": "酒丸シリーズ権限管理パッケージ",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "source": "https://github.com/SmartLifeLLC/sakemaru-auth/tree/v1.1.0",
+                "issues": "https://github.com/SmartLifeLLC/sakemaru-auth/issues"
+            },
+            "time": "2026-04-28T21:12:51+00:00"
         },
         {
             "name": "scrivo/highlight.php",
@@ -12497,9 +12504,7 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {
-        "sakemaru/auth": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
