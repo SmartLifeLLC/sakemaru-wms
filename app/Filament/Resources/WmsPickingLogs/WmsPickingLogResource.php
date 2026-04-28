@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsPickingLogs\Pages\ListWmsPickingLogs;
 use App\Filament\Resources\WmsPickingLogs\Tables\WmsPickingLogsTable;
 use App\Models\WmsPickingLog;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsPickingLogResource extends Resource
+class WmsPickingLogResource extends AdminResource
 {
     protected static ?string $model = WmsPickingLog::class;
 

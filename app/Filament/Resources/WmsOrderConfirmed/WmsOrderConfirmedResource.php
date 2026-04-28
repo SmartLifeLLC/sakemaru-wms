@@ -8,12 +8,12 @@ use App\Filament\Resources\WmsOrderConfirmed\Pages\ListWmsOrderConfirmed;
 use App\Filament\Resources\WmsOrderConfirmed\Tables\WmsOrderConfirmedTable;
 use App\Models\WmsOrderCandidate;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsOrderConfirmedResource extends Resource
+class WmsOrderConfirmedResource extends AdminResource
 {
     protected static ?string $model = WmsOrderCandidate::class;
 

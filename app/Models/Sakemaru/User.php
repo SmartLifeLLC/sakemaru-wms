@@ -12,10 +12,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Sakemaru\Auth\Services\PermissionService;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements FilamentUser
 {
     use HasViews;
+    use HasRoles;
 
     protected $connection = 'sakemaru';
 
@@ -330,7 +333,11 @@ class User extends Authenticatable implements FilamentUser
 
     public function canAccessPanel(\Filament\Panel $panel): bool
     {
-        return true;
+        if ($panel->getId() !== 'admin') {
+            return true;
+        }
+
+        return app(PermissionService::class)->check($this, 'wms.access');
     }
 
     public static function resolveAutomatorId(): int

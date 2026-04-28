@@ -12,6 +12,7 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Support\Facades\DB;
+use Sakemaru\Auth\Services\PermissionService;
 
 class ExecuteWmsPickingTask extends Page implements HasForms
 {
@@ -385,6 +386,9 @@ class ExecuteWmsPickingTask extends Page implements HasForms
 
     public static function canAccess(array $parameters = []): bool
     {
-        return true; // Allow all authenticated users to access
+        $user = auth()->user();
+
+        return $user !== null
+            && app(PermissionService::class)->check($user, 'wms.execute-wms-picking-task.execute');
     }
 }

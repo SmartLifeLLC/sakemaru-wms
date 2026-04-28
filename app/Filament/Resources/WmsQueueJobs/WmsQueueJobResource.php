@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsQueueJobs\Pages\ListWmsQueueJobs;
 use App\Filament\Resources\WmsQueueJobs\Tables\WmsQueueJobsTable;
 use App\Models\WmsQueueJob;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsQueueJobResource extends Resource
+class WmsQueueJobResource extends AdminResource
 {
     protected static ?string $model = WmsQueueJob::class;
 

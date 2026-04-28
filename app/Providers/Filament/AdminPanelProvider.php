@@ -22,6 +22,7 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Sakemaru\Auth\Services\PermissionService;
 use WatheqAlshowaiter\FilamentStickyTableHeader\StickyTableHeaderPlugin;
 
 class AdminPanelProvider extends PanelProvider
@@ -57,11 +58,13 @@ class AdminPanelProvider extends PanelProvider
                 NavigationItem::make('API Document')
                     ->url('/api/documentation', shouldOpenInNewTab: true)
                     ->icon('heroicon-o-link')
-                    ->group(EMenuCategory::SETTINGS->label()),
+                    ->group(EMenuCategory::SETTINGS->label())
+                    ->visible(fn (): bool => $this->can('wms.api-document.view')),
                 NavigationItem::make('倉庫移動伝票')
                     ->url(config('app.core_url').'/stocks/inventory/transfer', shouldOpenInNewTab: true)
                     ->icon('heroicon-o-arrows-right-left')
                     ->group(EMenuCategory::ORDER_HISTORY->label())
+                    ->visible(fn (): bool => $this->can('wms.warehouse-stock-transfer-delivery-course.view'))
                     ->sort(4),
             ])
             ->middleware([
@@ -94,5 +97,13 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::TOPBAR_START,
                 fn (): View => view('livewire.warehouse-selector-hook'),
             );
+    }
+
+    protected function can(string $permission): bool
+    {
+        $user = auth()->user();
+
+        return $user !== null
+            && app(PermissionService::class)->check($user, $permission);
     }
 }

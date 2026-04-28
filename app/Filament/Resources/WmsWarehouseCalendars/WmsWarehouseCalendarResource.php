@@ -9,11 +9,11 @@ use App\Filament\Resources\WmsWarehouseCalendars\Schemas\WmsWarehouseCalendarFor
 use App\Filament\Resources\WmsWarehouseCalendars\Tables\WmsWarehouseCalendarsTable;
 use App\Models\WmsWarehouseCalendar;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
 
-class WmsWarehouseCalendarResource extends Resource
+class WmsWarehouseCalendarResource extends AdminResource
 {
     protected static ?string $model = WmsWarehouseCalendar::class;
 

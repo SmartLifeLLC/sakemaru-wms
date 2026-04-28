@@ -7,12 +7,12 @@ use App\Filament\Resources\WmsPickerAttendance\Pages\ListWmsPickerAttendance;
 use App\Filament\Resources\WmsPickerAttendance\Tables\WmsPickerAttendanceTable;
 use App\Models\WmsPicker;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsPickerAttendanceResource extends Resource
+class WmsPickerAttendanceResource extends AdminResource
 {
     protected static ?string $model = WmsPicker::class;
 

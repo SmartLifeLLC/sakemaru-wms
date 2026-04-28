@@ -10,12 +10,12 @@ use App\Filament\Resources\WmsBuyerDeliveryCourseSwitchSettings\Schemas\WmsBuyer
 use App\Filament\Resources\WmsBuyerDeliveryCourseSwitchSettings\Tables\WmsBuyerDeliveryCourseSwitchSettingsTable;
 use App\Models\WmsBuyerDeliveryCourseSwitchSetting;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsBuyerDeliveryCourseSwitchSettingResource extends Resource
+class WmsBuyerDeliveryCourseSwitchSettingResource extends AdminResource
 {
     protected static ?string $model = WmsBuyerDeliveryCourseSwitchSetting::class;
 

@@ -10,12 +10,12 @@ use App\Filament\Resources\WmsShipmentInspections\Schemas\WmsShipmentInspectionF
 use App\Filament\Resources\WmsShipmentInspections\Tables\WmsShipmentInspectionsTable;
 use App\Models\WmsShipmentInspection;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsShipmentInspectionResource extends Resource
+class WmsShipmentInspectionResource extends AdminResource
 {
     protected static ?string $model = WmsShipmentInspection::class;
 

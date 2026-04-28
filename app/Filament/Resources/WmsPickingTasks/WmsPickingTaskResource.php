@@ -7,9 +7,9 @@ use App\Filament\Resources\WmsPickingTasks\Pages\ExecuteWmsPickingTask;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingTasks;
 use App\Models\WmsPickingTask;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 
-class WmsPickingTaskResource extends Resource
+class WmsPickingTaskResource extends AdminResource
 {
     protected static ?string $model = WmsPickingTask::class;
 

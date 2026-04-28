@@ -11,12 +11,12 @@ use App\Filament\Resources\WmsRouteCalculationLogs\Schemas\WmsRouteCalculationLo
 use App\Filament\Resources\WmsRouteCalculationLogs\Tables\WmsRouteCalculationLogsTable;
 use App\Models\WmsRouteCalculationLog;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsRouteCalculationLogResource extends Resource
+class WmsRouteCalculationLogResource extends AdminResource
 {
     protected static ?string $model = WmsRouteCalculationLog::class;
 

@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsShipmentSlips\Pages\ListWmsShipmentSlips;
 use App\Filament\Resources\WmsShipmentSlips\Tables\WmsShipmentSlipsTable;
 use App\Models\WmsPickingTask;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsShipmentSlipsResource extends Resource
+class WmsShipmentSlipsResource extends AdminResource
 {
     protected static ?string $model = WmsPickingTask::class;
 

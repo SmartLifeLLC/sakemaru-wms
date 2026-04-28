@@ -11,13 +11,15 @@ use App\Models\WmsFloorObject;
 use App\Models\WmsPicker;
 use App\Models\WmsPickingArea;
 use App\Models\WmsWarehouseLayout;
-use Filament\Pages\Page;
+use App\Filament\Support\AdminPage;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 
-class FloorPlanEditor extends Page
+class FloorPlanEditor extends AdminPage
 {
+    protected static string $permissionResource = 'floor-plan';
+
     protected static \BackedEnum|string|null $navigationIcon = Heroicon::OutlinedMap;
 
     protected string $view = 'filament.pages.floor-plan-editor';
@@ -92,7 +94,7 @@ class FloorPlanEditor extends Page
 
     public static function canAccess(): bool
     {
-        return true;
+        return parent::canAccess();
     }
 
     /**

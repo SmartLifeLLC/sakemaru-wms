@@ -12,12 +12,12 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
-use Filament\Pages\Page;
+use App\Filament\Support\AdminPage;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 
-class JxTestData extends Page
+class JxTestData extends AdminPage
 {
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedServer;
 
@@ -40,8 +40,8 @@ class JxTestData extends Page
 
     public static function canAccess(): bool
     {
-        // Only show in non-production environments
-        return app()->environment(['local', 'development', 'staging']);
+        return app()->environment(['local', 'development', 'staging'])
+            && parent::canAccess();
     }
 
     public function getTitle(): string|HtmlString

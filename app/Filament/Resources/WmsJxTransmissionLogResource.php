@@ -9,7 +9,7 @@ use App\Models\WmsJxTransmissionLog;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -18,7 +18,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsJxTransmissionLogResource extends Resource
+class WmsJxTransmissionLogResource extends AdminResource
 {
     protected static ?string $model = WmsJxTransmissionLog::class;
 

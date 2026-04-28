@@ -7,12 +7,12 @@ use App\Filament\Resources\WmsShortagesWaitingApprovals\Pages\ListWmsShortagesWa
 use App\Filament\Resources\WmsShortagesWaitingApprovals\Tables\WmsShortagesWaitingApprovalsTable;
 use App\Models\WmsShortage;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsShortagesWaitingApprovalResource extends Resource
+class WmsShortagesWaitingApprovalResource extends AdminResource
 {
     protected static ?string $model = WmsShortage::class;
 

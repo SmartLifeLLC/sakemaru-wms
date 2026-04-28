@@ -10,12 +10,12 @@ use App\Filament\Resources\Purchases\Schemas\PurchaseForm;
 use App\Filament\Resources\Purchases\Tables\PurchasesTable;
 use App\Models\Sakemaru\Purchase;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class PurchaseResource extends Resource
+class PurchaseResource extends AdminResource
 {
     protected static ?string $model = Purchase::class;
 

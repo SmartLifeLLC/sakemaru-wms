@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsImportLogs\Pages\ListWmsImportLogs;
 use App\Filament\Resources\WmsImportLogs\Tables\WmsImportLogsTable;
 use App\Models\WmsImportLog;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsImportLogResource extends Resource
+class WmsImportLogResource extends AdminResource
 {
     protected static ?string $model = WmsImportLog::class;
 

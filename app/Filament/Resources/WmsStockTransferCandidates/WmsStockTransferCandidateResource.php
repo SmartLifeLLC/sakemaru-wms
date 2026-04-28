@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsStockTransferCandidates\Pages\ListWmsStockTransfer
 use App\Filament\Resources\WmsStockTransferCandidates\Tables\WmsStockTransferCandidatesTable;
 use App\Models\WmsStockTransferCandidate;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsStockTransferCandidateResource extends Resource
+class WmsStockTransferCandidateResource extends AdminResource
 {
     protected static ?string $model = WmsStockTransferCandidate::class;
 

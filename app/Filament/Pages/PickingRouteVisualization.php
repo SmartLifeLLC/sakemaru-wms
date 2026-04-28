@@ -10,11 +10,13 @@ use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsPickingArea;
 use App\Models\WmsPickingTask;
 use App\Models\WmsWarehouseLayout;
-use Filament\Pages\Page;
+use App\Filament\Support\AdminPage;
 use Livewire\Attributes\Computed;
 
-class PickingRouteVisualization extends Page
+class PickingRouteVisualization extends AdminPage
 {
+    protected static string $permissionResource = 'picking-route';
+
     protected static \BackedEnum|string|null $navigationIcon = 'heroicon-o-map';
 
     protected string $view = 'filament.pages.picking-route-visualization';
@@ -76,7 +78,7 @@ class PickingRouteVisualization extends Page
 
     public static function canAccess(): bool
     {
-        return true;
+        return parent::canAccess();
     }
 
     /**
