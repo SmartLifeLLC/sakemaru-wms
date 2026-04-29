@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Models\WmsAutoOrderJobControl;
@@ -47,7 +48,8 @@ class ProcessOrderConfirmationJob implements ShouldQueue
     public function __construct(
         public string $progressId,
         public int $userId,
-        public bool $splitByWarehouse = true
+        public bool $splitByWarehouse = true,
+        public ?int $warehouseId = null
     ) {
         $this->onQueue('default');
     }
@@ -68,17 +70,25 @@ class ProcessOrderConfirmationJob implements ShouldQueue
 
         try {
             // 承認済み移動候補の件数を取得
-            $transferApprovedCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
+            $transferApprovedQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
+            if ($this->warehouseId !== null) {
+                $transferApprovedQuery->where('satellite_warehouse_id', $this->warehouseId);
+            }
+            $transferApprovedCount = $transferApprovedQuery->count();
 
             // 全ての承認済み発注バッチを取得
-            $batchCodes = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
+            $batchCodesQuery = WmsOrderCandidate::where('status', CandidateStatus::APPROVED);
+            if ($this->warehouseId !== null) {
+                $batchCodesQuery->where('warehouse_id', $this->warehouseId);
+            }
+            $batchCodes = $batchCodesQuery
                 ->distinct()
                 ->pluck('batch_code')
                 ->toArray();
 
             if (empty($batchCodes) && $transferApprovedCount === 0) {
                 // 確定対象がないので、PENDING状態のジョブをキャンセル
-                WmsAutoOrderJobControl::cancelPendingSettlements();
+                WmsAutoOrderJobControl::cancelPendingSettlements($this->warehouseId);
 
                 $progress->markAsCompleted([
                     'total_transfer_queues' => 0,
@@ -115,7 +125,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                     "移動候補を確定処理中... ({$transferApprovedCount}件)"
                 );
 
-                $transferResult = $transferExecutionService->executeAllApprovedGrouped($this->userId);
+                $transferResult = $transferExecutionService->executeAllApprovedGrouped($this->userId, $this->warehouseId);
                 $totalTransferQueues = $transferResult['queue_count'];
                 $totalTransferCandidates = $transferResult['candidate_count'];
 
@@ -138,7 +148,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                     "バッチ {$batchCode} の発注確定処理中... (".($index + 1)."/{$totalBatches})"
                 );
 
-                $schedules = $executionService->confirmBatch($batchCode, $this->userId);
+                $schedules = $executionService->confirmBatch($batchCode, $this->userId, $this->warehouseId);
                 $totalSchedules += $schedules->count();
 
                 // 2-2. 共通CSVファイル生成
@@ -147,7 +157,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                     "バッチ {$batchCode} のCSVファイル生成中... (".($index + 1)."/{$totalBatches})"
                 );
 
-                $csvResult = $dataFileService->generateCsvFiles($batchCode, $this->splitByWarehouse);
+                $csvResult = $dataFileService->generateCsvFiles($batchCode, $this->splitByWarehouse, $this->warehouseId);
                 $totalCsvFiles += $csvResult['total_files'] ?? 0;
 
                 // 2-3. JX送信ファイル生成
@@ -156,7 +166,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                     "バッチ {$batchCode} のJXファイル生成中... (".($index + 1)."/{$totalBatches})"
                 );
 
-                $jxResult = $transmissionService->generateOrderFiles($batchCode);
+                $jxResult = $transmissionService->generateOrderFiles($batchCode, $this->warehouseId, $this->warehouseId === null);
                 $totalJxFiles += count($jxResult['files'] ?? []);
 
                 // バッチ完了
@@ -242,7 +252,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         }
 
         // ジョブ失敗時は確定待ちをキャンセルして永久PENDINGを防止
-        WmsAutoOrderJobControl::cancelPendingSettlements();
+        WmsAutoOrderJobControl::cancelPendingSettlements($this->warehouseId);
 
         Log::error('Transfer/Order confirmation job failed', [
             'progress_id' => $this->progressId,
@@ -259,16 +269,26 @@ class ProcessOrderConfirmationJob implements ShouldQueue
     {
         if (empty($batchCodes)) {
             // バッチコードがない場合でも、PENDING状態のジョブがあれば確定済みにする
-            WmsAutoOrderJobControl::where('settlement_status', SettlementStatus::PENDING)
-                ->update(['settlement_status' => SettlementStatus::CONFIRMED]);
+            $query = WmsAutoOrderJobControl::where('settlement_status', SettlementStatus::PENDING)
+                ->where('process_name', JobProcessName::ORDER_CALC);
+            if ($this->warehouseId !== null) {
+                $query->where('warehouse_id', $this->warehouseId);
+            }
+            $query->update(['settlement_status' => SettlementStatus::CONFIRMED]);
 
             return;
         }
 
         // バッチコードに関連するジョブを確定済みに更新
-        $updatedCount = WmsAutoOrderJobControl::whereIn('batch_code', $batchCodes)
-            ->where('settlement_status', SettlementStatus::PENDING)
-            ->update(['settlement_status' => SettlementStatus::CONFIRMED]);
+        $query = WmsAutoOrderJobControl::whereIn('batch_code', $batchCodes)
+            ->where('process_name', JobProcessName::ORDER_CALC)
+            ->where('settlement_status', SettlementStatus::PENDING);
+
+        if ($this->warehouseId !== null) {
+            $query->where('warehouse_id', $this->warehouseId);
+        }
+
+        $updatedCount = $query->update(['settlement_status' => SettlementStatus::CONFIRMED]);
 
         Log::info('Updated settlement status to CONFIRMED', [
             'batch_codes' => $batchCodes,
@@ -306,10 +326,15 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         }
 
         // 該当するPENDINGドキュメントを取得
-        $pendingDocuments = WmsOrderJxDocument::whereIn('batch_code', $batchCodes)
+        $pendingDocumentsQuery = WmsOrderJxDocument::whereIn('batch_code', $batchCodes)
             ->where('status', TransmissionDocumentStatus::PENDING)
-            ->whereIn('wms_order_jx_setting_id', $autoTransmitSettingIds)
-            ->get();
+            ->whereIn('wms_order_jx_setting_id', $autoTransmitSettingIds);
+
+        if ($this->warehouseId !== null) {
+            $pendingDocumentsQuery->where('warehouse_id', $this->warehouseId);
+        }
+
+        $pendingDocuments = $pendingDocumentsQuery->get();
 
         if ($pendingDocuments->isEmpty()) {
             Log::info('No pending JX documents for auto-transmission', [

@@ -634,8 +634,11 @@ class OrderTransmissionService
      * @param  string  $batchCode  バッチコード
      * @return array{success: bool, files: array, total_orders: int, errors: array}
      */
-    public function generateOrderFiles(string $batchCode): array
-    {
+    public function generateOrderFiles(
+        string $batchCode,
+        ?int $warehouseId = null,
+        bool $generateEmptyFiles = true
+    ): array {
         $generator = $this->getOrderFileGenerator();
 
         if (! $generator) {
@@ -670,15 +673,26 @@ class OrderTransmissionService
         }
 
         // CONFIRMED状態（確定済み）でファイル未生成のJX対象発注候補を取得
-        $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
+        $query = WmsOrderCandidate::where('batch_code', $batchCode)
             ->where('status', CandidateStatus::CONFIRMED)
             ->whereNull('wms_order_jx_document_id')
             ->whereIn('contractor_id', $targetContractorIds)
-            ->with(['warehouse', 'item', 'contractor'])
-            ->get();
+            ->with(['warehouse', 'item', 'contractor']);
+
+        if ($warehouseId !== null) {
+            $query->where('warehouse_id', $warehouseId);
+        }
+
+        $candidates = $query->get();
 
         // 候補が空でも空ファイル生成のために処理を続行する
-        return $this->doGenerateOrderFiles($batchCode, $candidates, TransmissionDocumentStatus::PENDING, true);
+        return $this->doGenerateOrderFiles(
+            $batchCode,
+            $candidates,
+            TransmissionDocumentStatus::PENDING,
+            true,
+            $generateEmptyFiles
+        );
     }
 
     /**
@@ -806,9 +820,17 @@ class OrderTransmissionService
         string $batchCode,
         Collection $candidates,
         TransmissionDocumentStatus $status,
-        bool $linkCandidates
+        bool $linkCandidates,
+        bool $generateEmptyFiles = true
     ): array {
-        return $this->doGenerateOrderFilesWithProgress($batchCode, $candidates, $status, $linkCandidates, null);
+        return $this->doGenerateOrderFilesWithProgress(
+            $batchCode,
+            $candidates,
+            $status,
+            $linkCandidates,
+            null,
+            $generateEmptyFiles
+        );
     }
 
     /**
@@ -825,7 +847,8 @@ class OrderTransmissionService
         Collection $candidates,
         TransmissionDocumentStatus $status,
         bool $linkCandidates,
-        ?callable $progressCallback
+        ?callable $progressCallback,
+        bool $generateEmptyFiles = true
     ): array {
         $methodStart = microtime(true);
         Log::info('[doGenerateOrderFiles] 開始', [
@@ -917,14 +940,16 @@ class OrderTransmissionService
             }
 
             // データなしJX設定に対する空ファイル生成
-            $emptyFileResults = $this->generateEmptyFilesForMissingSettings(
-                $batchCode,
-                $files,
-                $status,
-                $progressCallback
-            );
-            foreach ($emptyFileResults as $emptyResult) {
-                $results[] = $emptyResult;
+            if ($generateEmptyFiles) {
+                $emptyFileResults = $this->generateEmptyFilesForMissingSettings(
+                    $batchCode,
+                    $files,
+                    $status,
+                    $progressCallback
+                );
+                foreach ($emptyFileResults as $emptyResult) {
+                    $results[] = $emptyResult;
+                }
             }
         } catch (\Exception $e) {
             $errors[] = $e->getMessage();

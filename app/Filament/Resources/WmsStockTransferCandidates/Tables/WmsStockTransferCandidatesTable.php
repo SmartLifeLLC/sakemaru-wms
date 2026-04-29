@@ -17,8 +17,8 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
@@ -471,12 +471,12 @@ class WmsStockTransferCandidatesTable
                                     'suggestedQuantity' => $record->suggested_quantity ?? 0,
                                     'transferQuantity' => $record->transfer_quantity ?? 0,
                                     'hasCalculationLog' => ! empty($details),
-                                    'formula' => $details['計算式'] ?? '-',
+                                    'formula' => str_replace(['安全在庫', '入庫予定'], ['発注点', '入荷予定'], $details['計算式'] ?? '-'),
                                     'effectiveStock' => $details['有効在庫'] ?? 0,
-                                    'incomingStock' => $details['入庫予定数'] ?? 0,
+                                    'incomingStock' => $details['入荷予定'] ?? $details['入庫予定数'] ?? 0,
                                     'transferIncoming' => $details['移動入庫予定'] ?? 0,
                                     'transferOutgoing' => $details['移動出庫予定'] ?? 0,
-                                    'safetyStock' => $details['安全在庫'] ?? 0,
+                                    'safetyStock' => $details['発注点'] ?? $details['安全在庫'] ?? 0,
                                     'shortageQty' => $details['不足数'] ?? 0,
                                     'isEditable' => $isEditable,
                                 ]),
@@ -492,7 +492,7 @@ class WmsStockTransferCandidatesTable
                                     ->required()
                                     ->minValue(0),
                                 DatePicker::make('expected_arrival_date')
-                                    ->label('入荷予定')
+                                    ->label('入荷予定日')
                                     ->required(),
                                 Select::make('delivery_course_id')
                                     ->label('配送コース')
@@ -515,6 +515,7 @@ class WmsStockTransferCandidatesTable
                                     if ($code->is_used_for_ordering) {
                                         $label .= ' (現在の発注用)';
                                     }
+
                                     return [$code->search_string => $label];
                                 })->toArray();
 

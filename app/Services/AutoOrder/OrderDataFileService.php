@@ -26,13 +26,20 @@ class OrderDataFileService
      * @param  bool  $splitByWarehouse  納品先（倉庫）別にファイルを分割するか
      * @return array{success: bool, files: array, total_files: int, errors: array}
      */
-    public function generateCsvFiles(string $batchCode, bool $splitByWarehouse = true): array
+    public function generateCsvFiles(string $batchCode, bool $splitByWarehouse = true, ?int $warehouseId = null): array
     {
+        $shouldSplitByWarehouse = $splitByWarehouse || $warehouseId !== null;
+
         // CONFIRMED状態の発注候補を取得
-        $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
+        $query = WmsOrderCandidate::where('batch_code', $batchCode)
             ->where('status', CandidateStatus::CONFIRMED)
-            ->with(['warehouse', 'item', 'contractor'])
-            ->get();
+            ->with(['warehouse', 'item', 'contractor']);
+
+        if ($warehouseId !== null) {
+            $query->where('warehouse_id', $warehouseId);
+        }
+
+        $candidates = $query->get();
 
         if ($candidates->isEmpty()) {
             return [
@@ -45,7 +52,7 @@ class OrderDataFileService
         }
 
         // グルーピング: 納品先別 or 発注先のみ
-        $grouped = $splitByWarehouse
+        $grouped = $shouldSplitByWarehouse
             ? $candidates->groupBy(fn ($candidate) => "{$candidate->warehouse_id}_{$candidate->contractor_id}")
             : $candidates->groupBy(fn ($candidate) => (string) $candidate->contractor_id);
 
@@ -54,15 +61,16 @@ class OrderDataFileService
 
         foreach ($grouped as $groupKey => $groupCandidates) {
             try {
-                $result = $this->generateCsvFile($batchCode, $groupCandidates, $splitByWarehouse);
+                $result = $this->generateCsvFile($batchCode, $groupCandidates, $shouldSplitByWarehouse);
                 $results[] = $result;
 
                 Log::info('Order data CSV file generated', [
                     'batch_code' => $batchCode,
-                    'warehouse_id' => $splitByWarehouse ? $groupCandidates->first()->warehouse_id : null,
+                    'warehouse_id' => $shouldSplitByWarehouse ? $groupCandidates->first()->warehouse_id : null,
                     'contractor_id' => $groupCandidates->first()->contractor_id,
                     'order_count' => $groupCandidates->count(),
-                    'split_by_warehouse' => $splitByWarehouse,
+                    'split_by_warehouse' => $shouldSplitByWarehouse,
+                    'requested_warehouse_id' => $warehouseId,
                 ]);
             } catch (\Exception $e) {
                 $errors[] = [

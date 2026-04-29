@@ -317,11 +317,16 @@ class TransferCandidateExecutionService
      * @param  int  $executedBy  確定者ID
      * @return array{queue_count: int, candidate_count: int, errors: array}
      */
-    public function executeAllApprovedGrouped(int $executedBy): array
+    public function executeAllApprovedGrouped(int $executedBy, ?int $warehouseId = null): array
     {
-        $candidates = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
-            ->with(['hubWarehouse', 'satelliteWarehouse', 'item'])
-            ->get();
+        $query = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
+            ->with(['hubWarehouse', 'satelliteWarehouse', 'item']);
+
+        if ($warehouseId !== null) {
+            $query->where('satellite_warehouse_id', $warehouseId);
+        }
+
+        $candidates = $query->get();
 
         if ($candidates->isEmpty()) {
             Log::info('No approved transfer candidates to execute');

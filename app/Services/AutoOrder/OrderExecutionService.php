@@ -79,11 +79,16 @@ class OrderExecutionService
      * @param  int  $confirmedBy  確定者ID
      * @return Collection<WmsOrderIncomingSchedule> 作成された入庫予定のコレクション
      */
-    public function confirmBatch(string $batchCode, int $confirmedBy): Collection
+    public function confirmBatch(string $batchCode, int $confirmedBy, ?int $warehouseId = null): Collection
     {
-        $candidates = WmsOrderCandidate::where('batch_code', $batchCode)
-            ->whereIn('status', [CandidateStatus::APPROVED, CandidateStatus::CONFIRMED])
-            ->get();
+        $query = WmsOrderCandidate::where('batch_code', $batchCode)
+            ->whereIn('status', [CandidateStatus::APPROVED, CandidateStatus::CONFIRMED]);
+
+        if ($warehouseId !== null) {
+            $query->where('warehouse_id', $warehouseId);
+        }
+
+        $candidates = $query->get();
 
         if ($candidates->isEmpty()) {
             return collect();

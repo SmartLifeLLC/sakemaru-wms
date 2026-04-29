@@ -85,15 +85,27 @@ class OrderConfirmationCleanupService
 
             // ジョブ開始時刻以降に確定された候補のバッチコードを取得
             $startTime = $progress->started_at ?? $progress->created_at;
-            $affectedBatchCodes = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
-                ->where('updated_at', '>=', $startTime)
+            $warehouseId = data_get($progress->metadata, 'warehouse_id');
+
+            $affectedCandidatesQuery = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
+                ->where('updated_at', '>=', $startTime);
+
+            if ($warehouseId !== null) {
+                $affectedCandidatesQuery->where('warehouse_id', $warehouseId);
+            }
+
+            $affectedBatchCodes = $affectedCandidatesQuery
                 ->distinct()
                 ->pluck('batch_code')
                 ->toArray();
 
             if (! empty($affectedBatchCodes)) {
                 // 1. S3からCSVファイルを削除し、DBレコードも削除
-                $csvFiles = WmsOrderDataFile::whereIn('batch_code', $affectedBatchCodes)->get();
+                $csvFilesQuery = WmsOrderDataFile::whereIn('batch_code', $affectedBatchCodes);
+                if ($warehouseId !== null) {
+                    $csvFilesQuery->where('warehouse_id', $warehouseId);
+                }
+                $csvFiles = $csvFilesQuery->get();
                 foreach ($csvFiles as $file) {
                     try {
                         if ($file->file_path && Storage::disk('s3')->exists($file->file_path)) {
@@ -104,10 +116,18 @@ class OrderConfirmationCleanupService
                         $result['errors'][] = "CSV file delete error: {$file->file_path} - {$e->getMessage()}";
                     }
                 }
-                $result['deleted_csv_files'] = WmsOrderDataFile::whereIn('batch_code', $affectedBatchCodes)->delete();
+                $csvDeleteQuery = WmsOrderDataFile::whereIn('batch_code', $affectedBatchCodes);
+                if ($warehouseId !== null) {
+                    $csvDeleteQuery->where('warehouse_id', $warehouseId);
+                }
+                $result['deleted_csv_files'] = $csvDeleteQuery->delete();
 
                 // 2. S3からJXファイルを削除し、DBレコードも削除
-                $jxDocuments = WmsOrderJxDocument::whereIn('batch_code', $affectedBatchCodes)->get();
+                $jxDocumentsQuery = WmsOrderJxDocument::whereIn('batch_code', $affectedBatchCodes);
+                if ($warehouseId !== null) {
+                    $jxDocumentsQuery->where('warehouse_id', $warehouseId);
+                }
+                $jxDocuments = $jxDocumentsQuery->get();
                 foreach ($jxDocuments as $doc) {
                     try {
                         // .datファイル
@@ -126,19 +146,29 @@ class OrderConfirmationCleanupService
                 }
 
                 // JXドキュメントへの参照をクリア
-                WmsOrderCandidate::whereIn('batch_code', $affectedBatchCodes)
-                    ->whereNotNull('wms_order_jx_document_id')
-                    ->update(['wms_order_jx_document_id' => null]);
+                $candidateDocumentClearQuery = WmsOrderCandidate::whereIn('batch_code', $affectedBatchCodes)
+                    ->whereNotNull('wms_order_jx_document_id');
+                if ($warehouseId !== null) {
+                    $candidateDocumentClearQuery->where('warehouse_id', $warehouseId);
+                }
+                $candidateDocumentClearQuery->update(['wms_order_jx_document_id' => null]);
 
-                $result['deleted_jx_documents'] = WmsOrderJxDocument::whereIn('batch_code', $affectedBatchCodes)->delete();
+                $jxDeleteQuery = WmsOrderJxDocument::whereIn('batch_code', $affectedBatchCodes);
+                if ($warehouseId !== null) {
+                    $jxDeleteQuery->where('warehouse_id', $warehouseId);
+                }
+                $result['deleted_jx_documents'] = $jxDeleteQuery->delete();
 
                 // 3. CONFIRMED状態の候補をAPPROVEDに戻す
-                $result['reverted_candidates'] = WmsOrderCandidate::whereIn('batch_code', $affectedBatchCodes)
-                    ->where('status', CandidateStatus::CONFIRMED)
-                    ->update([
-                        'status' => CandidateStatus::APPROVED,
-                        'updated_at' => now(),
-                    ]);
+                $candidateRevertQuery = WmsOrderCandidate::whereIn('batch_code', $affectedBatchCodes)
+                    ->where('status', CandidateStatus::CONFIRMED);
+                if ($warehouseId !== null) {
+                    $candidateRevertQuery->where('warehouse_id', $warehouseId);
+                }
+                $result['reverted_candidates'] = $candidateRevertQuery->update([
+                    'status' => CandidateStatus::APPROVED,
+                    'updated_at' => now(),
+                ]);
             }
 
             // 4. 進捗レコードをエラー終了としてマーク

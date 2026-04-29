@@ -68,7 +68,7 @@ class WmsAutoOrderJobControl extends WmsModel
             ? str_pad((string) $warehouseId, 3, '0', STR_PAD_LEFT)
             : '000';
 
-        return $base . $suffix;
+        return $base.$suffix;
     }
 
     /**
@@ -232,10 +232,16 @@ class WmsAutoOrderJobControl extends WmsModel
     /**
      * 確定待ち（PENDING）のジョブをキャンセル
      */
-    public static function cancelPendingSettlements(): int
+    public static function cancelPendingSettlements(?int $warehouseId = null): int
     {
-        return self::where('settlement_status', SettlementStatus::PENDING)
-            ->update(['settlement_status' => SettlementStatus::CANCELLED]);
+        $query = self::where('settlement_status', SettlementStatus::PENDING)
+            ->where('process_name', JobProcessName::ORDER_CALC);
+
+        if ($warehouseId !== null) {
+            $query->where('warehouse_id', $warehouseId);
+        }
+
+        return $query->update(['settlement_status' => SettlementStatus::CANCELLED]);
     }
 
     /**
