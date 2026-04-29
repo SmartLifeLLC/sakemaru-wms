@@ -38,6 +38,14 @@
     $canRenderPanelLayout = $panel !== null && filament()->auth()->check();
 @endphp
 
+@push('styles')
+    @livewireStyles
+@endpush
+
+@push('scripts')
+    @livewireScripts
+@endpush
+
 @if (! $canRenderPanelLayout)
     <!DOCTYPE html>
     <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
