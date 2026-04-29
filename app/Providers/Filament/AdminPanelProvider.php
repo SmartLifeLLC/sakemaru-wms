@@ -55,7 +55,7 @@ class AdminPanelProvider extends PanelProvider
                     ->toArray()
             )
             ->navigationItems([
-                NavigationItem::make('API Document')
+                NavigationItem::make('API仕様書')
                     ->url('/api/documentation', shouldOpenInNewTab: true)
                     ->icon('heroicon-o-link')
                     ->group(EMenuCategory::SETTINGS->label())
