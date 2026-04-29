@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\Navigation\MegaMenuBuilder;
 use Filament\Facades\Filament;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\URL;
 use Sakemaru\Auth\Models\SakemaruMenu;
 
 class SyncSakemaruMenusCommand extends Command
@@ -16,6 +17,11 @@ class SyncSakemaruMenusCommand extends Command
 
     public function handle(MegaMenuBuilder $builder): int
     {
+        config(['app.locale' => 'ja']);
+        app()->setLocale('ja');
+        URL::forceRootUrl(rtrim((string) config('app.url'), '/'));
+        URL::forceScheme('https');
+
         $user = User::query()->where('email', $this->option('user'))->first();
         if ($user === null) {
             $this->error('指定ユーザーが見つかりません。');

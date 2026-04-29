@@ -7,6 +7,7 @@ use Filament\Facades\Filament;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\URL;
 use ReflectionClass;
 
 class MegaMenuBuilder
@@ -28,8 +29,15 @@ class MegaMenuBuilder
                         continue;
                     }
 
-                    $items = $navGroup->getItems();
-                    if (count($items) === 0) {
+                    $items = collect($navGroup->getItems())
+                        ->flatMap(function (NavigationItem $item) {
+                            $children = collect($item->getChildItems() ?? []);
+
+                            return $children->isNotEmpty() ? $children : collect([$item]);
+                        })
+                        ->values();
+
+                    if ($items->isEmpty()) {
                         continue;
                     }
 
@@ -118,10 +126,7 @@ class MegaMenuBuilder
             $permissionResource = $this->resolvePermissionResource($resourceClass, 'Resource');
 
             foreach ($resourceClass::getNavigationItems() as $item) {
-                $registry[$this->normalizeUrl($item->getUrl())] = [
-                    'permissionResource' => $permissionResource,
-                    'sourceType' => 'resource',
-                ];
+                $this->registerNavigationItem($registry, $item, $permissionResource, 'resource');
             }
         }
 
@@ -149,6 +154,25 @@ class MegaMenuBuilder
         }
 
         return $registry;
+    }
+
+    protected function registerNavigationItem(
+        array &$registry,
+        NavigationItem $item,
+        string $permissionResource,
+        string $sourceType,
+    ): void {
+        $url = $this->normalizeUrl($item->getUrl());
+        if ($url !== null) {
+            $registry[$url] = [
+                'permissionResource' => $permissionResource,
+                'sourceType' => $sourceType,
+            ];
+        }
+
+        foreach ($item->getChildItems() ?? [] as $childItem) {
+            $this->registerNavigationItem($registry, $childItem, $permissionResource, $sourceType);
+        }
     }
 
     protected function buildMenuItem(NavigationItem $item, array $registry, int $itemSort): array
@@ -343,7 +367,7 @@ class MegaMenuBuilder
             $base = substr($base, 0, -strlen($suffix));
         }
 
-        return (string) Str::of($base)->kebab();
+        return $this->normalizePermissionResourceSlug((string) Str::of($base)->kebab());
     }
 
     protected function resolveTargetSystem(?string $url): ?string
@@ -378,7 +402,29 @@ class MegaMenuBuilder
             return null;
         }
 
+        if (str_starts_with($url, '/')) {
+            $url = URL::to($url);
+        }
+
         return rtrim($url, '/') ?: $url;
+    }
+
+    protected function normalizePermissionResourceSlug(string $slug): string
+    {
+        $segments = explode('-', $slug);
+        $prefix = [];
+
+        while ($segments !== [] && strlen($segments[0]) === 1) {
+            $prefix[] = array_shift($segments);
+        }
+
+        if (count($prefix) < 2) {
+            return $slug;
+        }
+
+        array_unshift($segments, implode('', $prefix));
+
+        return implode('-', $segments);
     }
 
     protected function makeItemKey(
