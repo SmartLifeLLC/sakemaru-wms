@@ -6,10 +6,10 @@ use App\Filament\Widgets\DashboardShortageAllocationsWidget;
 use App\Filament\Widgets\DateFilterWidget;
 use App\Filament\Widgets\OrderStatusWidget;
 use BackedEnum;
-use Filament\Pages\Page;
+use App\Filament\Support\AdminPage;
 use Filament\Support\Icons\Heroicon;
 
-class Dashboard extends Page
+class Dashboard extends AdminPage
 {
     protected string $view = 'filament.pages.dashboard';
 

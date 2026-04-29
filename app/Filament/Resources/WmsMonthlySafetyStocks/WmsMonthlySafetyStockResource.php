@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsMonthlySafetyStocks\Pages\ListWmsMonthlySafetyStoc
 use App\Filament\Resources\WmsMonthlySafetyStocks\Tables\WmsMonthlySafetyStocksTable;
 use App\Models\WmsMonthlySafetyStock;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsMonthlySafetyStockResource extends Resource
+class WmsMonthlySafetyStockResource extends AdminResource
 {
     protected static ?string $model = WmsMonthlySafetyStock::class;
 

@@ -47,56 +47,60 @@ Artisan::command('inspire', function () {
 |
 */
 
-// 月別安全在庫の同期 (毎月末日 4:30)
-// ※ 翌月の発注点を事前に同期（翌日から適用されるため）
-Schedule::command('wms:sync-monthly-safety-stocks')
-    ->dailyAt('01:30')
-    ->when(fn () => now()->isLastOfMonth())
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->appendOutputTo(storage_path('logs/auto-order-monthly-safety-stocks.log'));
+// ======================================================
+// 全スケジュール一時停止中（2026-04-28）
+// ======================================================
 
-// 倉庫カレンダー生成 (毎月1日 4:00)
-Schedule::command('wms:generate-calendars --months=3')
-    ->monthlyOn(1, '01:00')
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->appendOutputTo(storage_path('logs/auto-order-calendars.log'));
+// // 月別安全在庫の同期 (毎月末日 4:30)
+// // ※ 翌月の発注点を事前に同期（翌日から適用されるため）
+// Schedule::command('wms:sync-monthly-safety-stocks')
+//     ->dailyAt('01:30')
+//     ->when(fn () => now()->isLastOfMonth())
+//     ->withoutOverlapping()
+//     ->onOneServer()
+//     ->appendOutputTo(storage_path('logs/auto-order-monthly-safety-stocks.log'));
 
-// 仕入先別自動発注スケジューラー (一時停止中 — 排他制御修正後に再有効化)
+// // 倉庫カレンダー生成 (毎月1日 4:00)
+// Schedule::command('wms:generate-calendars --months=3')
+//     ->monthlyOn(1, '01:00')
+//     ->withoutOverlapping()
+//     ->onOneServer()
+//     ->appendOutputTo(storage_path('logs/auto-order-calendars.log'));
+
+// // 仕入先別自動発注スケジューラー (一時停止中 — 排他制御修正後に再有効化)
 // Schedule::command('wms:auto-order-scheduled')
 //     ->everyFiveMinutes()
 //     ->onOneServer()
 //     ->withoutOverlapping()
 //     ->appendOutputTo(storage_path('logs/auto-order-scheduled.log'));
 
-// 仕入先別自動送信スケジューラー (5分間隔)
-// ※ 仕入先ごとのtransmission_timeに基づいて承認→確定→ファイル生成→送信を実行
-Schedule::command('wms:auto-order-transmit')
-    ->everyFiveMinutes()
-    ->onOneServer()
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/auto-order-transmit.log'));
+// // 仕入先別自動送信スケジューラー (5分間隔)
+// // ※ 仕入先ごとのtransmission_timeに基づいて承認→確定→ファイル生成→送信を実行
+// Schedule::command('wms:auto-order-transmit')
+//     ->everyFiveMinutes()
+//     ->onOneServer()
+//     ->withoutOverlapping()
+//     ->appendOutputTo(storage_path('logs/auto-order-transmit.log'));
 
-// 入荷データ自動受信スケジューラー (5分間隔)
-// ※ 仕入先ごとのreceive_timeに基づいてJXデータ取得→パース→照合を実行
-Schedule::command('wms:incoming-receive-scheduled')
-    ->everyFiveMinutes()
-    ->onOneServer()
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
+// // 入荷データ自動受信スケジューラー (5分間隔)
+// // ※ 仕入先ごとのreceive_timeに基づいてJXデータ取得→パース→照合を実行
+// Schedule::command('wms:incoming-receive-scheduled')
+//     ->everyFiveMinutes()
+//     ->onOneServer()
+//     ->withoutOverlapping()
+//     ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
 
-// 配送コース時間切替 (15分ごと)
-Schedule::command('wms:switch-delivery-course')
-    ->everyFifteenMinutes()
-    ->onOneServer()
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/delivery-course-switch.log'));
+// // 配送コース時間切替 (15分ごと)
+// Schedule::command('wms:switch-delivery-course')
+//     ->everyFifteenMinutes()
+//     ->onOneServer()
+//     ->withoutOverlapping()
+//     ->appendOutputTo(storage_path('logs/delivery-course-switch.log'));
 
-// 祝日データインポート (毎年1月1日 3:00)
-// ※ 年間の祝日データを取得・更新
-Schedule::command('wms:import-holidays --year='.(date('Y') + 1))
-    ->yearlyOn(1, 1, '03:00')
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->appendOutputTo(storage_path('logs/auto-order-holidays.log'));
+// // 祝日データインポート (毎年1月1日 3:00)
+// // ※ 年間の祝日データを取得・更新
+// Schedule::command('wms:import-holidays --year='.(date('Y') + 1))
+//     ->yearlyOn(1, 1, '03:00')
+//     ->withoutOverlapping()
+//     ->onOneServer()
+//     ->appendOutputTo(storage_path('logs/auto-order-holidays.log'));

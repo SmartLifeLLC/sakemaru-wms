@@ -8,13 +8,13 @@ use App\Filament\Resources\WmsPickingItemResults\Schemas\WmsPickingItemResultFor
 use App\Filament\Resources\WmsPickingItemResults\Tables\WmsPickingItemResultsTable;
 use App\Models\WmsPickingItemResult;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsPickingItemResultResource extends Resource
+class WmsPickingItemResultResource extends AdminResource
 {
     protected static ?string $model = WmsPickingItemResult::class;
 

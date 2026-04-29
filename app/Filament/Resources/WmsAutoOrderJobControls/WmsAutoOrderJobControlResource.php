@@ -7,12 +7,12 @@ use App\Filament\Resources\WmsAutoOrderJobControls\Pages\ListWmsAutoOrderJobCont
 use App\Filament\Resources\WmsAutoOrderJobControls\Tables\WmsAutoOrderJobControlsTable;
 use App\Models\WmsAutoOrderJobControl;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsAutoOrderJobControlResource extends Resource
+class WmsAutoOrderJobControlResource extends AdminResource
 {
     protected static ?string $model = WmsAutoOrderJobControl::class;
 

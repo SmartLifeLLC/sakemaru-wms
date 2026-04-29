@@ -8,12 +8,12 @@ use App\Filament\Resources\Waves\Schemas\WaveForm;
 use App\Filament\Resources\Waves\Tables\WavesTable;
 use App\Models\Wave;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WaveResource extends Resource
+class WaveResource extends AdminResource
 {
     protected static ?string $model = Wave::class;
 

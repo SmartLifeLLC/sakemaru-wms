@@ -11,12 +11,12 @@ use App\Filament\Resources\RealStocks\Schemas\RealStockForm;
 use App\Filament\Resources\RealStocks\Tables\RealStocksTable;
 use App\Models\Sakemaru\RealStock;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class RealStockResource extends Resource
+class RealStockResource extends AdminResource
 {
     protected static ?string $model = RealStock::class;
 

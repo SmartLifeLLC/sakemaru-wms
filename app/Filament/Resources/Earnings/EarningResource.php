@@ -10,12 +10,12 @@ use App\Filament\Resources\Earnings\Schemas\EarningForm;
 use App\Filament\Resources\Earnings\Tables\EarningsTable;
 use App\Models\Sakemaru\Earning;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class EarningResource extends Resource
+class EarningResource extends AdminResource
 {
     protected static ?string $model = Earning::class;
 

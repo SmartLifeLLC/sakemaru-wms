@@ -10,12 +10,12 @@ use App\Filament\Resources\WmsReceiptInspections\Schemas\WmsReceiptInspectionFor
 use App\Filament\Resources\WmsReceiptInspections\Tables\WmsReceiptInspectionsTable;
 use App\Models\WmsReceiptInspection;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsReceiptInspectionResource extends Resource
+class WmsReceiptInspectionResource extends AdminResource
 {
     protected static ?string $model = WmsReceiptInspection::class;
 

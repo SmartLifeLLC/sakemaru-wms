@@ -10,12 +10,12 @@ use App\Filament\Resources\WaveSettings\Schemas\WaveSettingForm;
 use App\Filament\Resources\WaveSettings\Tables\WaveSettingsTable;
 use App\Models\WaveSetting;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WaveSettingResource extends Resource
+class WaveSettingResource extends AdminResource
 {
     protected static ?string $model = WaveSetting::class;
 

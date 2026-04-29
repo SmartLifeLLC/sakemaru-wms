@@ -2,10 +2,10 @@
 
 namespace App\Filament\Pages;
 
-use Filament\Pages\Page;
+use App\Filament\Support\AdminPage;
 use Filament\Support\Icons\Heroicon;
 
-class ModalShowcase extends Page
+class ModalShowcase extends AdminPage
 {
     protected static \BackedEnum|string|null $navigationIcon = Heroicon::OutlinedSquares2x2;
 

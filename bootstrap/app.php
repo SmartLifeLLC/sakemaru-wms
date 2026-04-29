@@ -31,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'jx-server',
             'jx-server/*',
+            'admin/error-inquiries',
         ]);
     })
     ->withSchedule(function (Schedule $schedule): void {

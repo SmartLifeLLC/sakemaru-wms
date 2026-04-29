@@ -15,12 +15,12 @@ use App\Filament\Resources\Contractors\Schemas\ContractorForm;
 use App\Filament\Resources\Contractors\Tables\ContractorsTable;
 use App\Models\Sakemaru\Contractor;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class ContractorResource extends Resource
+class ContractorResource extends AdminResource
 {
     protected static ?string $model = Contractor::class;
 

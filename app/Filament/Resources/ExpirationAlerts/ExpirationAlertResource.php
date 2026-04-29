@@ -7,10 +7,10 @@ use App\Filament\Resources\ExpirationAlerts\Pages\ListExpirationAlerts;
 use App\Filament\Resources\ExpirationAlerts\Tables\ExpirationAlertsTable;
 use App\Models\Sakemaru\RealStockLot;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Tables\Table;
 
-class ExpirationAlertResource extends Resource
+class ExpirationAlertResource extends AdminResource
 {
     protected static ?string $model = RealStockLot::class;
 

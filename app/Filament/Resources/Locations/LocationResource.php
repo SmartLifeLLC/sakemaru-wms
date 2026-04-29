@@ -10,12 +10,12 @@ use App\Filament\Resources\Locations\Schemas\LocationForm;
 use App\Filament\Resources\Locations\Tables\LocationsTable;
 use App\Models\Sakemaru\Location;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class LocationResource extends Resource
+class LocationResource extends AdminResource
 {
     protected static ?string $model = Location::class;
 

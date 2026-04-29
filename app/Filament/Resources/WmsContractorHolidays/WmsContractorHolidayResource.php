@@ -9,12 +9,12 @@ use App\Filament\Resources\WmsContractorHolidays\Schemas\WmsContractorHolidayFor
 use App\Filament\Resources\WmsContractorHolidays\Tables\WmsContractorHolidaysTable;
 use App\Models\WmsContractorHoliday;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsContractorHolidayResource extends Resource
+class WmsContractorHolidayResource extends AdminResource
 {
     protected static ?string $model = WmsContractorHoliday::class;
 

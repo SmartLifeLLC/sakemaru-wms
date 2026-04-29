@@ -8,9 +8,11 @@ use App\Http\Controllers\Api\PickingTaskController;
 use App\Http\Controllers\Api\ProxyShipmentController;
 use Illuminate\Support\Facades\Route;
 
-// Internal API routes (for Filament pages, no API key required)
-Route::get('/picking-routes', [PickingRouteController::class, 'getPickingRoute']);
-Route::get('/walkable-areas', [PickingRouteController::class, 'getWalkableAreas']);
+// Internal admin helper routes
+Route::middleware(['web', 'auth:web', 'sakemaru-permission:wms.picking-route.view'])->group(function () {
+    Route::get('/picking-routes', [PickingRouteController::class, 'getPickingRoute']);
+    Route::get('/walkable-areas', [PickingRouteController::class, 'getWalkableAreas']);
+});
 
 // All API routes require API key authentication
 Route::middleware('api.key')->group(function () {

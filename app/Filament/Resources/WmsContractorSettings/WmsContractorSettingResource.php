@@ -9,12 +9,12 @@ use App\Filament\Resources\WmsContractorSettings\Schemas\WmsContractorSettingFor
 use App\Filament\Resources\WmsContractorSettings\Tables\WmsContractorSettingsTable;
 use App\Models\WmsContractorSetting;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsContractorSettingResource extends Resource
+class WmsContractorSettingResource extends AdminResource
 {
     protected static ?string $model = WmsContractorSetting::class;
 

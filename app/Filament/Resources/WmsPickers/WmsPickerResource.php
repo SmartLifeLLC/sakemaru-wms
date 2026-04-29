@@ -10,12 +10,12 @@ use App\Filament\Resources\WmsPickers\Schemas\WmsPickerForm;
 use App\Filament\Resources\WmsPickers\Tables\WmsPickersTable;
 use App\Models\WmsPicker;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsPickerResource extends Resource
+class WmsPickerResource extends AdminResource
 {
     protected static ?string $model = WmsPicker::class;
 

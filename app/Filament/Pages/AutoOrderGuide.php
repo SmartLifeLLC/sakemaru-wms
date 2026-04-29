@@ -4,10 +4,10 @@ namespace App\Filament\Pages;
 
 use App\Enums\EMenuCategory;
 use BackedEnum;
-use Filament\Pages\Page;
+use App\Filament\Support\AdminPage;
 use Filament\Support\Icons\Heroicon;
 
-class AutoOrderGuide extends Page
+class AutoOrderGuide extends AdminPage
 {
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBookOpen;
 

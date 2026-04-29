@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsIncomingImportError\Pages\ListWmsIncomingImportErr
 use App\Filament\Resources\WmsIncomingImportError\Tables\WmsIncomingImportErrorsTable;
 use App\Models\WmsIncomingImportError;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsIncomingImportErrorResource extends Resource
+class WmsIncomingImportErrorResource extends AdminResource
 {
     protected static ?string $model = WmsIncomingImportError::class;
 

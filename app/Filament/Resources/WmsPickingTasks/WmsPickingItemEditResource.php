@@ -7,7 +7,7 @@ use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingItemEdits;
 use App\Models\Sakemaru\Partner;
 use App\Models\WmsPickingItemResult;
 use Filament\Notifications\Notification;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -15,7 +15,7 @@ use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsPickingItemEditResource extends Resource
+class WmsPickingItemEditResource extends AdminResource
 {
     protected static ?string $model = WmsPickingItemResult::class;
 

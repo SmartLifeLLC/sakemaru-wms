@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsOrderDocuments\Pages\ListWmsOrderDocuments;
 use App\Filament\Resources\WmsOrderDocuments\Tables\WmsOrderDocumentsTable;
 use App\Models\WmsOrderJxDocument;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsOrderDocumentResource extends Resource
+class WmsOrderDocumentResource extends AdminResource
 {
     protected static ?string $model = WmsOrderJxDocument::class;
 
