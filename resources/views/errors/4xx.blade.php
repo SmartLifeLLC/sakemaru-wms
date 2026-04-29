@@ -1,15 +1,10 @@
 @php
     $statusCode = method_exists($exception, 'getStatusCode') ? $exception->getStatusCode() : 400;
-    $title = sprintf(
-        '%d %s',
-        $statusCode,
-        \Symfony\Component\HttpFoundation\Response::$statusTexts[$statusCode] ?? 'Client Error',
-    );
-    $message = match ($statusCode) {
-        404 => '該当ページが見つかりません。',
-        419 => 'ページの有効期限が切れました。再度お試しください。',
-        429 => 'アクセスが集中しています。時間をおいて再度お試しください。',
-        default => '該当ページの表示中に問題が発生しました。',
+    [$title, $message] = match ($statusCode) {
+        404 => ['ページが見つかりません', "指定されたページが見つかりませんでした。\nURLをご確認のうえ、再度お試しください。"],
+        419 => ['ページの有効期限が切れました', "一定時間操作がなかったため、ページの有効期限が切れました。\n再度お試しください。"],
+        429 => ['アクセスが集中しています', "ただいまアクセスが集中しています。\nしばらく時間をおいてから再度お試しください。"],
+        default => ['エラーが発生しました', "ページの表示中に問題が発生しました。\n時間をおいてから再度お試しください。"],
     };
 @endphp
 

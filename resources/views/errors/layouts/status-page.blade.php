@@ -1,6 +1,6 @@
 @php
     use Filament\Support\Enums\Width;
-    use Filament\Support\Facades\Filament;
+    use Filament\Facades\Filament;
     use Filament\Support\Facades\FilamentView;
     use Filament\View\PanelsRenderHook;
 
@@ -36,6 +36,11 @@
     }
 
     $canRenderPanelLayout = $panel !== null && filament()->auth()->check();
+    $authUser = $canRenderPanelLayout ? filament()->auth()->user() : auth()->user();
+    $loginUserName = (string) ($authUser?->name ?? '');
+    $loginUserEmail = (string) ($authUser?->email ?? '');
+    $canSubmitInquiry = filled(route('admin.error-inquiries.store'));
+    $inquiryRoute = route('admin.error-inquiries.store');
 @endphp
 
 @push('styles')
@@ -99,25 +104,20 @@
                     letter-spacing: -0.03em;
                 }
 
-                .status-message {
-                    margin: 0;
-                    font-size: 18px;
-                    color: #475569;
-                    line-height: 1.75;
-                }
             </style>
         </head>
         <body>
             <div class="status-shell">
-                <div class="status-card">
-                    <div class="status-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" style="width: 48px; height: 48px;">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86l-7.5 13A2 2 0 004.5 20h15a2 2 0 001.71-3.14l-7.5-13a2 2 0 00-3.42 0z" />
-                        </svg>
-                    </div>
-                    <h1 class="status-title">{{ $title }}</h1>
-                    <p class="status-message">{{ $message }}</p>
-                </div>
+                @include('errors.partials.status-content', [
+                    'statusCode' => $statusCode,
+                    'title' => $title,
+                    'message' => $message,
+                    'homeUrl' => url('/'),
+                    'inquiryRoute' => $inquiryRoute,
+                    'loginUserName' => $loginUserName,
+                    'loginUserEmail' => $loginUserEmail,
+                    'canSubmitInquiry' => $canSubmitInquiry,
+                ])
             </div>
         </body>
     </html>
@@ -172,19 +172,17 @@
                     {{ FilamentView::renderHook(PanelsRenderHook::CONTENT_START, scopes: $renderHookScopes) }}
 
                     <div class="fi-simple-layout">
-                        <div class="fi-simple-main-ctn">
-                            <div class="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 py-16 text-center lg:py-24">
-                                <div class="flex h-28 w-28 items-center justify-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-200 dark:bg-red-950 dark:text-red-300 dark:ring-red-800 lg:h-32 lg:w-32">
-                                    <x-filament::icon icon="heroicon-o-exclamation-triangle" class="h-16 w-16 lg:h-20 lg:w-20" />
-                                </div>
-
-                                <x-filament::section class="w-full px-8 py-10 lg:px-12 lg:py-12">
-                                    <div class="space-y-4 text-center">
-                                        <h1 class="text-4xl font-semibold tracking-tight text-gray-950 dark:text-white lg:text-6xl">{{ $title }}</h1>
-                                        <p class="text-base leading-8 text-gray-600 dark:text-gray-300 lg:text-xl">{{ $message }}</p>
-                                    </div>
-                                </x-filament::section>
-                            </div>
+                        <div class="fi-simple-main-ctn py-10 lg:py-16">
+                            @include('errors.partials.status-content', [
+                                'statusCode' => $statusCode,
+                                'title' => $title,
+                                'message' => $message,
+                                'homeUrl' => url('/admin'),
+                                'inquiryRoute' => $inquiryRoute,
+                                'loginUserName' => $loginUserName,
+                                'loginUserEmail' => $loginUserEmail,
+                                'canSubmitInquiry' => $canSubmitInquiry,
+                            ])
                         </div>
                     </div>
 

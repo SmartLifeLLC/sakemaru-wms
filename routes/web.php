@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\FloorPlanController;
 use App\Http\Controllers\Api\PickingRouteController;
+use App\Http\Controllers\ErrorInquiryController;
 use App\Http\Controllers\JxServerController;
 use App\Http\Controllers\JxTransmissionLogController;
 use Illuminate\Support\Facades\Route;
@@ -9,6 +10,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return redirect('/admin');
 });
+
+Route::post('/admin/error-inquiries', ErrorInquiryController::class)
+    ->name('admin.error-inquiries.store');
 
 // Floor plan API routes (accessible from admin panel without API key)
 Route::prefix('api')->middleware(['web', 'auth:web'])->group(function () {
