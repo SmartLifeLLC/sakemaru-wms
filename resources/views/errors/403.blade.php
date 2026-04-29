@@ -4,12 +4,17 @@
     use Filament\View\PanelsRenderHook;
 
     $panel = filament()->getCurrentPanel();
+    $requestPath = trim(request()->path(), '/');
 
     if ($panel === null) {
         $candidatePanel = Filament::getPanel('admin');
         $candidatePath = trim($candidatePanel?->getPath() ?? '', '/');
 
-        if ($candidatePanel !== null && $candidatePath !== '' && request()->is($candidatePath, "{$candidatePath}/*")) {
+        if (
+            $candidatePanel !== null
+            && $candidatePath !== ''
+            && ($requestPath === $candidatePath || str_starts_with($requestPath, "{$candidatePath}/"))
+        ) {
             Filament::setCurrentPanel($candidatePanel);
             $panel = $candidatePanel;
         }
@@ -188,15 +193,15 @@
                     <div class="fi-page">
                         <div class="fi-page-main">
                             <div class="fi-page-content">
-                                <div class="mx-auto flex max-w-2xl flex-col gap-6 py-10">
-                                    <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-200 dark:bg-red-950 dark:text-red-300 dark:ring-red-800">
-                                        <x-filament::icon icon="heroicon-o-exclamation-triangle" class="h-9 w-9" />
+                                <div class="mx-auto flex max-w-4xl flex-col gap-8 py-14 lg:py-20">
+                                    <div class="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-200 dark:bg-red-950 dark:text-red-300 dark:ring-red-800">
+                                        <x-filament::icon icon="heroicon-o-exclamation-triangle" class="h-14 w-14" />
                                     </div>
 
-                                    <x-filament::section>
+                                    <x-filament::section class="px-6 py-8 lg:px-10 lg:py-12">
                                         <div class="text-center">
-                                            <h1 class="text-xl font-semibold text-gray-950 dark:text-white">403 Forbidden</h1>
-                                            <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">該当ページへのアクセスが制限されています。</p>
+                                            <h1 class="text-3xl font-semibold tracking-tight text-gray-950 dark:text-white lg:text-5xl">403 Forbidden</h1>
+                                            <p class="mt-4 text-base leading-7 text-gray-600 dark:text-gray-300 lg:text-xl">該当ページへのアクセスが制限されています。</p>
                                         </div>
                                     </x-filament::section>
                                 </div>
