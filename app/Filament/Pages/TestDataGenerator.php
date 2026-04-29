@@ -20,7 +20,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
-use Filament\Pages\Page;
+use App\Filament\Support\AdminPage;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
@@ -31,7 +31,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 use Livewire\Attributes\Url;
 
-class TestDataGenerator extends Page
+class TestDataGenerator extends AdminPage
 {
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBeaker;
 
@@ -57,8 +57,8 @@ class TestDataGenerator extends Page
 
     public static function canAccess(): bool
     {
-        // Only show in non-production environments
-        return app()->environment(['local', 'development', 'staging']);
+        return app()->environment(['local', 'development', 'staging'])
+            && parent::canAccess();
     }
 
     public function getTitle(): string|HtmlString

@@ -10,12 +10,12 @@ use App\Filament\Resources\WarehouseContractors\Schemas\WarehouseContractorForm;
 use App\Filament\Resources\WarehouseContractors\Tables\WarehouseContractorsTable;
 use App\Models\Sakemaru\WarehouseContractor;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WarehouseContractorResource extends Resource
+class WarehouseContractorResource extends AdminResource
 {
     protected static ?string $model = WarehouseContractor::class;
 

@@ -15,13 +15,13 @@ use App\Filament\Resources\WmsShortageAllocations\Schemas\WmsShortageAllocationF
 use App\Filament\Resources\WmsShortageAllocations\Tables\WmsShortageAllocationsTable;
 use App\Models\WmsShortageAllocation;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsShortageAllocationResource extends Resource
+class WmsShortageAllocationResource extends AdminResource
 {
     protected static ?string $model = WmsShortageAllocation::class;
 

@@ -4,6 +4,7 @@ namespace App\Models\Sakemaru;
 
 use Archilex\AdvancedTables\Concerns\HasViews;
 use Archilex\AdvancedTables\Support\Config;
+use App\Models\User as SharedAuthUser;
 use Filament\Models\Contracts\FilamentUser;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -12,10 +13,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Sakemaru\Auth\Services\PermissionService;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements FilamentUser
 {
     use HasViews;
+    use HasRoles;
 
     protected $connection = 'sakemaru';
 
@@ -330,7 +334,11 @@ class User extends Authenticatable implements FilamentUser
 
     public function canAccessPanel(\Filament\Panel $panel): bool
     {
-        return true;
+        if ($panel->getId() !== 'admin') {
+            return true;
+        }
+
+        return app(PermissionService::class)->check($this, 'wms.access');
     }
 
     public static function resolveAutomatorId(): int
@@ -338,5 +346,10 @@ class User extends Authenticatable implements FilamentUser
         return static::where('email', 'automator@sakemaru.ai')->value('id')
             ?? static::where('email', 'admin@sakemaru.ai')->value('id')
             ?? 0;
+    }
+
+    public function getMorphClass(): string
+    {
+        return SharedAuthUser::class;
     }
 }

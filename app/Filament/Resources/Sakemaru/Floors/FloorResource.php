@@ -10,11 +10,11 @@ use App\Filament\Resources\Sakemaru\Floors\Schemas\FloorForm;
 use App\Filament\Resources\Sakemaru\Floors\Tables\FloorsTable;
 use App\Models\Sakemaru\Floor;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
 
-class FloorResource extends Resource
+class FloorResource extends AdminResource
 {
     protected static ?string $model = Floor::class;
 

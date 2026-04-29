@@ -10,12 +10,12 @@ use App\Filament\Resources\WmsPickingAreas\Schemas\WmsPickingAreaForm;
 use App\Filament\Resources\WmsPickingAreas\Tables\WmsPickingAreasTable;
 use App\Models\WmsPickingArea;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsPickingAreaResource extends Resource
+class WmsPickingAreaResource extends AdminResource
 {
     protected static ?string $model = WmsPickingArea::class;
 

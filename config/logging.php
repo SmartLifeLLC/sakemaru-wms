@@ -81,6 +81,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'inquiry' => [
+            'driver' => 'slack',
+            'url' => env('SLACK_INQUIRY', env('LOG_SLACK_WEBHOOK_URL')),
+            'username' => env('LOG_SLACK_NAME', 'SAKEMARU-WMS').'-INQUIRY',
+            'emoji' => ':satellite_antenna:',
+            'level' => 'warning',
+            'replace_placeholders' => true,
+        ],
+
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),

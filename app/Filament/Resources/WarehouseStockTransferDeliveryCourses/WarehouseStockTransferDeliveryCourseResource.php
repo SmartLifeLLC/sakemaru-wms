@@ -4,9 +4,9 @@ namespace App\Filament\Resources\WarehouseStockTransferDeliveryCourses;
 
 use App\Enums\EMenuCategory;
 use App\Models\Sakemaru\WarehouseStockTransferDeliveryCourse;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 
-class WarehouseStockTransferDeliveryCourseResource extends Resource
+class WarehouseStockTransferDeliveryCourseResource extends AdminResource
 {
     protected static ?string $model = WarehouseStockTransferDeliveryCourse::class;
 

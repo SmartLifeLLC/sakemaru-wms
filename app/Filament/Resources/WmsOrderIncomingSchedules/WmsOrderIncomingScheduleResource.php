@@ -8,12 +8,12 @@ use App\Filament\Resources\WmsOrderIncomingSchedules\Pages\ListWmsOrderIncomingS
 use App\Filament\Resources\WmsOrderIncomingSchedules\Tables\WmsOrderIncomingSchedulesTable;
 use App\Models\WmsOrderIncomingSchedule;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsOrderIncomingScheduleResource extends Resource
+class WmsOrderIncomingScheduleResource extends AdminResource
 {
     protected static ?string $model = WmsOrderIncomingSchedule::class;
 

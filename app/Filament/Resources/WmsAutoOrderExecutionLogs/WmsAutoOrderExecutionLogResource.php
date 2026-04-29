@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsAutoOrderExecutionLogs\Pages\ListWmsAutoOrderExecu
 use App\Filament\Resources\WmsAutoOrderExecutionLogs\Tables\WmsAutoOrderExecutionLogsTable;
 use App\Models\WmsAutoOrderExecutionLog;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsAutoOrderExecutionLogResource extends Resource
+class WmsAutoOrderExecutionLogResource extends AdminResource
 {
     protected static ?string $model = WmsAutoOrderExecutionLog::class;
 

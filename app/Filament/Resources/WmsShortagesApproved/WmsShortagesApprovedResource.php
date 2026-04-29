@@ -7,12 +7,12 @@ use App\Filament\Resources\WmsShortagesApproved\Pages\ListWmsShortagesApproved;
 use App\Filament\Resources\WmsShortagesApproved\Tables\WmsShortagesApprovedTable;
 use App\Models\WmsShortage;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsShortagesApprovedResource extends Resource
+class WmsShortagesApprovedResource extends AdminResource
 {
     protected static ?string $model = WmsShortage::class;
 

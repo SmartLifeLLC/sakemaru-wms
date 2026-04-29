@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsIncomingImportLog\Pages\ListWmsIncomingImportLogs;
 use App\Filament\Resources\WmsIncomingImportLog\Tables\WmsIncomingImportLogsTable;
 use App\Models\WmsIncomingReceivedDetail;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsIncomingImportLogResource extends Resource
+class WmsIncomingImportLogResource extends AdminResource
 {
     protected static ?string $model = WmsIncomingReceivedDetail::class;
 

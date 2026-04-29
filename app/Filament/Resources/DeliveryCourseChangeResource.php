@@ -13,7 +13,7 @@ use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -21,7 +21,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
-class DeliveryCourseChangeResource extends Resource
+class DeliveryCourseChangeResource extends AdminResource
 {
     protected static ?string $model = Trade::class;
 

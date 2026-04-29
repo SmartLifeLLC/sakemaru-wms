@@ -4,10 +4,10 @@ namespace App\Filament\Pages;
 
 use App\Enums\EMenu;
 use BackedEnum;
-use Filament\Pages\Page;
+use App\Filament\Support\AdminPage;
 use Filament\Support\Icons\Heroicon;
 
-class WmsInbound extends Page
+class WmsInbound extends AdminPage
 {
     protected static bool $shouldRegisterNavigation = false;
 
@@ -37,7 +37,7 @@ class WmsInbound extends Page
 
     public static function canAccess(): bool
     {
-        return true;
+        return parent::canAccess();
     }
 
     public function getMaxContentWidth(): ?string

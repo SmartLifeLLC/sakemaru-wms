@@ -8,11 +8,11 @@ use App\Filament\Resources\ClientPrinterCourseSettingResource\Schemas\ClientPrin
 use App\Filament\Resources\ClientPrinterCourseSettingResource\Tables\ClientPrinterCourseSettingsTable;
 use App\Models\Sakemaru\ClientPrinterCourseSetting;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
 
-class ClientPrinterCourseSettingResource extends Resource
+class ClientPrinterCourseSettingResource extends AdminResource
 {
     protected static ?string $model = ClientPrinterCourseSetting::class;
 

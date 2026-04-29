@@ -7,11 +7,11 @@ use App\Filament\Resources\WmsOrderDataFiles\Pages\ListWmsOrderDataFiles;
 use App\Filament\Resources\WmsOrderDataFiles\Tables\WmsOrderDataFilesTable;
 use App\Models\WmsOrderDataFile;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 
-class WmsOrderDataFileResource extends Resource
+class WmsOrderDataFileResource extends AdminResource
 {
     protected static ?string $model = WmsOrderDataFile::class;
 

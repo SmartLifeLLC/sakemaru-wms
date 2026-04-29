@@ -10,13 +10,13 @@ use App\Filament\Resources\WmsShortages\Schemas\WmsShortageForm;
 use App\Filament\Resources\WmsShortages\Tables\WmsShortagesTable;
 use App\Models\WmsShortage;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsShortageResource extends Resource
+class WmsShortageResource extends AdminResource
 {
     protected static ?string $model = WmsShortage::class;
 

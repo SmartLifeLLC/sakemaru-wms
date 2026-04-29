@@ -5,10 +5,10 @@ namespace App\Filament\Resources\WmsPickingTasks;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsCompletedPickingTasks;
 use App\Models\WmsPickingTask;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Illuminate\Database\Eloquent\Builder;
 
-class WmsCompletedPickingTaskResource extends Resource
+class WmsCompletedPickingTaskResource extends AdminResource
 {
     protected static ?string $model = WmsPickingTask::class;
 

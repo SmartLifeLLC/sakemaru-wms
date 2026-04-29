@@ -7,12 +7,12 @@ use App\Filament\Resources\StatsItemWarehouseSalesSummaries\Pages\ListStatsItemW
 use App\Filament\Resources\StatsItemWarehouseSalesSummaries\Tables\StatsItemWarehouseSalesSummariesTable;
 use App\Models\StatsItemWarehouseSalesSummary;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-class StatsItemWarehouseSalesSummaryResource extends Resource
+class StatsItemWarehouseSalesSummaryResource extends AdminResource
 {
     protected static ?string $model = StatsItemWarehouseSalesSummary::class;
 
