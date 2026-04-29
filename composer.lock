@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "08a61497683990ae072bd7625f1f3371",
+    "content-hash": "36a56edaab64a8e50aad0ab26a1a7575",
     "packages": [
         {
             "name": "anourvalar/eloquent-serialize",
@@ -6313,16 +6313,16 @@
         },
         {
             "name": "sakemaru/auth",
-            "version": "v1.2.0",
+            "version": "v1.3.0",
             "source": {
                 "type": "git",
                 "url": "git@github.com:SmartLifeLLC/sakemaru-auth.git",
-                "reference": "4f2b38ccfdbee89a4b20df78b4532805791457f8"
+                "reference": "e16a735e930206957c48fd31bb99d1917970b3b8"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/SmartLifeLLC/sakemaru-auth/zipball/4f2b38ccfdbee89a4b20df78b4532805791457f8",
-                "reference": "4f2b38ccfdbee89a4b20df78b4532805791457f8",
+                "url": "https://api.github.com/repos/SmartLifeLLC/sakemaru-auth/zipball/e16a735e930206957c48fd31bb99d1917970b3b8",
+                "reference": "e16a735e930206957c48fd31bb99d1917970b3b8",
                 "shasum": ""
             },
             "require": {
@@ -6370,10 +6370,10 @@
             ],
             "description": "酒丸シリーズ権限管理パッケージ",
             "support": {
-                "source": "https://github.com/SmartLifeLLC/sakemaru-auth/tree/v1.2.0",
+                "source": "https://github.com/SmartLifeLLC/sakemaru-auth/tree/v1.3.0",
                 "issues": "https://github.com/SmartLifeLLC/sakemaru-auth/issues"
             },
-            "time": "2026-04-28T22:20:17+00:00"
+            "time": "2026-04-29T10:44:09+00:00"
         },
         {
             "name": "scrivo/highlight.php",
