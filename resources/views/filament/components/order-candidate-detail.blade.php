@@ -91,12 +91,17 @@
                     @endif
                     <div class="flex justify-between"><span>発注点</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($safetyStock) }}</span></div>
                     @if($isEditable ?? false)
-                    <div class="flex justify-between items-center pt-0.5">
-                        <span class="text-blue-600 dark:text-blue-400">発注点変更</span>
-                        <input type="number"
-                               wire:model.blur="mountedActionsData.0.safety_stock"
-                               class="w-20 text-right rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-sm font-semibold text-gray-900 dark:text-white px-2 py-0.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                               min="0" step="1" />
+                    <div class="col-span-2 mt-1 rounded-lg border border-blue-200 bg-blue-50/80 p-2.5 dark:border-blue-800 dark:bg-blue-950/30">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <div class="text-xs font-semibold text-blue-700 dark:text-blue-300">発注点変更</div>
+                                <div class="text-[11px] text-blue-600/80 dark:text-blue-400/80">必要に応じて発注点を手動で上書きします</div>
+                            </div>
+                            <input type="number"
+                                   wire:model.blur="mountedActionsData.0.safety_stock"
+                                   class="w-24 rounded-md border border-blue-300 bg-white px-2.5 py-1 text-right text-sm font-semibold text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-blue-700 dark:bg-gray-800 dark:text-white"
+                                   min="0" step="1" />
+                        </div>
                     </div>
                     @endif
                     <div class="flex justify-between"><span class="text-red-600 dark:text-red-400">不足</span><span class="font-semibold text-red-600 dark:text-red-400">{{ number_format($shortageQty) }}</span></div>

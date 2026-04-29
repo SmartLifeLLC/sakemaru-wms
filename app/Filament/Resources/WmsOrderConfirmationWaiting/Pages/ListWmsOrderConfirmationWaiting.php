@@ -16,10 +16,11 @@ use App\Services\AutoOrder\OrderConfirmationCleanupService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Attributes\Url;
@@ -107,17 +108,18 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        // 発注候補の件数を取得
-        $orderApprovedCount = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
-        $orderPendingCount = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
+        $selectedWarehouse = $this->getConfirmationScopeWarehouse();
+        $selectedWarehouseId = $selectedWarehouse?->id;
+        $selectedWarehouseName = $selectedWarehouse?->name ?? '未選択';
 
-        // 移動候補の件数を取得
-        $transferApprovedCount = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
-        $transferPendingCount = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+        $globalOrderApprovedCount = $this->getOrderApprovedCount();
+        $globalTransferApprovedCount = $this->getTransferApprovedCount();
+        $globalTotalApprovedCount = $globalOrderApprovedCount + $globalTransferApprovedCount;
 
-        // 合計件数
+        // 確定対象表示用（選択中倉庫）
+        $orderApprovedCount = $this->getOrderApprovedCount($selectedWarehouseId);
+        $transferApprovedCount = $this->getTransferApprovedCount($selectedWarehouseId);
         $totalApprovedCount = $orderApprovedCount + $transferApprovedCount;
-        $totalPendingCount = $orderPendingCount + $transferPendingCount;
 
         // アクティブな発注確定ジョブがあるかチェック
         $activeJob = WmsQueueProgress::getActiveJobForUser(
@@ -125,47 +127,26 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             auth()->id()
         );
 
-        // アクティブなテストデータ生成ジョブがあるかチェック
         $activeTestJob = WmsQueueProgress::getActiveJobForUser(
             WmsQueueProgress::JOB_TYPE_TEST_ORDER_FILES,
             auth()->id()
         );
 
         return [
-            Action::make('generateTestOrderFiles')
-                ->label('発注送信テストデータ生成')
-                ->icon('heroicon-o-document-text')
-                ->color('info')
-                ->requiresConfirmation()
-                ->modalHeading('発注送信テストデータの生成')
-                ->modalDescription('承認済みの発注候補からテスト用の発注ファイルを生成します。このファイルはJX送信できません。処理はバックグラウンドで実行されます。')
-                ->visible($orderApprovedCount > 0 && ! $activeJob && ! $activeTestJob)
-                ->action(function () {
-                    // 進捗レコードを作成
-                    $progress = WmsQueueProgress::createJob(
-                        WmsQueueProgress::JOB_TYPE_TEST_ORDER_FILES,
-                        auth()->id()
-                    );
-
-                    // ジョブをディスパッチ
-                    ProcessTestOrderFilesJob::dispatch($progress->job_id, auth()->id());
-
-                    $this->activeTestJobId = $progress->job_id;
-
-                    Notification::make()
-                        ->title('テストデータ生成を開始しました')
-                        ->body('処理はバックグラウンドで実行されます。進捗は画面上部で確認できます。')
-                        ->success()
-                        ->send();
-                }),
-
             Action::make('confirmAll')
-                ->label("発注・移動確定 (移動:{$transferApprovedCount}件 / 発注:{$orderApprovedCount}件)")
+                ->label($selectedWarehouseId
+                    ? "{$selectedWarehouseName}の発注・移動確定"
+                    : '倉庫別の発注・移動確定')
                 ->icon('heroicon-o-check-circle')
                 ->color('success')
+                ->extraAttributes(['class' => 'wms-order-confirm-action'])
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
-                ->modalHeading('発注・移動確定')
-                ->modalDescription(function () use ($orderApprovedCount, $transferApprovedCount) {
+                ->modalHeading("発注・移動確定（{$selectedWarehouseName}）")
+                ->modalDescription(function () use ($selectedWarehouseId, $selectedWarehouseName, $orderApprovedCount, $transferApprovedCount) {
+                    if (! $selectedWarehouseId) {
+                        return 'トップバーから倉庫を選択してください。';
+                    }
+
                     $details = [];
                     if ($transferApprovedCount > 0) {
                         $details[] = "移動候補: {$transferApprovedCount}件 → 移動伝票生成";
@@ -174,40 +155,146 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                         $details[] = "発注候補: {$orderApprovedCount}件 → 発注送信データ生成・入荷予定作成";
                     }
 
-                    return '以下の処理を実行します。'."\n\n".
+                    return "倉庫「{$selectedWarehouseName}」の承認済み候補のみ確定します。\n".
+                        "発注データファイルは倉庫別で生成されます。\n\n".
+                        '以下の処理を実行します。'."\n\n".
                         implode("\n", $details)."\n\n".
                         '処理はバックグラウンドで実行されます。';
                 })
-                ->schema([
-                    ViewField::make('file_split_mode')
-                        ->view('filament.components.file-split-mode-selection')
-                        ->hiddenLabel()
-                        ->visible($orderApprovedCount > 0),
-                ])
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('確定実行')->color('danger'))
                 ->modalCancelActionLabel('確定せず閉じる')
-                ->visible($totalApprovedCount > 0 && ! $activeJob)
-                ->action(function (array $data) {
-                    $splitByWarehouse = $this->fileSplitMode === 'split';
+                ->visible($globalTotalApprovedCount > 0 && ! $activeJob)
+                ->disabled(! $selectedWarehouseId || $totalApprovedCount === 0)
+                ->action(function () use ($selectedWarehouseId, $selectedWarehouseName) {
+                    if (! $selectedWarehouseId) {
+                        Notification::make()
+                            ->title('倉庫が選択されていません')
+                            ->body('トップバーから確定対象の倉庫を選択してください。')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
+                    $splitByWarehouse = true;
 
                     // 進捗レコードを作成
                     $progress = WmsQueueProgress::createJob(
                         WmsQueueProgress::JOB_TYPE_ORDER_CONFIRMATION,
-                        auth()->id()
+                        auth()->id(),
+                        ['warehouse_id' => $selectedWarehouseId]
                     );
 
-                    // ジョブをディスパッチ（移動候補と発注候補を両方処理）
-                    ProcessOrderConfirmationJob::dispatch($progress->job_id, auth()->id(), $splitByWarehouse);
+                    // ジョブをディスパッチ（選択中倉庫の移動候補と発注候補のみ処理）
+                    ProcessOrderConfirmationJob::dispatch(
+                        $progress->job_id,
+                        auth()->id(),
+                        $splitByWarehouse,
+                        $selectedWarehouseId
+                    );
 
                     $this->activeJobId = $progress->job_id;
 
                     Notification::make()
-                        ->title('発注・移動確定処理を開始しました')
+                        ->title("倉庫「{$selectedWarehouseName}」の発注・移動確定処理を開始しました")
                         ->body('処理はバックグラウンドで実行されます。進捗は画面上部で確認できます。')
                         ->success()
                         ->send();
                 }),
+
+            ActionGroup::make([
+                Action::make('confirmAllWarehouses')
+                    ->label("発注・移動確定（全倉庫 / 移動:{$globalTransferApprovedCount}件 / 発注:{$globalOrderApprovedCount}件）")
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalHeading('発注・移動確定（全倉庫）')
+                    ->modalDescription(function () use ($globalOrderApprovedCount, $globalTransferApprovedCount) {
+                        $details = [];
+                        if ($globalTransferApprovedCount > 0) {
+                            $details[] = "移動候補: {$globalTransferApprovedCount}件 → 移動伝票生成";
+                        }
+                        if ($globalOrderApprovedCount > 0) {
+                            $details[] = "発注候補: {$globalOrderApprovedCount}件 → 発注送信データ生成・入荷予定作成";
+                        }
+
+                        $description = '全倉庫の承認済み候補をまとめて確定します。';
+                        if ($globalOrderApprovedCount > 0) {
+                            $description .= "\n発注データファイルの出力方式を選択してください。";
+                        }
+
+                        return $description."\n\n".
+                            '以下の処理を実行します。'."\n\n".
+                            implode("\n", $details)."\n\n".
+                            '処理はバックグラウンドで実行されます。';
+                    })
+                    ->schema([
+                        ViewField::make('file_split_mode')
+                            ->view('filament.components.file-split-mode-selection')
+                            ->hiddenLabel()
+                            ->visible($globalOrderApprovedCount > 0),
+                    ])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('確定実行')->color('danger'))
+                    ->modalCancelActionLabel('確定せず閉じる')
+                    ->visible($globalTotalApprovedCount > 0 && ! $activeJob)
+                    ->action(function () {
+                        $splitByWarehouse = $this->fileSplitMode === 'split';
+
+                        $progress = WmsQueueProgress::createJob(
+                            WmsQueueProgress::JOB_TYPE_ORDER_CONFIRMATION,
+                            auth()->id()
+                        );
+
+                        ProcessOrderConfirmationJob::dispatch(
+                            $progress->job_id,
+                            auth()->id(),
+                            $splitByWarehouse
+                        );
+
+                        $this->activeJobId = $progress->job_id;
+
+                        Notification::make()
+                            ->title('全倉庫の発注・移動確定処理を開始しました')
+                            ->body('処理はバックグラウンドで実行されます。進捗は画面上部で確認できます。')
+                            ->success()
+                            ->send();
+                    }),
+
+                Action::make('generateTestOrderFiles')
+                    ->label('発注送信テストデータ生成')
+                    ->icon('heroicon-o-document-text')
+                    ->color('info')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalHeading('発注送信テストデータの生成')
+                    ->modalDescription('承認済みの発注候補からテスト用の発注ファイルを生成します。このファイルはJX送信できません。処理はバックグラウンドで実行されます。')
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('生成開始')->color('danger'))
+                    ->modalCancelActionLabel('生成せず閉じる')
+                    ->visible($globalOrderApprovedCount > 0 && ! $activeJob && ! $activeTestJob)
+                    ->action(function () {
+                        $progress = WmsQueueProgress::createJob(
+                            WmsQueueProgress::JOB_TYPE_TEST_ORDER_FILES,
+                            auth()->id()
+                        );
+
+                        ProcessTestOrderFilesJob::dispatch($progress->job_id, auth()->id());
+
+                        $this->activeTestJobId = $progress->job_id;
+
+                        Notification::make()
+                            ->title('テストデータ生成を開始しました')
+                            ->body('処理はバックグラウンドで実行されます。進捗は画面上部で確認できます。')
+                            ->success()
+                            ->send();
+                    }),
+            ])
+                ->label('管理者メニュー')
+                ->icon('heroicon-o-shield-check')
+                ->color('gray')
+                ->button()
+                ->visible($globalTotalApprovedCount > 0 && ! $activeJob),
         ];
     }
 
@@ -369,14 +456,47 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         );
     }
 
-    public function getOrderApprovedCount(): int
+    public function getOrderApprovedCount(?int $warehouseId = null): int
     {
-        return WmsOrderCandidate::where('status', CandidateStatus::APPROVED)->count();
+        return $this->getOrderApprovedCountForWarehouse($warehouseId);
     }
 
-    public function getTransferApprovedCount(): int
+    public function getTransferApprovedCount(?int $warehouseId = null): int
     {
-        return WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)->count();
+        return $this->getTransferApprovedCountForWarehouse($warehouseId);
+    }
+
+    private function getOrderApprovedCountForWarehouse(?int $warehouseId): int
+    {
+        $query = WmsOrderCandidate::where('status', CandidateStatus::APPROVED);
+
+        if ($warehouseId !== null) {
+            $query->where('warehouse_id', $warehouseId);
+        }
+
+        return $query->count();
+    }
+
+    private function getTransferApprovedCountForWarehouse(?int $warehouseId): int
+    {
+        $query = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
+
+        if ($warehouseId !== null) {
+            $query->where('satellite_warehouse_id', $warehouseId);
+        }
+
+        return $query->count();
+    }
+
+    private function getConfirmationScopeWarehouse(): ?Warehouse
+    {
+        $warehouseId = auth()->user()?->getSelectedWarehouseId();
+
+        if (! $warehouseId) {
+            return null;
+        }
+
+        return Warehouse::find($warehouseId);
     }
 
     public function getPresetViews(): array

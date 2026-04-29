@@ -839,6 +839,26 @@ html.fi {
     justify-content: flex-end !important;
 }
 
+/* 倉庫別発注確定ボタン: 無効時でも読める配色にする */
+.wms-order-confirm-action {
+    font-weight: 700 !important;
+}
+
+.wms-order-confirm-action.fi-disabled:not(.fi-force-enabled),
+.wms-order-confirm-action[disabled]:not(.fi-force-enabled) {
+    opacity: 1 !important;
+    color: #334155 !important;
+    background-color: #e2e8f0 !important;
+    box-shadow: inset 0 0 0 1px #94a3b8 !important;
+}
+
+.dark .wms-order-confirm-action.fi-disabled:not(.fi-force-enabled),
+.dark .wms-order-confirm-action[disabled]:not(.fi-force-enabled) {
+    color: #e2e8f0 !important;
+    background-color: #334155 !important;
+    box-shadow: inset 0 0 0 1px #64748b !important;
+}
+
 
 /* カラム表示選択ドロップダウン: 2列表示 */
 .fi-ta-col-manager-items {

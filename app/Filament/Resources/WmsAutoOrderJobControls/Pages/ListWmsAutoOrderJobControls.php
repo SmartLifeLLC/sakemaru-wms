@@ -21,9 +21,9 @@ use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Illuminate\Database\Eloquent\Builder;
 
 class ListWmsAutoOrderJobControls extends ListRecords
@@ -117,11 +117,11 @@ class ListWmsAutoOrderJobControls extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            $this->getGenerateByWarehouseAction(),
             $this->getSalesBasedGenerateAction(),
 
             ActionGroup::make([
                 //                $this->getOrderGenerationWizardAction(),
+                $this->getGenerateByWarehouseAction(),
                 $this->getGenerateTransferCandidatesAction(),
                 $this->getForceGenerateByContractorAction(),
             ])
