@@ -6,15 +6,29 @@ use App\Enums\EMenuCategory;
 use Filament\Facades\Filament;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
+use Filament\Support\Contracts\HasLabel;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\URL;
 use ReflectionClass;
+use UnitEnum;
 
 class MegaMenuBuilder
 {
     public function build(): array
     {
-        $navigation = Filament::getNavigation();
+        return $this->assembleStructure($this->collectItemsFromNavigation());
+    }
+
+    public function buildCatalog(): array
+    {
+        return $this->assembleStructure($this->collectAllItemsFromPanel());
+    }
+
+    /**
+     * @param  array<string, array<int, NavigationItem>>  $itemsByGroupLabel
+     */
+    protected function assembleStructure(array $itemsByGroupLabel): array
+    {
         $registry = $this->buildNavigationRegistry();
         $structure = [];
 
@@ -24,38 +38,32 @@ class MegaMenuBuilder
             foreach ($tab['categories'] as $groupSort => $category) {
                 $categoryLabel = $category->label();
 
-                foreach ($navigation as $navGroup) {
-                    if (! $navGroup instanceof NavigationGroup || $navGroup->getLabel() !== $categoryLabel) {
-                        continue;
-                    }
+                $items = collect($itemsByGroupLabel[$categoryLabel] ?? [])
+                    ->flatMap(function (NavigationItem $item) {
+                        $children = collect($item->getChildItems() ?? []);
 
-                    $items = collect($navGroup->getItems())
-                        ->flatMap(function (NavigationItem $item) {
-                            $children = collect($item->getChildItems() ?? []);
+                        return $children->isNotEmpty() ? $children : collect([$item]);
+                    })
+                    ->values();
 
-                            return $children->isNotEmpty() ? $children : collect([$item]);
-                        })
-                        ->values();
-
-                    if ($items->isEmpty()) {
-                        continue;
-                    }
-
-                    $groupsForTab[] = [
-                        'key' => $category->value,
-                        'label' => $categoryLabel,
-                        'icon' => $category->icon(),
-                        'sort' => $groupSort + 1,
-                        'items' => collect($items)
-                            ->values()
-                            ->map(fn (NavigationItem $item, int $itemSort) => $this->buildMenuItem(
-                                item: $item,
-                                registry: $registry,
-                                itemSort: $itemSort + 1,
-                            ))
-                            ->toArray(),
-                    ];
+                if ($items->isEmpty()) {
+                    continue;
                 }
+
+                $groupsForTab[] = [
+                    'key' => $category->value,
+                    'label' => $categoryLabel,
+                    'icon' => $category->icon(),
+                    'sort' => $groupSort + 1,
+                    'items' => $items
+                        ->values()
+                        ->map(fn (NavigationItem $item, int $itemSort) => $this->buildMenuItem(
+                            item: $item,
+                            registry: $registry,
+                            itemSort: $itemSort + 1,
+                        ))
+                        ->toArray(),
+                ];
             }
 
             if (count($groupsForTab) === 0) {
@@ -76,12 +84,104 @@ class MegaMenuBuilder
         return $structure;
     }
 
+    /**
+     * @return array<string, array<int, NavigationItem>>
+     */
+    protected function collectItemsFromNavigation(): array
+    {
+        $itemsByLabel = [];
+
+        foreach (Filament::getNavigation() as $navGroup) {
+            if (! $navGroup instanceof NavigationGroup) {
+                continue;
+            }
+
+            $label = $navGroup->getLabel();
+            if (blank($label)) {
+                continue;
+            }
+
+            $items = $navGroup->getItems();
+            if ($items instanceof \Illuminate\Contracts\Support\Arrayable) {
+                $items = $items->toArray();
+            }
+
+            $itemsByLabel[$label] = array_merge(
+                $itemsByLabel[$label] ?? [],
+                $items,
+            );
+        }
+
+        return $itemsByLabel;
+    }
+
+    /**
+     * @return array<string, array<int, NavigationItem>>
+     */
+    protected function collectAllItemsFromPanel(): array
+    {
+        $panel = Filament::getPanel('admin');
+        $itemsByLabel = [];
+
+        $append = function (array $items) use (&$itemsByLabel): void {
+            foreach ($items as $item) {
+                $label = $this->resolveGroupLabel($item->getGroup());
+                if (blank($label)) {
+                    continue;
+                }
+
+                $itemsByLabel[$label][] = $item;
+            }
+        };
+
+        foreach ($panel->getResources() as $resourceClass) {
+            $append($resourceClass::getNavigationItems());
+        }
+
+        foreach ($panel->getPages() as $pageClass) {
+            if (! method_exists($pageClass, 'getNavigationItems')) {
+                continue;
+            }
+
+            $append($pageClass::getNavigationItems());
+        }
+
+        $append($panel->getNavigationItems());
+
+        foreach ($itemsByLabel as $label => $items) {
+            usort(
+                $items,
+                fn (NavigationItem $a, NavigationItem $b) => $a->getSort() <=> $b->getSort(),
+            );
+            $itemsByLabel[$label] = $items;
+        }
+
+        return $itemsByLabel;
+    }
+
+    protected function resolveGroupLabel(string | UnitEnum | null $group): ?string
+    {
+        if ($group === null) {
+            return null;
+        }
+
+        if (is_string($group)) {
+            return $group;
+        }
+
+        if ($group instanceof HasLabel) {
+            return $group->getLabel();
+        }
+
+        return $group->name;
+    }
+
     public function buildCatalogRows(): array
     {
         $now = now();
         $rows = [];
 
-        foreach ($this->build() as $tabIndex => $tab) {
+        foreach ($this->buildCatalog() as $tabIndex => $tab) {
             foreach ($tab['groups'] as $groupIndex => $group) {
                 foreach ($group['items'] as $itemIndex => $item) {
                     $rows[] = [

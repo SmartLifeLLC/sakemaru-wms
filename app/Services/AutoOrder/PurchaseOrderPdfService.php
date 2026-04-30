@@ -468,16 +468,11 @@ class PurchaseOrderPdfService
         $capacityCase = $item?->capacity_case ?? 1;
         $orderQty = $candidate->order_quantity ?? 0;
 
-        // ケース数・バラ数の計算
-        // 入り数が1以外の場合は両方表示（発注数を入り数で割る）
-        if ($capacityCase > 1) {
-            $caseQty = floor($orderQty / $capacityCase);
-            $pieceQty = $orderQty % $capacityCase;
-        } else {
-            // 入り数が1の場合は元のロジック
-            $caseQty = $candidate->quantity_type?->value === 'CASE' ? $orderQty : '';
-            $pieceQty = $candidate->quantity_type?->value === 'PIECE' ? $orderQty : '';
-        }
+        // FAXは発注候補の単位をそのまま表示する。
+        // CASE の order_quantity はケース数、PIECE の order_quantity はバラ数。
+        $quantityType = $candidate->quantity_type?->value ?? $candidate->quantity_type;
+        $caseQty = $quantityType === 'CASE' ? $orderQty : '';
+        $pieceQty = $quantityType === 'PIECE' ? $orderQty : '';
 
         $rowData = [
             $this->truncateText($candidate->ordering_code ?? '', 28),  // 発注CD（JANコード）

@@ -104,16 +104,12 @@ class WmsOrderConfirmationWaitingTable
                         }
                         $newQuantity = (int) $state;
 
-                        // 数量0の場合は行を削除
-                        if ($newQuantity === 0) {
-                            $record->delete();
-                            Notification::make()->title('発注数0のため行を削除しました')->warning()->send();
-
+                        if ($newQuantity === 0 && $record->quantity_type !== QuantityType::CASE) {
                             return;
                         }
 
                         // 現在PIECEの行をCASEに変更する場合、既存CASE行があれば統合
-                        if ($record->quantity_type !== QuantityType::CASE) {
+                        if ($newQuantity > 0 && $record->quantity_type !== QuantityType::CASE) {
                             $existingCaseRow = WmsOrderCandidate::where('batch_code', $record->batch_code)
                                 ->where('item_id', $record->item_id)
                                 ->where('warehouse_id', $record->warehouse_id)
@@ -161,16 +157,12 @@ class WmsOrderConfirmationWaitingTable
                         }
                         $newQuantity = (int) $state;
 
-                        // 数量0の場合は行を削除
-                        if ($newQuantity === 0) {
-                            $record->delete();
-                            Notification::make()->title('発注数0のため行を削除しました')->warning()->send();
-
+                        if ($newQuantity === 0 && $record->quantity_type !== QuantityType::PIECE) {
                             return;
                         }
 
                         // 現在CASEの行をPIECEに変更する場合、既存PIECE行があれば統合
-                        if ($record->quantity_type !== QuantityType::PIECE) {
+                        if ($newQuantity > 0 && $record->quantity_type !== QuantityType::PIECE) {
                             $existingPieceRow = WmsOrderCandidate::where('batch_code', $record->batch_code)
                                 ->where('item_id', $record->item_id)
                                 ->where('warehouse_id', $record->warehouse_id)
