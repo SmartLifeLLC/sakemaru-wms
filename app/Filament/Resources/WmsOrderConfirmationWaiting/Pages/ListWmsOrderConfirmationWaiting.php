@@ -22,7 +22,9 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Table;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\HtmlString;
 use Livewire\Attributes\Url;
 
 class ListWmsOrderConfirmationWaiting extends ListRecords
@@ -43,6 +45,36 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
     #[Url(as: 'tab')]
     public string $confirmationTab = 'order';
+
+    public function getHeading(): string|Htmlable
+    {
+        $orderCount = $this->getOrderApprovedCount();
+        $transferCount = $this->getTransferApprovedCount();
+
+        $orderActive = $this->confirmationTab === 'order';
+        $transferActive = $this->confirmationTab === 'transfer';
+
+        $activeTab = 'bg-slate-800 text-white rounded-md shadow-sm dark:bg-slate-700';
+        $inactiveTab = 'bg-transparent text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300';
+        $activeBadge = 'bg-white/25 text-white';
+        $inactiveBadge = 'bg-gray-200 text-gray-500 dark:bg-gray-600 dark:text-gray-400';
+
+        $orderClasses = $orderActive ? $activeTab : $inactiveTab;
+        $transferClasses = $transferActive ? $activeTab : $inactiveTab;
+        $orderBadgeClasses = $orderActive ? $activeBadge : $inactiveBadge;
+        $transferBadgeClasses = $transferActive ? $activeBadge : $inactiveBadge;
+
+        return new HtmlString(
+            '<nav class="flex gap-2 items-center">' .
+            '<button wire:click="setConfirmationTab(\'order\')" class="px-4 py-1 text-base font-semibold transition-all whitespace-nowrap ' . $orderClasses . '">' .
+            '発注確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded ' . $orderBadgeClasses . '">' . $orderCount . '</span>' .
+            '</button>' .
+            '<button wire:click="setConfirmationTab(\'transfer\')" class="px-4 py-1 text-base font-semibold transition-all whitespace-nowrap ' . $transferClasses . '">' .
+            '移動確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded ' . $transferBadgeClasses . '">' . $transferCount . '</span>' .
+            '</button>' .
+            '</nav>'
+        );
+    }
 
     public function getView(): string
     {
