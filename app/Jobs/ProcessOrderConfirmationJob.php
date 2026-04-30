@@ -69,6 +69,22 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         }
 
         try {
+            $zeroQuantityCandidatesQuery = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
+                ->where('order_quantity', '<=', 0);
+
+            if ($this->warehouseId !== null) {
+                $zeroQuantityCandidatesQuery->where('warehouse_id', $this->warehouseId);
+            }
+
+            $deletedZeroQuantityCandidates = $zeroQuantityCandidatesQuery->delete();
+
+            if ($deletedZeroQuantityCandidates > 0) {
+                Log::info('Deleted zero-quantity approved order candidates before confirmation', [
+                    'warehouse_id' => $this->warehouseId,
+                    'deleted_count' => $deletedZeroQuantityCandidates,
+                ]);
+            }
+
             // 承認済み移動候補の件数を取得
             $transferApprovedQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
             if ($this->warehouseId !== null) {
