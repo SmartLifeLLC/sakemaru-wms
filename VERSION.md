@@ -1,5 +1,6 @@
 # Version
 
-**1.0.0**
-
-Customer: hana
+| Key       | Value          |
+|-----------|----------------|
+| Base      | release/v1.0 |
+| Customer  | 華 (Hana)       |
