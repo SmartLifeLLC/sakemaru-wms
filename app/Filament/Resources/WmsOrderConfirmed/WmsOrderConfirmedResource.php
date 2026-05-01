@@ -55,6 +55,7 @@ class WmsOrderConfirmedResource extends AdminResource
                 'warehouse',
                 'item',
                 'contractor',
+                'modifiedByUser',
             ]);
     }
 

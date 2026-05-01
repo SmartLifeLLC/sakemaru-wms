@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
@@ -27,7 +28,13 @@ use Illuminate\Database\Eloquent\Collection;
 class WmsTransferConfirmationWaitingTable
 {
     use HasExportAction;
+    use HasModifierDisplay;
     use HasOptimizedFilters;
+
+    protected static function getFilterModelTable(): string
+    {
+        return (new WmsStockTransferCandidate)->getTable();
+    }
 
     public static function configure(Table $table): Table
     {
@@ -167,6 +174,8 @@ class WmsTransferConfirmationWaitingTable
                     ->state(fn ($record) => $record->is_manually_modified ? '修正済' : '-')
                     ->toggleable(isToggledHiddenByDefault: true),
 
+                static::modifierColumn(),
+
                 TextColumn::make('created_at')
                     ->label('作成日時')
                     ->dateTime()
@@ -217,6 +226,8 @@ class WmsTransferConfirmationWaitingTable
                     }),
 
                 static::contractorFilter(),
+
+                static::modifierFilter(),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([

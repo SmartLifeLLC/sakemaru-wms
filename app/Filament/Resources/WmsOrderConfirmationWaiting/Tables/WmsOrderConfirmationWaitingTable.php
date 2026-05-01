@@ -8,6 +8,7 @@ use App\Enums\AutoOrder\OriginType;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
@@ -31,7 +32,13 @@ use Illuminate\Support\Facades\DB;
 class WmsOrderConfirmationWaitingTable
 {
     use HasExportAction;
+    use HasModifierDisplay;
     use HasOptimizedFilters;
+
+    protected static function getFilterModelTable(): string
+    {
+        return (new WmsOrderCandidate)->getTable();
+    }
 
     public static function configure(Table $table): Table
     {
@@ -308,6 +315,8 @@ class WmsOrderConfirmationWaitingTable
                     ->sortable()
                     ->width('75px'),
 
+                static::modifierColumn(),
+
                 TextColumn::make('created_at')
                     ->label('作成日時')
                     ->dateTime()
@@ -325,6 +334,8 @@ class WmsOrderConfirmationWaitingTable
                 static::warehouseFilter()->label('在庫拠点倉庫'),
 
                 static::contractorFilter(),
+
+                static::modifierFilter(),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([

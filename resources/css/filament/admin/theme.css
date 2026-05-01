@@ -876,8 +876,24 @@ html.fi {
     flex-direction: column !important;
 }
 
-/* テーブル本体: 内部スクロール */
+/* テーブル本体: flex column で ヘッダー/ツールバーは固定、コンテンツだけスクロール */
 .fi-ta .fi-ta-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ヘッダー/ツールバー: スクロールせず固定、ドロップダウンがはみ出せるように overflow: visible */
+.fi-ta .fi-ta-header-ctn {
+    flex-shrink: 0;
+    overflow: visible;
+    position: relative;
+    z-index: 20;
+}
+
+/* テーブルコンテンツ: ここだけスクロール */
+.fi-ta .fi-ta-content-ctn {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
