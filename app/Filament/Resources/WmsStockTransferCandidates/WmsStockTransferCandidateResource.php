@@ -10,6 +10,7 @@ use BackedEnum;
 use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsStockTransferCandidateResource extends AdminResource
 {
@@ -40,6 +41,12 @@ class WmsStockTransferCandidateResource extends AdminResource
     public static function getNavigationSort(): ?int
     {
         return EMenu::WMS_STOCK_TRANSFER_CANDIDATES->sort();
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->with(['modifiedByUser']);
     }
 
     public static function table(Table $table): Table

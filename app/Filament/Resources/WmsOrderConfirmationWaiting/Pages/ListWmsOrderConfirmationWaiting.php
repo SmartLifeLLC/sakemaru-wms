@@ -452,6 +452,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                             'item',
                             'contractor',
                             'deliveryCourse',
+                            'modifiedByUser',
                         ])
                 )
                 ->modifyQueryUsing(fn (Builder $query) => $query

@@ -8,6 +8,7 @@ use App\Enums\AutoOrder\OriginType;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Concerns\OptimisticLockException;
 use App\Models\WmsMonthlySafetyStock;
@@ -21,9 +22,11 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\Summarizers\Summarizer;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
@@ -36,7 +39,13 @@ use Illuminate\Support\Facades\DB;
 class WmsOrderCandidatesTable
 {
     use HasExportAction;
+    use HasModifierDisplay;
     use HasOptimizedFilters;
+
+    protected static function getFilterModelTable(): string
+    {
+        return (new WmsOrderCandidate)->getTable();
+    }
 
     public static function configure(Table $table): Table
     {
@@ -386,6 +395,8 @@ class WmsOrderCandidatesTable
                     ->color(fn (CandidateStatus $state): string => $state->color())
                     ->sortable(),
 
+                static::modifierColumn(),
+
                 TextColumn::make('created_at')
                     ->label('作成日時')
                     ->dateTime()
@@ -411,6 +422,8 @@ class WmsOrderCandidatesTable
                 static::contractorFilter(),
 
                 static::supplierFilter(),
+
+                static::modifierFilter(),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([
@@ -698,6 +711,64 @@ class WmsOrderCandidatesTable
 
                             Notification::make()
                                 ->title("{$count}件を承認しました")
+                                ->success()
+                                ->send();
+                        }),
+
+                    BulkAction::make('bulkUpdateArrivalDate')
+                        ->label('入荷予定日変更')
+                        ->icon('heroicon-o-pencil-square')
+                        ->color('warning')
+                        ->modalHeading('')
+                        ->extraModalWindowAttributes(['class' => 'bulk-update-course-date-modal'])
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('変更を適用')->color('danger'))
+                        ->modalCancelActionLabel('変更せず閉じる')
+                        ->schema(fn (Collection $records) => [
+                            ViewField::make('header')
+                                ->view('filament.components.bulk-update-course-date-header', [
+                                    'totalCount' => $records->count(),
+                                    'pendingCount' => $records->where('status', CandidateStatus::PENDING)->count(),
+                                ]),
+                            DatePicker::make('expected_arrival_date')
+                                ->label('入荷予定日')
+                                ->required(),
+                        ])
+                        ->action(function (Collection $records, array $data) {
+                            if (empty($data['expected_arrival_date'])) {
+                                Notification::make()
+                                    ->title('入荷予定日を指定してください')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $pendingIds = $records
+                                ->where('status', CandidateStatus::PENDING)
+                                ->pluck('id')
+                                ->toArray();
+
+                            if (empty($pendingIds)) {
+                                Notification::make()
+                                    ->title('承認前の候補がありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $count = WmsOrderCandidate::whereIn('id', $pendingIds)
+                                ->update([
+                                    'expected_arrival_date' => $data['expected_arrival_date'],
+                                    'is_manually_modified' => true,
+                                    'modified_by' => auth()->id(),
+                                    'modified_at' => now(),
+                                    'updated_at' => now(),
+                                ]);
+
+                            Notification::make()
+                                ->title("{$count}件の入荷予定日を更新しました")
                                 ->success()
                                 ->send();
                         }),

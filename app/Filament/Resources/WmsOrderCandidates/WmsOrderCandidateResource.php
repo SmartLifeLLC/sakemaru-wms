@@ -52,7 +52,7 @@ class WmsOrderCandidateResource extends AdminResource
     {
         return parent::getEloquentQuery()
             ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::EXCLUDED])
-            ->with(['item.current_price']);
+            ->with(['item.current_price', 'modifiedByUser']);
     }
 
     public static function table(Table $table): Table

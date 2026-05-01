@@ -341,9 +341,19 @@ class User extends Authenticatable implements FilamentUser
         return app(PermissionService::class)->check($this, 'wms.access');
     }
 
+    public const SYSTEM_USER_CODE = '9900000002';
+
+    public static function resolveSystemUserId(): ?int
+    {
+        return once(fn () => static::withoutGlobalScopes()
+            ->where('code', static::SYSTEM_USER_CODE)
+            ->value('id'));
+    }
+
     public static function resolveAutomatorId(): int
     {
-        return static::where('email', 'automator@sakemaru.ai')->value('id')
+        return static::resolveSystemUserId()
+            ?? static::where('email', 'automator@sakemaru.ai')->value('id')
             ?? static::where('email', 'admin@sakemaru.ai')->value('id')
             ?? 0;
     }

@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\WmsOrderCandidate;
 use Filament\Actions\Action;
@@ -19,7 +20,13 @@ use Filament\Tables\Table;
 class WmsOrderConfirmedTable
 {
     use HasExportAction;
+    use HasModifierDisplay;
     use HasOptimizedFilters;
+
+    protected static function getFilterModelTable(): string
+    {
+        return (new WmsOrderCandidate)->getTable();
+    }
 
     public static function configure(Table $table): Table
     {
@@ -136,6 +143,8 @@ class WmsOrderConfirmedTable
                     ->state(fn ($record) => $record->is_manually_modified ? '修正済' : '-')
                     ->toggleable(isToggledHiddenByDefault: true),
 
+                static::modifierColumn(),
+
                 TextColumn::make('created_at')
                     ->label('作成日時')
                     ->dateTime()
@@ -169,6 +178,8 @@ class WmsOrderConfirmedTable
                 static::warehouseFilter(),
 
                 static::contractorFilter(),
+
+                static::modifierFilter(),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([

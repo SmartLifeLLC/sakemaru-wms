@@ -56,6 +56,7 @@ class WmsOrderConfirmationWaitingResource extends AdminResource
                 'warehouse',
                 'item.current_price',
                 'contractor',
+                'modifiedByUser',
             ]);
     }
 
