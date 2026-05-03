@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Enums\EMenu;
 use App\Enums\EMenuCategory;
+use App\Filament\Support\AdminPage;
 use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Warehouse;
@@ -11,7 +12,6 @@ use App\Models\WmsFloorObject;
 use App\Models\WmsPicker;
 use App\Models\WmsPickingArea;
 use App\Models\WmsWarehouseLayout;
-use App\Filament\Support\AdminPage;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
@@ -224,6 +224,22 @@ class FloorPlanEditor extends AdminPage
             $zoneGroups[$zoneKey]['locations'][] = $location;
         }
 
+        // Count unpositioned zones for bottom-right packing
+        $unpositionedCount = 0;
+        foreach ($zoneGroups as $group) {
+            $hasPosition = false;
+            foreach ($group['locations'] as $loc) {
+                if ($loc->x1_pos > 0 || $loc->y1_pos > 0) {
+                    $hasPosition = true;
+                    break;
+                }
+            }
+            if (! $hasPosition) {
+                $unpositionedCount++;
+            }
+        }
+        $unpositionedIndex = 0;
+
         // Build zones array - one entry per code1+code2 group
         $zones = [];
         $zoneIndex = 0;
@@ -247,14 +263,21 @@ class FloorPlanEditor extends AdminPage
                 }
             }
 
-            // Auto-generate position if none set
+            // Auto-generate position if none set (pack into bottom-right, upward)
             if ($x1 == 0 && $y1 == 0) {
-                $row = intdiv($zoneIndex, 30);
-                $col = $zoneIndex % 30;
-                $x1 = 50 + $col * 45;
-                $y1 = 50 + $row * 35;
-                $x2 = $x1 + 40;
-                $y2 = $y1 + 30;
+                $cellW = 45;
+                $cellH = 35;
+                $zoneW = 40;
+                $zoneH = 30;
+                $margin = 10;
+                $cols = 5;
+                $col = $unpositionedIndex % $cols;
+                $row = intdiv($unpositionedIndex, $cols);
+                $x1 = 1000 + $col * $cellW;
+                $y1 = $row * $cellH;
+                $x2 = $x1 + $zoneW;
+                $y2 = $y1 + $zoneH;
+                $unpositionedIndex++;
             }
 
             $zones[] = [
