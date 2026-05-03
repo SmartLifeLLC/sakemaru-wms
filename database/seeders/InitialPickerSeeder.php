@@ -3,66 +3,105 @@
 namespace Database\Seeders;
 
 use App\Enums\PickerSkillLevel;
-use App\Models\Sakemaru\Client;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
-/**
- * 初期ピッカー生成シーダー
- *
- * 10人のピッカーを生成します。
- * - コード: 1〜10
- * - パスワード: 1〜10（コードと同じ）
- * - スキルレベル: 全員 SENIOR（熟練）
- */
 class InitialPickerSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        $this->command->info('初期ピッカーを生成しています...');
-
         $createdCount = 0;
         $skippedCount = 0;
 
-        for ($i = 1; $i <= 10; $i++) {
+        // --- オレンジ倉庫ピッカー（1〜10） ---
+        $this->command->info('オレンジ倉庫ピッカーを生成しています...');
+        for ($i = 9001; $i <= 9010; $i++) {
             $code = (string) $i;
 
-            // 既存チェック
-            $exists = DB::connection('sakemaru')
-                ->table('wms_pickers')
-                ->where('code', $code)
-                ->exists();
-
-            if ($exists) {
+            if ($this->pickerExists($code)) {
                 $skippedCount++;
                 $this->command->warn("ピッカー [{$code}] は既に存在します。スキップします。");
 
                 continue;
             }
 
-
-            DB::connection('sakemaru')->table('wms_pickers')->insert([
-                'code' => $code,
-                'name' => "オレンジピッカー{$i}",
-                'password' => Hash::make($code),
-                'default_warehouse_id' => 91,
-                'skill_level' => PickerSkillLevel::SENIOR->value,
-                'can_access_restricted_area' => false,
-                'is_active' => true,
-                'is_available_for_picking' => true,
-                'current_warehouse_id' => 91,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
+            $this->insertPicker($code, "オレンジピッカー{$i}", $code, 91);
             $createdCount++;
         }
 
-        $this->command->info("初期ピッカー生成完了: 作成 {$createdCount}件, スキップ {$skippedCount}件");
+        // --- CSV店舗ピッカー ---
+        $this->command->info('CSVから店舗ピッカーを生成しています...');
+        $csvPath = storage_path('seeders/store_picker_warehouses.csv');
+        if (! file_exists($csvPath)) {
+            $this->command->warn("CSVファイルが見つかりません: {$csvPath} — スキップします。");
+            $this->command->info("ピッカー生成完了: 作成 {$createdCount}件, スキップ {$skippedCount}件");
+
+            return;
+        }
+
+        $warehouseMap = Warehouse::pluck('id', 'code')->toArray();
+
+        $handle = fopen($csvPath, 'r');
+        fgetcsv($handle);
+
+        while (($row = fgetcsv($handle)) !== false) {
+            $code = trim($row[3] ?? '');
+            $name = trim($row[2] ?? '');
+            $password = trim($row[4] ?? '');
+            $warehouseCode = trim($row[6] ?? '');
+
+            if (! $code || ! $name) {
+                continue;
+            }
+
+            $warehouseId = $warehouseMap[$warehouseCode] ?? null;
+            if (! $warehouseId) {
+                $this->command->warn("倉庫コード [{$warehouseCode}] が見つかりません。ピッカー [{$code}] {$name} をスキップします。");
+                $skippedCount++;
+
+                continue;
+            }
+
+            if ($this->pickerExists($code)) {
+                $skippedCount++;
+                $this->command->warn("ピッカー [{$code}] {$name} は既に存在します。スキップします。");
+
+                continue;
+            }
+
+            $this->insertPicker($code, $name, $password ?: $code, $warehouseId);
+            $createdCount++;
+        }
+
+        fclose($handle);
+
+        $this->command->info("ピッカー生成完了: 作成 {$createdCount}件, スキップ {$skippedCount}件");
+    }
+
+    private function pickerExists(string $code): bool
+    {
+        return DB::connection('sakemaru')
+            ->table('wms_pickers')
+            ->where('code', $code)
+            ->exists();
+    }
+
+    private function insertPicker(string $code, string $name, string $password, int $warehouseId): void
+    {
+        DB::connection('sakemaru')->table('wms_pickers')->insert([
+            'code' => $code,
+            'name' => $name,
+            'password' => Hash::make($password),
+            'default_warehouse_id' => $warehouseId,
+            'skill_level' => PickerSkillLevel::SENIOR->value,
+            'can_access_restricted_area' => false,
+            'is_active' => true,
+            'is_available_for_picking' => true,
+            'current_warehouse_id' => $warehouseId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }
