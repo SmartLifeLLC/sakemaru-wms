@@ -45,17 +45,17 @@ class InitialPickerSeeder extends Seeder
                 continue;
             }
 
-            $warehouseId = Warehouse::where('code', Client::first()->default_warehouse_code)->first()->id;
+
             DB::connection('sakemaru')->table('wms_pickers')->insert([
                 'code' => $code,
-                'name' => "ピッカー{$i}",
+                'name' => "オレンジピッカー{$i}",
                 'password' => Hash::make($code),
-                'default_warehouse_id' => $warehouseId,
+                'default_warehouse_id' => 91,
                 'skill_level' => PickerSkillLevel::SENIOR->value,
                 'can_access_restricted_area' => false,
                 'is_active' => true,
-                'is_available_for_picking' => false,
-                'current_warehouse_id' => null,
+                'is_available_for_picking' => true,
+                'current_warehouse_id' => 91,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);

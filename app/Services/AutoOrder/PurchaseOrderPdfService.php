@@ -329,43 +329,59 @@ class PurchaseOrderPdfService
 
     /**
      * 発注元情報描画（発注先と同じ高さから開始）
+     * 倉庫住所を優先、未設定の場合はClientにフォールバック
      */
     private function renderClientInfo(float $startY): void
     {
         $startX = self::PAGE_WIDTH - self::MARGIN_RIGHT - 75;
+        $wh = $this->warehouse;
 
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
 
         $lineY = $startY;
 
-        // 会社名
+        // 会社名（Clientから）
         $this->pdf->SetXY($startX, $lineY);
         $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, $this->client->name ?? '', 0, 1, 'L');
         $lineY += self::LINE_HEIGHT_NORMAL;
 
-        // 住所
-        $address = trim(($this->client->order_form_address1 ?? $this->client->address1 ?? '').($this->client->order_form_address2 ?? $this->client->address2 ?? ''));
-        if ($address) {
+        // 倉庫名
+        if ($wh?->name) {
             $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
             $this->pdf->SetXY($startX, $lineY);
-            // 住所が長い場合は折り返し
-            $this->pdf->MultiCell(75, self::LINE_HEIGHT_NORMAL, $address, 0, 'L');
+            $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, $wh->name, 0, 1, 'L');
+            $lineY += self::LINE_HEIGHT_NORMAL;
+        }
+
+        // 住所（倉庫優先 → Clientフォールバック）
+        $address = trim(($wh?->address1 ?? '').($wh?->address2 ?? ''));
+        if (! $address) {
+            $address = trim(($this->client->order_form_address1 ?? $this->client->address1 ?? '').($this->client->order_form_address2 ?? $this->client->address2 ?? ''));
+        }
+        if ($address) {
+            $postalCode = $wh?->postal_code ?? '';
+            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+            $this->pdf->SetXY($startX, $lineY);
+            $displayAddress = $postalCode ? '〒'.$postalCode.' '.$address : $address;
+            $this->pdf->MultiCell(75, self::LINE_HEIGHT_NORMAL, $displayAddress, 0, 'L');
             $lineY = $this->pdf->GetY();
         }
 
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
 
-        // TEL
-        if ($this->client->tel) {
+        // TEL（倉庫優先 → Clientフォールバック）
+        $tel = $wh?->tel ?: $this->client->tel;
+        if ($tel) {
             $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, 'TEL: '.$this->client->tel, 0, 1, 'L');
+            $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, 'TEL: '.$tel, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
-        // FAX
-        if ($this->client->fax) {
+        // FAX（倉庫優先 → Clientフォールバック）
+        $fax = $wh?->fax ?: $this->client->fax;
+        if ($fax) {
             $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, 'FAX: '.$this->client->fax, 0, 1, 'L');
+            $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, 'FAX: '.$fax, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 

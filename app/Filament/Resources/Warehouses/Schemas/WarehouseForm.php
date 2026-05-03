@@ -60,6 +60,39 @@ class WarehouseForm
                     ])
                     ->columns(2),
 
+                Section::make('住所・連絡先')
+                    ->schema([
+                        TextInput::make('postal_code')
+                            ->label('郵便番号')
+                            ->maxLength(10)
+                            ->placeholder('000-0000')
+                            ->columnSpan(1),
+
+                        TextInput::make('address1')
+                            ->label('住所1')
+                            ->maxLength(255)
+                            ->columnSpan(2),
+
+                        TextInput::make('address2')
+                            ->label('住所2')
+                            ->maxLength(255)
+                            ->columnSpan(2),
+
+                        TextInput::make('tel')
+                            ->label('電話番号')
+                            ->tel()
+                            ->maxLength(20)
+                            ->columnSpan(1),
+
+                        TextInput::make('fax')
+                            ->label('FAX番号')
+                            ->tel()
+                            ->maxLength(20)
+                            ->columnSpan(1),
+                    ])
+                    ->columns(2)
+                    ->collapsible(),
+
                 Section::make('在庫設定')
                     ->schema([
                         Select::make('out_of_stock_option')
