@@ -20,6 +20,8 @@ Artisan::command('inspire', function () {
 | ┌────────────────────────────────────┬──────────────────┬──────────────────────────────────────────────────────┐
 | │ コマンド                           │ スケジュール     │ 内容                                                 │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:generate-waves                 │ 毎日 06/07/08時  │ Wave生成                                             │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
 | │ wms:sync-monthly-safety-stocks     │ 毎月末日 01:30   │ 月別安全在庫→item_contractors.safety_stockに同期      │
 | │                                    │                  │ use_safety_stock_auto_update=falseのレコードはスキップ │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
@@ -50,6 +52,25 @@ Artisan::command('inspire', function () {
 // ======================================================
 // 全スケジュール一時停止中（2026-04-28）
 // ======================================================
+
+// // Wave生成 (毎日 6:00, 7:00, 8:00)
+// Schedule::command('wms:generate-waves')
+//     ->dailyAt('06:00')
+//     ->withoutOverlapping()
+//     ->onOneServer()
+//     ->appendOutputTo(storage_path('logs/wms-generate-waves.log'));
+//
+// Schedule::command('wms:generate-waves')
+//     ->dailyAt('07:00')
+//     ->withoutOverlapping()
+//     ->onOneServer()
+//     ->appendOutputTo(storage_path('logs/wms-generate-waves.log'));
+//
+// Schedule::command('wms:generate-waves')
+//     ->dailyAt('08:00')
+//     ->withoutOverlapping()
+//     ->onOneServer()
+//     ->appendOutputTo(storage_path('logs/wms-generate-waves.log'));
 
 // // 月別安全在庫の同期 (毎月末日 4:30)
 // // ※ 翌月の発注点を事前に同期（翌日から適用されるため）
@@ -104,3 +125,25 @@ Artisan::command('inspire', function () {
 //     ->withoutOverlapping()
 //     ->onOneServer()
 //     ->appendOutputTo(storage_path('logs/auto-order-holidays.log'));
+
+/*
+ * 定期在庫スナップショット (朝・夕)
+ */
+
+ Schedule::command('wms:snapshot-stocks --time=morning')
+     ->dailyAt('06:00')
+     ->withoutOverlapping()
+     ->onOneServer()
+     ->appendOutputTo(storage_path('logs/wms-stock-snapshot.log'));
+
+ Schedule::command('wms:snapshot-stocks --time=evening')
+     ->dailyAt('18:00')
+     ->withoutOverlapping()
+     ->onOneServer()
+     ->appendOutputTo(storage_path('logs/wms-stock-snapshot.log'));
+
+ Schedule::command('wms:snapshot-archive')
+     ->monthlyOn(1, '03:00')
+     ->withoutOverlapping()
+     ->onOneServer()
+     ->appendOutputTo(storage_path('logs/wms-stock-snapshot-archive.log'));
