@@ -313,7 +313,6 @@ class ListWaves extends ListRecords
                                 $earningCounts = DB::connection('sakemaru')
                                     ->table('earnings')
                                     ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
-                                    ->whereIn('earnings.warehouse_id', $warehouseIds)
                                     ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
                                     ->where('earnings.delivered_date', $dateOperator, $shippingDate)
                                     ->where('earnings.is_delivered', 0)
@@ -394,7 +393,6 @@ class ListWaves extends ListRecords
                                 $earningSummary = DB::connection('sakemaru')
                                     ->table('earnings')
                                     ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
-                                    ->whereIn('earnings.warehouse_id', $warehouseIds)
                                     ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
                                     ->where('earnings.delivered_date', $dateOperator, $shippingDate)
                                     ->where('earnings.is_delivered', 0)
@@ -526,7 +524,6 @@ class ListWaves extends ListRecords
         $dateOperator = $includePast ? '<=' : '=';
 
         $earnings = Earning::query()
-            ->whereIn('warehouse_id', $warehouseIds)
             ->where('delivered_date', $dateOperator, $shippingDate)
             ->where('is_delivered', 0)
             ->where('picking_status', 'BEFORE')
