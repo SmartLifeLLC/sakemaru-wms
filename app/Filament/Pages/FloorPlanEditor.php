@@ -205,7 +205,6 @@ class FloorPlanEditor extends AdminPage
         $locations = Location::where('floor_id', $this->selectedFloorId)
             ->whereNotNull('code1')
             ->whereNotNull('code2')
-            ->where('code1', '!=', 'ZZ')  // Exclude default location
             ->orderBy('code1')
             ->orderBy('code2')
             ->orderBy('code3')
@@ -621,9 +620,9 @@ class FloorPlanEditor extends AdminPage
         $newWall = [
             'id' => $newId,
             'name' => '柱'.$newId,
-            'x1' => 100,
+            'x1' => 1200,
             'y1' => 100,
-            'x2' => 150,
+            'x2' => 1250,
             'y2' => 150,
         ];
 
