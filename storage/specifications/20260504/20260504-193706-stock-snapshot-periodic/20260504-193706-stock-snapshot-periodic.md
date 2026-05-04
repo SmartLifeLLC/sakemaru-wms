@@ -205,7 +205,7 @@ CREATE TABLE wms_stock_snapshot_lots (
 | `current_quantity` | ロット単位の数量。サマリーとの整合性検証に使用 |
 | `reserved_quantity` | ロット単位の引当。引当差異の調査 |
 | `price` | 在庫金額の算出（棚卸評価）|
-| `real_stock_received_at` | 基幹在庫の入庫日時を保持 |
+| `real_stock_received_at` | 基幹在庫の入庫日時を保持。環境に `real_stocks.received_at` が存在しない場合はNULL |
 | `lot_created_at` | 現行FEFO/FIFO実装の同一期限内ソート順を再現 |
 
 **含めないカラムとその理由:**

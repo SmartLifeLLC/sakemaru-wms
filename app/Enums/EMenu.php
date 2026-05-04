@@ -49,6 +49,8 @@ enum EMenu: string
     // 在庫管理
     case REAL_STOCKS = 'inventory.real_stocks';
     case EXPIRATION_ALERTS = 'inventory.expiration_alerts';
+    case WMS_STOCK_SNAPSHOTS = 'inventory.wms_stock_snapshots';
+    case WMS_STOCK_DIFFERENCE_ANALYSIS = 'inventory.wms_stock_difference_analysis';
 
     // マスタ管理
     case WAREHOUSES = 'master.warehouses';
@@ -129,7 +131,9 @@ enum EMenu: string
             self::WMS_ORDER_DOCUMENTS => EMenuCategory::ORDER_HISTORY,
 
             self::REAL_STOCKS,
-            self::EXPIRATION_ALERTS => EMenuCategory::INVENTORY,
+            self::EXPIRATION_ALERTS,
+            self::WMS_STOCK_SNAPSHOTS,
+            self::WMS_STOCK_DIFFERENCE_ANALYSIS => EMenuCategory::INVENTORY,
 
             // 倉庫マスタ
             self::WAREHOUSES,
@@ -215,6 +219,8 @@ enum EMenu: string
 
             self::REAL_STOCKS => '在庫管理',
             self::EXPIRATION_ALERTS => '賞味期限管理',
+            self::WMS_STOCK_SNAPSHOTS => '在庫スナップショット',
+            self::WMS_STOCK_DIFFERENCE_ANALYSIS => '在庫差異分析',
 
             self::WAREHOUSES => '倉庫',
             self::WAREHOUSE_CONTRACTORS => '発注先別ロット条件',
@@ -294,6 +300,8 @@ enum EMenu: string
 
             self::REAL_STOCKS => 'heroicon-o-cube-transparent',
             self::EXPIRATION_ALERTS => 'heroicon-o-clock',
+            self::WMS_STOCK_SNAPSHOTS => 'heroicon-o-circle-stack',
+            self::WMS_STOCK_DIFFERENCE_ANALYSIS => 'heroicon-o-chart-bar-square',
 
             self::WAREHOUSES => 'heroicon-o-building-office-2',
             self::WAREHOUSE_CONTRACTORS => 'heroicon-o-building-storefront',
@@ -378,6 +386,8 @@ enum EMenu: string
             // 在庫管理
             self::REAL_STOCKS => 1,
             self::EXPIRATION_ALERTS => 2,
+            self::WMS_STOCK_SNAPSHOTS => 3,
+            self::WMS_STOCK_DIFFERENCE_ANALYSIS => 4,
 
             // 倉庫マスタ
             self::WAREHOUSES => 1,
