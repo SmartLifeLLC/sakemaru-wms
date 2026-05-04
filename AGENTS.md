@@ -22,6 +22,10 @@ php artisan db:fresh           # 禁止
 --seed (単体での実行は可、上記と組み合わせは禁止)
 ```
 
+これらは `app/Console/Commands/Prevent*.php` の同名コマンド override で無効化している。検証でも上記コマンド名を直接実行しないこと。
+
+テストでは `RefreshDatabase` を使用しない。`phpunit.xml` / `.env.testing` は専用 test DB を使う。テストデータは必要最小限の作成と `DatabaseTransactions`、または対象を限定した `delete` / `truncate` で処理すること。
+
 **許可されているコマンド:**
 ```bash
 php artisan migrate            # 新規マイグレーションの実行 → OK

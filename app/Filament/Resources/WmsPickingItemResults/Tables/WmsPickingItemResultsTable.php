@@ -4,8 +4,10 @@ namespace App\Filament\Resources\WmsPickingItemResults\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\Warehouse;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -16,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
 class WmsPickingItemResultsTable
 {
     use HasExportAction;
+    use HasOptimizedFilters;
 
     public static function configure(Table $table): Table
     {
@@ -193,6 +196,34 @@ class WmsPickingItemResultsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                SelectFilter::make('warehouse_id')
+                    ->label('倉庫')
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    })
+                    ->getOptionLabelUsing(fn ($value) => Warehouse::find($value)?->name)
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when(
+                            $data['value'],
+                            fn (Builder $query, $warehouseId): Builder => $query->whereHas(
+                                'pickingTask',
+                                fn (Builder $q) => $q->where('warehouse_id', $warehouseId)
+                            )
+                        );
+                    }),
+
                 Filter::make('shipment_date')
                     ->label('出荷日')
                     ->form([

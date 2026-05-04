@@ -17,10 +17,10 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
@@ -106,7 +106,7 @@ class ListWmsPickingWaitings extends ListRecords
                                 return [
                                     'items' => $strategies->map(fn ($s) => [
                                         'id' => $s->id,
-                                        'label' => $s->name . ($s->is_default ? ' (デフォルト)' : ''),
+                                        'label' => $s->name.($s->is_default ? ' (デフォルト)' : ''),
                                     ])->values()->toArray(),
                                     'placeholder' => '戦略を選択...',
                                 ];
@@ -160,9 +160,9 @@ class ListWmsPickingWaitings extends ListRecords
                             if (! $warehouseId) {
                                 return new HtmlString(
                                     '<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500">'
-                                    . '<i class="fa fa-warehouse text-2xl mb-2"></i>'
-                                    . '<p class="text-sm">対象倉庫を選択してください</p>'
-                                    . '</div>'
+                                    .'<i class="fa fa-warehouse text-2xl mb-2"></i>'
+                                    .'<p class="text-sm">対象倉庫を選択してください</p>'
+                                    .'</div>'
                                 );
                             }
 
@@ -178,9 +178,9 @@ class ListWmsPickingWaitings extends ListRecords
                             if ($unassignedCount === 0) {
                                 return new HtmlString(
                                     '<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500">'
-                                    . '<i class="fa fa-check-circle text-2xl mb-2"></i>'
-                                    . '<p class="text-sm">未割当のタスクはありません</p>'
-                                    . '</div>'
+                                    .'<i class="fa fa-check-circle text-2xl mb-2"></i>'
+                                    .'<p class="text-sm">未割当のタスクはありません</p>'
+                                    .'</div>'
                                 );
                             }
 
@@ -189,21 +189,21 @@ class ListWmsPickingWaitings extends ListRecords
 
                             return new HtmlString(
                                 '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">'
-                                . '<div class="flex items-center gap-4">'
-                                . '<span class="text-xs text-slate-500 dark:text-gray-400">'
-                                . '未割当タスク: <span class="font-bold text-slate-700 dark:text-gray-200">' . $unassignedCount . '件</span>'
-                                . '</span>'
-                                . '<span class="text-xs text-slate-500 dark:text-gray-400">'
-                                . '商品数: <span class="font-bold text-slate-700 dark:text-gray-200">' . number_format($totalItemCount) . '件</span>'
-                                . '</span>'
-                                . '<span class="text-xs text-slate-500 dark:text-gray-400">'
-                                . '選択ピッカー: <span class="font-bold text-blue-600 dark:text-blue-400">' . $pickerCount . '名</span>'
-                                . '</span>'
-                                . '</div>'
-                                . '<span class="text-xs text-slate-400 dark:text-gray-500">'
-                                . '約 <span class="font-bold">' . number_format($perPicker) . '商品</span>/人'
-                                . '</span>'
-                                . '</div>'
+                                .'<div class="flex items-center gap-4">'
+                                .'<span class="text-xs text-slate-500 dark:text-gray-400">'
+                                .'未割当タスク: <span class="font-bold text-slate-700 dark:text-gray-200">'.$unassignedCount.'件</span>'
+                                .'</span>'
+                                .'<span class="text-xs text-slate-500 dark:text-gray-400">'
+                                .'商品数: <span class="font-bold text-slate-700 dark:text-gray-200">'.number_format($totalItemCount).'件</span>'
+                                .'</span>'
+                                .'<span class="text-xs text-slate-500 dark:text-gray-400">'
+                                .'選択ピッカー: <span class="font-bold text-blue-600 dark:text-blue-400">'.$pickerCount.'名</span>'
+                                .'</span>'
+                                .'</div>'
+                                .'<span class="text-xs text-slate-400 dark:text-gray-500">'
+                                .'約 <span class="font-bold">'.number_format($perPicker).'商品</span>/人'
+                                .'</span>'
+                                .'</div>'
                             );
                         })
                         ->visible(fn (Get $get) => $get('warehouse_id')),
@@ -289,11 +289,11 @@ class ListWmsPickingWaitings extends ListRecords
 
                             return new HtmlString(
                                 '<div class="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-100 dark:border-amber-800">'
-                                . '<span class="text-sm text-slate-600 dark:text-gray-300">'
-                                . '解除対象: <span class="font-bold text-amber-600 dark:text-amber-400">' . $readyCount . '件</span>'
-                                . '（ピッキング準備完了）'
-                                . '</span>'
-                                . '</div>'
+                                .'<span class="text-sm text-slate-600 dark:text-gray-300">'
+                                .'解除対象: <span class="font-bold text-amber-600 dark:text-amber-400">'.$readyCount.'件</span>'
+                                .'（ピッキング準備完了）'
+                                .'</span>'
+                                .'</div>'
                             );
                         })
                         ->visible(fn (Get $get) => $get('unassign_warehouse_id')),
@@ -311,74 +311,44 @@ class ListWmsPickingWaitings extends ListRecords
         ];
     }
 
+    public function getTitle(): string|\Illuminate\Contracts\Support\Htmlable
+    {
+        $base = 'ピッキング調整';
+        $warehouseName = $this->getSelectedWarehouseName();
+
+        return $warehouseName ? "{$base} ({$warehouseName})" : $base;
+    }
+
     public function getPresetViews(): array
     {
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        $userWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        $defaultFilterData = $userWarehouseId
+            ? ['warehouse_id' => ['value' => (string) $userWarehouseId]]
+            : [];
         $systemDate = ClientSetting::systemDateYMD();
 
-        // PENDINGタスクが存在する倉庫のみタブ表示
-        $warehouseIds = WmsPickingTask::where('status', WmsPickingTask::STATUS_PENDING)
-            ->where('shipment_date', $systemDate)
-            ->distinct()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        $warehouses = Warehouse::whereIn('id', $warehouseIds)
-            ->where('is_virtual', false)
-            ->orderBy('code')
-            ->get(['id', 'code', 'name']);
-
-        $hasDefaultWarehouse = $userDefaultWarehouseId
-            && $warehouses->contains('id', $userDefaultWarehouseId);
-        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
-
-        if ($defaultWarehouse) {
-            $views = [
-                'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query
-                        ->where('shipment_date', $systemDate)
-                        ->where('warehouse_id', $userDefaultWarehouseId)
-                    )
-                    ->favorite()
-                    ->label($defaultWarehouse->name)
-                    ->default(),
-            ];
-        } else {
-            $views = [
-                'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', $systemDate))
-                    ->favorite()
-                    ->label('全て')
-                    ->default(),
-            ];
-        }
-
-        $views['all'] = PresetView::make()
-            ->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', $systemDate))
-            ->label('全て')
-            ->favorite();
-
-        foreach ($warehouses as $warehouse) {
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
-                continue;
-            }
-            $views["wh_{$warehouse->id}"] = PresetView::make()
+        return [
+            'default' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', $systemDate))
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label('当日')
+                ->default(),
+            'with_shortage' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query
                     ->where('shipment_date', $systemDate)
-                    ->where('warehouse_id', $warehouse->id)
-                )
-                ->favorite()
-                ->label($warehouse->name);
-        }
+                    ->whereHas('pickingItemResults', fn ($q) => $q->where('has_soft_shortage', true)))
+                ->defaultFilters($defaultFilterData)
+                ->label('引当欠品あり')
+                ->favorite(),
+        ];
+    }
 
-        $views['with_shortage'] = PresetView::make()
-            ->modifyQueryUsing(fn (Builder $query) => $query
-                ->where('shipment_date', $systemDate)
-                ->whereHas('pickingItemResults', fn ($q) => $q->where('has_soft_shortage', true)))
-            ->label('引当欠品あり')
-            ->favorite();
+    private function getSelectedWarehouseName(): ?string
+    {
+        $warehouseId = auth()->user()?->getSelectedWarehouseId();
 
-        return $views;
+        return $warehouseId ? Warehouse::find($warehouseId)?->name : null;
     }
 
     public function table(Table $table): Table

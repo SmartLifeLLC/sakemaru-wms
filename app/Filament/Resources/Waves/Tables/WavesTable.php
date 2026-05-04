@@ -5,17 +5,18 @@ namespace App\Filament\Resources\Waves\Tables;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\Warehouse;
 use App\Services\PickingList\PickingListPdfService;
 use App\Services\PickingList\PickingListService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
-use Filament\Forms\Components\DatePicker;
-use Illuminate\Database\Eloquent\Builder;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WavesTable
 {
@@ -87,6 +88,34 @@ class WavesTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                SelectFilter::make('warehouse_id')
+                    ->label('倉庫')
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    })
+                    ->getOptionLabelUsing(fn ($value) => Warehouse::find($value)?->name)
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when(
+                            $data['value'],
+                            fn (Builder $query, $warehouseId): Builder => $query->whereHas(
+                                'waveSetting.deliveryCourse',
+                                fn (Builder $q) => $q->where('warehouse_id', $warehouseId)
+                            )
+                        );
+                    }),
+
                 Filter::make('shipping_date')
                     ->label('出荷日')
                     ->form([
