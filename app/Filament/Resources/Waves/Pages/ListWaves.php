@@ -21,11 +21,11 @@ use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
-use Illuminate\Database\Eloquent\Builder;
+use Filament\Support\Enums\Alignment;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
@@ -44,53 +44,35 @@ class ListWaves extends ListRecords
 
     protected static string $resource = WaveResource::class;
 
+    public function getTitle(): string|Htmlable
+    {
+        $base = '波動';
+        $warehouseName = $this->getSelectedWarehouseName();
+
+        return $warehouseName ? "{$base} ({$warehouseName})" : $base;
+    }
+
     public function getPresetViews(): array
     {
-        $user = auth()->user();
-        $selectedWarehouseId = $user?->getSelectedWarehouseId();
-        $defaultWarehouseId = $user?->default_warehouse_id;
+        $userWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        $defaultFilterData = $userWarehouseId
+            ? ['warehouse_id' => ['value' => (string) $userWarehouseId]]
+            : [];
 
-        // 表示する倉庫IDを収集（選択倉庫 + default、重複除去）
-        $warehouseIds = collect([$selectedWarehouseId, $defaultWarehouseId])
-            ->filter()
-            ->unique()
-            ->values();
-
-        if ($warehouseIds->isEmpty()) {
-            return [
-                'default' => PresetView::make()
-                    ->favorite()
-                    ->label('全て')
-                    ->default(),
-            ];
-        }
-
-        $warehouses = Warehouse::query()
-            ->whereIn('id', $warehouseIds)
-            ->orderBy('code')
-            ->get(['id', 'code', 'name']);
-
-        $views = [];
-        $isFirst = true;
-
-        foreach ($warehouses as $warehouse) {
-            $key = $isFirst ? 'default' : "wh_{$warehouse->id}";
-            $view = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query
-                    ->whereHas('waveSetting.deliveryCourse', fn (Builder $q) => $q->where('warehouse_id', $warehouse->id))
-                )
+        return [
+            'default' => PresetView::make()
+                ->defaultFilters($defaultFilterData)
                 ->favorite()
-                ->label($warehouse->name);
+                ->label('デフォルト')
+                ->default(),
+        ];
+    }
 
-            if ($isFirst) {
-                $view->default();
-                $isFirst = false;
-            }
+    private function getSelectedWarehouseName(): ?string
+    {
+        $warehouseId = auth()->user()?->getSelectedWarehouseId();
 
-            $views[$key] = $view;
-        }
-
-        return $views;
+        return $warehouseId ? Warehouse::find($warehouseId)?->name : null;
     }
 
     protected function getHeaderActions(): array
@@ -301,7 +283,7 @@ class ListWaves extends ListRecords
                         ViewField::make('shipping_date')
                             ->label(fn (Get $get) => new HtmlString(
                                 '出荷日 '
-                                . ($get('include_past')
+                                .($get('include_past')
                                     ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">過去日も含む</span>'
                                     : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-gray-700 dark:text-gray-300">当日分のみ</span>')
                             ))
@@ -324,12 +306,10 @@ class ListWaves extends ListRecords
                                     return ['options' => []];
                                 }
 
-                                // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
                                 $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
                                 $dateOperator = $includePast ? '<=' : '=';
 
-                                // 売上伝票の配送コース別件数
                                 $earningCounts = DB::connection('sakemaru')
                                     ->table('earnings')
                                     ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
@@ -343,7 +323,6 @@ class ListWaves extends ListRecords
                                     ->get()
                                     ->keyBy('course_id');
 
-                                // 倉庫移動伝票の配送コース別件数（仮想倉庫間移動は除外）
                                 $stockTransferCounts = DB::connection('sakemaru')
                                     ->table('stock_transfers as st')
                                     ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
@@ -368,24 +347,19 @@ class ListWaves extends ListRecords
                                     ->get()
                                     ->keyBy('course_id');
 
-                                // 両方をマージしてオプション生成
                                 $allCourseIds = $earningCounts->keys()->merge($stockTransferCounts->keys())->unique();
 
                                 $options = [];
                                 foreach ($allCourseIds as $courseId) {
                                     $earningData = $earningCounts->get($courseId);
                                     $stockTransferData = $stockTransferCounts->get($courseId);
-                                    $code = $earningData->course_code ?? $stockTransferData->course_code ?? '';
                                     $name = $earningData->course_name ?? $stockTransferData->course_name ?? '不明';
-                                    $earningCount = $earningData->count ?? 0;
-                                    $stCount = $stockTransferData->count ?? 0;
                                     $options[] = [
                                         'id' => $courseId,
                                         'label' => $name,
                                     ];
                                 }
 
-                                // コースコード順にソート
                                 usort($options, fn ($a, $b) => strcmp($a['label'], $b['label']));
 
                                 return [
@@ -413,12 +387,10 @@ class ListWaves extends ListRecords
                                     return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-route text-2xl mb-2"></i><p class="text-sm">配送コースを選択してください</p></div>');
                                 }
 
-                                // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
                                 $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
                                 $dateOperator = $includePast ? '<=' : '=';
 
-                                // Get summary by delivery course for earnings (selected courses only)
                                 $earningSummary = DB::connection('sakemaru')
                                     ->table('earnings')
                                     ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
@@ -434,8 +406,6 @@ class ListWaves extends ListRecords
                                     ->get()
                                     ->keyBy('course_id');
 
-                                // Get summary by delivery course for stock_transfers (selected courses only)
-                                // 仮想倉庫間移動は対象外（物理的ピッキング不要）
                                 $stockTransferSummary = DB::connection('sakemaru')
                                     ->table('stock_transfers as st')
                                     ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
@@ -447,7 +417,6 @@ class ListWaves extends ListRecords
                                     ->where('st.is_active', true)
                                     ->where('st.picking_status', 'BEFORE')
                                     ->whereIn('st.delivery_course_id', $deliveryCourseIds)
-                                    // 仮想倉庫間移動は対象外
                                     ->where(function ($query) {
                                         $query->where(function ($q) {
                                             $q->where('fw.is_virtual', false)
@@ -463,12 +432,10 @@ class ListWaves extends ListRecords
                                     ->get()
                                     ->keyBy('course_id');
 
-                                // 両方とも空の場合
                                 if ($earningSummary->isEmpty() && $stockTransferSummary->isEmpty()) {
                                     return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">選択した配送コースに対象伝票がありません</p></div>');
                                 }
 
-                                // Merge summaries by delivery course
                                 $allCourseIds = $earningSummary->keys()->merge($stockTransferSummary->keys())->unique();
                                 $mergedSummary = [];
                                 foreach ($allCourseIds as $courseId) {
@@ -482,7 +449,6 @@ class ListWaves extends ListRecords
                                     ];
                                 }
 
-                                // Sort by course name
                                 usort($mergedSummary, fn ($a, $b) => strcmp($a['course_name'], $b['course_name']));
 
                                 $totalEarningCount = $earningSummary->sum('count');
@@ -490,8 +456,6 @@ class ListWaves extends ListRecords
                                 $totalCount = $totalEarningCount + $totalStockTransferCount;
 
                                 $html = '<div class="space-y-3">';
-
-                                // Summary table with max-height scroll
                                 $html .= '<div class="border border-slate-200 dark:border-gray-700 rounded-lg overflow-hidden">';
                                 $html .= '<div class="max-h-60 overflow-y-auto">';
                                 $html .= '<table class="w-full text-sm">';
@@ -515,8 +479,6 @@ class ListWaves extends ListRecords
                                 }
 
                                 $html .= '</tbody></table></div></div>';
-
-                                // Total summary bar
                                 $html .= '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">';
                                 $html .= '<span class="text-sm font-bold text-slate-700 dark:text-gray-200">合計</span>';
                                 $html .= '<div class="flex items-center gap-4">';
@@ -526,7 +488,6 @@ class ListWaves extends ListRecords
                                 $html .= '</div>';
                                 $html .= '</div>';
 
-                                // Warning for large volume
                                 if ($totalCount > 100) {
                                     $html .= '<div class="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-400 text-xs">';
                                     $html .= '<i class="fa fa-exclamation-triangle"></i>';
@@ -546,11 +507,6 @@ class ListWaves extends ListRecords
         ];
     }
 
-    /**
-     * 手動波動生成処理
-     *
-     * 売上伝票（earnings）と倉庫移動伝票（stock_transfers）の両方を対象として波動を生成する
-     */
     protected function generateManualWave(array $data): void
     {
         $warehouseId = $data['warehouse_id'];
@@ -558,10 +514,8 @@ class ListWaves extends ListRecords
         $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
         $includePast = $data['include_past'] ?? true;
 
-        // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
-        // 指定倉庫に紐づく配送コースのみに絞り込み
         $validCourseIds = DB::connection('sakemaru')
             ->table('delivery_courses')
             ->whereIn('warehouse_id', $warehouseIds)
@@ -571,8 +525,6 @@ class ListWaves extends ListRecords
 
         $dateOperator = $includePast ? '<=' : '=';
 
-        // Get eligible earnings grouped by delivery_course_id
-        // delivery_course_id が未設定の伝票はスキップする
         $earnings = Earning::query()
             ->whereIn('warehouse_id', $warehouseIds)
             ->where('delivered_date', $dateOperator, $shippingDate)
@@ -582,8 +534,6 @@ class ListWaves extends ListRecords
             ->whereIn('delivery_course_id', $validCourseIds)
             ->get();
 
-        // Get eligible stock_transfers grouped by delivery_course_id
-        // 仮想倉庫間移動は対象外（物理的ピッキング不要）
         $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId, $includePast)
             ->whereIn('st.delivery_course_id', $validCourseIds)
             ->get();
@@ -597,11 +547,9 @@ class ListWaves extends ListRecords
             return;
         }
 
-        // Group by delivery_course_id
         $earningsByDeliveryCourse = $earnings->groupBy('delivery_course_id');
         $stockTransfersByDeliveryCourse = $stockTransfers->groupBy('delivery_course_id');
 
-        // Get all delivery_course_ids
         $allDeliveryCourseIds = $earningsByDeliveryCourse->keys()
             ->merge($stockTransfersByDeliveryCourse->keys())
             ->unique();
@@ -621,7 +569,6 @@ class ListWaves extends ListRecords
                 &$totalEarnings,
                 &$totalStockTransfers
             ) {
-                // Get warehouse info
                 $warehouse = DB::connection('sakemaru')
                     ->table('warehouses')
                     ->where('id', $warehouseId)
@@ -631,7 +578,6 @@ class ListWaves extends ListRecords
                     $courseEarnings = $earningsByDeliveryCourse->get($deliveryCourseId, collect());
                     $courseStockTransfers = $stockTransfersByDeliveryCourse->get($deliveryCourseId, collect());
 
-                    // Find or create wave setting
                     $waveSetting = WaveSetting::where('delivery_course_id', $deliveryCourseId)
                         ->first();
 
@@ -645,23 +591,19 @@ class ListWaves extends ListRecords
                         ]);
                     }
 
-                    // Get course info
                     $course = DB::connection('sakemaru')
                         ->table('delivery_courses')
                         ->where('id', $deliveryCourseId)
                         ->first();
 
-                    // Check if wave already exists for this setting and date
                     $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
                         ->where('shipping_date', $shippingDate)
                         ->first();
 
                     if ($existingWave) {
-                        // Use existing wave instead of creating new one
                         $wave = $existingWave;
                         $waveNo = $existingWave->wave_no;
                     } else {
-                        // Create wave
                         $wave = Wave::create([
                             'wms_wave_setting_id' => $waveSetting->id,
                             'wave_no' => uniqid('TEMP_'),
@@ -669,7 +611,6 @@ class ListWaves extends ListRecords
                             'status' => 'PENDING',
                         ]);
 
-                        // Generate wave_no
                         $waveNo = Wave::generateWaveNo(
                             $warehouse->code ?? 0,
                             $course->code ?? 0,
@@ -679,13 +620,11 @@ class ListWaves extends ListRecords
                         $wave->update(['wave_no' => $waveNo]);
                     }
 
-                    // Process earnings
                     if ($courseEarnings->isNotEmpty()) {
                         $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $shippingDate);
                         $totalEarnings += $courseEarnings->count();
                     }
 
-                    // Process stock_transfers
                     if ($courseStockTransfers->isNotEmpty()) {
                         $this->processStockTransfersForWave($wave, $waveSetting, $courseStockTransfers, $warehouse, $course, $shippingDate);
                         $totalStockTransfers += $courseStockTransfers->count();
@@ -720,9 +659,6 @@ class ListWaves extends ListRecords
         }
     }
 
-    /**
-     * Process earnings for wave - create picking tasks and item results
-     */
     protected function processEarningsForWave(
         Wave $wave,
         WaveSetting $waveSetting,
@@ -734,14 +670,12 @@ class ListWaves extends ListRecords
         $earningIds = $earnings->pluck('id')->toArray();
         $tradeIds = $earnings->pluck('trade_id')->toArray();
 
-        // Clean up any existing data from a previous failed attempt for these earnings
         DB::connection('sakemaru')
             ->table('wms_picking_item_results')
             ->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
             ->whereIn('earning_id', $earningIds)
             ->delete();
 
-        // Clean up orphaned picking_tasks (no remaining item_results)
         DB::connection('sakemaru')
             ->table('wms_picking_tasks')
             ->where('wave_id', $wave->id)
@@ -759,17 +693,14 @@ class ListWaves extends ListRecords
             ->where('source_type', 'EARNING')
             ->delete();
 
-        // Get all trade items
         $tradeItems = DB::connection('sakemaru')
             ->table('trade_items')
             ->whereIn('trade_id', $tradeIds)
             ->get();
 
-        // Create earning_id and buyer_id lookup
         $tradeIdToEarningId = $earnings->pluck('id', 'trade_id')->toArray();
         $tradeIdToBuyerId = $earnings->pluck('buyer_id', 'trade_id')->toArray();
 
-        // Group items and allocate stock
         $itemsByGroup = [];
         $reservationResults = [];
 
@@ -780,7 +711,6 @@ class ListWaves extends ListRecords
                 continue;
             }
 
-            // Reserve stock
             $allocationService = new StockAllocationService;
             $result = $allocationService->allocateForItem(
                 $wave->id,
@@ -794,7 +724,6 @@ class ListWaves extends ListRecords
                 $buyerId
             );
 
-            // Get primary reservation
             $primaryReservation = DB::connection('sakemaru')
                 ->table('wms_reservations')
                 ->where('wave_id', $wave->id)
@@ -814,7 +743,6 @@ class ListWaves extends ListRecords
 
             $reservationResults[$tradeItem->id] = $reservationResult;
 
-            // Get picking area and floor info from locations table
             $pickingAreaId = null;
             $floorId = null;
             $temperatureType = null;
@@ -831,7 +759,6 @@ class ListWaves extends ListRecords
                 $pickingAreaId = $location->wms_picking_area_id ?? null;
             }
 
-            // Fallback for items without location
             if ($pickingAreaId === null || $floorId === null) {
                 $itemLocation = DB::connection('sakemaru')
                     ->table('real_stocks as rs')
@@ -859,7 +786,6 @@ class ListWaves extends ListRecords
                 }
             }
 
-            // Group by floor_id
             $groupKey = ($floorId ?? 'null');
             if (! isset($itemsByGroup[$groupKey])) {
                 $itemsByGroup[$groupKey] = [
@@ -873,7 +799,6 @@ class ListWaves extends ListRecords
             $itemsByGroup[$groupKey]['items'][] = $tradeItem;
         }
 
-        // Create picking tasks
         foreach ($itemsByGroup as $groupData) {
             if (empty($groupData['items'])) {
                 continue;
@@ -919,7 +844,6 @@ class ListWaves extends ListRecords
                 'updated_at' => now(),
             ]);
 
-            // Create picking item results
             foreach ($validItems as $tradeItem) {
                 $reservationResult = $reservationResults[$tradeItem->id];
                 $earningId = $tradeIdToEarningId[$tradeItem->trade_id] ?? null;
@@ -956,7 +880,6 @@ class ListWaves extends ListRecords
             }
         }
 
-        // Update earnings status
         DB::connection('sakemaru')
             ->table('earnings')
             ->whereIn('id', $earningIds)
@@ -966,9 +889,6 @@ class ListWaves extends ListRecords
             ]);
     }
 
-    /**
-     * Process stock_transfers for wave - create picking tasks and item results
-     */
     protected function processStockTransfersForWave(
         Wave $wave,
         WaveSetting $waveSetting,
@@ -980,14 +900,12 @@ class ListWaves extends ListRecords
         $stockTransferIds = $stockTransfers->pluck('id')->toArray();
         $tradeIds = $stockTransfers->pluck('trade_id')->toArray();
 
-        // Clean up any existing data from a previous failed attempt for these stock_transfers
         DB::connection('sakemaru')
             ->table('wms_picking_item_results')
             ->where('source_type', WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER)
             ->whereIn('stock_transfer_id', $stockTransferIds)
             ->delete();
 
-        // Clean up orphaned picking_tasks (no remaining item_results)
         DB::connection('sakemaru')
             ->table('wms_picking_tasks')
             ->where('wave_id', $wave->id)
@@ -1005,10 +923,8 @@ class ListWaves extends ListRecords
             ->where('source_type', 'STOCK_TRANSFER')
             ->delete();
 
-        // Create stock_transfer_id lookup from trade_id
         $tradeIdToStockTransferId = $stockTransfers->pluck('id', 'trade_id')->toArray();
 
-        // Get all trade items for stock_transfers
         $tradeItems = DB::connection('sakemaru')
             ->table('trade_items')
             ->whereIn('trade_id', $tradeIds)
@@ -1021,7 +937,6 @@ class ListWaves extends ListRecords
                 continue;
             }
 
-            // Reserve stock for this trade item
             $allocationService = new StockAllocationService;
             $result = $allocationService->allocateForItem(
                 $wave->id,
@@ -1032,10 +947,9 @@ class ListWaves extends ListRecords
                 $stockTransferId,
                 $tradeItem->id,
                 'STOCK_TRANSFER',
-                null // buyer_id
+                null
             );
 
-            // Get primary reservation
             $primaryReservation = DB::connection('sakemaru')
                 ->table('wms_reservations')
                 ->where('wave_id', $wave->id)
@@ -1054,7 +968,6 @@ class ListWaves extends ListRecords
                 'walking_order' => null,
             ];
 
-            // Get picking area and floor from locations table
             $pickingAreaId = null;
             $floorId = null;
 
@@ -1067,7 +980,6 @@ class ListWaves extends ListRecords
                 $pickingAreaId = $location->wms_picking_area_id ?? null;
             }
 
-            // Default picking area if not found
             if ($pickingAreaId === null) {
                 $defaultArea = DB::connection('sakemaru')
                     ->table('wms_picking_areas')
@@ -1078,7 +990,6 @@ class ListWaves extends ListRecords
                 $pickingAreaId = $defaultArea->id ?? null;
             }
 
-            // Find or create picking task for this floor
             $existingTask = DB::connection('sakemaru')
                 ->table('wms_picking_tasks')
                 ->where('wave_id', $wave->id)
@@ -1105,7 +1016,6 @@ class ListWaves extends ListRecords
                 ]);
             }
 
-            // Create picking item result for stock_transfer
             if (! $tradeItem->quantity_type) {
                 throw new \RuntimeException(
                     "quantity_type must be specified for trade_item ID {$tradeItem->id}"
@@ -1114,7 +1024,7 @@ class ListWaves extends ListRecords
 
             DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
                 'picking_task_id' => $pickingTaskId,
-                'earning_id' => null, // Not an earning
+                'earning_id' => null,
                 'source_type' => WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER,
                 'stock_transfer_id' => $stockTransferId,
                 'trade_id' => $tradeItem->trade_id,
@@ -1137,7 +1047,6 @@ class ListWaves extends ListRecords
             ]);
         }
 
-        // Update stock_transfers picking_status to BEFORE_PICKING
         DB::connection('sakemaru')
             ->table('stock_transfers')
             ->whereIn('id', $stockTransferIds)
@@ -1147,16 +1056,8 @@ class ListWaves extends ListRecords
             ]);
     }
 
-    /**
-     * ピッキング対象の倉庫間移動伝票クエリを取得
-     *
-     * 仮想倉庫間移動（物理的ピッキング不要）は除外：
-     * - from_warehouse.is_virtual = true AND to_warehouse.is_virtual = true
-     * - from_warehouse.stock_warehouse_id == to_warehouse.stock_warehouse_id
-     */
     protected function getEligibleStockTransfersQuery(string $shippingDate, int $warehouseId, bool $includePast = false)
     {
-        // 選択倉庫と同一実倉庫に属する全倉庫IDを取得（仮想倉庫を含む）
         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
         $dateOperator = $includePast ? '<=' : '=';
@@ -1172,15 +1073,12 @@ class ListWaves extends ListRecords
             ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->whereIn('dc.warehouse_id', $warehouseIds)
             ->whereNotNull('st.delivery_course_id')
-            // 仮想倉庫間移動は対象外
             ->where(function ($query) {
                 $query->where(function ($q) {
-                    // 両方が仮想倉庫の場合は対象外
                     $q->where('fw.is_virtual', false)
                         ->orWhere('tw.is_virtual', false);
                 })
                     ->where(function ($q) {
-                        // 同じ実倉庫に紐づく仮想倉庫間の場合は対象外
                         $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
                     });
             })

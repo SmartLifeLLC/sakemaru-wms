@@ -130,12 +130,13 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 $pickedQty = (int) $value;
                 $originalValue = $pickedQty;
 
-                // 予定数を超える場合は予定数に補正
-                if ($pickedQty > $item->planned_qty) {
-                    $pickedQty = $item->planned_qty;
+                // 受注数を超える場合は受注数に補正
+                $maxQty = max($item->ordered_qty, $item->planned_qty);
+                if ($pickedQty > $maxQty) {
+                    $pickedQty = $maxQty;
                     Notification::make()
                         ->title('数量を補正しました')
-                        ->body("入力値（{$originalValue}）が予定数を超えているため、予定数（{$item->planned_qty}）に補正しました")
+                        ->body("入力値（{$originalValue}）が受注数を超えているため、受注数（{$maxQty}）に補正しました")
                         ->warning()
                         ->send();
                 }

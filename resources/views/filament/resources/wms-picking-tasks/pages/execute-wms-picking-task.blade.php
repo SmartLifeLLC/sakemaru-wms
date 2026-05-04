@@ -224,7 +224,7 @@
                                     wire:model.blur="items.{{ $loop->index }}.picked_qty"
                                     wire:change="updateItem({{ $item['id'] }}, 'picked_qty', $event.target.value)"
                                     min="0"
-                                    max="{{ $item['planned_qty'] }}"
+                                    max="{{ max($item['ordered_qty'], $item['planned_qty']) }}"
                                     step="1"
                                     inputmode="numeric"
                                     pattern="[0-9]*"
