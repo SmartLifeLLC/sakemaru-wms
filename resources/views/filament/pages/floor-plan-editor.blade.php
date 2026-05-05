@@ -1240,15 +1240,16 @@
                     });
                 },
 
-                initWalkableCanvas(walkableAreas = null, navmeta = null) {
+                initWalkableCanvas(walkableAreas = undefined, navmeta = undefined) {
                     const canvas = this.$refs.walkableCanvas;
                     if (!canvas) return;
 
                     const ctx = canvas.getContext('2d');
 
                     // Load existing walkable areas from parameter or Livewire
-                    const areas = walkableAreas || @js($walkableAreas);
-                    const meta = navmeta || @js($navmeta);
+                    // Use undefined check so that explicit null (floor with no data) doesn't fallback to initial page data
+                    const areas = walkableAreas !== undefined ? walkableAreas : @js($walkableAreas);
+                    const meta = navmeta !== undefined ? navmeta : @js($navmeta);
 
                     // Cell size is now fixed at 10px system-wide (not loaded from meta)
                     // Load erosion distance if available
