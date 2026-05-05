@@ -47,22 +47,30 @@ class PickingListService
             return ['header' => [], 'items' => [], 'summary' => []];
         }
 
-        // 商品別集約
+        // 商品別集約（棚番付き）
         $items = $this->db()->table('wms_picking_item_results as pir')
             ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
             ->join('items as i', 'pir.item_id', '=', 'i.id')
+            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->where('pt.wave_id', $waveId)
             ->select([
                 'i.code as item_code',
                 'i.name as item_name',
                 'i.capacity_case',
                 'pir.zone_code',
+                'pir.location_id',
+                'l.code1',
+                'l.code2',
+                'l.code3',
                 DB::raw('SUM(pir.planned_qty) as total_qty'),
                 DB::raw('SUM(pir.shortage_qty) as shortage_qty'),
                 DB::raw('COUNT(DISTINCT CASE WHEN pir.earning_id IS NOT NULL THEN pir.earning_id END) as destination_count'),
                 'pir.planned_qty_type',
             ])
-            ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'pir.zone_code', 'pir.planned_qty_type')
+            ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'pir.zone_code', 'pir.planned_qty_type', 'pir.location_id', 'l.code1', 'l.code2', 'l.code3')
+            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
             ->orderBy('i.code')
             ->get();
 
@@ -88,9 +96,14 @@ class PickingListService
                 $pieceQty = $qty;
             }
 
+            $locationCode = $item->location_id
+                ? trim("{$item->code1}-{$item->code2}-{$item->code3}")
+                : '';
+
             $formattedItems[] = [
                 'item_code' => $item->item_code,
                 'item_name' => $item->item_name,
+                'location_code' => $locationCode,
                 'total_qty' => $qty,
                 'case_qty' => $caseQty,
                 'piece_qty' => $pieceQty,

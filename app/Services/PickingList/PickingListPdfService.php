@@ -53,15 +53,16 @@ class PickingListPdfService
     private const PRIMARY_CONTENT_WIDTH = 277; // 297 - 10 - 10
 
     private const PRIMARY_COL_WIDTHS = [
-        'no' => 12,
-        'item_code' => 30,
-        'item_name' => 100,
-        'total_qty' => 25,
+        'no' => 10,
+        'location' => 30,
+        'item_code' => 28,
+        'item_name' => 90,
+        'total_qty' => 24,
         'case_qty' => 20,
         'piece_qty' => 20,
-        'zone' => 40,
-        'dest_count' => 15,
-        'shortage' => 15,
+        'zone' => 30,
+        'dest_count' => 13,
+        'shortage' => 12,
     ];
 
     /**
@@ -117,8 +118,8 @@ class PickingListPdfService
 
     private function renderPrimaryTableHeader(): void
     {
-        $headers = ['No', '商品CD', '商品名', '総数量', 'ケース', 'バラ', 'ゾーン', '店数', '欠品'];
-        $aligns = ['C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C'];
+        $headers = ['No', '棚番', '商品CD', '商品名', '総数量', 'ケース', 'バラ', 'ゾーン', '店数', '欠品'];
+        $aligns = ['C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C'];
         $widths = array_values(self::PRIMARY_COL_WIDTHS);
 
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
@@ -166,8 +167,9 @@ class PickingListPdfService
 
             $rowData = [
                 $index + 1,
+                $item['location_code'] ?? '',
                 $item['item_code'],
-                $this->truncateText($item['item_name'], $widths[2] - 2),
+                $this->truncateText($item['item_name'], $widths[3] - 2),
                 $item['total_qty'],
                 $item['case_qty'] ?: '',
                 $item['piece_qty'] ?: '',
@@ -176,7 +178,7 @@ class PickingListPdfService
                 $item['shortage_qty'] > 0 ? $item['shortage_qty'] : '',
             ];
 
-            $aligns = ['R', 'L', 'L', 'R', 'R', 'R', 'L', 'R', 'R'];
+            $aligns = ['R', 'L', 'L', 'L', 'R', 'R', 'R', 'L', 'R', 'R'];
 
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
