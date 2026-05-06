@@ -51,7 +51,7 @@ class WmsShipmentInspection extends WmsModel
 
     public function inspector(): BelongsTo
     {
-        return $this->belongsTo(WmsUser::class, 'inspector_id');
+        return $this->belongsTo(User::class, 'inspector_id');
     }
 
     // Scopes

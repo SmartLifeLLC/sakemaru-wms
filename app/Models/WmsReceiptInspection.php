@@ -51,7 +51,7 @@ class WmsReceiptInspection extends WmsModel
 
     public function inspector(): BelongsTo
     {
-        return $this->belongsTo(WmsUser::class, 'inspected_by');
+        return $this->belongsTo(User::class, 'inspected_by');
     }
 
     // Scopes
