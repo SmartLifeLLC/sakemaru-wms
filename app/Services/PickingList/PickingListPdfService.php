@@ -817,6 +817,37 @@ class PickingListPdfService
         return $this->pdf->Output('', 'S');
     }
 
+    public function renderBatchShortagePdf(array $dataList): string
+    {
+        $this->initPdf('P', '欠品リスト（1次）一括');
+
+        foreach ($dataList as $data) {
+            if (empty($data['items'])) {
+                continue;
+            }
+
+            $this->pdf->AddPage();
+            $this->currentY = self::MARGIN;
+
+            $this->renderShortageHeader($data['header']);
+            $this->renderShortageTable($data['items'], $data['header']);
+            $this->renderShortageSummary($data['summary']);
+        }
+
+        if ($this->pdf->getNumPages() === 0) {
+            $this->pdf->AddPage();
+            $this->currentY = self::MARGIN;
+            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
+            $this->pdf->SetXY(self::MARGIN, $this->currentY);
+            $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 8, '欠品なし', 0, 0, 'C');
+        }
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderPageNumbers(self::PRIMARY_PAGE_WIDTH, self::PRIMARY_PAGE_HEIGHT);
+
+        return $this->pdf->Output('', 'S');
+    }
+
     /**
      * 複数ピッカーの2次リストを1つのPDFにまとめる
      */

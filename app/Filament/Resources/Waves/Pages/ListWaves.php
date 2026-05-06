@@ -218,6 +218,9 @@ class ListWaves extends ListRecords
                             'primary' => $pdfService->renderBatchPrimaryPdf(
                                 $waves->map(fn ($w) => $service->generatePrimaryList($w->id))->toArray()
                             ),
+                            'shortage' => $pdfService->renderBatchShortagePdf(
+                                $waves->map(fn ($w) => $service->generateShortageList($w->id))->toArray()
+                            ),
                             'secondary' => $pdfService->renderBatchSecondaryPdf(
                                 $service->generateSecondaryBatchList($waveIds)
                             ),
