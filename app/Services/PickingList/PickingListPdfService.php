@@ -215,10 +215,11 @@ class PickingListPdfService
 
     private const SHORTAGE_COL_WIDTHS = [
         'no' => 8,
+        'location' => 22,
         'item_code' => 24,
-        'item_name' => 68,
-        'packaging' => 20,
-        'qty_label' => 14,
+        'item_name' => 50,
+        'packaging' => 18,
+        'qty_label' => 12,
         'planned_qty' => 18,
         'allocated_qty' => 18,
         'shortage_qty' => 20,
@@ -266,7 +267,7 @@ class PickingListPdfService
 
     private function renderShortageTableHeader(): void
     {
-        $headers = ['No', '商品CD', '商品名', '荷姿', 'ケース?バラ', '受注数', '引当数', '欠品数'];
+        $headers = ['No', '棚番', '商品CD', '商品名', '荷姿', '単位', '受注数', '引当数', '欠品数'];
         $widths = array_values(self::SHORTAGE_COL_WIDTHS);
         $rowH = self::PRIMARY_TABLE_ROW_HEIGHT;
 
@@ -302,7 +303,7 @@ class PickingListPdfService
 
         foreach ($items as $index => $item) {
             $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
-            $nameH = $this->pdf->getStringHeight($widths[2] - 2, $item['item_name']);
+            $nameH = $this->pdf->getStringHeight($widths[3] - 2, $item['item_name']);
             $rowH = max($minRowH, $nameH);
 
             if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
@@ -317,6 +318,7 @@ class PickingListPdfService
 
             $rowData = [
                 $index + 1,
+                $item['location_code'] ?? '',
                 $item['item_code'],
                 $item['item_name'],
                 $item['packaging'] ?? '',
@@ -326,13 +328,13 @@ class PickingListPdfService
                 $item['shortage_qty'],
             ];
 
-            $aligns = ['R', 'C', 'L', 'C', 'C', 'C', 'C', 'C'];
+            $aligns = ['R', 'C', 'C', 'L', 'C', 'C', 'C', 'C', 'C'];
 
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
                 $cellW = $widths[$i] - ($aligns[$i] === 'L' ? 1 : 0);
 
-                if ($i === 2) {
+                if ($i === 3) {
                     $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
                     $this->pdf->MultiCell($cellW, $minRowH, $value, 0, 'L', false, 0, $cellX, $y);
                     $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
