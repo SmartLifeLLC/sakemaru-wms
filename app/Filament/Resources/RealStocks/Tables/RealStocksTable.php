@@ -4,6 +4,7 @@ namespace App\Filament\Resources\RealStocks\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\RealStockLot;
 use Filament\Actions\Action;
@@ -34,8 +35,20 @@ class RealStocksTable
                     ->sortable()
                     ->searchable(),
 
-                TextColumn::make('activeLots.location.code')
+                TextColumn::make('active_lot_locations')
                     ->label('ロケーション')
+                    ->state(function (RealStock $record): array {
+                        $record->loadMissing('activeLots.location');
+
+                        return $record->activeLots
+                            ->map(fn (RealStockLot $lot) => $lot->location
+                                ? Location::formatCode($lot->location->code1, $lot->location->code2, $lot->location->code3)
+                                : null)
+                            ->filter()
+                            ->unique()
+                            ->values()
+                            ->all();
+                    })
                     ->listWithLineBreaks()
                     ->limitList(3),
 
