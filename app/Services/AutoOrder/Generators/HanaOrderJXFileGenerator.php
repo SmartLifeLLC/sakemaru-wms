@@ -127,6 +127,15 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         foreach ($grouped as $transmissionContractorCode => $candidates) {
             $fileStart = microtime(true);
+            $candidates = $this->filterCandidatesWithOrderingCode($candidates);
+
+            if ($candidates->isEmpty()) {
+                Log::warning('[HanaOrderFileGenerator] 発注コード未設定のためファイル生成をスキップ', [
+                    'contractor_code' => $transmissionContractorCode,
+                ]);
+
+                continue;
+            }
 
             $jxSetting = $this->getJxSettingByContractorCode($transmissionContractorCode);
 
@@ -409,10 +418,8 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $itemCapacityCase = (int) ($item?->capacity_case ?? 1);
         $totalQty = $candidate->order_quantity;
 
-        // 発注コード: 候補に保存されているordering_codeを優先、空欄なら動的取得（後方互換性）
-        $orderingCode = filled($candidate->ordering_code)
-            ? str_pad((string) $candidate->ordering_code, 13, '0', STR_PAD_LEFT)
-            : $this->getJanCode($item?->id);
+        // 発注コード: 候補に保存されているordering_codeを優先、空欄/全ゼロなら動的取得（後方互換性）
+        $orderingCode = $this->resolveOrderingCode($candidate);
 
         $orderingCodeInfo = $this->getOrderingCodeInfo($item?->id, $orderingCode);
         $orderingUnitQuantity = max(1, (int) ($orderingCodeInfo?->quantity ?? $itemCapacityCase));
@@ -567,6 +574,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
             ->where('item_id', $itemId)
             ->where('is_used_for_ordering', true)
             ->where('is_active', true)
+            ->whereRaw("search_string REGEXP '[1-9]'")
             ->first();
 
         // なければJANコードを検索（PIECE優先）
@@ -576,6 +584,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
                 ->where('item_id', $itemId)
                 ->where('code_type', 'JAN')
                 ->where('is_active', true)
+                ->whereRaw("search_string REGEXP '[1-9]'")
                 ->orderByRaw("CASE WHEN quantity_type = 'PIECE' THEN 0 ELSE 1 END")
                 ->first();
         }
@@ -587,21 +596,71 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
                 ->where('item_id', $itemId)
                 ->where('code_type', 'OTHER')
                 ->where('is_active', true)
+                ->whereRaw("search_string REGEXP '[1-9]'")
                 ->whereRaw("search_string REGEXP '^[0-9]{7,}$'")
                 ->orderByRaw("CASE WHEN quantity_type = 'PIECE' THEN 0 ELSE 1 END")
                 ->first();
         }
 
-        $code = $codeInfo->search_string ?? '';
-
-        // 13桁にゼロパディング
-        if ($code !== '') {
-            $code = str_pad($code, 13, '0', STR_PAD_LEFT);
-        }
+        $code = $this->normalizeOrderingCode($codeInfo->search_string ?? '') ?? '';
 
         $this->janCodeCache[$itemId] = $code;
 
         return $code;
+    }
+
+    /**
+     * 発注コードが取得できる候補だけを残す。
+     */
+    private function filterCandidatesWithOrderingCode(Collection $candidates): Collection
+    {
+        return $candidates
+            ->filter(function ($candidate) {
+                $orderingCode = $this->resolveOrderingCode($candidate);
+
+                if ($orderingCode !== null) {
+                    return true;
+                }
+
+                $item = $candidate->item;
+                Log::warning('[HanaOrderFileGenerator] 発注コード未設定の明細をJX生成からスキップ', [
+                    'candidate_id' => $candidate->id,
+                    'item_id' => $item?->id,
+                    'item_code' => $item?->code,
+                    'item_name' => $item?->name_main,
+                    'contractor_id' => $candidate->contractor_id,
+                    'warehouse_id' => $candidate->warehouse_id,
+                    'ordering_code' => $candidate->ordering_code,
+                ]);
+
+                return false;
+            })
+            ->values();
+    }
+
+    /**
+     * 候補からJX発注コードを解決する。
+     */
+    private function resolveOrderingCode($candidate): ?string
+    {
+        return $this->normalizeOrderingCode($candidate->ordering_code)
+            ?? $this->normalizeOrderingCode($this->getJanCode($candidate->item?->id));
+    }
+
+    /**
+     * JX発注コードとして使える13桁コードに正規化する。
+     *
+     * 空欄と全ゼロは「未設定」として扱う。
+     */
+    private function normalizeOrderingCode(?string $code): ?string
+    {
+        $code = trim((string) $code);
+
+        if ($code === '' || preg_match('/^0+$/', $code) === 1) {
+            return null;
+        }
+
+        return str_pad($code, 13, '0', STR_PAD_LEFT);
     }
 
     /**

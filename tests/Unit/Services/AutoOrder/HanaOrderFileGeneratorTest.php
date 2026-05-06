@@ -490,6 +490,90 @@ class HanaOrderFileGeneratorTest extends TestCase
 
     /**
      * @test
+     * 候補のordering_codeが全ゼロの場合、発注用コードにフォールバックすること
+     */
+    public function it_falls_back_to_ordering_code_master_when_candidate_ordering_code_is_all_zero(): void
+    {
+        $itemId = 999004;
+        $expectedOrderingCode = '4589724813357';
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => $itemId,
+            'quantity_type' => \App\Enums\QuantityType::CASE,
+            'order_quantity' => 1,
+            'ordering_code' => '0000000000000',
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => $itemId,
+            'code' => '999004',
+            'name_main' => 'TEST ITEM ZERO',
+            'capacity_case' => 12,
+        ]);
+
+        $generatorReflection = new \ReflectionClass($this->generator);
+
+        $janCodeCache = $generatorReflection->getProperty('janCodeCache');
+        $janCodeCache->setAccessible(true);
+        $janCodeCache->setValue($this->generator, [$itemId => $expectedOrderingCode]);
+
+        $orderingCodeInfoCache = $generatorReflection->getProperty('orderingCodeInfoCache');
+        $orderingCodeInfoCache->setAccessible(true);
+        $orderingCodeInfoCache->setValue($this->generator, [$itemId.':'.$expectedOrderingCode => null]);
+
+        $costPriceCache = $generatorReflection->getProperty('costPriceCache');
+        $costPriceCache->setAccessible(true);
+        $costPriceCache->setValue($this->generator, [$itemId => (object) [
+            'cost_case_price' => 0,
+            'cost_unit_price' => 0,
+        ]]);
+
+        $generateDRecord = $generatorReflection->getMethod('generateDRecord');
+        $generateDRecord->setAccessible(true);
+        $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
+
+        $this->assertEquals(
+            $expectedOrderingCode,
+            trim(substr($dRecord, 69, 13)),
+            'All-zero candidate ordering_code should fall back to is_used_for_ordering code'
+        );
+    }
+
+    /**
+     * @test
+     * 発注コードが全ゼロで代替コードもない候補はJX生成対象から除外されること
+     */
+    public function it_skips_candidate_when_ordering_code_is_all_zero_and_no_fallback_exists(): void
+    {
+        $itemId = 999005;
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => $itemId,
+            'quantity_type' => \App\Enums\QuantityType::CASE,
+            'order_quantity' => 1,
+            'ordering_code' => '0000000000000',
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => $itemId,
+            'code' => '999005',
+            'name_main' => 'TEST ITEM NO CODE',
+            'capacity_case' => 12,
+        ]);
+
+        $generatorReflection = new \ReflectionClass($this->generator);
+
+        $janCodeCache = $generatorReflection->getProperty('janCodeCache');
+        $janCodeCache->setAccessible(true);
+        $janCodeCache->setValue($this->generator, [$itemId => '']);
+
+        $filterCandidates = $generatorReflection->getMethod('filterCandidatesWithOrderingCode');
+        $filterCandidates->setAccessible(true);
+        $filtered = $filterCandidates->invoke($this->generator, collect([$candidate]));
+
+        $this->assertCount(0, $filtered);
+    }
+
+    /**
+     * @test
      * JXの仕入入数とケース数は発注コードに紐づく入数で出力されること
      */
     public function it_uses_ordering_code_quantity_for_jx_capacity_and_case_quantity(): void

@@ -381,6 +381,7 @@ class TransferCreateJobHandler
             ->where('item_id', $itemId)
             ->where('is_used_for_ordering', true)
             ->where('is_active', true)
+            ->whereRaw("search_string REGEXP '[1-9]'")
             ->value('search_string');
     }
 }
