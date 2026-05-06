@@ -206,6 +206,38 @@ class OrderTransmissionServiceTest extends TestCase
 
     /**
      * @test
+     * 同名JXファイルが既にS3にある場合は上書きせず別パスに保存すること
+     */
+    public function it_avoids_overwriting_existing_jx_file_paths(): void
+    {
+        Storage::fake('s3');
+        \Illuminate\Support\Carbon::setTestNow('2026-05-06 15:45:26');
+
+        $method = new \ReflectionMethod(OrderTransmissionService::class, 'saveOrderFileToS3');
+        $method->setAccessible(true);
+
+        try {
+            $file = [
+                'filename' => '1106_order_20260506154526.dat',
+                'content' => 'first-content',
+            ];
+
+            $firstPath = $method->invoke($this->service, 'BATCH1', $file, TransmissionDocumentStatus::TRANSMITTED);
+
+            $file['content'] = 'second-content';
+            $secondPath = $method->invoke($this->service, 'BATCH2', $file, TransmissionDocumentStatus::TRANSMITTED);
+
+            $this->assertSame('jx-orders/2026-05-06/1106_order_20260506154526.dat', $firstPath);
+            $this->assertSame('jx-orders/2026-05-06/1106_order_20260506154526_2.dat', $secondPath);
+            $this->assertSame('first-content', Storage::disk('s3')->get($firstPath));
+            $this->assertSame('second-content', Storage::disk('s3')->get($secondPath));
+        } finally {
+            \Illuminate\Support\Carbon::setTestNow();
+        }
+    }
+
+    /**
+     * @test
      * 実データを使用したファイル生成のドライラン
      * （S3への書き込みはfakeを使用）
      */

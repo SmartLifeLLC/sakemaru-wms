@@ -3,11 +3,15 @@
 namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
+use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -276,8 +280,110 @@ class WmsOrderDocumentsTable
                     }),
             ])
             ->toolbarActions([
+                Action::make('downloadCorrectionPreviewCsv')
+                    ->label('修正CSV生成')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('info')
+                    ->modalHeading('修正再送CSV生成')
+                    ->modalDescription('送信済みの当日発注確定分から、再送前確認用CSVを生成します。')
+                    ->modalSubmitActionLabel('CSV生成')
+                    ->modalCancelActionLabel('生成せず閉じる')
+                    ->schema(static::correctionResendSchema())
+                    ->action(function (array $data) {
+                        try {
+                            $preview = app(OrderTransmissionService::class)->buildCorrectionResendPreviewCsv(
+                                (int) $data['contractor_id'],
+                                $data['transmitted_date']
+                            );
+
+                            return response()->streamDownload(
+                                fn () => print $preview['content'],
+                                $preview['filename'],
+                                ['Content-Type' => 'text/csv; charset=UTF-8']
+                            );
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title('CSV生成に失敗しました')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+
+                Action::make('generateCorrectionResendJx')
+                    ->label('修正JX生成')
+                    ->icon('heroicon-o-document-plus')
+                    ->color('danger')
+                    ->modalHeading('修正再送JX生成')
+                    ->modalDescription('送信済みの当日発注確定分を1つのJXファイルにまとめて生成します。生成後、一覧の「JX送信」から送信してください。')
+                    ->modalSubmitActionLabel('JXファイル生成')
+                    ->modalCancelActionLabel('生成せず閉じる')
+                    ->schema(static::correctionResendSchema())
+                    ->action(function (array $data) {
+                        $result = app(OrderTransmissionService::class)->generateCorrectionResendFiles(
+                            (int) $data['contractor_id'],
+                            $data['transmitted_date']
+                        );
+
+                        if ($result['success']) {
+                            $documentIds = collect($result['files'])
+                                ->pluck('document_id')
+                                ->filter()
+                                ->implode(', ');
+
+                            Notification::make()
+                                ->title('修正JXファイルを生成しました')
+                                ->body("発注数: {$result['total_orders']} / 伝票ID: {$documentIds}")
+                                ->success()
+                                ->send();
+
+                            return;
+                        }
+
+                        Notification::make()
+                            ->title('修正JX生成に失敗しました')
+                            ->body(implode("\n", $result['errors'] ?? ['生成失敗']))
+                            ->danger()
+                            ->send();
+                    }),
+
                 static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
+    }
+
+    /**
+     * 修正再送アクション共通フォーム。
+     */
+    private static function correctionResendSchema(): array
+    {
+        return [
+            Select::make('contractor_id')
+                ->label('仕入先')
+                ->options(fn () => static::jxContractorOptions())
+                ->searchable()
+                ->required(),
+
+            DatePicker::make('transmitted_date')
+                ->label('送信日')
+                ->default(now())
+                ->required(),
+        ];
+    }
+
+    /**
+     * JX送信先の仕入先選択肢。
+     */
+    private static function jxContractorOptions(): array
+    {
+        return WmsContractorSetting::query()
+            ->where('transmission_type', TransmissionType::JX_FINET)
+            ->with('contractor')
+            ->get()
+            ->filter(fn (WmsContractorSetting $setting) => $setting->contractor !== null)
+            ->mapWithKeys(fn (WmsContractorSetting $setting) => [
+                $setting->contractor_id => "[{$setting->contractor->code}]{$setting->contractor->name}",
+            ])
+            ->all();
     }
 }
