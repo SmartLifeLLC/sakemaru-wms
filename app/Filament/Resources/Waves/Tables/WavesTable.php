@@ -151,10 +151,13 @@ class WavesTable
                     ->label('1次リスト')
                     ->icon('heroicon-o-document-text')
                     ->color('info')
-                    ->modalHeading('1次ピッキングリスト印刷')
+                    ->modalHeading('ピッキングリスト出力')
                     ->modalWidth('sm')
                     ->modalFooterActionsAlignment(Alignment::End)
-                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('印刷')->color('primary'))
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('1次リスト出力')->color('primary'))
+                    ->extraModalFooterActions(fn ($action) => [
+                        $action->makeModalSubmitAction('printShortage', ['shortage' => true])->label('欠品リスト出力')->color('danger'),
+                    ])
                     ->modalCancelActionLabel('閉じる')
                     ->schema([
                         Toggle::make('include_past')
@@ -164,9 +167,29 @@ class WavesTable
                             ->label('配送済みも出力')
                             ->default(false),
                     ])
-                    ->action(function ($record, array $data) {
+                    ->action(function ($record, array $data, array $arguments) {
                         try {
                             $service = new PickingListService;
+                            $pdfService = new PickingListPdfService;
+
+                            if ($arguments['shortage'] ?? false) {
+                                $result = $service->generateShortageList($record->id);
+
+                                if (empty($result['items'])) {
+                                    Notification::make()->title('欠品はありません')->success()->send();
+
+                                    return;
+                                }
+
+                                $pdf = $pdfService->renderShortagePdf($result);
+
+                                return response()->streamDownload(
+                                    fn () => print ($pdf),
+                                    "shortage-list-1st-{$record->wave_no}.pdf",
+                                    ['Content-Type' => 'application/pdf']
+                                );
+                            }
+
                             $result = $service->generatePrimaryList(
                                 $record->id,
                                 $data['include_past'] ?? false,
@@ -179,40 +202,11 @@ class WavesTable
                                 return;
                             }
 
-                            $pdfService = new PickingListPdfService;
                             $pdf = $pdfService->renderPrimaryPdf($result);
 
                             return response()->streamDownload(
                                 fn () => print ($pdf),
                                 "picking-list-1st-{$record->wave_no}.pdf",
-                                ['Content-Type' => 'application/pdf']
-                            );
-                        } catch (\Exception $e) {
-                            Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
-                        }
-                    }),
-
-                Action::make('printShortageList')
-                    ->label('欠品リスト')
-                    ->icon('heroicon-o-exclamation-triangle')
-                    ->color('danger')
-                    ->action(function ($record) {
-                        try {
-                            $service = new PickingListService;
-                            $result = $service->generateShortageList($record->id);
-
-                            if (empty($result['items'])) {
-                                Notification::make()->title('欠品はありません')->success()->send();
-
-                                return;
-                            }
-
-                            $pdfService = new PickingListPdfService;
-                            $pdf = $pdfService->renderShortagePdf($result);
-
-                            return response()->streamDownload(
-                                fn () => print ($pdf),
-                                "shortage-list-1st-{$record->wave_no}.pdf",
                                 ['Content-Type' => 'application/pdf']
                             );
                         } catch (\Exception $e) {
