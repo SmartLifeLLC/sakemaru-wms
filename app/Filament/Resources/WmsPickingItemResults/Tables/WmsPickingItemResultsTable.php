@@ -7,6 +7,7 @@ use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
@@ -258,6 +259,37 @@ class WmsPickingItemResultsTable
                     ->label('伝票ID')
                     ->relationship('earning', 'id')
                     ->searchable(),
+
+                SelectFilter::make('delivery_course_id')
+                    ->label('配送コース')
+                    ->searchable()
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return DeliveryCourse::query()
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($dc) => [$dc->id => "[{$dc->code}]{$dc->name}"])
+                            ->toArray();
+                    })
+                    ->getOptionLabelUsing(function ($value) {
+                        $dc = DeliveryCourse::find($value);
+
+                        return $dc ? "[{$dc->code}]{$dc->name}" : null;
+                    })
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when(
+                            $data['value'],
+                            fn (Builder $query, $deliveryCourseId): Builder => $query->whereHas(
+                                'earning',
+                                fn (Builder $q) => $q->where('delivery_course_id', $deliveryCourseId)
+                            )
+                        );
+                    }),
 
                 SelectFilter::make('status')
                     ->label('ステータス')
