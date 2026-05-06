@@ -10,6 +10,7 @@ use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionDocumentType;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\Contractor;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
@@ -758,6 +759,135 @@ class OrderTransmissionService
     }
 
     /**
+     * 送信済みJX伝票に紐づく確定済み発注候補から、修正再送用ファイルを生成する。
+     *
+     * 既存の発注候補と元の送信済みJX伝票の紐づきは監査用に残すため、ここでは再紐付けしない。
+     *
+     * @return array{success: bool, files: array, total_orders: int, errors: array}
+     */
+    public function generateCorrectionResendFiles(int $contractorId, string $transmittedDate): array
+    {
+        $candidates = $this->getCorrectionResendCandidates($contractorId, $transmittedDate);
+
+        if ($candidates->isEmpty()) {
+            return [
+                'success' => false,
+                'files' => [],
+                'total_orders' => 0,
+                'errors' => ['指定条件に一致する送信済み確定発注がありません'],
+            ];
+        }
+
+        return $this->doGenerateOrderFiles(
+            $this->makeCorrectionBatchCode(),
+            $candidates,
+            TransmissionDocumentStatus::PENDING,
+            false,
+            false
+        );
+    }
+
+    /**
+     * 送信前確認用CSVを生成する。
+     *
+     * CSVのJX項目は、実際のJX生成クラスが作った固定長DATを解析して出力する。
+     *
+     * @return array{filename: string, content: string, candidate_count: int}
+     */
+    public function buildCorrectionResendPreviewCsv(int $contractorId, string $transmittedDate): array
+    {
+        $candidates = $this->getCorrectionResendCandidates($contractorId, $transmittedDate);
+
+        if ($candidates->isEmpty()) {
+            throw new \RuntimeException('指定条件に一致する送信済み確定発注がありません');
+        }
+
+        $generator = $this->getOrderFileGenerator();
+        if (! $generator) {
+            throw new \RuntimeException('発注ファイル生成クラスが設定されていません');
+        }
+
+        $contractor = Contractor::find($contractorId);
+        $files = $generator->generate($candidates);
+
+        $rows = [[
+            'ファイル名',
+            '発注先ID',
+            '発注先CD',
+            '発注先名',
+            '送信日',
+            '発注CD',
+            '商品CD',
+            '商品名',
+            '仕入入数',
+            'JXケース数',
+            'JXバラ数',
+            'JX原単価',
+        ]];
+
+        foreach ($files as $file) {
+            foreach ($this->extractDRecordsFromJxContent($file['content']) as $record) {
+                $rows[] = [
+                    $file['filename'],
+                    $file['contractor_id'],
+                    $file['contractor_code'] ?? $contractor?->code ?? '',
+                    $contractor?->name ?? '',
+                    $transmittedDate,
+                    ltrim(trim(substr($record, 69, 13)), '0') ?: '0',
+                    trim(substr($record, 82, 6)),
+                    trim(mb_convert_encoding(substr($record, 5, 64), 'UTF-8', 'SJIS-win')),
+                    (int) substr($record, 88, 6),
+                    (int) substr($record, 94, 7),
+                    (int) substr($record, 101, 7),
+                    number_format(((int) substr($record, 108, 10)) / 100, 2, '.', ''),
+                ];
+            }
+        }
+
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, "\xEF\xBB\xBF");
+        foreach ($rows as $row) {
+            fputcsv($stream, $row);
+        }
+        rewind($stream);
+        $content = stream_get_contents($stream);
+        fclose($stream);
+
+        $contractorCode = $contractor?->code ?? $contractorId;
+
+        return [
+            'filename' => "correction_resend_{$transmittedDate}_{$contractorCode}.csv",
+            'content' => $content,
+            'candidate_count' => $candidates->count(),
+        ];
+    }
+
+    /**
+     * 修正再送対象の発注候補を取得する。
+     */
+    public function getCorrectionResendCandidates(int $contractorId, string $transmittedDate): Collection
+    {
+        $contractorIds = $this->getCorrectionResendSourceContractorIds($contractorId);
+
+        return WmsOrderCandidate::query()
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->whereIn('contractor_id', $contractorIds)
+            ->whereNotNull('wms_order_jx_document_id')
+            ->whereExists(function ($query) use ($transmittedDate) {
+                $query->selectRaw('1')
+                    ->from('wms_order_jx_documents as jx')
+                    ->whereColumn('jx.id', 'wms_order_candidates.wms_order_jx_document_id')
+                    ->where('jx.status', TransmissionDocumentStatus::TRANSMITTED->value)
+                    ->whereDate('jx.transmitted_at', $transmittedDate);
+            })
+            ->with(['warehouse', 'item', 'contractor'])
+            ->orderBy('warehouse_id')
+            ->orderBy('contractor_id')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
      * 仕入先単位で未送信のJXドキュメントをまとめて送信（バッチ横断）
      *
      * @param  array  $contractorIds  対象仕入先ID（親＋子）
@@ -1205,6 +1335,60 @@ class OrderTransmissionService
     }
 
     /**
+     * 修正再送用の一時実行CDを生成する。
+     *
+     * wms_order_candidates.batch_code は17桁制限だが、再送ファイルは候補へ再紐付けしないため
+     * wms_order_jx_documents / wms_order_data_files の20桁制限内で一意にする。
+     */
+    private function makeCorrectionBatchCode(): string
+    {
+        return 'R'.now()->format('YmdHis').str_pad((string) random_int(0, 999), 3, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * 指定した送信先に集約される元仕入先IDを取得する。
+     */
+    private function getCorrectionResendSourceContractorIds(int $contractorId): array
+    {
+        $generator = $this->getOrderFileGenerator();
+        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
+
+        $contractorIds = [$contractorId];
+        foreach ($mapping as $sourceContractorId => $transmissionContractorId) {
+            if ((int) $transmissionContractorId === $contractorId) {
+                $contractorIds[] = (int) $sourceContractorId;
+            }
+        }
+
+        return array_values(array_unique(array_merge(
+            $contractorIds,
+            WmsContractorSetting::getContractorIdsWithChildren($contractorId)
+        )));
+    }
+
+    /**
+     * JX固定長内容からDレコードだけを取り出す。
+     *
+     * 内容はShift_JISの128バイト固定長。JXラッパー、A/B/8レコードは除外する。
+     *
+     * @return array<int, string>
+     */
+    private function extractDRecordsFromJxContent(string $content): array
+    {
+        $content = str_replace(["\r\n", "\n", "\r"], '', $content);
+        $records = [];
+
+        for ($offset = 0, $length = strlen($content); $offset + 128 <= $length; $offset += 128) {
+            $record = substr($content, $offset, 128);
+            if ($record[0] === 'D') {
+                $records[] = $record;
+            }
+        }
+
+        return $records;
+    }
+
+    /**
      * 発注ファイルをS3に保存
      *
      * 注: AWS_BUCKET_PREFIXがfilesystems.phpで設定されているため、
@@ -1222,6 +1406,24 @@ class OrderTransmissionService
         };
 
         $path = "{$folder}/{$date}/{$file['filename']}";
+        if (Storage::disk('s3')->exists($path)) {
+            $pathInfo = pathinfo($file['filename']);
+            $baseName = $pathInfo['filename'];
+            $extension = isset($pathInfo['extension']) ? '.'.$pathInfo['extension'] : '';
+            $suffix = 2;
+
+            do {
+                $path = "{$folder}/{$date}/{$baseName}_{$suffix}{$extension}";
+                $suffix++;
+            } while (Storage::disk('s3')->exists($path));
+
+            Log::warning('Order file S3 path collision avoided', [
+                'batch_code' => $batchCode,
+                'filename' => $file['filename'],
+                'resolved_path' => $path,
+                'status' => $status->value,
+            ]);
+        }
 
         Storage::disk('s3')->put($path, $file['content']);
 
