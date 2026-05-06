@@ -138,7 +138,7 @@ class PickingListPdfService
         $this->currentY = $y + $rowH;
     }
 
-    private function renderPrimaryTable(array $items, array $header): void
+    private function renderPrimaryTable(array $items, array $header, ?string $titleOverride = null): void
     {
         $this->renderPrimaryTableHeader();
 
@@ -146,9 +146,11 @@ class PickingListPdfService
         $tableWidth = array_sum($widths);
         $minRowH = self::PRIMARY_TABLE_ROW_HEIGHT;
         $bodyFontSize = 10;
+        $headerRenderer = $titleOverride
+            ? fn () => $this->renderShortageHeader($header)
+            : fn () => $this->renderPrimaryHeader($header);
 
         foreach ($items as $index => $item) {
-            // 商品名の折り返し高さを事前計算
             $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
             $nameH = $this->pdf->getStringHeight($widths[3] - 2, $item['item_name']);
             $rowH = max($minRowH, $nameH);
@@ -156,7 +158,7 @@ class PickingListPdfService
             if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
                 $this->pdf->AddPage();
                 $this->currentY = self::MARGIN;
-                $this->renderPrimaryHeader($header);
+                $headerRenderer();
                 $this->renderPrimaryTableHeader();
             }
 
@@ -208,6 +210,50 @@ class PickingListPdfService
             sprintf('合計  SKU数: %d  /  総数量: %d  /  ケース計: %d  /  バラ計: %d',
                 $summary['sku_count'], $summary['total_qty'], $summary['total_case'], $summary['total_piece']
             ), 0, 0, 'L');
+    }
+
+    // ========================================
+    // 1次欠品リスト（A4縦 — 1次リストと同レイアウト）
+    // ========================================
+
+    public function renderShortagePdf(array $data): string
+    {
+        $this->initPdf('P', '欠品リスト（1次）');
+        $this->pdf->AddPage();
+        $this->currentY = self::MARGIN;
+
+        $this->renderShortageHeader($data['header']);
+        $this->renderPrimaryTable($data['items'], $data['header'], '1次欠品リスト');
+        $this->renderPrimarySummary($data['summary']);
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderPageNumbers(self::PRIMARY_PAGE_WIDTH, self::PRIMARY_PAGE_HEIGHT);
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    private function renderShortageHeader(array $header): void
+    {
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 8, '1次欠品リスト', 0, 0, 'C');
+        $this->currentY += 10;
+
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
+
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '波動番号:'.($header['wave_no'] ?? ''), 0, 0, 'L');
+
+        $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '印刷日時: '.now()->format('Y-m-d H:i'), 0, 0, 'R');
+        $this->currentY += self::LINE_HEIGHT;
+
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '出荷日: '.($header['shipping_date'] ?? ''), 0, 0, 'L');
+
+        $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'R');
+        $this->currentY += self::LINE_HEIGHT + 3;
     }
 
     // ========================================
