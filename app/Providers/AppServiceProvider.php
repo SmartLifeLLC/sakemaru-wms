@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Models\PersonalAccessToken;
+use App\Services\Auth\CachedPermissionCache;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
+use Sakemaru\Auth\Services\PermissionCache;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -13,6 +15,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->singleton(PermissionCache::class, CachedPermissionCache::class);
+
         $this->app->booted(function () {
             $this->app['queue']->addConnector('custom-queue', function () {
                 return new \App\Queue\DatabaseWithCustomQueueConnector($this->app['db']);
