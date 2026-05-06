@@ -192,6 +192,34 @@ class WavesTable
                         }
                     }),
 
+                Action::make('printShortageList')
+                    ->label('欠品リスト')
+                    ->icon('heroicon-o-exclamation-triangle')
+                    ->color('danger')
+                    ->action(function ($record) {
+                        try {
+                            $service = new PickingListService;
+                            $result = $service->generateShortageList($record->id);
+
+                            if (empty($result['items'])) {
+                                Notification::make()->title('欠品はありません')->success()->send();
+
+                                return;
+                            }
+
+                            $pdfService = new PickingListPdfService;
+                            $pdf = $pdfService->renderShortagePdf($result);
+
+                            return response()->streamDownload(
+                                fn () => print ($pdf),
+                                "shortage-list-1st-{$record->wave_no}.pdf",
+                                ['Content-Type' => 'application/pdf']
+                            );
+                        } catch (\Exception $e) {
+                            Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
+                        }
+                    }),
+
                 Action::make('printTertiaryList')
                     ->label('3次リスト')
                     ->icon('heroicon-o-clipboard-document-list')

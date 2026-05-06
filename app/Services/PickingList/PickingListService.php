@@ -142,6 +142,107 @@ class PickingListService
     }
 
     /**
+     * 1次欠品リスト（Wave集約・欠品のみ）
+     *
+     * @return array{header: array, items: array, summary: array}
+     */
+    public function generateShortageList(int $waveId): array
+    {
+        $wave = $this->db()->table('wms_waves as w')
+            ->join('wms_wave_settings as ws', 'w.wms_wave_setting_id', '=', 'ws.id')
+            ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
+            ->leftJoin('warehouses as wh', 'dc.warehouse_id', '=', 'wh.id')
+            ->where('w.id', $waveId)
+            ->select([
+                'w.wave_no',
+                'w.shipping_date',
+                'wh.name as warehouse_name',
+            ])
+            ->first();
+
+        if (! $wave) {
+            return ['header' => [], 'items' => [], 'summary' => []];
+        }
+
+        $items = $this->db()->table('wms_picking_item_results as pir')
+            ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
+            ->join('items as i', 'pir.item_id', '=', 'i.id')
+            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->where('pt.wave_id', $waveId)
+            ->select([
+                'i.code as item_code',
+                'i.name as item_name',
+                'i.capacity_case',
+                'i.packaging',
+                'pir.location_id',
+                'l.code1',
+                'l.code2',
+                'l.code3',
+                DB::raw('SUM(pir.shortage_qty) as shortage_qty'),
+                'pir.planned_qty_type',
+            ])
+            ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'i.packaging', 'pir.planned_qty_type', 'pir.location_id', 'l.code1', 'l.code2', 'l.code3')
+            ->havingRaw('SUM(pir.shortage_qty) > 0')
+            ->orderBy('i.code')
+            ->get();
+
+        $formattedItems = [];
+        $totalQty = 0;
+        $totalCase = 0;
+        $totalPiece = 0;
+
+        foreach ($items as $item) {
+            $capacityCase = $item->capacity_case ?: 1;
+            $qty = (int) $item->shortage_qty;
+            $qtyType = QuantityType::tryFrom($item->planned_qty_type) ?? QuantityType::PIECE;
+
+            if ($qtyType === QuantityType::CASE) {
+                $caseQty = $qty;
+                $pieceQty = 0;
+            } elseif ($capacityCase > 1) {
+                $caseQty = intdiv($qty, $capacityCase);
+                $pieceQty = $qty % $capacityCase;
+            } else {
+                $caseQty = 0;
+                $pieceQty = $qty;
+            }
+
+            $locationCode = $item->location_id
+                ? Location::formatCode($item->code1, $item->code2, $item->code3, '-')
+                : '';
+
+            $formattedItems[] = [
+                'item_code' => $item->item_code,
+                'item_name' => $item->item_name,
+                'packaging' => $item->packaging ?? '',
+                'location_code' => $locationCode,
+                'total_qty' => $qty,
+                'case_qty' => $caseQty,
+                'piece_qty' => $pieceQty,
+            ];
+
+            $totalQty += $qty;
+            $totalCase += $caseQty;
+            $totalPiece += $pieceQty;
+        }
+
+        return [
+            'header' => [
+                'wave_no' => $wave->wave_no,
+                'shipping_date' => $wave->shipping_date,
+                'warehouse_name' => $wave->warehouse_name ?? '',
+            ],
+            'items' => $formattedItems,
+            'summary' => [
+                'sku_count' => count($formattedItems),
+                'total_qty' => $totalQty,
+                'total_case' => $totalCase,
+                'total_piece' => $totalPiece,
+            ],
+        ];
+    }
+
+    /**
      * 2次ピッキングリスト（タスク単位）
      *
      * 棚番順にソートし、各棚番・商品ごとに納品先内訳を付加する。
