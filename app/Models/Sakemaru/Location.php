@@ -48,9 +48,26 @@ class Location extends CustomModel
     {
         return Attribute::make(
             get: function () {
-                return $this->code1.' '.$this->code2.' '.$this->code3;
+                return self::formatCode($this->code1, $this->code2, $this->code3, ' ');
             }
         );
+    }
+
+    public static function formatCode(?string $code1, ?string $code2 = null, ?string $code3 = null, string $separator = ''): string
+    {
+        return collect([$code1, $code2, $code3])
+            ->filter(fn ($code) => filled($code))
+            ->map(fn ($code) => (string) $code)
+            ->implode($separator);
+    }
+
+    public static function formatDisplayCode(?string $code1, ?string $code2 = null, ?string $code3 = null, string $separator = ''): string
+    {
+        $displayCode3 = filled($code3) && ! preg_match('/^0+$/', (string) $code3)
+            ? $code3
+            : null;
+
+        return self::formatCode($code1, $code2, $displayCode3, $separator);
     }
 
     public static function defaultLocation(?string $warehouse_id = null): ?Location

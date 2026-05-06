@@ -3,6 +3,7 @@
 namespace App\Services\PickingList;
 
 use App\Enums\QuantityType;
+use App\Models\Sakemaru\Location;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -97,7 +98,7 @@ class PickingListService
             }
 
             $locationCode = $item->location_id
-                ? trim("{$item->code1}-{$item->code2}-{$item->code3}")
+                ? Location::formatCode($item->code1, $item->code2, $item->code3)
                 : '';
 
             $formattedItems[] = [
@@ -255,7 +256,7 @@ class PickingListService
 
         foreach ($results as $row) {
             $locationCode = $row->location_id
-                ? trim("{$row->code1}-{$row->code2}-{$row->code3}")
+                ? Location::formatCode($row->code1, $row->code2, $row->code3)
                 : '未設定';
 
             $key = "{$locationCode}|{$row->item_id}";
