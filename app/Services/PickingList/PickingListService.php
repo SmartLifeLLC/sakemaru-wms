@@ -75,7 +75,6 @@ class PickingListService
             'l.code3',
             DB::raw('SUM(pir.planned_qty) as total_qty'),
             DB::raw('SUM(pir.shortage_qty) as shortage_qty'),
-            DB::raw('COUNT(DISTINCT CASE WHEN pir.earning_id IS NOT NULL THEN pir.earning_id END) as destination_count'),
             'pir.planned_qty_type',
         ])
             ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'i.packaging', 'pir.planned_qty_type', 'pir.location_id', 'l.code1', 'l.code2', 'l.code3')
@@ -118,7 +117,6 @@ class PickingListService
                 'total_qty' => $qty,
                 'case_qty' => $caseQty,
                 'piece_qty' => $pieceQty,
-                'destination_count' => (int) $item->destination_count,
                 'shortage_qty' => (int) $item->shortage_qty,
             ];
 
