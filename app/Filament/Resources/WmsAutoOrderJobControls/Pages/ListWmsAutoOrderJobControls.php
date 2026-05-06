@@ -274,7 +274,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 // Job dispatch（warehouseId + contractorIds指定）
                 ProcessOrderCandidateGenerationJob::dispatch(
                     jobId: $queueProgress->job_id,
-                    deletePending: false,
+                    deletePending: true,
                     contractorId: null,
                     executionLogId: null,
                     transferOnly: false,
@@ -587,7 +587,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
                     ProcessOrderCandidateGenerationJob::dispatch(
                         jobId: $queueProgress->job_id,
-                        deletePending: false,
+                        deletePending: true,
                         warehouseId: $warehouseId,
                         contractorIds: $contractorIds,
                         createdBy: auth()->id(),

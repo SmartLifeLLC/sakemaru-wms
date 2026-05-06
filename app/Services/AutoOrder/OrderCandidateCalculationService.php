@@ -145,8 +145,39 @@ class OrderCandidateCalculationService
                 ->exists();
 
             if ($hasOrderCandidates || $hasTransferCandidates) {
-                $idLabel = $contractorIds !== null ? implode(',', $contractorIds) : (string) $contractorId;
-                throw new \RuntimeException("仕入先ID:{$idLabel}（+子仕入先）に未処理の候補が存在します");
+                $idLabel = $this->formatContractorIdScope($contractorIds ?? [$contractorId]);
+                $orderPendingCount = 0;
+                $orderApprovedCount = 0;
+                if (! $transferOnly) {
+                    $orderPendingCount = WmsOrderCandidate::query()
+                        ->where('status', CandidateStatus::PENDING)
+                        ->whereIn('contractor_id', $expandedContractorIds)
+                        ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
+                        ->count();
+                    $orderApprovedCount = WmsOrderCandidate::query()
+                        ->where('status', CandidateStatus::APPROVED)
+                        ->whereIn('contractor_id', $expandedContractorIds)
+                        ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
+                        ->count();
+                }
+                $transferPendingCount = WmsStockTransferCandidate::query()
+                    ->where('status', CandidateStatus::PENDING)
+                    ->whereIn('contractor_id', $expandedContractorIds)
+                    ->when($warehouseId, fn ($q) => $q->where('satellite_warehouse_id', $warehouseId))
+                    ->count();
+                $transferApprovedCount = WmsStockTransferCandidate::query()
+                    ->where('status', CandidateStatus::APPROVED)
+                    ->whereIn('contractor_id', $expandedContractorIds)
+                    ->when($warehouseId, fn ($q) => $q->where('satellite_warehouse_id', $warehouseId))
+                    ->count();
+
+                $warehouseSuffix = $warehouseId ? " 倉庫ID:{$warehouseId}" : '';
+                throw new \RuntimeException(
+                    "{$idLabel}{$warehouseSuffix} に未処理の候補があります。"
+                    ."発注 PENDING:{$orderPendingCount}件 APPROVED:{$orderApprovedCount}件、"
+                    ."移動 PENDING:{$transferPendingCount}件 APPROVED:{$transferApprovedCount}件。"
+                    .'PENDINGは削除して再生成、APPROVEDは先に確定してください。'
+                );
             }
         } else {
             // パターンB: 仕入先指定なし
@@ -263,6 +294,27 @@ class OrderCandidateCalculationService
         }
 
         return $job;
+    }
+
+    /**
+     * 例外通知で巨大な仕入先IDリストを出さないためのスコープ表現。
+     */
+    private function formatContractorIdScope(array $contractorIds): string
+    {
+        $ids = array_values(array_filter(array_unique($contractorIds), fn ($id) => $id !== null));
+
+        if (empty($ids)) {
+            return '仕入先ID:未指定';
+        }
+
+        $sample = array_slice($ids, 0, 10);
+        $label = implode(',', $sample);
+
+        if (count($ids) > count($sample)) {
+            $label .= ',...';
+        }
+
+        return '仕入先ID:'.$label.'（指定'.count($ids).'件 + 子仕入先）';
     }
 
     /**
