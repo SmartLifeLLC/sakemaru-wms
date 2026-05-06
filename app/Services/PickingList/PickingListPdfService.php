@@ -173,7 +173,7 @@ class PickingListPdfService
                 $item['piece_qty'] ?: '',
             ];
 
-            $aligns = ['R', 'C', 'C', 'L', 'C', 'R', 'R'];
+            $aligns = ['R', 'C', 'C', 'L', 'C', 'C', 'C'];
 
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
