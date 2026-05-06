@@ -178,6 +178,7 @@ class PickingListService
                 'l.code1',
                 'l.code2',
                 'l.code3',
+                DB::raw('SUM(pir.planned_qty) as planned_qty'),
                 DB::raw('SUM(pir.shortage_qty) as shortage_qty'),
                 'pir.planned_qty_type',
             ])
@@ -187,25 +188,14 @@ class PickingListService
             ->get();
 
         $formattedItems = [];
-        $totalQty = 0;
-        $totalCase = 0;
-        $totalPiece = 0;
+        $totalShortage = 0;
 
         foreach ($items as $item) {
-            $capacityCase = $item->capacity_case ?: 1;
-            $qty = (int) $item->shortage_qty;
+            $plannedQty = (int) $item->planned_qty;
+            $shortageQty = (int) $item->shortage_qty;
+            $allocatedQty = $plannedQty - $shortageQty;
             $qtyType = QuantityType::tryFrom($item->planned_qty_type) ?? QuantityType::PIECE;
-
-            if ($qtyType === QuantityType::CASE) {
-                $caseQty = $qty;
-                $pieceQty = 0;
-            } elseif ($capacityCase > 1) {
-                $caseQty = intdiv($qty, $capacityCase);
-                $pieceQty = $qty % $capacityCase;
-            } else {
-                $caseQty = 0;
-                $pieceQty = $qty;
-            }
+            $qtyLabel = $qtyType === QuantityType::CASE ? 'ケース' : 'バラ';
 
             $locationCode = $item->location_id
                 ? Location::formatCode($item->code1, $item->code2, $item->code3, '-')
@@ -216,14 +206,13 @@ class PickingListService
                 'item_name' => $item->item_name,
                 'packaging' => $item->packaging ?? '',
                 'location_code' => $locationCode,
-                'total_qty' => $qty,
-                'case_qty' => $caseQty,
-                'piece_qty' => $pieceQty,
+                'qty_label' => $qtyLabel,
+                'planned_qty' => $plannedQty,
+                'allocated_qty' => $allocatedQty,
+                'shortage_qty' => $shortageQty,
             ];
 
-            $totalQty += $qty;
-            $totalCase += $caseQty;
-            $totalPiece += $pieceQty;
+            $totalShortage += $shortageQty;
         }
 
         return [
@@ -235,9 +224,7 @@ class PickingListService
             'items' => $formattedItems,
             'summary' => [
                 'sku_count' => count($formattedItems),
-                'total_qty' => $totalQty,
-                'total_case' => $totalCase,
-                'total_piece' => $totalPiece,
+                'total_shortage' => $totalShortage,
             ],
         ];
     }

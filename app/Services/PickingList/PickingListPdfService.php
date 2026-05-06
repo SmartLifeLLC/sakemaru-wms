@@ -138,7 +138,7 @@ class PickingListPdfService
         $this->currentY = $y + $rowH;
     }
 
-    private function renderPrimaryTable(array $items, array $header, ?string $titleOverride = null): void
+    private function renderPrimaryTable(array $items, array $header): void
     {
         $this->renderPrimaryTableHeader();
 
@@ -146,9 +146,6 @@ class PickingListPdfService
         $tableWidth = array_sum($widths);
         $minRowH = self::PRIMARY_TABLE_ROW_HEIGHT;
         $bodyFontSize = 10;
-        $headerRenderer = $titleOverride
-            ? fn () => $this->renderShortageHeader($header)
-            : fn () => $this->renderPrimaryHeader($header);
 
         foreach ($items as $index => $item) {
             $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
@@ -158,7 +155,7 @@ class PickingListPdfService
             if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
                 $this->pdf->AddPage();
                 $this->currentY = self::MARGIN;
-                $headerRenderer();
+                $this->renderPrimaryHeader($header);
                 $this->renderPrimaryTableHeader();
             }
 
@@ -213,8 +210,19 @@ class PickingListPdfService
     }
 
     // ========================================
-    // 1次欠品リスト（A4縦 — 1次リストと同レイアウト）
+    // 1次欠品リスト（A4縦）
     // ========================================
+
+    private const SHORTAGE_COL_WIDTHS = [
+        'no' => 8,
+        'item_code' => 24,
+        'item_name' => 68,
+        'packaging' => 20,
+        'qty_label' => 14,
+        'planned_qty' => 18,
+        'allocated_qty' => 18,
+        'shortage_qty' => 20,
+    ];
 
     public function renderShortagePdf(array $data): string
     {
@@ -223,8 +231,8 @@ class PickingListPdfService
         $this->currentY = self::MARGIN;
 
         $this->renderShortageHeader($data['header']);
-        $this->renderPrimaryTable($data['items'], $data['header'], '1次欠品リスト');
-        $this->renderPrimarySummary($data['summary']);
+        $this->renderShortageTable($data['items'], $data['header']);
+        $this->renderShortageSummary($data['summary']);
 
         $this->totalPages = $this->pdf->getNumPages();
         $this->renderPageNumbers(self::PRIMARY_PAGE_WIDTH, self::PRIMARY_PAGE_HEIGHT);
@@ -254,6 +262,105 @@ class PickingListPdfService
         $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
         $this->pdf->Cell(95, self::LINE_HEIGHT, '倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'R');
         $this->currentY += self::LINE_HEIGHT + 3;
+    }
+
+    private function renderShortageTableHeader(): void
+    {
+        $headers = ['No', '商品CD', '商品名', '荷姿', 'ケース?バラ', '受注数', '引当数', '欠品数'];
+        $widths = array_values(self::SHORTAGE_COL_WIDTHS);
+        $rowH = self::PRIMARY_TABLE_ROW_HEIGHT;
+
+        $this->pdf->SetFont('kozminproregular', 'B', 9);
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+
+        $x = self::MARGIN;
+        $y = $this->currentY;
+
+        $tableWidth = array_sum($widths);
+        $this->pdf->Line($x, $y, $x + $tableWidth, $y);
+
+        foreach ($headers as $i => $header) {
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell($widths[$i], $rowH, $header, 0, 0, 'C');
+            $this->pdf->Line($x, $y, $x, $y + $rowH);
+            $x += $widths[$i];
+        }
+        $this->pdf->Line($x, $y, $x, $y + $rowH);
+
+        $this->pdf->Line(self::MARGIN, $y + $rowH, self::MARGIN + $tableWidth, $y + $rowH);
+        $this->currentY = $y + $rowH;
+    }
+
+    private function renderShortageTable(array $items, array $header): void
+    {
+        $this->renderShortageTableHeader();
+
+        $widths = array_values(self::SHORTAGE_COL_WIDTHS);
+        $tableWidth = array_sum($widths);
+        $minRowH = self::PRIMARY_TABLE_ROW_HEIGHT;
+        $bodyFontSize = 10;
+
+        foreach ($items as $index => $item) {
+            $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
+            $nameH = $this->pdf->getStringHeight($widths[2] - 2, $item['item_name']);
+            $rowH = max($minRowH, $nameH);
+
+            if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
+                $this->pdf->AddPage();
+                $this->currentY = self::MARGIN;
+                $this->renderShortageHeader($header);
+                $this->renderShortageTableHeader();
+            }
+
+            $x = self::MARGIN;
+            $y = $this->currentY;
+
+            $rowData = [
+                $index + 1,
+                $item['item_code'],
+                $item['item_name'],
+                $item['packaging'] ?? '',
+                $item['qty_label'],
+                $item['planned_qty'],
+                $item['allocated_qty'],
+                $item['shortage_qty'],
+            ];
+
+            $aligns = ['R', 'C', 'L', 'C', 'C', 'C', 'C', 'C'];
+
+            foreach ($rowData as $i => $value) {
+                $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
+                $cellW = $widths[$i] - ($aligns[$i] === 'L' ? 1 : 0);
+
+                if ($i === 2) {
+                    $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
+                    $this->pdf->MultiCell($cellW, $minRowH, $value, 0, 'L', false, 0, $cellX, $y);
+                    $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
+                } else {
+                    $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
+                    $this->pdf->SetXY($cellX, $y);
+                    $this->pdf->Cell($cellW, $rowH, $value, 0, 0, $aligns[$i]);
+                }
+
+                $this->pdf->Line($x, $y, $x, $y + $rowH);
+                $x += $widths[$i];
+            }
+            $this->pdf->Line($x, $y, $x, $y + $rowH);
+            $this->pdf->Line(self::MARGIN, $y + $rowH, self::MARGIN + $tableWidth, $y + $rowH);
+
+            $this->currentY = $y + $rowH;
+        }
+    }
+
+    private function renderShortageSummary(array $summary): void
+    {
+        $this->currentY += 3;
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, self::LINE_HEIGHT,
+            sprintf('合計  SKU数: %d  /  欠品総数: %d',
+                $summary['sku_count'], $summary['total_shortage']
+            ), 0, 0, 'L');
     }
 
     // ========================================
