@@ -245,6 +245,12 @@ class FloorPlanEditor extends AdminPage
         foreach ($zoneGroups as $zoneKey => $group) {
             $firstLoc = $group['first_location'];
             $locationIds = collect($group['locations'])->pluck('id')->toArray();
+            $locationCodes = collect($group['locations'])
+                ->map(fn (Location $location) => Location::formatDisplayCode($location->code1, $location->code2, $location->code3))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
 
             // Use first location's position (all locations in zone should have same position)
             // Find the first location with a non-zero position
@@ -286,7 +292,9 @@ class FloorPlanEditor extends AdminPage
                 'warehouse_id' => $firstLoc->warehouse_id,
                 'code1' => $firstLoc->code1,
                 'code2' => $firstLoc->code2,
-                'name' => $firstLoc->code1.$firstLoc->code2,  // Zone name = code1+code2 only
+                'name' => $locationCodes[0] ?? Location::formatCode($firstLoc->code1, $firstLoc->code2),
+                'display_name' => implode("\n", $locationCodes),
+                'location_codes' => $locationCodes,
                 'x1_pos' => $x1,
                 'y1_pos' => $y1,
                 'x2_pos' => $x2,
@@ -1641,19 +1649,23 @@ class FloorPlanEditor extends AdminPage
                 $query->where('name', 'like', "%{$search}%")
                     ->orWhere('code1', 'like', "%{$search}%")
                     ->orWhere('code2', 'like', "%{$search}%")
-                    ->orWhereRaw('CONCAT(code1, code2) LIKE ?', ["%{$search}%"]);
+                    ->orWhere('code3', 'like', "%{$search}%")
+                    ->orWhereRaw("CONCAT(COALESCE(code1, ''), COALESCE(code2, ''), COALESCE(code3, '')) LIKE ?", ["%{$search}%"]);
             })
             ->with('floor:id,name,code')
             ->orderBy('code1')
             ->orderBy('code2')
+            ->orderBy('code3')
             ->limit(20)
-            ->get(['id', 'floor_id', 'code1', 'code2', 'name']);
+            ->get(['id', 'floor_id', 'code1', 'code2', 'code3', 'name']);
 
         return $locations->map(function ($loc) {
             return [
                 'id' => $loc->id,
                 'code1' => $loc->code1,
                 'code2' => $loc->code2,
+                'code3' => $loc->code3,
+                'display_name' => Location::formatDisplayCode($loc->code1, $loc->code2, $loc->code3),
                 'name' => $loc->name,
                 'floor_name' => $loc->floor?->name ?? '',
             ];

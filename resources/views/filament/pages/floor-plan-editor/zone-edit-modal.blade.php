@@ -7,8 +7,11 @@
             {{-- Zone Code + Name --}}
             <h3 class="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-gray-200">
                 <i class="fa fa-map-marker-alt"></i>
-                <span x-text="editingZone.code1 + editingZone.code2"></span>
-                <span class="text-slate-500 dark:text-gray-400 font-normal" x-text="editingZone.name ? '(' + editingZone.name + ')' : ''"></span>
+                <span x-text="getZoneCanvasLabel(editingZone)"></span>
+                <span
+                    x-show="editingZone.name && editingZone.name !== getZoneCanvasLabel(editingZone)"
+                    class="text-slate-500 dark:text-gray-400 font-normal"
+                    x-text="'(' + editingZone.name + ')'"></span>
             </h3>
             {{-- Picking Area Badge --}}
             <template x-if="getPickingAreaForZone(editingZone)">
@@ -24,8 +27,8 @@
             </div>
             {{-- 棚番号 --}}
             <div class="flex items-center gap-1">
-                <span class="text-xs text-slate-400 dark:text-gray-500">棚番号:</span>
-                <span class="text-sm font-medium text-slate-700 dark:text-gray-200" x-text="editingZone.code2 || '-'"></span>
+                <span class="text-xs text-slate-400 dark:text-gray-500">棚番:</span>
+                <span class="text-sm font-medium text-slate-700 dark:text-gray-200" x-text="getZoneCanvasLabel(editingZone) || '-'"></span>
             </div>
         </div>
 

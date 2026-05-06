@@ -79,7 +79,7 @@
                          `"
                          class="cursor-move flex flex-col items-center justify-center p-2 rounded shadow-sm select-none border-solid">
 
-                        <div x-text="zone.code1 + zone.code2"></div>
+                        <div x-text="getZoneCanvasLabel(zone)"></div>
 
                         {{-- Resize Handle --}}
                         <div @mousedown.stop="handleResizeMouseDown($event, zone)"
@@ -612,7 +612,7 @@
                 {{-- Source Location Info --}}
                 <div class="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
                     <div class="text-sm text-gray-600 dark:text-gray-400">移動元</div>
-                    <div class="font-semibold" x-text="editingZone.name"></div>
+                    <div class="font-semibold" x-text="getZoneCanvasLabel(editingZone)"></div>
                     <div class="text-sm text-gray-500" x-text="'選択商品: ' + selectedStocksForTransfer.length + '件'"></div>
                 </div>
 
@@ -666,10 +666,10 @@
                                  class="px-3 py-2 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/30 border-b last:border-b-0"
                                  :class="selectedTransferLocationId === loc.id ? 'bg-blue-100 dark:bg-blue-900/50' : ''">
                                 <div class="flex items-center justify-between">
-                                    <span class="font-medium" x-text="loc.name"></span>
+                                    <span class="font-medium" x-text="loc.display_name || loc.name"></span>
                                     <span x-show="loc.floor_name" class="text-xs bg-gray-200 dark:bg-gray-600 px-2 py-0.5 rounded" x-text="loc.floor_name"></span>
                                 </div>
-                                <div class="text-xs text-gray-500" x-text="'通路: ' + loc.code1 + ' / 棚: ' + loc.code2"></div>
+                                <div class="text-xs text-gray-500" x-text="'通路: ' + loc.code1 + ' / 棚: ' + loc.code2 + (loc.code3 ? ' / 段: ' + loc.code3 : '')"></div>
                             </div>
                         </template>
                     </div>
@@ -682,10 +682,10 @@
                 <div x-show="selectedTransferLocationId" class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
                     <div class="text-sm text-gray-600 dark:text-gray-400">移動先</div>
                     <div class="flex items-center gap-2">
-                        <span class="font-semibold" x-text="selectedTransferLocation?.name"></span>
+                        <span class="font-semibold" x-text="selectedTransferLocation?.display_name || selectedTransferLocation?.name"></span>
                         <span x-show="selectedTransferLocation?.floor_name" class="text-xs bg-blue-200 dark:bg-blue-700 px-2 py-0.5 rounded" x-text="selectedTransferLocation?.floor_name"></span>
                     </div>
-                    <div class="text-xs text-gray-500" x-text="'通路: ' + selectedTransferLocation?.code1 + ' / 棚: ' + selectedTransferLocation?.code2"></div>
+                    <div class="text-xs text-gray-500" x-text="'通路: ' + selectedTransferLocation?.code1 + ' / 棚: ' + selectedTransferLocation?.code2 + (selectedTransferLocation?.code3 ? ' / 段: ' + selectedTransferLocation?.code3 : '')"></div>
                 </div>
 
                 {{-- Action Buttons --}}
@@ -1790,6 +1790,8 @@
                                     warehouse_id: location.warehouse_id,
                                     code1: location.code1,
                                     code2: location.code2,
+                                    display_name: location.display_name,
+                                    location_codes: location.location_codes || [],
                                     name: location.name,
                                     x1_pos: snappedX,
                                     y1_pos: snappedY,
@@ -1856,6 +1858,8 @@
                             warehouse_id: location.warehouse_id,
                             code1: location.code1,
                             code2: location.code2,
+                            display_name: location.display_name,
+                            location_codes: location.location_codes || [],
                             name: location.name,
                             x1_pos: snappedX,
                             y1_pos: snappedY,
@@ -2301,6 +2305,22 @@
                 selectTransferLocation(loc) {
                     this.selectedTransferLocationId = loc.id;
                     this.selectedTransferLocation = loc;
+                },
+
+                getLocationDisplayName(zone) {
+                    if (zone.display_name) {
+                        return zone.display_name;
+                    }
+
+                    if (Array.isArray(zone.location_codes) && zone.location_codes.length > 0) {
+                        return zone.location_codes.join('\n');
+                    }
+
+                    return [zone.code1, zone.code2, zone.code3].filter(Boolean).join('');
+                },
+
+                getZoneCanvasLabel(zone) {
+                    return [zone.code1, zone.code2].filter(Boolean).join('');
                 },
 
                 async executeTransfer() {

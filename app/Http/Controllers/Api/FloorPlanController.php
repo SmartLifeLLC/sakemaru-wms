@@ -90,6 +90,12 @@ class FloorPlanController extends Controller
         foreach ($zoneGroups as $zoneKey => $group) {
             $firstLoc = $group['first_location'];
             $locationIds = collect($group['locations'])->pluck('id')->toArray();
+            $locationCodes = collect($group['locations'])
+                ->map(fn (Location $location) => Location::formatDisplayCode($location->code1, $location->code2, $location->code3))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
 
             // Use stored position or auto-generate grid position
             $x1 = $group['max_x1'];
@@ -126,6 +132,7 @@ class FloorPlanController extends Controller
                     'location_id' => $loc->id,
                     'code3' => $loc->code3,
                     'name' => $loc->name,
+                    'display_name' => Location::formatDisplayCode($loc->code1, $loc->code2, $loc->code3),
                     'stock_count' => $shelfStockCount ?: 0,
                 ];
             }
@@ -137,8 +144,9 @@ class FloorPlanController extends Controller
                 'floor_id' => $firstLoc->floor_id,
                 'code1' => $firstLoc->code1,
                 'code2' => $firstLoc->code2,
-                'name' => $firstLoc->code1.$firstLoc->code2,  // Zone name = code1+code2 only
-                'display_name' => $firstLoc->code1.$firstLoc->code2,  // For zone label
+                'name' => $locationCodes[0] ?? Location::formatCode($firstLoc->code1, $firstLoc->code2),
+                'display_name' => implode("\n", $locationCodes),
+                'location_codes' => $locationCodes,
                 'x1_pos' => $x1,
                 'y1_pos' => $y1,
                 'x2_pos' => $x2,
@@ -308,6 +316,12 @@ class FloorPlanController extends Controller
 
             $firstLoc = $group['first_location'];
             $locationIds = collect($group['locations'])->pluck('id')->toArray();
+            $locationCodes = collect($group['locations'])
+                ->map(fn (Location $location) => Location::formatDisplayCode($location->code1, $location->code2, $location->code3))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
 
             // Get stock count for all locations in zone
             $stockCount = DB::connection('sakemaru')
@@ -322,7 +336,9 @@ class FloorPlanController extends Controller
                 'floor_id' => $firstLoc->floor_id,
                 'code1' => $firstLoc->code1,
                 'code2' => $firstLoc->code2,
-                'name' => $firstLoc->code1.$firstLoc->code2,  // Zone name = code1+code2
+                'name' => $locationCodes[0] ?? Location::formatCode($firstLoc->code1, $firstLoc->code2),
+                'display_name' => implode("\n", $locationCodes),
+                'location_codes' => $locationCodes,
                 'available_quantity_flags' => $firstLoc->available_quantity_flags,
                 'stock_count' => $stockCount ?: 0,
                 'shelf_count' => count($group['locations']),
@@ -401,7 +417,7 @@ class FloorPlanController extends Controller
                 'level_id' => null,
                 'location_id' => $loc->id,
                 'code3' => $loc->code3,
-                'shelf_name' => $loc->name,
+                'shelf_name' => Location::formatDisplayCode($loc->code1, $loc->code2, $loc->code3),
                 'items' => $items,
             ];
         }
@@ -451,7 +467,7 @@ class FloorPlanController extends Controller
                 ->first();
 
             $rows[] = [
-                $location->code1.$location->code2.$location->code3,
+                Location::formatCode($location->code1, $location->code2, $location->code3),
                 $location->code1,
                 $location->code2,
                 $location->code3,
