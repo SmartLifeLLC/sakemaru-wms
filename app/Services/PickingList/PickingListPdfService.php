@@ -57,12 +57,11 @@ class PickingListPdfService
     private const PRIMARY_COL_WIDTHS = [
         'no' => 8,
         'location' => 22,
-        'item_code' => 26,
-        'item_name' => 72,
-        'packaging' => 24,
-        'case_qty' => 15,
-        'piece_qty' => 15,
-        'dest_count' => 8,
+        'item_code' => 24,
+        'item_name' => 88,
+        'packaging' => 20,
+        'case_qty' => 14,
+        'piece_qty' => 14,
     ];
 
     /**
@@ -114,7 +113,7 @@ class PickingListPdfService
 
     private function renderPrimaryTableHeader(): void
     {
-        $headers = ['No', '棚番', '商品CD', '商品名', '荷姿', 'ケース', 'バラ', '店数'];
+        $headers = ['No', '棚番', '商品CD', '商品名', '荷姿', 'ケース', 'バラ'];
         $widths = array_values(self::PRIMARY_COL_WIDTHS);
         $rowH = self::PRIMARY_TABLE_ROW_HEIGHT;
 
@@ -172,10 +171,9 @@ class PickingListPdfService
                 $item['packaging'] ?? '',
                 $item['case_qty'] ?: '',
                 $item['piece_qty'] ?: '',
-                $item['destination_count'],
             ];
 
-            $aligns = ['R', 'C', 'C', 'L', 'C', 'R', 'R', 'R'];
+            $aligns = ['R', 'C', 'C', 'L', 'C', 'R', 'R'];
 
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
