@@ -48,6 +48,19 @@ class ListWmsOrderCandidates extends ListRecords
 
     public array $orderCandidateItems = [];
 
+    private function getOrderingCodeForItem(int $itemId): ?string
+    {
+        $code = DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->where('item_id', $itemId)
+            ->where('is_used_for_ordering', true)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->value('search_string');
+
+        return filled($code) ? str_pad((string) $code, 13, '0', STR_PAD_LEFT) : null;
+    }
+
     public function searchItemsForOrderCreate(string $search): array
     {
         if (strlen($search) < 2) {
@@ -70,16 +83,13 @@ class ListWmsOrderCandidates extends ListRecords
             ->map(function ($item) {
                 $searchInfo = $item->piece_jan_code_information;
                 $searchCode = $searchInfo?->search_string ?? '';
-                $orderingCode = ($searchInfo && $searchInfo->is_used_for_ordering)
-                    ? str_pad($searchCode, 13, '0', STR_PAD_LEFT)
-                    : '';
 
                 return [
                     'id' => $item->id,
                     'code' => $item->code,
                     'name' => $item->name,
                     'search_code' => $searchCode,
-                    'ordering_code' => $orderingCode,
+                    'ordering_code' => $this->getOrderingCodeForItem($item->id),
                     'capacity_case' => $item->capacity_case ?? 1,
                 ];
             })
@@ -225,9 +235,7 @@ class ListWmsOrderCandidates extends ListRecords
                 'packaging' => $item->packaging,
                 'capacity_case' => $item->capacity_case ?? 1,
                 'search_code' => $searchInfo?->search_string ?? '',
-                'ordering_code' => ($searchInfo && $searchInfo->is_used_for_ordering)
-                    ? str_pad($searchInfo->search_string ?? '', 13, '0', STR_PAD_LEFT)
-                    : '',
+                'ordering_code' => $this->getOrderingCodeForItem($item->id),
                 'contractor_name' => $ic?->contractor
                     ? "[{$ic->contractor->code}]{$ic->contractor->name}"
                     : null,
@@ -395,7 +403,9 @@ class ListWmsOrderCandidates extends ListRecords
                         $orderQuantity = (int) ($itemData['order_quantity'] ?? 0);
                         $itemCode = $itemData['item_code'] ?? null;
                         $searchCode = $itemData['search_code'] ?? null;
-                        $orderingCode = $itemData['ordering_code'] ?? null;
+                        $orderingCode = filled($itemData['ordering_code'] ?? null)
+                            ? $itemData['ordering_code']
+                            : $this->getOrderingCodeForItem($itemId);
 
                         if ($orderQuantity <= 0) {
                             $errors[] = "[{$itemCode}]: 数量が不正です";
