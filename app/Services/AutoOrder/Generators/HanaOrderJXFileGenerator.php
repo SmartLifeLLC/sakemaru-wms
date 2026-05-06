@@ -92,6 +92,15 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $startTime = microtime(true);
         Log::info('[HanaOrderFileGenerator] generate開始', ['candidate_count' => $orderCandidates->count()]);
 
+        if ($orderCandidates->isEmpty()) {
+            Log::info('[HanaOrderFileGenerator] generate完了', [
+                'file_count' => 0,
+                'total_ms' => round((microtime(true) - $startTime) * 1000),
+            ]);
+
+            return [];
+        }
+
         $results = [];
 
         // 商品IDを取得して仕入単価をプリロード
@@ -405,8 +414,10 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         }
         // 仕入入数は常にcapacity_case（変更しない）
 
-        // 発注コード: 候補に保存されているordering_codeを優先、なければ動的取得（後方互換性）
-        $orderingCode = $candidate->ordering_code ?? $this->getJanCode($item?->id);
+        // 発注コード: 候補に保存されているordering_codeを優先、空欄なら動的取得（後方互換性）
+        $orderingCode = filled($candidate->ordering_code)
+            ? str_pad((string) $candidate->ordering_code, 13, '0', STR_PAD_LEFT)
+            : $this->getJanCode($item?->id);
 
         // 原単価を取得（小数点2桁、160.00→000016000）
         $costPrice = $this->getCurrentCostPrice($item?->id, $capacityCase, $candidate->quantity_type);

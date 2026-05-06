@@ -439,6 +439,53 @@ class HanaOrderFileGeneratorTest extends TestCase
 
     /**
      * @test
+     * 候補のordering_codeが空文字の場合、発注用コードにフォールバックすること
+     */
+    public function it_falls_back_to_ordering_code_master_when_candidate_ordering_code_is_blank(): void
+    {
+        $itemId = 999001;
+        $expectedOrderingCode = '4589724813357';
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => $itemId,
+            'quantity_type' => \App\Enums\QuantityType::CASE,
+            'order_quantity' => 1,
+            'ordering_code' => '',
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => $itemId,
+            'code' => '999001',
+            'name_main' => 'TEST ITEM',
+            'capacity_case' => 12,
+        ]);
+
+        $generatorReflection = new \ReflectionClass($this->generator);
+
+        $janCodeCache = $generatorReflection->getProperty('janCodeCache');
+        $janCodeCache->setAccessible(true);
+        $janCodeCache->setValue($this->generator, [$itemId => $expectedOrderingCode]);
+
+        $costPriceCache = $generatorReflection->getProperty('costPriceCache');
+        $costPriceCache->setAccessible(true);
+        $costPriceCache->setValue($this->generator, [$itemId => (object) [
+            'cost_case_price' => 0,
+            'cost_unit_price' => 0,
+        ]]);
+
+        $generateDRecord = $generatorReflection->getMethod('generateDRecord');
+        $generateDRecord->setAccessible(true);
+        $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
+
+        $this->assertNotNull($dRecord);
+        $this->assertEquals(
+            $expectedOrderingCode,
+            trim(substr($dRecord, 69, 13)),
+            'Blank candidate ordering_code should fall back to is_used_for_ordering code'
+        );
+    }
+
+    /**
+     * @test
      * is_used_for_orderingフラグが設定されているコードが優先されること
      */
     public function it_prioritizes_is_used_for_ordering_flag(): void
