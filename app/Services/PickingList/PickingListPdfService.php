@@ -46,23 +46,23 @@ class PickingListPdfService
     // 1次リスト（A4横）
     // ========================================
 
-    private const PRIMARY_PAGE_WIDTH = 297;
+    private const PRIMARY_PAGE_WIDTH = 210;
 
-    private const PRIMARY_PAGE_HEIGHT = 210;
+    private const PRIMARY_PAGE_HEIGHT = 297;
 
-    private const PRIMARY_CONTENT_WIDTH = 277; // 297 - 10 - 10
+    private const PRIMARY_CONTENT_WIDTH = 190; // 210 - 10 - 10
+
+    private const PRIMARY_TABLE_ROW_HEIGHT = 7;
 
     private const PRIMARY_COL_WIDTHS = [
-        'no' => 10,
-        'location' => 30,
-        'item_code' => 28,
-        'item_name' => 90,
-        'total_qty' => 24,
-        'case_qty' => 20,
-        'piece_qty' => 20,
-        'zone' => 30,
-        'dest_count' => 13,
-        'shortage' => 12,
+        'no' => 8,
+        'location' => 22,
+        'item_code' => 26,
+        'item_name' => 72,
+        'packaging' => 24,
+        'case_qty' => 15,
+        'piece_qty' => 15,
+        'dest_count' => 8,
     ];
 
     /**
@@ -70,7 +70,7 @@ class PickingListPdfService
      */
     public function renderPrimaryPdf(array $data): string
     {
-        $this->initPdf('L', 'ピッキングリスト（1次）');
+        $this->initPdf('P', 'ピッキングリスト（1次）');
         $this->pdf->AddPage();
         $this->currentY = self::MARGIN;
 
@@ -89,7 +89,7 @@ class PickingListPdfService
         // タイトル
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 8, '1次ピッキングリスト（波動集約）', 0, 0, 'C');
+        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 8, '1次ピッキングリスト', 0, 0, 'C');
         $this->currentY += 10;
 
         // ヘッダー情報（左右に配置）
@@ -97,52 +97,46 @@ class PickingListPdfService
 
         // 左側
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(140, self::LINE_HEIGHT, '波動番号:'.($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '波動番号:'.($header['wave_no'] ?? ''), 0, 0, 'L');
 
         // 右側
-        $this->pdf->SetXY(self::MARGIN + 140, $this->currentY);
-        $this->pdf->Cell(137, self::LINE_HEIGHT, '印刷日時: '.now()->format('Y-m-d H:i'), 0, 0, 'R');
+        $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '印刷日時: '.now()->format('Y-m-d H:i'), 0, 0, 'R');
         $this->currentY += self::LINE_HEIGHT;
 
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(140, self::LINE_HEIGHT, '出荷日: '.($header['shipping_date'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '出荷日: '.($header['shipping_date'] ?? ''), 0, 0, 'L');
 
-        $this->pdf->SetXY(self::MARGIN + 140, $this->currentY);
-        $this->pdf->Cell(137, self::LINE_HEIGHT, '倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'R');
-        $this->currentY += self::LINE_HEIGHT;
-
-        $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(140, self::LINE_HEIGHT, '配送コース: '.($header['course_name'] ?? ''), 0, 0, 'L');
+        $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
+        $this->pdf->Cell(95, self::LINE_HEIGHT, '倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'R');
         $this->currentY += self::LINE_HEIGHT + 3;
     }
 
     private function renderPrimaryTableHeader(): void
     {
-        $headers = ['No', '棚番', '商品CD', '商品名', '総数量', 'ケース', 'バラ', 'ゾーン', '店数', '欠品'];
-        $aligns = ['C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C'];
+        $headers = ['No', '棚番', '商品CD', '商品名', '荷姿', 'ケース', 'バラ', '店数'];
         $widths = array_values(self::PRIMARY_COL_WIDTHS);
+        $rowH = self::PRIMARY_TABLE_ROW_HEIGHT;
 
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont('kozminproregular', 'B', 9);
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
 
         $x = self::MARGIN;
         $y = $this->currentY;
 
-        // 上線
         $tableWidth = array_sum($widths);
         $this->pdf->Line($x, $y, $x + $tableWidth, $y);
 
         foreach ($headers as $i => $header) {
             $this->pdf->SetXY($x, $y);
-            $this->pdf->Cell($widths[$i], self::TABLE_ROW_HEIGHT, $header, 0, 0, $aligns[$i]);
-            $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+            $this->pdf->Cell($widths[$i], $rowH, $header, 0, 0, 'C');
+            $this->pdf->Line($x, $y, $x, $y + $rowH);
             $x += $widths[$i];
         }
-        $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+        $this->pdf->Line($x, $y, $x, $y + $rowH);
 
-        // 下線
-        $this->pdf->Line(self::MARGIN, $y + self::TABLE_ROW_HEIGHT, self::MARGIN + $tableWidth, $y + self::TABLE_ROW_HEIGHT);
-        $this->currentY = $y + self::TABLE_ROW_HEIGHT;
+        $this->pdf->Line(self::MARGIN, $y + $rowH, self::MARGIN + $tableWidth, $y + $rowH);
+        $this->currentY = $y + $rowH;
     }
 
     private function renderPrimaryTable(array $items, array $header): void
@@ -151,17 +145,22 @@ class PickingListPdfService
 
         $widths = array_values(self::PRIMARY_COL_WIDTHS);
         $tableWidth = array_sum($widths);
+        $minRowH = self::PRIMARY_TABLE_ROW_HEIGHT;
+        $bodyFontSize = 10;
 
         foreach ($items as $index => $item) {
-            // 改ページチェック
-            if ($this->currentY + self::TABLE_ROW_HEIGHT > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
+            // 商品名の折り返し高さを事前計算
+            $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
+            $nameH = $this->pdf->getStringHeight($widths[3] - 2, $item['item_name']);
+            $rowH = max($minRowH, $nameH);
+
+            if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
                 $this->pdf->AddPage();
                 $this->currentY = self::MARGIN;
                 $this->renderPrimaryHeader($header);
                 $this->renderPrimaryTableHeader();
             }
 
-            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
             $x = self::MARGIN;
             $y = $this->currentY;
 
@@ -169,29 +168,36 @@ class PickingListPdfService
                 $index + 1,
                 $item['location_code'] ?? '',
                 $item['item_code'],
-                $this->truncateText($item['item_name'], $widths[3] - 2),
-                $item['total_qty'],
+                $item['item_name'],
+                $item['packaging'] ?? '',
                 $item['case_qty'] ?: '',
                 $item['piece_qty'] ?: '',
-                $item['picking_zone'],
                 $item['destination_count'],
-                $item['shortage_qty'] > 0 ? $item['shortage_qty'] : '',
             ];
 
-            $aligns = ['R', 'L', 'L', 'L', 'R', 'R', 'R', 'L', 'R', 'R'];
+            $aligns = ['R', 'C', 'C', 'L', 'C', 'R', 'R', 'R'];
 
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
                 $cellW = $widths[$i] - ($aligns[$i] === 'L' ? 1 : 0);
-                $this->pdf->SetXY($cellX, $y);
-                $this->pdf->Cell($cellW, self::TABLE_ROW_HEIGHT, $value, 0, 0, $aligns[$i]);
-                $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
+
+                if ($i === 3) {
+                    $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
+                    $this->pdf->MultiCell($cellW, $minRowH, $value, 0, 'L', false, 0, $cellX, $y);
+                    $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
+                } else {
+                    $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
+                    $this->pdf->SetXY($cellX, $y);
+                    $this->pdf->Cell($cellW, $rowH, $value, 0, 0, $aligns[$i]);
+                }
+
+                $this->pdf->Line($x, $y, $x, $y + $rowH);
                 $x += $widths[$i];
             }
-            $this->pdf->Line($x, $y, $x, $y + self::TABLE_ROW_HEIGHT);
-            $this->pdf->Line(self::MARGIN, $y + self::TABLE_ROW_HEIGHT, self::MARGIN + $tableWidth, $y + self::TABLE_ROW_HEIGHT);
+            $this->pdf->Line($x, $y, $x, $y + $rowH);
+            $this->pdf->Line(self::MARGIN, $y + $rowH, self::MARGIN + $tableWidth, $y + $rowH);
 
-            $this->currentY = $y + self::TABLE_ROW_HEIGHT;
+            $this->currentY = $y + $rowH;
         }
     }
 
@@ -335,7 +341,7 @@ class PickingListPdfService
                 '□',
                 $item['qty_type'],
             ];
-            $aligns = ['L', 'L', 'L', 'R', 'C', 'L'];
+            $aligns = ['C', 'C', 'L', 'R', 'C', 'L'];
 
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
@@ -602,7 +608,7 @@ class PickingListPdfService
                 '',
             ];
 
-            $aligns = ['R', 'L', 'L', 'L', 'L', 'L', 'L', 'C', 'R', 'R'];
+            $aligns = ['R', 'L', 'C', 'L', 'L', 'C', 'C', 'C', 'R', 'R'];
 
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
@@ -639,7 +645,7 @@ class PickingListPdfService
      */
     public function renderBatchPrimaryPdf(array $dataList): string
     {
-        $this->initPdf('L', 'ピッキングリスト（1次）一括');
+        $this->initPdf('P', 'ピッキングリスト（1次）一括');
 
         foreach ($dataList as $data) {
             if (empty($data['items'])) {
@@ -728,15 +734,16 @@ class PickingListPdfService
         }
     }
 
-    private function truncateText(string $text, float $maxWidthMm): string
+    private function truncateText(string $text, float $maxWidthMm, ?int $fontSize = null): string
     {
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+        $this->pdf->SetFont('kozminproregular', '', $fontSize ?? self::FONT_SIZE_NORMAL);
         $currentWidth = $this->pdf->GetStringWidth($text);
 
         if ($currentWidth <= $maxWidthMm) {
             return $text;
         }
 
+        $this->pdf->SetFont('kozminproregular', '', $fontSize ?? self::FONT_SIZE_NORMAL);
         $ellipsis = '…';
         $ellipsisWidth = $this->pdf->GetStringWidth($ellipsis);
         $targetWidth = $maxWidthMm - $ellipsisWidth;
