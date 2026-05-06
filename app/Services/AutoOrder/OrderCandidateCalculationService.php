@@ -426,6 +426,7 @@ class OrderCandidateCalculationService
             ->table('item_search_information')
             ->where('is_used_for_ordering', true)
             ->where('is_active', true)
+            ->whereRaw("search_string REGEXP '[1-9]'")
             ->pluck('search_string', 'item_id')
             ->toArray();
 
@@ -596,6 +597,7 @@ class OrderCandidateCalculationService
             ->table('item_search_information')
             ->where('is_used_for_ordering', true)
             ->where('is_active', true)
+            ->whereRaw("search_string REGEXP '[1-9]'")
             ->select('item_id', 'search_string')
             ->get();
 
