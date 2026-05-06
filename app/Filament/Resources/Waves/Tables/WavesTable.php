@@ -10,7 +10,9 @@ use App\Services\PickingList\PickingListPdfService;
 use App\Services\PickingList\PickingListService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\Filter;
@@ -149,19 +151,36 @@ class WavesTable
                     ->label('1次リスト')
                     ->icon('heroicon-o-document-text')
                     ->color('info')
-                    ->action(function ($record) {
+                    ->modalHeading('1次ピッキングリスト印刷')
+                    ->modalWidth('sm')
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('印刷')->color('primary'))
+                    ->modalCancelActionLabel('閉じる')
+                    ->schema([
+                        Toggle::make('include_past')
+                            ->label('過去の伝票も出力')
+                            ->default(false),
+                        Toggle::make('include_delivered')
+                            ->label('配送済みも出力')
+                            ->default(false),
+                    ])
+                    ->action(function ($record, array $data) {
                         try {
                             $service = new PickingListService;
-                            $data = $service->generatePrimaryList($record->id);
+                            $result = $service->generatePrimaryList(
+                                $record->id,
+                                $data['include_past'] ?? false,
+                                $data['include_delivered'] ?? false,
+                            );
 
-                            if (empty($data['items'])) {
+                            if (empty($result['items'])) {
                                 Notification::make()->title('ピッキング明細がありません')->warning()->send();
 
                                 return;
                             }
 
                             $pdfService = new PickingListPdfService;
-                            $pdf = $pdfService->renderPrimaryPdf($data);
+                            $pdf = $pdfService->renderPrimaryPdf($result);
 
                             return response()->streamDownload(
                                 fn () => print ($pdf),

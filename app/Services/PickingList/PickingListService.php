@@ -24,13 +24,12 @@ class PickingListService
     /**
      * 1次ピッキングリスト（Wave集約）
      *
-     * Wave内の全ピッキング明細を商品別に集約し、総数量・ケース/バラ換算を算出する。
-     *
+     * @param  bool  $includePast  過去の伝票（出荷日が波動出荷日より前）も含める
+     * @param  bool  $includeDelivered  配送済み（COMPLETED）タスクも含める
      * @return array{header: array, items: array, summary: array}
      */
-    public function generatePrimaryList(int $waveId): array
+    public function generatePrimaryList(int $waveId, bool $includePast = false, bool $includeDelivered = false): array
     {
-        // ヘッダー情報取得
         $wave = $this->db()->table('wms_waves as w')
             ->join('wms_wave_settings as ws', 'w.wms_wave_setting_id', '=', 'ws.id')
             ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
@@ -40,7 +39,6 @@ class PickingListService
                 'w.wave_no',
                 'w.shipping_date',
                 'wh.name as warehouse_name',
-                'dc.name as course_name',
             ])
             ->first();
 
@@ -48,27 +46,39 @@ class PickingListService
             return ['header' => [], 'items' => [], 'summary' => []];
         }
 
-        // 商品別集約（棚番付き）
-        $items = $this->db()->table('wms_picking_item_results as pir')
+        $query = $this->db()->table('wms_picking_item_results as pir')
             ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
             ->join('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
-            ->where('pt.wave_id', $waveId)
-            ->select([
-                'i.code as item_code',
-                'i.name as item_name',
-                'i.capacity_case',
-                'pir.zone_code',
-                'pir.location_id',
-                'l.code1',
-                'l.code2',
-                'l.code3',
-                DB::raw('SUM(pir.planned_qty) as total_qty'),
-                DB::raw('SUM(pir.shortage_qty) as shortage_qty'),
-                DB::raw('COUNT(DISTINCT CASE WHEN pir.earning_id IS NOT NULL THEN pir.earning_id END) as destination_count'),
-                'pir.planned_qty_type',
-            ])
-            ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'pir.zone_code', 'pir.planned_qty_type', 'pir.location_id', 'l.code1', 'l.code2', 'l.code3')
+            ->where('pt.wave_id', $waveId);
+
+        if (! $includePast) {
+            $query->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+                ->where(function ($q) use ($wave) {
+                    $q->whereNull('e.delivered_date')
+                        ->orWhere('e.delivered_date', '>=', $wave->shipping_date);
+                });
+        }
+
+        if (! $includeDelivered) {
+            $query->where('pt.status', '!=', 'COMPLETED');
+        }
+
+        $items = $query->select([
+            'i.code as item_code',
+            'i.name as item_name',
+            'i.capacity_case',
+            'i.packaging',
+            'pir.location_id',
+            'l.code1',
+            'l.code2',
+            'l.code3',
+            DB::raw('SUM(pir.planned_qty) as total_qty'),
+            DB::raw('SUM(pir.shortage_qty) as shortage_qty'),
+            DB::raw('COUNT(DISTINCT CASE WHEN pir.earning_id IS NOT NULL THEN pir.earning_id END) as destination_count'),
+            'pir.planned_qty_type',
+        ])
+            ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'i.packaging', 'pir.planned_qty_type', 'pir.location_id', 'l.code1', 'l.code2', 'l.code3')
             ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
@@ -85,7 +95,6 @@ class PickingListService
             $qty = (int) $item->total_qty;
             $qtyType = QuantityType::tryFrom($item->planned_qty_type) ?? QuantityType::PIECE;
 
-            // ケース/バラ換算
             if ($qtyType === QuantityType::CASE) {
                 $caseQty = $qty;
                 $pieceQty = 0;
@@ -98,17 +107,17 @@ class PickingListService
             }
 
             $locationCode = $item->location_id
-                ? Location::formatCode($item->code1, $item->code2, $item->code3)
+                ? Location::formatCode($item->code1, $item->code2, $item->code3, '-')
                 : '';
 
             $formattedItems[] = [
                 'item_code' => $item->item_code,
                 'item_name' => $item->item_name,
+                'packaging' => $item->packaging ?? '',
                 'location_code' => $locationCode,
                 'total_qty' => $qty,
                 'case_qty' => $caseQty,
                 'piece_qty' => $pieceQty,
-                'picking_zone' => $item->zone_code ?? '未設定',
                 'destination_count' => (int) $item->destination_count,
                 'shortage_qty' => (int) $item->shortage_qty,
             ];
@@ -123,7 +132,6 @@ class PickingListService
                 'wave_no' => $wave->wave_no,
                 'shipping_date' => $wave->shipping_date,
                 'warehouse_name' => $wave->warehouse_name ?? '',
-                'course_name' => $wave->course_name ?? '',
             ],
             'items' => $formattedItems,
             'summary' => [
