@@ -75,11 +75,6 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     private array $janCodeCache = [];
 
     /**
-     * 商品ID:発注コード => 発注コード入数情報 のキャッシュ
-     */
-    private array $orderingCodeInfoCache = [];
-
-    /**
      * 発注先ID => WmsContractorSetting のキャッシュ
      */
     private array $contractorSettingCache = [];
@@ -406,41 +401,31 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      * 6-69: 品名 X(64) - name_main、62バイト+2バイト空白、半角カナ変換なし
      * 70-82: JANコード X(13)
      * 83-88: 自社コード X(06)
-     * 89-94: 仕入入数 9(06) - 発注コードに紐づく入数
-     * 95-101: ケース数 9(07) - 発注コード入数で換算した発注数
-     * 102-108: バラ数量 9(07) - 発注コードがバラの場合のみ数量設定
+     * 89-94: 仕入入数 9(06) - ケース/バラ問わず常にcapacity_case
+     * 95-101: ケース数 9(07) - quantity_type=CASE の場合のみ数量設定
+     * 102-108: バラ数量 9(07) - quantity_type=PIECE の場合のみ数量設定
      * 109-118: 原単価 9(10) - 小数点2桁（160.00→000016000）
      * 119-128: FILLER X(10)
      */
     private function generateDRecord($candidate, int $seq): string
     {
         $item = $candidate->item;
-        $itemCapacityCase = (int) ($item?->capacity_case ?? 1);
-        $totalQty = $candidate->order_quantity;
+        $capacityCase = (int) ($item?->capacity_case ?? 1);
+        $totalQty = (int) $candidate->order_quantity;
+
+        if ($candidate->quantity_type === QuantityType::CASE || $candidate->quantity_type?->value === 'CASE') {
+            $caseQty = $totalQty;
+            $pieceQty = 0;
+        } else {
+            $caseQty = 0;
+            $pieceQty = $totalQty;
+        }
 
         // 発注コード: 候補に保存されているordering_codeを優先、空欄/全ゼロなら動的取得（後方互換性）
         $orderingCode = $this->resolveOrderingCode($candidate);
 
-        $orderingCodeInfo = $this->getOrderingCodeInfo($item?->id, $orderingCode);
-        $orderingUnitQuantity = max(1, (int) ($orderingCodeInfo?->quantity ?? $itemCapacityCase));
-        $orderingQuantityType = $orderingCodeInfo?->quantity_type;
-
-        if ($candidate->quantity_type === QuantityType::CASE || $candidate->quantity_type?->value === 'CASE') {
-            $totalPieceQty = (int) $totalQty * max(1, $itemCapacityCase);
-        } else {
-            $totalPieceQty = (int) $totalQty;
-        }
-
-        if ($orderingQuantityType === QuantityType::PIECE->value || $orderingUnitQuantity <= 1) {
-            $caseQty = 0;
-            $pieceQty = $totalPieceQty;
-        } else {
-            $caseQty = (int) ceil($totalPieceQty / $orderingUnitQuantity);
-            $pieceQty = 0;
-        }
-
         // 原単価を取得（小数点2桁、160.00→000016000）
-        $costPrice = $this->getCurrentCostPrice($item?->id, $itemCapacityCase, $candidate->quantity_type, $orderingUnitQuantity);
+        $costPrice = $this->getCurrentCostPrice($item?->id, $candidate->quantity_type);
         $priceFormatted = (int) round($costPrice * 100); // 小数点2桁を整数に変換
 
         $record = '';
@@ -450,7 +435,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $record .= $this->padProductName($item?->name_main ?? '', 62).'  '; // 6-69: 品名（62バイト+2空白）
         $record .= str_pad($orderingCode, 13);                       // 70-82: 発注コード
         $record .= str_pad(substr($item?->code ?? '', 0, 6), 6);     // 83-88: 自社コード
-        $record .= $this->padNumber($orderingUnitQuantity, 6);       // 89-94: 仕入入数
+        $record .= $this->padNumber($capacityCase, 6);               // 89-94: 仕入入数
         $record .= $this->padNumber($caseQty, 7);                    // 95-101: ケース数
         $record .= $this->padNumber($pieceQty, 7);                   // 102-108: バラ数量
         $record .= $this->padNumber($priceFormatted, 10);            // 109-118: 原単価
@@ -664,46 +649,6 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     }
 
     /**
-     * 発注コードに紐づく入数情報を取得
-     */
-    private function getOrderingCodeInfo(?int $itemId, string $orderingCode): ?object
-    {
-        if (! $itemId) {
-            return null;
-        }
-
-        $normalizedCode = ltrim(trim($orderingCode), '0');
-        if ($normalizedCode === '') {
-            $normalizedCode = trim($orderingCode);
-        }
-
-        $cacheKey = $itemId.':'.$normalizedCode;
-        if (array_key_exists($cacheKey, $this->orderingCodeInfoCache)) {
-            return $this->orderingCodeInfoCache[$cacheKey];
-        }
-
-        $info = DB::connection('sakemaru')
-            ->table('item_search_information as isi')
-            ->leftJoin('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
-            ->where('isi.item_id', $itemId)
-            ->where('isi.is_active', true)
-            ->where(function ($query) use ($orderingCode, $normalizedCode) {
-                $query->where('isi.search_string', trim($orderingCode))
-                    ->orWhere('isi.search_string', $normalizedCode);
-            })
-            ->orderByDesc('isi.is_used_for_ordering')
-            ->orderBy('isi.priority')
-            ->first([
-                'isi.search_string',
-                'isi.quantity_type',
-                'isi.item_quantity_information_id',
-                'iqi.quantity',
-            ]);
-
-        return $this->orderingCodeInfoCache[$cacheKey] = $info;
-    }
-
-    /**
      * 全角カナを半角カナに変換
      */
     private function toHalfWidthKana(string $str): string
@@ -838,19 +783,15 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      * 商品の現在有効な仕入単価を取得
      *
      * item_pricesテーブルからstart_dateが現在日以前で最も新しいレコードを取得。
-     * capacity_case=1の場合はcost_unit_price、それ以外はcost_case_priceを返す。
+     * quantity_type=PIECE の場合は cost_unit_price、それ以外は cost_case_price を返す。
      *
      * @param  int|null  $itemId  商品ID
-     * @param  int  $capacityCase  商品ケース入り数
      * @param  QuantityType|string|null  $quantityType  数量タイプ
-     * @param  int|null  $orderingUnitQuantity  発注コードに紐づく入り数
      * @return float 仕入単価
      */
     private function getCurrentCostPrice(
         ?int $itemId,
-        int $capacityCase,
-        QuantityType|string|null $quantityType = null,
-        ?int $orderingUnitQuantity = null
+        QuantityType|string|null $quantityType = null
     ): float {
         if (! $itemId) {
             return 0.0;
@@ -882,10 +823,6 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         if ($isPiece) {
             return (float) ($price->cost_unit_price ?? 0);
-        }
-
-        if ($orderingUnitQuantity && $orderingUnitQuantity !== $capacityCase) {
-            return (float) ($price->cost_unit_price ?? 0) * $orderingUnitQuantity;
         }
 
         return (float) ($price->cost_case_price ?? 0);
