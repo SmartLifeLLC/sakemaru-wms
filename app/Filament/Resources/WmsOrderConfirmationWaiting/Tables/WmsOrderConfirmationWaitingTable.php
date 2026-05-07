@@ -747,10 +747,10 @@ class WmsOrderConfirmationWaitingTable
     {
         $orderingCode = static::normalizeOrderingCode($record->ordering_code);
         if (! $orderingCode) {
-            return false;
+            return null;
         }
 
-        return DB::connection('sakemaru')
+        $qty = DB::connection('sakemaru')
             ->table('item_search_information as isi')
             ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
             ->where('isi.item_id', $record->item_id)
@@ -771,16 +771,40 @@ class WmsOrderConfirmationWaitingTable
 
     private static function resolveOrderingUnitOrderQuantity(WmsOrderCandidate $record, int $orderingUnitQty): int
     {
-        $currentQuantity = max(0, (int) $record->order_quantity);
-        $suggestedQuantity = max(0, (int) $record->suggested_quantity);
-        $baseQuantity = $suggestedQuantity > 0 ? $suggestedQuantity : $currentQuantity;
-        $packQuantity = (int) ceil($baseQuantity / $orderingUnitQty);
+        if (static::isAlreadyConvertedToOrderingUnit($record, $orderingUnitQty)) {
+            return max(0, (int) $record->order_quantity);
+        }
+
+        $pieceQuantity = static::resolveSystemPieceQuantity($record);
+        $packQuantity = (int) ceil($pieceQuantity / $orderingUnitQty);
 
         if ($orderingUnitQty === 6 && $packQuantity > 0) {
             $packQuantity = (int) (ceil($packQuantity / 4) * 4);
         }
 
         return $packQuantity;
+    }
+
+    private static function resolveSystemPieceQuantity(WmsOrderCandidate $record): int
+    {
+        $quantity = max(0, (int) $record->order_quantity);
+        $quantityType = $record->quantity_type instanceof QuantityType
+            ? $record->quantity_type
+            : QuantityType::tryFrom((string) $record->quantity_type);
+
+        if ($quantityType !== QuantityType::CASE) {
+            return $quantity;
+        }
+
+        $capacityCase = (int) ($record->item?->capacity_case ?? 0);
+        if ($capacityCase <= 0) {
+            $capacityCase = (int) (DB::connection('sakemaru')
+                ->table('items')
+                ->where('id', $record->item_id)
+                ->value('capacity_case') ?? 1);
+        }
+
+        return $quantity * max(1, $capacityCase);
     }
 
     private static function resolveSixPackPurchaseUnitPrice(WmsOrderCandidate $record): ?float
@@ -797,6 +821,22 @@ class WmsOrderConfirmationWaitingTable
         }
 
         return round((float) $piecePrice * $orderingUnitQty, 2);
+    }
+
+    private static function isAlreadyConvertedToOrderingUnit(WmsOrderCandidate $record, int $orderingUnitQty): bool
+    {
+        $quantityType = $record->quantity_type instanceof QuantityType
+            ? $record->quantity_type
+            : QuantityType::tryFrom((string) $record->quantity_type);
+
+        if ($quantityType !== QuantityType::CASE || $record->purchase_unit_price === null) {
+            return false;
+        }
+
+        $expectedUnitPrice = static::resolveOrderingUnitPurchaseUnitPrice($record, $orderingUnitQty);
+
+        return $expectedUnitPrice !== null
+            && abs(round((float) $record->purchase_unit_price, 2) - $expectedUnitPrice) < 0.01;
     }
 
     private static function normalizeOrderingCode(?string $code): ?string

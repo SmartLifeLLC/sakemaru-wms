@@ -586,6 +586,7 @@ class HanaOrderFileGeneratorTest extends TestCase
             'quantity_type' => \App\Enums\QuantityType::CASE,
             'order_quantity' => 4,
             'ordering_code' => $orderingCode,
+            'purchase_unit_price' => 1290,
         ]);
         $candidate->setRelation('item', (object) [
             'id' => $itemId,
@@ -610,6 +611,7 @@ class HanaOrderFileGeneratorTest extends TestCase
         $costPriceCache->setValue($this->generator, [$itemId => (object) [
             'cost_case_price' => 5160,
             'cost_unit_price' => 215,
+            'purchase_unit_price' => 215,
         ]]);
 
         $generateDRecord = $generatorReflection->getMethod('generateDRecord');
@@ -619,6 +621,57 @@ class HanaOrderFileGeneratorTest extends TestCase
         $this->assertEquals(6, (int) substr($dRecord, 88, 6), 'Capacity should use ordering code quantity');
         $this->assertEquals(4, (int) substr($dRecord, 94, 7), 'Case quantity should use the candidate order quantity');
         $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Piece quantity should remain zero for case ordering code');
+        $this->assertEquals(129000, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost multiplied by ordering code quantity');
+    }
+
+    /**
+     * @test
+     * 未補正のケース数量はJX生成時に総バラから発注コード単位へ変換されること
+     */
+    public function it_converts_unadjusted_case_quantity_to_ordering_code_quantity_for_jx(): void
+    {
+        $itemId = 999006;
+        $orderingCode = '4901411004754';
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => $itemId,
+            'quantity_type' => \App\Enums\QuantityType::CASE,
+            'order_quantity' => 1,
+            'ordering_code' => $orderingCode,
+            'purchase_unit_price' => 5160,
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => $itemId,
+            'code' => '143059',
+            'name_main' => 'TEST SIX PACK',
+            'capacity_case' => 24,
+        ]);
+
+        $generatorReflection = new \ReflectionClass($this->generator);
+
+        $orderingCodeInfoCache = $generatorReflection->getProperty('orderingCodeInfoCache');
+        $orderingCodeInfoCache->setAccessible(true);
+        $orderingCodeInfoCache->setValue($this->generator, [
+            $itemId.':'.$orderingCode => (object) [
+                'quantity' => 6,
+            ],
+        ]);
+
+        $costPriceCache = $generatorReflection->getProperty('costPriceCache');
+        $costPriceCache->setAccessible(true);
+        $costPriceCache->setValue($this->generator, [$itemId => (object) [
+            'cost_case_price' => 5160,
+            'cost_unit_price' => 215,
+            'purchase_unit_price' => 215,
+        ]]);
+
+        $generateDRecord = $generatorReflection->getMethod('generateDRecord');
+        $generateDRecord->setAccessible(true);
+        $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
+
+        $this->assertEquals(6, (int) substr($dRecord, 88, 6), 'Capacity should use ordering code quantity');
+        $this->assertEquals(4, (int) substr($dRecord, 94, 7), 'One 24-piece case should become four 6-pack units');
+        $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Ordering code quantity should be sent as case quantity');
         $this->assertEquals(129000, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost multiplied by ordering code quantity');
     }
 

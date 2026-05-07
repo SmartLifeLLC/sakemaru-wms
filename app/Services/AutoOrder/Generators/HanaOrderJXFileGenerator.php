@@ -464,7 +464,14 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $orderingUnitQty = $this->getOrderingUnitQuantity($item?->id, $orderingCode, $capacityCase);
         $displayCapacity = $orderingUnitQty ?? $capacityCase;
 
-        if ($candidate->quantity_type === QuantityType::CASE || $candidate->quantity_type?->value === 'CASE') {
+        if ($orderingUnitQty !== null && ! $this->isAlreadyConvertedToOrderingUnit($candidate, $orderingUnitQty)) {
+            $totalQty = $this->convertToOrderingUnitQuantity($candidate, $orderingUnitQty, $capacityCase);
+        }
+
+        if ($orderingUnitQty !== null) {
+            $caseQty = $totalQty;
+            $pieceQty = 0;
+        } elseif ($candidate->quantity_type === QuantityType::CASE || $candidate->quantity_type?->value === 'CASE') {
             $caseQty = $totalQty;
             $pieceQty = 0;
         } else {
@@ -495,6 +502,41 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $record .= str_pad('', 10);                                  // 119-128: FILLER
 
         return $this->ensureRecordLength($record);
+    }
+
+    private function convertToOrderingUnitQuantity($candidate, int $orderingUnitQty, int $capacityCase): int
+    {
+        $quantity = max(0, (int) $candidate->order_quantity);
+        $quantityType = $candidate->quantity_type instanceof QuantityType
+            ? $candidate->quantity_type
+            : QuantityType::tryFrom((string) $candidate->quantity_type);
+
+        $pieceQuantity = $quantityType === QuantityType::CASE
+            ? $quantity * max(1, $capacityCase)
+            : $quantity;
+
+        $orderQuantity = (int) ceil($pieceQuantity / $orderingUnitQty);
+        if ($orderingUnitQty === 6 && $orderQuantity > 0) {
+            $orderQuantity = (int) (ceil($orderQuantity / 4) * 4);
+        }
+
+        return $orderQuantity;
+    }
+
+    private function isAlreadyConvertedToOrderingUnit($candidate, int $orderingUnitQty): bool
+    {
+        if ($candidate->purchase_unit_price === null) {
+            return false;
+        }
+
+        $piecePurchasePrice = $this->getCurrentPurchaseUnitPrice($candidate->item?->id);
+        if ($piecePurchasePrice === null) {
+            return false;
+        }
+
+        $expectedUnitPrice = round($piecePurchasePrice * $orderingUnitQty, 2);
+
+        return abs(round((float) $candidate->purchase_unit_price, 2) - $expectedUnitPrice) < 0.01;
     }
 
     /**
@@ -932,6 +974,33 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         }
 
         return (float) ($price->cost_case_price ?? 0);
+    }
+
+    private function getCurrentPurchaseUnitPrice(?int $itemId): ?float
+    {
+        if (! $itemId) {
+            return null;
+        }
+
+        if (isset($this->costPriceCache[$itemId])) {
+            $price = $this->costPriceCache[$itemId];
+        } else {
+            $price = DB::connection('sakemaru')
+                ->table('item_prices')
+                ->where('item_id', $itemId)
+                ->where('is_active', true)
+                ->where('start_date', '<=', now()->toDateString())
+                ->orderBy('start_date', 'desc')
+                ->first();
+
+            $this->costPriceCache[$itemId] = $price;
+        }
+
+        if (! $price || ! property_exists($price, 'purchase_unit_price') || $price->purchase_unit_price === null) {
+            return null;
+        }
+
+        return (float) $price->purchase_unit_price;
     }
 
     /**
