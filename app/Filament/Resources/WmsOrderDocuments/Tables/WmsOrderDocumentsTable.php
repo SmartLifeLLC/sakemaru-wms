@@ -2,13 +2,11 @@
 
 namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
-use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsContractorSetting;
-use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
 use Filament\Actions\Action;
@@ -200,8 +198,8 @@ class WmsOrderDocumentsTable
                     ->icon('heroicon-o-paper-airplane')
                     ->color('success')
                     ->modalHeading('JX-FINET送信')
-                    ->modalDescription('確定済み候補からファイルを生成して送信します')
-                    ->modalSubmitActionLabel('生成＆送信')
+                    ->modalDescription('送信前のJXファイルを送信します')
+                    ->modalSubmitActionLabel('送信')
                     ->modalCancelActionLabel('送信せず閉じる')
                     ->schema([
                         Select::make('contractor_id')
@@ -210,18 +208,18 @@ class WmsOrderDocumentsTable
                                 return static::jxTransmitTargetOptions();
                             })
                             ->required()
-                            ->helperText('確定済み未送信の候補がある送信先のみ表示されます'),
+                            ->helperText('送信前のJXファイルがある送信先のみ表示されます'),
                     ])
                     ->action(function (array $data) {
                         $contractorId = (int) $data['contractor_id'];
 
                         $service = app(OrderTransmissionService::class);
-                        $result = $service->generateAndTransmitForContractor($contractorId);
+                        $result = $service->transmitPendingDocumentsForContractor([$contractorId]);
 
                         if (! empty($result['transmitted'])) {
                             $count = $result['order_count'] ?? count($result['transmitted']);
                             Notification::make()
-                                ->title("JX送信完了（{$count}品）")
+                                ->title("JX送信完了（{$count}件）")
                                 ->success()
                                 ->send();
                         }
@@ -353,7 +351,7 @@ class WmsOrderDocumentsTable
     }
 
     /**
-     * JX送信対象（確定済み未送信候補がある送信先）の選択肢。
+     * JX送信対象（送信前ドキュメントがある送信先）の選択肢。
      */
     private static function jxTransmitTargetOptions(): array
     {
@@ -366,49 +364,33 @@ class WmsOrderDocumentsTable
             return [];
         }
 
-        $generator = app(OrderTransmissionService::class)->getGenerator();
-        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
-
-        // 送信先にマッピングされるソース仕入先IDも含める
-        $allSourceIds = $jxContractorIds;
-        foreach ($mapping as $sourceId => $targetId) {
-            if (in_array($targetId, $jxContractorIds)) {
-                $allSourceIds[] = (int) $sourceId;
-            }
-        }
-
-        $transmittedDocIds = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::TRANSMITTED)
-            ->pluck('id');
-
-        $candidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
-            ->whereNull('transmitted_at')
-            ->whereIn('contractor_id', array_unique($allSourceIds))
-            ->where(fn ($q) => $q->whereNull('wms_order_jx_document_id')
-                ->orWhereNotIn('wms_order_jx_document_id', $transmittedDocIds))
+        $documents = WmsOrderJxDocument::query()
+            ->where('status', TransmissionDocumentStatus::PENDING)
+            ->whereIn('contractor_id', $jxContractorIds)
             ->with('contractor')
             ->get();
 
-        if ($candidates->isEmpty()) {
+        if ($documents->isEmpty()) {
             return [];
         }
 
-        // 送信先IDでグループ化（マッピング適用）
-        $grouped = $candidates->groupBy(function ($c) use ($mapping) {
-            return $mapping[$c->contractor_id] ?? $c->contractor_id;
-        });
+        return $documents
+            ->groupBy('contractor_id')
+            ->mapWithKeys(function ($items, $contractorId) {
+                $contractor = $items->first()->contractor;
+                $documentCount = $items->count();
+                $orderCount = $items->sum('order_count');
 
-        return $grouped->mapWithKeys(function ($items, $transmissionContractorId) {
-            $contractor = $items->first()->contractor;
-            // マッピング先の場合、送信先名を取得
-            if ($contractor && $contractor->id !== (int) $transmissionContractorId) {
-                $contractor = \App\Models\Sakemaru\Contractor::find($transmissionContractorId);
-            }
-            $count = $items->count();
-            $label = $contractor
-                ? "[{$contractor->code}]{$contractor->name} ({$count}品)"
-                : "ID:{$transmissionContractorId} ({$count}品)";
+                $suffix = $orderCount > 0
+                    ? "{$documentCount}件 / {$orderCount}品"
+                    : "{$documentCount}件";
 
-            return [$transmissionContractorId => $label];
-        })->all();
+                $label = $contractor
+                    ? "[{$contractor->code}]{$contractor->name} ({$suffix})"
+                    : "ID:{$contractorId} ({$suffix})";
+
+                return [$contractorId => $label];
+            })
+            ->all();
     }
 }
