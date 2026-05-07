@@ -142,12 +142,13 @@ class ListWaves extends ListRecords
                                 ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
                                 ->where('dc.warehouse_id', $warehouseId)
                                 ->where('wms_waves.shipping_date', $shippingDate)
+                                ->where('wms_waves.status', '!=', 'COMPLETED')
                                 ->select(['wms_waves.*', 'dc.name as course_name'])
                                 ->orderBy('dc.name')
                                 ->get();
 
                             if ($waves->isEmpty()) {
-                                return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">対象波動がありません</p></div>');
+                                return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">対象波動がありません（出荷完了は除外）</p></div>');
                             }
 
                             $statusLabels = [
@@ -198,6 +199,7 @@ class ListWaves extends ListRecords
                         ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
                         ->where('dc.warehouse_id', $warehouseId)
                         ->where('wms_waves.shipping_date', $shippingDate)
+                        ->where('wms_waves.status', '!=', 'COMPLETED')
                         ->select('wms_waves.*')
                         ->orderBy('wms_waves.wave_no')
                         ->get();
