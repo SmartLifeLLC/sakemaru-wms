@@ -258,6 +258,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $records[] = $this->generateARecord($transmissionContractorCode, $totalRecordCount, $bCount, $jxSetting);
 
         $bRecordSeq = 1;
+        $usedSlipNumbers = [];
         foreach ($groupedByContractorWarehouse as $groupKey => $groupCandidates) {
             // 6件ずつに分割
             $chunks = $groupCandidates->chunk(self::MAX_D_RECORDS_PER_B);
@@ -274,8 +275,10 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
                     $dbSlipNumber = $schedule?->slip_number;
                 }
 
+                $slipNumber = $this->resolveBRecordSlipNumber($firstCandidate, $bRecordSeq, $dbSlipNumber, $usedSlipNumbers);
+
                 // Bレコード（伝票ヘッダ）
-                $records[] = $this->generateBRecord($firstCandidate, $bRecordSeq, $dbSlipNumber);
+                $records[] = $this->generateBRecord($firstCandidate, $bRecordSeq, $slipNumber);
 
                 // Dレコード（伝票明細）- 各Bレコード内で1から開始
                 $dRecordSeq = 1;
@@ -404,6 +407,32 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $record .= str_pad('', 34);                                  // 95-128: FILLER
 
         return $this->ensureRecordLength($record);
+    }
+
+    private function resolveBRecordSlipNumber($candidate, int $seq, ?string $slipNumber, array &$usedSlipNumbers): string
+    {
+        $orderDate = Carbon::now()->toDateString();
+
+        if ($slipNumber && preg_match('/^\d{11}$/', $slipNumber) && ! in_array($slipNumber, $usedSlipNumbers, true)) {
+            $usedSlipNumbers[] = $slipNumber;
+
+            return $slipNumber;
+        }
+
+        if ($slipNumber) {
+            Log::warning('JX slip number replaced', [
+                'candidate_id' => $candidate->id ?? null,
+                'slip_number' => $slipNumber,
+            ]);
+        }
+
+        do {
+            $newSlipNumber = WmsOrderIncomingSchedule::formatSlipNumber($orderDate, $seq++);
+        } while (in_array($newSlipNumber, $usedSlipNumbers, true));
+
+        $usedSlipNumbers[] = $newSlipNumber;
+
+        return $newSlipNumber;
     }
 
     /**
