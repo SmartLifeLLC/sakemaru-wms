@@ -369,8 +369,10 @@ class WmsOrderDocumentsTable
      */
     private static function jxContractorOptions(): array
     {
+        $contractorIds = static::jxTransmissionContractorIds();
+
         return WmsContractorSetting::query()
-            ->where('transmission_type', TransmissionType::JX_FINET)
+            ->whereIn('contractor_id', $contractorIds)
             ->with('contractor')
             ->get()
             ->filter(fn (WmsContractorSetting $setting) => $setting->contractor !== null)
@@ -385,18 +387,25 @@ class WmsOrderDocumentsTable
      */
     private static function jxTransmitTargetOptions(): array
     {
-        $jxContractorIds = WmsContractorSetting::query()
-            ->where('transmission_type', TransmissionType::JX_FINET)
-            ->pluck('contractor_id')
-            ->toArray();
+        $jxContractorIds = static::jxTransmissionContractorIds();
 
         if (empty($jxContractorIds)) {
             return [];
         }
 
+        $generator = app(OrderTransmissionService::class)->getGenerator();
+        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
+        $sourceContractorIds = $jxContractorIds;
+
+        foreach ($mapping as $sourceId => $targetId) {
+            if (in_array((int) $targetId, $jxContractorIds, true)) {
+                $sourceContractorIds[] = (int) $sourceId;
+            }
+        }
+
         $documents = WmsOrderJxDocument::query()
             ->where('status', TransmissionDocumentStatus::PENDING)
-            ->whereIn('contractor_id', $jxContractorIds)
+            ->whereIn('contractor_id', array_values(array_unique($sourceContractorIds)))
             ->with('contractor')
             ->get();
 
@@ -405,9 +414,9 @@ class WmsOrderDocumentsTable
         }
 
         return $documents
-            ->groupBy('contractor_id')
+            ->groupBy(fn (WmsOrderJxDocument $document) => $mapping[$document->contractor_id] ?? $document->contractor_id)
             ->mapWithKeys(function ($items, $contractorId) {
-                $contractor = $items->first()->contractor;
+                $contractor = \App\Models\Sakemaru\Contractor::find($contractorId) ?? $items->first()->contractor;
                 $documentCount = $items->count();
                 $orderCount = $items->sum('order_count');
 
@@ -422,5 +431,24 @@ class WmsOrderDocumentsTable
                 return [$contractorId => $label];
             })
             ->all();
+    }
+
+    private static function jxTransmissionContractorIds(): array
+    {
+        $settingContractorIds = WmsContractorSetting::query()
+            ->where('transmission_type', TransmissionType::JX_FINET)
+            ->pluck('contractor_id')
+            ->map(fn ($id) => (int) $id)
+            ->toArray();
+
+        $generator = app(OrderTransmissionService::class)->getGenerator();
+        $generatorContractorIds = $generator?->getJxTransmissionContractorIds() ?? [];
+        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
+
+        return array_values(array_unique(array_merge(
+            $settingContractorIds,
+            array_map('intval', $generatorContractorIds),
+            array_map('intval', array_values($mapping))
+        )));
     }
 }

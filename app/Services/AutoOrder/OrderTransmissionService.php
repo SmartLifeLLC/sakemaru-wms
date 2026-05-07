@@ -1047,8 +1047,20 @@ class OrderTransmissionService
 
     public function transmitPendingDocumentsForContractor(array $contractorIds): array
     {
+        $generator = $this->getOrderFileGenerator();
+        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
+        $targetContractorIds = array_map('intval', $contractorIds);
+
+        foreach ($mapping as $sourceId => $targetId) {
+            if (in_array((int) $targetId, $targetContractorIds, true)) {
+                $targetContractorIds[] = (int) $sourceId;
+            }
+        }
+
+        $targetContractorIds = array_values(array_unique($targetContractorIds));
+
         $documents = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
-            ->whereIn('contractor_id', $contractorIds)
+            ->whereIn('contractor_id', $targetContractorIds)
             ->get();
 
         if ($documents->isEmpty()) {
