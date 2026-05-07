@@ -11,6 +11,7 @@ use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderCandidates\WmsOrderCandidateResource;
+use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemCategory;
@@ -28,13 +29,13 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\ViewField;
-use Illuminate\Support\HtmlString;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Grid;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\HtmlString;
 
 class ListWmsOrderCandidates extends ListRecords
 {
@@ -552,11 +553,20 @@ class ListWmsOrderCandidates extends ListRecords
                     })
                     ->modalSubmitActionLabel('全て承認')
                     ->action(function () {
-                        $updated = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
-                            ->update([
-                                'status' => CandidateStatus::APPROVED,
-                                'updated_at' => now(),
-                            ]);
+                        $updated = 0;
+                        WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                            ->with('item.current_price')
+                            ->orderBy('id')
+                            ->chunkById(500, function ($candidates) use (&$updated) {
+                                foreach ($candidates as $candidate) {
+                                    WmsOrderConfirmationWaitingTable::applyOrderingUnitConversionForApproval($candidate);
+                                    $candidate->update([
+                                        'status' => CandidateStatus::APPROVED,
+                                        'updated_at' => now(),
+                                    ]);
+                                    $updated++;
+                                }
+                            });
 
                         Notification::make()
                             ->title('発注候補を全て承認しました')

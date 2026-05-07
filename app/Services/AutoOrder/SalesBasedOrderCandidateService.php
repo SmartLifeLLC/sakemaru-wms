@@ -633,8 +633,8 @@ class SalesBasedOrderCandidateService
             }
 
             $capacityCase = max(1, (int) ($this->itemMaster[$ic->item_id]['capacity_case'] ?? 1));
-            $orderingUnitQty = $this->orderingUnitQuantities[$ic->item_id] ?? null;
-            $divisor = $orderingUnitQty ?? $capacityCase;
+            // 発注候補ではユーザーが見る通常数量を保持する。発注コード数量への変換は承認時/JX生成時に行う。
+            $divisor = $capacityCase;
             $orderQtyCase = (int) ceil($orderQty / $divisor);
 
             $purchaseUnitPrice = $this->supplierItemPrices[$ic->item_id][$ic->supplier_id] ?? null;

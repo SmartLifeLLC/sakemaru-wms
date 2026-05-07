@@ -60,7 +60,7 @@ class OrderExecutionServiceTest extends TestCase
         $this->assertSame(QuantityType::CASE, $quantityType);
     }
 
-    public function test_non_six_pack_order_incoming_quantity_stays_case_quantity(): void
+    public function test_ordering_unit_order_incoming_quantity_is_saved_as_piece_quantity(): void
     {
         $service = new OrderExecutionService($this->createMock(OrderAuditService::class));
 
@@ -81,7 +81,7 @@ class OrderExecutionServiceTest extends TestCase
 
         [$quantity, $quantityType] = $method->invoke($service, $candidate);
 
-        $this->assertSame(4, $quantity);
-        $this->assertSame(QuantityType::CASE, $quantityType);
+        $this->assertSame(48, $quantity);
+        $this->assertSame(QuantityType::PIECE, $quantityType);
     }
 }
