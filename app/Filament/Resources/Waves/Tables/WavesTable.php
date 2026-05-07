@@ -9,6 +9,8 @@ use App\Models\Sakemaru\Warehouse;
 use App\Services\PickingList\PickingListPdfService;
 use App\Services\PickingList\PickingListService;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
@@ -154,19 +156,18 @@ class WavesTable
                     ->color('info')
                     ->modalHeading('ピッキングリスト出力')
                     ->modalWidth('sm')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalFooterActionsAlignment(Alignment::End)
-                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('1次リスト出力')->color('primary'))
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('1次リスト出力')->color('danger'))
                     ->extraModalFooterActions(fn ($action) => [
                         $action->makeModalSubmitAction('printShortage', ['shortage' => true])->label('欠品リスト出力')->color('danger'),
                     ])
-                    ->modalCancelActionLabel('閉じる')
-                    ->schema([
-                        Toggle::make('include_past')
-                            ->label('過去の伝票も出力')
-                            ->default(false),
-                        Toggle::make('include_delivered')
-                            ->label('配送済みも出力')
-                            ->default(false),
+                    ->modalCancelActionLabel('出力せず閉じる')
+                    ->schema(fn ($record) => [
+                        Toggle::make('separate_floors')
+                            ->label('1/2Fを分離')
+                            ->default(true)
+                            ->visible(fn () => static::waveHasMultiplePickingFloors($record->id)),
                     ])
                     ->action(function ($record, array $data, array $arguments) {
                         try {
@@ -191,19 +192,17 @@ class WavesTable
                                 );
                             }
 
-                            $result = $service->generatePrimaryList(
-                                $record->id,
-                                $data['include_past'] ?? false,
-                                $data['include_delivered'] ?? false,
-                            );
+                            $resultPages = $service->generatePrimaryListPages($record->id, $data['separate_floors'] ?? true);
 
-                            if (empty($result['items'])) {
+                            if (collect($resultPages)->every(fn ($result) => empty($result['items']))) {
                                 Notification::make()->title('ピッキング明細がありません')->warning()->send();
 
                                 return;
                             }
 
-                            $pdf = $pdfService->renderPrimaryPdf($result);
+                            $pdf = count($resultPages) === 1
+                                ? $pdfService->renderPrimaryPdf($resultPages[0])
+                                : $pdfService->renderBatchPrimaryPdf($resultPages);
 
                             return response()->streamDownload(
                                 fn () => print ($pdf),
@@ -244,8 +243,147 @@ class WavesTable
                     }),
             ], position: RecordActionsPosition::BeforeColumns)
             ->toolbarActions([
+                BulkActionGroup::make([
+                    BulkAction::make('bulkPrintPrimaryList')
+                        ->label('1次リスト一括出力')
+                        ->icon('heroicon-o-document-text')
+                        ->color('info')
+                        ->modalHeading('1次リスト一括出力')
+                        ->modalDescription('選択した波動の1次ピッキングリストを1つのPDFにまとめて出力します。')
+                        ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('1次リスト出力')->color('danger'))
+                        ->modalCancelActionLabel('出力せず閉じる')
+                        ->schema([
+                            Toggle::make('separate_floors')
+                                ->label('1/2Fを分離')
+                                ->default(true),
+                        ])
+                        ->action(function ($records, array $data) {
+                            try {
+                                $service = new PickingListService;
+                                $pdfService = new PickingListPdfService;
+                                $resultPages = $records
+                                    ->sortBy('wave_no')
+                                    ->flatMap(fn ($record) => $service->generatePrimaryListPages($record->id, $data['separate_floors'] ?? true))
+                                    ->filter(fn ($result) => ! empty($result['items']))
+                                    ->values()
+                                    ->all();
+
+                                if (empty($resultPages)) {
+                                    Notification::make()->title('ピッキング明細がありません')->warning()->send();
+
+                                    return;
+                                }
+
+                                $pdf = $pdfService->renderBatchPrimaryPdf($resultPages);
+                                $dateStr = now()->format('YmdHis');
+
+                                return response()->streamDownload(
+                                    fn () => print ($pdf),
+                                    "picking-list-1st-bulk-{$dateStr}.pdf",
+                                    ['Content-Type' => 'application/pdf']
+                                );
+                            } catch (\Exception $e) {
+                                Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
+                            }
+                        }),
+
+                    BulkAction::make('bulkPrintPrimaryTotalList')
+                        ->label('1次リスト(一括)出力')
+                        ->icon('heroicon-o-calculator')
+                        ->color('info')
+                        ->modalHeading('1次リスト(一括)出力')
+                        ->modalDescription('選択した波動をまたいで全商品の合計値を1つのPDFにまとめて出力します。')
+                        ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('1次リスト(一括)出力')->color('danger'))
+                        ->modalCancelActionLabel('出力せず閉じる')
+                        ->schema([
+                            Toggle::make('separate_floors')
+                                ->label('1/2Fを分離')
+                                ->default(true),
+                        ])
+                        ->action(function ($records, array $data) {
+                            try {
+                                $service = new PickingListService;
+                                $pdfService = new PickingListPdfService;
+                                $waveIds = $records
+                                    ->sortBy('wave_no')
+                                    ->pluck('id')
+                                    ->values()
+                                    ->all();
+
+                                $resultPages = collect($service->generatePrimaryTotalListPages($waveIds, $data['separate_floors'] ?? true))
+                                    ->filter(fn ($result) => ! empty($result['items']))
+                                    ->values()
+                                    ->all();
+
+                                if (empty($resultPages)) {
+                                    Notification::make()->title('ピッキング明細がありません')->warning()->send();
+
+                                    return;
+                                }
+
+                                $pdf = $pdfService->renderBatchPrimaryPdf($resultPages);
+                                $dateStr = now()->format('YmdHis');
+
+                                return response()->streamDownload(
+                                    fn () => print ($pdf),
+                                    "picking-list-1st-total-bulk-{$dateStr}.pdf",
+                                    ['Content-Type' => 'application/pdf']
+                                );
+                            } catch (\Exception $e) {
+                                Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
+                            }
+                        }),
+
+                    BulkAction::make('bulkPrintShortageList')
+                        ->label('欠品リスト一括出力')
+                        ->icon('heroicon-o-exclamation-triangle')
+                        ->color('danger')
+                        ->modalHeading('欠品リスト一括出力')
+                        ->modalDescription('選択した波動の欠品リストを1つのPDFにまとめて出力します。')
+                        ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('欠品リスト出力')->color('danger'))
+                        ->modalCancelActionLabel('出力せず閉じる')
+                        ->action(function ($records) {
+                            try {
+                                $service = new PickingListService;
+                                $pdfService = new PickingListPdfService;
+                                $dataList = $records
+                                    ->sortBy('wave_no')
+                                    ->map(fn ($record) => $service->generateShortageList($record->id))
+                                    ->values()
+                                    ->all();
+
+                                $pdf = $pdfService->renderBatchShortagePdf($dataList);
+                                $dateStr = now()->format('YmdHis');
+
+                                return response()->streamDownload(
+                                    fn () => print ($pdf),
+                                    "shortage-list-1st-bulk-{$dateStr}.pdf",
+                                    ['Content-Type' => 'application/pdf']
+                                );
+                            } catch (\Exception $e) {
+                                Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
+                            }
+                        }),
+                ]),
                 static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
+    }
+
+    private static function waveHasMultiplePickingFloors(int $waveId): bool
+    {
+        return \DB::connection('sakemaru')
+            ->table('wms_picking_tasks')
+            ->where('wave_id', $waveId)
+            ->whereNotNull('floor_id')
+            ->distinct()
+            ->limit(2)
+            ->count('floor_id') > 1;
     }
 }

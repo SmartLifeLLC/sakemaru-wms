@@ -55,13 +55,15 @@ class PickingListPdfService
     private const PRIMARY_TABLE_ROW_HEIGHT = 7;
 
     private const PRIMARY_COL_WIDTHS = [
-        'no' => 8,
-        'location' => 22,
-        'item_code' => 24,
-        'item_name' => 88,
-        'packaging' => 20,
-        'case_qty' => 14,
-        'piece_qty' => 14,
+        'no' => 7,
+        'location' => 20,
+        'item_code' => 22,
+        'item_name' => 68,
+        'packaging' => 18,
+        'case_qty' => 12,
+        'piece_qty' => 12,
+        'shortage_qty' => 14,
+        'total_piece_qty' => 17,
     ];
 
     /**
@@ -88,7 +90,11 @@ class PickingListPdfService
         // タイトル
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 8, '1次ピッキングリスト', 0, 0, 'C');
+        $title = $header['list_title'] ?? '1次ピッキングリスト';
+        if (! empty($header['floor_name'])) {
+            $title .= ' / '.$header['floor_name'];
+        }
+        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 8, $title, 0, 0, 'C');
         $this->currentY += 10;
 
         // ヘッダー情報（左右に配置）
@@ -107,13 +113,18 @@ class PickingListPdfService
         $this->pdf->Cell(95, self::LINE_HEIGHT, '出荷日: '.($header['shipping_date'] ?? ''), 0, 0, 'L');
 
         $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
-        $this->pdf->Cell(95, self::LINE_HEIGHT, '倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'R');
+        $warehouseText = '倉庫: '.($header['warehouse_name'] ?? '');
+        if (! empty($header['floor_name'])) {
+            $warehouseText .= ' / フロア: '.$header['floor_name'];
+        }
+
+        $this->pdf->Cell(95, self::LINE_HEIGHT, $warehouseText, 0, 0, 'R');
         $this->currentY += self::LINE_HEIGHT + 3;
     }
 
     private function renderPrimaryTableHeader(): void
     {
-        $headers = ['No', '棚番', '商品CD', '商品名', '荷姿', 'ケース', 'バラ'];
+        $headers = ['No', '棚番', '商品CD', '商品名', '荷姿', 'ケース', 'バラ', '欠品数', '総バラ数'];
         $widths = array_values(self::PRIMARY_COL_WIDTHS);
         $rowH = self::PRIMARY_TABLE_ROW_HEIGHT;
 
@@ -170,9 +181,11 @@ class PickingListPdfService
                 $item['packaging'] ?? '',
                 $item['case_qty'] ?: '',
                 $item['piece_qty'] ?: '',
+                $item['shortage_qty'] ?: '',
+                $item['total_piece_qty'] ?: '',
             ];
 
-            $aligns = ['R', 'C', 'C', 'L', 'C', 'C', 'C'];
+            $aligns = ['R', 'C', 'C', 'L', 'C', 'C', 'C', 'C', 'C'];
 
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
@@ -204,8 +217,8 @@ class PickingListPdfService
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
         $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, self::LINE_HEIGHT,
-            sprintf('合計  SKU数: %d  /  総数量: %d  /  ケース計: %d  /  バラ計: %d',
-                $summary['sku_count'], $summary['total_qty'], $summary['total_case'], $summary['total_piece']
+            sprintf('合計  SKU数: %d  /  総数量: %d  /  ケース計: %d  /  バラ計: %d  /  欠品数: %d  /  総バラ数: %d',
+                $summary['sku_count'], $summary['total_qty'], $summary['total_case'], $summary['total_piece'], $summary['total_shortage'] ?? 0, $summary['total_piece_qty'] ?? 0
             ), 0, 0, 'L');
     }
 

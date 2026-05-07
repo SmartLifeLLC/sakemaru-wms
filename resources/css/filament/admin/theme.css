@@ -223,11 +223,38 @@ html.fi {
     margin: 0 !important;
     margin-top: 0.25rem !important;
     gap: 0 !important;
+    position: relative;
+    z-index: 60;
 }
 
 .fi-page-header {
     padding: 0 !important;
     margin: 0 !important;
+    position: relative;
+    z-index: 60;
+}
+
+.fi-page-header .fi-dropdown-panel,
+.fi-page-header-main-ctn .fi-dropdown-panel,
+.fi-page-header [data-popper-placement],
+.fi-page-header-main-ctn [data-popper-placement],
+.fi-ta-header-ctn .fi-dropdown-panel,
+.fi-ta-header-ctn [data-popper-placement] {
+    z-index: 80 !important;
+}
+
+.fi-page-header-main-ctn .wms-order-confirm-action,
+.fi-page-header-main-ctn .wms-order-confirm-action span,
+.fi-page-header-main-ctn .fi-dropdown-list-item-label {
+    max-width: none !important;
+    min-width: max-content;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: nowrap !important;
+}
+
+.fi-page-header-main-ctn .wms-order-confirm-action {
+    flex-shrink: 0;
 }
 
 .fi-page-main {
@@ -836,6 +863,10 @@ html.fi {
 }
 
 .incoming-detail-modal .fi-modal-footer {
+    justify-content: flex-end !important;
+}
+
+.incoming-detail-modal .fi-modal-footer > * {
     justify-content: flex-end !important;
 }
 

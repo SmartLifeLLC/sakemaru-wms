@@ -12,7 +12,7 @@
     </script>
 
     <!-- Main Navigation Bar -->
-    <header class="bg-slate-800 sticky top-0 z-[35] shadow-md">
+    <header class="bg-slate-800 sticky top-0 z-[500] shadow-md">
         <div class="w-full px-4 md:px-6">
             <div class="flex items-center justify-between h-10">
 
@@ -72,7 +72,7 @@
         @foreach($menuStructure as $tab)
             <div
                 x-show="openTab === '{{ $tab['id'] }}'"
-                class="fixed left-0 right-0 bg-white border-b border-slate-200 shadow-xl z-40"
+                class="fixed left-0 right-0 bg-white border-b border-slate-200 shadow-xl z-[500]"
                 style="top: 40px;"
                 x-cloak
             >

@@ -4,12 +4,13 @@
             state: $wire.entangle('{{ $getStatePath() }}').live,
             options: [
                 { value: 'primary', label: '1次（波動集約）', icon: 'fa-layer-group', desc: '商品別の総数量一覧', color: 'blue' },
+                { value: 'primary_total', label: '1次リスト(一括)', icon: 'fa-calculator', desc: '波動をまたいだ商品別合計', color: 'blue' },
                 { value: 'shortage', label: '1次欠品', icon: 'fa-exclamation-triangle', desc: '引当欠品リスト', color: 'red' },
                 { value: 'secondary', label: '2次（作業者別）', icon: 'fa-user-hard-hat', desc: '棚番順＋納品先内訳', color: 'blue' },
                 { value: 'tertiary', label: '3次（納品先別仕分け）', icon: 'fa-store', desc: '配送コース別→納品先別', color: 'blue' },
             ],
         }"
-        class="grid grid-cols-4 gap-3"
+        class="grid grid-cols-5 gap-3"
     >
         <template x-for="opt in options" :key="opt.value">
             <button
