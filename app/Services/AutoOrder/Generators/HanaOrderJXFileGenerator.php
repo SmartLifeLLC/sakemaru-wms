@@ -350,7 +350,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      * 仕様:
      * 1: レコード区分 X(01) - "B"
      * 2-3: データ種別 9(02) - "01"
-     * 4-14: 伝票番号 X(11) - YYYYMMDD + 連番3桁（日付ベースでユニーク）
+     * 4-14: 伝票番号 X(11) - YYMMDD + 連番5桁（日付ベースでユニーク）
      * 15-18: 社・店コード X(04) - 入庫倉庫コード（0埋め4桁）
      * 19-21: 分類コード X(03) - "999" 固定
      * 22-23: 伝票区分 X(02) - "01" 固定
@@ -373,9 +373,11 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         // 伝票番号: DB保存値（11桁数字のみ）をそのまま使用、なければ動的生成
         if ($slipNumber) {
-            $slipNumber = substr($slipNumber, 0, 11);
+            if (! preg_match('/^\d{11}$/', $slipNumber)) {
+                throw new \RuntimeException("JX送信用の伝票番号が11桁数字ではありません: {$slipNumber}");
+            }
         } else {
-            $slipNumber = $orderDate->format('Ymd').str_pad($seq, 3, '0', STR_PAD_LEFT);
+            $slipNumber = WmsOrderIncomingSchedule::formatSlipNumber($orderDate->toDateString(), $seq);
         }
 
         // 入庫倉庫コード（0埋め4桁）

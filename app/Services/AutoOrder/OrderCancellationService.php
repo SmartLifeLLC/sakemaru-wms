@@ -38,7 +38,7 @@ class OrderCancellationService
         int $userId,
         string $reason
     ): int {
-        if ($candidate->status !== CandidateStatus::CONFIRMED) {
+        if (! in_array($candidate->status, [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])) {
             throw new \RuntimeException(
                 'この発注候補は確定取消できません（ステータス: '.$candidate->status->label().'）'
             );

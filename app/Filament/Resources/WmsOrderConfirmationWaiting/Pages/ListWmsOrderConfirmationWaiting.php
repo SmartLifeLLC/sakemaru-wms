@@ -184,13 +184,13 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                         $details[] = "移動候補: {$transferApprovedCount}件 → 移動伝票生成";
                     }
                     if ($orderApprovedCount > 0) {
-                        $details[] = "発注候補: {$orderApprovedCount}件 → 発注送信データ生成・入荷予定作成";
+                        $details[] = "発注候補: {$orderApprovedCount}件 → 入荷予定作成";
                     }
 
-                    return "倉庫「{$selectedWarehouseName}」の承認済み候補のみ確定します。\n".
-                        "発注データファイルは倉庫別で生成されます。\n\n".
+                    return "倉庫「{$selectedWarehouseName}」の承認済み候補のみ確定します。\n\n".
                         '以下の処理を実行します。'."\n\n".
                         implode("\n", $details)."\n\n".
+                        "JXファイル生成・送信は別途JX送信画面から実行してください。\n".
                         '処理はバックグラウンドで実行されます。';
                 })
                 ->modalFooterActionsAlignment(Alignment::End)
@@ -248,25 +248,15 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                             $details[] = "移動候補: {$globalTransferApprovedCount}件 → 移動伝票生成";
                         }
                         if ($globalOrderApprovedCount > 0) {
-                            $details[] = "発注候補: {$globalOrderApprovedCount}件 → 発注送信データ生成・入荷予定作成";
+                            $details[] = "発注候補: {$globalOrderApprovedCount}件 → 入荷予定作成";
                         }
 
-                        $description = '全倉庫の承認済み候補をまとめて確定します。';
-                        if ($globalOrderApprovedCount > 0) {
-                            $description .= "\n発注データファイルの出力方式を選択してください。";
-                        }
-
-                        return $description."\n\n".
+                        return "全倉庫の承認済み候補をまとめて確定します。\n\n".
                             '以下の処理を実行します。'."\n\n".
                             implode("\n", $details)."\n\n".
+                            "JXファイル生成・送信は別途JX送信画面から実行してください。\n".
                             '処理はバックグラウンドで実行されます。';
                     })
-                    ->schema([
-                        ViewField::make('file_split_mode')
-                            ->view('filament.components.file-split-mode-selection')
-                            ->hiddenLabel()
-                            ->visible($globalOrderApprovedCount > 0),
-                    ])
                     ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('確定実行')->color('danger'))
                     ->modalCancelActionLabel('確定せず閉じる')
