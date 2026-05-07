@@ -797,6 +797,7 @@ class PickingListService
             ->join('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
             ->whereIn('pt.wave_id', $waveIds)
             ->where('pir.source_type', 'EARNING')
             ->select([
@@ -816,37 +817,44 @@ class PickingListService
                 'l.code1',
                 'l.code2',
                 'l.code3',
+                'l.floor_id',
+                'f.name as floor_name',
                 'pir.planned_qty',
                 'pir.planned_qty_type',
                 'pir.shortage_qty',
             ])
             ->orderBy('dc.code')
             ->orderBy('e.id')
+            ->orderByRaw('COALESCE(l.floor_id, 999999)')
             ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
             ->orderBy('i.code')
             ->get();
 
-        $byEarning = [];
+        // 売上伝票×フロア でバケット化
+        $byEarningFloor = [];
         foreach ($rows as $row) {
             $earningId = $row->earning_id;
-            if (! isset($byEarning[$earningId])) {
-                $byEarning[$earningId] = [
+            $floorId = $row->floor_id ?? 0;
+            $key = $earningId.'|'.$floorId;
+            if (! isset($byEarningFloor[$key])) {
+                $byEarningFloor[$key] = [
                     'header' => [
                         'course_name' => $row->course_name ?? '',
                         'slip_no' => $row->slip_number ?? (string) $row->e_id,
                         'shipping_date' => $row->delivered_date,
                         'warehouse_name' => $row->warehouse_name ?? '',
+                        'floor_name' => $row->floor_name ?? '',
                     ],
                     '_rows' => [],
                 ];
             }
-            $byEarning[$earningId]['_rows'][] = $row;
+            $byEarningFloor[$key]['_rows'][] = $row;
         }
 
         $results = [];
-        foreach ($byEarning as $earningId => $bucket) {
+        foreach ($byEarningFloor as $key => $bucket) {
             $items = [];
             $rowsByLocationItem = [];
 
@@ -855,7 +863,7 @@ class PickingListService
                 if (! isset($rowsByLocationItem[$key])) {
                     $rowsByLocationItem[$key] = [
                         'item_code' => $row->item_code,
-                        'item_name' => $row->item_name,
+                        'item_name' => $this->normalizeItemName($row->item_name),
                         'capacity_case' => (int) ($row->capacity_case ?: 1),
                         'jan_code' => $this->extractFirstJanCode($row->jan_code),
                         'location_id' => $row->location_id,
@@ -1001,7 +1009,7 @@ class PickingListService
                         'code2' => $row->code2,
                         'code3' => $row->code3,
                         'item_code' => $row->item_code,
-                        'item_name' => $row->item_name,
+                        'item_name' => $this->normalizeItemName($row->item_name),
                         'capacity_case' => (int) ($row->capacity_case ?: 1),
                         'jan_code' => $this->extractFirstJanCode($row->jan_code),
                         'total_pieces' => 0,
@@ -1085,5 +1093,29 @@ class PickingListService
         }
 
         return (string) $tokens[0];
+    }
+
+    /**
+     * items.name に含まれる全角/半角スペースの不揃いを正規化する。
+     * - 先頭/末尾のスペース除去
+     * - 連続スペースを単一スペースに圧縮
+     * - 全角スペースは半角スペースに変換
+     * - 残った半角スペースをノーブレークスペース(U+00A0)に変換し、
+     *   TCPDFが空白で折り返してLine1に大きな空白が残るのを防ぐ
+     *   （文字単位で折り返すようにする）
+     */
+    private function normalizeItemName(?string $raw): string
+    {
+        if ($raw === null) {
+            return '';
+        }
+        // 全角スペース → 半角スペース
+        $normalized = str_replace("\u{3000}", ' ', $raw);
+        // 連続スペースを1つに
+        $normalized = preg_replace('/\s+/u', ' ', $normalized);
+        // 先頭/末尾のスペース除去
+        $normalized = trim((string) $normalized);
+        // 半角スペース → ノーブレークスペース（折返し抑制）
+        return str_replace(' ', "\u{00A0}", $normalized);
     }
 }

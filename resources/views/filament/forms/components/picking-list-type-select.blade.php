@@ -7,7 +7,7 @@
                 { value: 'primary_total', label: '1次リスト(一括)', icon: 'fa-calculator', desc: '波動をまたいだ商品別合計', color: 'blue' },
                 { value: 'shortage', label: '1次欠品', icon: 'fa-exclamation-triangle', desc: '引当欠品リスト', color: 'red' },
                 { value: 'secondary', label: '2次（配送コース別）', icon: 'fa-user-hard-hat', desc: '棚番順＋納品先内訳', color: 'blue' },
-                { value: 'tertiary', label: '3次（納品先別仕分け）', icon: 'fa-store', desc: '配送コース別→納品先別', color: 'blue' },
+                { value: 'tertiary', label: '3次（得意先別）', icon: 'fa-store', desc: '配送者別、得意先別', color: 'blue' },
             ],
         }"
         class="grid grid-cols-1 sm:grid-cols-3 gap-3"
