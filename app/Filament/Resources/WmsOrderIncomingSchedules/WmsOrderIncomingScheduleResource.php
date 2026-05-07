@@ -6,9 +6,9 @@ use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsOrderIncomingSchedules\Pages\ListWmsOrderIncomingSchedules;
 use App\Filament\Resources\WmsOrderIncomingSchedules\Tables\WmsOrderIncomingSchedulesTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsOrderIncomingSchedule;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -46,9 +46,13 @@ class WmsOrderIncomingScheduleResource extends AdminResource
 
     public static function getEloquentQuery(): Builder
     {
-        // 未入荷（PENDING）と一部入荷（PARTIAL）のみ表示
         return parent::getEloquentQuery()
-            ->whereIn('status', [IncomingScheduleStatus::PENDING, IncomingScheduleStatus::PARTIAL])
+            ->whereIn('status', [
+                IncomingScheduleStatus::PENDING,
+                IncomingScheduleStatus::PARTIAL,
+                IncomingScheduleStatus::CANCELLED,
+                IncomingScheduleStatus::PARTIAL_CANCELLED,
+            ])
             ->with([
                 'warehouse',
                 'item',
