@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
+use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsContractorSetting;
+use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
 use Filament\Actions\Action;
@@ -228,7 +230,7 @@ class WmsOrderDocumentsTable
                     ->icon('heroicon-o-paper-airplane')
                     ->color('success')
                     ->modalHeading('JX-FINET送信')
-                    ->modalDescription('送信前のJXファイルを送信します')
+                    ->modalDescription('送信前のJXファイル、または発注確定済みデータを送信します')
                     ->modalSubmitActionLabel('送信')
                     ->modalCancelActionLabel('送信せず閉じる')
                     ->schema([
@@ -238,13 +240,13 @@ class WmsOrderDocumentsTable
                                 return static::jxTransmitTargetOptions();
                             })
                             ->required()
-                            ->helperText('送信前のJXファイルがある送信先のみ表示されます'),
+                            ->helperText('送信前のJXファイル、または発注確定済み未送信データがある送信先のみ表示されます'),
                     ])
                     ->action(function (array $data) {
                         $contractorId = (int) $data['contractor_id'];
 
                         $service = app(OrderTransmissionService::class);
-                        $result = $service->transmitPendingDocumentsForContractor([$contractorId]);
+                        $result = $service->transmitPendingOrGenerateForContractor($contractorId);
 
                         if (! empty($result['transmitted'])) {
                             $count = $result['order_count'] ?? count($result['transmitted']);
@@ -383,7 +385,7 @@ class WmsOrderDocumentsTable
     }
 
     /**
-     * JX送信対象（送信前ドキュメントがある送信先）の選択肢。
+     * JX送信対象（送信前ドキュメント、または確定済み未送信候補がある送信先）の選択肢。
      */
     private static function jxTransmitTargetOptions(): array
     {
@@ -403,22 +405,50 @@ class WmsOrderDocumentsTable
             }
         }
 
+        $sourceContractorIds = array_values(array_unique($sourceContractorIds));
+
         $documents = WmsOrderJxDocument::query()
             ->where('status', TransmissionDocumentStatus::PENDING)
-            ->whereIn('contractor_id', array_values(array_unique($sourceContractorIds)))
+            ->whereIn('contractor_id', $sourceContractorIds)
             ->with('contractor')
             ->get();
 
-        if ($documents->isEmpty()) {
+        $transmittedDocIds = WmsOrderJxDocument::query()
+            ->where('status', TransmissionDocumentStatus::TRANSMITTED)
+            ->pluck('id');
+
+        $candidates = WmsOrderCandidate::query()
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->whereNull('transmitted_at')
+            ->whereIn('contractor_id', $sourceContractorIds)
+            ->where(fn ($query) => $query
+                ->whereNull('wms_order_jx_document_id')
+                ->orWhereNotIn('wms_order_jx_document_id', $transmittedDocIds))
+            ->with('contractor')
+            ->get();
+
+        if ($documents->isEmpty() && $candidates->isEmpty()) {
             return [];
         }
 
-        return $documents
-            ->groupBy(fn (WmsOrderJxDocument $document) => $mapping[$document->contractor_id] ?? $document->contractor_id)
-            ->mapWithKeys(function ($items, $contractorId) {
-                $contractor = \App\Models\Sakemaru\Contractor::find($contractorId) ?? $items->first()->contractor;
-                $documentCount = $items->count();
-                $orderCount = $items->sum('order_count');
+        $contractorIds = collect($documents
+            ->map(fn (WmsOrderJxDocument $document) => $mapping[$document->contractor_id] ?? $document->contractor_id)
+            ->all())
+            ->merge($candidates->map(fn (WmsOrderCandidate $candidate) => $mapping[$candidate->contractor_id] ?? $candidate->contractor_id))
+            ->unique()
+            ->values();
+
+        return $contractorIds
+            ->mapWithKeys(function ($contractorId) use ($documents, $candidates, $mapping) {
+                $targetDocuments = $documents->filter(fn (WmsOrderJxDocument $document) => (int) ($mapping[$document->contractor_id] ?? $document->contractor_id) === (int) $contractorId);
+                $targetCandidates = $candidates->filter(fn (WmsOrderCandidate $candidate) => (int) ($mapping[$candidate->contractor_id] ?? $candidate->contractor_id) === (int) $contractorId);
+
+                $contractor = \App\Models\Sakemaru\Contractor::find($contractorId)
+                    ?? $targetDocuments->first()?->contractor
+                    ?? $targetCandidates->first()?->contractor;
+
+                $documentCount = $targetDocuments->count();
+                $orderCount = $targetDocuments->sum('order_count') + $targetCandidates->count();
 
                 $suffix = $orderCount > 0
                     ? "{$documentCount}件 / {$orderCount}品"
