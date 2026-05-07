@@ -73,36 +73,48 @@ class PickingListService
             'l.code1',
             'l.code2',
             'l.code3',
+            DB::raw('COALESCE(l.floor_id, pt.floor_id) as floor_id'),
             DB::raw('SUM(pir.planned_qty) as total_qty'),
             DB::raw('SUM(pir.shortage_qty) as shortage_qty'),
             'pir.planned_qty_type',
         ])
             ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'i.packaging', 'pir.planned_qty_type', 'pir.location_id', 'l.code1', 'l.code2', 'l.code3')
+            ->groupByRaw('COALESCE(l.floor_id, pt.floor_id)')
             ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
             ->orderBy('i.code')
             ->get();
 
+        $floorNames = $this->db()->table('floors')
+            ->whereIn('id', $items->pluck('floor_id')->filter()->unique()->values()->all())
+            ->pluck('name', 'id');
+
         $formattedItems = [];
         $totalQty = 0;
         $totalCase = 0;
         $totalPiece = 0;
+        $totalShortage = 0;
+        $totalPieceQty = 0;
 
         foreach ($items as $item) {
             $capacityCase = $item->capacity_case ?: 1;
             $qty = (int) $item->total_qty;
+            $shortageQty = (int) $item->shortage_qty;
             $qtyType = QuantityType::tryFrom($item->planned_qty_type) ?? QuantityType::PIECE;
 
             if ($qtyType === QuantityType::CASE) {
                 $caseQty = $qty;
                 $pieceQty = 0;
+                $pieceTotalQty = $qty * $capacityCase;
             } elseif ($capacityCase > 1) {
                 $caseQty = intdiv($qty, $capacityCase);
                 $pieceQty = $qty % $capacityCase;
+                $pieceTotalQty = $qty;
             } else {
                 $caseQty = 0;
                 $pieceQty = $qty;
+                $pieceTotalQty = $qty;
             }
 
             $locationCode = $item->location_id
@@ -117,12 +129,17 @@ class PickingListService
                 'total_qty' => $qty,
                 'case_qty' => $caseQty,
                 'piece_qty' => $pieceQty,
-                'shortage_qty' => (int) $item->shortage_qty,
+                'shortage_qty' => $shortageQty,
+                'total_piece_qty' => $pieceTotalQty,
+                'floor_id' => $item->floor_id ? (int) $item->floor_id : null,
+                'floor_name' => $item->floor_id ? ($floorNames[$item->floor_id] ?? '') : '',
             ];
 
             $totalQty += $qty;
             $totalCase += $caseQty;
             $totalPiece += $pieceQty;
+            $totalShortage += $shortageQty;
+            $totalPieceQty += $pieceTotalQty;
         }
 
         return [
@@ -137,7 +154,199 @@ class PickingListService
                 'total_qty' => $totalQty,
                 'total_case' => $totalCase,
                 'total_piece' => $totalPiece,
+                'total_shortage' => $totalShortage,
+                'total_piece_qty' => $totalPieceQty,
             ],
+        ];
+    }
+
+    /**
+     * 1次ピッキングリストを必要に応じてフロア別ページへ分割する。
+     *
+     * @return array<int, array{header: array, items: array, summary: array}>
+     */
+    public function generatePrimaryListPages(int $waveId, bool $separateFloors = true): array
+    {
+        $data = $this->generatePrimaryList($waveId);
+
+        if (! $separateFloors || empty($data['items'])) {
+            return [$data];
+        }
+
+        $groupedItems = collect($data['items'])->groupBy(fn (array $item) => $item['floor_id'] ?? 'none');
+
+        if ($groupedItems->count() <= 1) {
+            return [$data];
+        }
+
+        return $groupedItems
+            ->map(function ($items) use ($data) {
+                $items = $items->values()->all();
+                $floorName = $items[0]['floor_name'] ?? 'フロア未設定';
+
+                return [
+                    'header' => array_merge($data['header'], [
+                        'floor_name' => $floorName ?: 'フロア未設定',
+                    ]),
+                    'items' => $items,
+                    'summary' => $this->summarizePrimaryItems($items),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * 1次ピッキングリスト（一括）
+     *
+     * 複数Waveをまたいで棚番・商品単位に集計する。波動番号は集計キーに含めない。
+     *
+     * @param  array<int>  $waveIds
+     * @return array{header: array, items: array, summary: array}
+     */
+    public function generatePrimaryTotalList(array $waveIds, array $header = [], bool $groupByFloor = false): array
+    {
+        $waveIds = collect($waveIds)->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+
+        if (empty($waveIds)) {
+            return ['header' => $header, 'items' => [], 'summary' => $this->summarizePrimaryItems([])];
+        }
+
+        $firstWave = $this->db()->table('wms_waves as w')
+            ->join('wms_wave_settings as ws', 'w.wms_wave_setting_id', '=', 'ws.id')
+            ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
+            ->leftJoin('warehouses as wh', 'dc.warehouse_id', '=', 'wh.id')
+            ->whereIn('w.id', $waveIds)
+            ->select([
+                'w.shipping_date',
+                'wh.name as warehouse_name',
+            ])
+            ->orderBy('w.wave_no')
+            ->first();
+
+        $selectColumns = [
+            'i.id as item_id',
+            'i.code as item_code',
+            'i.name as item_name',
+            'i.capacity_case',
+            'i.packaging',
+            'pir.planned_qty_type',
+            'pir.location_id',
+            'l.code1',
+            'l.code2',
+            'l.code3',
+            DB::raw($groupByFloor ? 'COALESCE(l.floor_id, pt.floor_id) as floor_id' : 'NULL as floor_id'),
+            DB::raw('SUM(pir.planned_qty) as total_qty'),
+            DB::raw('SUM(pir.shortage_qty) as shortage_qty'),
+        ];
+
+        $items = $this->db()->table('wms_picking_item_results as pir')
+            ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
+            ->join('items as i', 'pir.item_id', '=', 'i.id')
+            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->whereIn('pt.wave_id', $waveIds)
+            ->where('pt.status', '!=', 'COMPLETED')
+            ->select($selectColumns)
+            ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'i.packaging', 'pir.planned_qty_type')
+            ->groupBy('pir.location_id', 'l.code1', 'l.code2', 'l.code3')
+            ->when($groupByFloor, fn ($query) => $query->groupByRaw('COALESCE(l.floor_id, pt.floor_id)'))
+            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
+            ->orderBy('i.code')
+            ->get();
+
+        $floorNames = $this->db()->table('floors')
+            ->whereIn('id', $items->pluck('floor_id')->filter()->unique()->values()->all())
+            ->pluck('name', 'id');
+
+        $formattedItems = [];
+
+        foreach ($items as $item) {
+            $capacityCase = $item->capacity_case ?: 1;
+            $qty = (int) $item->total_qty;
+            $shortageQty = (int) $item->shortage_qty;
+            $qtyType = QuantityType::tryFrom($item->planned_qty_type) ?? QuantityType::PIECE;
+            $pieceTotalQty = $qtyType === QuantityType::CASE ? $qty * $capacityCase : $qty;
+            $caseQty = $capacityCase > 1 ? intdiv($pieceTotalQty, $capacityCase) : 0;
+            $pieceQty = $capacityCase > 1 ? $pieceTotalQty % $capacityCase : $pieceTotalQty;
+            $locationCode = $item->location_id
+                ? Location::formatCode($item->code1, $item->code2, $item->code3, '-')
+                : '';
+
+            $formattedItems[] = [
+                'item_code' => $item->item_code,
+                'item_name' => $item->item_name,
+                'packaging' => $item->packaging ?? '',
+                'location_code' => $locationCode,
+                'total_qty' => $qty,
+                'case_qty' => $caseQty,
+                'piece_qty' => $pieceQty,
+                'shortage_qty' => $shortageQty,
+                'total_piece_qty' => $pieceTotalQty,
+                'floor_id' => $item->floor_id ? (int) $item->floor_id : null,
+                'floor_name' => $item->floor_id ? ($floorNames[$item->floor_id] ?? '') : '',
+            ];
+        }
+
+        return [
+            'header' => array_merge([
+                'wave_no' => '全波動合計',
+                'shipping_date' => $firstWave->shipping_date ?? '',
+                'warehouse_name' => $firstWave->warehouse_name ?? '',
+                'list_title' => '1次ピッキングリスト(一括)',
+            ], $header),
+            'items' => $formattedItems,
+            'summary' => $this->summarizePrimaryItems($formattedItems),
+        ];
+    }
+
+    /**
+     * 1次ピッキングリスト（一括）を必要に応じてフロア別ページへ分割する。
+     *
+     * @param  array<int>  $waveIds
+     * @return array<int, array{header: array, items: array, summary: array}>
+     */
+    public function generatePrimaryTotalListPages(array $waveIds, bool $separateFloors = true): array
+    {
+        $data = $this->generatePrimaryTotalList($waveIds, groupByFloor: $separateFloors);
+
+        if (! $separateFloors || empty($data['items'])) {
+            return [$data];
+        }
+
+        $groupedItems = collect($data['items'])->groupBy(fn (array $item) => $item['floor_id'] ?? 'none');
+
+        if ($groupedItems->count() <= 1) {
+            return [$data];
+        }
+
+        return $groupedItems
+            ->map(function ($items) use ($data) {
+                $items = $items->values()->all();
+                $floorName = $items[0]['floor_name'] ?? 'フロア未設定';
+
+                return [
+                    'header' => array_merge($data['header'], [
+                        'floor_name' => $floorName ?: 'フロア未設定',
+                    ]),
+                    'items' => $items,
+                    'summary' => $this->summarizePrimaryItems($items),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function summarizePrimaryItems(array $items): array
+    {
+        return [
+            'sku_count' => count($items),
+            'total_qty' => array_sum(array_column($items, 'total_qty')),
+            'total_case' => array_sum(array_column($items, 'case_qty')),
+            'total_piece' => array_sum(array_column($items, 'piece_qty')),
+            'total_shortage' => array_sum(array_column($items, 'shortage_qty')),
+            'total_piece_qty' => array_sum(array_column($items, 'total_piece_qty')),
         ];
     }
 

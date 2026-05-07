@@ -26,6 +26,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Enums\Alignment;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
@@ -61,10 +62,20 @@ class ListWaves extends ListRecords
 
         return [
             'default' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->where('status', '!=', 'COMPLETED'))
                 ->defaultFilters($defaultFilterData)
                 ->favorite()
-                ->label('デフォルト')
+                ->label('未出荷')
                 ->default(),
+            'completed' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->where('status', 'COMPLETED'))
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label('出荷完了'),
+            'all' => PresetView::make()
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label('すべて'),
         ];
     }
 
@@ -73,6 +84,19 @@ class ListWaves extends ListRecords
         $warehouseId = auth()->user()?->getSelectedWarehouseId();
 
         return $warehouseId ? Warehouse::find($warehouseId)?->name : null;
+    }
+
+    private function warehouseHasMultipleFloors(?int $warehouseId): bool
+    {
+        if (! $warehouseId) {
+            return false;
+        }
+
+        return DB::connection('sakemaru')
+            ->table('floors')
+            ->where('warehouse_id', $warehouseId)
+            ->limit(2)
+            ->count() > 1;
     }
 
     protected function getHeaderActions(): array
@@ -96,6 +120,12 @@ class ListWaves extends ListRecords
                         ->default('primary')
                         ->required()
                         ->live(),
+
+                    Toggle::make('separate_floors')
+                        ->label('1/2Fを分離')
+                        ->default(true)
+                        ->live()
+                        ->visible(fn (Get $get) => in_array($get('list_type') ?? 'primary', ['primary', 'primary_total'], true) && $this->warehouseHasMultipleFloors((int) $get('warehouse_id'))),
 
                     Grid::make(2)->schema([
                         ViewField::make('warehouse_id')
@@ -218,7 +248,12 @@ class ListWaves extends ListRecords
 
                         $pdf = match ($listType) {
                             'primary' => $pdfService->renderBatchPrimaryPdf(
-                                $waves->map(fn ($w) => $service->generatePrimaryList($w->id))->toArray()
+                                $waves
+                                    ->flatMap(fn ($w) => $service->generatePrimaryListPages($w->id, $data['separate_floors'] ?? true))
+                                    ->toArray()
+                            ),
+                            'primary_total' => $pdfService->renderBatchPrimaryPdf(
+                                $service->generatePrimaryTotalListPages($waveIds, $data['separate_floors'] ?? true)
                             ),
                             'shortage' => $pdfService->renderBatchShortagePdf(
                                 $waves->map(fn ($w) => $service->generateShortageList($w->id))->toArray()
@@ -298,6 +333,13 @@ class ListWaves extends ListRecords
                             ->live(),
                     ]),
 
+                    ViewField::make('generation_type')
+                        ->label('生成単位')
+                        ->view('filament.forms.components.wave-generation-type-tabs')
+                        ->default('delivery_course')
+                        ->required()
+                        ->live(),
+
                     Grid::make(2)->schema([
                         ViewField::make('delivery_course_ids')
                             ->label('配送コース')
@@ -374,7 +416,53 @@ class ListWaves extends ListRecords
                             })
                             ->required()
                             ->live()
-                            ->visible(fn (Get $get) => $get('warehouse_id') && $get('shipping_date')),
+                            ->visible(fn (Get $get) => $get('warehouse_id') && $get('shipping_date') && ($get('generation_type') ?? 'delivery_course') === 'delivery_course'),
+
+                        ViewField::make('buyer_ids')
+                            ->label('得意先')
+                            ->view('filament.forms.components.checkbox-grid')
+                            ->viewData(function (Get $get): array {
+                                $warehouseId = $get('warehouse_id');
+                                $shippingDate = $get('shipping_date');
+                                $includePast = $get('include_past');
+
+                                if (! $warehouseId || ! $shippingDate) {
+                                    return ['options' => []];
+                                }
+
+                                $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
+                                $dateOperator = $includePast ? '<=' : '=';
+
+                                $options = DB::connection('sakemaru')
+                                    ->table('earnings')
+                                    ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
+                                    ->join('buyers', 'earnings.buyer_id', '=', 'buyers.id')
+                                    ->join('partners', 'buyers.partner_id', '=', 'partners.id')
+                                    ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
+                                    ->where('earnings.delivered_date', $dateOperator, $shippingDate)
+                                    ->where('earnings.is_active', true)
+                                    ->where('earnings.is_delivered', 0)
+                                    ->where('earnings.picking_status', 'BEFORE')
+                                    ->whereNotNull('earnings.buyer_id')
+                                    ->selectRaw('buyers.id as buyer_id, partners.code as partner_code, partners.name as partner_name, COUNT(*) as count')
+                                    ->groupBy('buyers.id', 'partners.code', 'partners.name')
+                                    ->orderBy('partners.code')
+                                    ->get()
+                                    ->map(fn ($row) => [
+                                        'id' => $row->buyer_id,
+                                        'label' => "[{$row->partner_code}] {$row->partner_name} ({$row->count}件)",
+                                    ])
+                                    ->values()
+                                    ->toArray();
+
+                                return [
+                                    'options' => $options,
+                                    'searchPlaceholder' => '得意先検索...',
+                                ];
+                            })
+                            ->required()
+                            ->live()
+                            ->visible(fn (Get $get) => $get('warehouse_id') && $get('shipping_date') && $get('generation_type') === 'buyer'),
 
                         Placeholder::make('earnings_preview')
                             ->label('対象伝票')
@@ -503,7 +591,82 @@ class ListWaves extends ListRecords
                                 $html .= '</div>';
 
                                 return new HtmlString($html);
-                            }),
+                            })
+                            ->visible(fn (Get $get) => ($get('generation_type') ?? 'delivery_course') === 'delivery_course'),
+
+                        Placeholder::make('buyer_earnings_preview')
+                            ->label('対象伝票')
+                            ->content(function (Get $get): HtmlString {
+                                $warehouseId = $get('warehouse_id');
+                                $shippingDate = $get('shipping_date');
+                                $buyerIds = $get('buyer_ids');
+                                $includePast = $get('include_past');
+
+                                if (! $warehouseId || ! $shippingDate) {
+                                    return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-warehouse text-2xl mb-2"></i><p class="text-sm">倉庫と出荷日を選択してください</p></div>');
+                                }
+
+                                if (empty($buyerIds)) {
+                                    return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-user-group text-2xl mb-2"></i><p class="text-sm">得意先を選択してください</p></div>');
+                                }
+
+                                $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
+                                $dateOperator = $includePast ? '<=' : '=';
+
+                                $summary = DB::connection('sakemaru')
+                                    ->table('earnings')
+                                    ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
+                                    ->join('buyers', 'earnings.buyer_id', '=', 'buyers.id')
+                                    ->join('partners', 'buyers.partner_id', '=', 'partners.id')
+                                    ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
+                                    ->where('earnings.delivered_date', $dateOperator, $shippingDate)
+                                    ->where('earnings.is_active', true)
+                                    ->where('earnings.is_delivered', 0)
+                                    ->where('earnings.picking_status', 'BEFORE')
+                                    ->whereIn('earnings.buyer_id', $buyerIds)
+                                    ->selectRaw('buyers.id as buyer_id, partners.code as partner_code, partners.name as partner_name, delivery_courses.name as course_name, COUNT(*) as count')
+                                    ->groupBy('buyers.id', 'partners.code', 'partners.name', 'delivery_courses.name')
+                                    ->orderBy('partners.code')
+                                    ->orderBy('delivery_courses.name')
+                                    ->get();
+
+                                if ($summary->isEmpty()) {
+                                    return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">選択した得意先に対象伝票がありません</p></div>');
+                                }
+
+                                $totalCount = $summary->sum('count');
+
+                                $html = '<div class="space-y-3">';
+                                $html .= '<div class="border border-slate-200 dark:border-gray-700 rounded-lg overflow-hidden">';
+                                $html .= '<div class="max-h-60 overflow-y-auto">';
+                                $html .= '<table class="w-full text-sm">';
+                                $html .= '<thead class="bg-slate-50 dark:bg-gray-900 sticky top-0 z-10">';
+                                $html .= '<tr>';
+                                $html .= '<th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">得意先</th>';
+                                $html .= '<th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">配送コース</th>';
+                                $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">売上伝票</th>';
+                                $html .= '</tr></thead>';
+                                $html .= '<tbody class="divide-y divide-slate-200 dark:divide-gray-700">';
+
+                                foreach ($summary as $row) {
+                                    $buyerLabel = "[{$row->partner_code}] {$row->partner_name}";
+                                    $html .= '<tr class="hover:bg-slate-50 dark:hover:bg-gray-700 transition-colors">';
+                                    $html .= "<td class=\"px-3 py-2 text-sm text-slate-700 dark:text-gray-300\">{$buyerLabel}</td>";
+                                    $html .= "<td class=\"px-3 py-2 text-sm text-slate-700 dark:text-gray-300\">{$row->course_name}</td>";
+                                    $html .= "<td class=\"px-3 py-2 text-sm text-right font-bold text-slate-800 dark:text-gray-200\">{$row->count}件</td>";
+                                    $html .= '</tr>';
+                                }
+
+                                $html .= '</tbody></table></div></div>';
+                                $html .= '<div class="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">';
+                                $html .= '<span class="text-sm font-bold text-slate-700 dark:text-gray-200">合計</span>';
+                                $html .= '<span class="text-lg font-bold text-blue-600 dark:text-blue-400">'.$totalCount.'件</span>';
+                                $html .= '</div>';
+                                $html .= '</div>';
+
+                                return new HtmlString($html);
+                            })
+                            ->visible(fn (Get $get) => $get('generation_type') === 'buyer'),
                     ]),
                 ])
                 ->action(function (array $data): void {
@@ -516,31 +679,49 @@ class ListWaves extends ListRecords
     {
         $warehouseId = $data['warehouse_id'];
         $shippingDate = $data['shipping_date'];
+        $generationType = $data['generation_type'] ?? 'delivery_course';
         $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
+        $buyerIds = $data['buyer_ids'] ?? [];
         $includePast = $data['include_past'] ?? true;
 
         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
-        $validCourseIds = DB::connection('sakemaru')
-            ->table('delivery_courses')
-            ->whereIn('warehouse_id', $warehouseIds)
-            ->whereIn('id', $deliveryCourseIds)
-            ->pluck('id')
-            ->toArray();
-
         $dateOperator = $includePast ? '<=' : '=';
 
-        $earnings = Earning::query()
-            ->where('delivered_date', $dateOperator, $shippingDate)
-            ->where('is_delivered', 0)
-            ->where('picking_status', 'BEFORE')
-            ->whereNotNull('delivery_course_id')
-            ->whereIn('delivery_course_id', $validCourseIds)
-            ->get();
+        if ($generationType === 'buyer') {
+            $earnings = Earning::query()
+                ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
+                ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
+                ->where('earnings.delivered_date', $dateOperator, $shippingDate)
+                ->where('earnings.is_active', true)
+                ->where('earnings.is_delivered', 0)
+                ->where('earnings.picking_status', 'BEFORE')
+                ->whereNotNull('earnings.delivery_course_id')
+                ->whereIn('earnings.buyer_id', $buyerIds)
+                ->select('earnings.*')
+                ->get();
 
-        $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId, $includePast)
-            ->whereIn('st.delivery_course_id', $validCourseIds)
-            ->get();
+            $stockTransfers = collect();
+        } else {
+            $validCourseIds = DB::connection('sakemaru')
+                ->table('delivery_courses')
+                ->whereIn('warehouse_id', $warehouseIds)
+                ->whereIn('id', $deliveryCourseIds)
+                ->pluck('id')
+                ->toArray();
+
+            $earnings = Earning::query()
+                ->where('delivered_date', $dateOperator, $shippingDate)
+                ->where('is_delivered', 0)
+                ->where('picking_status', 'BEFORE')
+                ->whereNotNull('delivery_course_id')
+                ->whereIn('delivery_course_id', $validCourseIds)
+                ->get();
+
+            $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId, $includePast)
+                ->whereIn('st.delivery_course_id', $validCourseIds)
+                ->get();
+        }
 
         if ($earnings->isEmpty() && $stockTransfers->isEmpty()) {
             Notification::make()
