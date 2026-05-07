@@ -776,7 +776,6 @@ class ListWaves extends ListRecords
     {
         $warehouseId = $data['warehouse_id'];
         $shippingDate = $data['shipping_date'];
-        $waveShippingDate = $data['_wave_shipping_date'] ?? $shippingDate;
         $generationType = $data['generation_type'] ?? 'delivery_course';
         $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
         $buyerIds = $data['buyer_ids'] ?? [];
@@ -841,6 +840,7 @@ class ListWaves extends ListRecords
             $allDeliveryCourseIds,
             $earningsByDeliveryCourse,
             $stockTransfersByDeliveryCourse,
+            $shippingDate,
             $forceNewWaves,
             &$createdWaveIds,
             &$totalEarnings,
@@ -874,7 +874,7 @@ class ListWaves extends ListRecords
                     ->first();
 
                 $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
-                    ->where('shipping_date', $waveShippingDate)
+                    ->where('shipping_date', $shippingDate)
                     ->first();
 
                 if ($existingWave) {
@@ -899,16 +899,16 @@ class ListWaves extends ListRecords
                             ->delete();
                     }
                 } else {
-                    $wave = $this->createWaveSafely($waveSetting, $warehouse, $course, $waveShippingDate);
+                    $wave = $this->createWaveSafely($waveSetting, $warehouse, $course, $shippingDate);
                 }
 
                 if ($courseEarnings->isNotEmpty()) {
-                    $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $waveShippingDate);
+                    $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $shippingDate);
                     $totalEarnings += $courseEarnings->count();
                 }
 
                 if ($courseStockTransfers->isNotEmpty()) {
-                    $this->processStockTransfersForWave($wave, $waveSetting, $courseStockTransfers, $warehouse, $course, $waveShippingDate);
+                    $this->processStockTransfersForWave($wave, $waveSetting, $courseStockTransfers, $warehouse, $course, $shippingDate);
                     $totalStockTransfers += $courseStockTransfers->count();
                 }
 
