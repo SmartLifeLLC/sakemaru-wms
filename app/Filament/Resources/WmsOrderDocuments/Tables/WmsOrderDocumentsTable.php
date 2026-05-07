@@ -181,9 +181,9 @@ class WmsOrderDocumentsTable
                     ->color('danger')
                     ->visible(fn ($record) => $record->status === TransmissionDocumentStatus::TRANSMITTED)
                     ->requiresConfirmation()
-                    ->modalHeading('JXファイルを再送信')
-                    ->modalDescription('送信済みのJXファイルを同じ内容でもう一度送信します。')
-                    ->modalSubmitActionLabel('再送信')
+                    ->modalHeading('JXファイルを再生成して再送信')
+                    ->modalDescription('送信済みの発注データから新しいJXファイルを作成して送信します。')
+                    ->modalSubmitActionLabel('新規作成して再送信')
                     ->modalCancelActionLabel('送信せず閉じる')
                     ->action(function (WmsOrderJxDocument $record) {
                         $result = app(OrderTransmissionService::class)->retransmitDocumentById($record->id);
@@ -191,7 +191,7 @@ class WmsOrderDocumentsTable
                         if ($result['success']) {
                             Notification::make()
                                 ->title('再送信しました')
-                                ->body('message_id: '.($result['message_id'] ?? '-'))
+                                ->body('新規伝票ID: '.($result['document_id'] ?? '-').' / message_id: '.($result['message_id'] ?? '-'))
                                 ->success()
                                 ->send();
 
