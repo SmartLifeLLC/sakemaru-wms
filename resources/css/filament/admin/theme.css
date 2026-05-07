@@ -774,11 +774,19 @@ html.fi {
 }
 
 .wave-modal .fi-modal-footer {
+    display: flex !important;
     justify-content: flex-end !important;
 }
 
 .wave-modal .fi-modal-footer > * {
     justify-content: flex-end !important;
+}
+
+.wave-modal .fi-modal-footer .fi-modal-footer-actions {
+    display: flex !important;
+    margin-left: auto !important;
+    justify-content: flex-end !important;
+    width: auto !important;
 }
 
 /* ピッカー割り当てモーダル - ヘッダー紺色 */
@@ -805,11 +813,19 @@ html.fi {
 }
 
 .picker-assign-modal .fi-modal-footer {
+    display: flex !important;
     justify-content: flex-end !important;
 }
 
 .picker-assign-modal .fi-modal-footer > * {
     justify-content: flex-end !important;
+}
+
+.picker-assign-modal .fi-modal-footer .fi-modal-footer-actions {
+    display: flex !important;
+    margin-left: auto !important;
+    justify-content: flex-end !important;
+    width: auto !important;
 }
 
 /* ピッキングリスト出力モーダル - ヘッダー紺色 */
@@ -836,11 +852,19 @@ html.fi {
 }
 
 .picking-list-modal .fi-modal-footer {
+    display: flex !important;
     justify-content: flex-end !important;
 }
 
 .picking-list-modal .fi-modal-footer > * {
     justify-content: flex-end !important;
+}
+
+.picking-list-modal .fi-modal-footer .fi-modal-footer-actions {
+    display: flex !important;
+    margin-left: auto !important;
+    justify-content: flex-end !important;
+    width: auto !important;
 }
 
 /* 入荷予定詳細モーダル */
@@ -863,11 +887,19 @@ html.fi {
 }
 
 .incoming-detail-modal .fi-modal-footer {
+    display: flex !important;
     justify-content: flex-end !important;
 }
 
 .incoming-detail-modal .fi-modal-footer > * {
     justify-content: flex-end !important;
+}
+
+.incoming-detail-modal .fi-modal-footer .fi-modal-footer-actions {
+    display: flex !important;
+    margin-left: auto !important;
+    justify-content: flex-end !important;
+    width: auto !important;
 }
 
 /* 倉庫別発注確定ボタン: 無効時でも読める配色にする */

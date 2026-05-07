@@ -8,7 +8,6 @@ use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Services\PickingList\PickingListPdfService;
 use App\Services\PickingList\PickingListService;
-use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
@@ -16,7 +15,6 @@ use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -149,99 +147,6 @@ class WavesTable
                         'CLOSED' => 'クローズ',
                     ]),
             ])
-            ->recordActions([
-                Action::make('printPrimaryList')
-                    ->label('1次リスト')
-                    ->icon('heroicon-o-document-text')
-                    ->color('info')
-                    ->modalHeading('ピッキングリスト出力')
-                    ->modalWidth('sm')
-                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
-                    ->modalFooterActionsAlignment(Alignment::End)
-                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('1次リスト出力')->color('danger'))
-                    ->extraModalFooterActions(fn ($action) => [
-                        $action->makeModalSubmitAction('printShortage', ['shortage' => true])->label('欠品リスト出力')->color('danger'),
-                    ])
-                    ->modalCancelActionLabel('出力せず閉じる')
-                    ->schema(fn ($record) => [
-                        Toggle::make('separate_floors')
-                            ->label('1/2Fを分離')
-                            ->default(true)
-                            ->visible(fn () => static::waveHasMultiplePickingFloors($record->id)),
-                    ])
-                    ->action(function ($record, array $data, array $arguments) {
-                        try {
-                            $service = new PickingListService;
-                            $pdfService = new PickingListPdfService;
-
-                            if ($arguments['shortage'] ?? false) {
-                                $result = $service->generateShortageList($record->id);
-
-                                if (empty($result['items'])) {
-                                    Notification::make()->title('欠品はありません')->success()->send();
-
-                                    return;
-                                }
-
-                                $pdf = $pdfService->renderShortagePdf($result);
-
-                                return response()->streamDownload(
-                                    fn () => print ($pdf),
-                                    "shortage-list-1st-{$record->wave_no}.pdf",
-                                    ['Content-Type' => 'application/pdf']
-                                );
-                            }
-
-                            $resultPages = $service->generatePrimaryListPages($record->id, $data['separate_floors'] ?? true);
-
-                            if (collect($resultPages)->every(fn ($result) => empty($result['items']))) {
-                                Notification::make()->title('ピッキング明細がありません')->warning()->send();
-
-                                return;
-                            }
-
-                            $pdf = count($resultPages) === 1
-                                ? $pdfService->renderPrimaryPdf($resultPages[0])
-                                : $pdfService->renderBatchPrimaryPdf($resultPages);
-
-                            return response()->streamDownload(
-                                fn () => print ($pdf),
-                                "picking-list-1st-{$record->wave_no}.pdf",
-                                ['Content-Type' => 'application/pdf']
-                            );
-                        } catch (\Exception $e) {
-                            Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
-                        }
-                    }),
-
-                Action::make('printTertiaryList')
-                    ->label('3次リスト')
-                    ->icon('heroicon-o-clipboard-document-list')
-                    ->color('info')
-                    ->action(function ($record) {
-                        try {
-                            $service = new PickingListService;
-                            $dataList = $service->generateTertiaryList($record->id);
-
-                            if (empty($dataList)) {
-                                Notification::make()->title('ピッキング明細がありません')->warning()->send();
-
-                                return;
-                            }
-
-                            $pdfService = new PickingListPdfService;
-                            $pdf = $pdfService->renderTertiaryPdf($dataList);
-
-                            return response()->streamDownload(
-                                fn () => print ($pdf),
-                                "picking-list-3rd-{$record->wave_no}.pdf",
-                                ['Content-Type' => 'application/pdf']
-                            );
-                        } catch (\Exception $e) {
-                            Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
-                        }
-                    }),
-            ], position: RecordActionsPosition::BeforeColumns)
             ->toolbarActions([
                 BulkActionGroup::make([
                     BulkAction::make('bulkPrintPrimaryList')
@@ -374,16 +279,5 @@ class WavesTable
                 static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
-    }
-
-    private static function waveHasMultiplePickingFloors(int $waveId): bool
-    {
-        return \DB::connection('sakemaru')
-            ->table('wms_picking_tasks')
-            ->where('wave_id', $waveId)
-            ->whereNotNull('floor_id')
-            ->distinct()
-            ->limit(2)
-            ->count('floor_id') > 1;
     }
 }

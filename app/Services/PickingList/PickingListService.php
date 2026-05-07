@@ -690,7 +690,7 @@ class PickingListService
                 ->orderBy('i.code')
                 ->get();
 
-            $data = $this->buildSecondaryItems($rows, [
+            $data = $this->buildTertiaryItems($rows, [
                 'wave_no' => $wave->wave_no,
                 'course_name' => $courseData['course_name'],
                 'area_name' => '',
@@ -704,5 +704,73 @@ class PickingListService
         }
 
         return $results;
+    }
+
+    /**
+     * 3次リスト明細行の組み立て。
+     *
+     * ケースとバラが同一棚番・同一商品に混在しても、片方へ寄せず別列へ集計する。
+     */
+    private function buildTertiaryItems($results, array $header): array
+    {
+        $grouped = [];
+        $locationSet = [];
+
+        foreach ($results as $row) {
+            $locationCode = $row->location_id
+                ? Location::formatCode($row->code1, $row->code2, $row->code3)
+                : '未設定';
+
+            $key = "{$locationCode}|{$row->item_id}";
+
+            if (! isset($grouped[$key])) {
+                $grouped[$key] = [
+                    'location_code' => $locationCode,
+                    'item_code' => $row->item_code,
+                    'item_name' => $row->item_name,
+                    'case_qty' => 0,
+                    'piece_qty' => 0,
+                    'destinations' => [],
+                ];
+                $locationSet[$locationCode] = true;
+            }
+
+            $qty = (int) $row->planned_qty;
+            $qtyType = QuantityType::tryFrom($row->planned_qty_type) ?? QuantityType::PIECE;
+            $qtyColumn = $qtyType === QuantityType::CASE ? 'case_qty' : 'piece_qty';
+            $grouped[$key][$qtyColumn] += $qty;
+
+            if ($row->buyer_name) {
+                $destinationKey = $row->buyer_name;
+
+                if (! isset($grouped[$key]['destinations'][$destinationKey])) {
+                    $grouped[$key]['destinations'][$destinationKey] = [
+                        'name' => $row->buyer_name,
+                        'case_qty' => 0,
+                        'piece_qty' => 0,
+                    ];
+                }
+
+                $grouped[$key]['destinations'][$destinationKey][$qtyColumn] += $qty;
+            }
+        }
+
+        $items = array_map(function (array $item): array {
+            $item['destinations'] = array_values($item['destinations']);
+
+            return $item;
+        }, array_values($grouped));
+
+        return [
+            'header' => $header,
+            'items' => $items,
+            'summary' => [
+                'item_count' => count($items),
+                'location_count' => count($locationSet),
+                'total_case' => array_sum(array_column($items, 'case_qty')),
+                'total_piece' => array_sum(array_column($items, 'piece_qty')),
+                'total_qty' => array_sum(array_column($items, 'case_qty')) + array_sum(array_column($items, 'piece_qty')),
+            ],
+        ];
     }
 }
