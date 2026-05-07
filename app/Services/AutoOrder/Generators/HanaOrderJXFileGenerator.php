@@ -460,7 +460,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         // 発注コード: 候補に保存されているordering_codeを優先、空欄/全ゼロなら動的取得（後方互換性）
         $orderingCode = $this->resolveOrderingCode($candidate);
 
-        // 6缶パック発注判定: 発注荷姿入数を取得
+        // 発注コード数量区分を取得
         $orderingUnitQty = $this->getOrderingUnitQuantity($item?->id, $orderingCode, $capacityCase);
         $displayCapacity = $orderingUnitQty ?? $capacityCase;
 
@@ -474,8 +474,8 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         // 原単価を取得
         $costPrice = $this->getCurrentCostPrice($item?->id, $candidate->quantity_type);
-        // 6缶パック発注の場合: バラ単価 × 6
-        if ($orderingUnitQty === 6) {
+        // 発注コード数量区分がある場合: バラ単価 × 発注コード入数
+        if ($orderingUnitQty !== null) {
             $pieceCostPrice = $this->getCurrentCostPrice($item?->id, QuantityType::PIECE);
             $costPrice = $pieceCostPrice * $orderingUnitQty;
         }
@@ -677,7 +677,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     }
 
     /**
-     * 6缶パック発注商品の荷姿入数を取得。通常商品や6以外の荷姿はnull。
+     * 発注コード数量区分の荷姿入数を取得。通常ケース発注はnull。
      */
     private function getOrderingUnitQuantity(?int $itemId, ?string $orderingCode = null, ?int $capacityCase = null): ?int
     {
@@ -699,7 +699,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
                 ->where('isi.item_id', $itemId)
                 ->where('isi.is_active', true)
                 ->where('iqi.can_order', true)
-                ->where('iqi.quantity', 6);
+                ->where('iqi.quantity', '>', 1);
 
             if ($orderingCode) {
                 $query->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode]);
@@ -713,8 +713,8 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         $qty = $row ? (int) $row->quantity : null;
 
-        // 6缶パックのみ特別扱いする。capacity_caseと同じ場合は通常ケース発注なのでnull。
-        if ($qty !== null && $qty === 6) {
+        // capacity_caseと同じ場合は通常ケース発注なのでnull。
+        if ($qty !== null && $qty > 1) {
             $caseCapacity = $capacityCase ?? (int) (DB::connection('sakemaru')
                 ->table('items')->where('id', $itemId)->value('capacity_case') ?? 0);
             if ($qty === $caseCapacity) {

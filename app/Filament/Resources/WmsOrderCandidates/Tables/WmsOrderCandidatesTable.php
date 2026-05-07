@@ -10,6 +10,7 @@ use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
+use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\Concerns\OptimisticLockException;
 use App\Models\WmsMonthlySafetyStock;
 use App\Models\WmsOrderCalculationLog;
@@ -66,6 +67,14 @@ class WmsOrderCandidatesTable
                     ->searchable()
                     ->sortable()
                     ->alignCenter(),
+
+                TextColumn::make('ordering_unit_quantity')
+                    ->label('発注CD入数')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveOrderingUnitQuantity($record) ?? '-')
+                    ->alignCenter()
+                    ->badge()
+                    ->color(fn ($state) => is_numeric($state) ? 'warning' : 'gray')
+                    ->toggleable(),
 
                 TextColumn::make('warehouse.name')
                     ->label('倉庫')
@@ -699,10 +708,16 @@ class WmsOrderCandidatesTable
                                 ->toArray();
 
                             if (! empty($pendingIds)) {
-                                WmsOrderCandidate::whereIn('id', $pendingIds)->update([
-                                    'status' => CandidateStatus::APPROVED,
-                                    'updated_at' => now(),
-                                ]);
+                                WmsOrderCandidate::whereIn('id', $pendingIds)
+                                    ->with('item.current_price')
+                                    ->get()
+                                    ->each(function (WmsOrderCandidate $candidate) {
+                                        WmsOrderConfirmationWaitingTable::applyOrderingUnitConversionForApproval($candidate);
+                                        $candidate->update([
+                                            'status' => CandidateStatus::APPROVED,
+                                            'updated_at' => now(),
+                                        ]);
+                                    });
                             }
 
                             $count = count($pendingIds);

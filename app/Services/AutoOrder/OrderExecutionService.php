@@ -260,7 +260,7 @@ class OrderExecutionService
     }
 
     /**
-     * 6缶パック発注コードの場合のみ、入荷予定をバラ数量で保存する。
+     * 発注コード数量区分がある場合のみ、入荷予定をバラ数量で保存する。
      *
      * 発注候補のorder_quantityは発注コード単位（例: 6缶パックなら4）なので、
      * 入荷予定では実入荷本数（4 * 6 = 24）として扱う。
@@ -277,7 +277,7 @@ class OrderExecutionService
 
         $orderingUnitQty = $this->getOrderingUnitQuantity($candidate);
 
-        if ($orderingUnitQty !== 6) {
+        if ($orderingUnitQty === null || $orderingUnitQty <= 1) {
             return [$quantity, QuantityType::CASE];
         }
 
@@ -285,7 +285,7 @@ class OrderExecutionService
     }
 
     /**
-     * 候補の発注CDに紐づく6缶パック荷姿入数を取得する。それ以外はnull。
+     * 候補の発注CDに紐づく発注コード数量区分を取得する。それ以外はnull。
      */
     private function getOrderingUnitQuantity(WmsOrderCandidate $candidate): ?int
     {
@@ -302,7 +302,7 @@ class OrderExecutionService
             ->where('isi.item_id', $candidate->item_id)
             ->where('isi.is_active', true)
             ->where('iqi.can_order', true)
-            ->where('iqi.quantity', 6);
+            ->where('iqi.quantity', '>', 1);
 
         if ($orderingCode) {
             $query->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode]);
@@ -313,7 +313,7 @@ class OrderExecutionService
         $qty = $query->value('iqi.quantity');
         $qty = $qty !== null ? (int) $qty : null;
 
-        if ($qty !== null && $qty === 6) {
+        if ($qty !== null && $qty > 1) {
             $capacityCase = (int) (DB::connection('sakemaru')
                 ->table('items')
                 ->where('id', $candidate->item_id)

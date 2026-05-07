@@ -65,6 +65,14 @@ class WmsOrderConfirmationWaitingTable
                     ->alignCenter()
                     ->width('50px'),
 
+                TextColumn::make('ordering_unit_quantity')
+                    ->label('発注CD入数')
+                    ->state(fn (WmsOrderCandidate $record) => static::resolveOrderingUnitQuantity($record) ?? '-')
+                    ->alignCenter()
+                    ->badge()
+                    ->color(fn ($state) => is_numeric($state) ? 'warning' : 'gray')
+                    ->toggleable(),
+
                 TextColumn::make('item.name')
                     ->label('商品名')
                     ->searchable()
@@ -691,7 +699,51 @@ class WmsOrderConfirmationWaitingTable
         return $result;
     }
 
+    public static function applyOrderingUnitConversionForApproval(WmsOrderCandidate $record): bool
+    {
+        $orderingUnitQty = static::resolveOrderingUnitQuantity($record);
+
+        if ($orderingUnitQty === null || $orderingUnitQty <= 1) {
+            return false;
+        }
+
+        $expectedUnitPrice = static::resolveOrderingUnitPurchaseUnitPrice($record, $orderingUnitQty);
+        if ($expectedUnitPrice === null) {
+            return false;
+        }
+
+        $expectedOrderQuantity = static::resolveOrderingUnitOrderQuantity($record, $orderingUnitQty);
+        $currentUnitPrice = $record->purchase_unit_price !== null
+            ? round((float) $record->purchase_unit_price, 2)
+            : null;
+
+        $needsUpdate = $record->quantity_type !== QuantityType::CASE
+            || (int) $record->order_quantity !== $expectedOrderQuantity
+            || $currentUnitPrice === null
+            || abs($currentUnitPrice - $expectedUnitPrice) >= 0.01;
+
+        if (! $needsUpdate) {
+            return false;
+        }
+
+        $record->update([
+            'quantity_type' => QuantityType::CASE->value,
+            'order_quantity' => $expectedOrderQuantity,
+            'purchase_unit_price' => $expectedUnitPrice,
+            'is_manually_modified' => true,
+            'modified_by' => auth()->id(),
+            'modified_at' => now(),
+        ]);
+
+        return true;
+    }
+
     private static function isSixPackOrderingCandidate(WmsOrderCandidate $record): bool
+    {
+        return static::resolveOrderingUnitQuantity($record) === 6;
+    }
+
+    public static function resolveOrderingUnitQuantity(WmsOrderCandidate $record): ?int
     {
         $orderingCode = static::normalizeOrderingCode($record->ordering_code);
         if (! $orderingCode) {
@@ -704,32 +756,39 @@ class WmsOrderConfirmationWaitingTable
             ->where('isi.item_id', $record->item_id)
             ->where('isi.is_active', true)
             ->where('iqi.can_order', true)
-            ->where('iqi.quantity', 6)
             ->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode])
-            ->exists();
+            ->value('iqi.quantity');
+
+        $qty = $qty !== null ? (int) $qty : null;
+
+        return $qty !== null && $qty > 1 ? $qty : null;
     }
 
     private static function resolveSixPackOrderQuantity(WmsOrderCandidate $record): int
     {
+        return static::resolveOrderingUnitOrderQuantity($record, 6);
+    }
+
+    private static function resolveOrderingUnitOrderQuantity(WmsOrderCandidate $record, int $orderingUnitQty): int
+    {
         $currentQuantity = max(0, (int) $record->order_quantity);
         $suggestedQuantity = max(0, (int) $record->suggested_quantity);
-        $packQuantity = $currentQuantity;
+        $baseQuantity = $suggestedQuantity > 0 ? $suggestedQuantity : $currentQuantity;
+        $packQuantity = (int) ceil($baseQuantity / $orderingUnitQty);
 
-        if ($suggestedQuantity >= 6
-            && $suggestedQuantity % 6 === 0
-            && $currentQuantity * 6 !== $suggestedQuantity
-        ) {
-            $packQuantity = (int) ($suggestedQuantity / 6);
+        if ($orderingUnitQty === 6 && $packQuantity > 0) {
+            $packQuantity = (int) (ceil($packQuantity / 4) * 4);
         }
 
-        if ($packQuantity <= 0) {
-            return 0;
-        }
-
-        return (int) (ceil($packQuantity / 4) * 4);
+        return $packQuantity;
     }
 
     private static function resolveSixPackPurchaseUnitPrice(WmsOrderCandidate $record): ?float
+    {
+        return static::resolveOrderingUnitPurchaseUnitPrice($record, 6);
+    }
+
+    private static function resolveOrderingUnitPurchaseUnitPrice(WmsOrderCandidate $record, int $orderingUnitQty): ?float
     {
         $piecePrice = $record->item?->current_price?->purchase_unit_price;
 
@@ -737,7 +796,7 @@ class WmsOrderConfirmationWaitingTable
             return null;
         }
 
-        return round((float) $piecePrice * 6, 2);
+        return round((float) $piecePrice * $orderingUnitQty, 2);
     }
 
     private static function normalizeOrderingCode(?string $code): ?string

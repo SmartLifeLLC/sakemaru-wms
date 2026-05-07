@@ -994,11 +994,9 @@ class OrderCandidateCalculationService
             // 仕入単価を取得（仕入先別ケース単価）
             $purchaseUnitPrice = $this->supplierItemCasePrices[$ic->item_id][$ic->supplier_id] ?? null;
 
-            // 発注単位数に変換（orderQtyはバラ数、purchase_unitで切上げ済み）
-            // パック発注商品（6缶パック等）は荷姿入数で割る、それ以外はcapacity_caseで割る
+            // 発注候補ではユーザーが見る通常数量を保持する。発注コード数量への変換は承認時/JX生成時に行う。
             $capacityCase = $this->itemMaster[$ic->item_id]['capacity_case'] ?? 1;
-            $orderingUnitQty = $this->orderingUnitQuantities[$ic->item_id] ?? null;
-            $divisor = $orderingUnitQty ?? ($capacityCase > 1 ? $capacityCase : 1);
+            $divisor = $capacityCase > 1 ? $capacityCase : 1;
             $orderQtyCase = $divisor > 1 ? intdiv($orderQty, $divisor) : $orderQty;
 
             $insertData[] = [
