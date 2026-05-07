@@ -713,15 +713,20 @@ class WmsOrderConfirmationWaitingTable
     {
         $currentQuantity = max(0, (int) $record->order_quantity);
         $suggestedQuantity = max(0, (int) $record->suggested_quantity);
+        $packQuantity = $currentQuantity;
 
         if ($suggestedQuantity >= 6
             && $suggestedQuantity % 6 === 0
             && $currentQuantity * 6 !== $suggestedQuantity
         ) {
-            return (int) ($suggestedQuantity / 6);
+            $packQuantity = (int) ($suggestedQuantity / 6);
         }
 
-        return $currentQuantity;
+        if ($packQuantity <= 0) {
+            return 0;
+        }
+
+        return (int) (ceil($packQuantity / 4) * 4);
     }
 
     private static function resolveSixPackPurchaseUnitPrice(WmsOrderCandidate $record): ?float
