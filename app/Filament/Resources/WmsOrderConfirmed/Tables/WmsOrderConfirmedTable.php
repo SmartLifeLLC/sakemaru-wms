@@ -242,7 +242,7 @@ class WmsOrderConfirmedTable
                     ->label('確定取消')
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('danger')
-                    ->visible(fn (?WmsOrderCandidate $record): bool => $record?->status === CandidateStatus::CONFIRMED)
+                    ->visible(fn (?WmsOrderCandidate $record): bool => in_array($record?->status, [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED]))
                     ->modalHeading('発注確定を取消')
                     ->modalDescription(fn ($record) => "[{$record->item?->code}]{$record->item?->name} の発注確定を取消し、承認済みに戻します。関連する入庫予定も削除されます。")
                     ->extraModalWindowAttributes(['class' => 'incoming-cancel-modal'])
@@ -298,12 +298,12 @@ class WmsOrderConfirmedTable
                         ])
                         ->action(function (Collection $records, array $data) {
                             $service = app(OrderCancellationService::class);
-                            $confirmed = $records->filter(fn ($r) => $r->status === CandidateStatus::CONFIRMED);
+                            $confirmed = $records->filter(fn ($r) => in_array($r->status, [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED]));
 
                             if ($confirmed->isEmpty()) {
                                 Notification::make()
-                                    ->title('確定済みの候補がありません')
-                                    ->body('選択した候補はすべて送信済みのため取消できません。')
+                                    ->title('取消可能な候補がありません')
+                                    ->body('選択した候補は取消できません。')
                                     ->warning()
                                     ->send();
 

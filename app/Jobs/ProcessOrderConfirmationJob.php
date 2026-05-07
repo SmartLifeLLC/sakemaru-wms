@@ -5,16 +5,11 @@ namespace App\Jobs;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\SettlementStatus;
-use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCandidate;
-use App\Models\WmsOrderJxDocument;
-use App\Models\WmsOrderJxSetting;
 use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
-use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\OrderExecutionService;
-use App\Services\AutoOrder\OrderTransmissionService;
 use App\Services\AutoOrder\TransferCandidateExecutionService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -26,7 +21,8 @@ use Illuminate\Support\Facades\Log;
 /**
  * 発注・移動確定ジョブ
  *
- * 承認済みの移動候補と発注候補を確定し、入庫予定・CSVファイル・JXファイルを生成
+ * 承認済みの移動候補と発注候補を確定し、入庫予定を生成する。
+ * JXファイル生成・送信・CSV生成は別途JX送信画面から実行する。
  */
 class ProcessOrderConfirmationJob implements ShouldQueue
 {
@@ -57,8 +53,6 @@ class ProcessOrderConfirmationJob implements ShouldQueue
     public function handle(
         TransferCandidateExecutionService $transferExecutionService,
         OrderExecutionService $executionService,
-        OrderDataFileService $dataFileService,
-        OrderTransmissionService $transmissionService
     ): void {
         $progress = WmsQueueProgress::findByJobId($this->progressId);
 
@@ -119,10 +113,10 @@ class ProcessOrderConfirmationJob implements ShouldQueue
 
             // ステップ数を計算
             // 移動候補処理: 1ステップ
-            // 発注バッチ処理: 各バッチ3ステップ (確定、CSV、JX)
+            // 発注バッチ処理: 各バッチ1ステップ (確定のみ)
             $totalBatches = count($batchCodes);
             $hasTransfers = $transferApprovedCount > 0;
-            $totalSteps = ($hasTransfers ? 1 : 0) + ($totalBatches * 3);
+            $totalSteps = ($hasTransfers ? 1 : 0) + $totalBatches;
 
             $progress->markAsProcessing($totalSteps, '発注・移動確定処理を開始しています...');
 
@@ -130,9 +124,6 @@ class ProcessOrderConfirmationJob implements ShouldQueue
             $totalTransferQueues = 0;
             $totalTransferCandidates = 0;
             $totalSchedules = 0;
-            $totalCsvFiles = 0;
-            $totalJxFiles = 0;
-            $totalTransmittedFiles = 0;
 
             // 1. 移動候補の確定処理（先に実行）
             if ($hasTransfers) {
@@ -154,56 +145,24 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 $currentStep++;
             }
 
-            // 2. 発注候補の確定処理
+            // 2. 発注候補の確定処理（入庫予定作成のみ）
             foreach ($batchCodes as $index => $batchCode) {
-                $baseStep = $currentStep + ($index * 3);
-
-                // 2-1. 発注確定（入庫予定作成）
                 $progress->updateProgress(
-                    $baseStep,
+                    $currentStep + $index,
                     "バッチ {$batchCode} の発注確定処理中... (".($index + 1)."/{$totalBatches})"
                 );
 
                 $schedules = $executionService->confirmBatch($batchCode, $this->userId, $this->warehouseId);
                 $totalSchedules += $schedules->count();
 
-                // 2-2. 共通CSVファイル生成
-                $progress->updateProgress(
-                    $baseStep + 1,
-                    "バッチ {$batchCode} のCSVファイル生成中... (".($index + 1)."/{$totalBatches})"
-                );
-
-                $csvResult = $dataFileService->generateCsvFiles($batchCode, $this->splitByWarehouse, $this->warehouseId);
-                $totalCsvFiles += $csvResult['total_files'] ?? 0;
-
-                // 2-3. JX送信ファイル生成
-                $progress->updateProgress(
-                    $baseStep + 2,
-                    "バッチ {$batchCode} のJXファイル生成中... (".($index + 1)."/{$totalBatches})"
-                );
-
-                $jxResult = $transmissionService->generateOrderFiles($batchCode, $this->warehouseId, $this->warehouseId === null);
-                $totalJxFiles += count($jxResult['files'] ?? []);
-
-                // バッチ完了
-                $progress->updateProgress(
-                    $baseStep + 3,
-                    "バッチ {$batchCode} 完了 (".($index + 1)."/{$totalBatches})"
-                );
-
                 Log::info('Batch processed in job', [
                     'batch_code' => $batchCode,
                     'schedules' => $schedules->count(),
-                    'csv_files' => $csvResult['total_files'] ?? 0,
-                    'jx_files' => count($jxResult['files'] ?? []),
                 ]);
             }
 
             // 3. 関連するジョブ管理レコードの確定状態を更新
             $this->updateSettlementStatus($batchCodes);
-
-            // 4. 自動送信が有効なJX設定のドキュメントを送信
-            $totalTransmittedFiles = $this->autoTransmitJxDocuments($batchCodes, $transmissionService, $progress);
 
             // 完了メッセージを構築
             $completionMessages = [];
@@ -212,15 +171,6 @@ class ProcessOrderConfirmationJob implements ShouldQueue
             }
             if ($totalSchedules > 0) {
                 $completionMessages[] = "入荷予定 {$totalSchedules}件";
-            }
-            if ($totalCsvFiles > 0) {
-                $completionMessages[] = "CSVファイル {$totalCsvFiles}件";
-            }
-            if ($totalJxFiles > 0) {
-                $completionMessages[] = "JXファイル {$totalJxFiles}件";
-            }
-            if ($totalTransmittedFiles > 0) {
-                $completionMessages[] = "JX自動送信 {$totalTransmittedFiles}件";
             }
 
             $completionMessage = ! empty($completionMessages)
@@ -231,9 +181,6 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 'total_transfer_queues' => $totalTransferQueues,
                 'total_transfer_candidates' => $totalTransferCandidates,
                 'total_schedules' => $totalSchedules,
-                'total_csv_files' => $totalCsvFiles,
-                'total_jx_files' => $totalJxFiles,
-                'total_transmitted_files' => $totalTransmittedFiles,
             ], $completionMessage);
 
             Log::info('Order confirmation job completed', [
@@ -241,9 +188,6 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 'total_transfer_queues' => $totalTransferQueues,
                 'total_transfer_candidates' => $totalTransferCandidates,
                 'total_schedules' => $totalSchedules,
-                'total_csv_files' => $totalCsvFiles,
-                'total_jx_files' => $totalJxFiles,
-                'total_transmitted_files' => $totalTransmittedFiles,
             ]);
 
         } catch (\Exception $e) {
@@ -312,104 +256,4 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         ]);
     }
 
-    /**
-     * 自動送信が有効なJX設定のドキュメントを自動送信
-     *
-     * @param  array  $batchCodes  処理対象のバッチコード配列
-     * @param  OrderTransmissionService  $transmissionService  送信サービス
-     * @param  WmsQueueProgress  $progress  進捗管理
-     * @return int 送信したドキュメント数
-     */
-    private function autoTransmitJxDocuments(
-        array $batchCodes,
-        OrderTransmissionService $transmissionService,
-        WmsQueueProgress $progress
-    ): int {
-        if (empty($batchCodes)) {
-            return 0;
-        }
-
-        // 自動送信が有効なJX設定IDを取得
-        $autoTransmitSettingIds = WmsOrderJxSetting::where('is_active', true)
-            ->where('auto_transmit_on_confirm', true)
-            ->pluck('id')
-            ->toArray();
-
-        if (empty($autoTransmitSettingIds)) {
-            Log::info('No JX settings with auto_transmit_on_confirm enabled');
-
-            return 0;
-        }
-
-        // 該当するPENDINGドキュメントを取得
-        $pendingDocumentsQuery = WmsOrderJxDocument::whereIn('batch_code', $batchCodes)
-            ->where('status', TransmissionDocumentStatus::PENDING)
-            ->whereIn('wms_order_jx_setting_id', $autoTransmitSettingIds);
-
-        if ($this->warehouseId !== null) {
-            $pendingDocumentsQuery->where('warehouse_id', $this->warehouseId);
-        }
-
-        $pendingDocuments = $pendingDocumentsQuery->get();
-
-        if ($pendingDocuments->isEmpty()) {
-            Log::info('No pending JX documents for auto-transmission', [
-                'batch_codes' => $batchCodes,
-                'auto_transmit_setting_ids' => $autoTransmitSettingIds,
-            ]);
-
-            return 0;
-        }
-
-        // 進捗を更新（既に全バッチ処理完了しているので、total_itemsを使用）
-        $progress->updateProgress(
-            $progress->total_items ?? 0,
-            "JXファイルを自動送信中... ({$pendingDocuments->count()}件)"
-        );
-
-        $transmittedCount = 0;
-        $errors = [];
-
-        foreach ($pendingDocuments as $document) {
-            try {
-                // 個別ドキュメントを送信
-                $result = $transmissionService->transmitDocumentById($document->id);
-
-                if ($result['success']) {
-                    $transmittedCount++;
-                    Log::info('Auto-transmitted JX document', [
-                        'document_id' => $document->id,
-                        'batch_code' => $document->batch_code,
-                        'message_id' => $result['message_id'] ?? null,
-                    ]);
-                } else {
-                    $errors[] = [
-                        'document_id' => $document->id,
-                        'error' => $result['error'] ?? '送信失敗',
-                    ];
-                }
-            } catch (\Exception $e) {
-                Log::error('Auto-transmit failed for JX document', [
-                    'document_id' => $document->id,
-                    'error' => $e->getMessage(),
-                ]);
-                $errors[] = [
-                    'document_id' => $document->id,
-                    'error' => $e->getMessage(),
-                ];
-            }
-        }
-
-        if (! empty($errors)) {
-            Log::warning('Some JX documents failed to auto-transmit', ['errors' => $errors]);
-        }
-
-        Log::info('Auto-transmission completed', [
-            'batch_codes' => $batchCodes,
-            'transmitted_count' => $transmittedCount,
-            'error_count' => count($errors),
-        ]);
-
-        return $transmittedCount;
-    }
 }
