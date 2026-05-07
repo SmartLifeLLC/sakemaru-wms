@@ -210,8 +210,8 @@ class WmsOrderIncomingSchedule extends WmsModel
     /**
      * 伝票番号を採番
      *
-     * フォーマット: {YYYYMMDD}{連番3桁} = 11桁数字のみ
-     * 例: 20260305001
+     * フォーマット: {YYMMDD}{連番5桁} = 11桁数字のみ
+     * 例: 26030500001
      * JX Bレコードの伝票番号フィールド（11バイト）にそのまま格納可能
      *
      * @param  string|null  $orderDate  発注日（Y-m-d形式）。nullの場合は今日
@@ -219,16 +219,27 @@ class WmsOrderIncomingSchedule extends WmsModel
     public static function generateSlipNumber(?string $orderDate = null): string
     {
         $date = $orderDate ?? now()->format('Y-m-d');
-        $dateStr = Carbon::parse($date)->format('Ymd');
+        $dateStr = Carbon::parse($date)->format('ymd');
 
         $maxSlip = self::where('slip_number', 'like', $dateStr.'%')
             ->where('slip_number', 'REGEXP', '^[0-9]{11}$')
-            ->orderByRaw('CAST(SUBSTRING(slip_number, 9) AS UNSIGNED) DESC')
+            ->orderByRaw('CAST(SUBSTRING(slip_number, 7) AS UNSIGNED) DESC')
             ->value('slip_number');
 
-        $nextSeq = $maxSlip ? (int) substr($maxSlip, 8) + 1 : 1;
+        $nextSeq = $maxSlip ? (int) substr($maxSlip, 6) + 1 : 1;
 
-        return $dateStr.str_pad($nextSeq, 3, '0', STR_PAD_LEFT);
+        return self::formatSlipNumber($date, $nextSeq);
+    }
+
+    public static function formatSlipNumber(string $orderDate, int $sequence): string
+    {
+        $dateStr = Carbon::parse($orderDate)->format('ymd');
+
+        if ($sequence < 1 || $sequence > 99999) {
+            throw new \RuntimeException("伝票番号の当日採番上限を超えました: {$dateStr}");
+        }
+
+        return $dateStr.str_pad($sequence, 5, '0', STR_PAD_LEFT);
     }
 
     /**
