@@ -463,27 +463,96 @@ class PickingListService
             return [];
         }
 
-        // 全タスクをピッカー別にグループ化
-        $tasks = $this->db()->table('wms_picking_tasks')
-            ->whereIn('wave_id', $waveIds)
-            ->select(['id', 'picker_id'])
+        $tasks = $this->db()->table('wms_picking_tasks as pt')
+            ->leftJoin('wms_waves as w', 'pt.wave_id', '=', 'w.id')
+            ->leftJoin('delivery_courses as dc', 'pt.delivery_course_id', '=', 'dc.id')
+            ->leftJoin('wms_picking_areas as pa', 'pt.wms_picking_area_id', '=', 'pa.id')
+            ->leftJoin('wms_pickers as pk', 'pt.picker_id', '=', 'pk.id')
+            ->whereIn('pt.wave_id', $waveIds)
+            ->select([
+                'pt.id', 'pt.picker_id', 'pt.shipment_date',
+                'w.wave_no', 'dc.name as course_name',
+                'pa.name as area_name', 'pk.name as picker_name',
+            ])
             ->get();
 
-        $pickerTasks = [];
+        if ($tasks->isEmpty()) {
+            return [];
+        }
+
+        $allTaskIds = $tasks->pluck('id')->toArray();
+        $rows = $this->fetchPickingItemRows($allTaskIds);
+
+        $rowsByTask = [];
+        foreach ($rows as $row) {
+            $rowsByTask[$row->picking_task_id][] = $row;
+        }
+
+        $pickerGroups = [];
         foreach ($tasks as $task) {
             $pickerKey = $task->picker_id ?? 0;
-            $pickerTasks[$pickerKey][] = $task->id;
+            if (! isset($pickerGroups[$pickerKey])) {
+                $pickerGroups[$pickerKey] = [
+                    'header_task' => $task,
+                    'rows' => [],
+                ];
+            }
+            foreach ($rowsByTask[$task->id] ?? [] as $row) {
+                $pickerGroups[$pickerKey]['rows'][] = $row;
+            }
         }
 
         $results = [];
-        foreach ($pickerTasks as $pickerId => $taskIds) {
-            $data = $this->generateSecondaryListByTaskIds($taskIds);
+        foreach ($pickerGroups as $group) {
+            $task = $group['header_task'];
+            $data = $this->buildSecondaryItems(collect($group['rows']), [
+                'wave_no' => $task->wave_no,
+                'course_name' => $task->course_name ?? '',
+                'area_name' => $task->area_name ?? '',
+                'picker_name' => $task->picker_name ?? '',
+                'shipping_date' => $task->shipment_date,
+            ]);
             if (! empty($data['items'])) {
                 $results[] = $data;
             }
         }
 
         return $results;
+    }
+
+    /**
+     * 全タスクのpicking_item_resultsを1回のクエリで取得
+     */
+    private function fetchPickingItemRows(array $taskIds): \Illuminate\Support\Collection
+    {
+        return $this->db()->table('wms_picking_item_results as pir')
+            ->join('items as i', 'pir.item_id', '=', 'i.id')
+            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('partners as p', 'e.buyer_id', '=', 'p.id')
+            ->whereIn('pir.picking_task_id', $taskIds)
+            ->select([
+                'pir.id',
+                'pir.picking_task_id',
+                'pir.item_id',
+                'i.code as item_code',
+                'i.name as item_name',
+                'l.code1',
+                'l.code2',
+                'l.code3',
+                'pir.location_id',
+                'pir.walking_order',
+                'pir.planned_qty',
+                'pir.planned_qty_type',
+                'pir.earning_id',
+                'p.name as buyer_name',
+            ])
+            ->orderByRaw('COALESCE(pir.walking_order, 999999)')
+            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
+            ->orderBy('i.code')
+            ->get();
     }
 
     /**
@@ -626,7 +695,6 @@ class PickingListService
             return [];
         }
 
-        // ヘッダー情報（最初のWaveから）
         $wave = $this->db()->table('wms_waves as w')
             ->whereIn('w.id', $waveIds)
             ->select(['w.wave_no', 'w.shipping_date'])
@@ -636,7 +704,6 @@ class PickingListService
             return [];
         }
 
-        // タスクを配送コース別にグループ化
         $tasks = $this->db()->table('wms_picking_tasks as pt')
             ->leftJoin('delivery_courses as dc', 'pt.delivery_course_id', '=', 'dc.id')
             ->whereIn('pt.wave_id', $waveIds)
@@ -644,60 +711,41 @@ class PickingListService
             ->orderBy('dc.code')
             ->get();
 
-        $courseTasks = [];
-        foreach ($tasks as $task) {
-            $courseKey = $task->delivery_course_id ?? 0;
-            if (! isset($courseTasks[$courseKey])) {
-                $courseTasks[$courseKey] = [
-                    'course_code' => $task->course_code ?? '',
-                    'course_name' => $task->course_name ?? '未設定',
-                    'task_ids' => [],
-                ];
-            }
-            $courseTasks[$courseKey]['task_ids'][] = $task->id;
+        if ($tasks->isEmpty()) {
+            return [];
         }
 
-        // 配送コースごとに明細を取得・組み立て
+        $allTaskIds = $tasks->pluck('id')->toArray();
+        $rows = $this->fetchPickingItemRows($allTaskIds);
+
+        $rowsByTask = [];
+        foreach ($rows as $row) {
+            $rowsByTask[$row->picking_task_id][] = $row;
+        }
+
+        $courseGroups = [];
+        foreach ($tasks as $task) {
+            $courseKey = $task->delivery_course_id ?? 0;
+            if (! isset($courseGroups[$courseKey])) {
+                $courseGroups[$courseKey] = [
+                    'course_name' => $task->course_name ?? '未設定',
+                    'rows' => [],
+                ];
+            }
+            foreach ($rowsByTask[$task->id] ?? [] as $row) {
+                $courseGroups[$courseKey]['rows'][] = $row;
+            }
+        }
+
         $results = [];
-        foreach ($courseTasks as $courseData) {
-            $taskIds = $courseData['task_ids'];
-
-            $rows = $this->db()->table('wms_picking_item_results as pir')
-                ->join('items as i', 'pir.item_id', '=', 'i.id')
-                ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
-                ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
-                ->leftJoin('partners as p', 'e.buyer_id', '=', 'p.id')
-                ->whereIn('pir.picking_task_id', $taskIds)
-                ->select([
-                    'pir.id',
-                    'pir.item_id',
-                    'i.code as item_code',
-                    'i.name as item_name',
-                    'l.code1',
-                    'l.code2',
-                    'l.code3',
-                    'pir.location_id',
-                    'pir.walking_order',
-                    'pir.planned_qty',
-                    'pir.planned_qty_type',
-                    'pir.earning_id',
-                    'p.name as buyer_name',
-                ])
-                ->orderByRaw('COALESCE(pir.walking_order, 999999)')
-                ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
-                ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
-                ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
-                ->orderBy('i.code')
-                ->get();
-
-            $data = $this->buildTertiaryItems($rows, [
+        foreach ($courseGroups as $group) {
+            $data = $this->buildTertiaryItems(collect($group['rows']), [
                 'wave_no' => $wave->wave_no,
-                'course_name' => $courseData['course_name'],
+                'course_name' => $group['course_name'],
                 'area_name' => '',
                 'picker_name' => '',
                 'shipping_date' => $wave->shipping_date,
             ]);
-
             if (! empty($data['items'])) {
                 $results[] = $data;
             }
