@@ -374,7 +374,10 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         // 伝票番号: DB保存値（11桁数字のみ）をそのまま使用、なければ動的生成
         if ($slipNumber) {
             if (! preg_match('/^\d{11}$/', $slipNumber)) {
-                throw new \RuntimeException("JX送信用の伝票番号が11桁数字ではありません: {$slipNumber}");
+                Log::warning('Invalid JX slip number replaced', [
+                    'invalid_slip_number' => $slipNumber,
+                ]);
+                $slipNumber = WmsOrderIncomingSchedule::formatSlipNumber($orderDate->toDateString(), $seq);
             }
         } else {
             $slipNumber = WmsOrderIncomingSchedule::formatSlipNumber($orderDate->toDateString(), $seq);
