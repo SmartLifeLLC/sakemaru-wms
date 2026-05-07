@@ -138,6 +138,7 @@ class WavesTable
 
                 SelectFilter::make('status')
                     ->label('出荷状況')
+                    ->multiple()
                     ->options([
                         'PENDING' => '未出荷',
                         'PICKING' => 'ピッキング中',
