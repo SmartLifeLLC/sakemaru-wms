@@ -67,6 +67,32 @@ html.fi {
     overflow-y: auto !important;
 }
 
+/* Filament通知がページヘッダーのアクションに隠れないようにする */
+.fi-no,
+.fi-no-notifications,
+.fi-notifications {
+    z-index: 3000 !important;
+}
+
+.fi-no {
+    top: 3.25rem !important;
+    max-width: min(42rem, calc(100vw - 2rem)) !important;
+}
+
+.fi-no-notification,
+.fi-notification {
+    width: 100% !important;
+    max-width: min(42rem, calc(100vw - 2rem)) !important;
+}
+
+.fi-no-notification-title,
+.fi-notification-title,
+.fi-no-notification-body,
+.fi-notification-body {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+}
+
 /* mega-menu(2.5rem)に合わせてメインコンテンツの高さを調整 */
 .fi-body.fi-body-has-topbar .fi-main-ctn {
     min-height: calc(100dvh - 2.5rem) !important;
