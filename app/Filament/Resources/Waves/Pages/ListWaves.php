@@ -905,10 +905,14 @@ class ListWaves extends ListRecords
     /**
      * 仮ピッキングリストを生成する。
      * 波動を一旦作ってPDF化し、トランザクションをロールバックして永続化しない。
-     * リスト種別を複数選択した場合は、それぞれのPDFを順に同時ダウンロードする。
+     * リスト種別を複数選択した場合は ZIP にまとめてダウンロード。
      */
     protected function generateProvisionalPickingListPdf(array $data)
     {
+        // 大量伝票×フロア分割×複数種別の場合、PDF生成で多くのメモリと時間を要するため拡張
+        ini_set('memory_limit', '1024M');
+        set_time_limit(300);
+
         $shippingDate = $data['shipping_date'];
         $listTypes = $data['list_types'] ?? ['primary'];
         if (! is_array($listTypes)) {
@@ -973,49 +977,27 @@ class ListWaves extends ListRecords
                 );
             }
 
-            // 複数種別 → 各PDFをCacheに格納し、JS経由で連続ダウンロード
-            $downloads = [];
-            foreach ($pdfs as $listType => $pdf) {
-                $token = (string) \Illuminate\Support\Str::uuid();
-                $filename = "provisional-picking-list-{$listType}-{$dateStr}.pdf";
-                \Illuminate\Support\Facades\Cache::put(
-                    "picking-list-temp-{$token}",
-                    [
-                        'content' => $pdf,
-                        'filename' => $filename,
-                    ],
-                    300 // 5分
-                );
-                $downloads[] = [
-                    'url' => route('picking-list.temp-download', ['token' => $token]),
-                    'filename' => $filename,
-                ];
+            // 複数種別 → ZIP
+            $zipPath = tempnam(sys_get_temp_dir(), 'picking-list-').'.zip';
+            $zip = new \ZipArchive;
+            if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+                throw new \RuntimeException('ZIPファイルの作成に失敗しました');
             }
+            foreach ($pdfs as $listType => $pdf) {
+                $zip->addFromString("provisional-picking-list-{$listType}-{$dateStr}.pdf", $pdf);
+            }
+            $zip->close();
 
-            $downloadsJson = json_encode($downloads, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $this->js(<<<JS
-                (() => {
-                    const downloads = {$downloadsJson};
-                    downloads.forEach((d, i) => {
-                        setTimeout(() => {
-                            const a = document.createElement('a');
-                            a.href = d.url;
-                            a.download = d.filename;
-                            a.style.display = 'none';
-                            document.body.appendChild(a);
-                            a.click();
-                            setTimeout(() => a.remove(), 100);
-                        }, i * 500);
-                    });
-                })();
-            JS);
+            $zipFilename = "provisional-picking-lists-{$dateStr}.zip";
 
-            Notification::make()
-                ->title(count($downloads).'件のPDFをダウンロードします')
-                ->success()
-                ->send();
-
-            return null;
+            return response()->streamDownload(
+                function () use ($zipPath) {
+                    readfile($zipPath);
+                    @unlink($zipPath);
+                },
+                $zipFilename,
+                ['Content-Type' => 'application/zip']
+            );
         } catch (\Exception $e) {
             $connection->rollBack();
             Notification::make()
@@ -1138,6 +1120,7 @@ class ListWaves extends ListRecords
 
             $reservationResult = [
                 'allocated_qty' => $result['allocated'],
+                'shortage_qty' => $result['shortage'] ?? 0,
                 'real_stock_id' => $primaryReservation->real_stock_id ?? null,
                 'location_id' => $primaryReservation->location_id ?? null,
                 'walking_order' => null,
@@ -1273,7 +1256,7 @@ class ListWaves extends ListRecords
                     'planned_qty_type' => $tradeItem->quantity_type,
                     'picked_qty' => 0,
                     'picked_qty_type' => $tradeItem->quantity_type,
-                    'shortage_qty' => 0,
+                    'shortage_qty' => $reservationResult['shortage_qty'] ?? 0,
                     'status' => 'PENDING',
                     'picker_id' => null,
                     'created_at' => now(),
@@ -1365,6 +1348,7 @@ class ListWaves extends ListRecords
 
             $reservationResult = [
                 'allocated_qty' => $result['allocated'],
+                'shortage_qty' => $result['shortage'] ?? 0,
                 'real_stock_id' => $primaryReservation->real_stock_id ?? null,
                 'location_id' => $primaryReservation->location_id ?? null,
                 'walking_order' => null,
@@ -1441,7 +1425,7 @@ class ListWaves extends ListRecords
                 'planned_qty_type' => $tradeItem->quantity_type,
                 'picked_qty' => 0,
                 'picked_qty_type' => $tradeItem->quantity_type,
-                'shortage_qty' => 0,
+                'shortage_qty' => $reservationResult['shortage_qty'] ?? 0,
                 'status' => 'PENDING',
                 'picker_id' => null,
                 'created_at' => now(),
