@@ -823,10 +823,10 @@ class PickingListService
     }
 
     /**
-     * 配送コース別ピッキングリスト（伝票単位ページ）
+     * 配送コース別ピッキングリスト（配送コース・フロア単位ページ）
      *
      * 仮ピッキングリスト出力の2次ピッキングリストとして使用する。
-     * 1ページ = 1売上伝票。配送者名には配送コース名を表示する。
+     * 1ページ = 1配送コース×1フロア。配送者名には配送コース名を表示する。
      *
      * @return array[] [['header' => [...], 'items' => [...]], ...]
      */
@@ -854,6 +854,7 @@ class PickingListService
                 'e.id as e_id',
                 't.slip_number',
                 'e.delivered_date',
+                'dc.id as course_id',
                 'dc.name as course_name',
                 'dc.code as course_code',
                 'wh.name as warehouse_name',
@@ -880,29 +881,30 @@ class PickingListService
             ->orderBy('i.code')
             ->get();
 
-        // 売上伝票×フロア でバケット化
-        $byEarningFloor = [];
+        // 配送コース×フロア でバケット化
+        $byCourseFloor = [];
         foreach ($rows as $row) {
-            $earningId = $row->earning_id;
+            $courseId = $row->course_id ?? 0;
             $floorId = $row->floor_id ?? 0;
-            $key = $earningId.'|'.$floorId;
-            if (! isset($byEarningFloor[$key])) {
-                $byEarningFloor[$key] = [
+            $key = $courseId.'|'.$floorId;
+            if (! isset($byCourseFloor[$key])) {
+                $byCourseFloor[$key] = [
                     'header' => [
                         'course_name' => $row->course_name ?? '',
-                        'slip_no' => $row->slip_number ?? (string) $row->e_id,
                         'shipping_date' => $row->delivered_date,
                         'warehouse_name' => $row->warehouse_name ?? '',
                         'floor_name' => $row->floor_name ?? '',
                     ],
+                    '_earning_ids' => [],
                     '_rows' => [],
                 ];
             }
-            $byEarningFloor[$key]['_rows'][] = $row;
+            $byCourseFloor[$key]['_earning_ids'][(int) $row->earning_id] = true;
+            $byCourseFloor[$key]['_rows'][] = $row;
         }
 
         $results = [];
-        foreach ($byEarningFloor as $key => $bucket) {
+        foreach ($byCourseFloor as $key => $bucket) {
             $items = [];
             $rowsByLocationItem = [];
 
@@ -960,7 +962,9 @@ class PickingListService
             }
 
             $results[] = [
-                'header' => $bucket['header'],
+                'header' => array_merge($bucket['header'], [
+                    'slip_count' => count($bucket['_earning_ids']),
+                ]),
                 'items' => $items,
             ];
         }
