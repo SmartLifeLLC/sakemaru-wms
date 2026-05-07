@@ -9,13 +9,19 @@ use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\WmsOrderCandidate;
+use App\Services\AutoOrder\OrderCancellationService;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Forms\Components\Textarea;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 
 class WmsOrderConfirmedTable
 {
@@ -173,7 +179,8 @@ class WmsOrderConfirmedTable
                     ->options([
                         CandidateStatus::CONFIRMED->value => CandidateStatus::CONFIRMED->label(),
                         CandidateStatus::EXECUTED->value => CandidateStatus::EXECUTED->label(),
-                    ]),
+                    ])
+                    ->default(CandidateStatus::CONFIRMED->value),
 
                 static::warehouseFilter(),
 
@@ -230,9 +237,115 @@ class WmsOrderConfirmedTable
                                 ]),
                         ];
                     }),
+
+                Action::make('cancelConfirmation')
+                    ->label('確定取消')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('danger')
+                    ->visible(fn (?WmsOrderCandidate $record): bool => $record?->status === CandidateStatus::CONFIRMED)
+                    ->modalHeading('発注確定を取消')
+                    ->modalDescription(fn ($record) => "[{$record->item?->code}]{$record->item?->name} の発注確定を取消し、承認済みに戻します。関連する入庫予定も削除されます。")
+                    ->extraModalWindowAttributes(['class' => 'incoming-cancel-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('確定を取消')->color('danger'))
+                    ->modalCancelActionLabel('取消せず閉じる')
+                    ->schema([
+                        Textarea::make('reason')
+                            ->label('取消理由')
+                            ->required(),
+                    ])
+                    ->action(function ($record, array $data) {
+                        $service = app(OrderCancellationService::class);
+
+                        try {
+                            $deletedSchedules = $service->cancelConfirmation(
+                                $record,
+                                auth()->id(),
+                                $data['reason']
+                            );
+
+                            Notification::make()
+                                ->title('発注確定を取消しました')
+                                ->body("入庫予定 {$deletedSchedules}件を削除しました。ステータスを承認済みに戻しました。")
+                                ->warning()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('エラーが発生しました')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
             ])
             ->toolbarActions([
                 static::getExportAction(),
+                BulkActionGroup::make([
+                    BulkAction::make('bulkCancelConfirmation')
+                        ->label('確定を一括取消')
+                        ->icon('heroicon-o-arrow-uturn-left')
+                        ->color('danger')
+                        ->modalHeading('発注確定を一括取消')
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件の発注確定を取消し、承認済みに戻します。関連する入庫予定も削除されます。")
+                        ->extraModalWindowAttributes(['class' => 'incoming-cancel-modal'])
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('一括取消')->color('danger'))
+                        ->modalCancelActionLabel('取消せず閉じる')
+                        ->schema([
+                            Textarea::make('reason')
+                                ->label('取消理由')
+                                ->required(),
+                        ])
+                        ->action(function (Collection $records, array $data) {
+                            $service = app(OrderCancellationService::class);
+                            $confirmed = $records->filter(fn ($r) => $r->status === CandidateStatus::CONFIRMED);
+
+                            if ($confirmed->isEmpty()) {
+                                Notification::make()
+                                    ->title('確定済みの候補がありません')
+                                    ->body('選択した候補はすべて送信済みのため取消できません。')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $successCount = 0;
+                            $totalDeletedSchedules = 0;
+                            $errors = [];
+
+                            foreach ($confirmed as $candidate) {
+                                try {
+                                    $deleted = $service->cancelConfirmation(
+                                        $candidate,
+                                        auth()->id(),
+                                        $data['reason']
+                                    );
+                                    $successCount++;
+                                    $totalDeletedSchedules += $deleted;
+                                } catch (\Exception $e) {
+                                    $errors[] = "[{$candidate->item?->code}] {$e->getMessage()}";
+                                }
+                            }
+
+                            if ($successCount > 0) {
+                                Notification::make()
+                                    ->title("{$successCount}件の発注確定を取消しました")
+                                    ->body("入庫予定 {$totalDeletedSchedules}件を削除しました。")
+                                    ->warning()
+                                    ->send();
+                            }
+
+                            if (! empty($errors)) {
+                                Notification::make()
+                                    ->title(count($errors).'件でエラーが発生')
+                                    ->body(implode("\n", array_slice($errors, 0, 5)))
+                                    ->danger()
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                ]),
             ])
             ->defaultSort('batch_code', 'desc');
     }

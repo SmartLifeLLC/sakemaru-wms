@@ -51,6 +51,8 @@ class WmsOrderCandidateAuditLog extends WmsModel
 
     public const ACTION_APPROVAL_CANCELLED = 'approval_cancelled';
 
+    public const ACTION_CONFIRMATION_CANCELLED = 'confirmation_cancelled';
+
     public function orderCandidate(): BelongsTo
     {
         return $this->belongsTo(WmsOrderCandidate::class, 'order_candidate_id');
@@ -75,6 +77,7 @@ class WmsOrderCandidateAuditLog extends WmsModel
             self::ACTION_CONFIRMED => '発注確定',
             self::ACTION_TRANSMITTED => '送信済',
             self::ACTION_APPROVAL_CANCELLED => '承認取消',
+            self::ACTION_CONFIRMATION_CANCELLED => '確定取消',
             default => $this->action,
         };
     }

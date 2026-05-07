@@ -2,7 +2,9 @@
 
 namespace App\Services\AutoOrder;
 
+use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -16,6 +18,67 @@ use Illuminate\Support\Facades\Log;
  */
 class OrderCancellationService
 {
+    public function __construct(
+        private readonly OrderAuditService $auditService = new OrderAuditService,
+    ) {}
+
+    /**
+     * 発注確定をキャンセル（CONFIRMED → APPROVED）
+     *
+     * 確定済みで未送信の発注候補を承認済み状態に戻し、
+     * 関連するPENDING入庫予定を削除する。
+     *
+     * @param  WmsOrderCandidate  $candidate  対象の発注候補
+     * @param  int  $userId  キャンセル実行者ID
+     * @param  string  $reason  キャンセル理由
+     * @return int 削除された入庫予定の件数
+     */
+    public function cancelConfirmation(
+        WmsOrderCandidate $candidate,
+        int $userId,
+        string $reason
+    ): int {
+        if ($candidate->status !== CandidateStatus::CONFIRMED) {
+            throw new \RuntimeException(
+                'この発注候補は確定取消できません（ステータス: '.$candidate->status->label().'）'
+            );
+        }
+
+        return DB::connection('sakemaru')->transaction(function () use ($candidate, $userId, $reason) {
+            // 1. 関連するPENDING入庫予定を削除
+            $deletedSchedules = WmsOrderIncomingSchedule::where('order_candidate_id', $candidate->id)
+                ->where('status', IncomingScheduleStatus::PENDING)
+                ->delete();
+
+            // 2. JXドキュメント参照をクリア
+            if ($candidate->wms_order_jx_document_id) {
+                $candidate->wms_order_jx_document_id = null;
+            }
+
+            // 3. ステータスをAPPROVEDに戻す
+            $candidate->update([
+                'status' => CandidateStatus::APPROVED,
+                'wms_order_jx_document_id' => null,
+                'modified_by' => $userId,
+                'modified_at' => now(),
+            ]);
+
+            // 4. 監査ログ
+            $this->auditService->logConfirmationCancellation($candidate, $reason);
+
+            Log::info('発注確定を取消', [
+                'candidate_id' => $candidate->id,
+                'batch_code' => $candidate->batch_code,
+                'item_id' => $candidate->item_id,
+                'cancelled_by' => $userId,
+                'reason' => $reason,
+                'deleted_schedules' => $deletedSchedules,
+            ]);
+
+            return $deletedSchedules;
+        });
+    }
+
     /**
      * 入庫予定をキャンセル
      *

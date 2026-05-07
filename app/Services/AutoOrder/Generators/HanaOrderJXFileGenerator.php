@@ -90,6 +90,11 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     private array $orderingUnitQtyCache = [];
 
     /**
+     * 商品ID:発注コード => 発注コード荷姿情報 のキャッシュ
+     */
+    private array $orderingCodeInfoCache = [];
+
+    /**
      * 発注ファイルを生成
      */
     public function generate(Collection $orderCandidates): array
@@ -418,8 +423,11 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $capacityCase = (int) ($item?->capacity_case ?? 1);
         $totalQty = (int) $candidate->order_quantity;
 
-        // パック発注判定: 発注荷姿入数を取得
-        $orderingUnitQty = $this->getOrderingUnitQuantity($item?->id);
+        // 発注コード: 候補に保存されているordering_codeを優先、空欄/全ゼロなら動的取得（後方互換性）
+        $orderingCode = $this->resolveOrderingCode($candidate);
+
+        // 6缶パック発注判定: 発注荷姿入数を取得
+        $orderingUnitQty = $this->getOrderingUnitQuantity($item?->id, $orderingCode, $capacityCase);
         $displayCapacity = $orderingUnitQty ?? $capacityCase;
 
         if ($candidate->quantity_type === QuantityType::CASE || $candidate->quantity_type?->value === 'CASE') {
@@ -430,13 +438,10 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
             $pieceQty = $totalQty;
         }
 
-        // 発注コード: 候補に保存されているordering_codeを優先、空欄/全ゼロなら動的取得（後方互換性）
-        $orderingCode = $this->resolveOrderingCode($candidate);
-
         // 原単価を取得
         $costPrice = $this->getCurrentCostPrice($item?->id, $candidate->quantity_type);
-        // パック発注の場合: バラ単価 × 荷姿入数
-        if ($orderingUnitQty !== null) {
+        // 6缶パック発注の場合: バラ単価 × 6
+        if ($orderingUnitQty === 6) {
             $pieceCostPrice = $this->getCurrentCostPrice($item?->id, QuantityType::PIECE);
             $costPrice = $pieceCostPrice * $orderingUnitQty;
         }
@@ -638,41 +643,54 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     }
 
     /**
-     * パック発注商品の荷姿入数を取得（6缶パック=6等）。通常商品はnull。
+     * 6缶パック発注商品の荷姿入数を取得。通常商品や6以外の荷姿はnull。
      */
-    private function getOrderingUnitQuantity(?int $itemId): ?int
+    private function getOrderingUnitQuantity(?int $itemId, ?string $orderingCode = null, ?int $capacityCase = null): ?int
     {
         if (! $itemId) {
             return null;
         }
 
-        if (array_key_exists($itemId, $this->orderingUnitQtyCache)) {
-            return $this->orderingUnitQtyCache[$itemId];
+        $cacheKey = $itemId.':'.($orderingCode ?? '');
+        if (array_key_exists($cacheKey, $this->orderingUnitQtyCache)) {
+            return $this->orderingUnitQtyCache[$cacheKey];
         }
 
-        $row = DB::connection('sakemaru')
-            ->table('item_search_information as isi')
-            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
-            ->where('isi.item_id', $itemId)
-            ->where('isi.is_used_for_ordering', true)
-            ->where('isi.is_active', true)
-            ->where('iqi.can_order', true)
-            ->where('iqi.quantity', '>', 1)
-            ->select('iqi.quantity')
-            ->first();
+        if (array_key_exists($cacheKey, $this->orderingCodeInfoCache)) {
+            $row = $this->orderingCodeInfoCache[$cacheKey];
+        } else {
+            $query = DB::connection('sakemaru')
+                ->table('item_search_information as isi')
+                ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
+                ->where('isi.item_id', $itemId)
+                ->where('isi.is_active', true)
+                ->where('iqi.can_order', true)
+                ->where('iqi.quantity', 6);
+
+            if ($orderingCode) {
+                $query->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode]);
+            } else {
+                $query->where('isi.is_used_for_ordering', true);
+            }
+
+            $row = $query->select('iqi.quantity')->first();
+            $this->orderingCodeInfoCache[$cacheKey] = $row;
+        }
 
         $qty = $row ? (int) $row->quantity : null;
 
-        // capacity_caseと同じ場合は通常のケース発注なのでnull
-        if ($qty !== null) {
-            $capacityCase = (int) (DB::connection('sakemaru')
+        // 6缶パックのみ特別扱いする。capacity_caseと同じ場合は通常ケース発注なのでnull。
+        if ($qty !== null && $qty === 6) {
+            $caseCapacity = $capacityCase ?? (int) (DB::connection('sakemaru')
                 ->table('items')->where('id', $itemId)->value('capacity_case') ?? 0);
-            if ($qty === $capacityCase) {
+            if ($qty === $caseCapacity) {
                 $qty = null;
             }
+        } else {
+            $qty = null;
         }
 
-        $this->orderingUnitQtyCache[$itemId] = $qty;
+        $this->orderingUnitQtyCache[$cacheKey] = $qty;
 
         return $qty;
     }
