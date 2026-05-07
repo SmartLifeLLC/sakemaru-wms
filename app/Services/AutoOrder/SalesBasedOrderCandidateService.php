@@ -50,6 +50,9 @@ class SalesBasedOrderCandidateService
 
     private array $orderingCodes = [];
 
+    /** @var array [item_id] => 発注荷姿入数 (item_quantity_information.quantity) */
+    private array $orderingUnitQuantities = [];
+
     private array $searchCodes = [];
 
     private array $supplierItemPrices = [];
@@ -372,15 +375,20 @@ class SalesBasedOrderCandidateService
         }
 
         $orderingCodes = DB::connection('sakemaru')
-            ->table('item_search_information')
-            ->where('is_used_for_ordering', true)
-            ->where('is_active', true)
-            ->whereRaw("search_string REGEXP '[1-9]'")
-            ->select('item_id', 'search_string')
+            ->table('item_search_information as isi')
+            ->leftJoin('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
+            ->where('isi.is_used_for_ordering', true)
+            ->where('isi.is_active', true)
+            ->whereRaw("isi.search_string REGEXP '[1-9]'")
+            ->select('isi.item_id', 'isi.search_string', 'iqi.quantity as ordering_unit_qty', 'iqi.can_order')
             ->get();
 
         foreach ($orderingCodes as $oc) {
             $this->orderingCodes[$oc->item_id] = str_pad($oc->search_string, 13, '0', STR_PAD_LEFT);
+
+            if ($oc->ordering_unit_qty !== null && (int) $oc->ordering_unit_qty > 1 && (int) $oc->can_order === 1) {
+                $this->orderingUnitQuantities[$oc->item_id] = (int) $oc->ordering_unit_qty;
+            }
         }
 
         $salesSummaries = DB::connection('sakemaru')
@@ -625,7 +633,9 @@ class SalesBasedOrderCandidateService
             }
 
             $capacityCase = max(1, (int) ($this->itemMaster[$ic->item_id]['capacity_case'] ?? 1));
-            $orderQtyCase = (int) ceil($orderQty / $capacityCase);
+            $orderingUnitQty = $this->orderingUnitQuantities[$ic->item_id] ?? null;
+            $divisor = $orderingUnitQty ?? $capacityCase;
+            $orderQtyCase = (int) ceil($orderQty / $divisor);
 
             $purchaseUnitPrice = $this->supplierItemPrices[$ic->item_id][$ic->supplier_id] ?? null;
             $orderingCode = $this->orderingCodes[$ic->item_id] ?? null;

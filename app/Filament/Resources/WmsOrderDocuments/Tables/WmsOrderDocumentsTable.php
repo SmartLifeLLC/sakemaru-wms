@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
+use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsContractorSetting;
+use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
 use Filament\Actions\Action;
@@ -132,28 +134,18 @@ class WmsOrderDocumentsTable
                     ->color('primary')
                     ->action(function (WmsOrderJxDocument $record) {
                         if (! $record->file_path) {
-                            Notification::make()
-                                ->title('ファイルが見つかりません')
-                                ->danger()
-                                ->send();
+                            Notification::make()->title('ファイルが見つかりません')->danger()->send();
 
                             return;
                         }
 
-                        // S3から直接ダウンロード用のURLを生成
-                        $service = app(OrderTransmissionService::class);
-                        $url = $service->getDownloadUrl($record);
-
+                        $url = app(OrderTransmissionService::class)->getDownloadUrl($record);
                         if (! $url) {
-                            Notification::make()
-                                ->title('ダウンロードURLの生成に失敗しました')
-                                ->danger()
-                                ->send();
+                            Notification::make()->title('ダウンロードURLの生成に失敗しました')->danger()->send();
 
                             return;
                         }
 
-                        // JavaScriptでダウンロード
                         return redirect($url);
                     }),
 
@@ -163,31 +155,9 @@ class WmsOrderDocumentsTable
                     ->color('info')
                     ->visible(fn ($record) => ! empty($record->csv_path))
                     ->action(function (WmsOrderJxDocument $record) {
-                        if (! $record->csv_path) {
-                            Notification::make()
-                                ->title('CSVファイルが見つかりません')
-                                ->danger()
-                                ->send();
+                        $url = Storage::disk('s3')->temporaryUrl($record->csv_path, now()->addHour());
 
-                            return;
-                        }
-
-                        // S3から直接ダウンロード用のURLを生成
-                        $url = Storage::disk('s3')->temporaryUrl(
-                            $record->csv_path,
-                            now()->addHour()
-                        );
-
-                        if (! $url) {
-                            Notification::make()
-                                ->title('ダウンロードURLの生成に失敗しました')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
-                        return redirect($url);
+                        return $url ? redirect($url) : Notification::make()->title('CSVファイルが見つかりません')->danger()->send();
                     }),
 
                 Action::make('downloadXml')
@@ -196,64 +166,15 @@ class WmsOrderDocumentsTable
                     ->color('warning')
                     ->visible(fn ($record) => ! empty($record->jx_message_id))
                     ->action(function (WmsOrderJxDocument $record) {
-                        if (! $record->jx_message_id) {
-                            Notification::make()
-                                ->title('送信XMLが見つかりません')
-                                ->body('JXメッセージIDが記録されていません')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
-                        // メッセージIDでXMLファイルを検索
                         $xmlPath = self::findXmlFileByMessageId($record->jx_message_id);
 
                         if (! $xmlPath) {
-                            Notification::make()
-                                ->title('送信XMLが見つかりません')
-                                ->body('XMLファイルが存在しないか、削除されています')
-                                ->danger()
-                                ->send();
+                            Notification::make()->title('送信XMLが見つかりません')->danger()->send();
 
                             return;
                         }
 
                         return redirect(route('jx-xml-files.download', ['path' => $xmlPath]));
-                    }),
-
-                Action::make('transmit')
-                    ->label('JX送信')
-                    ->icon('heroicon-o-paper-airplane')
-                    ->color('success')
-                    ->visible(function ($record) {
-                        if (! $record->status->canTransmit()) {
-                            return false;
-                        }
-                        // JX送信設定がある発注先のみ
-                        $setting = \App\Models\WmsContractorSetting::where('contractor_id', $record->contractor_id)->first();
-
-                        return $setting?->transmission_type === \App\Enums\AutoOrder\TransmissionType::JX_FINET;
-                    })
-                    ->requiresConfirmation()
-                    ->modalHeading('JX-FINET送信')
-                    ->modalDescription('このファイルをJX-FINETで送信しますか？')
-                    ->action(function (WmsOrderJxDocument $record) {
-                        $service = app(OrderTransmissionService::class);
-                        $result = $service->transmitDocumentById($record->id);
-
-                        if ($result['success']) {
-                            Notification::make()
-                                ->title('送信しました')
-                                ->success()
-                                ->send();
-                        } else {
-                            Notification::make()
-                                ->title('送信に失敗しました')
-                                ->body($result['error'] ?? '送信失敗')
-                                ->danger()
-                                ->send();
-                        }
                     }),
 
                 Action::make('delete')
@@ -266,20 +187,64 @@ class WmsOrderDocumentsTable
                     ]))
                     ->requiresConfirmation()
                     ->action(function (WmsOrderJxDocument $record) {
-                        // S3からファイル削除
                         if ($record->file_path && Storage::disk('s3')->exists($record->file_path)) {
                             Storage::disk('s3')->delete($record->file_path);
                         }
-
                         $record->delete();
-
-                        Notification::make()
-                            ->title('削除しました')
-                            ->success()
-                            ->send();
+                        Notification::make()->title('削除しました')->success()->send();
                     }),
             ])
             ->toolbarActions([
+                Action::make('transmitJx')
+                    ->label('JX送信')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->color('success')
+                    ->modalHeading('JX-FINET送信')
+                    ->modalDescription('確定済み候補からファイルを生成して送信します')
+                    ->modalSubmitActionLabel('生成＆送信')
+                    ->modalCancelActionLabel('送信せず閉じる')
+                    ->schema([
+                        Select::make('contractor_id')
+                            ->label('送信先')
+                            ->options(function () {
+                                return static::jxTransmitTargetOptions();
+                            })
+                            ->required()
+                            ->helperText('確定済み未送信の候補がある送信先のみ表示されます'),
+                    ])
+                    ->action(function (array $data) {
+                        $contractorId = (int) $data['contractor_id'];
+
+                        $service = app(OrderTransmissionService::class);
+                        $result = $service->generateAndTransmitForContractor($contractorId);
+
+                        if (! empty($result['transmitted'])) {
+                            $count = $result['order_count'] ?? count($result['transmitted']);
+                            Notification::make()
+                                ->title("JX送信完了（{$count}品）")
+                                ->success()
+                                ->send();
+                        }
+
+                        if (! empty($result['errors'])) {
+                            $errorMessages = collect($result['errors'])
+                                ->map(fn ($e) => $e['error'])
+                                ->implode("\n");
+                            Notification::make()
+                                ->title('送信エラー')
+                                ->body($errorMessages)
+                                ->danger()
+                                ->send();
+                        }
+
+                        if (empty($result['transmitted']) && empty($result['errors'])) {
+                            Notification::make()
+                                ->title('送信対象がありません')
+                                ->warning()
+                                ->send();
+                        }
+                    }),
+
                 Action::make('downloadCorrectionPreviewCsv')
                     ->label('修正CSV生成')
                     ->icon('heroicon-o-document-arrow-down')
@@ -315,7 +280,7 @@ class WmsOrderDocumentsTable
                     ->icon('heroicon-o-document-plus')
                     ->color('danger')
                     ->modalHeading('修正再送JX生成')
-                    ->modalDescription('送信済みの当日発注確定分を1つのJXファイルにまとめて生成します。生成後、一覧の「JX送信」から送信してください。')
+                    ->modalDescription('送信済みの当日発注確定分を1つのJXファイルにまとめて生成します。生成後、ツールバーの「JX送信」から送信してください。')
                     ->modalSubmitActionLabel('JXファイル生成')
                     ->modalCancelActionLabel('生成せず閉じる')
                     ->schema(static::correctionResendSchema())
@@ -385,5 +350,65 @@ class WmsOrderDocumentsTable
                 $setting->contractor_id => "[{$setting->contractor->code}]{$setting->contractor->name}",
             ])
             ->all();
+    }
+
+    /**
+     * JX送信対象（確定済み未送信候補がある送信先）の選択肢。
+     */
+    private static function jxTransmitTargetOptions(): array
+    {
+        $jxContractorIds = WmsContractorSetting::query()
+            ->where('transmission_type', TransmissionType::JX_FINET)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        if (empty($jxContractorIds)) {
+            return [];
+        }
+
+        $generator = app(OrderTransmissionService::class)->getGenerator();
+        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
+
+        // 送信先にマッピングされるソース仕入先IDも含める
+        $allSourceIds = $jxContractorIds;
+        foreach ($mapping as $sourceId => $targetId) {
+            if (in_array($targetId, $jxContractorIds)) {
+                $allSourceIds[] = (int) $sourceId;
+            }
+        }
+
+        $transmittedDocIds = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::TRANSMITTED)
+            ->pluck('id');
+
+        $candidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
+            ->whereNull('transmitted_at')
+            ->whereIn('contractor_id', array_unique($allSourceIds))
+            ->where(fn ($q) => $q->whereNull('wms_order_jx_document_id')
+                ->orWhereNotIn('wms_order_jx_document_id', $transmittedDocIds))
+            ->with('contractor')
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            return [];
+        }
+
+        // 送信先IDでグループ化（マッピング適用）
+        $grouped = $candidates->groupBy(function ($c) use ($mapping) {
+            return $mapping[$c->contractor_id] ?? $c->contractor_id;
+        });
+
+        return $grouped->mapWithKeys(function ($items, $transmissionContractorId) {
+            $contractor = $items->first()->contractor;
+            // マッピング先の場合、送信先名を取得
+            if ($contractor && $contractor->id !== (int) $transmissionContractorId) {
+                $contractor = \App\Models\Sakemaru\Contractor::find($transmissionContractorId);
+            }
+            $count = $items->count();
+            $label = $contractor
+                ? "[{$contractor->code}]{$contractor->name} ({$count}品)"
+                : "ID:{$transmissionContractorId} ({$count}品)";
+
+            return [$transmissionContractorId => $label];
+        })->all();
     }
 }

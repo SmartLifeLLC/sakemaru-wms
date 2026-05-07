@@ -73,6 +73,9 @@ class OrderCandidateCalculationService
     /** @var array [item_id] => ordering_code (13桁ゼロパディング済み) */
     private array $orderingCodes = [];
 
+    /** @var array [item_id] => 発注荷姿入数 (item_quantity_information.quantity) */
+    private array $orderingUnitQuantities = [];
+
     /** @var array [item_id] => search_string (発注用検索コード) */
     private array $searchCodes = [];
 
@@ -593,20 +596,29 @@ class OrderCandidateCalculationService
         Log::info('倉庫休日をロード', ['count' => count($holidays)]);
 
         // 発注コードをプリロード（is_used_for_ordering=trueのもの）
+        // item_quantity_information の荷姿入数も同時に取得
         $orderingCodes = DB::connection('sakemaru')
-            ->table('item_search_information')
-            ->where('is_used_for_ordering', true)
-            ->where('is_active', true)
-            ->whereRaw("search_string REGEXP '[1-9]'")
-            ->select('item_id', 'search_string')
+            ->table('item_search_information as isi')
+            ->leftJoin('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
+            ->where('isi.is_used_for_ordering', true)
+            ->where('isi.is_active', true)
+            ->whereRaw("isi.search_string REGEXP '[1-9]'")
+            ->select('isi.item_id', 'isi.search_string', 'iqi.quantity as ordering_unit_qty', 'iqi.can_order')
             ->get();
 
         foreach ($orderingCodes as $oc) {
-            // 13桁にゼロパディング
             $this->orderingCodes[$oc->item_id] = str_pad($oc->search_string, 13, '0', STR_PAD_LEFT);
+
+            // パック発注判定: ordering_unit_qty > 1 かつ can_order=1 の場合のみ発注荷姿入数として記録
+            if ($oc->ordering_unit_qty !== null && (int) $oc->ordering_unit_qty > 1 && (int) $oc->can_order === 1) {
+                $this->orderingUnitQuantities[$oc->item_id] = (int) $oc->ordering_unit_qty;
+            }
         }
 
-        Log::info('発注コードをロード', ['count' => count($this->orderingCodes)]);
+        Log::info('発注コードをロード', [
+            'count' => count($this->orderingCodes),
+            'pack_items' => count($this->orderingUnitQuantities),
+        ]);
 
         // 3日間販売サマリをプリロード（発注点0でも販売実績があれば発注する判定用）
         $salesSummaries = DB::connection('sakemaru')
@@ -982,9 +994,12 @@ class OrderCandidateCalculationService
             // 仕入単価を取得（仕入先別ケース単価）
             $purchaseUnitPrice = $this->supplierItemCasePrices[$ic->item_id][$ic->supplier_id] ?? null;
 
-            // ケース数に変換（orderQtyはバラ数、purchase_unitで切上げ済み）
+            // 発注単位数に変換（orderQtyはバラ数、purchase_unitで切上げ済み）
+            // パック発注商品（6缶パック等）は荷姿入数で割る、それ以外はcapacity_caseで割る
             $capacityCase = $this->itemMaster[$ic->item_id]['capacity_case'] ?? 1;
-            $orderQtyCase = $capacityCase > 1 ? intdiv($orderQty, $capacityCase) : $orderQty;
+            $orderingUnitQty = $this->orderingUnitQuantities[$ic->item_id] ?? null;
+            $divisor = $orderingUnitQty ?? ($capacityCase > 1 ? $capacityCase : 1);
+            $orderQtyCase = $divisor > 1 ? intdiv($orderQty, $divisor) : $orderQty;
 
             $insertData[] = [
                 'batch_code' => $batchCode,

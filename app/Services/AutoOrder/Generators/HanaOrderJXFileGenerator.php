@@ -85,6 +85,11 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     private array $costPriceCache = [];
 
     /**
+     * 商品ID => 発注荷姿入数 のキャッシュ（パック発注商品のみ）
+     */
+    private array $orderingUnitQtyCache = [];
+
+    /**
      * 発注ファイルを生成
      */
     public function generate(Collection $orderCandidates): array
@@ -413,6 +418,10 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $capacityCase = (int) ($item?->capacity_case ?? 1);
         $totalQty = (int) $candidate->order_quantity;
 
+        // パック発注判定: 発注荷姿入数を取得
+        $orderingUnitQty = $this->getOrderingUnitQuantity($item?->id);
+        $displayCapacity = $orderingUnitQty ?? $capacityCase;
+
         if ($candidate->quantity_type === QuantityType::CASE || $candidate->quantity_type?->value === 'CASE') {
             $caseQty = $totalQty;
             $pieceQty = 0;
@@ -424,9 +433,14 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         // 発注コード: 候補に保存されているordering_codeを優先、空欄/全ゼロなら動的取得（後方互換性）
         $orderingCode = $this->resolveOrderingCode($candidate);
 
-        // 原単価を取得（小数点2桁、160.00→000016000）
+        // 原単価を取得
         $costPrice = $this->getCurrentCostPrice($item?->id, $candidate->quantity_type);
-        $priceFormatted = (int) round($costPrice * 100); // 小数点2桁を整数に変換
+        // パック発注の場合: バラ単価 × 荷姿入数
+        if ($orderingUnitQty !== null) {
+            $pieceCostPrice = $this->getCurrentCostPrice($item?->id, QuantityType::PIECE);
+            $costPrice = $pieceCostPrice * $orderingUnitQty;
+        }
+        $priceFormatted = (int) round($costPrice * 100);
 
         $record = '';
         $record .= 'D';                                              // 1: レコード区分
@@ -435,7 +449,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $record .= $this->padProductName($item?->name_main ?? '', 62).'  '; // 6-69: 品名（62バイト+2空白）
         $record .= str_pad($orderingCode, 13);                       // 70-82: 発注コード
         $record .= str_pad(substr($item?->code ?? '', 0, 6), 6);     // 83-88: 自社コード
-        $record .= $this->padNumber($capacityCase, 6);               // 89-94: 仕入入数
+        $record .= $this->padNumber($displayCapacity, 6);            // 89-94: 仕入入数
         $record .= $this->padNumber($caseQty, 7);                    // 95-101: ケース数
         $record .= $this->padNumber($pieceQty, 7);                   // 102-108: バラ数量
         $record .= $this->padNumber($priceFormatted, 10);            // 109-118: 原単価
@@ -621,6 +635,46 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
                 return false;
             })
             ->values();
+    }
+
+    /**
+     * パック発注商品の荷姿入数を取得（6缶パック=6等）。通常商品はnull。
+     */
+    private function getOrderingUnitQuantity(?int $itemId): ?int
+    {
+        if (! $itemId) {
+            return null;
+        }
+
+        if (array_key_exists($itemId, $this->orderingUnitQtyCache)) {
+            return $this->orderingUnitQtyCache[$itemId];
+        }
+
+        $row = DB::connection('sakemaru')
+            ->table('item_search_information as isi')
+            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
+            ->where('isi.item_id', $itemId)
+            ->where('isi.is_used_for_ordering', true)
+            ->where('isi.is_active', true)
+            ->where('iqi.can_order', true)
+            ->where('iqi.quantity', '>', 1)
+            ->select('iqi.quantity')
+            ->first();
+
+        $qty = $row ? (int) $row->quantity : null;
+
+        // capacity_caseと同じ場合は通常のケース発注なのでnull
+        if ($qty !== null) {
+            $capacityCase = (int) (DB::connection('sakemaru')
+                ->table('items')->where('id', $itemId)->value('capacity_case') ?? 0);
+            if ($qty === $capacityCase) {
+                $qty = null;
+            }
+        }
+
+        $this->orderingUnitQtyCache[$itemId] = $qty;
+
+        return $qty;
     }
 
     /**
