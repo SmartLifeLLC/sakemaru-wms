@@ -1047,17 +1047,7 @@ class OrderTransmissionService
 
     public function transmitPendingDocumentsForContractor(array $contractorIds): array
     {
-        $generator = $this->getOrderFileGenerator();
-        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
-        $targetContractorIds = array_map('intval', $contractorIds);
-
-        foreach ($mapping as $sourceId => $targetId) {
-            if (in_array((int) $targetId, $targetContractorIds, true)) {
-                $targetContractorIds[] = (int) $sourceId;
-            }
-        }
-
-        $targetContractorIds = array_values(array_unique($targetContractorIds));
+        $targetContractorIds = $this->expandTransmissionContractorIds($contractorIds);
 
         $documents = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
             ->whereIn('contractor_id', $targetContractorIds)
@@ -1087,6 +1077,35 @@ class OrderTransmissionService
         }
 
         return $this->generateAndTransmitForDocuments($documents, $candidates);
+    }
+
+    public function transmitPendingOrGenerateForContractor(int $contractorId): array
+    {
+        $targetContractorIds = $this->expandTransmissionContractorIds([$contractorId]);
+        $hasPendingDocuments = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
+            ->whereIn('contractor_id', $targetContractorIds)
+            ->exists();
+
+        if ($hasPendingDocuments) {
+            return $this->transmitPendingDocumentsForContractor([$contractorId]);
+        }
+
+        return $this->generateAndTransmitForContractor($contractorId);
+    }
+
+    private function expandTransmissionContractorIds(array $contractorIds): array
+    {
+        $generator = $this->getOrderFileGenerator();
+        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
+        $targetContractorIds = array_map('intval', $contractorIds);
+
+        foreach ($mapping as $sourceId => $targetId) {
+            if (in_array((int) $targetId, $targetContractorIds, true)) {
+                $targetContractorIds[] = (int) $sourceId;
+            }
+        }
+
+        return array_values(array_unique($targetContractorIds));
     }
 
     /**
