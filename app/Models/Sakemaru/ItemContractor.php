@@ -9,7 +9,15 @@ class ItemContractor extends CustomModel
 {
     protected $guarded = [];
 
-    protected $casts = [];
+    protected $casts = [
+        'safety_stock' => 'integer',
+        'max_stock' => 'integer',
+        'min_stock' => 'integer',
+        'purchase_unit' => 'integer',
+        'auto_order_quantity' => 'integer',
+        'is_auto_order' => 'boolean',
+        'use_safety_stock_auto_update' => 'boolean',
+    ];
 
     /**
      * item_contractors テーブルには is_active カラムがない

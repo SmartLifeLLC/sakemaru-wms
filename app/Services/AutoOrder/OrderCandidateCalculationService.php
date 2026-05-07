@@ -903,8 +903,13 @@ class OrderCandidateCalculationService
             $externalQuery->whereIn('contractor_id', $this->targetContractorIds);
         }
 
+        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit'];
+        if ($this->hasItemContractorColumn('auto_order_quantity')) {
+            $selectColumns[] = 'item_contractors.auto_order_quantity';
+        }
+
         $itemContractors = $externalQuery
-            ->select('item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit')
+            ->select($selectColumns)
             ->get();
 
         $insertData = [];
@@ -935,9 +940,13 @@ class OrderCandidateCalculationService
                 continue;
             }
 
-            // 最小仕入単位で切り上げ
             $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
-            $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
+            $quantityCalculation = $this->calculateOrderQuantity(
+                $shortageQty,
+                $purchaseUnit,
+                (int) ($ic->auto_order_quantity ?? 0),
+            );
+            $orderQty = $quantityCalculation['order_quantity'];
 
             // 需要内訳を構築（自倉庫分 + サテライト倉庫分）
             // 注意: shortageQtyは既に移動出庫を考慮した値なので、
@@ -997,7 +1006,7 @@ class OrderCandidateCalculationService
             // 発注候補ではユーザーが見る通常数量を保持する。発注コード数量への変換は承認時/JX生成時に行う。
             $capacityCase = $this->itemMaster[$ic->item_id]['capacity_case'] ?? 1;
             $divisor = $capacityCase > 1 ? $capacityCase : 1;
-            $orderQtyCase = $divisor > 1 ? intdiv($orderQty, $divisor) : $orderQty;
+            $orderQtyCase = $divisor > 1 ? (int) ceil($orderQty / $divisor) : $orderQty;
 
             $insertData[] = [
                 'batch_code' => $batchCode,
@@ -1072,13 +1081,14 @@ class OrderCandidateCalculationService
                     '安全在庫' => $ic->safety_stock,
                     '利用可能在庫' => $calculatedStock,
                     '不足数' => $shortageQty,
+                    '旧自動発注数' => $quantityCalculation['auto_order_quantity'],
+                    '発注数量計算元' => $quantityCalculation['source_label'],
+                    '発注数量計算元数量(バラ)' => $quantityCalculation['base_quantity'],
                     '最小仕入単位' => $purchaseUnit,
                     '単位調整後数量(バラ)' => $orderQty,
                     '発注数量(ケース)' => $orderQtyCase,
                     'ケース入数' => $capacityCase,
-                    '単位調整説明' => $purchaseUnit > 1
-                        ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}バラ → {$orderQtyCase}ケース"
-                        : '最小仕入単位が1のため調整なし',
+                    '単位調整説明' => $quantityCalculation['description']." → {$orderQtyCase}ケース",
                 ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],
                     '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
@@ -1216,6 +1226,41 @@ class OrderCandidateCalculationService
         }
 
         return (int) ceil($quantity / $unit) * $unit;
+    }
+
+    private function hasItemContractorColumn(string $column): bool
+    {
+        return DB::connection('sakemaru')->getSchemaBuilder()->hasColumn('item_contractors', $column);
+    }
+
+    /**
+     * 問屋発注数量をバラ数量で算出する。
+     *
+     * 旧システムの自動発注数が設定されている場合は、不足数ではなく固定発注数として採用する。
+     */
+    private function calculateOrderQuantity(int $shortageQty, int $purchaseUnit, int $autoOrderQuantity): array
+    {
+        $autoOrderQuantity = max(0, $autoOrderQuantity);
+        $baseQuantity = $autoOrderQuantity > 0 ? $autoOrderQuantity : $shortageQty;
+        $sourceLabel = $autoOrderQuantity > 0 ? '旧自動発注数' : '不足数';
+        $orderQuantity = $this->roundUpToUnit($baseQuantity, $purchaseUnit);
+
+        $description = "{$sourceLabel}{$baseQuantity}バラ";
+        if ($purchaseUnit > 1 && $orderQuantity !== $baseQuantity) {
+            $description .= "を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQuantity}バラ";
+        } elseif ($purchaseUnit > 1) {
+            $description .= "（最小仕入単位{$purchaseUnit}に一致）";
+        } else {
+            $description .= '（最小仕入単位1のため調整なし）';
+        }
+
+        return [
+            'auto_order_quantity' => $autoOrderQuantity,
+            'base_quantity' => $baseQuantity,
+            'source_label' => $sourceLabel,
+            'order_quantity' => $orderQuantity,
+            'description' => $description,
+        ];
     }
 
     /**

@@ -181,7 +181,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     'client_name' => $trade->partner->name ?? '-',
                     'sales_rep_name' => $trade->earning?->buyer?->current_detail?->salesman?->name ?? '-',
                     'item_code' => $item->item->code ?? '-',
-                'item_name' => $item->item->name ?? "商品{$item->item_id}",
+                    'item_name' => $item->item->name ?? "商品{$item->item_id}",
                     'location' => $item->location_display ?? '-',
                     'ordered_qty' => (int) $item->ordered_qty,
                     'ordered_qty_type_display' => $item->ordered_qty_type_display,
@@ -194,6 +194,90 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 ];
             })->toArray();
         });
+    }
+
+    public function saveAllItems(): void
+    {
+        DB::connection('sakemaru')->transaction(function () {
+            $updatedCount = $this->persistItemChanges();
+            $this->reloadItems();
+
+            $this->dispatch('items-saved');
+
+            Notification::make()
+                ->title('保存しました')
+                ->body("{$updatedCount}件のピック数量を更新しました")
+                ->success()
+                ->send();
+        });
+    }
+
+    private function persistItemChanges(): int
+    {
+        $updatedCount = 0;
+
+        foreach ($this->items as $item) {
+            $pickedQty = (int) $item['picked_qty'];
+            $record = $this->record->pickingItemResults()->find($item['id']);
+
+            if (! $record) {
+                continue;
+            }
+            if ((int) $record->picked_qty === $pickedQty) {
+                continue;
+            }
+
+            $maxQty = max($record->ordered_qty, $record->planned_qty);
+            $pickedQty = max(0, min($pickedQty, $maxQty));
+
+            $shortageQty = max(0, $record->planned_qty - $pickedQty);
+
+            $record->update([
+                'picked_qty' => $pickedQty,
+                'shortage_qty' => $shortageQty,
+                'status' => $shortageQty > 0 ? 'SHORTAGE' : 'COMPLETED',
+                'picked_at' => now(),
+            ]);
+            $updatedCount++;
+        }
+
+        return $updatedCount;
+    }
+
+    private function reloadItems(): void
+    {
+        $this->record->refresh();
+        $this->record->load([
+            'pickingItemResults' => function ($query) {
+                $query->with(['item', 'location', 'trade.partner', 'trade.earning.buyer.current_detail.salesman'])
+                    ->orderBy('walking_order', 'asc')
+                    ->orderBy('item_id', 'asc');
+            },
+        ]);
+
+        $this->items = $this->record->pickingItemResults->map(function ($item) {
+            $trade = $item->trade;
+
+            return [
+                'id' => $item->id,
+                'serial_id' => $trade->serial_id ?? 'N/A',
+                'client_code' => $trade->partner->code ?? '-',
+                'client_name' => $trade->partner->name ?? '-',
+                'sales_rep_name' => $trade->earning?->buyer?->current_detail?->salesman?->name ?? '-',
+                'item_code' => $item->item->code ?? '-',
+                'item_name' => $item->item->name ?? "商品{$item->item_id}",
+                'location' => $item->location_display ?? '-',
+                'ordered_qty' => (int) $item->ordered_qty,
+                'ordered_qty_type_display' => $item->ordered_qty_type_display,
+                'planned_qty' => (int) $item->planned_qty,
+                'planned_qty_type_display' => $item->planned_qty_type_display,
+                'picked_qty' => (int) $item->picked_qty,
+                'picked_qty_type_display' => $item->picked_qty_type_display,
+                'shortage_qty' => (int) $item->shortage_qty,
+                'status' => $item->status,
+                'picked_at' => $item->picked_at?->format('H:i:s'),
+            ];
+        })->toArray();
     }
 
     public function forceShipTask(): void
@@ -242,6 +326,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 ->success()
                 ->send();
 
+            $this->dispatch('items-saved');
             $this->redirect(WmsPickingTaskResource::getUrl('index'));
         });
     }
@@ -249,6 +334,8 @@ class ExecuteWmsPickingTask extends Page implements HasForms
     public function completeTask(): void
     {
         DB::connection('sakemaru')->transaction(function () {
+            $this->persistItemChanges();
+
             // planned_qty = 0 のアイテムを自動完了（引当なし）
             $this->record->pickingItemResults()
                 ->where('planned_qty', 0)
@@ -372,6 +459,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 ->success()
                 ->send();
 
+            $this->dispatch('items-saved');
             $this->redirect(WmsPickingTaskResource::getUrl('index'));
         });
     }

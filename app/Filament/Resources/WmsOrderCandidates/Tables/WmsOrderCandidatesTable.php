@@ -317,7 +317,7 @@ class WmsOrderCandidatesTable
                         }
                         $total = (float) $record->purchase_unit_price * $record->order_quantity;
 
-                        return number_format($total, 2);
+                        return number_format($total);
                     })
                     ->alignEnd()
                     ->toggleable()
@@ -325,7 +325,7 @@ class WmsOrderCandidatesTable
                     ->summarize(
                         Summarizer::make()
                             ->label('合計')
-                            ->numeric(thousandsSeparator: ',', decimalPlaces: 2)
+                            ->numeric(thousandsSeparator: ',', decimalPlaces: 0)
                             ->using(function (Builder $query) {
                                 return (float) $query->sum(
                                     DB::raw('COALESCE(purchase_unit_price, 0) * COALESCE(order_quantity, 0)')
@@ -528,6 +528,9 @@ class WmsOrderCandidatesTable
                                     'transferOutgoing' => $details['移動出庫予定'] ?? 0,
                                     'safetyStock' => $details['発注点'] ?? $details['安全在庫'] ?? 0,
                                     'shortageQty' => $details['不足数'] ?? 0,
+                                    'autoOrderQuantity' => $details['旧自動発注数'] ?? 0,
+                                    'orderQuantitySource' => $details['発注数量計算元'] ?? null,
+                                    'orderQuantitySourceQty' => $details['発注数量計算元数量(バラ)'] ?? null,
                                     'purchaseUnit' => $details['最小仕入単位'] ?? 1,
                                     'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,
                                     'isEditable' => $isEditable,

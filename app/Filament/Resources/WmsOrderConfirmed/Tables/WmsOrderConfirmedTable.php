@@ -158,22 +158,6 @@ class WmsOrderConfirmedTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('batch_code')
-                    ->label('実行CD')
-                    ->options(fn () => WmsOrderCandidate::query()
-                        ->whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
-                        ->select('batch_code')
-                        ->distinct()
-                        ->orderByDesc('batch_code')
-                        ->limit(50)
-                        ->pluck('batch_code', 'batch_code')
-                        ->toArray())
-                    ->default(fn () => WmsOrderCandidate::query()
-                        ->whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
-                        ->orderByDesc('batch_code')
-                        ->value('batch_code'))
-                    ->searchable(),
-
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options([

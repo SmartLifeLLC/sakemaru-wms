@@ -265,7 +265,7 @@ class WmsOrderConfirmationWaitingTable
                             return '-';
                         }
 
-                        return number_format((float) $record->purchase_unit_price * $record->order_quantity, 2);
+                        return number_format((float) $record->purchase_unit_price * $record->order_quantity);
                     })
                     ->alignEnd()
                     ->width('90px'),

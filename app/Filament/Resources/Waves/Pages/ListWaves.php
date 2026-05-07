@@ -102,6 +102,31 @@ class ListWaves extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('provisionalPickingList')
+                ->label('仮ピッキングリスト')
+                ->icon('heroicon-o-document-magnifying-glass')
+                ->color('warning')
+                ->modalHeading('仮ピッキングリスト出力')
+                ->modalDescription('波動を生成せずに、対象伝票を選択してピッキングリストをまとめて出力します。')
+                ->modalWidth('6xl')
+                ->extraModalWindowAttributes(['class' => 'wave-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn (Action $action) => $action->label('PDF出力')->color('danger'))
+                ->modalCancelActionLabel('出力せず閉じる')
+                ->schema([
+                    ViewField::make('list_types')
+                        ->label('リスト種別（複数選択可）')
+                        ->view('filament.forms.components.picking-list-type-multi-select')
+                        ->default(['primary'])
+                        ->required()
+                        ->live(),
+
+                    ...$this->getWaveSelectionSchema(),
+                ])
+                ->action(function (array $data) {
+                    return $this->generateProvisionalPickingListPdf($data);
+                }),
+
             Action::make('printPickingList')
                 ->label('ピッキングリスト出力')
                 ->icon('heroicon-o-printer')
@@ -111,7 +136,7 @@ class ListWaves extends ListRecords
                 ->modalWidth('4xl')
                 ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
-                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('PDF出力')->color('danger'))
+                ->modalSubmitAction(fn (Action $action) => $action->label('PDF出力')->color('danger'))
                 ->modalCancelActionLabel('出力せず閉じる')
                 ->schema([
                     ViewField::make('list_type')
@@ -290,10 +315,25 @@ class ListWaves extends ListRecords
                 ->modalWidth('6xl')
                 ->extraModalWindowAttributes(['class' => 'wave-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
-                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('波動を生成')->color('danger'))
+                ->modalSubmitAction(fn (Action $action) => $action->label('波動を生成')->color('danger'))
                 ->modalCancelActionLabel('生成せず閉じる')
-                ->schema([
-                    Toggle::make('include_past')
+                ->schema($this->getWaveSelectionSchema())
+                ->action(function (array $data): void {
+                    $this->generateManualWave($data);
+                }),
+        ];
+    }
+
+    /**
+     * 倉庫・出荷日・配送コース選択用のフォームスキーマ。
+     * 出荷波動生成・仮ピッキングリスト出力で共有する。
+     *
+     * @return array<int, mixed>
+     */
+    protected function getWaveSelectionSchema(): array
+    {
+        return [
+            Toggle::make('include_past')
                         ->label('過去の未出荷も含む')
                         ->default(true)
                         ->live(),
@@ -668,14 +708,57 @@ class ListWaves extends ListRecords
                             })
                             ->visible(fn (Get $get) => $get('generation_type') === 'buyer'),
                     ]),
-                ])
-                ->action(function (array $data): void {
-                    $this->generateManualWave($data);
-                }),
         ];
     }
 
     protected function generateManualWave(array $data): void
+    {
+        try {
+            $result = $this->createWavesFromCourses($data);
+
+            if (empty($result['wave_ids'])) {
+                Notification::make()
+                    ->title('対象伝票がありません')
+                    ->warning()
+                    ->send();
+
+                return;
+            }
+
+            $totalEarnings = $result['earning_count'];
+            $totalStockTransfers = $result['stock_transfer_count'];
+
+            $bodyMessage = '生成数: '.count($result['wave_ids']).'件';
+            if ($totalEarnings > 0) {
+                $bodyMessage .= " (売上: {$totalEarnings}件";
+            }
+            if ($totalStockTransfers > 0) {
+                $bodyMessage .= $totalEarnings > 0 ? ", 移動: {$totalStockTransfers}件)" : " (移動: {$totalStockTransfers}件)";
+            } else {
+                $bodyMessage .= ')';
+            }
+
+            Notification::make()
+                ->title('波動を生成しました')
+                ->body($bodyMessage)
+                ->success()
+                ->send();
+        } catch (\Exception $e) {
+            Notification::make()
+                ->title('波動生成に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    /**
+     * 配送コース選択データから波動を作成し、作成された wave_id 配列と件数を返す。
+     * 通知は送らない。呼び出し側でハンドリングする。
+     *
+     * @return array{wave_ids: array<int>, earning_count: int, stock_transfer_count: int}
+     */
+    protected function createWavesFromCourses(array $data): array
     {
         $warehouseId = $data['warehouse_id'];
         $shippingDate = $data['shipping_date'];
@@ -724,12 +807,7 @@ class ListWaves extends ListRecords
         }
 
         if ($earnings->isEmpty() && $stockTransfers->isEmpty()) {
-            Notification::make()
-                ->title('対象伝票がありません')
-                ->warning()
-                ->send();
-
-            return;
+            return ['wave_ids' => [], 'earning_count' => 0, 'stock_transfer_count' => 0];
         }
 
         $earningsByDeliveryCourse = $earnings->groupBy('delivery_course_id');
@@ -739,109 +817,248 @@ class ListWaves extends ListRecords
             ->merge($stockTransfersByDeliveryCourse->keys())
             ->unique();
 
-        try {
-            $createdWaves = [];
-            $totalEarnings = 0;
-            $totalStockTransfers = 0;
+        $createdWaveIds = [];
+        $totalEarnings = 0;
+        $totalStockTransfers = 0;
 
-            DB::connection('sakemaru')->transaction(function () use (
-                $warehouseId,
-                $shippingDate,
-                $allDeliveryCourseIds,
-                $earningsByDeliveryCourse,
-                $stockTransfersByDeliveryCourse,
-                &$createdWaves,
-                &$totalEarnings,
-                &$totalStockTransfers
-            ) {
-                $warehouse = DB::connection('sakemaru')
-                    ->table('warehouses')
-                    ->where('id', $warehouseId)
+        DB::connection('sakemaru')->transaction(function () use (
+            $warehouseId,
+            $shippingDate,
+            $allDeliveryCourseIds,
+            $earningsByDeliveryCourse,
+            $stockTransfersByDeliveryCourse,
+            &$createdWaveIds,
+            &$totalEarnings,
+            &$totalStockTransfers
+        ) {
+            $warehouse = DB::connection('sakemaru')
+                ->table('warehouses')
+                ->where('id', $warehouseId)
+                ->first();
+
+            foreach ($allDeliveryCourseIds as $deliveryCourseId) {
+                $courseEarnings = $earningsByDeliveryCourse->get($deliveryCourseId, collect());
+                $courseStockTransfers = $stockTransfersByDeliveryCourse->get($deliveryCourseId, collect());
+
+                $waveSetting = WaveSetting::where('delivery_course_id', $deliveryCourseId)
                     ->first();
 
-                foreach ($allDeliveryCourseIds as $deliveryCourseId) {
-                    $courseEarnings = $earningsByDeliveryCourse->get($deliveryCourseId, collect());
-                    $courseStockTransfers = $stockTransfersByDeliveryCourse->get($deliveryCourseId, collect());
-
-                    $waveSetting = WaveSetting::where('delivery_course_id', $deliveryCourseId)
-                        ->first();
-
-                    if (! $waveSetting) {
-                        $waveSetting = WaveSetting::create([
-                            'delivery_course_id' => $deliveryCourseId,
-                            'picking_start_time' => null,
-                            'picking_deadline_time' => null,
-                            'creator_id' => auth()->id() ?? 1,
-                            'last_updater_id' => auth()->id() ?? 1,
-                        ]);
-                    }
-
-                    $course = DB::connection('sakemaru')
-                        ->table('delivery_courses')
-                        ->where('id', $deliveryCourseId)
-                        ->first();
-
-                    $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
-                        ->where('shipping_date', $shippingDate)
-                        ->first();
-
-                    if ($existingWave) {
-                        $wave = $existingWave;
-                        $waveNo = $existingWave->wave_no;
-                    } else {
-                        $wave = Wave::create([
-                            'wms_wave_setting_id' => $waveSetting->id,
-                            'wave_no' => uniqid('TEMP_'),
-                            'shipping_date' => $shippingDate,
-                            'status' => 'PENDING',
-                        ]);
-
-                        $waveNo = Wave::generateWaveNo(
-                            $warehouse->code ?? 0,
-                            $course->code ?? 0,
-                            $shippingDate,
-                            $wave->id
-                        );
-                        $wave->update(['wave_no' => $waveNo]);
-                    }
-
-                    if ($courseEarnings->isNotEmpty()) {
-                        $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $shippingDate);
-                        $totalEarnings += $courseEarnings->count();
-                    }
-
-                    if ($courseStockTransfers->isNotEmpty()) {
-                        $this->processStockTransfersForWave($wave, $waveSetting, $courseStockTransfers, $warehouse, $course, $shippingDate);
-                        $totalStockTransfers += $courseStockTransfers->count();
-                    }
-
-                    $createdWaves[] = $waveNo;
+                if (! $waveSetting) {
+                    $waveSetting = WaveSetting::create([
+                        'delivery_course_id' => $deliveryCourseId,
+                        'picking_start_time' => null,
+                        'picking_deadline_time' => null,
+                        'creator_id' => auth()->id() ?? 1,
+                        'last_updater_id' => auth()->id() ?? 1,
+                    ]);
                 }
-            });
 
-            $bodyMessage = '生成数: '.count($createdWaves).'件';
-            if ($totalEarnings > 0) {
-                $bodyMessage .= " (売上: {$totalEarnings}件";
+                $course = DB::connection('sakemaru')
+                    ->table('delivery_courses')
+                    ->where('id', $deliveryCourseId)
+                    ->first();
+
+                $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
+                    ->where('shipping_date', $shippingDate)
+                    ->first();
+
+                if ($existingWave) {
+                    $wave = $existingWave;
+                } else {
+                    $wave = Wave::create([
+                        'wms_wave_setting_id' => $waveSetting->id,
+                        'wave_no' => uniqid('TEMP_'),
+                        'shipping_date' => $shippingDate,
+                        'status' => 'PENDING',
+                    ]);
+
+                    $waveNo = Wave::generateWaveNo(
+                        $warehouse->code ?? 0,
+                        $course->code ?? 0,
+                        $shippingDate,
+                        $wave->id
+                    );
+                    $wave->update(['wave_no' => $waveNo]);
+                }
+
+                if ($courseEarnings->isNotEmpty()) {
+                    $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $shippingDate);
+                    $totalEarnings += $courseEarnings->count();
+                }
+
+                if ($courseStockTransfers->isNotEmpty()) {
+                    $this->processStockTransfersForWave($wave, $waveSetting, $courseStockTransfers, $warehouse, $course, $shippingDate);
+                    $totalStockTransfers += $courseStockTransfers->count();
+                }
+
+                $createdWaveIds[] = $wave->id;
             }
-            if ($totalStockTransfers > 0) {
-                $bodyMessage .= $totalEarnings > 0 ? ", 移動: {$totalStockTransfers}件)" : " (移動: {$totalStockTransfers}件)";
-            } else {
-                $bodyMessage .= ')';
+        });
+
+        return [
+            'wave_ids' => $createdWaveIds,
+            'earning_count' => $totalEarnings,
+            'stock_transfer_count' => $totalStockTransfers,
+        ];
+    }
+
+    /**
+     * 仮ピッキングリストを生成する。
+     * 波動を一旦作ってPDF化し、トランザクションをロールバックして永続化しない。
+     * リスト種別を複数選択した場合は、それぞれのPDFを順に同時ダウンロードする。
+     */
+    protected function generateProvisionalPickingListPdf(array $data)
+    {
+        $shippingDate = $data['shipping_date'];
+        $listTypes = $data['list_types'] ?? ['primary'];
+        if (! is_array($listTypes)) {
+            $listTypes = [$listTypes];
+        }
+        $listTypes = array_values(array_filter($listTypes, fn ($v) => is_string($v) && $v !== ''));
+
+        if (empty($listTypes)) {
+            Notification::make()->title('リスト種別を選択してください')->warning()->send();
+
+            return null;
+        }
+
+        $connection = DB::connection('sakemaru');
+        $connection->beginTransaction();
+
+        try {
+            $result = $this->createWavesFromCourses($data);
+            $waveIds = $result['wave_ids'];
+
+            if (empty($waveIds)) {
+                $connection->rollBack();
+                Notification::make()
+                    ->title('対象伝票がありません')
+                    ->warning()
+                    ->send();
+
+                return null;
             }
+
+            $service = new PickingListService;
+            $pdfService = new PickingListPdfService;
+            $waves = Wave::whereIn('id', $waveIds)->orderBy('wave_no')->get();
+            $separateFloors = $data['separate_floors'] ?? true;
+
+            $pdfs = [];
+            foreach ($listTypes as $listType) {
+                $pdfs[$listType] = $this->renderProvisionalListPdf(
+                    $listType,
+                    $waves,
+                    $waveIds,
+                    $separateFloors,
+                    $service,
+                    $pdfService
+                );
+            }
+
+            $connection->rollBack();
+
+            $dateStr = str_replace('-', '', $shippingDate);
+
+            // 1種類のみ → 単一PDFをそのままダウンロード
+            if (count($pdfs) === 1) {
+                $listType = array_key_first($pdfs);
+                $pdf = $pdfs[$listType];
+                $filename = "provisional-picking-list-{$listType}-{$dateStr}.pdf";
+
+                return response()->streamDownload(
+                    fn () => print ($pdf),
+                    $filename,
+                    ['Content-Type' => 'application/pdf']
+                );
+            }
+
+            // 複数種別 → 各PDFをCacheに格納し、JS経由で連続ダウンロード
+            $downloads = [];
+            foreach ($pdfs as $listType => $pdf) {
+                $token = (string) \Illuminate\Support\Str::uuid();
+                $filename = "provisional-picking-list-{$listType}-{$dateStr}.pdf";
+                \Illuminate\Support\Facades\Cache::put(
+                    "picking-list-temp-{$token}",
+                    [
+                        'content' => $pdf,
+                        'filename' => $filename,
+                    ],
+                    300 // 5分
+                );
+                $downloads[] = [
+                    'url' => route('picking-list.temp-download', ['token' => $token]),
+                    'filename' => $filename,
+                ];
+            }
+
+            $downloadsJson = json_encode($downloads, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $this->js(<<<JS
+                (() => {
+                    const downloads = {$downloadsJson};
+                    downloads.forEach((d, i) => {
+                        setTimeout(() => {
+                            const a = document.createElement('a');
+                            a.href = d.url;
+                            a.download = d.filename;
+                            a.style.display = 'none';
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(() => a.remove(), 100);
+                        }, i * 500);
+                    });
+                })();
+            JS);
 
             Notification::make()
-                ->title('波動を生成しました')
-                ->body($bodyMessage)
+                ->title(count($downloads).'件のPDFをダウンロードします')
                 ->success()
                 ->send();
 
+            return null;
         } catch (\Exception $e) {
+            $connection->rollBack();
             Notification::make()
-                ->title('波動生成に失敗しました')
+                ->title('仮ピッキングリスト生成に失敗しました')
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
+
+            return null;
         }
+    }
+
+    /**
+     * 単一のリスト種別についてPDFバイト列を返す。
+     */
+    private function renderProvisionalListPdf(
+        string $listType,
+        \Illuminate\Support\Collection $waves,
+        array $waveIds,
+        bool $separateFloors,
+        PickingListService $service,
+        PickingListPdfService $pdfService
+    ): string {
+        return match ($listType) {
+            'primary' => $pdfService->renderBatchPrimaryPdf(
+                $waves
+                    ->flatMap(fn ($w) => $service->generatePrimaryListPages($w->id, $separateFloors))
+                    ->toArray()
+            ),
+            'primary_total' => $pdfService->renderBatchPrimaryPdf(
+                $service->generatePrimaryTotalListPages($waveIds, $separateFloors)
+            ),
+            'shortage' => $pdfService->renderBatchShortagePdf(
+                $waves->map(fn ($w) => $service->generateShortageList($w->id))->toArray()
+            ),
+            'secondary' => $pdfService->renderCourseGroupedPdf(
+                $service->generateCourseGroupedListByWaveIds($waveIds)
+            ),
+            'tertiary' => $pdfService->renderBuyerGroupedPdf(
+                $service->generateBuyerGroupedListByWaveIds($waveIds)
+            ),
+            default => throw new \InvalidArgumentException("不明なリスト種別: {$listType}"),
+        };
     }
 
     protected function processEarningsForWave(
