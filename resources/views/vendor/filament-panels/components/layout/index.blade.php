@@ -27,7 +27,7 @@
     ])
 >
     @if ($hasTopbar)
-        <div x-data x-show="window.self === window.top" x-cloak>
+        <div x-data x-show="window.self === window.top" x-cloak class="relative z-[100]">
             {{ \Filament\Support\Facades\FilamentView::renderHook(\Filament\View\PanelsRenderHook::TOPBAR_BEFORE, scopes: $renderHookScopes) }}
 
             {{-- @livewire(filament()->getTopbarLivewireComponent()) --}}
