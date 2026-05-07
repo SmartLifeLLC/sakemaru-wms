@@ -39,6 +39,25 @@ Route::get('/jx-transmission-logs/{log}/download', [JxTransmissionLogController:
     ->name('jx-transmission-logs.download')
     ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin', 'sakemaru-permission:wms.jx-transmission-log.download']);
 
+// JX送信XMLファイルダウンロード（S3）
+Route::get('/jx-xml-files/download', function (\Illuminate\Http\Request $request) {
+    $path = $request->query('path');
+
+    if (! $path || ! str_starts_with($path, 'jx-client/')) {
+        abort(400, '無効なパスです');
+    }
+
+    if (! \Illuminate\Support\Facades\Storage::disk('s3')->exists($path)) {
+        abort(404);
+    }
+
+    $url = \Illuminate\Support\Facades\Storage::disk('s3')->temporaryUrl($path, now()->addHour());
+
+    return redirect($url);
+})
+    ->name('jx-xml-files.download')
+    ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin', 'sakemaru-permission:wms.jx-transmission-log.download']);
+
 // JX-FINET テスト用受信サーバー（開発・テスト環境のみ）
 if (app()->environment('local', 'testing', 'staging')) {
     Route::post('/jx-server', [JxServerController::class, 'handle'])
@@ -77,24 +96,5 @@ if (app()->environment('local', 'testing', 'staging')) {
         return redirect($url);
     })
         ->name('jx-server-files.download')
-        ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin', 'sakemaru-permission:wms.jx-transmission-log.download']);
-
-    // JX送信XMLファイルダウンロード（S3）
-    Route::get('/jx-xml-files/download', function (\Illuminate\Http\Request $request) {
-        $path = $request->query('path');
-
-        if (! $path || ! str_starts_with($path, 'jx-client/requests/')) {
-            abort(400, '無効なパスです');
-        }
-
-        if (! \Illuminate\Support\Facades\Storage::disk('s3')->exists($path)) {
-            abort(404);
-        }
-
-        $url = \Illuminate\Support\Facades\Storage::disk('s3')->temporaryUrl($path, now()->addHour());
-
-        return redirect($url);
-    })
-        ->name('jx-xml-files.download')
         ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin', 'sakemaru-permission:wms.jx-transmission-log.download']);
 }
