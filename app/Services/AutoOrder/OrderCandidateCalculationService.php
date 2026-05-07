@@ -392,29 +392,6 @@ class OrderCandidateCalculationService
             }
         }
 
-        // 既存の未承認移動候補は削除せず、移動入庫予定として見込み在庫に含める。
-        // 移動候補の一括生成を再実行したとき、同じ不足を二重に候補化しないため。
-        $pendingTransferIncoming = DB::connection('sakemaru')
-            ->table('wms_stock_transfer_candidates')
-            ->where('status', CandidateStatus::PENDING->value)
-            ->whereIn('satellite_warehouse_id', $this->realWarehouseIds)
-            ->selectRaw('satellite_warehouse_id as warehouse_id, item_id, SUM(transfer_quantity) as total_incoming')
-            ->groupBy('satellite_warehouse_id', 'item_id')
-            ->get();
-
-        foreach ($pendingTransferIncoming as $s) {
-            if (! isset($this->stockSnapshots[$s->warehouse_id])) {
-                $this->stockSnapshots[$s->warehouse_id] = [];
-            }
-            if (! isset($this->stockSnapshots[$s->warehouse_id][$s->item_id])) {
-                $this->stockSnapshots[$s->warehouse_id][$s->item_id] = [
-                    'effective' => 0,
-                    'incoming' => 0,
-                ];
-            }
-            $this->stockSnapshots[$s->warehouse_id][$s->item_id]['incoming'] += (int) $s->total_incoming;
-        }
-
         $stockCount = array_sum(array_map('count', $this->stockSnapshots));
         Log::info('在庫データを直接ロード（実倉庫のみ）', ['count' => $stockCount]);
 
