@@ -72,7 +72,7 @@
         @foreach($menuStructure as $tab)
             <div
                 x-show="openTab === '{{ $tab['id'] }}'"
-                class="fixed left-0 right-0 bg-white border-b border-slate-200 shadow-xl z-[100]"
+                class="absolute left-0 right-0 bg-white border-b border-slate-200 shadow-xl z-[100]"
                 style="top: 40px;"
                 x-cloak
             >
