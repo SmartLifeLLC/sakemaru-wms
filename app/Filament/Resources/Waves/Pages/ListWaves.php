@@ -147,7 +147,7 @@ class ListWaves extends ListRecords
                 ->color('info')
                 ->modalHeading('ピッキングリスト出力')
                 ->modalDescription('出荷日・倉庫を選択し、対象リストを出力します')
-                ->modalWidth('4xl')
+                ->modalWidth('6xl')
                 ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn (Action $action) => $action->label('PDF出力')->color('danger'))
@@ -297,11 +297,11 @@ class ListWaves extends ListRecords
                             'shortage' => $pdfService->renderBatchShortagePdf(
                                 $waves->map(fn ($w) => $service->generateShortageList($w->id))->toArray()
                             ),
-                            'secondary' => $pdfService->renderBatchSecondaryPdf(
-                                $service->generateSecondaryBatchList($waveIds)
+                            'secondary' => $pdfService->renderCourseGroupedPdf(
+                                $service->generateCourseGroupedListByWaveIds($waveIds)
                             ),
-                            'tertiary' => $pdfService->renderBatchTertiaryPdf(
-                                $service->generateTertiaryListByWaveIds($waveIds)
+                            'tertiary' => $pdfService->renderBuyerGroupedPdf(
+                                $service->generateBuyerGroupedListByWaveIds($waveIds)
                             ),
                         };
 
@@ -1580,7 +1580,7 @@ class ListWaves extends ListRecords
         $results = [];
         $groups = $rows
             ->filter(fn (array $row) => $row['source_type'] === 'EARNING')
-            ->groupBy(fn (array $row) => $row['earning_id'].'|'.($row['floor_id'] ?? 0));
+            ->groupBy(fn (array $row) => $row['course_id'].'|'.($row['floor_id'] ?? 0));
 
         foreach ($groups as $groupRows) {
             $first = $groupRows->first();
@@ -1608,7 +1608,7 @@ class ListWaves extends ListRecords
             $results[] = [
                 'header' => [
                     'course_name' => $first['course_name'],
-                    'slip_no' => $first['slip_number'],
+                    'slip_count' => $groupRows->pluck('earning_id')->unique()->count(),
                     'shipping_date' => $first['shipping_date'],
                     'warehouse_name' => $first['warehouse_name'],
                     'floor_name' => $first['floor_name'],

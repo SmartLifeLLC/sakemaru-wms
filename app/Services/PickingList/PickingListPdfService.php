@@ -1231,10 +1231,11 @@ class PickingListPdfService
         $valueW = 100;
         $infoLineH = 6;
 
+        $isCourseGrouped = array_key_exists('slip_count', $header);
         $this->pdf->SetXY($infoX, $this->currentY);
-        $this->pdf->Cell($labelW, $infoLineH, '伝票No：', 0, 0, 'L');
+        $this->pdf->Cell($labelW, $infoLineH, $isCourseGrouped ? '伝票数：' : '伝票No：', 0, 0, 'L');
         $this->pdf->SetXY($infoX + $labelW, $this->currentY);
-        $this->pdf->Cell($valueW, $infoLineH, (string) ($header['slip_no'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell($valueW, $infoLineH, $isCourseGrouped ? ((string) $header['slip_count']).'件' : (string) ($header['slip_no'] ?? ''), 0, 0, 'L');
         $this->currentY += $infoLineH;
 
         $shippingDate = $header['shipping_date'] ?? '';
