@@ -99,6 +99,30 @@ class StockAllocationService
         float $startTime,
         ?int $buyerId = null
     ): array {
+        $existing = DB::connection('sakemaru')
+            ->table('wms_reservations')
+            ->where('wave_id', $waveId)
+            ->where('warehouse_id', $warehouseId)
+            ->where('item_id', $itemId)
+            ->where('source_type', $sourceType)
+            ->where('source_id', $sourceId)
+            ->where('source_line_id', $sourceLineId)
+            ->whereIn('status', ['RESERVED', 'PARTIAL', 'SHORTAGE'])
+            ->get(['qty_each', 'shortage_qty']);
+
+        if ($existing->isNotEmpty()) {
+            $allocated = (int) $existing->sum('qty_each');
+            $shortage = (int) $existing->sum('shortage_qty');
+
+            return [
+                'allocated' => $allocated,
+                'shortage' => $shortage,
+                'elapsed_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                'race_count' => 0,
+                'lock_failed' => false,
+            ];
+        }
+
         $totalAllocated = 0;
         $raceCount = 0;
         $reservations = [];
@@ -156,8 +180,25 @@ class StockAllocationService
                 // Note: real_stocks の数量更新は行わない（Sakemaru側で管理）
                 // wms_reservations の作成のみ行う
 
+                $reservationKey = implode(':', [
+                    $waveId,
+                    $itemId,
+                    $stock->real_stock_id,
+                    $stock->location_id,
+                    $sourceId,
+                    $sourceLineId,
+                    'RESERVED',
+                ]);
+
+                if (isset($reservations[$reservationKey])) {
+                    $reservations[$reservationKey]['qty_each'] += $takeQty;
+                    $totalAllocated += $takeQty;
+
+                    continue;
+                }
+
                 // Success - record reservation
-                $reservations[] = [
+                $reservations[$reservationKey] = [
                     'warehouse_id' => $warehouseId,
                     'location_id' => $stock->location_id,
                     'real_stock_id' => $stock->real_stock_id,
@@ -187,7 +228,7 @@ class StockAllocationService
         if (! empty($reservations)) {
             DB::connection('sakemaru')
                 ->table('wms_reservations')
-                ->insert($reservations);
+                ->insert(array_values($reservations));
         }
 
         // Handle shortage
