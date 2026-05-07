@@ -859,14 +859,31 @@ class ListWaves extends ListRecords
                     ->where('id', $deliveryCourseId)
                     ->first();
 
-                $existingWave = $forceNewWaves
-                    ? null
-                    : Wave::where('wms_wave_setting_id', $waveSetting->id)
-                        ->where('shipping_date', $shippingDate)
-                        ->first();
+                $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
+                    ->where('shipping_date', $shippingDate)
+                    ->first();
 
                 if ($existingWave) {
                     $wave = $existingWave;
+
+                    if ($forceNewWaves) {
+                        $existingTaskIds = DB::connection('sakemaru')
+                            ->table('wms_picking_tasks')
+                            ->where('wave_id', $wave->id)
+                            ->pluck('id')
+                            ->toArray();
+                        if (! empty($existingTaskIds)) {
+                            DB::connection('sakemaru')->table('wms_picking_item_results')
+                                ->whereIn('picking_task_id', $existingTaskIds)
+                                ->delete();
+                            DB::connection('sakemaru')->table('wms_picking_tasks')
+                                ->whereIn('id', $existingTaskIds)
+                                ->delete();
+                        }
+                        DB::connection('sakemaru')->table('wms_reservations')
+                            ->where('wave_id', $wave->id)
+                            ->delete();
+                    }
                 } else {
                     $wave = Wave::create([
                         'wms_wave_setting_id' => $waveSetting->id,
