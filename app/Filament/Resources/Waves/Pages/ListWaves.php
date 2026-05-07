@@ -2,10 +2,13 @@
 
 namespace App\Filament\Resources\Waves\Pages;
 
+use App\Enums\AvailableQuantityFlag;
+use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\Waves\WaveResource;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Earning;
+use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Wave;
 use App\Models\WaveSetting;
@@ -824,7 +827,6 @@ class ListWaves extends ListRecords
 
         DB::connection('sakemaru')->transaction(function () use (
             $warehouseId,
-            $shippingDate,
             $allDeliveryCourseIds,
             $earningsByDeliveryCourse,
             $stockTransfersByDeliveryCourse,
@@ -954,7 +956,6 @@ class ListWaves extends ListRecords
         set_time_limit(300);
 
         $shippingDate = $data['shipping_date'];
-        $data['_wave_shipping_date'] = now()->subYears(100)->subDays(random_int(0, 3650))->format('Y-m-d');
         $listTypes = $data['list_types'] ?? ['primary'];
         if (! is_array($listTypes)) {
             $listTypes = [$listTypes];
@@ -967,15 +968,10 @@ class ListWaves extends ListRecords
             return null;
         }
 
-        $connection = DB::connection('sakemaru');
-        $connection->beginTransaction();
-
         try {
-            $result = $this->createWavesFromCourses($data, forceNewWaves: true);
-            $waveIds = $result['wave_ids'];
+            $rows = $this->buildProvisionalPickingRows($data);
 
-            if (empty($waveIds)) {
-                $connection->rollBack();
+            if ($rows->isEmpty()) {
                 Notification::make()
                     ->title('対象伝票がありません')
                     ->warning()
@@ -984,25 +980,19 @@ class ListWaves extends ListRecords
                 return null;
             }
 
-            $service = new PickingListService;
             $pdfService = new PickingListPdfService;
-            $waves = Wave::whereIn('id', $waveIds)->orderBy('wave_no')->get();
             $separateFloors = $data['separate_floors'] ?? true;
 
             $pdfs = [];
             foreach ($listTypes as $listType) {
                 $pdfs[$listType] = $this->renderProvisionalListPdf(
                     $listType,
-                    $waves,
-                    $waveIds,
+                    $rows,
                     $separateFloors,
-                    $service,
                     $pdfService,
                     $shippingDate
                 );
             }
-
-            $connection->rollBack();
 
             $dateStr = str_replace('-', '', $shippingDate);
 
@@ -1041,7 +1031,6 @@ class ListWaves extends ListRecords
                 ['Content-Type' => 'application/zip']
             );
         } catch (\Exception $e) {
-            $connection->rollBack();
             Notification::make()
                 ->title('仮ピッキングリスト生成に失敗しました')
                 ->body($e->getMessage())
@@ -1057,48 +1046,599 @@ class ListWaves extends ListRecords
      */
     private function renderProvisionalListPdf(
         string $listType,
-        \Illuminate\Support\Collection $waves,
-        array $waveIds,
+        \Illuminate\Support\Collection $rows,
         bool $separateFloors,
-        PickingListService $service,
         PickingListPdfService $pdfService,
         string $shippingDate
     ): string {
         return match ($listType) {
             'primary' => $pdfService->renderBatchPrimaryPdf(
-                $waves
-                    ->flatMap(fn ($w) => $service->generatePrimaryListPages($w->id, $separateFloors))
-                    ->map(fn (array $page) => $this->withProvisionalShippingDate($page, $shippingDate))
-                    ->toArray()
+                $this->splitPrimaryPages($this->buildProvisionalPrimaryList($rows, $shippingDate), $separateFloors)
             ),
             'primary_total' => $pdfService->renderBatchPrimaryPdf(
-                collect($service->generatePrimaryTotalListPages($waveIds, $separateFloors))
-                    ->map(fn (array $page) => $this->withProvisionalShippingDate($page, $shippingDate))
-                    ->toArray()
+                $this->splitPrimaryPages($this->buildProvisionalPrimaryList($rows, $shippingDate, '1次ピッキングリスト(一括)'), $separateFloors)
             ),
             'shortage' => $pdfService->renderBatchShortagePdf(
-                $waves
-                    ->map(fn ($w) => $service->generateShortageList($w->id))
-                    ->map(fn (array $page) => $this->withProvisionalShippingDate($page, $shippingDate))
-                    ->toArray()
+                [$this->buildProvisionalShortageList($rows, $shippingDate)]
             ),
             'secondary' => $pdfService->renderCourseGroupedPdf(
-                $service->generateCourseGroupedListByWaveIds($waveIds)
+                $this->buildProvisionalCourseGroupedLists($rows)
             ),
             'tertiary' => $pdfService->renderBuyerGroupedPdf(
-                collect($service->generateBuyerGroupedListByWaveIds($waveIds))
-                    ->map(fn (array $page) => $this->withProvisionalShippingDate($page, $shippingDate))
-                    ->toArray()
+                $this->buildProvisionalBuyerGroupedLists($rows, $shippingDate)
             ),
             default => throw new \InvalidArgumentException("不明なリスト種別: {$listType}"),
         };
     }
 
-    private function withProvisionalShippingDate(array $page, string $shippingDate): array
+    private function buildProvisionalPickingRows(array $data): \Illuminate\Support\Collection
     {
-        $page['header']['shipping_date'] = $shippingDate;
+        $warehouseId = $data['warehouse_id'];
+        $shippingDate = $data['shipping_date'];
+        $includePast = $data['include_past'] ?? true;
+        $dateOperator = $includePast ? '<=' : '=';
+        $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
+        $generationType = $data['generation_type'] ?? 'delivery_course';
 
-        return $page;
+        if ($generationType === 'buyer') {
+            $earnings = Earning::query()
+                ->join('delivery_courses as dc', 'earnings.delivery_course_id', '=', 'dc.id')
+                ->leftJoin('warehouses as wh', 'dc.warehouse_id', '=', 'wh.id')
+                ->leftJoin('buyers as b', 'earnings.buyer_id', '=', 'b.id')
+                ->leftJoin('partners as p', 'b.partner_id', '=', 'p.id')
+                ->leftJoin('trades as t', 'earnings.trade_id', '=', 't.id')
+                ->whereIn('dc.warehouse_id', $warehouseIds)
+                ->where('earnings.delivered_date', $dateOperator, $shippingDate)
+                ->where('earnings.is_active', true)
+                ->where('earnings.is_delivered', 0)
+                ->where('earnings.picking_status', 'BEFORE')
+                ->whereNotNull('earnings.delivery_course_id')
+                ->whereIn('earnings.buyer_id', $data['buyer_ids'] ?? [])
+                ->select([
+                    'earnings.id',
+                    'earnings.trade_id',
+                    'earnings.buyer_id',
+                    'earnings.delivered_date',
+                    'dc.id as course_id',
+                    'dc.code as course_code',
+                    'dc.name as course_name',
+                    'dc.warehouse_id',
+                    'wh.name as warehouse_name',
+                    'p.code as buyer_code',
+                    'p.name as buyer_name',
+                    't.slip_number',
+                ])
+                ->get();
+            $stockTransfers = collect();
+        } else {
+            $validCourseIds = DB::connection('sakemaru')
+                ->table('delivery_courses')
+                ->whereIn('warehouse_id', $warehouseIds)
+                ->whereIn('id', $data['delivery_course_ids'] ?? [])
+                ->pluck('id')
+                ->toArray();
+
+            $earnings = Earning::query()
+                ->join('delivery_courses as dc', 'earnings.delivery_course_id', '=', 'dc.id')
+                ->leftJoin('warehouses as wh', 'dc.warehouse_id', '=', 'wh.id')
+                ->leftJoin('buyers as b', 'earnings.buyer_id', '=', 'b.id')
+                ->leftJoin('partners as p', 'b.partner_id', '=', 'p.id')
+                ->leftJoin('trades as t', 'earnings.trade_id', '=', 't.id')
+                ->where('earnings.delivered_date', $dateOperator, $shippingDate)
+                ->where('earnings.is_delivered', 0)
+                ->where('earnings.picking_status', 'BEFORE')
+                ->whereNotNull('earnings.delivery_course_id')
+                ->whereIn('earnings.delivery_course_id', $validCourseIds)
+                ->select([
+                    'earnings.id',
+                    'earnings.trade_id',
+                    'earnings.buyer_id',
+                    'earnings.delivered_date',
+                    'dc.id as course_id',
+                    'dc.code as course_code',
+                    'dc.name as course_name',
+                    'dc.warehouse_id',
+                    'wh.name as warehouse_name',
+                    'p.code as buyer_code',
+                    'p.name as buyer_name',
+                    't.slip_number',
+                ])
+                ->get();
+
+            $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId, $includePast)
+                ->leftJoin('warehouses as wh', 'dc.warehouse_id', '=', 'wh.id')
+                ->whereIn('st.delivery_course_id', $validCourseIds)
+                ->addSelect([
+                    'dc.id as course_id',
+                    'dc.code as course_code',
+                    'dc.name as course_name',
+                    'dc.warehouse_id',
+                    'wh.name as warehouse_name',
+                ])
+                ->get();
+        }
+
+        $sourcesByTradeId = [];
+        foreach ($earnings as $earning) {
+            $sourcesByTradeId[$earning->trade_id][] = ['type' => 'EARNING', 'record' => $earning];
+        }
+        foreach ($stockTransfers as $stockTransfer) {
+            $sourcesByTradeId[$stockTransfer->trade_id][] = ['type' => 'STOCK_TRANSFER', 'record' => $stockTransfer];
+        }
+
+        if (empty($sourcesByTradeId)) {
+            return collect();
+        }
+
+        $tradeItems = DB::connection('sakemaru')
+            ->table('trade_items as ti')
+            ->join('items as i', 'ti.item_id', '=', 'i.id')
+            ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
+            ->whereIn('ti.trade_id', array_keys($sourcesByTradeId))
+            ->select([
+                'ti.id',
+                'ti.trade_id',
+                'ti.item_id',
+                'ti.quantity',
+                'ti.quantity_type',
+                'i.code as item_code',
+                'i.name as item_name',
+                'i.capacity_case',
+                'i.packaging',
+                'ssi.jancode as jan_code',
+            ])
+            ->get();
+
+        $rows = collect();
+        $stockLots = [];
+
+        foreach ($tradeItems as $tradeItem) {
+            foreach ($sourcesByTradeId[$tradeItem->trade_id] ?? [] as $source) {
+                $record = $source['record'];
+                $quantityType = $tradeItem->quantity_type ?: 'PIECE';
+                $allocations = $this->allocateProvisionalRows(
+                    (int) $record->warehouse_id,
+                    (int) $tradeItem->item_id,
+                    (int) $tradeItem->quantity,
+                    $quantityType,
+                    $source['type'] === 'EARNING' ? ($record->buyer_id ? (int) $record->buyer_id : null) : null,
+                    $stockLots
+                );
+
+                foreach ($allocations as $allocation) {
+                    $rows->push(array_merge([
+                        'source_type' => $source['type'],
+                        'earning_id' => $source['type'] === 'EARNING' ? (int) $record->id : null,
+                        'stock_transfer_id' => $source['type'] === 'STOCK_TRANSFER' ? (int) $record->id : null,
+                        'trade_id' => (int) $tradeItem->trade_id,
+                        'trade_item_id' => (int) $tradeItem->id,
+                        'item_id' => (int) $tradeItem->item_id,
+                        'item_code' => $tradeItem->item_code,
+                        'item_name' => $this->normalizeProvisionalItemName($tradeItem->item_name),
+                        'capacity_case' => (int) ($tradeItem->capacity_case ?: 1),
+                        'packaging' => $tradeItem->packaging ?? '',
+                        'jan_code' => $this->extractProvisionalJanCode($tradeItem->jan_code),
+                        'ordered_qty' => (int) $tradeItem->quantity,
+                        'planned_qty_type' => $quantityType,
+                        'course_id' => (int) $record->course_id,
+                        'course_code' => $record->course_code,
+                        'course_name' => $record->course_name ?? '',
+                        'warehouse_id' => (int) $record->warehouse_id,
+                        'warehouse_name' => $record->warehouse_name ?? '',
+                        'buyer_code' => $record->buyer_code ?? '',
+                        'buyer_name' => $record->buyer_name ?? '',
+                        'slip_number' => $record->slip_number ?? (string) $record->id,
+                        'shipping_date' => $source['type'] === 'EARNING'
+                            ? (string) $record->delivered_date
+                            : (string) ($record->picking_date ?? $record->delivered_date ?? $shippingDate),
+                    ], $allocation));
+                }
+            }
+        }
+
+        return $rows;
+    }
+
+    private function allocateProvisionalRows(
+        int $warehouseId,
+        int $itemId,
+        int $needQty,
+        string $quantityType,
+        ?int $buyerId,
+        array &$stockLots
+    ): array {
+        $cacheKey = "{$warehouseId}:{$itemId}:{$quantityType}:".($buyerId ?? 'none');
+        if (! array_key_exists($cacheKey, $stockLots)) {
+            $stockLots[$cacheKey] = $this->getProvisionalStockLots($warehouseId, $itemId, $quantityType, $buyerId)
+                ->map(fn ($lot) => [
+                    'location_id' => $lot->location_id ? (int) $lot->location_id : null,
+                    'code1' => $lot->code1,
+                    'code2' => $lot->code2,
+                    'code3' => $lot->code3,
+                    'floor_id' => $lot->floor_id ? (int) $lot->floor_id : null,
+                    'floor_name' => $lot->floor_name ?? '',
+                    'remaining' => (int) $lot->available_quantity,
+                ])
+                ->all();
+        }
+
+        $rows = [];
+        $remainingNeed = $needQty;
+
+        foreach ($stockLots[$cacheKey] as &$lot) {
+            if ($remainingNeed <= 0) {
+                break;
+            }
+            if ($lot['remaining'] <= 0) {
+                continue;
+            }
+
+            $allocated = min($remainingNeed, $lot['remaining']);
+            $lot['remaining'] -= $allocated;
+            $remainingNeed -= $allocated;
+
+            $rows[] = [
+                'location_id' => $lot['location_id'],
+                'code1' => $lot['code1'],
+                'code2' => $lot['code2'],
+                'code3' => $lot['code3'],
+                'floor_id' => $lot['floor_id'],
+                'floor_name' => $lot['floor_name'],
+                'planned_qty' => $allocated,
+                'shortage_qty' => 0,
+            ];
+        }
+        unset($lot);
+
+        if ($remainingNeed > 0) {
+            $rows[] = [
+                'location_id' => null,
+                'code1' => null,
+                'code2' => null,
+                'code3' => null,
+                'floor_id' => null,
+                'floor_name' => '',
+                'planned_qty' => 0,
+                'shortage_qty' => $remainingNeed,
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function getProvisionalStockLots(int $warehouseId, int $itemId, string $quantityType, ?int $buyerId): \Illuminate\Support\Collection
+    {
+        $flag = match (strtoupper($quantityType)) {
+            'CASE' => AvailableQuantityFlag::CASE,
+            'CARTON' => AvailableQuantityFlag::CARTON,
+            default => AvailableQuantityFlag::PIECE,
+        };
+
+        $query = DB::connection('sakemaru')
+            ->table('real_stocks as rs')
+            ->join('real_stock_lots as rsl', function ($join) {
+                $join->on('rsl.real_stock_id', '=', 'rs.id')
+                    ->where('rsl.status', '=', 'ACTIVE')
+                    ->whereRaw('rsl.current_quantity > rsl.reserved_quantity');
+            })
+            ->join('locations as l', 'l.id', '=', 'rsl.location_id')
+            ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
+            ->where('rs.warehouse_id', $warehouseId)
+            ->where('rs.item_id', $itemId)
+            ->whereRaw("(l.available_quantity_flags & {$flag->value}) != 0");
+
+        if ($buyerId !== null) {
+            $query->where(function ($q) use ($buyerId) {
+                $q->whereNotExists(function ($subQuery) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('real_stock_lot_buyer_restrictions')
+                        ->whereColumn('real_stock_lot_buyer_restrictions.real_stock_lot_id', 'rsl.id');
+                })->orWhereExists(function ($subQuery) use ($buyerId) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('real_stock_lot_buyer_restrictions')
+                        ->whereColumn('real_stock_lot_buyer_restrictions.real_stock_lot_id', 'rsl.id')
+                        ->where('real_stock_lot_buyer_restrictions.buyer_id', $buyerId);
+                });
+            });
+        }
+
+        return $query
+            ->select([
+                'rsl.location_id',
+                'l.code1',
+                'l.code2',
+                'l.code3',
+                'l.floor_id',
+                'f.name as floor_name',
+                DB::raw('(rsl.current_quantity - rsl.reserved_quantity) as available_quantity'),
+            ])
+            ->orderByRaw('rsl.expiration_date IS NULL')
+            ->orderBy('rsl.expiration_date')
+            ->orderBy('rsl.created_at')
+            ->orderBy('rsl.id')
+            ->get();
+    }
+
+    private function buildProvisionalPrimaryList(\Illuminate\Support\Collection $rows, string $shippingDate, string $title = '1次ピッキングリスト'): array
+    {
+        $grouped = [];
+        foreach ($rows as $row) {
+            $key = ($row['location_id'] ?? 0).'|'.$row['item_id'].'|'.$row['planned_qty_type'];
+            if (! isset($grouped[$key])) {
+                $grouped[$key] = [
+                    'item_code' => $row['item_code'],
+                    'item_name' => $row['item_name'],
+                    'packaging' => $row['packaging'],
+                    'location_id' => $row['location_id'],
+                    'code1' => $row['code1'],
+                    'code2' => $row['code2'],
+                    'code3' => $row['code3'],
+                    'floor_id' => $row['floor_id'],
+                    'floor_name' => $row['floor_name'],
+                    'capacity_case' => $row['capacity_case'],
+                    'planned_qty_type' => $row['planned_qty_type'],
+                    'total_qty' => 0,
+                    'shortage_qty' => 0,
+                ];
+            }
+            $grouped[$key]['total_qty'] += (int) $row['planned_qty'];
+            $grouped[$key]['shortage_qty'] += (int) $row['shortage_qty'];
+        }
+
+        $items = [];
+        foreach ($grouped as $item) {
+            $qty = (int) $item['total_qty'];
+            $capacityCase = max(1, (int) $item['capacity_case']);
+            $qtyType = QuantityType::tryFrom($item['planned_qty_type']) ?? QuantityType::PIECE;
+            $pieceTotalQty = $qtyType === QuantityType::CASE ? $qty * $capacityCase : $qty;
+            $caseQty = $capacityCase > 1 ? intdiv($pieceTotalQty, $capacityCase) : 0;
+            $pieceQty = $capacityCase > 1 ? $pieceTotalQty % $capacityCase : $pieceTotalQty;
+
+            $items[] = [
+                'item_code' => $item['item_code'],
+                'item_name' => $item['item_name'],
+                'packaging' => $item['packaging'],
+                'location_code' => $item['location_id']
+                    ? Location::formatCode($item['code1'], $item['code2'], $item['code3'], '-')
+                    : '',
+                'total_qty' => $qty,
+                'case_qty' => $caseQty,
+                'piece_qty' => $pieceQty,
+                'shortage_qty' => (int) $item['shortage_qty'],
+                'total_piece_qty' => $pieceTotalQty,
+                'floor_id' => $item['floor_id'],
+                'floor_name' => $item['floor_name'] ?? '',
+            ];
+        }
+
+        return [
+            'header' => [
+                'wave_no' => '仮出力',
+                'shipping_date' => $shippingDate,
+                'warehouse_name' => (string) ($rows->first()['warehouse_name'] ?? ''),
+                'list_title' => $title,
+            ],
+            'items' => $items,
+            'summary' => $this->summarizeProvisionalPrimaryItems($items),
+        ];
+    }
+
+    private function splitPrimaryPages(array $data, bool $separateFloors): array
+    {
+        if (! $separateFloors || empty($data['items'])) {
+            return [$data];
+        }
+
+        $grouped = collect($data['items'])->groupBy(fn (array $item) => $item['floor_id'] ?? 'none');
+        if ($grouped->count() <= 1) {
+            return [$data];
+        }
+
+        return $grouped
+            ->map(function ($items) use ($data) {
+                $items = $items->values()->all();
+                $floorName = $items[0]['floor_name'] ?? 'フロア未設定';
+
+                return [
+                    'header' => array_merge($data['header'], [
+                        'floor_name' => $floorName ?: 'フロア未設定',
+                    ]),
+                    'items' => $items,
+                    'summary' => $this->summarizeProvisionalPrimaryItems($items),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function buildProvisionalShortageList(\Illuminate\Support\Collection $rows, string $shippingDate): array
+    {
+        $items = [];
+        $totalShortage = 0;
+
+        foreach ($rows->filter(fn (array $row) => (int) $row['shortage_qty'] > 0) as $row) {
+            $qtyType = QuantityType::tryFrom($row['planned_qty_type']) ?? QuantityType::PIECE;
+            $items[] = [
+                'item_code' => $row['item_code'],
+                'item_name' => $row['item_name'],
+                'packaging' => $row['packaging'],
+                'location_code' => $row['location_id']
+                    ? Location::formatCode($row['code1'], $row['code2'], $row['code3'], '-')
+                    : '',
+                'qty_label' => $qtyType->name(),
+                'planned_qty' => (int) $row['ordered_qty'],
+                'allocated_qty' => max(0, (int) $row['ordered_qty'] - (int) $row['shortage_qty']),
+                'shortage_qty' => (int) $row['shortage_qty'],
+            ];
+            $totalShortage += (int) $row['shortage_qty'];
+        }
+
+        return [
+            'header' => [
+                'wave_no' => '仮出力',
+                'shipping_date' => $shippingDate,
+                'warehouse_name' => (string) ($rows->first()['warehouse_name'] ?? ''),
+            ],
+            'items' => $items,
+            'summary' => [
+                'sku_count' => count($items),
+                'total_shortage' => $totalShortage,
+            ],
+        ];
+    }
+
+    private function buildProvisionalCourseGroupedLists(\Illuminate\Support\Collection $rows): array
+    {
+        $results = [];
+        $groups = $rows
+            ->filter(fn (array $row) => $row['source_type'] === 'EARNING')
+            ->groupBy(fn (array $row) => $row['earning_id'].'|'.($row['floor_id'] ?? 0));
+
+        foreach ($groups as $groupRows) {
+            $first = $groupRows->first();
+            $items = [];
+            foreach ($groupRows->groupBy(fn (array $row) => ($row['location_id'] ?? 0).'|'.$row['item_code']) as $itemRows) {
+                $row = $itemRows->first();
+                $totalPieces = $this->sumProvisionalPieces($itemRows);
+                $capacityCase = max(1, (int) $row['capacity_case']);
+                $items[] = [
+                    'no' => count($items) + 1,
+                    'location_code' => $row['location_id']
+                        ? Location::formatCode($row['code1'], $row['code2'], $row['code3'], '-')
+                        : '',
+                    'item_code' => $row['item_code'],
+                    'jan_code' => $row['jan_code'],
+                    'item_name' => $row['item_name'],
+                    'capacity_case' => $capacityCase,
+                    'case_qty' => intdiv($totalPieces, $capacityCase),
+                    'piece_qty' => $totalPieces % $capacityCase,
+                    'total_pieces' => $totalPieces,
+                    'shortage_qty' => (int) $itemRows->sum('shortage_qty'),
+                ];
+            }
+
+            $results[] = [
+                'header' => [
+                    'course_name' => $first['course_name'],
+                    'slip_no' => $first['slip_number'],
+                    'shipping_date' => $first['shipping_date'],
+                    'warehouse_name' => $first['warehouse_name'],
+                    'floor_name' => $first['floor_name'],
+                ],
+                'items' => $items,
+            ];
+        }
+
+        return $results;
+    }
+
+    private function buildProvisionalBuyerGroupedLists(\Illuminate\Support\Collection $rows, string $shippingDate): array
+    {
+        $results = [];
+        $courseGroups = $rows
+            ->filter(fn (array $row) => $row['source_type'] === 'EARNING')
+            ->groupBy('course_id');
+
+        foreach ($courseGroups as $groupRows) {
+            $first = $groupRows->first();
+            $items = [];
+            $totalCase = 0;
+            $totalPiece = 0;
+            $totalAll = 0;
+
+            foreach ($groupRows->groupBy(fn (array $row) => ($row['buyer_code'] ?: 'NA').'|'.($row['location_id'] ?? 0).'|'.$row['item_code']) as $itemRows) {
+                $row = $itemRows->first();
+                $capacityCase = max(1, (int) $row['capacity_case']);
+                $totalPieces = $this->sumProvisionalPieces($itemRows);
+                $caseQty = intdiv($totalPieces, $capacityCase);
+                $pieceQty = $totalPieces % $capacityCase;
+
+                $items[] = [
+                    'no' => count($items) + 1,
+                    'location_code' => $row['location_id']
+                        ? Location::formatCode($row['code1'], $row['code2'], $row['code3'], '-')
+                        : '',
+                    'buyer_code' => (string) $row['buyer_code'],
+                    'buyer_name' => (string) $row['buyer_name'],
+                    'item_code' => $row['item_code'],
+                    'jan_code' => $row['jan_code'],
+                    'item_name' => $row['item_name'],
+                    'capacity_case' => $capacityCase,
+                    'case_qty' => $caseQty,
+                    'piece_qty' => $pieceQty,
+                    'total_pieces' => $totalPieces,
+                    'shortage_qty' => (int) $itemRows->sum('shortage_qty'),
+                ];
+
+                $totalCase += $caseQty;
+                $totalPiece += $pieceQty;
+                $totalAll += $totalPieces;
+            }
+
+            $results[] = [
+                'header' => [
+                    'course_name' => $first['course_name'],
+                    'wave_no' => '仮出力',
+                    'shipping_date' => $shippingDate,
+                ],
+                'items' => $items,
+                'summary' => [
+                    'row_count' => count($items),
+                    'total_case' => $totalCase,
+                    'total_piece' => $totalPiece,
+                    'total_pieces_all' => $totalAll,
+                ],
+            ];
+        }
+
+        return $results;
+    }
+
+    private function summarizeProvisionalPrimaryItems(array $items): array
+    {
+        return [
+            'sku_count' => count($items),
+            'total_qty' => array_sum(array_column($items, 'total_qty')),
+            'total_case' => array_sum(array_column($items, 'case_qty')),
+            'total_piece' => array_sum(array_column($items, 'piece_qty')),
+            'total_shortage' => array_sum(array_column($items, 'shortage_qty')),
+            'total_piece_qty' => array_sum(array_column($items, 'total_piece_qty')),
+        ];
+    }
+
+    private function sumProvisionalPieces(\Illuminate\Support\Collection $rows): int
+    {
+        return (int) $rows->sum(function (array $row): int {
+            $qtyType = QuantityType::tryFrom($row['planned_qty_type']) ?? QuantityType::PIECE;
+
+            return $qtyType === QuantityType::CASE
+                ? (int) $row['planned_qty'] * max(1, (int) $row['capacity_case'])
+                : (int) $row['planned_qty'];
+        });
+    }
+
+    private function extractProvisionalJanCode(?string $raw): string
+    {
+        if ($raw === null || $raw === '') {
+            return '';
+        }
+
+        $tokens = preg_split('/[\s,;]+/', $raw, -1, PREG_SPLIT_NO_EMPTY);
+
+        return empty($tokens) ? '' : (string) $tokens[0];
+    }
+
+    private function normalizeProvisionalItemName(?string $raw): string
+    {
+        if ($raw === null) {
+            return '';
+        }
+
+        $normalized = str_replace("\u{3000}", ' ', $raw);
+        $normalized = preg_replace('/\s+/u', ' ', $normalized);
+        $normalized = trim((string) $normalized);
+
+        return str_replace(' ', "\u{00A0}", $normalized);
     }
 
     protected function processEarningsForWave(
