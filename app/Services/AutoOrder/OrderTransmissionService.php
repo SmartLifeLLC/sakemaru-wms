@@ -925,7 +925,6 @@ class OrderTransmissionService
         }
 
         $candidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
-            ->whereNull('transmitted_at')
             ->whereIn('contractor_id', $sourceContractorIds)
             ->with(['item', 'contractor', 'warehouse'])
             ->get();
@@ -1082,7 +1081,6 @@ class OrderTransmissionService
 
         $targetContractorIds = $this->expandTransmissionContractorIds([$contractorId]);
         $hasConfirmedCandidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
-            ->whereNull('transmitted_at')
             ->whereIn('contractor_id', $targetContractorIds)
             ->exists();
 
