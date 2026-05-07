@@ -167,7 +167,7 @@
                                 <span class="text-sm text-gray-900 dark:text-gray-100 truncate" x-text="contractor.name"></span>
                             </div>
                         </div>
-	                        <div class="flex items-center gap-1 flex-shrink-0">
+                        <div class="flex items-center gap-1 flex-shrink-0">
                             <span x-show="contractor.transmission_type === 'JX_FINET'"
                                   class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
                                 JX
@@ -176,9 +176,9 @@
                                   class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                                 集約元
                             </span>
-	                            <span x-show="contractor.transmission_type === 'INTERNAL'"
-	                                  class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-	                                移動
+                            <span x-show="contractor.transmission_type === 'INTERNAL'"
+                                  class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                移動
                             </span>
                             <span x-show="contractor.generation_time"
                                   class="text-[10px] text-gray-400 dark:text-gray-500 font-mono"

@@ -662,7 +662,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
     public function getJxContractorsForAutoOrderGeneration(): array
     {
         $jxContractorIds = WmsContractorSetting::query()
-            ->where('transmission_type', TransmissionType::JX_FINET)
+            ->where('transmission_type', TransmissionType::JX_FINET->value)
             ->pluck('contractor_id')
             ->toArray();
 
