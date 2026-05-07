@@ -983,7 +983,7 @@ class OrderTransmissionService
         if ($result->succeeded()) {
             // ドキュメント記録
             $document = WmsOrderJxDocument::create([
-                'batch_code' => $candidates->first()->batch_code ?? 'manual_' . $now->format('YmdHis'),
+                'batch_code' => $candidates->first()->batch_code ?? 'manual_'.$now->format('YmdHis'),
                 'contractor_id' => $transmissionContractorId,
                 'warehouse_id' => $candidates->first()->warehouse_id,
                 'order_date' => $now->toDateString(),
@@ -1782,6 +1782,94 @@ class OrderTransmissionService
         }
 
         return $this->transmitDocumentViaJx($document);
+    }
+
+    public function retransmitDocumentById(int $documentId): array
+    {
+        $document = WmsOrderJxDocument::find($documentId);
+
+        if (! $document) {
+            return ['success' => false, 'error' => 'ドキュメントが見つかりません'];
+        }
+
+        if ($document->status !== TransmissionDocumentStatus::TRANSMITTED) {
+            return ['success' => false, 'error' => '再送信可能なステータスではありません'];
+        }
+
+        $candidates = WmsOrderCandidate::where('wms_order_jx_document_id', $document->id)
+            ->with(['item', 'contractor', 'warehouse'])
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            return ['success' => false, 'error' => '再送信用の候補データが見つかりません'];
+        }
+
+        $generator = $this->getOrderFileGenerator();
+        if (! $generator) {
+            return ['success' => false, 'error' => 'Generator未設定'];
+        }
+
+        $files = $generator->generate($candidates);
+        $file = collect($files)->firstWhere('contractor_id', $document->contractor_id) ?? ($files[0] ?? null);
+
+        if (! $file) {
+            return ['success' => false, 'error' => '再送信用JXファイルを生成できません'];
+        }
+
+        $jxSetting = $this->resolveJxSetting($document);
+        if (! $jxSetting) {
+            return ['success' => false, 'error' => 'JX設定が見つかりません'];
+        }
+
+        $now = now();
+        $contractorCode = $file['contractor_code'] ?? $document->contractor?->code ?? $document->contractor_id;
+        $filename = "{$contractorCode}_order_resend_{$now->format('YmdHis')}.dat";
+        $s3Path = "jx-orders/{$now->format('Y-m-d')}/{$filename}";
+        $content = $file['content'];
+        Storage::disk('s3')->put($s3Path, $content);
+
+        $client = new JxClient($jxSetting);
+        $result = $client->putDocumentWithWrapper(
+            $content,
+            $jxSetting->send_document_type ?? '91',
+            'SecondGenEDI'
+        );
+
+        if (! $result->succeeded()) {
+            return ['success' => false, 'error' => $result->error ?? '送信失敗'];
+        }
+
+        $newDocument = WmsOrderJxDocument::create([
+            'batch_code' => $this->makeCorrectionBatchCode(),
+            'wms_order_jx_setting_id' => $jxSetting->id,
+            'warehouse_id' => $document->warehouse_id,
+            'contractor_id' => $document->contractor_id,
+            'order_date' => $now->toDateString(),
+            'expected_arrival_date' => $document->expected_arrival_date,
+            'document_type' => TransmissionDocumentType::PURCHASE,
+            'status' => TransmissionDocumentStatus::TRANSMITTED,
+            'file_path' => $s3Path,
+            'file_size' => strlen($content),
+            'record_count' => $file['record_count'] ?? 0,
+            'order_count' => $file['order_count'] ?? $candidates->count(),
+            'encoding' => $file['encoding'] ?? 'SJIS',
+            'jx_message_id' => $result->messageId,
+            'transmitted_at' => $now,
+            'transmitted_by' => auth()->id(),
+            'jx_response_data' => [
+                'message_id' => $result->messageId,
+                'timestamp' => $now->toIso8601String(),
+                'resend_of_document_id' => $document->id,
+            ],
+        ]);
+
+        $this->saveBackupToS3($newDocument, $content);
+
+        return [
+            'success' => true,
+            'message_id' => $result->messageId,
+            'document_id' => $newDocument->id,
+        ];
     }
 
     /**

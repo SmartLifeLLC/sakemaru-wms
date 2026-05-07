@@ -175,6 +175,36 @@ class WmsOrderDocumentsTable
                         return redirect(route('jx-xml-files.download', ['path' => $xmlPath]));
                     }),
 
+                Action::make('retransmit')
+                    ->label('再送信')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->color('danger')
+                    ->visible(fn ($record) => $record->status === TransmissionDocumentStatus::TRANSMITTED)
+                    ->requiresConfirmation()
+                    ->modalHeading('JXファイルを再生成して再送信')
+                    ->modalDescription('送信済みの発注データから新しいJXファイルを作成して送信します。')
+                    ->modalSubmitActionLabel('新規作成して再送信')
+                    ->modalCancelActionLabel('送信せず閉じる')
+                    ->action(function (WmsOrderJxDocument $record) {
+                        $result = app(OrderTransmissionService::class)->retransmitDocumentById($record->id);
+
+                        if ($result['success']) {
+                            Notification::make()
+                                ->title('再送信しました')
+                                ->body('新規伝票ID: '.($result['document_id'] ?? '-').' / message_id: '.($result['message_id'] ?? '-'))
+                                ->success()
+                                ->send();
+
+                            return;
+                        }
+
+                        Notification::make()
+                            ->title('再送信に失敗しました')
+                            ->body($result['error'] ?? '送信失敗')
+                            ->danger()
+                            ->send();
+                    }),
+
                 Action::make('delete')
                     ->label('削除')
                     ->icon('heroicon-o-trash')
