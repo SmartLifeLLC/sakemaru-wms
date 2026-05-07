@@ -21,6 +21,7 @@ use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
@@ -122,6 +123,16 @@ class ListWaves extends ListRecords
                         ->view('filament.forms.components.picking-list-type-multi-select')
                         ->default(['primary'])
                         ->required()
+                        ->live(),
+
+                    Select::make('filter_item_ids')
+                        ->label('対象商品で配送コースを絞り込み')
+                        ->multiple()
+                        ->searchable()
+                        ->preload(false)
+                        ->getSearchResultsUsing(fn (string $search): array => $this->searchItemsForProvisionalFilter($search))
+                        ->getOptionLabelsUsing(fn (array $values): array => $this->getItemLabelsForProvisionalFilter($values))
+                        ->helperText('商品を選択した場合、その商品を含む配送コースだけを仮出力します。')
                         ->live(),
 
                     ...$this->getWaveSelectionSchema(),
@@ -1071,6 +1082,49 @@ class ListWaves extends ListRecords
         };
     }
 
+    private function searchItemsForProvisionalFilter(string $search): array
+    {
+        $normalized = mb_convert_kana($search, 'as');
+
+        return DB::connection('sakemaru')
+            ->table('items as i')
+            ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
+            ->where(function ($query) use ($search, $normalized) {
+                $query
+                    ->where('i.code', 'like', "%{$normalized}%")
+                    ->orWhere('i.name', 'like', "%{$search}%")
+                    ->orWhere('i.name', 'like', "%{$normalized}%")
+                    ->orWhere('ssi.jancode', 'like', "%{$normalized}%");
+            })
+            ->orderBy('i.code')
+            ->limit(50)
+            ->selectRaw("i.id, CONCAT('[', i.code, '] ', i.name) as label")
+            ->pluck('label', 'id')
+            ->toArray();
+    }
+
+    private function getItemLabelsForProvisionalFilter(array $values): array
+    {
+        $ids = collect($values)
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        return DB::connection('sakemaru')
+            ->table('items')
+            ->whereIn('id', $ids)
+            ->orderBy('code')
+            ->selectRaw("id, CONCAT('[', code, '] ', name) as label")
+            ->pluck('label', 'id')
+            ->toArray();
+    }
+
     private function buildProvisionalPickingRows(array $data): \Illuminate\Support\Collection
     {
         $warehouseId = $data['warehouse_id'];
@@ -1079,6 +1133,12 @@ class ListWaves extends ListRecords
         $dateOperator = $includePast ? '<=' : '=';
         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
         $generationType = $data['generation_type'] ?? 'delivery_course';
+        $filterItemIds = collect($data['filter_item_ids'] ?? [])
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
 
         if ($generationType === 'buyer') {
             $earnings = Earning::query()
@@ -1156,6 +1216,34 @@ class ListWaves extends ListRecords
                     'wh.name as warehouse_name',
                 ])
                 ->get();
+        }
+
+        if (! empty($filterItemIds)) {
+            $matchedTradeIds = DB::connection('sakemaru')
+                ->table('trade_items')
+                ->whereIn('item_id', $filterItemIds)
+                ->whereIn('trade_id', $earnings->pluck('trade_id')
+                    ->merge($stockTransfers->pluck('trade_id'))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all())
+                ->pluck('trade_id')
+                ->all();
+
+            $matchedCourseIds = $earnings
+                ->whereIn('trade_id', $matchedTradeIds)
+                ->pluck('course_id')
+                ->merge($stockTransfers->whereIn('trade_id', $matchedTradeIds)->pluck('course_id'))
+                ->unique()
+                ->values();
+
+            $earnings = $earnings
+                ->whereIn('course_id', $matchedCourseIds)
+                ->values();
+            $stockTransfers = $stockTransfers
+                ->whereIn('course_id', $matchedCourseIds)
+                ->values();
         }
 
         $sourcesByTradeId = [];
