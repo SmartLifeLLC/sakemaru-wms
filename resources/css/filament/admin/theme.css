@@ -868,6 +868,22 @@ html.fi {
 }
 
 /* 入荷予定詳細モーダル */
+.fi-modal.fi-modal-open {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 1000 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+}
+
+.fi-modal.fi-modal-open > .fi-modal-close-overlay {
+    z-index: 1000 !important;
+}
+
+.fi-modal.fi-modal-open > .fi-modal-window-ctn {
+    z-index: 1001 !important;
+}
+
 .incoming-detail-modal .fi-modal-header {
     background-color: #1e293b !important;
     border-radius: 0.75rem 0.75rem 0 0;

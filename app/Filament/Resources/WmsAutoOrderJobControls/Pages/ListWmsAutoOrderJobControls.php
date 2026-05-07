@@ -445,7 +445,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->requiresConfirmation()
             ->modalHeading('移動候補の一括生成')
             ->modalDescription(fn () => $this->pendingTransferCount > 0
-                ? "未承認の移動候補が {$this->pendingTransferCount}件 あります。削除せず、既存の未承認移動候補を見込み移動入庫として扱って追加生成します。"
+                ? "未承認の移動候補が {$this->pendingTransferCount}件 あります。削除せずに追加生成します。同じ不足の移動候補が重複生成される可能性があります。"
                 : '全仕入先のINTERNAL移動候補を生成します。発注候補は生成しません。')
             ->action(function () {
                 // APPROVED移動候補がある場合はブロック
@@ -460,11 +460,17 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     return;
                 }
 
+                $hasPendingTransfers = $this->pendingTransferCount > 0;
+
                 // 進捗レコードを作成
                 $queueProgress = WmsQueueProgress::createJob(
                     WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
                     auth()->id(),
-                    ['source' => 'transfer_only', 'preservePendingTransfers' => true]
+                    [
+                        'source' => 'transfer_only',
+                        'preservePendingTransfers' => true,
+                        'allowDuplicatePendingTransfers' => $hasPendingTransfers,
+                    ]
                 );
 
                 // Job dispatch（transferOnly=true）
@@ -479,14 +485,21 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 );
 
                 $message = '移動候補の生成を開始しました';
-                if ($this->pendingTransferCount > 0) {
+                if ($hasPendingTransfers) {
                     $message .= "（既存PENDING移動候補 {$this->pendingTransferCount}件 は削除しません）";
                 }
 
-                Notification::make()
-                    ->title($message)
-                    ->success()
-                    ->send();
+                $notification = Notification::make()->title($message);
+
+                if ($hasPendingTransfers) {
+                    $notification
+                        ->body('同じ不足に対する移動候補が重複生成される可能性があります。承認前に数量と明細を確認してください。')
+                        ->warning();
+                } else {
+                    $notification->success();
+                }
+
+                $notification->send();
             });
     }
 
