@@ -90,6 +90,18 @@ class OrderAuditService
     }
 
     /**
+     * 確定取消をログに記録
+     */
+    public function logConfirmationCancellation(WmsOrderCandidate $candidate, ?string $reason = null): WmsOrderCandidateAuditLog
+    {
+        return $this->createLog($candidate, WmsOrderCandidateAuditLog::ACTION_CONFIRMATION_CANCELLED, [
+            'old_status' => 'CONFIRMED',
+            'new_status' => 'APPROVED',
+            'reason' => $reason,
+        ]);
+    }
+
+    /**
      * 承認取消をログに記録
      */
     public function logApprovalCancellation(WmsOrderCandidate $candidate): WmsOrderCandidateAuditLog

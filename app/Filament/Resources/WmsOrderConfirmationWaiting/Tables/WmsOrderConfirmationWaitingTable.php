@@ -4,7 +4,6 @@ namespace App\Filament\Resources\WmsOrderConfirmationWaiting\Tables;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
-use App\Enums\AutoOrder\OriginType;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
@@ -24,7 +23,9 @@ use Filament\Tables\Columns\Summarizers\Summarizer;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -324,6 +325,22 @@ class WmsOrderConfirmationWaitingTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                TernaryFilter::make('jx_only')
+                    ->label('JX送信対象')
+                    ->placeholder('すべて')
+                    ->trueLabel('JX対象のみ')
+                    ->falseLabel('JX対象外のみ')
+                    ->queries(
+                        true: fn (EloquentBuilder $query) => $query->whereIn(
+                            'contractor_id',
+                            static::getJxContractorIds()
+                        ),
+                        false: fn (EloquentBuilder $query) => $query->whereNotIn(
+                            'contractor_id',
+                            static::getJxContractorIds()
+                        ),
+                    ),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options([
@@ -532,6 +549,42 @@ class WmsOrderConfirmationWaitingTable
                     }),
             ])
             ->toolbarActions([
+                Action::make('adjustSixPackOrders')
+                    ->label('6缶パック補正')
+                    ->icon('heroicon-o-calculator')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('6缶パック発注数・単価補正')
+                    ->modalDescription('承認待ちの発注候補から6缶パック発注CDの商品を確認し、発注数と単価を補正します。')
+                    ->modalSubmitActionLabel('補正を実行')
+                    ->modalCancelActionLabel('補正せず閉じる')
+                    ->action(function () {
+                        $result = static::adjustSixPackOrderCandidates();
+
+                        if ($result['target_count'] === 0) {
+                            Notification::make()
+                                ->title('6缶パック発注候補はありません')
+                                ->body('承認待ちの発注候補に6缶パック発注CDの商品は見つかりませんでした。')
+                                ->info()
+                                ->send();
+
+                            return;
+                        }
+
+                        $notification = Notification::make()
+                            ->title('6缶パック補正を実行しました')
+                            ->body("対象: {$result['target_count']}件 / 更新: {$result['updated_count']}件 / 変更なし: {$result['unchanged_count']}件")
+                            ->success();
+
+                        if ($result['skipped_count'] > 0) {
+                            $notification
+                                ->title('6缶パック補正が一部未完了です')
+                                ->body("対象: {$result['target_count']}件 / 更新: {$result['updated_count']}件 / 変更なし: {$result['unchanged_count']}件 / 単価未設定: {$result['skipped_count']}件")
+                                ->warning();
+                        }
+
+                        $notification->send();
+                    }),
                 static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('bulkCancelApproval')
@@ -573,5 +626,154 @@ class WmsOrderConfirmationWaitingTable
                 ]),
             ])
             ->defaultSort('batch_code', 'desc');
+    }
+
+    /**
+     * 承認待ちの6缶パック候補を、発注数=6缶パック数、単価=バラ単価×6に補正する。
+     *
+     * @return array{target_count: int, updated_count: int, unchanged_count: int, skipped_count: int}
+     */
+    private static function adjustSixPackOrderCandidates(): array
+    {
+        $result = [
+            'target_count' => 0,
+            'updated_count' => 0,
+            'unchanged_count' => 0,
+            'skipped_count' => 0,
+        ];
+
+        WmsOrderCandidate::query()
+            ->where('status', CandidateStatus::APPROVED)
+            ->with('item.current_price')
+            ->orderBy('id')
+            ->get()
+            ->each(function (WmsOrderCandidate $record) use (&$result) {
+                if (! static::isSixPackOrderingCandidate($record)) {
+                    return;
+                }
+
+                $result['target_count']++;
+
+                $expectedUnitPrice = static::resolveSixPackPurchaseUnitPrice($record);
+                if ($expectedUnitPrice === null) {
+                    $result['skipped_count']++;
+
+                    return;
+                }
+
+                $expectedOrderQuantity = static::resolveSixPackOrderQuantity($record);
+                $currentUnitPrice = $record->purchase_unit_price !== null
+                    ? round((float) $record->purchase_unit_price, 2)
+                    : null;
+
+                $needsUpdate = $record->quantity_type !== QuantityType::CASE
+                    || (int) $record->order_quantity !== $expectedOrderQuantity
+                    || $currentUnitPrice === null
+                    || abs($currentUnitPrice - $expectedUnitPrice) >= 0.01;
+
+                if (! $needsUpdate) {
+                    $result['unchanged_count']++;
+
+                    return;
+                }
+
+                $record->update([
+                    'quantity_type' => QuantityType::CASE->value,
+                    'order_quantity' => $expectedOrderQuantity,
+                    'purchase_unit_price' => $expectedUnitPrice,
+                    'is_manually_modified' => true,
+                    'modified_by' => auth()->id(),
+                    'modified_at' => now(),
+                ]);
+                $result['updated_count']++;
+            });
+
+        return $result;
+    }
+
+    private static function isSixPackOrderingCandidate(WmsOrderCandidate $record): bool
+    {
+        $orderingCode = static::normalizeOrderingCode($record->ordering_code);
+        if (! $orderingCode) {
+            return false;
+        }
+
+        return DB::connection('sakemaru')
+            ->table('item_search_information as isi')
+            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
+            ->where('isi.item_id', $record->item_id)
+            ->where('isi.is_active', true)
+            ->where('iqi.can_order', true)
+            ->where('iqi.quantity', 6)
+            ->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode])
+            ->exists();
+    }
+
+    private static function resolveSixPackOrderQuantity(WmsOrderCandidate $record): int
+    {
+        $currentQuantity = max(0, (int) $record->order_quantity);
+        $suggestedQuantity = max(0, (int) $record->suggested_quantity);
+
+        if ($suggestedQuantity >= 6
+            && $suggestedQuantity % 6 === 0
+            && $currentQuantity * 6 !== $suggestedQuantity
+        ) {
+            return (int) ($suggestedQuantity / 6);
+        }
+
+        return $currentQuantity;
+    }
+
+    private static function resolveSixPackPurchaseUnitPrice(WmsOrderCandidate $record): ?float
+    {
+        $piecePrice = $record->item?->current_price?->purchase_unit_price;
+
+        if ($piecePrice === null) {
+            return null;
+        }
+
+        return round((float) $piecePrice * 6, 2);
+    }
+
+    private static function normalizeOrderingCode(?string $code): ?string
+    {
+        $code = trim((string) $code);
+
+        if ($code === '' || preg_match('/^0+$/', $code) === 1) {
+            return null;
+        }
+
+        return str_pad($code, 13, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * JX送信対象の仕入先IDを取得（直接送信先＋集約元）
+     *
+     * @return array<int>
+     */
+    private static function getJxContractorIds(): array
+    {
+        static $ids = null;
+
+        if ($ids !== null) {
+            return $ids;
+        }
+
+        // JX設定がある仕入先（直接送信先）
+        $jxContractorIds = DB::connection('sakemaru')
+            ->table('wms_order_jx_settings')
+            ->pluck('contractor_id')
+            ->toArray();
+
+        // transmission_contractor_id で集約される仕入先
+        $mappedContractorIds = DB::connection('sakemaru')
+            ->table('wms_contractor_settings')
+            ->whereIn('transmission_contractor_id', $jxContractorIds)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        $ids = array_values(array_unique(array_merge($jxContractorIds, $mappedContractorIds)));
+
+        return $ids;
     }
 }

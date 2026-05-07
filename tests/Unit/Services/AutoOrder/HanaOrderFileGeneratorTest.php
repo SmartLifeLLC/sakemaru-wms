@@ -574,7 +574,7 @@ class HanaOrderFileGeneratorTest extends TestCase
 
     /**
      * @test
-     * JXの仕入入数とケース数は発注コードに紐づく入数で出力されること
+     * JXの仕入入数は発注コードに紐づく入数、ケース数は候補の発注コード単位数で出力されること
      */
     public function it_uses_ordering_code_quantity_for_jx_capacity_and_case_quantity(): void
     {
@@ -584,7 +584,7 @@ class HanaOrderFileGeneratorTest extends TestCase
         $candidate = new WmsOrderCandidate([
             'item_id' => $itemId,
             'quantity_type' => \App\Enums\QuantityType::CASE,
-            'order_quantity' => 2,
+            'order_quantity' => 4,
             'ordering_code' => $orderingCode,
         ]);
         $candidate->setRelation('item', (object) [
@@ -617,7 +617,7 @@ class HanaOrderFileGeneratorTest extends TestCase
         $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
 
         $this->assertEquals(6, (int) substr($dRecord, 88, 6), 'Capacity should use ordering code quantity');
-        $this->assertEquals(8, (int) substr($dRecord, 94, 7), 'Case quantity should be converted from 2x24 to 8x6');
+        $this->assertEquals(4, (int) substr($dRecord, 94, 7), 'Case quantity should use the candidate order quantity');
         $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Piece quantity should remain zero for case ordering code');
         $this->assertEquals(129000, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost multiplied by ordering code quantity');
     }
