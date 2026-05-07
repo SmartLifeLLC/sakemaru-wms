@@ -53,7 +53,6 @@
             sortKey: '',
             sortAsc: true,
             filterText: '',
-            isDirty: false,
             sort(key) {
                 if (this.sortKey === key) {
                     this.sortAsc = !this.sortAsc;
@@ -104,54 +103,17 @@
                     row.classList.toggle('dark:bg-gray-800', i % 2 === 0);
                 });
             },
-            init() {
-                this.$nextTick(() => this.applyStripe());
-                this._beforeUnload = (e) => { if (this.isDirty) { e.preventDefault(); e.returnValue = ''; } };
-                window.addEventListener('beforeunload', this._beforeUnload);
-                this._navGuard = (e) => {
-                    if (!this.isDirty) return;
-                    const link = e.target.closest('a[href]');
-                    if (!link || link.getAttribute('href')?.startsWith('#')) return;
-                    if (!confirm('保存していない変更があります。ページを離れますか？')) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.stopImmediatePropagation();
-                    } else {
-                        this.isDirty = false;
-                    }
-                };
-                document.addEventListener('click', this._navGuard, true);
-            },
-            destroy() {
-                window.removeEventListener('beforeunload', this._beforeUnload);
-                document.removeEventListener('click', this._navGuard, true);
-            }
-        }" x-on:items-saved.window="isDirty = false" x-effect="window.__pickingDirty = isDirty">
+            init() { this.$nextTick(() => this.applyStripe()); }
+        }">
             <div class="px-6 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-4">
                 <h3 class="text-sm font-semibold shrink-0">ピッキング商品一覧</h3>
-                <div class="flex items-center gap-3">
-                    <div class="relative w-72">
-                        <input type="text" x-model="filterText" @input="applyFilter()"
-                            placeholder="得意先CD/名、商品CD/名で絞り込み..."
-                            class="w-full text-xs pl-8 pr-8 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded focus:border-primary-500 focus:ring-primary-500">
-                        <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                        <button x-show="filterText" @click="filterText=''; applyFilter()" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                        </button>
-                    </div>
-                    <button
-                        wire:click="saveAllItems"
-                        wire:loading.attr="disabled"
-                        x-show="isDirty"
-                        x-transition
-                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-primary-600 hover:bg-primary-500 rounded-lg shadow-sm transition disabled:opacity-50"
-                    >
-                        <svg class="w-4 h-4" wire:loading.class="animate-spin" wire:target="saveAllItems" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" wire:loading.remove wire:target="saveAllItems"/>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" wire:loading wire:target="saveAllItems"/>
-                        </svg>
-                        <span wire:loading.remove wire:target="saveAllItems">保存</span>
-                        <span wire:loading wire:target="saveAllItems">保存中...</span>
+                <div class="relative w-72">
+                    <input type="text" x-model="filterText" @input="applyFilter()"
+                        placeholder="得意先CD/名、商品CD/名で絞り込み..."
+                        class="w-full text-xs pl-8 pr-8 py-1.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded focus:border-primary-500 focus:ring-primary-500">
+                    <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <button x-show="filterText" @click="filterText=''; applyFilter()" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
             </div>
@@ -260,7 +222,6 @@
                                 <input
                                     type="number"
                                     wire:model="items.{{ $loop->index }}.picked_qty"
-                                    @input="isDirty = true"
                                     min="0"
                                     max="{{ max($item['ordered_qty'], $item['planned_qty']) }}"
                                     step="1"

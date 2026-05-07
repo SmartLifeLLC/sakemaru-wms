@@ -3,6 +3,7 @@
 namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\QuantityType;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsStockTransferCandidate;
 use Illuminate\Support\Facades\DB;
@@ -54,10 +55,30 @@ class TransferOrderRecalculationService
             $transfer->item_id
         );
 
-        // order_quantity を再計算
-        $purchaseUnit = $this->getPurchaseUnit($orderCandidate->warehouse_id, $orderCandidate->item_id);
         $totalRequired = $orderCandidate->self_shortage_qty + $newSatelliteDemand;
-        $newOrderQuantity = $this->roundUpToUnit($totalRequired, $purchaseUnit);
+        $settings = $this->getOrderSettings($orderCandidate->warehouse_id, $orderCandidate->item_id);
+        $calculatedStock = max(0, (int) $orderCandidate->safety_stock - $totalRequired);
+        $quantityCalculation = app(OrderQuantityAdjustmentService::class)->calculate(
+            shortageQty: $totalRequired,
+            purchaseUnit: $settings['purchase_unit'],
+            autoOrderQuantity: $settings['auto_order_quantity'],
+            maxStock: $settings['max_stock'],
+            calculatedStock: $calculatedStock,
+            orderingUnitQty: $settings['ordering_unit_quantity'],
+        );
+        $newSuggestedQuantity = $quantityCalculation['order_quantity'];
+        if ($newSuggestedQuantity <= 0) {
+            $orderCandidate->status = CandidateStatus::EXCLUDED;
+            $orderCandidate->exclusion_reason = '最大発注点制約により有効な発注単位がありません';
+            $orderCandidate->is_manually_modified = true;
+            $orderCandidate->modified_by = auth()->id();
+            $orderCandidate->modified_at = now();
+            $orderCandidate->save();
+
+            return $orderCandidate;
+        }
+
+        $newOrderQuantity = $this->toStoredOrderQuantity($orderCandidate, $newSuggestedQuantity, $settings['capacity_case']);
 
         // demand_breakdown を再計算
         $newDemandBreakdown = $this->buildDemandBreakdown(
@@ -69,7 +90,7 @@ class TransferOrderRecalculationService
 
         // 発注候補を更新
         $orderCandidate->satellite_demand_qty = $newSatelliteDemand;
-        $orderCandidate->suggested_quantity = $newOrderQuantity;
+        $orderCandidate->suggested_quantity = $newSuggestedQuantity;
         $orderCandidate->order_quantity = $newOrderQuantity;
         $orderCandidate->demand_breakdown = $newDemandBreakdown;
         $orderCandidate->is_manually_modified = true;
@@ -81,6 +102,7 @@ class TransferOrderRecalculationService
             'order_candidate_id' => $orderCandidate->id,
             'old_satellite_demand' => $orderCandidate->getOriginal('satellite_demand_qty'),
             'new_satellite_demand' => $newSatelliteDemand,
+            'new_suggested_quantity' => $newSuggestedQuantity,
             'new_order_quantity' => $newOrderQuantity,
         ]);
 
@@ -150,21 +172,60 @@ class TransferOrderRecalculationService
     }
 
     /**
-     * 最小仕入単位を取得
+     * @return array{purchase_unit: int, max_stock: int, auto_order_quantity: int, ordering_unit_quantity: int|null, capacity_case: int}
      */
-    private function getPurchaseUnit(int $warehouseId, int $itemId): int
+    private function getOrderSettings(int $warehouseId, int $itemId): array
     {
-        $unit = DB::connection('sakemaru')
-            ->table('item_contractors')
-            ->where('warehouse_id', $warehouseId)
-            ->where('item_id', $itemId)
-            ->value('purchase_unit');
+        $settings = DB::connection('sakemaru')
+            ->table('item_contractors as ic')
+            ->join('items as i', 'i.id', '=', 'ic.item_id')
+            ->where('ic.warehouse_id', $warehouseId)
+            ->where('ic.item_id', $itemId)
+            ->select('ic.purchase_unit', 'ic.max_stock', 'ic.auto_order_quantity', 'i.capacity_case')
+            ->first();
 
-        return max(1, (int) ($unit ?? 1));
+        return [
+            'purchase_unit' => max(1, (int) ($settings?->purchase_unit ?? 1)),
+            'max_stock' => max(0, (int) ($settings?->max_stock ?? 0)),
+            'auto_order_quantity' => max(0, (int) ($settings?->auto_order_quantity ?? 0)),
+            'ordering_unit_quantity' => $this->getOrderingUnitQuantity($itemId),
+            'capacity_case' => max(1, (int) ($settings?->capacity_case ?? 1)),
+        ];
+    }
+
+    private function getOrderingUnitQuantity(int $itemId): ?int
+    {
+        $qty = DB::connection('sakemaru')
+            ->table('item_search_information as isi')
+            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
+            ->where('isi.item_id', $itemId)
+            ->where('isi.is_used_for_ordering', true)
+            ->where('isi.is_active', true)
+            ->where('iqi.can_order', true)
+            ->where('iqi.quantity', '>', 1)
+            ->value('iqi.quantity');
+
+        $qty = $qty !== null ? (int) $qty : null;
+
+        return $qty !== null && $qty > 1 ? $qty : null;
+    }
+
+    private function toStoredOrderQuantity(WmsOrderCandidate $candidate, int $pieceQuantity, int $capacityCase): int
+    {
+        $quantityType = $candidate->quantity_type instanceof QuantityType
+            ? $candidate->quantity_type
+            : QuantityType::tryFrom((string) $candidate->quantity_type);
+
+        if ($quantityType !== QuantityType::CASE) {
+            return $pieceQuantity;
+        }
+
+        return $pieceQuantity > 0 ? (int) ceil($pieceQuantity / max(1, $capacityCase)) : 0;
     }
 
     /**
-     * 数量を指定単位で切り上げ
+     * 数量を指定単位で切り上げ。
+     * 既存テストと外部参照の互換性維持用。
      */
     private function roundUpToUnit(int $quantity, int $unit): int
     {

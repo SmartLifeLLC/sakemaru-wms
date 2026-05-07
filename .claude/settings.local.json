@@ -22,7 +22,15 @@
       "Bash(\"C:/Users/ThinkPad/.config/herd/bin/php.bat\" -l \"C:/Users/ThinkPad/Projects/sakemaru-wms/routes/web.php\")",
       "Bash(awk NR>=775 && NR<=790 {print NR\": \"$0} *)",
       "Bash(\"C:/Users/ThinkPad/.config/herd/bin/php.bat\" -l \"app/Services/PickingList/PickingListService.php\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(./vendor/bin/pint *)",
+      "Bash(php artisan *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git stash *)",
+      "Bash(npm run *)"
     ]
   }
 }

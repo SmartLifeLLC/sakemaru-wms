@@ -9,6 +9,7 @@ use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Sakemaru\DeliveryCourse;
+use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsMonthlySafetyStock;
 use App\Models\WmsOrderCalculationLog;
@@ -21,6 +22,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
@@ -409,13 +411,20 @@ class WmsStockTransferCandidatesTable
                         : false)
                     ->modalCancelActionLabel('変更せず閉じる')
                     ->modalFooterActionsAlignment(Alignment::End)
-                    ->fillForm(fn ($record) => [
-                        'transfer_quantity' => $record->transfer_quantity,
-                        'expected_arrival_date' => $record->expected_arrival_date,
-                        'delivery_course_id' => $record->delivery_course_id,
-                        'safety_stock' => $record->safety_stock,
-                        'ordering_code' => $record->search_code ?? $record->ordering_code,
-                    ])
+                    ->fillForm(function ($record) {
+                        $itemContractor = static::resolveItemContractor($record);
+
+                        return [
+                            'transfer_quantity' => $record->transfer_quantity,
+                            'expected_arrival_date' => $record->expected_arrival_date,
+                            'delivery_course_id' => $record->delivery_course_id,
+                            'safety_stock' => $record->safety_stock,
+                            'max_stock' => $itemContractor?->max_stock ?? 0,
+                            'auto_order_quantity' => $itemContractor?->auto_order_quantity ?? 0,
+                            'is_auto_order' => (bool) ($itemContractor?->is_auto_order ?? false),
+                            'ordering_code' => $record->search_code ?? $record->ordering_code,
+                        ];
+                    })
                     ->schema(function (?WmsStockTransferCandidate $record): array {
                         if (! $record) {
                             return [];
@@ -428,6 +437,7 @@ class WmsStockTransferCandidatesTable
 
                         $details = $log?->calculation_details ?? [];
                         $item = $record->item;
+                        $itemContractor = static::resolveItemContractor($record);
                         $capacityText = '-';
                         if ($item) {
                             $parts = [];
@@ -488,6 +498,9 @@ class WmsStockTransferCandidatesTable
                                     'transferIncoming' => $details['移動入庫予定'] ?? 0,
                                     'transferOutgoing' => $details['移動出庫予定'] ?? 0,
                                     'safetyStock' => $details['発注点'] ?? $details['安全在庫'] ?? 0,
+                                    'settingAutoOrderQuantity' => $itemContractor?->auto_order_quantity ?? 0,
+                                    'maxStock' => $details['最大発注点'] ?? $itemContractor?->max_stock ?? 0,
+                                    'isAutoOrder' => (bool) ($itemContractor?->is_auto_order ?? false),
                                     'shortageQty' => $details['不足数'] ?? 0,
                                     'isEditable' => $isEditable,
                                 ]),
@@ -511,6 +524,19 @@ class WmsStockTransferCandidatesTable
                                         ->orderBy('name')
                                         ->pluck('name', 'id'))
                                     ->searchable(),
+                            ]);
+
+                            $schema[] = Grid::make(3)->schema([
+                                TextInput::make('max_stock')
+                                    ->label('最大発注点')
+                                    ->integer()
+                                    ->minValue(0),
+                                TextInput::make('auto_order_quantity')
+                                    ->label('自動発注数')
+                                    ->integer()
+                                    ->minValue(0),
+                                Toggle::make('is_auto_order')
+                                    ->label('自動発注ON/OFF'),
                             ]);
 
                             $codes = DB::connection('sakemaru')
@@ -541,10 +567,14 @@ class WmsStockTransferCandidatesTable
                         return $schema;
                     })
                     ->action(function ($record, array $data) {
+                        $itemContractor = static::resolveItemContractor($record);
                         $hasChanges = $data['transfer_quantity'] != $record->transfer_quantity
                             || $data['expected_arrival_date'] != $record->expected_arrival_date?->format('Y-m-d')
                             || $data['delivery_course_id'] != $record->delivery_course_id
                             || (isset($data['safety_stock']) && (int) $data['safety_stock'] !== (int) $record->safety_stock)
+                            || (isset($data['max_stock']) && (int) $data['max_stock'] !== (int) ($itemContractor?->max_stock ?? 0))
+                            || (isset($data['auto_order_quantity']) && (int) $data['auto_order_quantity'] !== (int) ($itemContractor?->auto_order_quantity ?? 0))
+                            || (array_key_exists('is_auto_order', $data) && (bool) $data['is_auto_order'] !== (bool) ($itemContractor?->is_auto_order ?? false))
                             || (isset($data['ordering_code']) && $data['ordering_code'] !== ($record->search_code ?? $record->ordering_code));
 
                         if ($hasChanges) {
@@ -577,6 +607,26 @@ class WmsStockTransferCandidatesTable
                                         ]
                                     );
                                 }
+                            }
+
+                            $itemContractorData = [];
+                            if (isset($data['safety_stock']) && (int) $data['safety_stock'] !== (int) ($itemContractor?->safety_stock ?? 0)) {
+                                $itemContractorData['safety_stock'] = max(0, (int) $data['safety_stock']);
+                            }
+                            if (isset($data['max_stock']) && (int) $data['max_stock'] !== (int) ($itemContractor?->max_stock ?? 0)) {
+                                $itemContractorData['max_stock'] = max(0, (int) $data['max_stock']);
+                            }
+                            if (isset($data['auto_order_quantity']) && (int) $data['auto_order_quantity'] !== (int) ($itemContractor?->auto_order_quantity ?? 0)) {
+                                $itemContractorData['auto_order_quantity'] = max(0, (int) $data['auto_order_quantity']);
+                            }
+                            if (array_key_exists('is_auto_order', $data) && (bool) $data['is_auto_order'] !== (bool) ($itemContractor?->is_auto_order ?? false)) {
+                                $itemContractorData['is_auto_order'] = (bool) $data['is_auto_order'];
+                            }
+                            if ($itemContractorData !== []) {
+                                ItemContractor::where('item_id', $record->item_id)
+                                    ->where('warehouse_id', $record->satellite_warehouse_id)
+                                    ->where('contractor_id', $record->contractor_id)
+                                    ->update($itemContractorData);
                             }
 
                             if (isset($data['ordering_code']) && $data['ordering_code'] !== ($record->search_code ?? $record->ordering_code)) {
@@ -821,5 +871,14 @@ class WmsStockTransferCandidatesTable
                 ]),
             ])
             ->defaultSort('batch_code', 'desc');
+    }
+
+    private static function resolveItemContractor(WmsStockTransferCandidate $record): ?ItemContractor
+    {
+        return ItemContractor::query()
+            ->where('item_id', $record->item_id)
+            ->where('warehouse_id', $record->satellite_warehouse_id)
+            ->where('contractor_id', $record->contractor_id)
+            ->first();
     }
 }
