@@ -773,4 +773,317 @@ class PickingListService
             ],
         ];
     }
+
+    /**
+     * 配送コース別ピッキングリスト（伝票単位ページ）
+     *
+     * 仮ピッキングリスト出力の2次ピッキングリストとして使用する。
+     * 1ページ = 1売上伝票。配送者名には配送コース名を表示する。
+     *
+     * @return array[] [['header' => [...], 'items' => [...]], ...]
+     */
+    public function generateCourseGroupedListByWaveIds(array $waveIds): array
+    {
+        if (empty($waveIds)) {
+            return [];
+        }
+
+        $rows = $this->db()->table('wms_picking_item_results as pir')
+            ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
+            ->join('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('trades as t', 'e.trade_id', '=', 't.id')
+            ->leftJoin('delivery_courses as dc', 'pt.delivery_course_id', '=', 'dc.id')
+            ->leftJoin('warehouses as wh', 'pt.warehouse_id', '=', 'wh.id')
+            ->join('items as i', 'pir.item_id', '=', 'i.id')
+            ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
+            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->whereIn('pt.wave_id', $waveIds)
+            ->where('pir.source_type', 'EARNING')
+            ->select([
+                'pir.id as pir_id',
+                'pir.earning_id',
+                'e.id as e_id',
+                't.slip_number',
+                'e.delivered_date',
+                'dc.name as course_name',
+                'dc.code as course_code',
+                'wh.name as warehouse_name',
+                'i.code as item_code',
+                'i.name as item_name',
+                'i.capacity_case',
+                'ssi.jancode as jan_code',
+                'pir.location_id',
+                'l.code1',
+                'l.code2',
+                'l.code3',
+                'pir.planned_qty',
+                'pir.planned_qty_type',
+                'pir.shortage_qty',
+            ])
+            ->orderBy('dc.code')
+            ->orderBy('e.id')
+            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
+            ->orderBy('i.code')
+            ->get();
+
+        $byEarning = [];
+        foreach ($rows as $row) {
+            $earningId = $row->earning_id;
+            if (! isset($byEarning[$earningId])) {
+                $byEarning[$earningId] = [
+                    'header' => [
+                        'course_name' => $row->course_name ?? '',
+                        'slip_no' => $row->slip_number ?? (string) $row->e_id,
+                        'shipping_date' => $row->delivered_date,
+                        'warehouse_name' => $row->warehouse_name ?? '',
+                    ],
+                    '_rows' => [],
+                ];
+            }
+            $byEarning[$earningId]['_rows'][] = $row;
+        }
+
+        $results = [];
+        foreach ($byEarning as $earningId => $bucket) {
+            $items = [];
+            $rowsByLocationItem = [];
+
+            foreach ($bucket['_rows'] as $row) {
+                $key = ($row->location_id ?? 0).'|'.$row->item_code;
+                if (! isset($rowsByLocationItem[$key])) {
+                    $rowsByLocationItem[$key] = [
+                        'item_code' => $row->item_code,
+                        'item_name' => $row->item_name,
+                        'capacity_case' => (int) ($row->capacity_case ?: 1),
+                        'jan_code' => $this->extractFirstJanCode($row->jan_code),
+                        'location_id' => $row->location_id,
+                        'code1' => $row->code1,
+                        'code2' => $row->code2,
+                        'code3' => $row->code3,
+                        'total_pieces' => 0,
+                        'shortage_qty' => 0,
+                        'planned_qty_type' => $row->planned_qty_type,
+                    ];
+                }
+
+                $qtyType = QuantityType::tryFrom($row->planned_qty_type) ?? QuantityType::PIECE;
+                $capacityCase = max(1, (int) ($row->capacity_case ?: 1));
+                $qty = (int) $row->planned_qty;
+                $piecesContribution = $qtyType === QuantityType::CASE ? $qty * $capacityCase : $qty;
+
+                $rowsByLocationItem[$key]['total_pieces'] += $piecesContribution;
+                $rowsByLocationItem[$key]['shortage_qty'] += (int) $row->shortage_qty;
+            }
+
+            $no = 0;
+            foreach ($rowsByLocationItem as $entry) {
+                $no++;
+                $capacityCase = max(1, $entry['capacity_case']);
+                $totalPieces = $entry['total_pieces'];
+                $caseQty = intdiv($totalPieces, $capacityCase);
+                $pieceQty = $totalPieces % $capacityCase;
+
+                $locationCode = $entry['location_id']
+                    ? Location::formatCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
+                    : '';
+
+                $items[] = [
+                    'no' => $no,
+                    'location_code' => $locationCode,
+                    'item_code' => $entry['item_code'],
+                    'jan_code' => $entry['jan_code'],
+                    'item_name' => $entry['item_name'],
+                    'capacity_case' => $capacityCase,
+                    'case_qty' => $caseQty,
+                    'piece_qty' => $pieceQty,
+                    'total_pieces' => $totalPieces,
+                    'shortage_qty' => $entry['shortage_qty'],
+                ];
+            }
+
+            $results[] = [
+                'header' => $bucket['header'],
+                'items' => $items,
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * 得意先別ピッキングリスト V2（配送コース別＋得意先内訳）
+     *
+     * 仮ピッキングリスト出力の3次ピッキングリストとして使用する。
+     * 1ページ = 1配送コース。明細は得意先（buyer）→棚番順でソート。
+     *
+     * @return array[] [['header' => [...], 'items' => [...], 'summary' => [...]], ...]
+     */
+    public function generateBuyerGroupedListByWaveIds(array $waveIds): array
+    {
+        if (empty($waveIds)) {
+            return [];
+        }
+
+        $rows = $this->db()->table('wms_picking_item_results as pir')
+            ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
+            ->join('wms_waves as w', 'pt.wave_id', '=', 'w.id')
+            ->join('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('buyers as b', 'e.buyer_id', '=', 'b.id')
+            ->leftJoin('partners as p', 'b.partner_id', '=', 'p.id')
+            ->leftJoin('delivery_courses as dc', 'pt.delivery_course_id', '=', 'dc.id')
+            ->join('items as i', 'pir.item_id', '=', 'i.id')
+            ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
+            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->whereIn('pt.wave_id', $waveIds)
+            ->where('pir.source_type', 'EARNING')
+            ->select([
+                'pir.id as pir_id',
+                'pir.earning_id',
+                'w.id as wave_id',
+                'w.wave_no',
+                'w.shipping_date',
+                'dc.id as course_id',
+                'dc.code as course_code',
+                'dc.name as course_name',
+                'p.code as buyer_code',
+                'p.name as buyer_name',
+                'i.code as item_code',
+                'i.name as item_name',
+                'i.capacity_case',
+                'ssi.jancode as jan_code',
+                'pir.location_id',
+                'l.code1',
+                'l.code2',
+                'l.code3',
+                'pir.planned_qty',
+                'pir.planned_qty_type',
+                'pir.shortage_qty',
+            ])
+            ->orderBy('dc.code')
+            ->orderByRaw('COALESCE(p.code, 999999999)')
+            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
+            ->orderBy('i.code')
+            ->get();
+
+        // 配送コース別にバケット化
+        $byCourse = [];
+        foreach ($rows as $row) {
+            $courseId = $row->course_id ?? 0;
+            if (! isset($byCourse[$courseId])) {
+                $byCourse[$courseId] = [
+                    'header' => [
+                        'course_name' => $row->course_name ?? '',
+                        'wave_no' => $row->wave_no ?? '',
+                        'shipping_date' => $row->shipping_date,
+                    ],
+                    'rows' => [],
+                ];
+            }
+            $byCourse[$courseId]['rows'][] = $row;
+        }
+
+        $results = [];
+        foreach ($byCourse as $bucket) {
+            // 同じ得意先×棚番×商品 で集約
+            $grouped = [];
+            foreach ($bucket['rows'] as $row) {
+                $key = ($row->buyer_code ?? 'NA').'|'.($row->location_id ?? 0).'|'.$row->item_code;
+                if (! isset($grouped[$key])) {
+                    $grouped[$key] = [
+                        'buyer_code' => $row->buyer_code,
+                        'buyer_name' => $row->buyer_name,
+                        'location_id' => $row->location_id,
+                        'code1' => $row->code1,
+                        'code2' => $row->code2,
+                        'code3' => $row->code3,
+                        'item_code' => $row->item_code,
+                        'item_name' => $row->item_name,
+                        'capacity_case' => (int) ($row->capacity_case ?: 1),
+                        'jan_code' => $this->extractFirstJanCode($row->jan_code),
+                        'total_pieces' => 0,
+                        'shortage_qty' => 0,
+                    ];
+                }
+
+                $qtyType = QuantityType::tryFrom($row->planned_qty_type) ?? QuantityType::PIECE;
+                $capacityCase = max(1, (int) ($row->capacity_case ?: 1));
+                $qty = (int) $row->planned_qty;
+                $piecesContribution = $qtyType === QuantityType::CASE ? $qty * $capacityCase : $qty;
+
+                $grouped[$key]['total_pieces'] += $piecesContribution;
+                $grouped[$key]['shortage_qty'] += (int) $row->shortage_qty;
+            }
+
+            $items = [];
+            $totalCase = 0;
+            $totalPiece = 0;
+            $totalAll = 0;
+            $no = 0;
+
+            foreach ($grouped as $entry) {
+                $no++;
+                $capacityCase = max(1, $entry['capacity_case']);
+                $totalPieces = $entry['total_pieces'];
+                $caseQty = intdiv($totalPieces, $capacityCase);
+                $pieceQty = $totalPieces % $capacityCase;
+
+                $locationCode = $entry['location_id']
+                    ? Location::formatCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
+                    : '';
+
+                $items[] = [
+                    'no' => $no,
+                    'location_code' => $locationCode,
+                    'buyer_code' => (string) ($entry['buyer_code'] ?? ''),
+                    'buyer_name' => (string) ($entry['buyer_name'] ?? ''),
+                    'item_code' => $entry['item_code'],
+                    'jan_code' => $entry['jan_code'],
+                    'item_name' => $entry['item_name'],
+                    'capacity_case' => $capacityCase,
+                    'case_qty' => $caseQty,
+                    'piece_qty' => $pieceQty,
+                    'total_pieces' => $totalPieces,
+                    'shortage_qty' => $entry['shortage_qty'],
+                ];
+
+                $totalCase += $caseQty;
+                $totalPiece += $pieceQty;
+                $totalAll += $totalPieces;
+            }
+
+            $results[] = [
+                'header' => $bucket['header'],
+                'items' => $items,
+                'summary' => [
+                    'row_count' => count($items),
+                    'total_case' => $totalCase,
+                    'total_piece' => $totalPiece,
+                    'total_pieces_all' => $totalAll,
+                ],
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * srh_searchable_items.jancode は複数JANをカンマ等で連結している場合がある。
+     * 表示用に最初の有効なJANを抽出する。
+     */
+    private function extractFirstJanCode(?string $raw): string
+    {
+        if ($raw === null || $raw === '') {
+            return '';
+        }
+        $tokens = preg_split('/[\s,;]+/', $raw, -1, PREG_SPLIT_NO_EMPTY);
+        if (empty($tokens)) {
+            return '';
+        }
+
+        return (string) $tokens[0];
+    }
 }
