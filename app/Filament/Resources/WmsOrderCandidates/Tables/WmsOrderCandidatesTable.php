@@ -531,15 +531,13 @@ class WmsOrderCandidatesTable
                             $schema[] = Grid::make(3)->schema([
                                 TextInput::make('case_quantity')
                                     ->label('発注ケース')
-                                    ->numeric()
-                                    ->required()
+                                    ->integer()
                                     ->minValue(0)
                                     ->disabled($capacityCase <= 1),
 
                                 TextInput::make('piece_quantity')
                                     ->label('発注バラ')
-                                    ->numeric()
-                                    ->required()
+                                    ->integer()
                                     ->minValue(0),
 
                                 DatePicker::make('expected_arrival_date')
