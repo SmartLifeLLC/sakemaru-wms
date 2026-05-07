@@ -924,14 +924,9 @@ class OrderTransmissionService
             }
         }
 
-        $transmittedDocIds = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::TRANSMITTED)
-            ->pluck('id');
-
         $candidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
             ->whereNull('transmitted_at')
             ->whereIn('contractor_id', $sourceContractorIds)
-            ->where(fn ($q) => $q->whereNull('wms_order_jx_document_id')
-                ->orWhereNotIn('wms_order_jx_document_id', $transmittedDocIds))
             ->with(['item', 'contractor', 'warehouse'])
             ->get();
 
@@ -1086,6 +1081,15 @@ class OrderTransmissionService
         $contractorId = (int) ($mapping[$contractorId] ?? $contractorId);
 
         $targetContractorIds = $this->expandTransmissionContractorIds([$contractorId]);
+        $hasConfirmedCandidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
+            ->whereNull('transmitted_at')
+            ->whereIn('contractor_id', $targetContractorIds)
+            ->exists();
+
+        if ($hasConfirmedCandidates) {
+            return $this->generateAndTransmitForContractor($contractorId);
+        }
+
         $hasPendingDocuments = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
             ->whereIn('contractor_id', $targetContractorIds)
             ->exists();
