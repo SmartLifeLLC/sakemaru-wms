@@ -385,9 +385,9 @@ class WmsOrderDocumentsTable
                     ? "{$documentCount}件 / {$orderCount}品"
                     : "{$documentCount}件";
 
-            $label = $contractor
-                ? "[{$contractor->code}]{$contractor->name} ({$suffix})"
-                : "ID:{$contractorId} ({$suffix})";
+                $label = $contractor
+                    ? "[{$contractor->code}]{$contractor->name} ({$suffix})"
+                    : "ID:{$contractorId} ({$suffix})";
 
                 return [$contractorId => $label];
             })
