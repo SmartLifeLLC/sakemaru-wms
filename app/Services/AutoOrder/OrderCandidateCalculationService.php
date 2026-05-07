@@ -392,6 +392,29 @@ class OrderCandidateCalculationService
             }
         }
 
+        // 既存の未承認移動候補は削除せず、移動入庫予定として見込み在庫に含める。
+        // 移動候補の一括生成を再実行したとき、同じ不足を二重に候補化しないため。
+        $pendingTransferIncoming = DB::connection('sakemaru')
+            ->table('wms_stock_transfer_candidates')
+            ->where('status', CandidateStatus::PENDING->value)
+            ->whereIn('satellite_warehouse_id', $this->realWarehouseIds)
+            ->selectRaw('satellite_warehouse_id as warehouse_id, item_id, SUM(transfer_quantity) as total_incoming')
+            ->groupBy('satellite_warehouse_id', 'item_id')
+            ->get();
+
+        foreach ($pendingTransferIncoming as $s) {
+            if (! isset($this->stockSnapshots[$s->warehouse_id])) {
+                $this->stockSnapshots[$s->warehouse_id] = [];
+            }
+            if (! isset($this->stockSnapshots[$s->warehouse_id][$s->item_id])) {
+                $this->stockSnapshots[$s->warehouse_id][$s->item_id] = [
+                    'effective' => 0,
+                    'incoming' => 0,
+                ];
+            }
+            $this->stockSnapshots[$s->warehouse_id][$s->item_id]['incoming'] += (int) $s->total_incoming;
+        }
+
         $stockCount = array_sum(array_map('count', $this->stockSnapshots));
         Log::info('在庫データを直接ロード（実倉庫のみ）', ['count' => $stockCount]);
 
@@ -903,7 +926,7 @@ class OrderCandidateCalculationService
             $externalQuery->whereIn('contractor_id', $this->targetContractorIds);
         }
 
-        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit'];
+        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.max_stock', 'item_contractors.purchase_unit'];
         if ($this->hasItemContractorColumn('auto_order_quantity')) {
             $selectColumns[] = 'item_contractors.auto_order_quantity';
         }
@@ -945,8 +968,14 @@ class OrderCandidateCalculationService
                 $shortageQty,
                 $purchaseUnit,
                 (int) ($ic->auto_order_quantity ?? 0),
+                (int) ($ic->max_stock ?? 0),
+                $calculatedStock,
+                $this->orderingUnitQuantities[$ic->item_id] ?? null,
             );
             $orderQty = $quantityCalculation['order_quantity'];
+            if ($orderQty <= 0) {
+                continue;
+            }
 
             // 需要内訳を構築（自倉庫分 + サテライト倉庫分）
             // 注意: shortageQtyは既に移動出庫を考慮した値なので、
@@ -1082,9 +1111,14 @@ class OrderCandidateCalculationService
                     '利用可能在庫' => $calculatedStock,
                     '不足数' => $shortageQty,
                     '旧自動発注数' => $quantityCalculation['auto_order_quantity'],
+                    '最大発注点' => $quantityCalculation['max_stock'],
+                    '最大発注可能数量(バラ)' => $quantityCalculation['max_order_quantity'],
                     '発注数量計算元' => $quantityCalculation['source_label'],
                     '発注数量計算元数量(バラ)' => $quantityCalculation['base_quantity'],
                     '最小仕入単位' => $purchaseUnit,
+                    '有効発注単位(バラ)' => $quantityCalculation['valid_order_unit'],
+                    '最大発注点調整前数量(バラ)' => $quantityCalculation['before_max_stock_quantity'],
+                    '最大発注点調整あり' => $quantityCalculation['max_stock_adjusted'],
                     '単位調整後数量(バラ)' => $orderQty,
                     '発注数量(ケース)' => $orderQtyCase,
                     'ケース入数' => $capacityCase,
@@ -1238,29 +1272,22 @@ class OrderCandidateCalculationService
      *
      * 旧システムの自動発注数が設定されている場合は、不足数ではなく固定発注数として採用する。
      */
-    private function calculateOrderQuantity(int $shortageQty, int $purchaseUnit, int $autoOrderQuantity): array
-    {
-        $autoOrderQuantity = max(0, $autoOrderQuantity);
-        $baseQuantity = $autoOrderQuantity > 0 ? $autoOrderQuantity : $shortageQty;
-        $sourceLabel = $autoOrderQuantity > 0 ? '旧自動発注数' : '不足数';
-        $orderQuantity = $this->roundUpToUnit($baseQuantity, $purchaseUnit);
-
-        $description = "{$sourceLabel}{$baseQuantity}バラ";
-        if ($purchaseUnit > 1 && $orderQuantity !== $baseQuantity) {
-            $description .= "を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQuantity}バラ";
-        } elseif ($purchaseUnit > 1) {
-            $description .= "（最小仕入単位{$purchaseUnit}に一致）";
-        } else {
-            $description .= '（最小仕入単位1のため調整なし）';
-        }
-
-        return [
-            'auto_order_quantity' => $autoOrderQuantity,
-            'base_quantity' => $baseQuantity,
-            'source_label' => $sourceLabel,
-            'order_quantity' => $orderQuantity,
-            'description' => $description,
-        ];
+    private function calculateOrderQuantity(
+        int $shortageQty,
+        int $purchaseUnit,
+        int $autoOrderQuantity,
+        int $maxStock,
+        int $calculatedStock,
+        ?int $orderingUnitQty = null,
+    ): array {
+        return app(OrderQuantityAdjustmentService::class)->calculate(
+            shortageQty: $shortageQty,
+            purchaseUnit: $purchaseUnit,
+            autoOrderQuantity: $autoOrderQuantity,
+            maxStock: $maxStock,
+            calculatedStock: $calculatedStock,
+            orderingUnitQty: $orderingUnitQty,
+        );
     }
 
     /**

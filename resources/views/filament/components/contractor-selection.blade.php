@@ -1,21 +1,26 @@
 @php
     $lw = $getLivewire();
-    $data = $lw->contractorsData ?? [];
+    $dataProperty = $contractorsProperty ?? 'contractorsData';
+    $selectedProperty = $selectedProperty ?? 'selectedContractorIds';
+    $fallbackMethod = $fallbackMethod ?? 'getContractorsForWarehouse';
+    $notice = $notice ?? null;
+    $data = $lw->{$dataProperty} ?? [];
 
     // contractorsData が空の場合、直接取得を試みる
-    if (empty($data)) {
-        $data = $lw->getContractorsForWarehouse();
-        $lw->contractorsData = $data;
-        $lw->selectedContractorIds = collect($data)->pluck('id')->values()->toArray();
+    if (empty($data) && method_exists($lw, $fallbackMethod)) {
+        $data = $lw->{$fallbackMethod}();
+        $lw->{$dataProperty} = $data;
+        $lw->{$selectedProperty} = collect($data)->pluck('id')->values()->toArray();
     }
 
     $contractorIds = collect($data)->pluck('id')->values()->toArray();
+    $selectedIds = $lw->{$selectedProperty} ?? $contractorIds;
 @endphp
 
 <div x-data="{
     searchQuery: '',
     allContractors: @js($data),
-    selectedIds: @js($contractorIds),
+    selectedIds: @js($selectedIds),
     expanded: false,
 
     get filteredContractors() {
@@ -70,7 +75,13 @@
     deselectAll() {
         this.selectedIds = [];
     }
-}" x-effect="$wire.set('selectedContractorIds', selectedIds, false)" class="space-y-3">
+    }" x-effect="$wire.set(@js($selectedProperty), selectedIds, false)" class="space-y-3">
+    @if ($notice)
+        <div class="flex items-center gap-2 rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300">
+            <x-heroicon-m-exclamation-triangle class="h-4 w-4 flex-shrink-0" />
+            <span>{{ $notice }}</span>
+        </div>
+    @endif
 
     {{-- ヘッダー: 選択状況 + 展開ボタン --}}
     <div class="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 px-4 py-2.5">
@@ -156,10 +167,18 @@
                                 <span class="text-sm text-gray-900 dark:text-gray-100 truncate" x-text="contractor.name"></span>
                             </div>
                         </div>
-                        <div class="flex items-center gap-1 flex-shrink-0">
-                            <span x-show="contractor.transmission_type === 'INTERNAL'"
-                                  class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                                移動
+	                        <div class="flex items-center gap-1 flex-shrink-0">
+                            <span x-show="contractor.transmission_type === 'JX_FINET'"
+                                  class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                JX
+                            </span>
+                            <span x-show="contractor.transmission_parent_code"
+                                  class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                集約元
+                            </span>
+	                            <span x-show="contractor.transmission_type === 'INTERNAL'"
+	                                  class="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+	                                移動
                             </span>
                             <span x-show="contractor.generation_time"
                                   class="text-[10px] text-gray-400 dark:text-gray-500 font-mono"

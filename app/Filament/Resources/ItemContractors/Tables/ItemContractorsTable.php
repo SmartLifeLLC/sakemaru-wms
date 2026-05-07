@@ -6,18 +6,17 @@ use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Supplier;
-use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\TextInput;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
-use Filament\Forms\Components\TextInput;
 use Filament\Tables\Table;
 
 class ItemContractorsTable
@@ -73,7 +72,7 @@ class ItemContractorsTable
                     ->sortable(),
 
                 TextInputColumn::make('safety_stock')
-                    ->label('安全在庫')
+                    ->label('発注点')
                     ->type('number')
                     ->rules(['integer', 'min:0'])
                     ->sortable()
@@ -87,6 +86,23 @@ class ItemContractorsTable
                     ->sortable()
                     ->alignEnd()
                     ->width('100px'),
+
+                TextInputColumn::make('min_stock')
+                    ->label('最低在庫')
+                    ->type('number')
+                    ->rules(['integer', 'min:0'])
+                    ->sortable()
+                    ->alignEnd()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('100px'),
+
+                TextInputColumn::make('auto_order_quantity')
+                    ->label('自動発注数')
+                    ->type('number')
+                    ->rules(['integer', 'min:0'])
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('110px'),
 
                 ToggleColumn::make('is_auto_order')
                     ->label('自動発注')

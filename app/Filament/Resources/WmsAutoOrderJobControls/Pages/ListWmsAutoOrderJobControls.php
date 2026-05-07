@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsAutoOrderJobControls\Pages;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QueueProgressStatus;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsAutoOrderJobControls\WmsAutoOrderJobControlResource;
@@ -69,6 +70,10 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
     public array $contractorsData = [];
 
+    public array $jxContractorsData = [];
+
+    public array $selectedJxContractorIds = [];
+
     // 倉庫選択（仕入先別生成用）
     public array $selectedWarehouseIds = [];
 
@@ -87,6 +92,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
         // 仕入先データをページロード時に取得
         $this->contractorsData = $this->getContractorsForWarehouse();
         $this->selectedContractorIds = collect($this->contractorsData)->pluck('id')->values()->toArray();
+        $this->jxContractorsData = $this->getJxContractorsForAutoOrderGeneration();
+        $this->selectedJxContractorIds = collect($this->jxContractorsData)->pluck('id')->values()->toArray();
 
         // 倉庫データ（仕入先別生成用）
         $this->warehousesData = $this->getActiveWarehouses();
@@ -204,12 +211,18 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     : null,
                 ViewField::make('contractor_selector')
                     ->view('filament.components.contractor-selection')
+                    ->viewData([
+                        'contractorsProperty' => 'jxContractorsData',
+                        'selectedProperty' => 'selectedJxContractorIds',
+                        'fallbackMethod' => 'getJxContractorsForAutoOrderGeneration',
+                        'notice' => '自動発注の発注・移動候補生成は、JX-FINET手順の問屋と、そのJX問屋へ発注データを集約する問屋のみ対象です。',
+                    ])
                     ->hiddenLabel(),
             ]))
             ->action(function () use ($selectedWarehouseId, $selectedWarehouseName) {
                 $warehouseId = $selectedWarehouseId;
                 $warehouseName = $selectedWarehouseName;
-                $contractorIds = $this->selectedContractorIds;
+                $contractorIds = $this->selectedJxContractorIds;
 
                 if (empty($contractorIds)) {
                     Notification::make()
@@ -432,7 +445,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->requiresConfirmation()
             ->modalHeading('移動候補の一括生成')
             ->modalDescription(fn () => $this->pendingTransferCount > 0
-                ? "未承認の移動候補が {$this->pendingTransferCount}件 あります。削除して再生成します。"
+                ? "未承認の移動候補が {$this->pendingTransferCount}件 あります。削除せず、既存の未承認移動候補を見込み移動入庫として扱って追加生成します。"
                 : '全仕入先のINTERNAL移動候補を生成します。発注候補は生成しません。')
             ->action(function () {
                 // APPROVED移動候補がある場合はブロック
@@ -447,14 +460,11 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     return;
                 }
 
-                // PENDING移動候補を削除
-                $deletedTransfers = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->delete();
-
                 // 進捗レコードを作成
                 $queueProgress = WmsQueueProgress::createJob(
                     WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
                     auth()->id(),
-                    ['source' => 'transfer_only', 'deletedTransfers' => $deletedTransfers]
+                    ['source' => 'transfer_only', 'preservePendingTransfers' => true]
                 );
 
                 // Job dispatch（transferOnly=true）
@@ -469,8 +479,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 );
 
                 $message = '移動候補の生成を開始しました';
-                if ($deletedTransfers > 0) {
-                    $message .= "（PENDING移動候補 {$deletedTransfers}件 を削除）";
+                if ($this->pendingTransferCount > 0) {
+                    $message .= "（既存PENDING移動候補 {$this->pendingTransferCount}件 は削除しません）";
                 }
 
                 Notification::make()
@@ -508,10 +518,16 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     )),
                 ViewField::make('contractor_selector_force')
                     ->view('filament.components.contractor-selection')
+                    ->viewData([
+                        'contractorsProperty' => 'jxContractorsData',
+                        'selectedProperty' => 'selectedJxContractorIds',
+                        'fallbackMethod' => 'getJxContractorsForAutoOrderGeneration',
+                        'notice' => '自動発注の発注・移動候補生成は、JX-FINET手順の問屋と、そのJX問屋へ発注データを集約する問屋のみ対象です。',
+                    ])
                     ->hiddenLabel(),
             ])
             ->action(function () {
-                $contractorIds = $this->selectedContractorIds;
+                $contractorIds = $this->selectedJxContractorIds;
                 $warehouseIds = $this->selectedWarehouseIds;
 
                 if (empty($contractorIds)) {
@@ -632,6 +648,50 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 'transmission_type_label' => $setting->transmission_type
                     ? $setting->transmission_type->label()
                     : '未設定',
+                'generation_time' => $setting->auto_order_generation_time,
+            ])
+            ->sortBy('code')
+            ->values()
+            ->toArray();
+    }
+
+    /**
+     * 自動発注の発注・移動候補生成対象。
+     * JX-FINET手順の問屋と、そのJX問屋へ発注データを集約する問屋のみを返す。
+     */
+    public function getJxContractorsForAutoOrderGeneration(): array
+    {
+        $jxContractorIds = WmsContractorSetting::query()
+            ->where('transmission_type', TransmissionType::JX_FINET)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        if (empty($jxContractorIds)) {
+            return [];
+        }
+
+        $aggregatedContractorIds = WmsContractorSetting::query()
+            ->whereIn('transmission_contractor_id', $jxContractorIds)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        $targetContractorIds = array_values(array_unique(array_merge($jxContractorIds, $aggregatedContractorIds)));
+
+        return WmsContractorSetting::query()
+            ->whereIn('contractor_id', $targetContractorIds)
+            ->whereHas('contractor', fn ($q) => $q->where('is_auto_change_order', true))
+            ->with(['contractor:id,code,name', 'transmissionContractor:id,code,name'])
+            ->get()
+            ->map(fn ($setting) => [
+                'id' => $setting->contractor_id,
+                'code' => (string) $setting->contractor->code,
+                'name' => $setting->contractor->name,
+                'transmission_type' => $setting->transmission_type?->value ?? 'UNKNOWN',
+                'transmission_type_label' => $setting->transmission_type
+                    ? $setting->transmission_type->label()
+                    : '未設定',
+                'transmission_parent_code' => $setting->transmissionContractor?->code,
+                'transmission_parent_name' => $setting->transmissionContractor?->name,
                 'generation_time' => $setting->auto_order_generation_time,
             ])
             ->sortBy('code')

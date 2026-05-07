@@ -12,6 +12,7 @@ use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\Concerns\OptimisticLockException;
+use App\Models\Sakemaru\ItemContractor;
 use App\Models\WmsMonthlySafetyStock;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
@@ -23,6 +24,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
@@ -448,13 +450,20 @@ class WmsOrderCandidatesTable
                         : false)
                     ->modalCancelActionLabel('変更せず閉じる')
                     ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
-                    ->fillForm(fn ($record) => [
-                        'case_quantity' => $record->case_quantity,
-                        'piece_quantity' => $record->piece_quantity,
-                        'expected_arrival_date' => $record->expected_arrival_date,
-                        'safety_stock' => $record->safety_stock,
-                        'ordering_code' => $record->search_code ?? $record->ordering_code,
-                    ])
+                    ->fillForm(function ($record) {
+                        $itemContractor = static::resolveItemContractor($record);
+
+                        return [
+                            'case_quantity' => $record->case_quantity,
+                            'piece_quantity' => $record->piece_quantity,
+                            'expected_arrival_date' => $record->expected_arrival_date,
+                            'safety_stock' => $record->safety_stock,
+                            'max_stock' => $itemContractor?->max_stock ?? 0,
+                            'auto_order_quantity' => $itemContractor?->auto_order_quantity ?? 0,
+                            'is_auto_order' => (bool) ($itemContractor?->is_auto_order ?? false),
+                            'ordering_code' => $record->search_code ?? $record->ordering_code,
+                        ];
+                    })
                     ->schema(function (?WmsOrderCandidate $record): array {
                         if (! $record) {
                             return [];
@@ -467,6 +476,7 @@ class WmsOrderCandidatesTable
 
                         $details = $log?->calculation_details ?? [];
                         $item = $record->item;
+                        $itemContractor = static::resolveItemContractor($record);
                         $capacityCase = $item?->capacity_case ?? 1;
                         $capacityText = '-';
                         if ($item) {
@@ -529,6 +539,10 @@ class WmsOrderCandidatesTable
                                     'safetyStock' => $details['発注点'] ?? $details['安全在庫'] ?? 0,
                                     'shortageQty' => $details['不足数'] ?? 0,
                                     'autoOrderQuantity' => $details['旧自動発注数'] ?? 0,
+                                    'settingAutoOrderQuantity' => $itemContractor?->auto_order_quantity ?? 0,
+                                    'maxStock' => $details['最大発注点'] ?? $itemContractor?->max_stock ?? 0,
+                                    'maxOrderQuantity' => $details['最大発注可能数量(バラ)'] ?? null,
+                                    'isAutoOrder' => (bool) ($itemContractor?->is_auto_order ?? false),
                                     'orderQuantitySource' => $details['発注数量計算元'] ?? null,
                                     'orderQuantitySourceQty' => $details['発注数量計算元数量(バラ)'] ?? null,
                                     'purchaseUnit' => $details['最小仕入単位'] ?? 1,
@@ -555,6 +569,19 @@ class WmsOrderCandidatesTable
                                 DatePicker::make('expected_arrival_date')
                                     ->label('入荷予定日')
                                     ->required(),
+                            ]);
+
+                            $schema[] = Grid::make(3)->schema([
+                                TextInput::make('max_stock')
+                                    ->label('最大発注点')
+                                    ->integer()
+                                    ->minValue(0),
+                                TextInput::make('auto_order_quantity')
+                                    ->label('自動発注数')
+                                    ->integer()
+                                    ->minValue(0),
+                                Toggle::make('is_auto_order')
+                                    ->label('自動発注ON/OFF'),
                             ]);
 
                             $codes = DB::connection('sakemaru')
@@ -646,6 +673,28 @@ class WmsOrderCandidatesTable
                                     'safety_stock' => $newSafetyStock,
                                 ]
                             );
+                        }
+
+                        $itemContractor = static::resolveItemContractor($record);
+                        $itemContractorData = [];
+                        if (isset($data['safety_stock']) && (int) $data['safety_stock'] !== (int) ($itemContractor?->safety_stock ?? 0)) {
+                            $itemContractorData['safety_stock'] = max(0, (int) $data['safety_stock']);
+                        }
+                        if (isset($data['max_stock']) && (int) $data['max_stock'] !== (int) ($itemContractor?->max_stock ?? 0)) {
+                            $itemContractorData['max_stock'] = max(0, (int) $data['max_stock']);
+                        }
+                        if (isset($data['auto_order_quantity']) && (int) $data['auto_order_quantity'] !== (int) ($itemContractor?->auto_order_quantity ?? 0)) {
+                            $itemContractorData['auto_order_quantity'] = max(0, (int) $data['auto_order_quantity']);
+                        }
+                        if (array_key_exists('is_auto_order', $data) && (bool) $data['is_auto_order'] !== (bool) ($itemContractor?->is_auto_order ?? false)) {
+                            $itemContractorData['is_auto_order'] = (bool) $data['is_auto_order'];
+                        }
+                        if ($itemContractorData !== []) {
+                            ItemContractor::where('item_id', $record->item_id)
+                                ->where('warehouse_id', $record->warehouse_id)
+                                ->where('contractor_id', $record->contractor_id)
+                                ->update($itemContractorData);
+                            $updated = true;
                         }
 
                         if (isset($data['ordering_code']) && $data['ordering_code'] !== ($record->search_code ?? $record->ordering_code)) {
@@ -821,5 +870,14 @@ class WmsOrderCandidatesTable
                 ]),
             ])
             ->defaultSort('batch_code', 'desc');
+    }
+
+    private static function resolveItemContractor(WmsOrderCandidate $record): ?ItemContractor
+    {
+        return ItemContractor::query()
+            ->where('item_id', $record->item_id)
+            ->where('warehouse_id', $record->warehouse_id)
+            ->where('contractor_id', $record->contractor_id)
+            ->first();
     }
 }
