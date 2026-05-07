@@ -98,3 +98,21 @@ if (app()->environment('local', 'testing', 'staging')) {
         ->name('jx-server-files.download')
         ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin', 'sakemaru-permission:wms.jx-transmission-log.download']);
 }
+
+/*
+ * 仮ピッキングリスト出力用の一時ダウンロード。
+ * 生成済みPDFバイト列を Cache に格納したトークン経由でダウンロードする。
+ * 一度ダウンロードすると削除される（Cache::pull）。
+ */
+Route::get('/admin/picking-list/temp-download/{token}', function (string $token) {
+    $cached = \Illuminate\Support\Facades\Cache::pull("picking-list-temp-{$token}");
+    if (! $cached) {
+        abort(404);
+    }
+
+    return response($cached['content'])
+        ->header('Content-Type', 'application/pdf')
+        ->header('Content-Disposition', 'attachment; filename="'.($cached['filename'] ?? 'picking-list.pdf').'"');
+})
+    ->name('picking-list.temp-download')
+    ->middleware(['web', \Filament\Http\Middleware\Authenticate::class.':admin']);

@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xxd)",
+      "Bash(C:/Users/ThinkPad/.config/herd/bin/services/mysql/8.0.45/bin/mysql.exe *)",
+      "Bash(awk NR>=820 && NR<=825 {print NR\": \"length\\($0\\)\" bytes\"} *)",
+      "Bash(awk NR==822 {print substr\\($0, 1, 300\\)} *)",
+      "Bash(node *)",
+      "Bash(php -l app/Filament/Resources/Waves/Pages/ListWaves.php)",
+      "Bash(where php *)",
+      "Read(//c/Users/ThinkPad/.config/herd/bin/**)",
+      "Bash(C:/Users/ThinkPad/.config/herd/bin/php.bat *)",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/php.bat\" artisan *)",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/services/mysql/8.0.45/bin/mysql.exe\" --user=root --host=127.0.0.1 --port=3306 sakemaru_local -e \"DESCRIBE items;\")",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/services/mysql/8.0.45/bin/mysql.exe\" --user=root --host=127.0.0.1 --port=3306 sakemaru_local -e \"DESCRIBE srh_searchable_items;\")",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/services/mysql/8.0.45/bin/mysql.exe\" --user=root --host=127.0.0.1 --port=3306 sakemaru_local -e \"DESCRIBE trades;\")",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/php.bat\" -l \"C:/Users/ThinkPad/Projects/sakemaru-wms/app/Filament/Resources/Waves/Pages/ListWaves.php\")",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/php.bat\" tmp_test_pdf.php)",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/php.bat\" -l \"C:/Users/ThinkPad/Projects/sakemaru-wms/app/Services/PickingList/PickingListPdfService.php\")",
+      "Bash(awk '/private function renderCourseGrouped/,/^    \\\\/\\\\*\\\\*$|^    private function \\(?!renderCourseGrouped\\)/' \"C:/Users/ThinkPad/Projects/sakemaru-wms/app/Services/PickingList/PickingListPdfService.php\")",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/services/mysql/8.0.45/bin/mysql.exe\" --user=root --host=127.0.0.1 --port=3306 sakemaru_local -e \"DESCRIBE buyers;\")",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/php.bat\" -l \"C:/Users/ThinkPad/Projects/sakemaru-wms/routes/web.php\")",
+      "Bash(awk NR>=775 && NR<=790 {print NR\": \"$0} *)",
+      "Bash(\"C:/Users/ThinkPad/.config/herd/bin/php.bat\" -l \"app/Services/PickingList/PickingListService.php\")",
+      "Bash(git add *)"
+    ]
+  }
+}

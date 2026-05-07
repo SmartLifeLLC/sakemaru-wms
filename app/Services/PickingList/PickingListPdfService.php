@@ -1121,4 +1121,667 @@ class PickingListPdfService
 
         return $result.$ellipsis;
     }
+
+    // ========================================
+    // 配送コース別ピッキングリスト（仮ピッキングリスト出力の2次として使用）
+    // 仕様: storage/specifications/配送コース別ピッキングリスト.pdf
+    // ========================================
+
+    // 仕様: storage/specifications/配送コース別ピッキングリスト.pdf からの実測値
+    private const COURSE_GROUPED_MARGIN = 6;       // 左右マージン
+
+    private const COURSE_GROUPED_CONTENT_WIDTH = 198; // 210 - 6 - 6
+
+    private const COURSE_GROUPED_COL_WIDTHS = [
+        'no' => 10,
+        'location' => 22,
+        'item_code' => 28,
+        'item_name' => 68,
+        'capacity' => 12,
+        'case_qty' => 14,
+        'piece_qty' => 14,
+        'total_piece' => 16,
+        'shortage' => 14,
+    ];
+
+    private const COURSE_GROUPED_HEADERS = [
+        'no' => 'No',
+        'location' => '棚番',
+        'item_code' => "商品CD\nJAN",
+        'item_name' => '商品名',
+        'capacity' => '入数',
+        'case_qty' => 'ケース',
+        'piece_qty' => 'バラ',
+        'total_piece' => '総バラ',
+        'shortage' => '欠品',
+    ];
+
+    /**
+     * 配送コース別ピッキングリスト一括描画
+     *
+     * 1ページ = 1売上伝票。$dataList は generateCourseGroupedListByWaveIds の戻り値。
+     */
+    public function renderCourseGroupedPdf(array $dataList): string
+    {
+        $this->initPdf('P', '配送コース別ピッキングリスト');
+
+        if (empty($dataList)) {
+            $this->pdf->AddPage();
+            $this->currentY = self::COURSE_GROUPED_MARGIN;
+            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
+            $this->pdf->SetXY(self::COURSE_GROUPED_MARGIN, $this->currentY);
+            $this->pdf->Cell(self::COURSE_GROUPED_CONTENT_WIDTH, 8, '対象データなし', 0, 0, 'C');
+            $this->totalPages = $this->pdf->getNumPages();
+            $this->renderCourseGroupedPageNumbers();
+
+            return $this->pdf->Output('', 'S');
+        }
+
+        foreach ($dataList as $data) {
+            $this->pdf->AddPage();
+            $this->currentY = self::COURSE_GROUPED_MARGIN;
+
+            $this->renderCourseGroupedHeader($data['header']);
+            $this->renderCourseGroupedTable($data['items'] ?? [], $data['header']);
+            $this->renderCourseGroupedFooter();
+        }
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderCourseGroupedPageNumbers();
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    private function renderCourseGroupedHeader(array $header): void
+    {
+        $margin = self::COURSE_GROUPED_MARGIN;
+        $contentWidth = self::COURSE_GROUPED_CONTENT_WIDTH;
+
+        // タイトル（中央、16pt）
+        $this->pdf->SetFont('kozminproregular', '', 16);
+        $this->pdf->SetXY($margin, $this->currentY);
+        $this->pdf->Cell($contentWidth, 8, '配送コース別ピッキングリスト', 0, 0, 'C');
+        $this->currentY += 8;
+
+        // 配送者（=配送コース名）— 中央、18pt
+        $this->pdf->SetFont('kozminproregular', '', 18);
+        $this->pdf->SetXY($margin, $this->currentY);
+        $courseName = $header['course_name'] ?? '';
+        $this->pdf->Cell($contentWidth, 8, '配送者：'.$courseName, 0, 0, 'C');
+        $this->currentY += 9;
+
+        // 出力日（右側、10pt）
+        $this->pdf->SetFont('kozminproregular', '', 10);
+        $printDate = '出力日：'.now()->format('Y年m月d日');
+        $printDateWidth = $this->pdf->GetStringWidth($printDate);
+        $this->pdf->SetXY(self::PRIMARY_PAGE_WIDTH - $margin - $printDateWidth, $this->currentY);
+        $this->pdf->Cell($printDateWidth, 5, $printDate, 0, 0, 'R');
+
+        $this->currentY += 4;
+
+        // 区切り線（細め、テーブル幅と同じ）
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+        $this->pdf->Line($margin, $this->currentY, $margin + $contentWidth, $this->currentY);
+        $this->currentY += 2;
+
+        // 伝票情報（左側ブロック、12pt）
+        $this->pdf->SetFont('kozminproregular', '', 12);
+        $infoX = $margin + 12;
+        $labelW = 20;
+        $valueW = 100;
+        $infoLineH = 6;
+
+        $this->pdf->SetXY($infoX, $this->currentY);
+        $this->pdf->Cell($labelW, $infoLineH, '伝票No：', 0, 0, 'L');
+        $this->pdf->SetXY($infoX + $labelW, $this->currentY);
+        $this->pdf->Cell($valueW, $infoLineH, (string) ($header['slip_no'] ?? ''), 0, 0, 'L');
+        $this->currentY += $infoLineH;
+
+        $shippingDate = $header['shipping_date'] ?? '';
+        if ($shippingDate) {
+            try {
+                $shippingDate = \Carbon\Carbon::parse($shippingDate)->format('Y/m/d');
+            } catch (\Throwable) {
+                // keep as is
+            }
+        }
+
+        $this->pdf->SetXY($infoX, $this->currentY);
+        $this->pdf->Cell($labelW, $infoLineH, '出荷日：', 0, 0, 'L');
+        $this->pdf->SetXY($infoX + $labelW, $this->currentY);
+        $this->pdf->Cell($valueW, $infoLineH, (string) $shippingDate, 0, 0, 'L');
+        $this->currentY += $infoLineH;
+
+        $this->pdf->SetXY($infoX, $this->currentY);
+        $this->pdf->Cell($labelW, $infoLineH, '倉庫：', 0, 0, 'L');
+        $this->pdf->SetXY($infoX + $labelW, $this->currentY);
+        $this->pdf->Cell($valueW, $infoLineH, (string) ($header['warehouse_name'] ?? ''), 0, 0, 'L');
+        $this->currentY += $infoLineH + 1;
+    }
+
+    private function renderCourseGroupedTableHeader(): void
+    {
+        $widths = array_values(self::COURSE_GROUPED_COL_WIDTHS);
+        $headerLabels = array_values(self::COURSE_GROUPED_HEADERS);
+        $rowH = 11;
+
+        $this->pdf->SetFont('kozminproregular', '', 10);
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+        $this->pdf->SetFillColor(232, 232, 232);
+
+        $x = self::COURSE_GROUPED_MARGIN;
+        $y = $this->currentY;
+
+        // 背景塗りつぶし + 罫線
+        foreach ($headerLabels as $i => $label) {
+            $this->pdf->Rect($x, $y, $widths[$i], $rowH, 'DF');
+            $this->pdf->MultiCell($widths[$i], $rowH, $label, 0, 'C', false, 0, $x, $y, true, 0, false, true, $rowH, 'M');
+            $x += $widths[$i];
+        }
+
+        $this->currentY = $y + $rowH;
+    }
+
+    private function renderCourseGroupedTable(array $items, array $header): void
+    {
+        $this->renderCourseGroupedTableHeader();
+
+        $widths = array_values(self::COURSE_GROUPED_COL_WIDTHS);
+        $tableWidth = array_sum($widths);
+        $margin = self::COURSE_GROUPED_MARGIN;
+        $minRowH = 8.5;
+        $defaultBodyFontSize = 11;
+        $minBodyFontSize = 7;
+        $boldFontSize = 12;
+        $shelfFontSize = 11;
+        $noFontSize = 9;
+        $codeFontSize = 9;
+        $janFontSize = 7;
+
+        foreach ($items as $item) {
+            // 商品名が2行に収まる最大フォントサイズを探索する
+            $itemName = (string) ($item['item_name'] ?? '');
+            $bodyFontSize = $defaultBodyFontSize;
+            $nameH = 0;
+
+            for ($trySize = $defaultBodyFontSize; $trySize >= $minBodyFontSize; $trySize--) {
+                $this->pdf->SetFont('kozminproregular', '', $trySize);
+                $singleLineH = $this->pdf->getStringHeight($widths[3] - 2, 'あ');
+                $nameH = $this->pdf->getStringHeight($widths[3] - 2, $itemName);
+                if ($nameH <= $singleLineH * 2.1) {
+                    $bodyFontSize = $trySize;
+                    break;
+                }
+                $bodyFontSize = $trySize;
+            }
+
+            $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
+            $nameH = $this->pdf->getStringHeight($widths[3] - 2, $itemName);
+
+            $rowH = max($minRowH, $nameH);
+
+            // ページ送り判定（摘要枠と余白を確保）
+            if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 25) {
+                $this->pdf->AddPage();
+                $this->currentY = self::COURSE_GROUPED_MARGIN;
+                $this->renderCourseGroupedHeader($header);
+                $this->renderCourseGroupedTableHeader();
+            }
+
+            $x = $margin;
+            $y = $this->currentY;
+
+            // セル枠（縦線）
+            foreach ($widths as $w) {
+                $this->pdf->Line($x, $y, $x, $y + $rowH);
+                $x += $w;
+            }
+            $this->pdf->Line($x, $y, $x, $y + $rowH);
+            // 行下線
+            $this->pdf->Line($margin, $y + $rowH, $margin + $tableWidth, $y + $rowH);
+
+            // No（小さめ・通常）
+            $colX = $margin;
+            $this->pdf->SetFont('kozminproregular', '', $noFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[0], $rowH, (string) ($item['no'] ?? ''), 0, 0, 'C');
+            $colX += $widths[0];
+
+            // 棚番
+            $this->pdf->SetFont('kozminproregular', '', $shelfFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[1], $rowH, (string) ($item['location_code'] ?? ''), 0, 0, 'C');
+            $colX += $widths[1];
+
+            // 商品CD（上）+ JAN（下、小）
+            $this->pdf->SetFont('kozminproregular', '', $codeFontSize);
+            $this->pdf->SetXY($colX, $y + 0.5);
+            $this->pdf->Cell($widths[2], $rowH / 2, (string) ($item['item_code'] ?? ''), 0, 0, 'C');
+            $this->pdf->SetFont('kozminproregular', '', $janFontSize);
+            $this->pdf->SetXY($colX, $y + $rowH / 2);
+            $this->pdf->Cell($widths[2], $rowH / 2 - 0.5, (string) ($item['jan_code'] ?? ''), 0, 0, 'C');
+            $colX += $widths[2];
+
+            // 商品名（左寄せ、長い場合は折返し、垂直中央）
+            $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
+            $this->pdf->MultiCell($widths[3] - 2, $minRowH, $itemName, 0, 'L', false, 0, $colX + 1, $y, true, 0, false, true, $rowH, 'M');
+            $colX += $widths[3];
+
+            // 入数
+            $this->pdf->SetFont('kozminproregular', '', 10);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[4], $rowH, (string) ($item['capacity_case'] ?? ''), 0, 0, 'C');
+            $colX += $widths[4];
+
+            // ケース
+            $this->pdf->SetFont('kozminproregular', '', $boldFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[5], $rowH, (string) ($item['case_qty'] ?? '0'), 0, 0, 'C');
+            $colX += $widths[5];
+
+            // バラ
+            $this->pdf->SetFont('kozminproregular', '', $boldFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[6], $rowH, (string) ($item['piece_qty'] ?? '0'), 0, 0, 'C');
+            $colX += $widths[6];
+
+            // 総バラ
+            $this->pdf->SetFont('kozminproregular', '', $boldFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[7], $rowH, (string) ($item['total_pieces'] ?? '0'), 0, 0, 'C');
+            $colX += $widths[7];
+
+            // 欠品（数値があるときのみ表示）
+            $shortageQty = (int) ($item['shortage_qty'] ?? 0);
+            $this->pdf->SetFont('kozminproregular', '', 10);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[8], $rowH, $shortageQty > 0 ? (string) $shortageQty : '', 0, 0, 'C');
+
+            $this->currentY = $y + $rowH;
+        }
+    }
+
+    private function renderCourseGroupedFooter(): void
+    {
+        $margin = self::COURSE_GROUPED_MARGIN;
+        $contentWidth = self::COURSE_GROUPED_CONTENT_WIDTH;
+        $boxH = 11;
+
+        $y = $this->currentY;
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+        $this->pdf->Rect($margin, $y, $contentWidth, $boxH);
+
+        $this->pdf->SetFont('kozminproregular', '', 11);
+        $this->pdf->SetXY($margin + 2, $y + 1);
+        $this->pdf->Cell($contentWidth - 4, 6, '摘要：', 0, 0, 'L');
+
+        $this->currentY = $y + $boxH;
+    }
+
+    /**
+     * 配送コース別リスト用ページ番号（右上に表示）
+     */
+    private function renderCourseGroupedPageNumbers(): void
+    {
+        $this->pdf->SetFont('kozminproregular', '', 10);
+        $total = $this->totalPages;
+
+        for ($i = 1; $i <= $total; $i++) {
+            $this->pdf->setPage($i);
+            $pageText = "{$i} / {$total}";
+            $textWidth = $this->pdf->GetStringWidth($pageText);
+            $x = self::PRIMARY_PAGE_WIDTH - self::COURSE_GROUPED_MARGIN - $textWidth;
+            $y = self::COURSE_GROUPED_MARGIN;
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell($textWidth, 5, $pageText, 0, 0, 'R');
+        }
+    }
+
+    // ========================================
+    // 得意先別ピッキングリスト V2（仮ピッキングリスト出力の3次として使用）
+    // 仕様: storage/specifications/得意先別ピッキングリスト V2.pdf
+    // ========================================
+
+    private const BUYER_GROUPED_MARGIN = 6;
+
+    private const BUYER_GROUPED_CONTENT_WIDTH = 198;
+
+    private const BUYER_GROUPED_COL_WIDTHS = [
+        'no' => 9,
+        'location' => 19,
+        'buyer' => 32,
+        'item_code' => 24,
+        'item_name' => 52,
+        'capacity' => 11,
+        'case_qty' => 13,
+        'piece_qty' => 13,
+        'total_piece' => 13,
+        'shortage' => 12,
+    ];
+
+    private const BUYER_GROUPED_HEADERS = [
+        'no' => 'No',
+        'location' => '棚番',
+        'buyer' => '得意先',
+        'item_code' => "商品CD\nJAN",
+        'item_name' => '商品名',
+        'capacity' => '入数',
+        'case_qty' => 'ケース',
+        'piece_qty' => 'バラ',
+        'total_piece' => '総バラ',
+        'shortage' => '欠品',
+    ];
+
+    /**
+     * 得意先別ピッキングリスト V2 一括描画
+     *
+     * 1ページ = 1配送コース。$dataList は generateBuyerGroupedListByWaveIds の戻り値。
+     */
+    public function renderBuyerGroupedPdf(array $dataList): string
+    {
+        $this->initPdf('P', '得意先別ピッキングリスト V2');
+
+        if (empty($dataList)) {
+            $this->pdf->AddPage();
+            $this->currentY = self::BUYER_GROUPED_MARGIN;
+            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
+            $this->pdf->SetXY(self::BUYER_GROUPED_MARGIN, $this->currentY);
+            $this->pdf->Cell(self::BUYER_GROUPED_CONTENT_WIDTH, 8, '対象データなし', 0, 0, 'C');
+            $this->totalPages = $this->pdf->getNumPages();
+            $this->renderBuyerGroupedPageNumbers();
+
+            return $this->pdf->Output('', 'S');
+        }
+
+        foreach ($dataList as $data) {
+            $this->pdf->AddPage();
+            $this->currentY = self::BUYER_GROUPED_MARGIN;
+
+            $this->renderBuyerGroupedHeader($data['header']);
+            $this->renderBuyerGroupedTable($data['items'] ?? [], $data['header']);
+            $this->renderBuyerGroupedSummary($data['summary'] ?? []);
+        }
+
+        $this->totalPages = $this->pdf->getNumPages();
+        $this->renderBuyerGroupedPageNumbers();
+
+        return $this->pdf->Output('', 'S');
+    }
+
+    private function renderBuyerGroupedHeader(array $header): void
+    {
+        $margin = self::BUYER_GROUPED_MARGIN;
+        $contentWidth = self::BUYER_GROUPED_CONTENT_WIDTH;
+
+        // タイトル
+        $this->pdf->SetFont('kozminproregular', '', 16);
+        $this->pdf->SetXY($margin, $this->currentY);
+        $this->pdf->Cell($contentWidth, 8, '得意先別ピッキングリスト V2', 0, 0, 'C');
+        $this->currentY += 8;
+
+        // 配送者
+        $this->pdf->SetFont('kozminproregular', '', 18);
+        $this->pdf->SetXY($margin, $this->currentY);
+        $courseName = $header['course_name'] ?? '';
+        $this->pdf->Cell($contentWidth, 8, '配送者：'.$courseName, 0, 0, 'C');
+        $this->currentY += 9;
+
+        // 出力日
+        $this->pdf->SetFont('kozminproregular', '', 10);
+        $printDate = '出力日：'.now()->format('Y年m月d日');
+        $printDateWidth = $this->pdf->GetStringWidth($printDate);
+        $this->pdf->SetXY(self::PRIMARY_PAGE_WIDTH - $margin - $printDateWidth, $this->currentY);
+        $this->pdf->Cell($printDateWidth, 5, $printDate, 0, 0, 'R');
+        $this->currentY += 4;
+
+        // 区切り線
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+        $this->pdf->Line($margin, $this->currentY, $margin + $contentWidth, $this->currentY);
+        $this->currentY += 2;
+
+        // 伝票情報（伝票No・出荷日のみ、倉庫なし）
+        $this->pdf->SetFont('kozminproregular', '', 12);
+        $infoX = $margin + 12;
+        $labelW = 20;
+        $valueW = 100;
+        $infoLineH = 6;
+
+        $this->pdf->SetXY($infoX, $this->currentY);
+        $this->pdf->Cell($labelW, $infoLineH, '伝票No：', 0, 0, 'L');
+        $this->pdf->SetXY($infoX + $labelW, $this->currentY);
+        $this->pdf->Cell($valueW, $infoLineH, (string) ($header['wave_no'] ?? ''), 0, 0, 'L');
+        $this->currentY += $infoLineH;
+
+        $shippingDate = $header['shipping_date'] ?? '';
+        if ($shippingDate) {
+            try {
+                $shippingDate = \Carbon\Carbon::parse($shippingDate)->format('Y/m/d');
+            } catch (\Throwable) {
+                // keep as is
+            }
+        }
+        $this->pdf->SetXY($infoX, $this->currentY);
+        $this->pdf->Cell($labelW, $infoLineH, '出荷日：', 0, 0, 'L');
+        $this->pdf->SetXY($infoX + $labelW, $this->currentY);
+        $this->pdf->Cell($valueW, $infoLineH, (string) $shippingDate, 0, 0, 'L');
+        $this->currentY += $infoLineH + 1;
+    }
+
+    private function renderBuyerGroupedTableHeader(): void
+    {
+        $widths = array_values(self::BUYER_GROUPED_COL_WIDTHS);
+        $headerLabels = array_values(self::BUYER_GROUPED_HEADERS);
+        $rowH = 11;
+
+        $this->pdf->SetFont('kozminproregular', '', 10);
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+        $this->pdf->SetFillColor(232, 232, 232);
+
+        $x = self::BUYER_GROUPED_MARGIN;
+        $y = $this->currentY;
+
+        foreach ($headerLabels as $i => $label) {
+            $this->pdf->Rect($x, $y, $widths[$i], $rowH, 'DF');
+            $this->pdf->MultiCell($widths[$i], $rowH, $label, 0, 'C', false, 0, $x, $y, true, 0, false, true, $rowH, 'M');
+            $x += $widths[$i];
+        }
+
+        $this->currentY = $y + $rowH;
+    }
+
+    private function renderBuyerGroupedTable(array $items, array $header): void
+    {
+        $this->renderBuyerGroupedTableHeader();
+
+        $widths = array_values(self::BUYER_GROUPED_COL_WIDTHS);
+        $tableWidth = array_sum($widths);
+        $margin = self::BUYER_GROUPED_MARGIN;
+        $minRowH = 9;
+        $defaultBodyFontSize = 10;
+        $minBodyFontSize = 7;
+        $boldFontSize = 12;
+        $shelfFontSize = 10;
+        $noFontSize = 9;
+        $codeFontSize = 9;
+        $janFontSize = 7;
+        $buyerFontSize = 8;
+
+        foreach ($items as $item) {
+            $itemName = (string) ($item['item_name'] ?? '');
+            $buyerLabel = trim(((string) ($item['buyer_code'] ?? '')).' '.((string) ($item['buyer_name'] ?? '')));
+
+            // 商品名と得意先の両方を考慮した行高（自動縮小付き）
+            $bodyFontSize = $defaultBodyFontSize;
+            for ($trySize = $defaultBodyFontSize; $trySize >= $minBodyFontSize; $trySize--) {
+                $this->pdf->SetFont('kozminproregular', '', $trySize);
+                $singleLineH = $this->pdf->getStringHeight($widths[4] - 2, 'あ');
+                $nameH = $this->pdf->getStringHeight($widths[4] - 2, $itemName);
+                if ($nameH <= $singleLineH * 2.1) {
+                    $bodyFontSize = $trySize;
+                    break;
+                }
+                $bodyFontSize = $trySize;
+            }
+
+            $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
+            $nameH = $this->pdf->getStringHeight($widths[4] - 2, $itemName);
+
+            $this->pdf->SetFont('kozminproregular', '', $buyerFontSize);
+            $buyerH = $this->pdf->getStringHeight($widths[2] - 2, $buyerLabel);
+
+            $rowH = max($minRowH, $nameH, $buyerH);
+
+            // ページ送り
+            if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 15) {
+                $this->pdf->AddPage();
+                $this->currentY = self::BUYER_GROUPED_MARGIN;
+                $this->renderBuyerGroupedHeader($header);
+                $this->renderBuyerGroupedTableHeader();
+            }
+
+            $x = $margin;
+            $y = $this->currentY;
+
+            // セル枠
+            foreach ($widths as $w) {
+                $this->pdf->Line($x, $y, $x, $y + $rowH);
+                $x += $w;
+            }
+            $this->pdf->Line($x, $y, $x, $y + $rowH);
+            $this->pdf->Line($margin, $y + $rowH, $margin + $tableWidth, $y + $rowH);
+
+            $colX = $margin;
+
+            // No
+            $this->pdf->SetFont('kozminproregular', '', $noFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[0], $rowH, (string) ($item['no'] ?? ''), 0, 0, 'C');
+            $colX += $widths[0];
+
+            // 棚番
+            $this->pdf->SetFont('kozminproregular', '', $shelfFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[1], $rowH, (string) ($item['location_code'] ?? ''), 0, 0, 'C');
+            $colX += $widths[1];
+
+            // 得意先（コード + 名前、左寄せ折返し）
+            $this->pdf->SetFont('kozminproregular', '', $buyerFontSize);
+            $this->pdf->MultiCell($widths[2] - 2, $minRowH, $buyerLabel, 0, 'L', false, 0, $colX + 1, $y, true, 0, false, true, $rowH, 'M');
+            $colX += $widths[2];
+
+            // 商品CD（上）+ JAN（下）
+            $this->pdf->SetFont('kozminproregular', '', $codeFontSize);
+            $this->pdf->SetXY($colX, $y + 0.5);
+            $this->pdf->Cell($widths[3], $rowH / 2, (string) ($item['item_code'] ?? ''), 0, 0, 'C');
+            $this->pdf->SetFont('kozminproregular', '', $janFontSize);
+            $this->pdf->SetXY($colX, $y + $rowH / 2);
+            $this->pdf->Cell($widths[3], $rowH / 2 - 0.5, (string) ($item['jan_code'] ?? ''), 0, 0, 'C');
+            $colX += $widths[3];
+
+            // 商品名（左寄せ折返し）
+            $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
+            $this->pdf->MultiCell($widths[4] - 2, $minRowH, $itemName, 0, 'L', false, 0, $colX + 1, $y, true, 0, false, true, $rowH, 'M');
+            $colX += $widths[4];
+
+            // 入数
+            $this->pdf->SetFont('kozminproregular', '', 10);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[5], $rowH, (string) ($item['capacity_case'] ?? ''), 0, 0, 'C');
+            $colX += $widths[5];
+
+            // ケース
+            $this->pdf->SetFont('kozminproregular', '', $boldFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[6], $rowH, (string) ($item['case_qty'] ?? '0'), 0, 0, 'C');
+            $colX += $widths[6];
+
+            // バラ
+            $this->pdf->SetFont('kozminproregular', '', $boldFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[7], $rowH, (string) ($item['piece_qty'] ?? '0'), 0, 0, 'C');
+            $colX += $widths[7];
+
+            // 総バラ
+            $this->pdf->SetFont('kozminproregular', '', $boldFontSize);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[8], $rowH, (string) ($item['total_pieces'] ?? '0'), 0, 0, 'C');
+            $colX += $widths[8];
+
+            // 欠品
+            $shortageQty = (int) ($item['shortage_qty'] ?? 0);
+            $this->pdf->SetFont('kozminproregular', '', 10);
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[9], $rowH, $shortageQty > 0 ? (string) $shortageQty : '', 0, 0, 'C');
+
+            $this->currentY = $y + $rowH;
+        }
+    }
+
+    private function renderBuyerGroupedSummary(array $summary): void
+    {
+        $widths = array_values(self::BUYER_GROUPED_COL_WIDTHS);
+        $tableWidth = array_sum($widths);
+        $margin = self::BUYER_GROUPED_MARGIN;
+        $rowH = 9;
+
+        $rowCount = (int) ($summary['row_count'] ?? 0);
+        $totalCase = (int) ($summary['total_case'] ?? 0);
+        $totalPiece = (int) ($summary['total_piece'] ?? 0);
+        $totalAll = (int) ($summary['total_pieces_all'] ?? 0);
+
+        $y = $this->currentY;
+        $x = $margin;
+
+        // ラベル領域（No〜入数までを結合）幅
+        $labelWidth = $widths[0] + $widths[1] + $widths[2] + $widths[3] + $widths[4] + $widths[5];
+
+        // 縦罫線（外側）
+        $this->pdf->Line($margin, $y, $margin, $y + $rowH);
+        // ラベル右の縦線（入数まで結合）
+        $this->pdf->Line($margin + $labelWidth, $y, $margin + $labelWidth, $y + $rowH);
+        // 各数値セルの縦線
+        $valX = $margin + $labelWidth;
+        foreach ([$widths[6], $widths[7], $widths[8], $widths[9]] as $w) {
+            $valX += $w;
+            $this->pdf->Line($valX, $y, $valX, $y + $rowH);
+        }
+        // 行下線
+        $this->pdf->Line($margin, $y + $rowH, $margin + $tableWidth, $y + $rowH);
+
+        // ラベル「合計（N行）」
+        $this->pdf->SetFont('kozminproregular', '', 11);
+        $this->pdf->SetXY($margin, $y);
+        $this->pdf->Cell($labelWidth - 2, $rowH, "合計（{$rowCount}行）", 0, 0, 'R');
+
+        // 数値
+        $vx = $margin + $labelWidth;
+        $this->pdf->SetFont('kozminproregular', '', 12);
+
+        $this->pdf->SetXY($vx, $y);
+        $this->pdf->Cell($widths[6], $rowH, (string) $totalCase, 0, 0, 'C');
+        $vx += $widths[6];
+        $this->pdf->SetXY($vx, $y);
+        $this->pdf->Cell($widths[7], $rowH, (string) $totalPiece, 0, 0, 'C');
+        $vx += $widths[7];
+        $this->pdf->SetXY($vx, $y);
+        $this->pdf->Cell($widths[8], $rowH, (string) $totalAll, 0, 0, 'C');
+        // 欠品セルは空白
+
+        $this->currentY = $y + $rowH;
+    }
+
+    private function renderBuyerGroupedPageNumbers(): void
+    {
+        $this->pdf->SetFont('kozminproregular', '', 10);
+        $total = $this->totalPages;
+        for ($i = 1; $i <= $total; $i++) {
+            $this->pdf->setPage($i);
+            $pageText = "{$i} / {$total}";
+            $textWidth = $this->pdf->GetStringWidth($pageText);
+            $x = self::PRIMARY_PAGE_WIDTH - self::BUYER_GROUPED_MARGIN - $textWidth;
+            $y = self::BUYER_GROUPED_MARGIN;
+            $this->pdf->SetXY($x, $y);
+            $this->pdf->Cell($textWidth, 5, $pageText, 0, 0, 'R');
+        }
+    }
 }
