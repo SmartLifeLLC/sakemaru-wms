@@ -758,7 +758,7 @@ class ListWaves extends ListRecords
      *
      * @return array{wave_ids: array<int>, earning_count: int, stock_transfer_count: int}
      */
-    protected function createWavesFromCourses(array $data): array
+    protected function createWavesFromCourses(array $data, bool $forceNewWaves = false): array
     {
         $warehouseId = $data['warehouse_id'];
         $shippingDate = $data['shipping_date'];
@@ -827,6 +827,7 @@ class ListWaves extends ListRecords
             $allDeliveryCourseIds,
             $earningsByDeliveryCourse,
             $stockTransfersByDeliveryCourse,
+            $forceNewWaves,
             &$createdWaveIds,
             &$totalEarnings,
             &$totalStockTransfers
@@ -858,9 +859,11 @@ class ListWaves extends ListRecords
                     ->where('id', $deliveryCourseId)
                     ->first();
 
-                $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
-                    ->where('shipping_date', $shippingDate)
-                    ->first();
+                $existingWave = $forceNewWaves
+                    ? null
+                    : Wave::where('wms_wave_setting_id', $waveSetting->id)
+                        ->where('shipping_date', $shippingDate)
+                        ->first();
 
                 if ($existingWave) {
                     $wave = $existingWave;
@@ -930,7 +933,7 @@ class ListWaves extends ListRecords
         $connection->beginTransaction();
 
         try {
-            $result = $this->createWavesFromCourses($data);
+            $result = $this->createWavesFromCourses($data, forceNewWaves: true);
             $waveIds = $result['wave_ids'];
 
             if (empty($waveIds)) {
