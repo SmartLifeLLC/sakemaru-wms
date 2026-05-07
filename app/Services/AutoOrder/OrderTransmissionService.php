@@ -983,7 +983,7 @@ class OrderTransmissionService
         if ($result->succeeded()) {
             // ドキュメント記録
             $document = WmsOrderJxDocument::create([
-                'batch_code' => $candidates->first()->batch_code ?? 'manual_' . $now->format('YmdHis'),
+                'batch_code' => $candidates->first()->batch_code ?? 'manual_'.$now->format('YmdHis'),
                 'contractor_id' => $transmissionContractorId,
                 'warehouse_id' => $candidates->first()->warehouse_id,
                 'order_date' => $now->toDateString(),
@@ -1779,6 +1779,26 @@ class OrderTransmissionService
 
         if ($document->status !== TransmissionDocumentStatus::PENDING) {
             return ['success' => false, 'error' => '送信可能なステータスではありません'];
+        }
+
+        return $this->transmitDocumentViaJx($document);
+    }
+
+    /**
+     * 送信済みドキュメントを同じファイル内容でもう一度JX送信する。
+     *
+     * @return array{success: bool, message_id?: string, error?: string}
+     */
+    public function retransmitDocumentById(int $documentId): array
+    {
+        $document = WmsOrderJxDocument::find($documentId);
+
+        if (! $document) {
+            return ['success' => false, 'error' => 'ドキュメントが見つかりません'];
+        }
+
+        if ($document->status !== TransmissionDocumentStatus::TRANSMITTED) {
+            return ['success' => false, 'error' => '再送信可能なステータスではありません'];
         }
 
         return $this->transmitDocumentViaJx($document);
