@@ -24,9 +24,9 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -419,9 +419,14 @@ class WmsOrderIncomingSchedulesTable
 
                 SelectFilter::make('status')
                     ->label('ステータス')
+                    ->multiple()
                     ->options(collect(IncomingScheduleStatus::cases())->mapWithKeys(fn ($status) => [
                         $status->value => $status->label(),
-                    ])),
+                    ]))
+                    ->default([
+                        IncomingScheduleStatus::PENDING->value,
+                        IncomingScheduleStatus::PARTIAL->value,
+                    ]),
 
                 SelectFilter::make('order_source')
                     ->label('入荷区分')
