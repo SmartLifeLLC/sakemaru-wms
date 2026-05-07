@@ -71,18 +71,31 @@ html.fi {
 .fi-no,
 .fi-no-notifications,
 .fi-notifications {
-    z-index: 3000 !important;
+    z-index: 10000 !important;
 }
 
 .fi-no {
-    top: 3.25rem !important;
-    max-width: min(42rem, calc(100vw - 2rem)) !important;
+    position: fixed !important;
+    inset: auto auto auto 50% !important;
+    top: 0 !important;
+    right: auto !important;
+    bottom: auto !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: min(48rem, calc(100vw - 1rem)) !important;
+    max-width: min(48rem, calc(100vw - 1rem)) !important;
+    padding-top: 0.25rem !important;
 }
 
 .fi-no-notification,
 .fi-notification {
+    pointer-events: auto !important;
     width: 100% !important;
-    max-width: min(42rem, calc(100vw - 2rem)) !important;
+    max-width: min(48rem, calc(100vw - 1rem)) !important;
 }
 
 .fi-no-notification-title,
