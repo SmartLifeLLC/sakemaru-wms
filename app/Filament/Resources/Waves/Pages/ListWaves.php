@@ -957,7 +957,7 @@ class ListWaves extends ListRecords
 
     /**
      * 仮ピッキングリストを生成する。
-     * 波動を一旦作ってPDF化し、トランザクションをロールバックして永続化しない。
+     * 波動を生成せず、対象伝票からPDF出力用データを組み立てる。
      * リスト種別を複数選択した場合は ZIP にまとめてダウンロード。
      */
     protected function generateProvisionalPickingListPdf(array $data)
@@ -971,7 +971,10 @@ class ListWaves extends ListRecords
         if (! is_array($listTypes)) {
             $listTypes = [$listTypes];
         }
-        $listTypes = array_values(array_filter($listTypes, fn ($v) => is_string($v) && $v !== ''));
+        $listTypes = array_values(array_unique(array_filter($listTypes, fn ($v) => is_string($v) && $v !== '')));
+        if (in_array('primary', $listTypes, true) && in_array('primary_total', $listTypes, true)) {
+            $listTypes = array_values(array_filter($listTypes, fn (string $listType): bool => $listType !== 'primary'));
+        }
 
         if (empty($listTypes)) {
             Notification::make()->title('リスト種別を選択してください')->warning()->send();

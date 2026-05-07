@@ -13,12 +13,21 @@
                 if (!Array.isArray(this.state)) {
                     this.state = this.state ? [this.state] : [];
                 }
+                if (this.state.includes('primary') && this.state.includes('primary_total')) {
+                    this.state = this.state.filter(v => v !== 'primary');
+                }
             },
             toggle(value) {
                 if (!Array.isArray(this.state)) this.state = [];
                 if (this.state.includes(value)) {
                     this.state = this.state.filter(v => v !== value);
                 } else {
+                    if (value === 'primary') {
+                        this.state = this.state.filter(v => v !== 'primary_total');
+                    }
+                    if (value === 'primary_total') {
+                        this.state = this.state.filter(v => v !== 'primary');
+                    }
                     this.state = [...this.state, value];
                 }
             },
