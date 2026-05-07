@@ -578,8 +578,13 @@ class SalesBasedOrderCandidateService
             $externalQuery->whereIn('contractor_id', $this->targetContractorIds);
         }
 
+        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit'];
+        if ($this->hasItemContractorColumn('auto_order_quantity')) {
+            $selectColumns[] = 'item_contractors.auto_order_quantity';
+        }
+
         $itemContractors = $externalQuery
-            ->select('item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit')
+            ->select($selectColumns)
             ->get();
 
         $insertData = [];
@@ -607,7 +612,12 @@ class SalesBasedOrderCandidateService
             $shortageQty = $sales3dQty - $calculatedStock;
 
             $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
-            $orderQty = $this->roundUpToUnit($shortageQty, $purchaseUnit);
+            $quantityCalculation = $this->calculateOrderQuantity(
+                $shortageQty,
+                $purchaseUnit,
+                (int) ($ic->auto_order_quantity ?? 0),
+            );
+            $orderQty = $quantityCalculation['order_quantity'];
 
             $demandBreakdown = [];
             $originWarehouseIds = [];
@@ -718,13 +728,14 @@ class SalesBasedOrderCandidateService
                     '見込み在庫' => $calculatedStock,
                     '安全在庫' => 0,
                     '不足数' => $shortageQty,
+                    '旧自動発注数' => $quantityCalculation['auto_order_quantity'],
+                    '発注数量計算元' => $quantityCalculation['source_label'],
+                    '発注数量計算元数量(バラ)' => $quantityCalculation['base_quantity'],
                     '最小仕入単位' => $purchaseUnit,
                     '単位調整後数量(バラ)' => $orderQty,
                     '発注数量(ケース)' => $orderQtyCase,
                     'ケース入数' => $capacityCase,
-                    '単位調整説明' => $purchaseUnit > 1
-                        ? "不足数{$shortageQty}を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQty}バラ → {$orderQtyCase}ケース"
-                        : '最小仕入単位が1のため調整なし',
+                    '単位調整説明' => $quantityCalculation['description']." → {$orderQtyCase}ケース",
                 ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],
                     '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
@@ -858,6 +869,41 @@ class SalesBasedOrderCandidateService
         }
 
         return (int) ceil($quantity / $unit) * $unit;
+    }
+
+    private function hasItemContractorColumn(string $column): bool
+    {
+        return DB::connection('sakemaru')->getSchemaBuilder()->hasColumn('item_contractors', $column);
+    }
+
+    /**
+     * 問屋発注数量をバラ数量で算出する。
+     *
+     * 旧システムの自動発注数が設定されている場合は、不足数ではなく固定発注数として採用する。
+     */
+    private function calculateOrderQuantity(int $shortageQty, int $purchaseUnit, int $autoOrderQuantity): array
+    {
+        $autoOrderQuantity = max(0, $autoOrderQuantity);
+        $baseQuantity = $autoOrderQuantity > 0 ? $autoOrderQuantity : $shortageQty;
+        $sourceLabel = $autoOrderQuantity > 0 ? '旧自動発注数' : '不足数';
+        $orderQuantity = $this->roundUpToUnit($baseQuantity, $purchaseUnit);
+
+        $description = "{$sourceLabel}{$baseQuantity}バラ";
+        if ($purchaseUnit > 1 && $orderQuantity !== $baseQuantity) {
+            $description .= "を最小仕入単位{$purchaseUnit}で切り上げ → {$orderQuantity}バラ";
+        } elseif ($purchaseUnit > 1) {
+            $description .= "（最小仕入単位{$purchaseUnit}に一致）";
+        } else {
+            $description .= '（最小仕入単位1のため調整なし）';
+        }
+
+        return [
+            'auto_order_quantity' => $autoOrderQuantity,
+            'base_quantity' => $baseQuantity,
+            'source_label' => $sourceLabel,
+            'order_quantity' => $orderQuantity,
+            'description' => $description,
+        ];
     }
 
     private function buildResultData(string $batchCode, int $transferCount, int $orderCount): array

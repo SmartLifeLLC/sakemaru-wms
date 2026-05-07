@@ -105,6 +105,12 @@
                     </div>
                     @endif
                     <div class="flex justify-between"><span class="text-red-600 dark:text-red-400">不足</span><span class="font-semibold text-red-600 dark:text-red-400">{{ number_format($shortageQty) }}</span></div>
+                    @if(($autoOrderQuantity ?? 0) > 0)
+                    <div class="flex justify-between"><span>旧自動発注数</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($autoOrderQuantity) }}</span></div>
+                    <div class="col-span-2 text-xs text-gray-500 dark:text-gray-400">
+                        発注数量は{{ $orderQuantitySource ?? '不足数' }}{{ number_format($orderQuantitySourceQty ?? 0) }}バラを基準に計算
+                    </div>
+                    @endif
                 </div>
                 @if(isset($purchaseUnit) && $purchaseUnit > 1)
                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-200 dark:border-white/10">
