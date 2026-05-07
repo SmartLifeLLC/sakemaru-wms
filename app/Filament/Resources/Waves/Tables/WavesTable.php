@@ -278,6 +278,6 @@ class WavesTable
                 ]),
                 static::getExportAction(),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('id', 'desc');
     }
 }

@@ -12,6 +12,7 @@ use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WaveResource extends AdminResource
 {
@@ -54,6 +55,12 @@ class WaveResource extends AdminResource
     public static function table(Table $table): Table
     {
         return WavesTable::configure($table);
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->with(['waveSetting.deliveryCourse.warehouse']);
     }
 
     public static function getRelations(): array
