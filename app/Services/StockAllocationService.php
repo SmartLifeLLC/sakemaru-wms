@@ -228,13 +228,13 @@ class StockAllocationService
         if (! empty($reservations)) {
             DB::connection('sakemaru')
                 ->table('wms_reservations')
-                ->insert(array_values($reservations));
+                ->insertOrIgnore(array_values($reservations));
         }
 
         // Handle shortage
         $shortageQty = $needQty - $totalAllocated;
         if ($shortageQty > 0) {
-            DB::connection('sakemaru')->table('wms_reservations')->insert([
+            DB::connection('sakemaru')->table('wms_reservations')->insertOrIgnore([
                 'warehouse_id' => $warehouseId,
                 'location_id' => null,
                 'real_stock_id' => null,

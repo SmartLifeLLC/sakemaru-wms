@@ -762,6 +762,7 @@ class ListWaves extends ListRecords
     {
         $warehouseId = $data['warehouse_id'];
         $shippingDate = $data['shipping_date'];
+        $waveShippingDate = $data['_wave_shipping_date'] ?? $shippingDate;
         $generationType = $data['generation_type'] ?? 'delivery_course';
         $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
         $buyerIds = $data['buyer_ids'] ?? [];
@@ -860,7 +861,7 @@ class ListWaves extends ListRecords
                     ->first();
 
                 $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
-                    ->where('shipping_date', $shippingDate)
+                    ->where('shipping_date', $waveShippingDate)
                     ->first();
 
                 if ($existingWave) {
@@ -885,16 +886,16 @@ class ListWaves extends ListRecords
                             ->delete();
                     }
                 } else {
-                    $wave = $this->createWaveSafely($waveSetting, $warehouse, $course, $shippingDate);
+                    $wave = $this->createWaveSafely($waveSetting, $warehouse, $course, $waveShippingDate);
                 }
 
                 if ($courseEarnings->isNotEmpty()) {
-                    $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $shippingDate);
+                    $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $waveShippingDate);
                     $totalEarnings += $courseEarnings->count();
                 }
 
                 if ($courseStockTransfers->isNotEmpty()) {
-                    $this->processStockTransfersForWave($wave, $waveSetting, $courseStockTransfers, $warehouse, $course, $shippingDate);
+                    $this->processStockTransfersForWave($wave, $waveSetting, $courseStockTransfers, $warehouse, $course, $waveShippingDate);
                     $totalStockTransfers += $courseStockTransfers->count();
                 }
 
@@ -953,6 +954,7 @@ class ListWaves extends ListRecords
         set_time_limit(300);
 
         $shippingDate = $data['shipping_date'];
+        $data['_wave_shipping_date'] = now()->subYears(100)->subDays(random_int(0, 3650))->format('Y-m-d');
         $listTypes = $data['list_types'] ?? ['primary'];
         if (! is_array($listTypes)) {
             $listTypes = [$listTypes];
@@ -995,7 +997,8 @@ class ListWaves extends ListRecords
                     $waveIds,
                     $separateFloors,
                     $service,
-                    $pdfService
+                    $pdfService,
+                    $shippingDate
                 );
             }
 
@@ -1058,28 +1061,44 @@ class ListWaves extends ListRecords
         array $waveIds,
         bool $separateFloors,
         PickingListService $service,
-        PickingListPdfService $pdfService
+        PickingListPdfService $pdfService,
+        string $shippingDate
     ): string {
         return match ($listType) {
             'primary' => $pdfService->renderBatchPrimaryPdf(
                 $waves
                     ->flatMap(fn ($w) => $service->generatePrimaryListPages($w->id, $separateFloors))
+                    ->map(fn (array $page) => $this->withProvisionalShippingDate($page, $shippingDate))
                     ->toArray()
             ),
             'primary_total' => $pdfService->renderBatchPrimaryPdf(
-                $service->generatePrimaryTotalListPages($waveIds, $separateFloors)
+                collect($service->generatePrimaryTotalListPages($waveIds, $separateFloors))
+                    ->map(fn (array $page) => $this->withProvisionalShippingDate($page, $shippingDate))
+                    ->toArray()
             ),
             'shortage' => $pdfService->renderBatchShortagePdf(
-                $waves->map(fn ($w) => $service->generateShortageList($w->id))->toArray()
+                $waves
+                    ->map(fn ($w) => $service->generateShortageList($w->id))
+                    ->map(fn (array $page) => $this->withProvisionalShippingDate($page, $shippingDate))
+                    ->toArray()
             ),
             'secondary' => $pdfService->renderCourseGroupedPdf(
                 $service->generateCourseGroupedListByWaveIds($waveIds)
             ),
             'tertiary' => $pdfService->renderBuyerGroupedPdf(
-                $service->generateBuyerGroupedListByWaveIds($waveIds)
+                collect($service->generateBuyerGroupedListByWaveIds($waveIds))
+                    ->map(fn (array $page) => $this->withProvisionalShippingDate($page, $shippingDate))
+                    ->toArray()
             ),
             default => throw new \InvalidArgumentException("不明なリスト種別: {$listType}"),
         };
+    }
+
+    private function withProvisionalShippingDate(array $page, string $shippingDate): array
+    {
+        $page['header']['shipping_date'] = $shippingDate;
+
+        return $page;
     }
 
     protected function processEarningsForWave(
