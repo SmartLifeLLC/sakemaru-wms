@@ -51,7 +51,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      */
     private const COMPANY_NAME = 'ﾘｶｰﾜｰﾙﾄﾞ ﾊﾅ';
 
-    private const ENCODING = 'SJIS';
+    private const ENCODING = 'SJIS-win';
 
     private const LINE_ENDING = "\r\n";
 
@@ -854,7 +854,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         for ($i = 0; $i < mb_strlen($str, 'UTF-8'); $i++) {
             $char = mb_substr($str, $i, 1, 'UTF-8');
-            $charSjis = mb_convert_encoding($char, 'SJIS', 'UTF-8');
+            $charSjis = mb_convert_encoding($char, self::ENCODING, 'UTF-8');
             $charByteLength = strlen($charSjis);
 
             if ($currentByteLength + $charByteLength > $length) {
@@ -904,7 +904,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         for ($i = 0; $i < mb_strlen($str, 'UTF-8'); $i++) {
             $char = mb_substr($str, $i, 1, 'UTF-8');
-            $charSjis = mb_convert_encoding($char, 'SJIS', 'UTF-8');
+            $charSjis = mb_convert_encoding($char, self::ENCODING, 'UTF-8');
             $charByteLength = strlen($charSjis);
 
             if ($currentByteLength + $charByteLength > $length) {
@@ -938,7 +938,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         for ($i = 0; $i < mb_strlen($str, 'UTF-8'); $i++) {
             $char = mb_substr($str, $i, 1, 'UTF-8');
-            $charSjis = mb_convert_encoding($char, 'SJIS', 'UTF-8');
+            $charSjis = mb_convert_encoding($char, self::ENCODING, 'UTF-8');
             $charByteLength = strlen($charSjis);
 
             if ($currentByteLength + $charByteLength > $length) {

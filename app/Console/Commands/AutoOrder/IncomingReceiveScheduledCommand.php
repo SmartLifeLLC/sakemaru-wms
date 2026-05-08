@@ -57,7 +57,7 @@ class IncomingReceiveScheduledCommand extends Command
                     $this->receiveJx($setting, $service);
                     $received++;
                 } else {
-                    $this->line("    → スキップ（JX設定なし or CSV形式は未対応）");
+                    $this->line('    → スキップ（JX設定なし or CSV形式は未対応）');
                     $skipped++;
                 }
             } catch (\Exception $e) {
@@ -123,8 +123,28 @@ class IncomingReceiveScheduledCommand extends Command
             }
 
             // パース
-            $filename = "jx_receive_{$setting->contractor_id}_" . now()->format('YmdHis') . "_{$fileCount}.dat";
-            $file = $service->parseJxData($data, $filename, $setting->contractor_id);
+            $filename = "jx_receive_{$setting->contractor_id}_".now()->format('YmdHis')."_{$fileCount}.dat";
+            $rawMetadata = $service->saveRawJxData($data, $filename);
+            $metadata = array_merge($rawMetadata, [
+                'received_message_id' => $result->getReceivedMessageId(),
+                'get_request_path' => $jxClient->getLastRequestPath(),
+                'get_response_path' => $jxClient->getLastResponsePath(),
+                'confirm_status' => 'PENDING',
+            ]);
+
+            try {
+                $file = $service->parseJxData($data, $filename, $setting->contractor_id, $metadata);
+            } catch (\Exception $e) {
+                WmsIncomingReceivedFile::create(WmsIncomingReceivedFile::onlyExistingColumns(array_merge([
+                    'contractor_id' => $setting->contractor_id,
+                    'filename' => $filename,
+                    'format_type' => 'JX',
+                    'status' => 'ERROR',
+                    'error_message' => $e->getMessage(),
+                ], $metadata)));
+
+                throw $e;
+            }
 
             $this->line("    → [{$fileCount}] パース完了: 伝票{$file->parsed_slip_count}件 / 明細{$file->parsed_detail_count}件");
 
@@ -134,27 +154,50 @@ class IncomingReceiveScheduledCommand extends Command
             $this->line("    → [{$fileCount}] 照合完了: 一致{$matchResult['matched']}件 / 欠品{$matchResult['shortage']}件 / 未一致{$matchResult['unmatched']}件");
 
             // 受信確認 (ConfirmDocument)
-            $this->confirmDocument($jxClient, $result, $setting->contractor_id);
+            $file->update(WmsIncomingReceivedFile::onlyExistingColumns(
+                $this->confirmDocument($jxClient, $result, $setting->contractor_id)
+            ));
         }
 
-        $this->warn("    → 最大取得回数（" . self::MAX_RECEIVE_ATTEMPTS . "）に達しました");
+        $this->warn('    → 最大取得回数（'.self::MAX_RECEIVE_ATTEMPTS.'）に達しました');
     }
 
     /**
      * 受信確認 (ConfirmDocument) を送信
      */
-    private function confirmDocument(JxClient $jxClient, $result, int $contractorId): void
+    private function confirmDocument(JxClient $jxClient, $result, int $contractorId): array
     {
         $receivedMessageId = $result->getReceivedMessageId();
-        if ($receivedMessageId) {
-            $confirmResult = $jxClient->confirmDocument($receivedMessageId);
-            if ($confirmResult->failed()) {
-                Log::warning('[IncomingReceiveScheduled] ConfirmDocument失敗', [
-                    'contractor_id' => $contractorId,
-                    'message_id' => $receivedMessageId,
-                    'error' => $confirmResult->error,
-                ]);
-            }
+        if (! $receivedMessageId) {
+            return [
+                'confirm_status' => 'SKIPPED',
+                'confirm_error_message' => 'received_message_id が空のため ConfirmDocument を送信していません。',
+            ];
         }
+
+        $confirmResult = $jxClient->confirmDocument($receivedMessageId);
+        $tracking = [
+            'confirm_request_path' => $jxClient->getLastRequestPath(),
+            'confirm_response_path' => $jxClient->getLastResponsePath(),
+        ];
+
+        if ($confirmResult->failed()) {
+            Log::warning('[IncomingReceiveScheduled] ConfirmDocument失敗', [
+                'contractor_id' => $contractorId,
+                'message_id' => $receivedMessageId,
+                'error' => $confirmResult->error,
+            ]);
+
+            return array_merge($tracking, [
+                'confirm_status' => 'FAILED',
+                'confirm_error_message' => $confirmResult->error,
+            ]);
+        }
+
+        return array_merge($tracking, [
+            'confirm_status' => 'SENT',
+            'confirmed_at' => now(),
+            'confirm_error_message' => null,
+        ]);
     }
 }

@@ -91,6 +91,7 @@
                     @endif
                     <div class="flex justify-between"><span>発注点</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($safetyStock) }}</span></div>
                     <div class="flex justify-between"><span>最大発注点</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($maxStock ?? 0) }}</span></div>
+                    <div class="flex justify-between"><span>最低在庫数</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($minStock ?? 0) }}</span></div>
                     <div class="flex justify-between"><span>自動発注</span><span class="font-semibold {{ ($isAutoOrder ?? false) ? 'text-green-700 dark:text-green-300' : 'text-gray-500 dark:text-gray-400' }}">{{ ($isAutoOrder ?? false) ? 'ON' : 'OFF' }}</span></div>
                     <div class="flex justify-between"><span>自動発注数</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($settingAutoOrderQuantity ?? $autoOrderQuantity ?? 0) }}</span></div>
                     @if(($maxOrderQuantity ?? null) !== null)

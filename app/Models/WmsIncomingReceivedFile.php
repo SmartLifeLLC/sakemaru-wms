@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 
 class WmsIncomingReceivedFile extends WmsModel
 {
@@ -11,6 +12,17 @@ class WmsIncomingReceivedFile extends WmsModel
     protected $fillable = [
         'contractor_id',
         'filename',
+        'raw_file_path',
+        'raw_file_size',
+        'raw_sha256',
+        'received_message_id',
+        'get_request_path',
+        'get_response_path',
+        'confirm_status',
+        'confirmed_at',
+        'confirm_request_path',
+        'confirm_response_path',
+        'confirm_error_message',
         'format_type',
         'status',
         'a_data_type',
@@ -37,7 +49,21 @@ class WmsIncomingReceivedFile extends WmsModel
         'finet_record_count' => 'integer',
         'parsed_slip_count' => 'integer',
         'parsed_detail_count' => 'integer',
+        'raw_file_size' => 'integer',
+        'confirmed_at' => 'datetime',
     ];
+
+    public static function onlyExistingColumns(array $attributes): array
+    {
+        static $columns = null;
+
+        if ($columns === null) {
+            $model = new static;
+            $columns = array_flip(Schema::connection($model->getConnectionName())->getColumnListing($model->getTable()));
+        }
+
+        return array_intersect_key($attributes, $columns);
+    }
 
     public function slips(): HasMany
     {

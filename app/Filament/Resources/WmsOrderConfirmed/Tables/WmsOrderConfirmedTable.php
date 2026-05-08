@@ -8,6 +8,7 @@ use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
+use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\OrderCancellationService;
 use Filament\Actions\Action;
@@ -118,6 +119,47 @@ class WmsOrderConfirmedTable
                     ->toggleable()
                     ->width('100px'),
 
+                TextColumn::make('setting_safety_stock')
+                    ->label('発注点')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['safety_stock'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable()
+                    ->width('60px'),
+
+                TextColumn::make('setting_max_stock')
+                    ->label('最大発注点')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['max_stock'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('75px'),
+
+                TextColumn::make('setting_min_stock')
+                    ->label('最低在庫数')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['min_stock'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('75px'),
+
+                TextColumn::make('setting_auto_order_quantity')
+                    ->label('自動発注数')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['auto_order_quantity'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable()
+                    ->width('75px'),
+
+                TextColumn::make('setting_is_auto_order')
+                    ->label('自動発注')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['is_auto_order'] ? 'ON' : 'OFF')
+                    ->badge()
+                    ->color(fn (string $state): string => $state === 'ON' ? 'success' : 'gray')
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('70px'),
+
                 TextColumn::make('order_quantity')
                     ->label('発注数')
                     ->numeric()
@@ -190,6 +232,7 @@ class WmsOrderConfirmedTable
                         }
 
                         $item = $record->item;
+                        $orderSettings = WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record);
 
                         return [
                             Grid::make(2)
@@ -204,6 +247,11 @@ class WmsOrderConfirmedTable
                                             'expectedArrivalDate' => $record->expected_arrival_date
                                                 ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
                                                 : '-',
+                                            'safetyStock' => $orderSettings['safety_stock'],
+                                            'maxStock' => $orderSettings['max_stock'],
+                                            'minStock' => $orderSettings['min_stock'],
+                                            'autoOrderQuantity' => $orderSettings['auto_order_quantity'],
+                                            'isAutoOrder' => $orderSettings['is_auto_order'],
                                         ])
                                         ->columnSpan(1),
 

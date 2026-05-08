@@ -357,12 +357,17 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     : null,
                 ViewField::make('contractor_selector')
                     ->view('filament.components.contractor-selection')
+                    ->viewData([
+                        'contractorsProperty' => 'jxContractorsData',
+                        'selectedProperty' => 'selectedJxContractorIds',
+                        'fallbackMethod' => 'getJxContractorsForAutoOrderGeneration',
+                    ])
                     ->hiddenLabel(),
             ]))
             ->action(function () use ($selectedWarehouseId, $selectedWarehouseName, $existingBatchCode) {
                 $warehouseId = $selectedWarehouseId;
                 $warehouseName = $selectedWarehouseName;
-                $contractorIds = $this->selectedContractorIds;
+                $contractorIds = $this->selectedJxContractorIds;
 
                 if (empty($contractorIds)) {
                     Notification::make()
