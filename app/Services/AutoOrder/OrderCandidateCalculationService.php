@@ -710,6 +710,9 @@ class OrderCandidateCalculationService
             // 在庫を取得
             $stock = $this->stockSnapshots[$ic->warehouse_id][$ic->item_id] ?? null;
             $effectiveStock = $stock['effective'] ?? 0;
+            if ($effectiveStock === 0) {
+                continue;
+            }
             $incomingStock = $stock['incoming'] ?? 0;
 
             // 見込み在庫
@@ -918,6 +921,9 @@ class OrderCandidateCalculationService
             // 在庫を取得
             $stock = $this->stockSnapshots[$ic->warehouse_id][$ic->item_id] ?? null;
             $effectiveStock = $stock['effective'] ?? 0;
+            if ($effectiveStock === 0) {
+                continue;
+            }
             $incomingStock = $stock['incoming'] ?? 0;
 
             // 移動候補の影響を取得

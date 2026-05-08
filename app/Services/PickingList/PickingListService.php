@@ -21,6 +21,16 @@ class PickingListService
         return DB::connection('sakemaru');
     }
 
+    private function applyPrintablePickingItemScope($query)
+    {
+        return $query
+            ->where('pir.planned_qty', '>', 0)
+            ->where(function ($q) {
+                $q->whereNull('pir.is_ready_to_shipment')
+                    ->orWhere('pir.is_ready_to_shipment', false);
+            });
+    }
+
     /**
      * 1次ピッキングリスト（Wave集約）
      *
@@ -51,6 +61,8 @@ class PickingListService
             ->join('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->where('pt.wave_id', $waveId);
+
+        $this->applyPrintablePickingItemScope($query);
 
         if (! $includePast) {
             $query->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
@@ -246,6 +258,7 @@ class PickingListService
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->whereIn('pt.wave_id', $waveIds)
             ->where('pt.status', '!=', 'COMPLETED')
+            ->tap(fn ($query) => $this->applyPrintablePickingItemScope($query))
             ->select($selectColumns)
             ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'i.packaging', 'pir.planned_qty_type')
             ->groupBy('pir.location_id', 'l.code1', 'l.code2', 'l.code3')
@@ -553,6 +566,7 @@ class PickingListService
             ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
             ->leftJoin('partners as p', 'e.buyer_id', '=', 'p.id')
             ->whereIn('pir.picking_task_id', $taskIds)
+            ->tap(fn ($query) => $this->applyPrintablePickingItemScope($query))
             ->select([
                 'pir.id',
                 'pir.picking_task_id',
@@ -609,6 +623,7 @@ class PickingListService
             ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
             ->leftJoin('partners as p', 'e.buyer_id', '=', 'p.id')
             ->whereIn('pir.picking_task_id', $taskIds)
+            ->tap(fn ($query) => $this->applyPrintablePickingItemScope($query))
             ->select([
                 'pir.id',
                 'pir.item_id',
@@ -870,6 +885,7 @@ class PickingListService
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
             ->whereIn('pt.wave_id', $waveIds)
+            ->tap(fn ($query) => $this->applyPrintablePickingItemScope($query))
             ->select([
                 'pir.id as pir_id',
                 'pir.earning_id',
@@ -1022,6 +1038,7 @@ class PickingListService
             ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->whereIn('pt.wave_id', $waveIds)
+            ->tap(fn ($query) => $this->applyPrintablePickingItemScope($query))
             ->select([
                 'pir.id as pir_id',
                 'pir.earning_id',

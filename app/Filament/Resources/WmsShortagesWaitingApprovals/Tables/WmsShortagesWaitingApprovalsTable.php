@@ -19,9 +19,9 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -753,6 +753,7 @@ class WmsShortagesWaitingApprovalsTable
 
                             // ピッキングタスクのステータスを更新
                             $approvalService = app(ShortageApprovalService::class);
+                            $approvalService->markPickingResultReadyForShipment($record);
                             $approvalService->updatePickingTaskStatusAfterApproval($record);
 
                             $message = '欠品対応を承認しました。';
@@ -796,7 +797,7 @@ class WmsShortagesWaitingApprovalsTable
 
                             Notification::make()
                                 ->title('取り消しました')
-                                ->body("欠品対応を取り消しました。".($deletedCount > 0 ? "横持ち出荷指示{$deletedCount}件を削除しました。" : ''))
+                                ->body('欠品対応を取り消しました。'.($deletedCount > 0 ? "横持ち出荷指示{$deletedCount}件を削除しました。" : ''))
                                 ->success()
                                 ->send();
                         } catch (\Exception $e) {
@@ -856,6 +857,7 @@ class WmsShortagesWaitingApprovalsTable
                                     }
 
                                     // ピッキングタスクのステータスを更新
+                                    $approvalService->markPickingResultReadyForShipment($shortage);
                                     $approvalService->updatePickingTaskStatusAfterApproval($shortage);
                                 } catch (\Exception $e) {
                                     Notification::make()

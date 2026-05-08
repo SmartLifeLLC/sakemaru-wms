@@ -180,6 +180,15 @@ php artisan wms:generate-test-shortages # Generate shortage test data
 php artisan wms:update-daily-stats      # Update daily statistics
 ```
 
+## Local System Test Knowledge
+
+- core base URL: `https://sakemaru.test`
+- WMS base URL: `https://wms.sakemaru.test`
+- Trade base URL: `https://trade.sakemaru.test`
+- Search base URL: `https://search.sakemaru.test`
+- Local DB: `hana_local`
+- Local DB user: `ROOT` (`root` in `.env`)
+
 ## Architecture
 
 ### Database Connections

@@ -3,6 +3,7 @@
 namespace App\Services\AutoOrder\Generators;
 
 use App\Contracts\OrderFileGeneratorInterface;
+use App\Enums\EPurchasePriceType;
 use App\Enums\QuantityType;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderIncomingSchedule;
@@ -83,6 +84,11 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      * 商品ID => 現在仕入単価 のキャッシュ
      */
     private array $costPriceCache = [];
+
+    /**
+     * 商品ID => 現在仕入バラ単価 のキャッシュ
+     */
+    private array $purchaseUnitPriceCache = [];
 
     /**
      * 商品ID => 発注荷姿入数 のキャッシュ（パック発注商品のみ）
@@ -978,11 +984,19 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
             $price = $this->costPriceCache[$itemId];
         } else {
             $price = DB::connection('sakemaru')
-                ->table('item_prices')
-                ->where('item_id', $itemId)
-                ->where('is_active', true)
-                ->where('start_date', '<=', now()->toDateString())
-                ->orderBy('start_date', 'desc')
+                ->table('item_prices as ip')
+                ->join('items as i', 'i.id', '=', 'ip.item_id')
+                ->where('ip.item_id', $itemId)
+                ->where('ip.is_active', true)
+                ->where('ip.start_date', '<=', now()->toDateString())
+                ->orderBy('ip.start_date', 'desc')
+                ->select([
+                    'i.purchase_price_type',
+                    'ip.producer_unit_price',
+                    'ip.cost_unit_price',
+                    'ip.cost_case_price',
+                    'ip.wholesale_unit_price',
+                ])
                 ->first();
 
             $this->costPriceCache[$itemId] = $price;
@@ -1010,25 +1024,38 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
             return null;
         }
 
-        if (isset($this->costPriceCache[$itemId])) {
-            $price = $this->costPriceCache[$itemId];
-        } else {
-            $price = DB::connection('sakemaru')
-                ->table('item_prices')
-                ->where('item_id', $itemId)
-                ->where('is_active', true)
-                ->where('start_date', '<=', now()->toDateString())
-                ->orderBy('start_date', 'desc')
-                ->first();
-
-            $this->costPriceCache[$itemId] = $price;
+        if (array_key_exists($itemId, $this->purchaseUnitPriceCache)) {
+            return $this->purchaseUnitPriceCache[$itemId];
         }
 
-        if (! $price || ! property_exists($price, 'purchase_unit_price') || $price->purchase_unit_price === null) {
-            return null;
+        $price = DB::connection('sakemaru')
+            ->table('item_prices as ip')
+            ->join('items as i', 'i.id', '=', 'ip.item_id')
+            ->where('ip.item_id', $itemId)
+            ->where('ip.is_active', true)
+            ->where('ip.start_date', '<=', now()->toDateString())
+            ->orderBy('ip.start_date', 'desc')
+            ->select([
+                'i.purchase_price_type',
+                'ip.producer_unit_price',
+                'ip.cost_unit_price',
+                'ip.wholesale_unit_price',
+            ])
+            ->first();
+
+        $purchaseUnitPrice = null;
+        if ($price) {
+            $purchaseUnitPrice = match ($price->purchase_price_type) {
+                EPurchasePriceType::PRODUCER->value => $price->producer_unit_price,
+                EPurchasePriceType::COST->value => $price->cost_unit_price,
+                EPurchasePriceType::WHOLESALE->value => $price->wholesale_unit_price,
+                default => null,
+            };
         }
 
-        return (float) $price->purchase_unit_price;
+        $this->purchaseUnitPriceCache[$itemId] = $purchaseUnitPrice !== null ? (float) $purchaseUnitPrice : null;
+
+        return $this->purchaseUnitPriceCache[$itemId];
     }
 
     /**
