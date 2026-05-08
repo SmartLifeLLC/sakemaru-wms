@@ -69,6 +69,7 @@ class WaveService
         // 5. 既存Waveを検索（wave_settingが見つかった場合）
         $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
             ->where('shipping_date', $shippingDate)
+            ->whereNotIn('status', ['COMPLETED', 'CLOSED', 'CANCELLED'])
             ->first();
 
         if ($existingWave) {
