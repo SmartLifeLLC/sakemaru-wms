@@ -388,13 +388,12 @@ class PickingListService
 
         $today = now()->toDateString();
 
-        $rows = $this->db()->table('wms_picking_item_results as pir')
-            ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
-            ->join('items as i', 'pir.item_id', '=', 'i.id')
-            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
-            ->leftJoin('trades as t', 'pir.trade_id', '=', 't.id')
+        $rows = $this->db()->table('wms_shortages as ws')
+            ->join('items as i', 'ws.item_id', '=', 'i.id')
+            ->leftJoin('locations as l', 'ws.location_id', '=', 'l.id')
+            ->leftJoin('trades as t', 'ws.trade_id', '=', 't.id')
             ->leftJoin('partners as tp', 't.partner_id', '=', 'tp.id')
-            ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('earnings as e', 'ws.earning_id', '=', 'e.id')
             ->leftJoin('buyers as b', 'e.buyer_id', '=', 'b.id')
             ->leftJoin(
                 DB::raw("(SELECT bd1.buyer_id, bd1.salesman_id
@@ -405,8 +404,8 @@ class PickingListService
                 'bd.buyer_id', '=', 'b.id'
             )
             ->leftJoin('users as salesman', 'salesman.id', '=', 'bd.salesman_id')
-            ->where('pt.wave_id', $waveId)
-            ->where('pir.shortage_qty', '>', 0)
+            ->where('ws.wave_id', $waveId)
+            ->where('ws.shortage_qty', '>', 0)
             ->select([
                 't.serial_id',
                 'tp.name as partner_name',
@@ -414,17 +413,19 @@ class PickingListService
                 'i.code as item_code',
                 'i.name as item_name',
                 'i.packaging',
-                'pir.location_id',
+                'ws.location_id',
                 'l.code1',
                 'l.code2',
                 'l.code3',
-                'pir.planned_qty',
-                'pir.shortage_qty',
-                'pir.planned_qty_type',
+                'ws.order_qty',
+                'ws.planned_qty',
+                'ws.shortage_qty',
+                'ws.qty_type_at_order as planned_qty_type',
             ])
             ->orderBy('t.serial_id')
             ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
             ->orderBy('i.code')
             ->get();
 
@@ -432,9 +433,9 @@ class PickingListService
         $totalShortage = 0;
 
         foreach ($rows as $row) {
+            $orderQty = (int) $row->order_qty;
             $plannedQty = (int) $row->planned_qty;
             $shortageQty = (int) $row->shortage_qty;
-            $allocatedQty = $plannedQty - $shortageQty;
             $qtyType = QuantityType::tryFrom($row->planned_qty_type) ?? QuantityType::PIECE;
             $qtyLabel = $qtyType === QuantityType::CASE ? 'ケース' : 'バラ';
 
@@ -451,8 +452,8 @@ class PickingListService
                 'packaging' => $row->packaging ?? '',
                 'location_code' => $locationCode,
                 'qty_label' => $qtyLabel,
-                'planned_qty' => $plannedQty,
-                'allocated_qty' => $allocatedQty,
+                'planned_qty' => $orderQty,
+                'allocated_qty' => $plannedQty,
                 'shortage_qty' => $shortageQty,
             ];
 
@@ -911,12 +912,12 @@ class PickingListService
                 'pir.shortage_qty',
             ])
             ->orderBy('dc.code')
-            ->orderByRaw('COALESCE(e.id, st.id)')
             ->orderByRaw('COALESCE(l.floor_id, 999999)')
             ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
             ->orderBy('i.code')
+            ->orderByRaw('COALESCE(e.id, st.id)')
             ->get();
 
         // 配送コース×フロア でバケット化

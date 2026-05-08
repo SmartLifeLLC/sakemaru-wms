@@ -15,9 +15,9 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -103,6 +103,13 @@ class WmsShortagesTable
                     ->label('倉庫')
                     ->sortable()
                     ->searchable(),
+
+                TextColumn::make('location_code')
+                    ->label('棚番')
+                    ->state(fn (WmsShortage $record): string => $record->location
+                        ? \App\Models\Sakemaru\Location::formatCode($record->location->code1, $record->location->code2, $record->location->code3, '-')
+                        : '-')
+                    ->alignment('center'),
 
                 TextColumn::make('trade.earning.delivery_course.code')
                     ->label('配送コード')

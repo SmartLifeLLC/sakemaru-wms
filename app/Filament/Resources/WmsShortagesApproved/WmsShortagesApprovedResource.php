@@ -5,9 +5,9 @@ namespace App\Filament\Resources\WmsShortagesApproved;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsShortagesApproved\Pages\ListWmsShortagesApproved;
 use App\Filament\Resources\WmsShortagesApproved\Tables\WmsShortagesApprovedTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsShortage;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,6 +21,7 @@ class WmsShortagesApprovedResource extends AdminResource
         return parent::getEloquentQuery()
             ->with([
                 'warehouse',
+                'location',
                 'wave',
                 'item',
                 'trade.partner',

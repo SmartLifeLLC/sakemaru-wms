@@ -7,9 +7,9 @@ use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\WmsShortage;
 use Filament\Actions\Action;
-use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -107,6 +107,13 @@ class WmsShortagesApprovedTable
                     ->label('倉庫')
                     ->sortable()
                     ->searchable()
+                    ->alignment('center'),
+
+                TextColumn::make('location_code')
+                    ->label('棚番')
+                    ->state(fn (WmsShortage $record): string => $record->location
+                        ? \App\Models\Sakemaru\Location::formatCode($record->location->code1, $record->location->code2, $record->location->code3, '-')
+                        : '-')
                     ->alignment('center'),
 
                 TextColumn::make('order_qty')
