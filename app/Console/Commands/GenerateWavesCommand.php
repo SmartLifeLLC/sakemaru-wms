@@ -372,7 +372,7 @@ class GenerateWavesCommand extends Command
                             'planned_qty_type' => $tradeItem->quantity_type, // Same as ordered (for now)
                             'picked_qty' => $itemSkipPicking ? $reservationResult['allocated_qty'] : 0, // Auto-complete if same real warehouse
                             'picked_qty_type' => $tradeItem->quantity_type, // Will be set by picker
-                            'shortage_qty' => 0, // Will be set by picker during picking
+                            'shortage_qty' => max(0, $tradeItem->quantity - $reservationResult['allocated_qty']),
                             'status' => $itemStatus, // Changed: PENDING is initial state (not PICKING)
                             'picker_id' => null,
                             'created_at' => now(),
@@ -544,7 +544,7 @@ class GenerateWavesCommand extends Command
                             'planned_qty_type' => $tradeItem->quantity_type,
                             'picked_qty' => 0,
                             'picked_qty_type' => $tradeItem->quantity_type,
-                            'shortage_qty' => 0,
+                            'shortage_qty' => max(0, $tradeItem->quantity - $reservationResult['allocated_qty']),
                             'status' => 'PENDING',
                             'picker_id' => null,
                             'created_at' => now(),
