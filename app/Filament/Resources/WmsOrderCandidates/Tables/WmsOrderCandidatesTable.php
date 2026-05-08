@@ -137,9 +137,38 @@ class WmsOrderCandidatesTable
 
                 TextColumn::make('safety_stock')
                     ->label('発注点')
-                    ->state(fn ($record) => $record->safety_stock ?? '-')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['safety_stock'])
                     ->numeric()
                     ->alignEnd(),
+
+                TextColumn::make('setting_max_stock')
+                    ->label('最大発注点')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['max_stock'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('setting_min_stock')
+                    ->label('最低在庫数')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['min_stock'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('setting_auto_order_quantity')
+                    ->label('自動発注数')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['auto_order_quantity'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable(),
+
+                TextColumn::make('setting_is_auto_order')
+                    ->label('自動発注')
+                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['is_auto_order'] ? 'ON' : 'OFF')
+                    ->badge()
+                    ->color(fn (string $state): string => $state === 'ON' ? 'success' : 'gray')
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('shortage_qty')
                     ->label('不足分')
@@ -459,6 +488,7 @@ class WmsOrderCandidatesTable
                             'expected_arrival_date' => $record->expected_arrival_date,
                             'safety_stock' => $record->safety_stock,
                             'max_stock' => $itemContractor?->max_stock ?? 0,
+                            'min_stock' => $itemContractor?->min_stock ?? 0,
                             'auto_order_quantity' => $itemContractor?->auto_order_quantity ?? 0,
                             'is_auto_order' => (bool) ($itemContractor?->is_auto_order ?? false),
                             'ordering_code' => $record->search_code ?? $record->ordering_code,
@@ -541,6 +571,7 @@ class WmsOrderCandidatesTable
                                     'autoOrderQuantity' => $details['旧自動発注数'] ?? 0,
                                     'settingAutoOrderQuantity' => $itemContractor?->auto_order_quantity ?? 0,
                                     'maxStock' => $details['最大発注点'] ?? $itemContractor?->max_stock ?? 0,
+                                    'minStock' => $itemContractor?->min_stock ?? 0,
                                     'maxOrderQuantity' => $details['最大発注可能数量(バラ)'] ?? null,
                                     'isAutoOrder' => (bool) ($itemContractor?->is_auto_order ?? false),
                                     'orderQuantitySource' => $details['発注数量計算元'] ?? null,
@@ -571,9 +602,13 @@ class WmsOrderCandidatesTable
                                     ->required(),
                             ]);
 
-                            $schema[] = Grid::make(3)->schema([
+                            $schema[] = Grid::make(4)->schema([
                                 TextInput::make('max_stock')
                                     ->label('最大発注点')
+                                    ->integer()
+                                    ->minValue(0),
+                                TextInput::make('min_stock')
+                                    ->label('最低在庫数')
                                     ->integer()
                                     ->minValue(0),
                                 TextInput::make('auto_order_quantity')
@@ -682,6 +717,9 @@ class WmsOrderCandidatesTable
                         }
                         if (isset($data['max_stock']) && (int) $data['max_stock'] !== (int) ($itemContractor?->max_stock ?? 0)) {
                             $itemContractorData['max_stock'] = max(0, (int) $data['max_stock']);
+                        }
+                        if (isset($data['min_stock']) && (int) $data['min_stock'] !== (int) ($itemContractor?->min_stock ?? 0)) {
+                            $itemContractorData['min_stock'] = max(0, (int) $data['min_stock']);
                         }
                         if (isset($data['auto_order_quantity']) && (int) $data['auto_order_quantity'] !== (int) ($itemContractor?->auto_order_quantity ?? 0)) {
                             $itemContractorData['auto_order_quantity'] = max(0, (int) $data['auto_order_quantity']);

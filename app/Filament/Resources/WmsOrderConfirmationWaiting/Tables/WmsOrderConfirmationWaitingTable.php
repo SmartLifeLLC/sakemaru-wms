@@ -36,6 +36,8 @@ class WmsOrderConfirmationWaitingTable
     use HasModifierDisplay;
     use HasOptimizedFilters;
 
+    private static array $itemContractorOrderSettingCache = [];
+
     protected static function getFilterModelTable(): string
     {
         return (new WmsOrderCandidate)->getTable();
@@ -98,6 +100,47 @@ class WmsOrderConfirmationWaitingTable
                     ->numeric()
                     ->alignEnd()
                     ->width('60px'),
+
+                TextColumn::make('setting_safety_stock')
+                    ->label('発注点')
+                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['safety_stock'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable()
+                    ->width('60px'),
+
+                TextColumn::make('setting_max_stock')
+                    ->label('最大発注点')
+                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['max_stock'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('75px'),
+
+                TextColumn::make('setting_min_stock')
+                    ->label('最低在庫数')
+                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['min_stock'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('75px'),
+
+                TextColumn::make('setting_auto_order_quantity')
+                    ->label('自動発注数')
+                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['auto_order_quantity'])
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable()
+                    ->width('75px'),
+
+                TextColumn::make('setting_is_auto_order')
+                    ->label('自動発注')
+                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['is_auto_order'] ? 'ON' : 'OFF')
+                    ->badge()
+                    ->color(fn (string $state): string => $state === 'ON' ? 'success' : 'gray')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->alignCenter()
+                    ->width('70px'),
 
                 TextColumn::make('suggested_quantity')
                     ->label('算出数')
@@ -407,6 +450,7 @@ class WmsOrderConfirmationWaitingTable
                         }
 
                         $isEditable = $record->status->isEditable();
+                        $orderSettings = static::resolveItemContractorOrderSettings($record);
 
                         // 手動変更判定
                         $shiftedDays = (int) ($details['到着日調整'] ?? 0);
@@ -452,7 +496,11 @@ class WmsOrderConfirmationWaitingTable
                                     'incomingStock' => $details['入庫予定数'] ?? 0,
                                     'transferIncoming' => $details['移動入庫予定'] ?? 0,
                                     'transferOutgoing' => $details['移動出庫予定'] ?? 0,
-                                    'safetyStock' => $details['安全在庫'] ?? 0,
+                                    'safetyStock' => $details['発注点'] ?? $details['安全在庫'] ?? $orderSettings['safety_stock'],
+                                    'maxStock' => $details['最大発注点'] ?? $orderSettings['max_stock'],
+                                    'minStock' => $orderSettings['min_stock'],
+                                    'autoOrderQuantity' => $details['旧自動発注数'] ?? $orderSettings['auto_order_quantity'],
+                                    'isAutoOrder' => $orderSettings['is_auto_order'],
                                     'shortageQty' => $details['不足数'] ?? 0,
                                     'purchaseUnit' => $details['最小仕入単位'] ?? 1,
                                     'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,
@@ -634,6 +682,35 @@ class WmsOrderConfirmationWaitingTable
                 ]),
             ])
             ->defaultSort('batch_code', 'desc');
+    }
+
+    public static function resolveItemContractorOrderSettings(WmsOrderCandidate $record): array
+    {
+        $key = implode(':', [
+            $record->warehouse_id,
+            $record->item_id,
+            $record->contractor_id,
+        ]);
+
+        if (array_key_exists($key, static::$itemContractorOrderSettingCache)) {
+            return static::$itemContractorOrderSettingCache[$key];
+        }
+
+        $setting = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->where('warehouse_id', $record->warehouse_id)
+            ->where('item_id', $record->item_id)
+            ->where('contractor_id', $record->contractor_id)
+            ->select('safety_stock', 'max_stock', 'min_stock', 'auto_order_quantity', 'is_auto_order')
+            ->first();
+
+        return static::$itemContractorOrderSettingCache[$key] = [
+            'safety_stock' => (int) ($setting?->safety_stock ?? $record->safety_stock ?? 0),
+            'max_stock' => (int) ($setting?->max_stock ?? 0),
+            'min_stock' => (int) ($setting?->min_stock ?? 0),
+            'auto_order_quantity' => (int) ($setting?->auto_order_quantity ?? 0),
+            'is_auto_order' => (bool) ($setting?->is_auto_order ?? false),
+        ];
     }
 
     /**

@@ -115,7 +115,7 @@ class JxDataWrapper
 
         // 改行がない場合は128バイト固定長レコードとしてカウント
         // UTF-8データの場合はSJISバイト長で計算
-        $sjisData = mb_convert_encoding($data, 'SJIS', 'UTF-8');
+        $sjisData = mb_convert_encoding($data, 'SJIS-win', 'UTF-8');
         $length = strlen($sjisData);
         if ($length > 0 && $length % 128 === 0) {
             return (int) ($length / 128);

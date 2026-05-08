@@ -39,7 +39,19 @@
       "Bash(git push *)",
       "Bash(git checkout *)",
       "Bash(git merge *)",
-      "Bash(php artisan *)"
+      "Bash(php artisan *)",
+      "Bash(grep -E \"\\\\.\\(php|blade\\\\.php\\)$\")",
+      "Bash(grep -E \"\\\\.\\(php|ts|js\\)$\")",
+      "Bash(xargs -I {} basename {})",
+      "Bash(xargs ls -la)",
+      "Bash(./vendor/bin/pint *)",
+      "Bash(php -l app/Services/PickingList/PickingListService.php)",
+      "Bash(php -l app/Services/PickingList/PickingListPdfService.php)",
+      "Bash(php *)",
+      "Bash(git commit *)",
+      "Bash(git fetch *)",
+      "Bash(cat)",
+      "Read(//tmp/**)"
     ]
   }
 }
