@@ -103,16 +103,27 @@ class UpdateDailyStatsCommand extends Command
         $this->table(
             ['Metric', 'Value'],
             [
+                ['Total Slips', number_format($stat->total_slip_count)],
+                ['Shipped Slips', number_format($stat->shipped_slip_count)],
+                ['Unshipped Slips', number_format($stat->unshipped_slip_count)],
+                ['Unique Buyers', number_format($stat->unique_buyer_count)],
                 ['Picking Slips', number_format($stat->picking_slip_count)],
                 ['Picking Items', number_format($stat->picking_item_count)],
                 ['Unique Items', number_format($stat->unique_item_count)],
                 ['Delivery Courses', number_format($stat->delivery_course_count)],
+                ['Waves', number_format($stat->wave_count)],
+                ['Picking Tasks', number_format($stat->picking_task_count)],
+                ['Completed Tasks', number_format($stat->completed_task_count)],
                 ['Total Ship Qty', number_format($stat->total_ship_qty)],
+                ['Total Ordered Qty', number_format($stat->total_order_qty)],
+                ['Total Planned Qty', number_format($stat->total_planned_qty)],
                 ['Amount (Ex Tax)', '¥'.number_format($stat->total_amount_ex, 2)],
                 ['Amount (Inc Tax)', '¥'.number_format($stat->total_amount_in, 2)],
                 ['Container Deposit', '¥'.number_format($stat->total_container_deposit, 2)],
                 ['Stockout (Unique)', number_format($stat->stockout_unique_count)],
                 ['Stockout (Total)', number_format($stat->stockout_total_count)],
+                ['Allocation Shortage Qty', number_format($stat->allocation_shortage_qty)],
+                ['Confirmed Shortage Qty', number_format($stat->confirmed_shortage_qty)],
                 ['Opportunity Loss', '¥'.number_format($stat->total_opportunity_loss, 2)],
             ]
         );

@@ -64,7 +64,9 @@ class WmsOutboundChartsWidget extends ChartWidget
         }
 
         // 全倉庫の統計を日付ごとに集計
-        $warehouses = Warehouse::where('is_active', true)->pluck('id');
+        $warehouses = Warehouse::where('is_active', true)
+            ->where('is_virtual', false)
+            ->pluck('id');
 
         $slipCounts = [];
         $itemCounts = [];
@@ -120,6 +122,7 @@ class WmsOutboundChartsWidget extends ChartWidget
 
         // アクティブな倉庫を取得
         $warehouses = Warehouse::where('is_active', true)
+            ->where('is_virtual', false)
             ->orderBy('name')
             ->get();
 
@@ -131,7 +134,7 @@ class WmsOutboundChartsWidget extends ChartWidget
             'comparison_slip_count' => 'slip_count',
             'comparison_item_count' => 'item_count',
             'comparison_ship_qty' => 'ship_qty',
-            'comparison_amount_in' => 'amount_in',
+            'comparison_amount_in' => 'amount_ex',
             'comparison_shortage_count' => 'shortage_count',
             default => 'slip_count',
         };
@@ -146,7 +149,7 @@ class WmsOutboundChartsWidget extends ChartWidget
                     'slip_count' => $stat->picking_slip_count,
                     'item_count' => $stat->picking_item_count,
                     'ship_qty' => $stat->total_ship_qty,
-                    'amount_in' => $stat->total_amount_in,
+                    'amount_ex' => $stat->total_amount_ex,
                     'shortage_count' => $stat->stockout_total_count,
                     default => $stat->picking_slip_count,
                 };
@@ -160,7 +163,7 @@ class WmsOutboundChartsWidget extends ChartWidget
             'slip_count' => ['ピッキング伝票数', 'rgb(59, 130, 246)', 'rgba(59, 130, 246, 0.5)'],
             'item_count' => ['ピッキング商品数', 'rgb(34, 197, 94)', 'rgba(34, 197, 94, 0.5)'],
             'ship_qty' => ['合計出荷数量', 'rgb(168, 85, 247)', 'rgba(168, 85, 247, 0.5)'],
-            'amount_in' => ['税込合計金額（円）', 'rgb(251, 146, 60)', 'rgba(251, 146, 60, 0.5)'],
+            'amount_ex' => ['税抜合計金額（円）', 'rgb(251, 146, 60)', 'rgba(251, 146, 60, 0.5)'],
             'shortage_count' => ['欠品件数', 'rgb(239, 68, 68)', 'rgba(239, 68, 68, 0.5)'],
             default => ['ピッキング伝票数', 'rgb(59, 130, 246)', 'rgba(59, 130, 246, 0.5)'],
         };
@@ -196,7 +199,7 @@ class WmsOutboundChartsWidget extends ChartWidget
             'comparison_slip_count' => '📊 倉庫比較: ピッキング伝票数',
             'comparison_item_count' => '📊 倉庫比較: ピッキング商品数',
             'comparison_ship_qty' => '📊 倉庫比較: 合計出荷数量',
-            'comparison_amount_in' => '📊 倉庫比較: 税込合計金額',
+            'comparison_amount_in' => '📊 倉庫比較: 税抜合計金額',
             'comparison_shortage_count' => '📊 倉庫比較: 欠品件数',
         ];
     }

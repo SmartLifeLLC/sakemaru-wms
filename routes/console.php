@@ -111,6 +111,14 @@ Schedule::command('wms:incoming-receive-scheduled')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
 
+foreach (['06:00', '07:00', '08:00', '09:00'] as $time) {
+    Schedule::command('wms:update-daily-stats --date='.now()->toDateString().' --force')
+        ->dailyAt($time)
+        ->onOneServer()
+        ->withoutOverlapping()
+        ->appendOutputTo(storage_path('logs/wms-daily-stats.log'));
+}
+
 // // 配送コース時間切替 (15分ごと)
 // Schedule::command('wms:switch-delivery-course')
 //     ->everyFifteenMinutes()

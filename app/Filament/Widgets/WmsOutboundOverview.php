@@ -21,7 +21,9 @@ class WmsOutboundOverview extends BaseWidget
         $statsService = app(WmsStatsService::class);
 
         // 全倉庫の統計を集計
-        $warehouses = Warehouse::where('is_active', true)->get();
+        $warehouses = Warehouse::where('is_active', true)
+            ->where('is_virtual', false)
+            ->get();
         $totalStats = [
             'picking_slip_count' => 0,
             'picking_item_count' => 0,
@@ -79,8 +81,8 @@ class WmsOutboundOverview extends BaseWidget
                 ->icon('heroicon-o-truck')
                 ->color('warning'),
 
-            Stat::make('税込合計金額', '¥'.number_format($totalStats['total_amount_in']))
-                ->description('税抜: ¥'.number_format($totalStats['total_amount_ex']))
+            Stat::make('税抜合計金額', '¥'.number_format($totalStats['total_amount_ex']))
+                ->description('税込: ¥'.number_format($totalStats['total_amount_in']))
                 ->descriptionIcon('heroicon-o-currency-yen')
                 ->icon('heroicon-o-currency-yen')
                 ->color('success'),

@@ -1436,6 +1436,9 @@ class ListWaves extends ListRecords
             });
         }
 
+        $ownReservedExpr = 'SUM(rsle.quantity)';
+        $availableExpr = "LEAST({$ownReservedExpr}, GREATEST(0, MAX(rsl.current_quantity) - MAX(rsl.reserved_quantity) + {$ownReservedExpr}))";
+
         return $query
             ->select([
                 'rsl.location_id',
@@ -1444,9 +1447,10 @@ class ListWaves extends ListRecords
                 'l.code3',
                 'l.floor_id',
                 'f.name as floor_name',
-                DB::raw('SUM(rsle.quantity) as available_quantity'),
+                DB::raw("{$availableExpr} as available_quantity"),
             ])
             ->groupBy('rsl.id', 'rsl.location_id', 'l.code1', 'l.code2', 'l.code3', 'l.floor_id', 'f.name')
+            ->havingRaw("{$availableExpr} > 0")
             ->orderByRaw('rsl.expiration_date IS NULL')
             ->orderBy('rsl.expiration_date')
             ->orderBy('rsl.created_at')

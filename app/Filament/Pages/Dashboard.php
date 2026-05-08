@@ -2,11 +2,12 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Support\AdminPage;
 use App\Filament\Widgets\DashboardShortageAllocationsWidget;
 use App\Filament\Widgets\DateFilterWidget;
 use App\Filament\Widgets\OrderStatusWidget;
+use App\Filament\Widgets\WmsTodayShipmentStatsWidget;
 use BackedEnum;
-use App\Filament\Support\AdminPage;
 use Filament\Support\Icons\Heroicon;
 
 class Dashboard extends AdminPage
@@ -32,6 +33,7 @@ class Dashboard extends AdminPage
     {
         return [
             DateFilterWidget::class,
+            WmsTodayShipmentStatsWidget::class,
             DashboardShortageAllocationsWidget::class,
             OrderStatusWidget::class,
         ];
