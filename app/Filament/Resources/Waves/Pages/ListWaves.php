@@ -1255,6 +1255,9 @@ class ListWaves extends ListRecords
                     (int) $tradeItem->quantity,
                     $quantityType,
                     $source['type'] === 'EARNING' ? ($record->buyer_id ? (int) $record->buyer_id : null) : null,
+                    $source['type'],
+                    $source['type'] === 'EARNING' ? (int) $record->id : null,
+                    (int) $tradeItem->id,
                     $stockLots
                 );
 
@@ -1298,6 +1301,9 @@ class ListWaves extends ListRecords
         int $needQty,
         string $quantityType,
         ?int $buyerId,
+        string $sourceType,
+        ?int $sourceId,
+        int $sourceLineId,
         array &$stockLots
     ): array {
         $cacheKey = "{$warehouseId}:{$itemId}:{$quantityType}:".($buyerId ?? 'none');
@@ -1317,6 +1323,32 @@ class ListWaves extends ListRecords
 
         $rows = [];
         $remainingNeed = $needQty;
+
+        if ($sourceType === 'EARNING' && $sourceId !== null) {
+            foreach ($this->getProvisionalOwnReservedLots($warehouseId, $itemId, $quantityType, $sourceId, $sourceLineId, $buyerId) as $lot) {
+                if ($remainingNeed <= 0) {
+                    break;
+                }
+
+                $allocated = min($remainingNeed, (int) $lot->available_quantity);
+                if ($allocated <= 0) {
+                    continue;
+                }
+
+                $remainingNeed -= $allocated;
+
+                $rows[] = [
+                    'location_id' => $lot->location_id ? (int) $lot->location_id : null,
+                    'code1' => $lot->code1,
+                    'code2' => $lot->code2,
+                    'code3' => $lot->code3,
+                    'floor_id' => $lot->floor_id ? (int) $lot->floor_id : null,
+                    'floor_name' => $lot->floor_name ?? '',
+                    'planned_qty' => $allocated,
+                    'shortage_qty' => 0,
+                ];
+            }
+        }
 
         foreach ($stockLots[$cacheKey] as &$lot) {
             if ($remainingNeed <= 0) {
@@ -1357,6 +1389,69 @@ class ListWaves extends ListRecords
         }
 
         return $rows;
+    }
+
+    private function getProvisionalOwnReservedLots(
+        int $warehouseId,
+        int $itemId,
+        string $quantityType,
+        int $sourceId,
+        int $sourceLineId,
+        ?int $buyerId
+    ): \Illuminate\Support\Collection {
+        $flag = match (strtoupper($quantityType)) {
+            'CASE' => AvailableQuantityFlag::CASE,
+            'CARTON' => AvailableQuantityFlag::CARTON,
+            default => AvailableQuantityFlag::PIECE,
+        };
+
+        $query = DB::connection('sakemaru')
+            ->table('real_stock_lot_earnings as rsle')
+            ->join('real_stock_lots as rsl', function ($join) {
+                $join->on('rsl.id', '=', 'rsle.real_stock_lot_id')
+                    ->where('rsl.status', '=', 'ACTIVE');
+            })
+            ->join('real_stocks as rs', 'rs.id', '=', 'rsl.real_stock_id')
+            ->join('locations as l', 'l.id', '=', 'rsl.location_id')
+            ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
+            ->where('rs.warehouse_id', $warehouseId)
+            ->where('rs.item_id', $itemId)
+            ->where('rsle.earning_id', $sourceId)
+            ->where('rsle.trade_item_id', $sourceLineId)
+            ->where('rsle.status', 'RESERVED')
+            ->whereRaw("(l.available_quantity_flags & {$flag->value}) != 0");
+
+        if ($buyerId !== null) {
+            $query->where(function ($q) use ($buyerId) {
+                $q->whereNotExists(function ($subQuery) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('real_stock_lot_buyer_restrictions')
+                        ->whereColumn('real_stock_lot_buyer_restrictions.real_stock_lot_id', 'rsl.id');
+                })->orWhereExists(function ($subQuery) use ($buyerId) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('real_stock_lot_buyer_restrictions')
+                        ->whereColumn('real_stock_lot_buyer_restrictions.real_stock_lot_id', 'rsl.id')
+                        ->where('real_stock_lot_buyer_restrictions.buyer_id', $buyerId);
+                });
+            });
+        }
+
+        return $query
+            ->select([
+                'rsl.location_id',
+                'l.code1',
+                'l.code2',
+                'l.code3',
+                'l.floor_id',
+                'f.name as floor_name',
+                DB::raw('SUM(rsle.quantity) as available_quantity'),
+            ])
+            ->groupBy('rsl.id', 'rsl.location_id', 'l.code1', 'l.code2', 'l.code3', 'l.floor_id', 'f.name')
+            ->orderByRaw('rsl.expiration_date IS NULL')
+            ->orderBy('rsl.expiration_date')
+            ->orderBy('rsl.created_at')
+            ->orderBy('rsl.id')
+            ->get();
     }
 
     private function getProvisionalStockLots(int $warehouseId, int $itemId, string $quantityType, ?int $buyerId): \Illuminate\Support\Collection
