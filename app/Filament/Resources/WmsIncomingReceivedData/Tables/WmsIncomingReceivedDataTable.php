@@ -10,13 +10,14 @@ use App\Services\AutoOrder\IncomingReceiveService;
 use Filament\Actions\Action;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Storage;
 
 class WmsIncomingReceivedDataTable
 {
@@ -59,6 +60,32 @@ class WmsIncomingReceivedDataTable
                     ->color('gray')
                     ->width('60px'),
 
+                TextColumn::make('confirm_status')
+                    ->label('Confirm')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'PENDING' => '未送信',
+                        'SENT' => '送信済',
+                        'FAILED' => '失敗',
+                        'SKIPPED' => '対象外',
+                        default => '-',
+                    })
+                    ->color(fn (?string $state): string => match ($state) {
+                        'PENDING' => 'warning',
+                        'SENT' => 'success',
+                        'FAILED' => 'danger',
+                        'SKIPPED' => 'gray',
+                        default => 'gray',
+                    })
+                    ->width('80px'),
+
+                TextColumn::make('raw_file_path')
+                    ->label('原本')
+                    ->formatStateUsing(fn (?string $state): string => $state ? '保存済' : '-')
+                    ->badge()
+                    ->color(fn (?string $state): string => $state ? 'success' : 'gray')
+                    ->width('70px'),
+
                 TextColumn::make('filename')
                     ->label('ファイル名')
                     ->searchable()
@@ -98,6 +125,19 @@ class WmsIncomingReceivedDataTable
 
                 TextColumn::make('error_message')
                     ->label('エラー')
+                    ->limit(30)
+                    ->placeholder('-')
+                    ->color('danger')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('received_message_id')
+                    ->label('JXメッセージID')
+                    ->searchable()
+                    ->placeholder('-')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('confirm_error_message')
+                    ->label('Confirmエラー')
                     ->limit(30)
                     ->placeholder('-')
                     ->color('danger')
@@ -276,6 +316,104 @@ class WmsIncomingReceivedDataTable
                                 ->send();
                         }
                     }),
+
+                Action::make('matchOnly')
+                    ->label('照合のみ')
+                    ->icon('heroicon-o-magnifying-glass-circle')
+                    ->color('warning')
+                    ->visible(fn ($record) => in_array($record->status, ['PENDING', 'MATCHED']))
+                    ->requiresConfirmation()
+                    ->modalHeading('受信データを照合のみ実行')
+                    ->modalDescription('入荷予定との照合だけを実行します。入荷予定への適用は行いません。')
+                    ->action(function ($record) {
+                        $service = app(IncomingReceiveService::class);
+
+                        try {
+                            $result = $service->matchWithSchedules($record);
+
+                            Notification::make()
+                                ->title('照合が完了しました')
+                                ->body("一致: {$result['matched']}件 / 欠品: {$result['shortage']}件 / 未一致: {$result['unmatched']}件")
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('照合エラー')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+
+                Action::make('applyOnly')
+                    ->label('適用のみ')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('success')
+                    ->visible(fn ($record) => $record->status === 'MATCHED')
+                    ->requiresConfirmation()
+                    ->modalHeading('照合済みデータを適用')
+                    ->modalDescription('照合済みの伝票だけを入荷予定へ適用します。未照合の伝票は適用されません。')
+                    ->action(function ($record) {
+                        $service = app(IncomingReceiveService::class);
+
+                        try {
+                            $result = $service->applyMatched($record);
+
+                            Notification::make()
+                                ->title('適用が完了しました')
+                                ->body("適用: {$result['applied']}件 / エラー: ".count($result['errors']).'件')
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('適用エラー')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+
+                Action::make('reparseRaw')
+                    ->label('原本再パース')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('gray')
+                    ->visible(fn ($record) => filled($record->raw_file_path))
+                    ->requiresConfirmation()
+                    ->modalHeading('保存済み原本から再パース')
+                    ->modalDescription('元の受信データは削除せず、保存済みJX原本から新しい取込レコードを作成します。')
+                    ->action(function ($record) {
+                        $service = app(IncomingReceiveService::class);
+
+                        try {
+                            $newFile = $service->reparseFromRaw($record);
+
+                            Notification::make()
+                                ->title('再パースが完了しました')
+                                ->body("新しい取込ID: {$newFile->id} / 伝票: {$newFile->parsed_slip_count}件 / 明細: {$newFile->parsed_detail_count}件")
+                                ->success()
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->title('再パースエラー')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+
+                Action::make('downloadRaw')
+                    ->label('原本DL')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('gray')
+                    ->visible(fn ($record) => filled($record->raw_file_path))
+                    ->url(function ($record): string {
+                        $path = str_starts_with($record->raw_file_path, 's3:')
+                            ? substr($record->raw_file_path, 3)
+                            : $record->raw_file_path;
+
+                        return Storage::disk('s3')->temporaryUrl($path, now()->addHour());
+                    })
+                    ->openUrlInNewTab(),
 
                 Action::make('deleteWithSchedules')
                     ->label('削除')

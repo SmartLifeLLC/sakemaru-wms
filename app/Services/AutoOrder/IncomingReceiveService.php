@@ -15,6 +15,7 @@ use App\Services\AutoOrder\IncomingParsers\JxIncomingParser;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * 入荷受信データサービス
@@ -29,11 +30,69 @@ class IncomingReceiveService
     /**
      * JXデータをパースして保存
      */
-    public function parseJxData(string $content, string $filename, ?int $contractorId = null): WmsIncomingReceivedFile
-    {
+    public function parseJxData(
+        string $content,
+        string $filename,
+        ?int $contractorId = null,
+        array $metadata = []
+    ): WmsIncomingReceivedFile {
         $parser = new JxIncomingParser;
 
-        return $parser->parse($content, $filename, $contractorId);
+        return $parser->parseWithMetadata($content, $filename, $contractorId, $metadata);
+    }
+
+    /**
+     * JX受信原本をS3へ保存
+     */
+    public function saveRawJxData(string $content, string $filename): array
+    {
+        $date = now()->format('Y-m-d');
+        $timestamp = now()->format('YmdHisv');
+        $safeFilename = preg_replace('/[^A-Za-z0-9_.-]/', '_', $filename);
+        $path = "jx-client/received-data/{$date}/{$timestamp}_{$safeFilename}";
+
+        Storage::disk('s3')->put($path, $content);
+
+        return [
+            'raw_file_path' => "s3:{$path}",
+            'raw_file_size' => strlen($content),
+            'raw_sha256' => hash('sha256', $content),
+        ];
+    }
+
+    /**
+     * 保存済み原本から新しい取込レコードを作成する
+     */
+    public function reparseFromRaw(WmsIncomingReceivedFile $file): WmsIncomingReceivedFile
+    {
+        if (empty($file->raw_file_path)) {
+            throw new \RuntimeException('保存済みのJX受信原本がありません。');
+        }
+
+        $path = str_starts_with($file->raw_file_path, 's3:')
+            ? substr($file->raw_file_path, 3)
+            : $file->raw_file_path;
+
+        if (! Storage::disk('s3')->exists($path)) {
+            throw new \RuntimeException("JX受信原本がS3に存在しません: {$file->raw_file_path}");
+        }
+
+        $content = Storage::disk('s3')->get($path);
+        $filename = 'reparse_'.now()->format('YmdHis').'_'.($file->filename ?? basename($path));
+
+        return $this->parseJxData($content, $filename, $file->contractor_id, [
+            'raw_file_path' => $file->raw_file_path,
+            'raw_file_size' => $file->raw_file_size ?? strlen($content),
+            'raw_sha256' => $file->raw_sha256 ?? hash('sha256', $content),
+            'received_message_id' => $file->received_message_id,
+            'get_request_path' => $file->get_request_path,
+            'get_response_path' => $file->get_response_path,
+            'confirm_status' => $file->confirm_status,
+            'confirmed_at' => $file->confirmed_at,
+            'confirm_request_path' => $file->confirm_request_path,
+            'confirm_response_path' => $file->confirm_response_path,
+            'confirm_error_message' => $file->confirm_error_message,
+        ]);
     }
 
     /**

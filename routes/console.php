@@ -103,13 +103,13 @@ Artisan::command('inspire', function () {
 //     ->withoutOverlapping()
 //     ->appendOutputTo(storage_path('logs/auto-order-transmit.log'));
 
-// // 入荷データ自動受信スケジューラー (5分間隔)
-// // ※ 仕入先ごとのreceive_timeに基づいてJXデータ取得→パース→照合を実行
-// Schedule::command('wms:incoming-receive-scheduled')
-//     ->everyFiveMinutes()
-//     ->onOneServer()
-//     ->withoutOverlapping()
-//     ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
+// 入荷データ自動受信スケジューラー (5分間隔)
+// ※ 仕入先ごとのreceive_timeに基づいてJXデータ取得→原本保存→パース→照合を実行
+Schedule::command('wms:incoming-receive-scheduled')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
 
 // // 配送コース時間切替 (15分ごと)
 // Schedule::command('wms:switch-delivery-course')
@@ -130,20 +130,20 @@ Artisan::command('inspire', function () {
  * 定期在庫スナップショット (朝・夕)
  */
 
- Schedule::command('wms:snapshot-stocks --time=morning')
-     ->dailyAt('06:00')
-     ->withoutOverlapping()
-     ->onOneServer()
-     ->appendOutputTo(storage_path('logs/wms-stock-snapshot.log'));
+Schedule::command('wms:snapshot-stocks --time=morning')
+    ->dailyAt('06:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->appendOutputTo(storage_path('logs/wms-stock-snapshot.log'));
 
- Schedule::command('wms:snapshot-stocks --time=evening')
-     ->dailyAt('18:00')
-     ->withoutOverlapping()
-     ->onOneServer()
-     ->appendOutputTo(storage_path('logs/wms-stock-snapshot.log'));
+Schedule::command('wms:snapshot-stocks --time=evening')
+    ->dailyAt('18:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->appendOutputTo(storage_path('logs/wms-stock-snapshot.log'));
 
- Schedule::command('wms:snapshot-archive')
-     ->monthlyOn(1, '03:00')
-     ->withoutOverlapping()
-     ->onOneServer()
-     ->appendOutputTo(storage_path('logs/wms-stock-snapshot-archive.log'));
+Schedule::command('wms:snapshot-archive')
+    ->monthlyOn(1, '03:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->appendOutputTo(storage_path('logs/wms-stock-snapshot-archive.log'));

@@ -22,7 +22,16 @@ class JxIncomingParser implements IncomingFormatParserInterface
 
     public function parse(string $content, string $filename, ?int $contractorId = null): WmsIncomingReceivedFile
     {
-        return DB::connection('sakemaru')->transaction(function () use ($content, $filename, $contractorId) {
+        return $this->parseWithMetadata($content, $filename, $contractorId);
+    }
+
+    public function parseWithMetadata(
+        string $content,
+        string $filename,
+        ?int $contractorId = null,
+        array $metadata = []
+    ): WmsIncomingReceivedFile {
+        return DB::connection('sakemaru')->transaction(function () use ($content, $filename, $contractorId, $metadata) {
             // 改行を除去（FINET ヘッダー後の改行対応）
             $content = str_replace(["\r\n", "\r", "\n"], '', $content);
 
@@ -40,7 +49,7 @@ class JxIncomingParser implements IncomingFormatParserInterface
             $records = str_split($content, self::RECORD_LENGTH);
 
             // Aレコードを探してファイルレコード作成
-            $fileRecord = $this->createFileRecord($records, $filename, $contractorId, $hasFinet, $finetData);
+            $fileRecord = $this->createFileRecord($records, $filename, $contractorId, $hasFinet, $finetData, $metadata);
 
             // B/Dレコードをパースして保存
             $this->parseSlipsAndDetails($records, $fileRecord);
@@ -81,7 +90,8 @@ class JxIncomingParser implements IncomingFormatParserInterface
         string $filename,
         ?int $contractorId,
         bool $hasFinet,
-        array $finetData
+        array $finetData,
+        array $metadata = []
     ): WmsIncomingReceivedFile {
         // Aレコードを探す
         $aRecord = null;
@@ -122,7 +132,10 @@ class JxIncomingParser implements IncomingFormatParserInterface
             $fileData['finet_record_count'] = $finetData['record_count'] ?? null;
         }
 
-        return WmsIncomingReceivedFile::create($fileData);
+        return WmsIncomingReceivedFile::create(array_merge(
+            $fileData,
+            WmsIncomingReceivedFile::onlyExistingColumns($metadata)
+        ));
     }
 
     /**
