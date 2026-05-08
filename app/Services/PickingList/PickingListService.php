@@ -24,7 +24,10 @@ class PickingListService
     private function applyPrintablePickingItemScope($query)
     {
         return $query
-            ->where('pir.planned_qty', '>', 0)
+            ->where(function ($q) {
+                $q->where('pir.planned_qty', '>', 0)
+                    ->orWhere('pir.shortage_qty', '>', 0);
+            })
             ->where(function ($q) {
                 $q->whereNull('pir.is_ready_to_shipment')
                     ->orWhere('pir.is_ready_to_shipment', false);
@@ -1125,6 +1128,7 @@ class PickingListService
             $totalCase = 0;
             $totalPiece = 0;
             $totalAll = 0;
+            $totalShortage = 0;
             $no = 0;
 
             foreach ($grouped as $entry) {
@@ -1156,6 +1160,7 @@ class PickingListService
                 $totalCase += $caseQty;
                 $totalPiece += $pieceQty;
                 $totalAll += $totalPieces;
+                $totalShortage += (int) $entry['shortage_qty'];
             }
 
             $results[] = [
@@ -1166,6 +1171,7 @@ class PickingListService
                     'total_case' => $totalCase,
                     'total_piece' => $totalPiece,
                     'total_pieces_all' => $totalAll,
+                    'total_shortage' => $totalShortage,
                 ],
             ];
         }

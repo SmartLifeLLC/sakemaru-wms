@@ -1735,6 +1735,7 @@ class PickingListPdfService
         $totalCase = (int) ($summary['total_case'] ?? 0);
         $totalPiece = (int) ($summary['total_piece'] ?? 0);
         $totalAll = (int) ($summary['total_pieces_all'] ?? 0);
+        $totalShortage = (int) ($summary['total_shortage'] ?? 0);
 
         $y = $this->currentY;
         $x = $margin;
@@ -1772,7 +1773,9 @@ class PickingListPdfService
         $vx += $widths[7];
         $this->pdf->SetXY($vx, $y);
         $this->pdf->Cell($widths[8], $rowH, (string) $totalAll, 0, 0, 'C');
-        // 欠品セルは空白
+        $vx += $widths[8];
+        $this->pdf->SetXY($vx, $y);
+        $this->pdf->Cell($widths[9], $rowH, $totalShortage > 0 ? (string) $totalShortage : '', 0, 0, 'C');
 
         $this->currentY = $y + $rowH;
     }
