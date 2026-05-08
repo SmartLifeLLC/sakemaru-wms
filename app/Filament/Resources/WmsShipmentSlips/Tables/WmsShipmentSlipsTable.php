@@ -93,6 +93,12 @@ class WmsShipmentSlipsTable
                         default => $state ?? '-',
                     }),
 
+                TextColumn::make('wave.created_at')
+                    ->label('生成日時')
+                    ->dateTime('Y-m-d H:i')
+                    ->sortable()
+                    ->placeholder('-'),
+
                 TextColumn::make('wave.print_count')
                     ->label('印刷回数')
                     ->suffix('回')
