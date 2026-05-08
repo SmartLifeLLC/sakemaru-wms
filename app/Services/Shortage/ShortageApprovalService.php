@@ -10,6 +10,26 @@ use Illuminate\Support\Facades\Log;
 
 class ShortageApprovalService
 {
+    public function markPickingResultReadyForShipment(WmsShortage $shortage): void
+    {
+        $pickResult = WmsPickingItemResult::where('id', $shortage->source_pick_result_id)->first();
+
+        if (! $pickResult) {
+            Log::warning('Picking item result not found for shortage approval', [
+                'shortage_id' => $shortage->id,
+                'source_pick_result_id' => $shortage->source_pick_result_id,
+            ]);
+
+            return;
+        }
+
+        $pickResult->shortage_allocated_qty = (int) $shortage->allocations()->sum('assign_qty');
+        $pickResult->shortage_allocated_qty_type = $shortage->qty_type_at_order;
+        $pickResult->is_ready_to_shipment = true;
+        $pickResult->shipment_ready_at = $pickResult->shipment_ready_at ?? now();
+        $pickResult->save();
+    }
+
     /**
      * 欠品承認後にピッキングタスクのステータスを更新
      * 全ての欠品が承認済みの場合、タスクをCOMPLETEDに変更
