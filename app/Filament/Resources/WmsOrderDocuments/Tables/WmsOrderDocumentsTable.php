@@ -2,13 +2,19 @@
 
 namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
+use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Models\Sakemaru\Contractor;
 use App\Models\WmsContractorSetting;
+use App\Models\WmsOrderCandidate;
+use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
+use App\Services\AutoOrder\PurchaseOrderPdfService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -223,6 +229,60 @@ class WmsOrderDocumentsTable
                     }),
             ])
             ->toolbarActions([
+                Action::make('downloadSampleJx')
+                    ->label('サンプルJX')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('gray')
+                    ->modalHeading('サンプルJXファイルダウンロード')
+                    ->modalDescription('選択した仕入先の既存発注候補からサンプルDATを生成します。送信・DB保存・S3保存は行いません。')
+                    ->modalSubmitActionLabel('DATダウンロード')
+                    ->modalCancelActionLabel('生成せず閉じる')
+                    ->schema(static::sampleDownloadSchema())
+                    ->action(function (array $data) {
+                        try {
+                            $sample = static::buildSampleJxFile((int) $data['contractor_id']);
+
+                            return response()->streamDownload(
+                                fn () => print $sample['content'],
+                                $sample['filename'],
+                                ['Content-Type' => 'application/octet-stream']
+                            );
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title('サンプルJX生成に失敗しました')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+
+                Action::make('downloadSampleFax')
+                    ->label('サンプルFAX')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('gray')
+                    ->modalHeading('サンプルFAXダウンロード')
+                    ->modalDescription('選択した仕入先の既存発注候補からFAX発注書PDFを生成します。送信・DB保存・S3保存は行いません。')
+                    ->modalSubmitActionLabel('PDFダウンロード')
+                    ->modalCancelActionLabel('生成せず閉じる')
+                    ->schema(static::sampleDownloadSchema())
+                    ->action(function (array $data) {
+                        try {
+                            $sample = static::buildSampleFaxFile((int) $data['contractor_id']);
+
+                            return response()->streamDownload(
+                                fn () => print $sample['content'],
+                                $sample['filename'],
+                                ['Content-Type' => 'application/pdf']
+                            );
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title('サンプルFAX生成に失敗しました')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+
                 Action::make('transmitJx')
                     ->label('JX送信')
                     ->icon('heroicon-o-paper-airplane')
@@ -365,19 +425,150 @@ class WmsOrderDocumentsTable
     }
 
     /**
+     * サンプルダウンロード共通フォーム。
+     */
+    private static function sampleDownloadSchema(): array
+    {
+        return [
+            Select::make('contractor_id')
+                ->label('仕入先')
+                ->options(fn () => static::jxContractorOptions())
+                ->searchable()
+                ->required()
+                ->helperText('選択した仕入先、またはその集約元仕入先の既存発注候補からサンプルを作成します。'),
+        ];
+    }
+
+    /**
+     * サンプルJXファイルを生成する。DB/S3には保存しない。
+     *
+     * @return array{content: string, filename: string}
+     */
+    private static function buildSampleJxFile(int $contractorId): array
+    {
+        $candidates = static::sampleCandidatesForContractor($contractorId, 30);
+        if ($candidates->isEmpty()) {
+            throw new \RuntimeException('サンプル生成に使える発注候補がありません');
+        }
+
+        $generator = app(OrderTransmissionService::class)->getGenerator();
+        if (! $generator) {
+            throw new \RuntimeException('JXファイル生成設定がありません');
+        }
+
+        $files = collect($generator->generate($candidates));
+        $file = $files->firstWhere('contractor_id', $contractorId) ?? $files->first();
+        if (! $file) {
+            throw new \RuntimeException('発注コード未設定などによりサンプルJXを生成できませんでした');
+        }
+
+        return [
+            'content' => $file['content'],
+            'filename' => 'sample_'.$file['filename'],
+        ];
+    }
+
+    /**
+     * サンプルFAX PDFを生成する。DB/S3には保存しない。
+     *
+     * @return array{content: string, filename: string}
+     */
+    private static function buildSampleFaxFile(int $contractorId): array
+    {
+        $candidates = static::sampleCandidatesForContractor($contractorId, 50);
+        if ($candidates->isEmpty()) {
+            throw new \RuntimeException('サンプル生成に使える発注候補がありません');
+        }
+
+        $faxCandidates = $candidates
+            ->groupBy(fn (WmsOrderCandidate $candidate): string => "{$candidate->warehouse_id}:{$candidate->contractor_id}")
+            ->sortByDesc(fn ($group): int => $group->count())
+            ->first()
+            ?->values();
+
+        if (! $faxCandidates || $faxCandidates->isEmpty()) {
+            throw new \RuntimeException('サンプルFAXを生成できる発注候補がありません');
+        }
+
+        /** @var WmsOrderCandidate $first */
+        $first = $faxCandidates->first();
+        $dataFile = new WmsOrderDataFile([
+            'batch_code' => 'SAMPLE'.now()->format('YmdHis'),
+            'warehouse_id' => $first->warehouse_id,
+            'contractor_id' => $first->contractor_id,
+            'order_date' => now(),
+            'expected_arrival_date' => $first->expected_arrival_date ?? now()->addDay(),
+            'order_count' => $faxCandidates->count(),
+            'total_quantity' => $faxCandidates->sum('order_quantity'),
+            'status' => OrderDataFileStatus::GENERATED,
+            'is_test' => true,
+        ]);
+        $dataFile->setRelation('warehouse', $first->warehouse);
+        $dataFile->setRelation('contractor', $first->contractor);
+
+        $content = app(PurchaseOrderPdfService::class)->generate(
+            $faxCandidates,
+            $dataFile,
+            'サンプルFAXです。実発注には使用しないでください。'
+        );
+
+        $contractorCode = $first->contractor?->code ?? $first->contractor_id;
+
+        return [
+            'content' => $content,
+            'filename' => "sample_fax_{$contractorCode}_".now()->format('YmdHis').'.pdf',
+        ];
+    }
+
+    private static function sampleCandidatesForContractor(int $contractorId, int $limit)
+    {
+        return WmsOrderCandidate::query()
+            ->whereIn('contractor_id', static::sampleSourceContractorIds($contractorId))
+            ->whereIn('status', [
+                CandidateStatus::CONFIRMED->value,
+                CandidateStatus::APPROVED->value,
+                CandidateStatus::PENDING->value,
+            ])
+            ->whereNotNull('ordering_code')
+            ->with(['warehouse', 'item', 'contractor'])
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get();
+    }
+
+    private static function sampleSourceContractorIds(int $contractorId): array
+    {
+        $contractorIds = [$contractorId];
+
+        $generator = app(OrderTransmissionService::class)->getGenerator();
+        foreach ($generator?->getTransmissionContractorMapping() ?? [] as $sourceId => $targetId) {
+            if ((int) $targetId === $contractorId) {
+                $contractorIds[] = (int) $sourceId;
+            }
+        }
+
+        $settingSourceIds = WmsContractorSetting::query()
+            ->where('transmission_contractor_id', $contractorId)
+            ->pluck('contractor_id')
+            ->map(fn ($id) => (int) $id)
+            ->toArray();
+
+        return array_values(array_unique(array_merge($contractorIds, $settingSourceIds)));
+    }
+
+    /**
      * JX送信先の仕入先選択肢。
      */
     private static function jxContractorOptions(): array
     {
         $contractorIds = static::jxTransmissionContractorIds();
 
-        return WmsContractorSetting::query()
-            ->whereIn('contractor_id', $contractorIds)
-            ->with('contractor')
+        return Contractor::query()
+            ->whereIn('id', $contractorIds)
+            ->orderBy('code')
             ->get()
-            ->filter(fn (WmsContractorSetting $setting) => $setting->contractor !== null)
-            ->mapWithKeys(fn (WmsContractorSetting $setting) => [
-                $setting->contractor_id => "[{$setting->contractor->code}]{$setting->contractor->name}",
+            ->mapWithKeys(fn (Contractor $contractor) => [
+                $contractor->id => "[{$contractor->code}]{$contractor->name}",
             ])
             ->all();
     }

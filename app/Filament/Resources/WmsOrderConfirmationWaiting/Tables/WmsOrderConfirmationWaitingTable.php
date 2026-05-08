@@ -669,6 +669,7 @@ class WmsOrderConfirmationWaitingTable
                     return;
                 }
 
+                $expectedOrderingCode = static::resolveOrderingUnitCode($record);
                 $expectedOrderQuantity = static::resolveSixPackOrderQuantity($record);
                 $currentUnitPrice = $record->purchase_unit_price !== null
                     ? round((float) $record->purchase_unit_price, 2)
@@ -688,6 +689,7 @@ class WmsOrderConfirmationWaitingTable
                 $record->update([
                     'quantity_type' => QuantityType::CASE->value,
                     'order_quantity' => $expectedOrderQuantity,
+                    'ordering_code' => $expectedOrderingCode ?? $record->ordering_code,
                     'purchase_unit_price' => $expectedUnitPrice,
                     'is_manually_modified' => true,
                     'modified_by' => auth()->id(),
@@ -707,6 +709,7 @@ class WmsOrderConfirmationWaitingTable
             return false;
         }
 
+        $expectedOrderingCode = static::resolveOrderingUnitCode($record);
         $expectedUnitPrice = static::resolveOrderingUnitPurchaseUnitPrice($record, $orderingUnitQty);
         if ($expectedUnitPrice === null) {
             return false;
@@ -729,6 +732,7 @@ class WmsOrderConfirmationWaitingTable
         $record->update([
             'quantity_type' => QuantityType::CASE->value,
             'order_quantity' => $expectedOrderQuantity,
+            'ordering_code' => $expectedOrderingCode ?? $record->ordering_code,
             'purchase_unit_price' => $expectedUnitPrice,
             'is_manually_modified' => true,
             'modified_by' => auth()->id(),
@@ -745,23 +749,54 @@ class WmsOrderConfirmationWaitingTable
 
     public static function resolveOrderingUnitQuantity(WmsOrderCandidate $record): ?int
     {
+        $info = static::resolveOrderingUnitInfo($record);
+
+        return $info ? (int) $info->quantity : null;
+    }
+
+    private static function resolveOrderingUnitCode(WmsOrderCandidate $record): ?string
+    {
+        $info = static::resolveOrderingUnitInfo($record);
+
+        return $info ? static::normalizeOrderingCode($info->search_string) : null;
+    }
+
+    private static function resolveOrderingUnitInfo(WmsOrderCandidate $record): ?object
+    {
         $orderingCode = static::normalizeOrderingCode($record->ordering_code);
-        if (! $orderingCode) {
-            return null;
+        $capacityCase = (int) ($record->item?->capacity_case ?? 0);
+        if ($capacityCase <= 0) {
+            $capacityCase = (int) (DB::connection('sakemaru')
+                ->table('items')
+                ->where('id', $record->item_id)
+                ->value('capacity_case') ?? 0);
         }
 
-        $qty = DB::connection('sakemaru')
+        $baseQuery = DB::connection('sakemaru')
             ->table('item_search_information as isi')
             ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
             ->where('isi.item_id', $record->item_id)
             ->where('isi.is_active', true)
-            ->where('iqi.can_order', true)
-            ->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode])
-            ->value('iqi.quantity');
+            ->where('iqi.quantity', '>', 1)
+            ->when($capacityCase > 1, fn ($query) => $query->where('iqi.quantity', '!=', $capacityCase));
 
-        $qty = $qty !== null ? (int) $qty : null;
+        if ($orderingCode) {
+            $exact = (clone $baseQuery)
+                ->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode])
+                ->select('isi.search_string', 'iqi.quantity')
+                ->first();
 
-        return $qty !== null && $qty > 1 ? $qty : null;
+            if ($exact) {
+                return $exact;
+            }
+        }
+
+        return $baseQuery
+            ->whereRaw("isi.search_string REGEXP '[1-9]'")
+            ->orderByDesc('isi.is_used_for_ordering')
+            ->orderBy('iqi.quantity')
+            ->select('isi.search_string', 'iqi.quantity')
+            ->first();
     }
 
     private static function resolveSixPackOrderQuantity(WmsOrderCandidate $record): int

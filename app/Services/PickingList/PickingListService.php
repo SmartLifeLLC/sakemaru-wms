@@ -373,47 +373,69 @@ class PickingListService
             return ['header' => [], 'items' => [], 'summary' => []];
         }
 
-        $items = $this->db()->table('wms_picking_item_results as pir')
+        $today = now()->toDateString();
+
+        $rows = $this->db()->table('wms_picking_item_results as pir')
             ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
             ->join('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->leftJoin('trades as t', 'pir.trade_id', '=', 't.id')
+            ->leftJoin('partners as tp', 't.partner_id', '=', 'tp.id')
+            ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('buyers as b', 'e.buyer_id', '=', 'b.id')
+            ->leftJoin(
+                DB::raw("(SELECT bd1.buyer_id, bd1.salesman_id
+                    FROM buyer_details bd1
+                    INNER JOIN (SELECT buyer_id, MAX(start_date) as max_date FROM buyer_details WHERE start_date <= '{$today}' GROUP BY buyer_id) bd2
+                    ON bd1.buyer_id = bd2.buyer_id AND bd1.start_date = bd2.max_date
+                ) as bd"),
+                'bd.buyer_id', '=', 'b.id'
+            )
+            ->leftJoin('users as salesman', 'salesman.id', '=', 'bd.salesman_id')
             ->where('pt.wave_id', $waveId)
+            ->where('pir.shortage_qty', '>', 0)
             ->select([
+                't.serial_id',
+                'tp.name as partner_name',
+                'salesman.name as salesman_name',
                 'i.code as item_code',
                 'i.name as item_name',
-                'i.capacity_case',
                 'i.packaging',
                 'pir.location_id',
                 'l.code1',
                 'l.code2',
                 'l.code3',
-                DB::raw('SUM(pir.planned_qty) as planned_qty'),
-                DB::raw('SUM(pir.shortage_qty) as shortage_qty'),
+                'pir.planned_qty',
+                'pir.shortage_qty',
                 'pir.planned_qty_type',
             ])
-            ->groupBy('i.id', 'i.code', 'i.name', 'i.capacity_case', 'i.packaging', 'pir.planned_qty_type', 'pir.location_id', 'l.code1', 'l.code2', 'l.code3')
-            ->havingRaw('SUM(pir.shortage_qty) > 0')
+            ->orderBy('t.serial_id')
+            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
             ->orderBy('i.code')
             ->get();
 
         $formattedItems = [];
         $totalShortage = 0;
 
-        foreach ($items as $item) {
-            $plannedQty = (int) $item->planned_qty;
-            $shortageQty = (int) $item->shortage_qty;
+        foreach ($rows as $row) {
+            $plannedQty = (int) $row->planned_qty;
+            $shortageQty = (int) $row->shortage_qty;
             $allocatedQty = $plannedQty - $shortageQty;
-            $qtyType = QuantityType::tryFrom($item->planned_qty_type) ?? QuantityType::PIECE;
+            $qtyType = QuantityType::tryFrom($row->planned_qty_type) ?? QuantityType::PIECE;
             $qtyLabel = $qtyType === QuantityType::CASE ? 'ケース' : 'バラ';
 
-            $locationCode = $item->location_id
-                ? Location::formatCode($item->code1, $item->code2, $item->code3, '-')
+            $locationCode = $row->location_id
+                ? Location::formatCode($row->code1, $row->code2, $row->code3, '-')
                 : '';
 
             $formattedItems[] = [
-                'item_code' => $item->item_code,
-                'item_name' => $item->item_name,
-                'packaging' => $item->packaging ?? '',
+                'serial_id' => $row->serial_id ?? '',
+                'partner_name' => $row->partner_name ?? '',
+                'salesman_name' => $row->salesman_name ?? '',
+                'item_code' => $row->item_code,
+                'item_name' => $row->item_name,
+                'packaging' => $row->packaging ?? '',
                 'location_code' => $locationCode,
                 'qty_label' => $qtyLabel,
                 'planned_qty' => $plannedQty,
@@ -1167,6 +1189,7 @@ class PickingListService
         $normalized = preg_replace('/\s+/u', ' ', $normalized);
         // 先頭/末尾のスペース除去
         $normalized = trim((string) $normalized);
+
         // 半角スペース → ノーブレークスペース（折返し抑制）
         return str_replace(' ', "\u{00A0}", $normalized);
     }
