@@ -66,7 +66,7 @@ class ListWaves extends ListRecords
 
         return [
             'default' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query->where('status', '!=', 'COMPLETED'))
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->whereNotIn('status', ['COMPLETED', 'CLOSED']))
                 ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label('未出荷')
@@ -211,7 +211,7 @@ class ListWaves extends ListRecords
                                 ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
                                 ->where('dc.warehouse_id', $warehouseId)
                                 ->where('wms_waves.shipping_date', $shippingDate)
-                                ->where('wms_waves.status', '!=', 'COMPLETED')
+                                ->whereNotIn('wms_waves.status', ['COMPLETED', 'CLOSED'])
                                 ->select(['wms_waves.*', 'dc.name as course_name'])
                                 ->orderBy('dc.name')
                                 ->get();
@@ -268,7 +268,7 @@ class ListWaves extends ListRecords
                         ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
                         ->where('dc.warehouse_id', $warehouseId)
                         ->where('wms_waves.shipping_date', $shippingDate)
-                        ->where('wms_waves.status', '!=', 'COMPLETED')
+                        ->whereNotIn('wms_waves.status', ['COMPLETED', 'CLOSED'])
                         ->select('wms_waves.*')
                         ->orderBy('wms_waves.wave_no')
                         ->get();
@@ -772,7 +772,7 @@ class ListWaves extends ListRecords
      *
      * @return array{wave_ids: array<int>, earning_count: int, stock_transfer_count: int}
      */
-    protected function createWavesFromCourses(array $data, bool $forceNewWaves = false): array
+    protected function createWavesFromCourses(array $data): array
     {
         $warehouseId = $data['warehouse_id'];
         $shippingDate = $data['shipping_date'];
@@ -841,7 +841,6 @@ class ListWaves extends ListRecords
             $earningsByDeliveryCourse,
             $stockTransfersByDeliveryCourse,
             $shippingDate,
-            $forceNewWaves,
             &$createdWaveIds,
             &$totalEarnings,
             &$totalStockTransfers
@@ -873,34 +872,7 @@ class ListWaves extends ListRecords
                     ->where('id', $deliveryCourseId)
                     ->first();
 
-                $existingWave = Wave::where('wms_wave_setting_id', $waveSetting->id)
-                    ->where('shipping_date', $shippingDate)
-                    ->first();
-
-                if ($existingWave) {
-                    $wave = $existingWave;
-
-                    if ($forceNewWaves) {
-                        $existingTaskIds = DB::connection('sakemaru')
-                            ->table('wms_picking_tasks')
-                            ->where('wave_id', $wave->id)
-                            ->pluck('id')
-                            ->toArray();
-                        if (! empty($existingTaskIds)) {
-                            DB::connection('sakemaru')->table('wms_picking_item_results')
-                                ->whereIn('picking_task_id', $existingTaskIds)
-                                ->delete();
-                            DB::connection('sakemaru')->table('wms_picking_tasks')
-                                ->whereIn('id', $existingTaskIds)
-                                ->delete();
-                        }
-                        DB::connection('sakemaru')->table('wms_reservations')
-                            ->where('wave_id', $wave->id)
-                            ->delete();
-                    }
-                } else {
-                    $wave = $this->createWaveSafely($waveSetting, $warehouse, $course, $shippingDate);
-                }
+                $wave = $this->createWaveSafely($waveSetting, $warehouse, $course, $shippingDate);
 
                 if ($courseEarnings->isNotEmpty()) {
                     $this->processEarningsForWave($wave, $waveSetting, $courseEarnings, $warehouse, $course, $shippingDate);
@@ -925,24 +897,12 @@ class ListWaves extends ListRecords
 
     protected function createWaveSafely(WaveSetting $waveSetting, $warehouse, $course, string $shippingDate): Wave
     {
-        try {
-            $wave = Wave::create([
-                'wms_wave_setting_id' => $waveSetting->id,
-                'wave_no' => uniqid('TEMP_'),
-                'shipping_date' => $shippingDate,
-                'status' => 'PENDING',
-            ]);
-        } catch (\Illuminate\Database\QueryException $e) {
-            $wave = Wave::where('wms_wave_setting_id', $waveSetting->id)
-                ->where('shipping_date', $shippingDate)
-                ->first();
-
-            if (! $wave) {
-                throw $e;
-            }
-
-            return $wave;
-        }
+        $wave = Wave::create([
+            'wms_wave_setting_id' => $waveSetting->id,
+            'wave_no' => uniqid('TEMP_'),
+            'shipping_date' => $shippingDate,
+            'status' => 'PENDING',
+        ]);
 
         $waveNo = Wave::generateWaveNo(
             $warehouse->code ?? 0,
@@ -1549,7 +1509,14 @@ class ListWaves extends ListRecords
         $items = [];
         $totalShortage = 0;
 
-        foreach ($rows->filter(fn (array $row) => (int) $row['shortage_qty'] > 0) as $row) {
+        $shortageRows = $rows
+            ->filter(fn (array $row) => (int) $row['shortage_qty'] > 0)
+            ->sort(function (array $a, array $b): int {
+                return $this->compareProvisionalShortageRows($a, $b);
+            })
+            ->values();
+
+        foreach ($shortageRows as $row) {
             $qtyType = QuantityType::tryFrom($row['planned_qty_type']) ?? QuantityType::PIECE;
             $items[] = [
                 'item_code' => $row['item_code'],
@@ -1580,6 +1547,38 @@ class ListWaves extends ListRecords
         ];
     }
 
+    private function compareProvisionalShortageRows(array $a, array $b): int
+    {
+        foreach ([
+            'slip_number',
+            'buyer_code',
+            'code1',
+            'code2',
+            'code3',
+            'item_code',
+        ] as $key) {
+            $comparison = strcmp(
+                $this->provisionalShortageSortValue($a[$key] ?? null),
+                $this->provisionalShortageSortValue($b[$key] ?? null)
+            );
+
+            if ($comparison !== 0) {
+                return $comparison;
+            }
+        }
+
+        return 0;
+    }
+
+    private function provisionalShortageSortValue(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return 'ZZZ';
+        }
+
+        return (string) $value;
+    }
+
     private function buildProvisionalCourseGroupedLists(\Illuminate\Support\Collection $rows): array
     {
         $results = [];
@@ -1589,7 +1588,11 @@ class ListWaves extends ListRecords
         foreach ($groups as $groupRows) {
             $first = $groupRows->first();
             $items = [];
-            foreach ($groupRows->groupBy(fn (array $row) => ($row['location_id'] ?? 0).'|'.$row['item_code']) as $itemRows) {
+            $sortedGroupRows = $groupRows
+                ->sort(fn (array $a, array $b): int => $this->compareProvisionalCourseGroupedRows($a, $b))
+                ->values();
+
+            foreach ($sortedGroupRows->groupBy(fn (array $row) => ($row['location_id'] ?? 0).'|'.$row['item_code']) as $itemRows) {
                 $row = $itemRows->first();
                 $totalPieces = $this->sumProvisionalPieces($itemRows);
                 $capacityCase = max(1, (int) $row['capacity_case']);
@@ -1624,6 +1627,28 @@ class ListWaves extends ListRecords
         }
 
         return $results;
+    }
+
+    private function compareProvisionalCourseGroupedRows(array $a, array $b): int
+    {
+        foreach ([
+            'code1',
+            'code2',
+            'code3',
+            'item_code',
+            'slip_number',
+        ] as $key) {
+            $comparison = strcmp(
+                $this->provisionalShortageSortValue($a[$key] ?? null),
+                $this->provisionalShortageSortValue($b[$key] ?? null)
+            );
+
+            if ($comparison !== 0) {
+                return $comparison;
+            }
+        }
+
+        return 0;
     }
 
     private function buildProvisionalBuyerGroupedLists(\Illuminate\Support\Collection $rows, string $shippingDate): array
@@ -1744,12 +1769,6 @@ class ListWaves extends ListRecords
     ): void {
         $earningIds = $earnings->pluck('id')->toArray();
         $tradeIds = $earnings->pluck('trade_id')->toArray();
-
-        DB::connection('sakemaru')
-            ->table('wms_picking_item_results')
-            ->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
-            ->whereIn('earning_id', $earningIds)
-            ->delete();
 
         DB::connection('sakemaru')
             ->table('wms_picking_tasks')
@@ -1975,12 +1994,6 @@ class ListWaves extends ListRecords
     ): void {
         $stockTransferIds = $stockTransfers->pluck('id')->toArray();
         $tradeIds = $stockTransfers->pluck('trade_id')->toArray();
-
-        DB::connection('sakemaru')
-            ->table('wms_picking_item_results')
-            ->where('source_type', WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER)
-            ->whereIn('stock_transfer_id', $stockTransferIds)
-            ->delete();
 
         DB::connection('sakemaru')
             ->table('wms_picking_tasks')
