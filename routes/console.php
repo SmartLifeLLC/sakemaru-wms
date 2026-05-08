@@ -88,9 +88,9 @@ Artisan::command('inspire', function () {
 //     ->onOneServer()
 //     ->appendOutputTo(storage_path('logs/auto-order-calendars.log'));
 
-// 仕入先別自動発注スケジューラー (5分間隔)
+// 仕入先別自動発注スケジューラー (1分間隔)
 Schedule::command('wms:auto-order-scheduled')
-    ->everyFiveMinutes()
+    ->everyMinute()
     ->onOneServer()
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/auto-order-scheduled.log'));
