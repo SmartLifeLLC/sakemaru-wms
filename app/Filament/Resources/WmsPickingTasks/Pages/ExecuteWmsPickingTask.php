@@ -175,27 +175,43 @@ class ExecuteWmsPickingTask extends Page implements HasForms
     public function forceShipTask(): void
     {
         DB::connection('sakemaru')->transaction(function () {
-            // すべての商品のピッキング数を予定数に自動設定
             $items = $this->record->pickingItemResults;
             $updatedCount = 0;
+            $shortagesCreated = 0;
+
+            $shortageDetector = app(PickingShortageDetector::class);
 
             foreach ($items as $item) {
+                $hasAllocationShortage = $item->ordered_qty > $item->planned_qty;
+
                 $item->update([
                     'picked_qty' => $item->planned_qty,
                     'shortage_qty' => 0,
-                    'status' => 'COMPLETED',
+                    'status' => $hasAllocationShortage ? 'SHORTAGE' : 'COMPLETED',
                     'picked_at' => now(),
                 ]);
                 $updatedCount++;
+
+                if ($hasAllocationShortage) {
+                    $item->refresh();
+                    $shortage = $shortageDetector->detectAndRecord(
+                        pickResult: $item,
+                        parentShortageId: null
+                    );
+                    if ($shortage) {
+                        $shortagesCreated++;
+                    }
+                }
             }
 
-            // タスクを完了
+            $hasShortage = $shortagesCreated > 0;
+            $taskStatus = $hasShortage ? 'SHORTAGE' : 'COMPLETED';
+
             $this->record->update([
-                'status' => 'COMPLETED',
+                'status' => $taskStatus,
                 'completed_at' => now(),
             ]);
 
-            // このタスクに関連する全ての伝票のピッキングステータスを更新
             $earningIds = $this->record->pickingItemResults()
                 ->distinct('earning_id')
                 ->whereNotNull('earning_id')
@@ -212,9 +228,14 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     ]);
             }
 
+            $message = "{$updatedCount}件の商品を自動完了し、出荷可能状態にしました";
+            if ($shortagesCreated > 0) {
+                $message .= "（引当欠品{$shortagesCreated}件を記録しました）";
+            }
+
             Notification::make()
                 ->title('強制出荷しました')
-                ->body("{$updatedCount}件の商品を自動完了し、出荷可能状態にしました")
+                ->body($message)
                 ->success()
                 ->send();
 
@@ -266,8 +287,12 @@ class ExecuteWmsPickingTask extends Page implements HasForms
             }
 
             // 欠品がある商品の欠品データを生成
+            // ピッキング欠品(planned > picked)と引当欠品(ordered > planned)の両方を検出
             $shortageItems = $this->record->pickingItemResults()
-                ->where('status', 'SHORTAGE')
+                ->where(function ($q) {
+                    $q->where('status', 'SHORTAGE')
+                        ->orWhereColumn('ordered_qty', '>', 'planned_qty');
+                })
                 ->get();
 
             $shortageDetector = app(PickingShortageDetector::class);
