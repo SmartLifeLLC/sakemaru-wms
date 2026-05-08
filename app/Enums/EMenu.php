@@ -72,6 +72,7 @@ enum EMenu: string
 
     // 統計データ
     case EARNINGS = 'statistics.earnings';
+    case WMS_DAILY_STATS_REPORT = 'statistics.wms_daily_stats_report';
     case STATS_DAILY_SALES = 'statistics.daily_sales';
     case STATS_SALES_SUMMARIES = 'statistics.sales_summaries';
 
@@ -159,6 +160,7 @@ enum EMenu: string
             self::WMS_PICKING_ASSIGNMENT_STRATEGIES => EMenuCategory::MASTER_PICKING,
 
             self::EARNINGS,
+            self::WMS_DAILY_STATS_REPORT,
             self::STATS_DAILY_SALES,
             self::STATS_SALES_SUMMARIES => EMenuCategory::STATISTICS,
 
@@ -240,6 +242,7 @@ enum EMenu: string
             self::FLOOR_PLAN_EDITOR => '倉庫レイアウト',
 
             self::EARNINGS => '売上データ',
+            self::WMS_DAILY_STATS_REPORT => 'WMS日次出荷統計',
             self::STATS_DAILY_SALES => '日別商品出荷データ',
             self::STATS_SALES_SUMMARIES => '商品別出荷サマリ',
 
@@ -321,6 +324,7 @@ enum EMenu: string
             self::FLOOR_PLAN_EDITOR => 'heroicon-o-map',
 
             self::EARNINGS => 'heroicon-o-currency-yen',
+            self::WMS_DAILY_STATS_REPORT => 'heroicon-o-chart-bar-square',
             self::STATS_DAILY_SALES => 'heroicon-o-calendar-days',
             self::STATS_SALES_SUMMARIES => 'heroicon-o-chart-bar-square',
 
@@ -414,8 +418,9 @@ enum EMenu: string
 
             // 統計データ
             self::EARNINGS => 1,
-            self::STATS_DAILY_SALES => 2,
-            self::STATS_SALES_SUMMARIES => 3,
+            self::WMS_DAILY_STATS_REPORT => 2,
+            self::STATS_DAILY_SALES => 3,
+            self::STATS_SALES_SUMMARIES => 4,
 
             // ログ
             self::WMS_AUTO_ORDER_EXECUTION_LOG => 1,
