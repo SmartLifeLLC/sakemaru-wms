@@ -178,7 +178,10 @@
                     </thead>
                     <tbody x-ref="tbody" class="divide-y divide-gray-200 dark:divide-gray-700">
                         @foreach($items as $item)
-                        <tr class="hover:!bg-gray-100 dark:hover:!bg-gray-700"
+                        <tr x-data="{
+                            pickedQty: {{ (int) $item['picked_qty'] }},
+                            get pickShortage() { return Math.max(0, {{ (int) $item['planned_qty'] }} - (parseInt(this.pickedQty) || 0)); }
+                        }" class="hover:!bg-gray-100 dark:hover:!bg-gray-700"
                             data-clientcode="{{ $item['client_code'] }}"
                             data-clientname="{{ $item['client_name'] }}"
                             data-itemcode="{{ $item['item_code'] }}"
@@ -222,18 +225,17 @@
                                 <input
                                     type="number"
                                     wire:model="items.{{ $loop->index }}.picked_qty"
+                                    x-on:input="let v = parseInt($event.target.value.replace(/[^0-9]/g, '')) || 0; v = Math.min(v, {{ (int) $item['planned_qty'] }}); $event.target.value = v; pickedQty = v"
                                     min="0"
-                                    max="{{ max($item['ordered_qty'], $item['planned_qty']) }}"
+                                    max="{{ (int) $item['planned_qty'] }}"
                                     step="1"
                                     inputmode="numeric"
                                     pattern="[0-9]*"
-                                    oninput="this.value = this.value.replace(/[^0-9]/g, '')"
                                     class="w-16 text-center text-xs border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 border focus:border-primary-500 focus:ring-primary-500"
                                 >
                             </td>
                             @php
                                 $allocationShortage = max(0, $item['ordered_qty'] - $item['planned_qty']);
-                                $pickingShortage = max(0, $item['planned_qty'] - $item['picked_qty']);
                             @endphp
                             <td class="px-3 py-2 whitespace-nowrap text-xs text-center">
                                 <span class="@if($allocationShortage > 0) font-semibold text-orange-600 dark:text-orange-400 @else text-gray-400 dark:text-gray-500 @endif">
@@ -241,9 +243,8 @@
                                 </span>
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap text-xs text-center">
-                                <span class="@if($pickingShortage > 0 && $item['status'] === 'COMPLETED' || $item['status'] === 'SHORTAGE') font-semibold text-red-600 dark:text-red-400 @else text-gray-400 dark:text-gray-500 @endif">
-                                    {{ ($item['status'] === 'COMPLETED' || $item['status'] === 'SHORTAGE') && $pickingShortage > 0 ? $pickingShortage : '-' }}
-                                </span>
+                                <span :class="pickShortage > 0 ? 'font-semibold text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'"
+                                      x-text="pickShortage > 0 ? pickShortage : '-'"></span>
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap text-xs text-center">
                                 @if($item['status'] === 'COMPLETED')

@@ -236,15 +236,18 @@ class PickingListPdfService
     // ========================================
 
     private const SHORTAGE_COL_WIDTHS = [
-        'no' => 8,
-        'location' => 22,
-        'item_code' => 24,
-        'item_name' => 50,
-        'packaging' => 18,
-        'qty_label' => 12,
-        'planned_qty' => 18,
-        'allocated_qty' => 18,
-        'shortage_qty' => 20,
+        'no' => 7,
+        'serial_id' => 14,
+        'partner_name' => 26,
+        'salesman' => 16,
+        'location' => 14,
+        'item_code' => 18,
+        'item_name' => 34,
+        'packaging' => 12,
+        'qty_label' => 10,
+        'planned_qty' => 13,
+        'allocated_qty' => 13,
+        'shortage_qty' => 13,
     ];
 
     public function renderShortagePdf(array $data): string
@@ -289,11 +292,11 @@ class PickingListPdfService
 
     private function renderShortageTableHeader(): void
     {
-        $headers = ['No', '棚番', '商品CD', '商品名', '荷姿', '単位', '受注数', '引当数', '欠品数'];
+        $headers = ['No', '伝票番号', '得意先名', '担当営業', '棚番', '商品CD', '商品名', '荷姿', '単位', '受注数', '引当数', '欠品数'];
         $widths = array_values(self::SHORTAGE_COL_WIDTHS);
         $rowH = self::PRIMARY_TABLE_ROW_HEIGHT;
 
-        $this->pdf->SetFont('kozminproregular', 'B', 9);
+        $this->pdf->SetFont('kozminproregular', 'B', 7);
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
 
         $x = self::MARGIN;
@@ -321,11 +324,12 @@ class PickingListPdfService
         $widths = array_values(self::SHORTAGE_COL_WIDTHS);
         $tableWidth = array_sum($widths);
         $minRowH = self::PRIMARY_TABLE_ROW_HEIGHT;
-        $bodyFontSize = 10;
+        $bodyFontSize = 7;
+        $itemNameColIndex = 6;
 
         foreach ($items as $index => $item) {
             $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
-            $nameH = $this->pdf->getStringHeight($widths[3] - 2, $item['item_name']);
+            $nameH = $this->pdf->getStringHeight($widths[$itemNameColIndex] - 2, $item['item_name']);
             $rowH = max($minRowH, $nameH);
 
             if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
@@ -340,6 +344,9 @@ class PickingListPdfService
 
             $rowData = [
                 $index + 1,
+                $item['serial_id'] ?? '',
+                $item['partner_name'] ?? '',
+                $item['salesman_name'] ?? '',
                 $item['location_code'] ?? '',
                 $item['item_code'],
                 $item['item_name'],
@@ -350,13 +357,13 @@ class PickingListPdfService
                 $item['shortage_qty'],
             ];
 
-            $aligns = ['R', 'C', 'C', 'L', 'C', 'C', 'C', 'C', 'C'];
+            $aligns = ['R', 'C', 'L', 'L', 'C', 'C', 'L', 'C', 'C', 'C', 'C', 'C'];
 
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
                 $cellW = $widths[$i] - ($aligns[$i] === 'L' ? 1 : 0);
 
-                if ($i === 3) {
+                if ($i === $itemNameColIndex) {
                     $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
                     $this->pdf->MultiCell($cellW, $minRowH, $value, 0, 'L', false, 0, $cellX, $y);
                     $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
@@ -382,7 +389,7 @@ class PickingListPdfService
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
         $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, self::LINE_HEIGHT,
-            sprintf('合計  SKU数: %d  /  欠品総数: %d',
+            sprintf('合計  件数: %d  /  欠品総数: %d',
                 $summary['sku_count'], $summary['total_shortage']
             ), 0, 0, 'L');
     }

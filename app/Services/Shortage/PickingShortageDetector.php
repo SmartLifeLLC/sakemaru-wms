@@ -69,11 +69,20 @@ class PickingShortageDetector
             $qtyType = $pickResult->ordered_qty_type;
             $caseSize = $pickResult->item?->capacity_case ?? 1;
 
-            // earningをtrade_idから取得
-            $earning = DB::connection('sakemaru')
-                ->table('earnings')
-                ->where('trade_id', $pickResult->trade_id)
-                ->first();
+            // earningをearning_id（直接参照）またはtrade_idから取得
+            $earning = null;
+            if ($pickResult->earning_id) {
+                $earning = DB::connection('sakemaru')
+                    ->table('earnings')
+                    ->where('id', $pickResult->earning_id)
+                    ->first();
+            }
+            if (! $earning && $pickResult->trade_id) {
+                $earning = DB::connection('sakemaru')
+                    ->table('earnings')
+                    ->where('trade_id', $pickResult->trade_id)
+                    ->first();
+            }
 
             $earningId = $earning?->id;
             $shipmentDate = $earning?->delivered_date;

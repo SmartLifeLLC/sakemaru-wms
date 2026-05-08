@@ -380,13 +380,13 @@ class SalesBasedOrderCandidateService
             ->where('isi.is_used_for_ordering', true)
             ->where('isi.is_active', true)
             ->whereRaw("isi.search_string REGEXP '[1-9]'")
-            ->select('isi.item_id', 'isi.search_string', 'iqi.quantity as ordering_unit_qty', 'iqi.can_order')
+            ->select('isi.item_id', 'isi.search_string', 'iqi.quantity as ordering_unit_qty')
             ->get();
 
         foreach ($orderingCodes as $oc) {
             $this->orderingCodes[$oc->item_id] = str_pad($oc->search_string, 13, '0', STR_PAD_LEFT);
 
-            if ($oc->ordering_unit_qty !== null && (int) $oc->ordering_unit_qty > 1 && (int) $oc->can_order === 1) {
+            if ($oc->ordering_unit_qty !== null && (int) $oc->ordering_unit_qty > 1) {
                 $this->orderingUnitQuantities[$oc->item_id] = (int) $oc->ordering_unit_qty;
             }
         }

@@ -301,7 +301,6 @@ class OrderExecutionService
             ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
             ->where('isi.item_id', $candidate->item_id)
             ->where('isi.is_active', true)
-            ->where('iqi.can_order', true)
             ->where('iqi.quantity', '>', 1);
 
         if ($orderingCode) {

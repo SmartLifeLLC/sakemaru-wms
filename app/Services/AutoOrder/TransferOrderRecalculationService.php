@@ -201,7 +201,6 @@ class TransferOrderRecalculationService
             ->where('isi.item_id', $itemId)
             ->where('isi.is_used_for_ordering', true)
             ->where('isi.is_active', true)
-            ->where('iqi.can_order', true)
             ->where('iqi.quantity', '>', 1)
             ->value('iqi.quantity');
 
