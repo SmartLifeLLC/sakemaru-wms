@@ -72,10 +72,16 @@ class WmsAutoOrderExecutionLog extends WmsModel
      */
     public static function hasRunOrSucceededToday(int $contractorId): bool
     {
+        return self::latestForToday($contractorId) !== null;
+    }
+
+    public static function latestForToday(int $contractorId): ?self
+    {
         return self::where('contractor_id', $contractorId)
             ->where('executed_date', today())
             ->whereIn('status', ['RUNNING', 'SUCCESS', 'FAILED'])
-            ->exists();
+            ->latest('id')
+            ->first();
     }
 
     /**

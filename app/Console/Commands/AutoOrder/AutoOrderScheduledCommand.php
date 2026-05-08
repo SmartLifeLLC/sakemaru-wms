@@ -15,7 +15,9 @@ use Illuminate\Support\Facades\Log;
 
 class AutoOrderScheduledCommand extends Command
 {
-    protected $signature = 'wms:auto-order-scheduled';
+    protected $signature = 'wms:auto-order-scheduled
+        {--force : 当日実行ログによるスキップを無視して再投入する}
+        {--retry-failed : 当日FAILEDの仕入先だけ再投入する}';
 
     protected $description = '仕入先別スケジュールに基づく自動発注計算';
 
@@ -24,8 +26,15 @@ class AutoOrderScheduledCommand extends Command
         $now = now();
         $currentTime = $now->format('H:i');
         $currentDayColumn = 'is_transmission_'.strtolower($now->format('D'));
+        $force = (bool) $this->option('force');
+        $retryFailed = (bool) $this->option('retry-failed');
 
         $this->info("=== 仕入先別自動発注スケジューラー ({$currentTime}) ===");
+        if ($force) {
+            $this->warn('force指定: 当日実行ログによるスキップを無視します');
+        } elseif ($retryFailed) {
+            $this->warn('retry-failed指定: 当日FAILEDの仕入先だけ再投入します');
+        }
 
         // 自動発注対象の仕入先を取得（集約先が設定されている場合はスキップ＝集約先のスケジュールに従う）
         // is_auto_change_order=false の発注先は自動発注対象外
@@ -51,12 +60,16 @@ class AutoOrderScheduledCommand extends Command
         foreach ($settings as $setting) {
             $contractorId = $setting->contractor_id;
 
-            // 当日すでに実行済み（RUNNING or SUCCESS）かチェック
-            if (WmsAutoOrderExecutionLog::hasRunOrSucceededToday($contractorId)) {
-                $this->line("  仕入先ID:{$contractorId} → スキップ（当日実行済み）");
-                $skipped++;
+            // 当日すでに実行済みかチェック
+            $todayLog = WmsAutoOrderExecutionLog::latestForToday($contractorId);
+            if ($todayLog) {
+                $canRetryFailed = $retryFailed && $todayLog->status === 'FAILED';
+                if (! $force && ! $canRetryFailed) {
+                    $this->line("  仕入先ID:{$contractorId} → スキップ（当日実行ログ: {$todayLog->status} / ID:{$todayLog->id}）");
+                    $skipped++;
 
-                continue;
+                    continue;
+                }
             }
 
             // 未処理候補（PENDING/APPROVED）がある仕入先はスキップ（子仕入先も含む）
