@@ -8,9 +8,9 @@ use App\Filament\Resources\WmsShortages\Pages\EditWmsShortage;
 use App\Filament\Resources\WmsShortages\Pages\ListWmsShortages;
 use App\Filament\Resources\WmsShortages\Schemas\WmsShortageForm;
 use App\Filament\Resources\WmsShortages\Tables\WmsShortagesTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsShortage;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
@@ -25,6 +25,7 @@ class WmsShortageResource extends AdminResource
         return parent::getEloquentQuery()
             ->with([
                 'warehouse',
+                'location',
                 'wave',
                 'item',
                 'trade.partner',

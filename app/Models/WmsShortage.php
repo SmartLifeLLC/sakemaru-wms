@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Sakemaru\Item;
+use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Trade;
 use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Model;
@@ -19,6 +20,7 @@ class WmsShortage extends Model
         'wave_id',
         'shipment_date',
         'warehouse_id',
+        'location_id',
         'item_id',
         'trade_id',
         'earning_id',
@@ -49,6 +51,7 @@ class WmsShortage extends Model
 
     protected $casts = [
         'shipment_date' => 'date',
+        'location_id' => 'integer',
         'order_qty' => 'integer',
         'planned_qty' => 'integer',
         'picked_qty' => 'integer',
@@ -111,6 +114,11 @@ class WmsShortage extends Model
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class, 'warehouse_id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class, 'location_id');
     }
 
     public function item(): BelongsTo

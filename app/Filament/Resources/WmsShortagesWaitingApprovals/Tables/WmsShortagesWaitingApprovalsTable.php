@@ -129,6 +129,13 @@ class WmsShortagesWaitingApprovalsTable
                     ->searchable()
                     ->alignment('center'),
 
+                TextColumn::make('location_code')
+                    ->label('棚番')
+                    ->state(fn (WmsShortage $record): string => $record->location
+                        ? \App\Models\Sakemaru\Location::formatCode($record->location->code1, $record->location->code2, $record->location->code3, '-')
+                        : '-')
+                    ->alignment('center'),
+
                 TextColumn::make('order_qty')
                     ->label('受注数')
                     ->numeric()

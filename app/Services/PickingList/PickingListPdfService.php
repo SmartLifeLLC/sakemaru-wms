@@ -232,19 +232,25 @@ class PickingListPdfService
     }
 
     // ========================================
-    // 1次欠品リスト（A4縦）
+    // 1次欠品リスト（A4横）
     // ========================================
+
+    private const SHORTAGE_PAGE_WIDTH = 297;
+
+    private const SHORTAGE_PAGE_HEIGHT = 210;
+
+    private const SHORTAGE_CONTENT_WIDTH = 277; // 297 - 10 - 10
 
     private const SHORTAGE_COL_WIDTHS = [
         'no' => 7,
-        'serial_id' => 14,
-        'partner_name' => 26,
-        'salesman' => 16,
-        'location' => 14,
-        'item_code' => 18,
-        'item_name' => 34,
-        'packaging' => 12,
-        'qty_label' => 10,
+        'serial_id' => 18,
+        'partner_name' => 38,
+        'salesman' => 28,
+        'location' => 22,
+        'item_code' => 22,
+        'item_name' => 60,
+        'packaging' => 20,
+        'qty_label' => 12,
         'planned_qty' => 13,
         'allocated_qty' => 13,
         'shortage_qty' => 13,
@@ -252,7 +258,7 @@ class PickingListPdfService
 
     public function renderShortagePdf(array $data): string
     {
-        $this->initPdf('P', '欠品リスト（1次）');
+        $this->initPdf('L', '欠品リスト（1次）');
         $this->pdf->AddPage();
         $this->currentY = self::MARGIN;
 
@@ -261,7 +267,7 @@ class PickingListPdfService
         $this->renderShortageSummary($data['summary']);
 
         $this->totalPages = $this->pdf->getNumPages();
-        $this->renderPageNumbers(self::PRIMARY_PAGE_WIDTH, self::PRIMARY_PAGE_HEIGHT);
+        $this->renderPageNumbers(self::SHORTAGE_PAGE_WIDTH, self::SHORTAGE_PAGE_HEIGHT);
 
         return $this->pdf->Output('', 'S');
     }
@@ -270,23 +276,25 @@ class PickingListPdfService
     {
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, 8, '1次欠品リスト', 0, 0, 'C');
+        $this->pdf->Cell(self::SHORTAGE_CONTENT_WIDTH, 8, '1次欠品リスト', 0, 0, 'C');
         $this->currentY += 10;
 
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
 
-        $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(95, self::LINE_HEIGHT, '波動番号:'.($header['wave_no'] ?? ''), 0, 0, 'L');
+        $halfWidth = self::SHORTAGE_CONTENT_WIDTH / 2;
 
-        $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
-        $this->pdf->Cell(95, self::LINE_HEIGHT, '印刷日時: '.now()->format('Y-m-d H:i'), 0, 0, 'R');
+        $this->pdf->SetXY(self::MARGIN, $this->currentY);
+        $this->pdf->Cell($halfWidth, self::LINE_HEIGHT, '波動番号:'.($header['wave_no'] ?? ''), 0, 0, 'L');
+
+        $this->pdf->SetXY(self::MARGIN + $halfWidth, $this->currentY);
+        $this->pdf->Cell($halfWidth, self::LINE_HEIGHT, '印刷日時: '.now()->format('Y-m-d H:i'), 0, 0, 'R');
         $this->currentY += self::LINE_HEIGHT;
 
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(95, self::LINE_HEIGHT, '出荷日: '.($header['shipping_date'] ?? ''), 0, 0, 'L');
+        $this->pdf->Cell($halfWidth, self::LINE_HEIGHT, '出荷日: '.($header['shipping_date'] ?? ''), 0, 0, 'L');
 
-        $this->pdf->SetXY(self::MARGIN + 95, $this->currentY);
-        $this->pdf->Cell(95, self::LINE_HEIGHT, '倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'R');
+        $this->pdf->SetXY(self::MARGIN + $halfWidth, $this->currentY);
+        $this->pdf->Cell($halfWidth, self::LINE_HEIGHT, '倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'R');
         $this->currentY += self::LINE_HEIGHT + 3;
     }
 
@@ -325,23 +333,10 @@ class PickingListPdfService
         $tableWidth = array_sum($widths);
         $minRowH = self::PRIMARY_TABLE_ROW_HEIGHT;
         $bodyFontSize = 7;
+        $multilineIndexes = [2, 3, 6];
         $itemNameColIndex = 6;
 
         foreach ($items as $index => $item) {
-            $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
-            $nameH = $this->pdf->getStringHeight($widths[$itemNameColIndex] - 2, $item['item_name']);
-            $rowH = max($minRowH, $nameH);
-
-            if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
-                $this->pdf->AddPage();
-                $this->currentY = self::MARGIN;
-                $this->renderShortageHeader($header);
-                $this->renderShortageTableHeader();
-            }
-
-            $x = self::MARGIN;
-            $y = $this->currentY;
-
             $rowData = [
                 $index + 1,
                 $item['serial_id'] ?? '',
@@ -359,12 +354,28 @@ class PickingListPdfService
 
             $aligns = ['R', 'C', 'L', 'L', 'C', 'C', 'L', 'C', 'C', 'C', 'C', 'C'];
 
+            $rowH = $minRowH;
+            foreach ($multilineIndexes as $multilineIndex) {
+                $this->pdf->SetFont('kozminproregular', $multilineIndex === $itemNameColIndex ? 'B' : '', $bodyFontSize);
+                $rowH = max($rowH, $this->pdf->getStringHeight($widths[$multilineIndex] - 2, (string) $rowData[$multilineIndex]));
+            }
+
+            if ($this->currentY + $rowH > self::SHORTAGE_PAGE_HEIGHT - self::MARGIN_BOTTOM - 10) {
+                $this->pdf->AddPage();
+                $this->currentY = self::MARGIN;
+                $this->renderShortageHeader($header);
+                $this->renderShortageTableHeader();
+            }
+
+            $x = self::MARGIN;
+            $y = $this->currentY;
+
             foreach ($rowData as $i => $value) {
                 $cellX = $x + ($aligns[$i] === 'L' ? 1 : 0);
                 $cellW = $widths[$i] - ($aligns[$i] === 'L' ? 1 : 0);
 
-                if ($i === $itemNameColIndex) {
-                    $this->pdf->SetFont('kozminproregular', 'B', $bodyFontSize);
+                if (in_array($i, $multilineIndexes, true)) {
+                    $this->pdf->SetFont('kozminproregular', $i === $itemNameColIndex ? 'B' : '', $bodyFontSize);
                     $this->pdf->MultiCell($cellW, $minRowH, $value, 0, 'L', false, 0, $cellX, $y);
                     $this->pdf->SetFont('kozminproregular', '', $bodyFontSize);
                 } else {
@@ -388,7 +399,7 @@ class PickingListPdfService
         $this->currentY += 3;
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_HEADER);
         $this->pdf->SetXY(self::MARGIN, $this->currentY);
-        $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, self::LINE_HEIGHT,
+        $this->pdf->Cell(self::SHORTAGE_CONTENT_WIDTH, self::LINE_HEIGHT,
             sprintf('合計  件数: %d  /  欠品総数: %d',
                 $summary['sku_count'], $summary['total_shortage']
             ), 0, 0, 'L');
@@ -1002,7 +1013,7 @@ class PickingListPdfService
 
     public function renderBatchShortagePdf(array $dataList): string
     {
-        $this->initPdf('P', '欠品リスト（1次）一括');
+        $this->initPdf('L', '欠品リスト（1次）一括');
 
         foreach ($dataList as $data) {
             if (empty($data['items'])) {
@@ -1026,7 +1037,7 @@ class PickingListPdfService
         }
 
         $this->totalPages = $this->pdf->getNumPages();
-        $this->renderPageNumbers(self::PRIMARY_PAGE_WIDTH, self::PRIMARY_PAGE_HEIGHT);
+        $this->renderPageNumbers(self::SHORTAGE_PAGE_WIDTH, self::SHORTAGE_PAGE_HEIGHT);
 
         return $this->pdf->Output('', 'S');
     }

@@ -5,9 +5,9 @@ namespace App\Filament\Resources\WmsShortagesWaitingApprovals;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\Pages\ListWmsShortagesWaitingApprovals;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\Tables\WmsShortagesWaitingApprovalsTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsShortage;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,6 +21,7 @@ class WmsShortagesWaitingApprovalResource extends AdminResource
         return parent::getEloquentQuery()
             ->with([
                 'warehouse',
+                'location',
                 'wave',
                 'item',
                 'trade.partner',

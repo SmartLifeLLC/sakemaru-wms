@@ -387,12 +387,18 @@ class GenerateProxyShipmentTestDataCommand extends Command
             foreach ($pickResults as $pickResult) {
                 $task = $pickResult->pickingTask;
                 $earning = DB::connection('sakemaru')->table('earnings')->find($pickResult->earning_id);
+                $locationId = $pickResult->location_id ?: DB::connection('sakemaru')
+                    ->table('item_incoming_default_locations as idl')
+                    ->where('idl.warehouse_id', $shortageWarehouseId)
+                    ->where('idl.item_id', $pickResult->item_id)
+                    ->value('idl.location_id');
 
                 // Create shortage
                 $shortage = WmsShortage::create([
                     'wave_id' => $task->wave_id,
                     'shipment_date' => $earning->delivered_date ?? now()->format('Y-m-d'),
                     'warehouse_id' => $shortageWarehouseId,
+                    'location_id' => $locationId,
                     'item_id' => $pickResult->item_id,
                     'trade_id' => $pickResult->trade_id,
                     'earning_id' => $pickResult->earning_id,

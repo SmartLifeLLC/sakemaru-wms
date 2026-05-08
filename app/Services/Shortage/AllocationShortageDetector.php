@@ -53,6 +53,19 @@ class AllocationShortageDetector
             $caseSizeSnap,
             $sourceReservationId
         ) {
+            $locationId = null;
+            if ($sourceReservationId !== null) {
+                $locationId = DB::connection('sakemaru')
+                    ->table('wms_reservations')
+                    ->where('id', $sourceReservationId)
+                    ->value('location_id');
+            }
+            $locationId = $this->resolveShortageLocationId(
+                $locationId ? (int) $locationId : null,
+                $warehouseId,
+                $itemId
+            );
+
             // earningをtrade_idから取得
             $earning = DB::connection('sakemaru')
                 ->table('earnings')
@@ -68,6 +81,7 @@ class AllocationShortageDetector
                 'wave_id' => $waveId,
                 'shipment_date' => $shipmentDate,
                 'warehouse_id' => $warehouseId,
+                'location_id' => $locationId,
                 'item_id' => $itemId,
                 'trade_id' => $tradeId,
                 'earning_id' => $earningId,
@@ -99,5 +113,41 @@ class AllocationShortageDetector
 
             return $shortage;
         });
+    }
+
+    private function resolveShortageLocationId(?int $locationId, int $warehouseId, int $itemId): ?int
+    {
+        if ($locationId !== null) {
+            return $locationId;
+        }
+
+        $defaultLocationId = DB::connection('sakemaru')
+            ->table('item_incoming_default_locations as idl')
+            ->where('idl.warehouse_id', $warehouseId)
+            ->where('idl.item_id', $itemId)
+            ->value('idl.location_id');
+
+        if (! $defaultLocationId) {
+            $defaultLocationId = DB::connection('sakemaru')
+                ->table('item_incoming_default_locations as idl')
+                ->join('locations as default_l', 'default_l.id', '=', 'idl.location_id')
+                ->leftJoin('locations as exact_l', function ($join) use ($warehouseId) {
+                    $join->where('exact_l.warehouse_id', '=', $warehouseId)
+                        ->whereColumn('exact_l.code1', 'default_l.code1')
+                        ->whereColumn('exact_l.code2', 'default_l.code2')
+                        ->whereColumn('exact_l.code3', 'default_l.code3');
+                })
+                ->leftJoin('locations as partial_l', function ($join) use ($warehouseId) {
+                    $join->where('partial_l.warehouse_id', '=', $warehouseId)
+                        ->whereColumn('partial_l.code1', 'default_l.code1')
+                        ->whereColumn('partial_l.code2', 'default_l.code2')
+                        ->whereNull('partial_l.code3');
+                })
+                ->where('idl.item_id', $itemId)
+                ->selectRaw('COALESCE(MIN(exact_l.id), MIN(partial_l.id)) as location_id')
+                ->value('location_id');
+        }
+
+        return $defaultLocationId ? (int) $defaultLocationId : null;
     }
 }
