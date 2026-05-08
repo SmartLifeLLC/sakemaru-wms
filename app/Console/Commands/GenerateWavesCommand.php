@@ -43,8 +43,12 @@ class GenerateWavesCommand extends Command
 
         // Get wave settings where picking_start_time has already passed
         // This allows earnings to be entered up until the picking start time
+        // NULL picking_start_time means no time restriction (always eligible)
         $waveSettings = WaveSetting::with('deliveryCourse')
-            ->whereTime('picking_start_time', '<=', $currentTime->format('H:i:s'))
+            ->where(function ($query) use ($currentTime) {
+                $query->whereNull('picking_start_time')
+                    ->orWhereTime('picking_start_time', '<=', $currentTime->format('H:i:s'));
+            })
             ->get();
 
         if ($waveSettings->isEmpty()) {
