@@ -155,7 +155,10 @@ class StockAllocationService
                 $quantityFlag,
                 self::BATCH_SIZE,
                 $offset,
-                $buyerId
+                $buyerId,
+                $sourceType,
+                $sourceId,
+                $sourceLineId
             );
 
             if ($candidates->isEmpty()) {
@@ -292,19 +295,38 @@ class StockAllocationService
         AvailableQuantityFlag $quantityFlag,
         int $limit,
         int $offset,
-        ?int $buyerId = null
+        ?int $buyerId = null,
+        string $sourceType = 'EARNING',
+        ?int $sourceId = null,
+        ?int $sourceLineId = null
     ): \Illuminate\Support\Collection {
+        $ownReservationExpr = '0';
+        if ($sourceType === 'EARNING' && $sourceId !== null && $sourceLineId !== null) {
+            $ownReservationExpr = sprintf(
+                '(SELECT COALESCE(SUM(rsle.quantity), 0)
+                    FROM real_stock_lot_earnings rsle
+                    WHERE rsle.real_stock_lot_id = rsl.id
+                      AND rsle.earning_id = %d
+                      AND rsle.trade_item_id = %d
+                      AND rsle.status = "RESERVED")',
+                $sourceId,
+                $sourceLineId
+            );
+        }
+
+        $availableExpr = "(rsl.current_quantity - rsl.reserved_quantity + {$ownReservationExpr})";
+
         $query = DB::connection('sakemaru')
             ->table('real_stocks as rs')
             ->join('real_stock_lots as rsl', function ($join) {
                 $join->on('rsl.real_stock_id', '=', 'rs.id')
-                    ->where('rsl.status', '=', 'ACTIVE')
-                    ->whereRaw('rsl.current_quantity > rsl.reserved_quantity');
+                    ->where('rsl.status', '=', 'ACTIVE');
             })
             ->join('locations as l', 'l.id', '=', 'rsl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
-            ->whereRaw("(l.available_quantity_flags & {$quantityFlag->value}) != 0");
+            ->whereRaw("(l.available_quantity_flags & {$quantityFlag->value}) != 0")
+            ->whereRaw("{$availableExpr} > 0");
 
         // Apply buyer restriction filter if buyerId is provided
         if ($buyerId !== null) {
@@ -332,7 +354,7 @@ class StockAllocationService
             'rsl.purchase_id',
             'rsl.expiration_date',
             'rsl.price as unit_cost',
-            DB::raw('(rsl.current_quantity - rsl.reserved_quantity) as available_quantity'),
+            DB::raw("{$availableExpr} as available_quantity"),
         ]);
 
         // Order by FEFO or FIFO
