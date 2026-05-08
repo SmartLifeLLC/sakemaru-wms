@@ -70,8 +70,10 @@ class GenerateWavesCommand extends Command
             }
 
             // Check if wave already exists for this setting and date
+            // COMPLETED/CLOSED waves are allowed to have a new wave generated (e.g. afternoon shipments)
             $existingWave = Wave::where('wms_wave_setting_id', $setting->id)
                 ->where('shipping_date', $shippingDate)
+                ->whereNotIn('status', ['COMPLETED', 'CLOSED'])
                 ->first();
             if ($existingWave) {
                 $skippedCount++;
