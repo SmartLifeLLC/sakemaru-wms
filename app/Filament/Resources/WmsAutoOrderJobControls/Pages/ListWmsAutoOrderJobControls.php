@@ -331,7 +331,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
         }
 
         $baseDescription = $selectedWarehouse
-            ? "倉庫「{$selectedWarehouseName}」の実績ベース発注候補を生成します。\n安全在庫が未設定で、過去3日間に出荷実績がある商品が対象です。"
+            ? "倉庫「{$selectedWarehouseName}」の発注候補を生成します。\n発注点・自動発注数が設定済み・発注コードありで、見込み在庫が発注点以下の商品が対象です。"
             : '倉庫が選択されていません。トップバーから倉庫を選択してください。';
 
         return Action::make('generateSalesBased')
