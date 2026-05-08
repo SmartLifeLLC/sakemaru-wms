@@ -860,8 +860,9 @@ class PickingListService
 
         $rows = $this->db()->table('wms_picking_item_results as pir')
             ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
-            ->join('earnings as e', 'pir.earning_id', '=', 'e.id')
-            ->leftJoin('trades as t', 'e.trade_id', '=', 't.id')
+            ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('stock_transfers as st', 'pir.stock_transfer_id', '=', 'st.id')
+            ->leftJoin('trades as t', 't.id', '=', DB::raw('COALESCE(e.trade_id, st.trade_id)'))
             ->leftJoin('delivery_courses as dc', 'pt.delivery_course_id', '=', 'dc.id')
             ->leftJoin('warehouses as wh', 'pt.warehouse_id', '=', 'wh.id')
             ->join('items as i', 'pir.item_id', '=', 'i.id')
@@ -869,13 +870,12 @@ class PickingListService
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
             ->whereIn('pt.wave_id', $waveIds)
-            ->where('pir.source_type', 'EARNING')
             ->select([
                 'pir.id as pir_id',
                 'pir.earning_id',
-                'e.id as e_id',
+                'pir.stock_transfer_id',
                 't.slip_number',
-                'e.delivered_date',
+                DB::raw('COALESCE(e.delivered_date, st.delivered_date) as delivered_date'),
                 'dc.id as course_id',
                 'dc.name as course_name',
                 'dc.code as course_code',
@@ -895,7 +895,7 @@ class PickingListService
                 'pir.shortage_qty',
             ])
             ->orderBy('dc.code')
-            ->orderBy('e.id')
+            ->orderByRaw('COALESCE(e.id, st.id)')
             ->orderByRaw('COALESCE(l.floor_id, 999999)')
             ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
@@ -917,11 +917,12 @@ class PickingListService
                         'warehouse_name' => $row->warehouse_name ?? '',
                         'floor_name' => $row->floor_name ?? '',
                     ],
-                    '_earning_ids' => [],
+                    '_source_ids' => [],
                     '_rows' => [],
                 ];
             }
-            $byCourseFloor[$key]['_earning_ids'][(int) $row->earning_id] = true;
+            $sourceKey = $row->earning_id ? "E:{$row->earning_id}" : "ST:{$row->stock_transfer_id}";
+            $byCourseFloor[$key]['_source_ids'][$sourceKey] = true;
             $byCourseFloor[$key]['_rows'][] = $row;
         }
 
@@ -985,7 +986,7 @@ class PickingListService
 
             $results[] = [
                 'header' => array_merge($bucket['header'], [
-                    'slip_count' => count($bucket['_earning_ids']),
+                    'slip_count' => count($bucket['_source_ids']),
                 ]),
                 'items' => $items,
             ];
@@ -1011,26 +1012,28 @@ class PickingListService
         $rows = $this->db()->table('wms_picking_item_results as pir')
             ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
             ->join('wms_waves as w', 'pt.wave_id', '=', 'w.id')
-            ->join('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('stock_transfers as st', 'pir.stock_transfer_id', '=', 'st.id')
             ->leftJoin('buyers as b', 'e.buyer_id', '=', 'b.id')
             ->leftJoin('partners as p', 'b.partner_id', '=', 'p.id')
+            ->leftJoin('warehouses as dest_wh', 'st.to_warehouse_id', '=', 'dest_wh.id')
             ->leftJoin('delivery_courses as dc', 'pt.delivery_course_id', '=', 'dc.id')
             ->join('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->whereIn('pt.wave_id', $waveIds)
-            ->where('pir.source_type', 'EARNING')
             ->select([
                 'pir.id as pir_id',
                 'pir.earning_id',
+                'pir.stock_transfer_id',
                 'w.id as wave_id',
                 'w.wave_no',
                 'w.shipping_date',
                 'dc.id as course_id',
                 'dc.code as course_code',
                 'dc.name as course_name',
-                'p.code as buyer_code',
-                'p.name as buyer_name',
+                DB::raw('COALESCE(p.code, dest_wh.code) as buyer_code'),
+                DB::raw("COALESCE(p.name, CONCAT('【移動】', dest_wh.name)) as buyer_name"),
                 'i.code as item_code',
                 'i.name as item_name',
                 'i.capacity_case',
@@ -1044,7 +1047,7 @@ class PickingListService
                 'pir.shortage_qty',
             ])
             ->orderBy('dc.code')
-            ->orderByRaw('COALESCE(p.code, 999999999)')
+            ->orderByRaw('COALESCE(p.code, dest_wh.code, 999999999)')
             ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
             ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
