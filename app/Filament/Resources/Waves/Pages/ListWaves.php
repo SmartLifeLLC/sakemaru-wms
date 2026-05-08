@@ -1217,6 +1217,8 @@ class ListWaves extends ListRecords
                     'dc.name as course_name',
                     'dc.warehouse_id',
                     'wh.name as warehouse_name',
+                    'tw.code as buyer_code',
+                    DB::raw("CONCAT('【移動】', tw.name) as buyer_name"),
                 ])
                 ->get();
         }
@@ -1582,7 +1584,6 @@ class ListWaves extends ListRecords
     {
         $results = [];
         $groups = $rows
-            ->filter(fn (array $row) => $row['source_type'] === 'EARNING')
             ->groupBy(fn (array $row) => $row['course_id'].'|'.($row['floor_id'] ?? 0));
 
         foreach ($groups as $groupRows) {
@@ -1608,10 +1609,12 @@ class ListWaves extends ListRecords
                 ];
             }
 
+            $slipCount = $groupRows->map(fn (array $row) => $row['earning_id'] ? "E:{$row['earning_id']}" : "ST:{$row['stock_transfer_id']}")->unique()->count();
+
             $results[] = [
                 'header' => [
                     'course_name' => $first['course_name'],
-                    'slip_count' => $groupRows->pluck('earning_id')->unique()->count(),
+                    'slip_count' => $slipCount,
                     'shipping_date' => $first['shipping_date'],
                     'warehouse_name' => $first['warehouse_name'],
                     'floor_name' => $first['floor_name'],
@@ -1627,7 +1630,6 @@ class ListWaves extends ListRecords
     {
         $results = [];
         $courseGroups = $rows
-            ->filter(fn (array $row) => $row['source_type'] === 'EARNING')
             ->groupBy('course_id');
 
         foreach ($courseGroups as $groupRows) {
