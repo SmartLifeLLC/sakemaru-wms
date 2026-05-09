@@ -432,6 +432,75 @@ class PickingListService
             ->orderBy('i.code')
             ->get();
 
+        $pickingRows = $this->db()->table('wms_picking_item_results as pir')
+            ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
+            ->join('items as i', 'pir.item_id', '=', 'i.id')
+            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->leftJoin('trades as t', 'pir.trade_id', '=', 't.id')
+            ->leftJoin('partners as tp', 't.partner_id', '=', 'tp.id')
+            ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('buyers as b', 'e.buyer_id', '=', 'b.id')
+            ->leftJoin('item_incoming_default_locations as idl', function ($join) {
+                $join->on('idl.item_id', '=', 'pir.item_id')
+                    ->whereColumn('idl.warehouse_id', 'pt.warehouse_id');
+            })
+            ->leftJoin('locations as default_l', 'idl.location_id', '=', 'default_l.id')
+            ->leftJoin(
+                DB::raw("(SELECT bd1.buyer_id, bd1.salesman_id
+                    FROM buyer_details bd1
+                    INNER JOIN (SELECT buyer_id, MAX(start_date) as max_date FROM buyer_details WHERE start_date <= '{$today}' GROUP BY buyer_id) bd2
+                    ON bd1.buyer_id = bd2.buyer_id AND bd1.start_date = bd2.max_date
+                ) as bd"),
+                'bd.buyer_id', '=', 'b.id'
+            )
+            ->leftJoin('users as salesman', 'salesman.id', '=', 'bd.salesman_id')
+            ->where('pt.wave_id', $waveId)
+            ->where('pir.shortage_qty', '>', 0)
+            ->whereNotExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('wms_shortages as existing_ws')
+                    ->whereColumn('existing_ws.wave_id', 'pt.wave_id')
+                    ->whereColumn('existing_ws.warehouse_id', 'pt.warehouse_id')
+                    ->whereColumn('existing_ws.item_id', 'pir.item_id')
+                    ->whereColumn('existing_ws.trade_item_id', 'pir.trade_item_id')
+                    ->where('existing_ws.shortage_qty', '>', 0);
+            })
+            ->select([
+                't.serial_id',
+                'tp.name as partner_name',
+                'salesman.name as salesman_name',
+                'i.code as item_code',
+                'i.name as item_name',
+                'i.packaging',
+                DB::raw('COALESCE(pir.location_id, idl.location_id) as location_id'),
+                DB::raw('COALESCE(l.code1, default_l.code1) as code1'),
+                DB::raw('COALESCE(l.code2, default_l.code2) as code2'),
+                DB::raw('COALESCE(l.code3, default_l.code3) as code3'),
+                'pir.ordered_qty as order_qty',
+                'pir.planned_qty',
+                'pir.shortage_qty',
+                DB::raw('COALESCE(pir.ordered_qty_type, pir.planned_qty_type) as planned_qty_type'),
+            ])
+            ->get();
+
+        $rows = $rows
+            ->concat($pickingRows)
+            ->sort(function ($a, $b): int {
+                foreach (['serial_id', 'code1', 'code2', 'code3', 'item_code'] as $key) {
+                    $aValue = $a->{$key} ?? 'ZZZ';
+                    $bValue = $b->{$key} ?? 'ZZZ';
+
+                    if ($aValue == $bValue) {
+                        continue;
+                    }
+
+                    return $aValue <=> $bValue;
+                }
+
+                return 0;
+            })
+            ->values();
+
         $formattedItems = [];
         $totalShortage = 0;
 
