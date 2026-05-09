@@ -95,7 +95,8 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
                 $scopeContractorIds = $this->getExpandedContractorIds();
 
                 if ($this->transferOnly) {
-                    $deleteQuery = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING);
+                    $deleteQuery = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                        ->forCreatedBy($this->createdBy);
                     if ($this->warehouseId) {
                         $deleteQuery->where('satellite_warehouse_id', $this->warehouseId);
                     }
@@ -104,8 +105,10 @@ class ProcessOrderCandidateGenerationJob implements ShouldQueue
                     }
                     $results['deletedTransfers'] = $deleteQuery->delete();
                 } else {
-                    $deleteOrderQuery = WmsOrderCandidate::where('status', CandidateStatus::PENDING);
-                    $deleteTransferQuery = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING);
+                    $deleteOrderQuery = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                        ->forCreatedBy($this->createdBy);
+                    $deleteTransferQuery = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                        ->forCreatedBy($this->createdBy);
                     if ($this->warehouseId) {
                         $deleteOrderQuery->where('warehouse_id', $this->warehouseId);
                         $deleteTransferQuery->where('satellite_warehouse_id', $this->warehouseId);

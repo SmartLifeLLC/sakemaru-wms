@@ -7,10 +7,10 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\AutoOrder\SettlementStatus;
+use App\Enums\AutoOrder\TransmissionType;
+use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsStockTransferCandidates\WmsStockTransferCandidateResource;
-use App\Enums\QuantityType;
-use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemCategory;
@@ -18,7 +18,6 @@ use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\StatsItemWarehouseSalesSummary;
 use App\Models\WmsAutoOrderJobControl;
-use App\Enums\AutoOrder\TransmissionType;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
@@ -30,8 +29,8 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
-use Filament\Schemas\Components\Grid;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Schemas\Components\Grid;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -168,6 +167,7 @@ class ListWmsStockTransferCandidates extends ListRecords
         // 既存PENDING候補の数量を取得
         $pendingCandidates = WmsStockTransferCandidate::where('satellite_warehouse_id', $warehouseId)
             ->where('status', CandidateStatus::PENDING)
+            ->forCreatedBy(auth()->id())
             ->whereIn('item_id', $itemIds)
             ->get()
             ->keyBy('item_id');
@@ -317,6 +317,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                     $satelliteWarehouseId = $data['satellite_warehouse_id'];
                     $existingJob = WmsAutoOrderJobControl::where('process_name', JobProcessName::ORDER_CALC)
                         ->where('settlement_status', SettlementStatus::PENDING)
+                        ->where('created_by', auth()->id())
                         ->where('warehouse_id', $satelliteWarehouseId)
                         ->whereDate('started_at', today())
                         ->orderByDesc('id')
@@ -367,6 +368,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                             ->where('hub_warehouse_id', $data['hub_warehouse_id'])
                             ->where('item_id', $itemId)
                             ->where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
                             ->exists();
 
                         if ($exists) {
@@ -483,13 +485,16 @@ class ListWmsStockTransferCandidates extends ListRecords
                     ->requiresConfirmation()
                     ->modalHeading('移動候補を全て承認')
                     ->modalDescription(function () {
-                        $count = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+                        $count = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
+                            ->count();
 
                         return "承認前（PENDING）の移動候補 {$count}件 を全て承認します。";
                     })
                     ->modalSubmitActionLabel('全て承認')
                     ->action(function () {
                         $updated = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
                             ->update([
                                 'status' => CandidateStatus::APPROVED,
                                 'updated_at' => now(),
@@ -509,13 +514,17 @@ class ListWmsStockTransferCandidates extends ListRecords
                     ->requiresConfirmation()
                     ->modalHeading('承認前の移動候補を全削除')
                     ->modalDescription(function () {
-                        $count = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->count();
+                        $count = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
+                            ->count();
 
                         return "承認前（PENDING）の移動候補 {$count}件 を全て削除します。この操作は取り消せません。";
                     })
                     ->modalSubmitActionLabel('全削除')
                     ->action(function () {
-                        $deleted = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)->delete();
+                        $deleted = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
+                            ->delete();
 
                         Notification::make()
                             ->title('承認前の移動候補を削除しました')
@@ -544,6 +553,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ])
                 // デフォルトでPENDINGのみ表示
                 ->where('status', CandidateStatus::PENDING)
+                ->forCreatedBy(auth()->id())
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('satellite_warehouse_id')
                 ->orderBy('item_id')
@@ -589,6 +599,7 @@ class ListWmsStockTransferCandidates extends ListRecords
         $cacheKey = 'transfer_candidates_pending_warehouses_'.auth()->id();
         $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
             $warehouseIds = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
+                ->forCreatedBy(auth()->id())
                 ->distinct()
                 ->pluck('satellite_warehouse_id')
                 ->toArray();

@@ -92,11 +92,18 @@ class SalesBasedOrderCandidateService
 
         // batch_code解決: 引数 > 既存PENDINGのbatch_code > 新規生成
         if (! $batchCode && $warehouseId) {
-            $pendingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse($warehouseId);
+            $pendingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse(
+                $warehouseId,
+                $createdBy,
+                [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC]
+            );
             $batchCode = $pendingJob?->batch_code;
         }
         if (! $batchCode) {
-            $pendingJob = WmsAutoOrderJobControl::findPendingSettlement();
+            $pendingJob = WmsAutoOrderJobControl::findPendingSettlement(
+                $createdBy,
+                [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC]
+            );
             $batchCode = $pendingJob?->batch_code;
         }
 

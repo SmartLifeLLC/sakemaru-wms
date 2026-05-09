@@ -7,24 +7,29 @@ use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Resources\WmsOrderDataFiles\Pages\ListWmsOrderDataFiles;
 use App\Mail\OrderDataMail;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderDataFile;
 use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\PurchaseOrderPdfService;
+use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
-use Filament\Support\Enums\Alignment;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -171,6 +176,7 @@ class WmsOrderDataFilesTable
 
                         return WmsOrderDataFile::query()
                             ->where('is_test', $isTest)
+                            ->forCreatedBy(auth()->id())
                             ->select('batch_code')
                             ->distinct()
                             ->orderByDesc('batch_code')
@@ -178,16 +184,25 @@ class WmsOrderDataFilesTable
                             ->pluck('batch_code', 'batch_code')
                             ->toArray();
                     })
-                    ->default(function ($livewire): ?string {
-                        $isTest = $livewire instanceof ListWmsOrderDataFiles
-                            && $livewire->fileTypeTab === 'test';
-
-                        return WmsOrderDataFile::query()
-                            ->where('is_test', $isTest)
-                            ->orderByDesc('batch_code')
-                            ->value('batch_code');
-                    })
                     ->searchable(),
+
+                Filter::make('order_date')
+                    ->label('発注日')
+                    ->form([
+                        DatePicker::make('order_date')
+                            ->label('発注日')
+                            ->default(ClientSetting::systemDateYMD()),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['order_date'], fn (Builder $q, $date) => $q->where('order_date', $date))
+                    )
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! $data['order_date']) {
+                            return null;
+                        }
+
+                        return '発注日: '.Carbon::parse($data['order_date'])->format('Y年m月d日');
+                    }),
 
                 SelectFilter::make('status')
                     ->label('ステータス')
@@ -453,7 +468,7 @@ class WmsOrderDataFilesTable
                             $sendable = max(0, $total - $alreadySent - $noMail);
 
                             return "選択: {$total}件 → 送信対象: {$sendable}件"
-                                . ($alreadySent + $noMail > 0 ? "（スキップ: 送信済み{$alreadySent}件 / メール未設定{$noMail}件）" : '');
+                                .($alreadySent + $noMail > 0 ? "（スキップ: 送信済み{$alreadySent}件 / メール未設定{$noMail}件）" : '');
                         })
                         ->action(function (Collection $records) {
                             $sent = 0;
@@ -463,10 +478,12 @@ class WmsOrderDataFilesTable
                             foreach ($records as $record) {
                                 if ($record->mail_sent_at !== null) {
                                     $skipped++;
+
                                     continue;
                                 }
                                 if (! $record->is_mail_order) {
                                     $skipped++;
+
                                     continue;
                                 }
 
@@ -475,6 +492,7 @@ class WmsOrderDataFilesTable
                                     $email = $record->mail_to ?? $setting?->order_mail ?? $record->contractor?->email;
                                     if (! $email) {
                                         $skipped++;
+
                                         continue;
                                     }
 
@@ -542,7 +560,7 @@ class WmsOrderDataFilesTable
                                 $record->markAsCsvDownloaded(auth()->id());
                             }
 
-                            $filename = 'order_data_bulk_' . now()->format('YmdHis') . '.csv';
+                            $filename = 'order_data_bulk_'.now()->format('YmdHis').'.csv';
 
                             return response()->streamDownload(function () use ($csvContent) {
                                 echo $csvContent;
@@ -563,7 +581,7 @@ class WmsOrderDataFilesTable
                                 $record->markAsFaxDownloaded(auth()->id());
                             }
 
-                            $filename = 'fax_bulk_' . now()->format('YmdHis') . '.pdf';
+                            $filename = 'fax_bulk_'.now()->format('YmdHis').'.pdf';
 
                             return response()->streamDownload(function () use ($pdfBinary) {
                                 echo $pdfBinary;

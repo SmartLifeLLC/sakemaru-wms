@@ -729,6 +729,7 @@ class WmsOrderConfirmationWaitingTable
 
         WmsOrderCandidate::query()
             ->where('status', CandidateStatus::APPROVED)
+            ->forCreatedBy(auth()->id())
             ->with('item.current_price')
             ->orderBy('id')
             ->get()

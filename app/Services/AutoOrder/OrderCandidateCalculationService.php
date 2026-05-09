@@ -134,6 +134,7 @@ class OrderCandidateCalculationService
             if (! $transferOnly) {
                 $hasOrderCandidates = WmsOrderCandidate::query()
                     ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
+                    ->forCreatedBy($createdBy)
                     ->whereIn('contractor_id', $expandedContractorIds)
                     ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
                     ->exists();
@@ -143,6 +144,7 @@ class OrderCandidateCalculationService
 
             $hasTransferCandidates = WmsStockTransferCandidate::query()
                 ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
+                ->forCreatedBy($createdBy)
                 ->whereIn('contractor_id', $expandedContractorIds)
                 ->when($warehouseId, fn ($q) => $q->where('satellite_warehouse_id', $warehouseId))
                 ->exists();
@@ -154,22 +156,26 @@ class OrderCandidateCalculationService
                 if (! $transferOnly) {
                     $orderPendingCount = WmsOrderCandidate::query()
                         ->where('status', CandidateStatus::PENDING)
+                        ->forCreatedBy($createdBy)
                         ->whereIn('contractor_id', $expandedContractorIds)
                         ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
                         ->count();
                     $orderApprovedCount = WmsOrderCandidate::query()
                         ->where('status', CandidateStatus::APPROVED)
+                        ->forCreatedBy($createdBy)
                         ->whereIn('contractor_id', $expandedContractorIds)
                         ->when($warehouseId, fn ($q) => $q->where('warehouse_id', $warehouseId))
                         ->count();
                 }
                 $transferPendingCount = WmsStockTransferCandidate::query()
                     ->where('status', CandidateStatus::PENDING)
+                    ->forCreatedBy($createdBy)
                     ->whereIn('contractor_id', $expandedContractorIds)
                     ->when($warehouseId, fn ($q) => $q->where('satellite_warehouse_id', $warehouseId))
                     ->count();
                 $transferApprovedCount = WmsStockTransferCandidate::query()
                     ->where('status', CandidateStatus::APPROVED)
+                    ->forCreatedBy($createdBy)
                     ->whereIn('contractor_id', $expandedContractorIds)
                     ->when($warehouseId, fn ($q) => $q->where('satellite_warehouse_id', $warehouseId))
                     ->count();
@@ -186,7 +192,8 @@ class OrderCandidateCalculationService
             // パターンB: 仕入先指定なし
             if (! $transferOnly) {
                 $approvedOrderQuery = WmsOrderCandidate::query()
-                    ->where('status', CandidateStatus::APPROVED);
+                    ->where('status', CandidateStatus::APPROVED)
+                    ->forCreatedBy($createdBy);
                 if ($warehouseId) {
                     $approvedOrderQuery->where('warehouse_id', $warehouseId);
                 }
@@ -196,7 +203,8 @@ class OrderCandidateCalculationService
             }
 
             $approvedTransferQuery = WmsStockTransferCandidate::query()
-                ->where('status', CandidateStatus::APPROVED);
+                ->where('status', CandidateStatus::APPROVED)
+                ->forCreatedBy($createdBy);
             if ($warehouseId) {
                 $approvedTransferQuery->where('satellite_warehouse_id', $warehouseId);
             }
@@ -206,6 +214,7 @@ class OrderCandidateCalculationService
                 $warehouseSuffix = $warehouseId ? "（倉庫ID:{$warehouseId}）" : '';
                 if ($transferOnly) {
                     $countQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
+                    $countQuery->forCreatedBy($createdBy);
                     if ($warehouseId) {
                         $countQuery->where('satellite_warehouse_id', $warehouseId);
                     }
@@ -213,7 +222,9 @@ class OrderCandidateCalculationService
                     throw new \RuntimeException("確定待ちの移動候補が {$approvedTransferCount}件 あります{$warehouseSuffix}。先に確定を行ってください。");
                 }
                 $orderCountQuery = WmsOrderCandidate::where('status', CandidateStatus::APPROVED);
+                $orderCountQuery->forCreatedBy($createdBy);
                 $transferCountQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
+                $transferCountQuery->forCreatedBy($createdBy);
                 if ($warehouseId) {
                     $orderCountQuery->where('warehouse_id', $warehouseId);
                     $transferCountQuery->where('satellite_warehouse_id', $warehouseId);
