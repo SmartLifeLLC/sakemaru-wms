@@ -97,9 +97,7 @@ class WmsShortageAllocationsTable
                     ->label('ピック数')
                     ->type('number')
                     ->rules(['required', 'integer', 'min:0'])
-                    ->disabled(fn (WmsShortageAllocation $record): bool => ! in_array($record->status, ['RESERVED', 'PICKING'])
-                        || $record->target_warehouse_id !== auth()->user()?->default_warehouse_id
-                    )
+                    ->disabled(fn (WmsShortageAllocation $record): bool => ! in_array($record->status, ['RESERVED', 'PICKING']))
                     ->afterStateUpdated(function (WmsShortageAllocation $record, $state) {
                         // picked_qtyがassign_qtyを超えないようにチェック
                         if ($state > $record->assign_qty) {
@@ -220,7 +218,6 @@ class WmsShortageAllocationsTable
                     ->color('success')
                     ->visible(fn (WmsShortageAllocation $record): bool => ! $record->is_finished
                         && in_array($record->status, ['PICKING', 'RESERVED'])
-                        && $record->target_warehouse_id === auth()->user()?->default_warehouse_id
                     )
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalHeading('横持ち出荷の完了確認')
@@ -282,7 +279,6 @@ class WmsShortageAllocationsTable
                     ->color('warning')
                     ->visible(fn (WmsShortageAllocation $record): bool => $record->remaining_qty > 0
                         && in_array($record->status, ['PICKING', 'RESERVED'])
-                        && $record->target_warehouse_id === auth()->user()?->default_warehouse_id
                     )
                     ->modalHeading('横持ち出荷修正')
                     ->modalWidth('7xl')
