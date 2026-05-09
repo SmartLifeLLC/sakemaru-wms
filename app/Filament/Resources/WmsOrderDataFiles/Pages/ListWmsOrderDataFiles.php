@@ -63,24 +63,24 @@ class ListWmsOrderDataFiles extends ListRecords
 
     public function getPresetViews(): array
     {
-        // ユーザーのデフォルト倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        // ユーザーがヘッダーで選択中の倉庫を取得（未選択時はデフォルト倉庫）
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
         // 倉庫データをキャッシュから取得（リクエスト内で複数回呼び出されるため）
         $warehouses = $this->getWarehousesForPresetViews();
         $warehouseIds = $warehouses->pluck('id')->toArray();
 
-        // デフォルト倉庫が発注データファイルに存在するかチェック
-        $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
-        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
+        // 選択中の倉庫が発注データファイルに存在するかチェック
+        $hasSelectedWarehouse = $selectedWarehouseId && in_array($selectedWarehouseId, $warehouseIds);
+        $selectedWarehouse = $hasSelectedWarehouse ? $warehouses->firstWhere('id', $selectedWarehouseId) : null;
 
         // プリセットビュー構築（データがなくても「全て」タブは常に表示）
-        if ($defaultWarehouse) {
+        if ($selectedWarehouse) {
             $views = [
                 'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $selectedWarehouseId))
                     ->favorite()
-                    ->label($defaultWarehouse->name)
+                    ->label($selectedWarehouse->name)
                     ->default(),
             ];
         } else {
@@ -98,7 +98,7 @@ class ListWmsOrderDataFiles extends ListRecords
 
         // 倉庫タブを追加（データがある場合のみ）
         foreach ($warehouses as $warehouse) {
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+            if ($hasSelectedWarehouse && $warehouse->id === $selectedWarehouseId) {
                 continue;
             }
             $views["default_{$warehouse->id}"] = PresetView::make()
