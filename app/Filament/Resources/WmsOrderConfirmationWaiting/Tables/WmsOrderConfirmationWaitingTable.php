@@ -713,6 +713,59 @@ class WmsOrderConfirmationWaitingTable
         ];
     }
 
+    public static function preloadItemContractorOrderSettings(Collection $records): void
+    {
+        if ($records->isEmpty()) {
+            return;
+        }
+
+        $tuples = $records
+            ->map(fn (WmsOrderCandidate $record): array => [
+                $record->warehouse_id,
+                $record->item_id,
+                $record->contractor_id,
+            ])
+            ->unique(fn (array $tuple): string => implode(':', $tuple))
+            ->values();
+
+        $missingTuples = $tuples
+            ->reject(fn (array $tuple): bool => array_key_exists(implode(':', $tuple), static::$itemContractorOrderSettingCache))
+            ->values();
+
+        if ($missingTuples->isEmpty()) {
+            return;
+        }
+
+        $settings = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->whereRaw(
+                '(warehouse_id, item_id, contractor_id) IN ('.
+                $missingTuples->map(fn () => '(?, ?, ?)')->implode(', ').')',
+                $missingTuples->flatten()->toArray()
+            )
+            ->select('warehouse_id', 'item_id', 'contractor_id', 'safety_stock', 'max_stock', 'min_stock', 'auto_order_quantity', 'is_auto_order')
+            ->get()
+            ->keyBy(fn ($setting): string => "{$setting->warehouse_id}:{$setting->item_id}:{$setting->contractor_id}");
+
+        $recordsByKey = $records->keyBy(
+            fn (WmsOrderCandidate $record): string => "{$record->warehouse_id}:{$record->item_id}:{$record->contractor_id}"
+        );
+
+        foreach ($missingTuples as $tuple) {
+            $key = implode(':', $tuple);
+            $setting = $settings->get($key);
+            $record = $recordsByKey->get($key);
+
+            static::$itemContractorOrderSettingCache[$key] = [
+                'safety_stock' => (int) ($setting?->safety_stock ?? $record?->safety_stock ?? 0),
+                'max_stock' => (int) ($setting?->max_stock ?? 0),
+                'min_stock' => (int) ($setting?->min_stock ?? 0),
+                'auto_order_quantity' => (int) ($setting?->auto_order_quantity ?? 0),
+                'is_auto_order' => (bool) ($setting?->is_auto_order ?? false),
+            ];
+        }
+    }
+
     /**
      * 承認待ちの6缶パック候補を、発注数=6缶パック数、単価=バラ単価×6に補正する。
      *
