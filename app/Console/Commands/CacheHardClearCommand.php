@@ -8,13 +8,14 @@ use Symfony\Component\Console\Output\ConsoleOutput;
 class CacheHardClearCommand extends Command
 {
     protected $signature = 'cache:hard-clear';
+
     protected $description = 'Clear old caches and rebuild required caches for production release.';
 
     private ConsoleOutput $consoleOutput;
 
     public function handle(): int
     {
-        $this->consoleOutput = new ConsoleOutput();
+        $this->consoleOutput = new ConsoleOutput;
 
         $this->consoleOutput->writeln('<info>Start cache refresh...</info>');
 
@@ -23,10 +24,11 @@ class CacheHardClearCommand extends Command
             'config:cache',
             'route:cache',
             'view:cache',
+            'filament:clear-cached-components',
             'filament:cache-components',
             'filament:assets',
             'icons:cache',
-            'queue:restart'
+            'queue:restart',
 
         ];
 

@@ -54,7 +54,9 @@
       "Read(//tmp/**)",
       "Bash(grep -E \"\\\\.\\(php\\)$\")",
       "Bash(grep \"\\\\.php$\")",
-      "Bash(mysql -h 127.0.0.1 -u root sakemaru_hana_prod -e \"SHOW PROCESSLIST;\")"
+      "Bash(mysql -h 127.0.0.1 -u root sakemaru_hana_prod -e \"SHOW PROCESSLIST;\")",
+      "Bash(grep -E \"\\\\.\\(php|sql\\)$\")",
+      "Bash(grep -E \"\\\\.\\(php|md\\)$\")"
     ]
   }
 }
