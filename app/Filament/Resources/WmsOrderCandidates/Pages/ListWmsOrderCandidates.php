@@ -205,6 +205,7 @@ class ListWmsOrderCandidates extends ListRecords
         // 既存PENDING候補の数量を取得
         $pendingCandidates = WmsOrderCandidate::where('warehouse_id', $warehouseId)
             ->where('status', CandidateStatus::PENDING)
+            ->forCreatedBy(auth()->id())
             ->whereIn('item_id', $itemIds)
             ->get()
             ->groupBy('item_id');
@@ -372,6 +373,7 @@ class ListWmsOrderCandidates extends ListRecords
                     $warehouseId = $data['warehouse_id'];
                     $existingJob = WmsAutoOrderJobControl::where('process_name', JobProcessName::ORDER_CALC)
                         ->where('settlement_status', SettlementStatus::PENDING)
+                        ->where('created_by', auth()->id())
                         ->where('warehouse_id', $warehouseId)
                         ->whereDate('started_at', today())
                         ->orderByDesc('id')
@@ -431,6 +433,7 @@ class ListWmsOrderCandidates extends ListRecords
                             ->where('item_id', $itemId)
                             ->where('quantity_type', $quantityType)
                             ->where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
                             ->exists()) {
                             $errors[] = "[{$itemCode}] {$item->name} ({$quantityType->name()}): 既に存在";
 
@@ -547,7 +550,9 @@ class ListWmsOrderCandidates extends ListRecords
                     ->requiresConfirmation()
                     ->modalHeading('発注候補を全て承認')
                     ->modalDescription(function () {
-                        $count = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
+                        $count = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
+                            ->count();
 
                         return "承認前（PENDING）の発注候補 {$count}件 を全て承認します。";
                     })
@@ -555,6 +560,7 @@ class ListWmsOrderCandidates extends ListRecords
                     ->action(function () {
                         $updated = 0;
                         WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
                             ->with('item.current_price')
                             ->orderBy('id')
                             ->chunkById(500, function ($candidates) use (&$updated) {
@@ -582,13 +588,17 @@ class ListWmsOrderCandidates extends ListRecords
                     ->requiresConfirmation()
                     ->modalHeading('承認前の発注候補を全削除')
                     ->modalDescription(function () {
-                        $count = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->count();
+                        $count = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
+                            ->count();
 
                         return "承認前（PENDING）の発注候補 {$count}件 を全て削除します。この操作は取り消せません。";
                     })
                     ->modalSubmitActionLabel('全削除')
                     ->action(function () {
-                        $deleted = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->delete();
+                        $deleted = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                            ->forCreatedBy(auth()->id())
+                            ->delete();
 
                         Notification::make()
                             ->title('承認前の発注候補を削除しました')
@@ -617,6 +627,7 @@ class ListWmsOrderCandidates extends ListRecords
                 ])
                 // デフォルトでPENDINGのみ表示（大幅な高速化）
                 ->where('status', CandidateStatus::PENDING)
+                ->forCreatedBy(auth()->id())
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')
@@ -663,6 +674,7 @@ class ListWmsOrderCandidates extends ListRecords
         $cacheKey = 'order_candidates_pending_warehouses_'.auth()->id();
         $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
             $warehouseIds = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                ->forCreatedBy(auth()->id())
                 ->distinct()
                 ->pluck('warehouse_id')
                 ->toArray();

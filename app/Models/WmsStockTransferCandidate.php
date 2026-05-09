@@ -209,6 +209,17 @@ class WmsStockTransferCandidate extends WmsModel
         return $query->whereIn('lot_status', [LotStatus::BLOCKED, LotStatus::NEED_APPROVAL]);
     }
 
+    public function scopeForCreatedBy(Builder $query, ?int $userId): Builder
+    {
+        if ($userId === null) {
+            return $query;
+        }
+
+        return $query->whereIn('batch_code', WmsAutoOrderJobControl::query()
+            ->where('created_by', $userId)
+            ->select('batch_code'));
+    }
+
     /**
      * 計算後在庫と不足数を再計算
      */

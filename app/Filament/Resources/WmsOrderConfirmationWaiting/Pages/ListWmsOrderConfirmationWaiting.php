@@ -17,7 +17,6 @@ use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
-use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Support\Enums\Alignment;
@@ -65,13 +64,13 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         $transferBadgeClasses = $transferActive ? $activeBadge : $inactiveBadge;
 
         return new HtmlString(
-            '<nav class="flex gap-2 items-center">' .
-            '<button wire:click="setConfirmationTab(\'order\')" class="px-4 py-1 text-base font-semibold transition-all whitespace-nowrap ' . $orderClasses . '">' .
-            '発注確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded ' . $orderBadgeClasses . '">' . $orderCount . '</span>' .
-            '</button>' .
-            '<button wire:click="setConfirmationTab(\'transfer\')" class="px-4 py-1 text-base font-semibold transition-all whitespace-nowrap ' . $transferClasses . '">' .
-            '移動確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded ' . $transferBadgeClasses . '">' . $transferCount . '</span>' .
-            '</button>' .
+            '<nav class="flex gap-2 items-center">'.
+            '<button wire:click="setConfirmationTab(\'order\')" class="px-4 py-1 text-base font-semibold transition-all whitespace-nowrap '.$orderClasses.'">'.
+            '発注確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded '.$orderBadgeClasses.'">'.$orderCount.'</span>'.
+            '</button>'.
+            '<button wire:click="setConfirmationTab(\'transfer\')" class="px-4 py-1 text-base font-semibold transition-all whitespace-nowrap '.$transferClasses.'">'.
+            '移動確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded '.$transferBadgeClasses.'">'.$transferCount.'</span>'.
+            '</button>'.
             '</nav>'
         );
     }
@@ -436,6 +435,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                 ->query(
                     WmsStockTransferCandidate::query()
                         ->where('status', CandidateStatus::APPROVED)
+                        ->forCreatedBy(auth()->id())
                         ->with([
                             'satelliteWarehouse',
                             'hubWarehouse',
@@ -492,6 +492,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
     private function getOrderApprovedCountForWarehouse(?int $warehouseId): int
     {
         $query = WmsOrderCandidate::where('status', CandidateStatus::APPROVED);
+        $query->forCreatedBy(auth()->id());
 
         if ($warehouseId !== null) {
             $query->where('warehouse_id', $warehouseId);
@@ -503,6 +504,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
     private function getTransferApprovedCountForWarehouse(?int $warehouseId): int
     {
         $query = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
+        $query->forCreatedBy(auth()->id());
 
         if ($warehouseId !== null) {
             $query->where('satellite_warehouse_id', $warehouseId);
@@ -533,6 +535,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             $cacheKey = 'transfer_confirmation_approved_warehouses_'.auth()->id();
             $warehouseData = cache()->remember($cacheKey, 30, function () {
                 $warehouseIds = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
+                    ->forCreatedBy(auth()->id())
                     ->distinct()
                     ->pluck('satellite_warehouse_id')
                     ->toArray();
@@ -591,6 +594,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         $cacheKey = 'order_confirmation_approved_warehouses_'.auth()->id();
         $warehouseData = cache()->remember($cacheKey, 30, function () {
             $warehouseIds = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
+                ->forCreatedBy(auth()->id())
                 ->distinct()
                 ->pluck('warehouse_id')
                 ->toArray();

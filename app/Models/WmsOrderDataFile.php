@@ -89,6 +89,17 @@ class WmsOrderDataFile extends WmsModel
         return $query->where('warehouse_id', $warehouseId);
     }
 
+    public function scopeForCreatedBy(Builder $query, ?int $userId): Builder
+    {
+        if ($userId === null) {
+            return $query;
+        }
+
+        return $query->whereIn('batch_code', WmsAutoOrderJobControl::query()
+            ->where('created_by', $userId)
+            ->select('batch_code'));
+    }
+
     // Methods
 
     /**

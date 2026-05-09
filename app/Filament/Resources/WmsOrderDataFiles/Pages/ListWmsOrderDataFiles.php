@@ -45,6 +45,7 @@ class ListWmsOrderDataFiles extends ListRecords
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with(['warehouse', 'contractor', 'downloadedByUser'])
+                ->forCreatedBy(auth()->id())
                 ->where('is_test', $isTest)
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('warehouse_id')
@@ -120,6 +121,7 @@ class ListWmsOrderDataFiles extends ListRecords
 
         $isTest = $this->fileTypeTab === 'test';
         $warehouseIds = WmsOrderDataFile::where('is_test', $isTest)
+            ->forCreatedBy(auth()->id())
             ->distinct()
             ->pluck('warehouse_id')
             ->toArray();

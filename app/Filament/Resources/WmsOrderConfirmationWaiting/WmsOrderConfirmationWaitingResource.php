@@ -6,9 +6,9 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Pages\ListWmsOrderConfirmationWaiting;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsOrderCandidate;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -52,6 +52,7 @@ class WmsOrderConfirmationWaitingResource extends AdminResource
         // 発注確定済み（CONFIRMED）は別画面、送信済み（EXECUTED）は表示しない
         return parent::getEloquentQuery()
             ->where('status', CandidateStatus::APPROVED)
+            ->forCreatedBy(auth()->id())
             ->with([
                 'warehouse',
                 'item.current_price',

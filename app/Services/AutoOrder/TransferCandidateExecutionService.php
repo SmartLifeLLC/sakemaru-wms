@@ -317,9 +317,10 @@ class TransferCandidateExecutionService
      * @param  int  $executedBy  確定者ID
      * @return array{queue_count: int, candidate_count: int, errors: array}
      */
-    public function executeAllApprovedGrouped(int $executedBy, ?int $warehouseId = null): array
+    public function executeAllApprovedGrouped(int $executedBy, ?int $warehouseId = null, ?int $createdBy = null): array
     {
         $query = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
+            ->forCreatedBy($createdBy)
             ->with(['hubWarehouse', 'satelliteWarehouse', 'item']);
 
         if ($warehouseId !== null) {

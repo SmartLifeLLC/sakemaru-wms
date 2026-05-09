@@ -64,6 +64,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
 
         try {
             $zeroQuantityCandidatesQuery = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
+                ->forCreatedBy($this->userId)
                 ->where('order_quantity', '<=', 0);
 
             if ($this->warehouseId !== null) {
@@ -80,14 +81,16 @@ class ProcessOrderConfirmationJob implements ShouldQueue
             }
 
             // 承認済み移動候補の件数を取得
-            $transferApprovedQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
+            $transferApprovedQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
+                ->forCreatedBy($this->userId);
             if ($this->warehouseId !== null) {
                 $transferApprovedQuery->where('satellite_warehouse_id', $this->warehouseId);
             }
             $transferApprovedCount = $transferApprovedQuery->count();
 
             // 全ての承認済み発注バッチを取得
-            $batchCodesQuery = WmsOrderCandidate::where('status', CandidateStatus::APPROVED);
+            $batchCodesQuery = WmsOrderCandidate::where('status', CandidateStatus::APPROVED)
+                ->forCreatedBy($this->userId);
             if ($this->warehouseId !== null) {
                 $batchCodesQuery->where('warehouse_id', $this->warehouseId);
             }
@@ -98,7 +101,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
 
             if (empty($batchCodes) && $transferApprovedCount === 0) {
                 // 確定対象がないので、PENDING状態のジョブをキャンセル
-                WmsAutoOrderJobControl::cancelPendingSettlements($this->warehouseId);
+                WmsAutoOrderJobControl::cancelPendingSettlements($this->warehouseId, $this->userId);
 
                 $progress->markAsCompleted([
                     'total_transfer_queues' => 0,
@@ -132,7 +135,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                     "移動候補を確定処理中... ({$transferApprovedCount}件)"
                 );
 
-                $transferResult = $transferExecutionService->executeAllApprovedGrouped($this->userId, $this->warehouseId);
+                $transferResult = $transferExecutionService->executeAllApprovedGrouped($this->userId, $this->warehouseId, $this->userId);
                 $totalTransferQueues = $transferResult['queue_count'];
                 $totalTransferCandidates = $transferResult['candidate_count'];
 
@@ -212,7 +215,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         }
 
         // ジョブ失敗時は確定待ちをキャンセルして永久PENDINGを防止
-        WmsAutoOrderJobControl::cancelPendingSettlements($this->warehouseId);
+        WmsAutoOrderJobControl::cancelPendingSettlements($this->warehouseId, $this->userId);
 
         Log::error('Transfer/Order confirmation job failed', [
             'progress_id' => $this->progressId,
@@ -230,7 +233,8 @@ class ProcessOrderConfirmationJob implements ShouldQueue
         if (empty($batchCodes)) {
             // バッチコードがない場合でも、PENDING状態のジョブがあれば確定済みにする
             $query = WmsAutoOrderJobControl::where('settlement_status', SettlementStatus::PENDING)
-                ->where('process_name', JobProcessName::ORDER_CALC);
+                ->whereIn('process_name', [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC])
+                ->where('created_by', $this->userId);
             if ($this->warehouseId !== null) {
                 $query->where('warehouse_id', $this->warehouseId);
             }
@@ -241,7 +245,8 @@ class ProcessOrderConfirmationJob implements ShouldQueue
 
         // バッチコードに関連するジョブを確定済みに更新
         $query = WmsAutoOrderJobControl::whereIn('batch_code', $batchCodes)
-            ->where('process_name', JobProcessName::ORDER_CALC)
+            ->whereIn('process_name', [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC])
+            ->where('created_by', $this->userId)
             ->where('settlement_status', SettlementStatus::PENDING);
 
         if ($this->warehouseId !== null) {
@@ -255,5 +260,4 @@ class ProcessOrderConfirmationJob implements ShouldQueue
             'updated_count' => $updatedCount,
         ]);
     }
-
 }

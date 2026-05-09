@@ -198,25 +198,33 @@ class WmsAutoOrderJobControl extends WmsModel
     /**
      * 確定待ち（PENDING）の最新ジョブを取得
      */
-    public static function findPendingSettlement(): ?self
+    public static function findPendingSettlement(?int $createdBy = null, ?array $processNames = null): ?self
     {
-        return self::where('settlement_status', SettlementStatus::PENDING)
-            ->where('process_name', JobProcessName::ORDER_CALC)
-            ->orderBy('id', 'desc')
-            ->first();
+        $query = self::where('settlement_status', SettlementStatus::PENDING)
+            ->whereIn('process_name', $processNames ?? [JobProcessName::ORDER_CALC]);
+
+        if ($createdBy !== null) {
+            $query->where('created_by', $createdBy);
+        }
+
+        return $query->orderBy('id', 'desc')->first();
     }
 
     /**
      * 指定倉庫の当日の確定待ち（PENDING）ジョブを取得（batch_code再利用用）
      */
-    public static function findPendingSettlementForWarehouse(int $warehouseId): ?self
+    public static function findPendingSettlementForWarehouse(int $warehouseId, ?int $createdBy = null, ?array $processNames = null): ?self
     {
-        return self::where('settlement_status', SettlementStatus::PENDING)
-            ->where('process_name', JobProcessName::ORDER_CALC)
+        $query = self::where('settlement_status', SettlementStatus::PENDING)
+            ->whereIn('process_name', $processNames ?? [JobProcessName::ORDER_CALC])
             ->where('warehouse_id', $warehouseId)
-            ->whereDate('started_at', today())
-            ->orderBy('id', 'desc')
-            ->first();
+            ->whereDate('started_at', today());
+
+        if ($createdBy !== null) {
+            $query->where('created_by', $createdBy);
+        }
+
+        return $query->orderBy('id', 'desc')->first();
     }
 
     /**
@@ -232,13 +240,17 @@ class WmsAutoOrderJobControl extends WmsModel
     /**
      * 確定待ち（PENDING）のジョブをキャンセル
      */
-    public static function cancelPendingSettlements(?int $warehouseId = null): int
+    public static function cancelPendingSettlements(?int $warehouseId = null, ?int $createdBy = null): int
     {
         $query = self::where('settlement_status', SettlementStatus::PENDING)
-            ->where('process_name', JobProcessName::ORDER_CALC);
+            ->whereIn('process_name', [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC]);
 
         if ($warehouseId !== null) {
             $query->where('warehouse_id', $warehouseId);
+        }
+
+        if ($createdBy !== null) {
+            $query->where('created_by', $createdBy);
         }
 
         return $query->update(['settlement_status' => SettlementStatus::CANCELLED]);

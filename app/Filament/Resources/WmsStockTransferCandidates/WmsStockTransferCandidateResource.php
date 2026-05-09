@@ -5,9 +5,9 @@ namespace App\Filament\Resources\WmsStockTransferCandidates;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsStockTransferCandidates\Pages\ListWmsStockTransferCandidates;
 use App\Filament\Resources\WmsStockTransferCandidates\Tables\WmsStockTransferCandidatesTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsStockTransferCandidate;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -46,6 +46,7 @@ class WmsStockTransferCandidateResource extends AdminResource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
+            ->forCreatedBy(auth()->id())
             ->with(['modifiedByUser']);
     }
 

@@ -6,9 +6,9 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsOrderCandidates\Pages\ListWmsOrderCandidates;
 use App\Filament\Resources\WmsOrderCandidates\Tables\WmsOrderCandidatesTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsOrderCandidate;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -52,6 +52,7 @@ class WmsOrderCandidateResource extends AdminResource
     {
         return parent::getEloquentQuery()
             ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::EXCLUDED])
+            ->forCreatedBy(auth()->id())
             ->with(['item.current_price', 'modifiedByUser']);
     }
 
