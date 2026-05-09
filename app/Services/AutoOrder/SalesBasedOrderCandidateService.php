@@ -439,9 +439,7 @@ class SalesBasedOrderCandidateService
             ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
             ->whereIn('item_contractors.contractor_id', $internalContractorIds)
             ->whereIn('item_contractors.warehouse_id', $this->realWarehouseIds)
-            ->where('item_contractors.is_auto_order', true)
-            ->where('item_contractors.auto_order_quantity', '>', 0)
-            ->where('item_contractors.safety_stock', '>', 0)
+            ->where('item_contractors.is_auto_order', false)
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
             ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
@@ -458,22 +456,23 @@ class SalesBasedOrderCandidateService
             }
 
             $safetyStock = (int) $ic->safety_stock;
+            $sales3dQty = $this->salesSummaries3d[$ic->warehouse_id][$ic->item_id] ?? 0;
+            if ($sales3dQty <= 0) {
+                continue;
+            }
 
             $stock = $this->stockSnapshots[$ic->warehouse_id][$ic->item_id] ?? null;
             $effectiveStock = $stock['effective'] ?? 0;
-            if ($effectiveStock === 0) {
-                continue;
-            }
 
             $incomingStock = $stock['incoming'] ?? 0;
             $projectedStock = $effectiveStock + $incomingStock;
 
-            if ($projectedStock === 0 || $projectedStock > $safetyStock) {
+            if ($projectedStock >= $sales3dQty) {
                 continue;
             }
 
-            $shortageQty = $safetyStock - $projectedStock;
-            $orderQty = (int) $ic->auto_order_quantity;
+            $shortageQty = $sales3dQty - $projectedStock;
+            $orderQty = $shortageQty;
 
             $supplyWarehouseId = $this->internalSettings[$ic->contractor_id] ?? null;
             if (! $supplyWarehouseId) {
@@ -546,14 +545,14 @@ class SalesBasedOrderCandidateService
                     '供給元倉庫コード' => $supplyWarehouseInfo['code'] ?? null,
                     '供給元倉庫名' => $supplyWarehouseInfo['name'] ?? null,
                 ], [
-                    '計算タイプ' => '発注点・自動発注数ベース',
-                    '計算式' => '見込み在庫 <= 発注点 → 自動発注数を発注',
+                    '計算タイプ' => '実績ベース',
+                    '計算式' => '3日実績 - (有効在庫 + 入荷予定)',
+                    '3日実績' => $sales3dQty,
                     '発注点' => $safetyStock,
                     '有効在庫' => $effectiveStock,
                     '入荷予定' => $incomingStock,
                     '見込み在庫' => $projectedStock,
                     '不足数' => $shortageQty,
-                    '自動発注数' => (int) $ic->auto_order_quantity,
                     '発注数量' => $orderQty,
                 ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],
@@ -585,9 +584,7 @@ class SalesBasedOrderCandidateService
             ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
             ->whereNotIn('item_contractors.contractor_id', $this->internalContractorIds ?: [0])
             ->whereIn('item_contractors.warehouse_id', $this->realWarehouseIds)
-            ->where('item_contractors.is_auto_order', true)
-            ->where('item_contractors.auto_order_quantity', '>', 0)
-            ->where('item_contractors.safety_stock', '>', 0)
+            ->where('item_contractors.is_auto_order', false)
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
             ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
@@ -612,12 +609,13 @@ class SalesBasedOrderCandidateService
             }
 
             $safetyStock = (int) $ic->safety_stock;
+            $sales3dQty = $this->salesSummaries3d[$ic->warehouse_id][$ic->item_id] ?? 0;
+            if ($sales3dQty <= 0) {
+                continue;
+            }
 
             $stock = $this->stockSnapshots[$ic->warehouse_id][$ic->item_id] ?? null;
             $effectiveStock = $stock['effective'] ?? 0;
-            if ($effectiveStock === 0) {
-                continue;
-            }
 
             $incomingStock = $stock['incoming'] ?? 0;
 
@@ -627,18 +625,18 @@ class SalesBasedOrderCandidateService
 
             $calculatedStock = $effectiveStock + $incomingStock + $incomingFromTransfer - $outgoingToTransfer;
 
-            if ($calculatedStock === 0 || $calculatedStock > $safetyStock) {
+            if ($calculatedStock >= $sales3dQty) {
                 continue;
             }
 
-            $shortageQty = $safetyStock - $calculatedStock;
+            $shortageQty = $sales3dQty - $calculatedStock;
 
             $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
             $quantityCalculation = $this->calculateOrderQuantity(
                 $shortageQty,
                 $purchaseUnit,
-                (int) ($ic->auto_order_quantity ?? 0),
-                (int) ($ic->max_stock ?? 0),
+                0,
+                0,
                 $calculatedStock,
                 $this->orderingUnitQuantities[$ic->item_id] ?? null,
             );
@@ -748,8 +746,9 @@ class SalesBasedOrderCandidateService
                     '発注倉庫コード' => $warehouseInfo['code'] ?? null,
                     '発注倉庫名' => $warehouseInfo['name'] ?? null,
                 ], [
-                    '計算タイプ' => '発注点・自動発注数ベース',
-                    '計算式' => '見込み在庫 <= 発注点 → 自動発注数を発注',
+                    '計算タイプ' => '実績ベース',
+                    '計算式' => '3日実績 - (有効在庫 + 入荷予定 + 移動入庫 - 移動出庫)',
+                    '3日実績' => $sales3dQty,
                     '発注点' => $safetyStock,
                     '有効在庫' => $effectiveStock,
                     '入荷予定' => $incomingStock,

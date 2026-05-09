@@ -42,7 +42,7 @@ class HanaOrderFileGeneratorTest extends TestCase
      */
     public function it_returns_correct_encoding(): void
     {
-        $this->assertEquals('SJIS', $this->generator->getEncoding());
+        $this->assertEquals('SJIS-win', $this->generator->getEncoding());
     }
 
     /**
@@ -160,7 +160,7 @@ class HanaOrderFileGeneratorTest extends TestCase
             );
 
             // エンコーディングの確認
-            $this->assertEquals('SJIS', $file['encoding']);
+            $this->assertEquals('SJIS-win', $file['encoding']);
 
             // コンテンツがShift_JISでエンコードされていることを確認
             $this->assertNotEmpty($file['content']);

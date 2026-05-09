@@ -7,11 +7,11 @@ use App\Enums\EWMSLogTargetType;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasOptimizedFilters;
+use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
-use App\Models\WmsPickingArea;
-use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsAdminOperationLog;
+use App\Models\WmsPickingArea;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
@@ -886,7 +886,7 @@ class WmsPickingTasksTable
                         // 現在のテーブルクエリから未完了タスクを取得
                         $tasks = $table->getQuery()
                             ->where('status', '!=', WmsPickingTask::STATUS_COMPLETED)
-                            ->with('pickingItemResults')
+                            ->with('pickingItemResults.shortage.allocations')
                             ->get();
 
                         if ($tasks->isEmpty()) {
@@ -906,6 +906,43 @@ class WmsPickingTasksTable
                         DB::connection('sakemaru')->transaction(function () use ($tasks, &$completedCount, &$itemCount, &$errors) {
                             foreach ($tasks as $task) {
                                 try {
+                                    $blockers = [];
+
+                                    foreach ($task->pickingItemResults as $item) {
+                                        if (($item->ordered_qty ?? 0) <= ($item->planned_qty ?? 0)) {
+                                            continue;
+                                        }
+
+                                        $shortage = $item->shortage;
+                                        if (! $shortage) {
+                                            $blockers[] = "商品ID {$item->item_id}: 欠品未記録";
+
+                                            continue;
+                                        }
+
+                                        if (! $shortage->is_confirmed) {
+                                            $blockers[] = "欠品ID {$shortage->id}: 欠品対応未承認";
+                                        }
+
+                                        if (! $shortage->is_synced) {
+                                            $blockers[] = "欠品ID {$shortage->id}: 在庫同期未完了";
+                                        }
+
+                                        $unfinishedAllocationCount = $shortage->allocations
+                                            ->filter(fn ($allocation) => $allocation->is_confirmed && ! $allocation->is_finished)
+                                            ->count();
+
+                                        if ($unfinishedAllocationCount > 0) {
+                                            $blockers[] = "欠品ID {$shortage->id}: 横持ち出荷未完了 {$unfinishedAllocationCount}件";
+                                        }
+                                    }
+
+                                    if (! empty($blockers)) {
+                                        $errors[] = "タスクID {$task->id}: ".implode(' / ', $blockers);
+
+                                        continue;
+                                    }
+
                                     // 全アイテムのpicked_qtyを予定数に設定
                                     foreach ($task->pickingItemResults as $item) {
                                         $item->update([

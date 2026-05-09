@@ -11,6 +11,7 @@ use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\OrderCancellationService;
+use App\Services\AutoOrder\OrderDataFileService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -313,6 +314,57 @@ class WmsOrderConfirmedTable
             ->toolbarActions([
                 static::getExportAction(),
                 BulkActionGroup::make([
+                    BulkAction::make('bulkGenerateOrderDataFiles')
+                        ->label('FAX / MAIL / CSV データ生成')
+                        ->icon('heroicon-o-document-plus')
+                        ->color('primary')
+                        ->requiresConfirmation()
+                        ->modalHeading('発注データを生成')
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件から、FAX / MAIL / CSV 用の発注データを生成します。確定済み以外の候補は除外されます。1000件を超える場合は条件を絞ってください。")
+                        ->modalSubmitActionLabel('データ生成')
+                        ->modalCancelActionLabel('生成せず閉じる')
+                        ->action(function (Collection $records) {
+                            if ($records->count() > 1000) {
+                                Notification::make()
+                                    ->title('選択件数が多すぎます')
+                                    ->body('1000件以内になるように、倉庫・仕入先・実行CDなどで絞り込んでから再実行してください。')
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $candidateIds = $records->pluck('id')->map(fn ($id) => (int) $id)->all();
+                            $result = app(OrderDataFileService::class)
+                                ->generateCsvFilesForCandidates($candidateIds);
+
+                            $fileCount = $result['total_files'] ?? count($result['files'] ?? []);
+                            $totalOrders = collect($result['files'] ?? [])->sum('order_count');
+
+                            if ($fileCount > 0) {
+                                Notification::make()
+                                    ->title('発注データを生成しました')
+                                    ->body("生成ファイル {$fileCount}件 / 発注 {$totalOrders}件")
+                                    ->success()
+                                    ->send();
+                            } else {
+                                Notification::make()
+                                    ->title('生成対象がありません')
+                                    ->body($result['message'] ?? '選択した候補に確定済みの発注候補がありません。')
+                                    ->warning()
+                                    ->send();
+                            }
+
+                            if (! empty($result['errors'])) {
+                                Notification::make()
+                                    ->title(count($result['errors']).'件のエラーが発生しました')
+                                    ->body(implode("\n", array_slice($result['errors'], 0, 5)))
+                                    ->danger()
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
+
                     BulkAction::make('bulkCancelConfirmation')
                         ->label('確定を一括取消')
                         ->icon('heroicon-o-arrow-uturn-left')
