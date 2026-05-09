@@ -1028,6 +1028,20 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
             return $this->purchaseUnitPriceCache[$itemId];
         }
 
+        if (isset($this->costPriceCache[$itemId])) {
+            $price = $this->costPriceCache[$itemId];
+            $purchaseUnitPrice = match ($price->purchase_price_type ?? null) {
+                EPurchasePriceType::PRODUCER->value => $price->producer_unit_price ?? null,
+                EPurchasePriceType::COST->value => $price->cost_unit_price ?? null,
+                EPurchasePriceType::WHOLESALE->value => $price->wholesale_unit_price ?? null,
+                default => $price->purchase_unit_price ?? $price->cost_unit_price ?? null,
+            };
+
+            $this->purchaseUnitPriceCache[$itemId] = $purchaseUnitPrice !== null ? (float) $purchaseUnitPrice : null;
+
+            return $this->purchaseUnitPriceCache[$itemId];
+        }
+
         $price = DB::connection('sakemaru')
             ->table('item_prices as ip')
             ->join('items as i', 'i.id', '=', 'ip.item_id')

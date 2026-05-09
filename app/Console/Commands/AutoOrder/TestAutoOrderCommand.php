@@ -471,41 +471,41 @@ class TestAutoOrderCommand extends Command
         $this->info("処理件数: {$job->processed_records}");
         $this->newLine();
 
-        // A3: is_auto_order=true のみ候補生成
+        // A3: is_auto_order=false + 実績ありのみ候補生成
         $orderCount = DB::connection('sakemaru')->table('wms_order_candidates')->where('batch_code', $batchCode)->count();
         $transferCount = DB::connection('sakemaru')->table('wms_stock_transfer_candidates')->where('batch_code', $batchCode)->count();
         $this->recordResult('A3', '実績ベース→候補生成', ($orderCount + $transferCount) > 0, $orderCount + $transferCount, '>0', "発注:{$orderCount}, 移動:{$transferCount}");
 
-        // is_auto_order=false が含まれていないこと
-        $nonAutoOrderInSales = DB::connection('sakemaru')->select('
+        // is_auto_order=true が含まれていないこと
+        $autoOrderInSales = DB::connection('sakemaru')->select('
             SELECT COUNT(*) as cnt FROM wms_order_candidates oc
             JOIN item_contractors ic ON ic.item_id = oc.item_id AND ic.contractor_id = oc.contractor_id AND ic.warehouse_id = oc.warehouse_id
-            WHERE oc.batch_code = ? AND ic.is_auto_order = 0
+            WHERE oc.batch_code = ? AND ic.is_auto_order = 1
         ', [$batchCode]);
-        $this->recordResult('A3-excl', '実績ベース→is_auto_order=falseなし', ($nonAutoOrderInSales[0]->cnt ?? 0) === 0, $nonAutoOrderInSales[0]->cnt ?? -1, '0', '');
+        $this->recordResult('A3-excl', '実績ベース→is_auto_order=trueなし', ($autoOrderInSales[0]->cnt ?? 0) === 0, $autoOrderInSales[0]->cnt ?? -1, '0', '');
 
-        $nonAutoOrderInTransfers = DB::connection('sakemaru')->select('
+        $autoOrderInTransfers = DB::connection('sakemaru')->select('
             SELECT COUNT(*) as cnt FROM wms_stock_transfer_candidates stc
             JOIN item_contractors ic ON ic.item_id = stc.item_id AND ic.contractor_id = stc.contractor_id AND ic.warehouse_id = stc.satellite_warehouse_id
-            WHERE stc.batch_code = ? AND ic.is_auto_order = 0
+            WHERE stc.batch_code = ? AND ic.is_auto_order = 1
         ', [$batchCode]);
-        $this->recordResult('A3-excl-t', '実績ベース移動→is_auto_order=falseなし', ($nonAutoOrderInTransfers[0]->cnt ?? 0) === 0, $nonAutoOrderInTransfers[0]->cnt ?? -1, '0', '');
+        $this->recordResult('A3-excl-t', '実績ベース移動→is_auto_order=trueなし', ($autoOrderInTransfers[0]->cnt ?? 0) === 0, $autoOrderInTransfers[0]->cnt ?? -1, '0', '');
 
-        // A5: safety_stock>0 でも実績ベースに含まれること（is_auto_order=trueなら）
+        // A5: safety_stock>0 でも実績ベースに含まれること（is_auto_order=falseなら）
         $safetyStockInSales = DB::connection('sakemaru')->select('
             SELECT COUNT(*) as cnt FROM wms_order_candidates oc
             JOIN item_contractors ic ON ic.item_id = oc.item_id AND ic.contractor_id = oc.contractor_id AND ic.warehouse_id = oc.warehouse_id
-            WHERE oc.batch_code = ? AND ic.is_auto_order = 1 AND ic.safety_stock > 0
+            WHERE oc.batch_code = ? AND ic.is_auto_order = 0 AND ic.safety_stock > 0
         ', [$batchCode]);
         $a5Count = $safetyStockInSales[0]->cnt ?? 0;
-        $this->recordResult('A5', '自動発注ON・発注点あり→実績ベース対象', true, $a5Count, '>=0 (データ依存)', "safety_stock>0 かつ is_auto_order=true: {$a5Count}件");
+        $this->recordResult('A5', '発注OFF・発注点あり→実績ベース対象', true, $a5Count, '>=0 (データ依存)', "safety_stock>0 かつ is_auto_order=false: {$a5Count}件");
 
         $zeroSafetyInSales = DB::connection('sakemaru')->select('
             SELECT COUNT(*) as cnt FROM wms_order_candidates oc
             JOIN item_contractors ic ON ic.item_id = oc.item_id AND ic.contractor_id = oc.contractor_id AND ic.warehouse_id = oc.warehouse_id
             WHERE oc.batch_code = ? AND ic.is_auto_order = 1 AND (ic.safety_stock = 0 OR ic.safety_stock IS NULL)
         ', [$batchCode]);
-        $this->recordResult('A6', '自動発注ON・発注点ゼロ→実績ベース対象', true, $zeroSafetyInSales[0]->cnt ?? 0, '>=0 (データ依存)', '実績不足がある場合のみ候補化');
+        $this->recordResult('A6', '発注ON・発注点ゼロ→実績ベース対象外', ($zeroSafetyInSales[0]->cnt ?? 0) === 0, $zeroSafetyInSales[0]->cnt ?? 0, '0', 'A3-exclと同一チェック');
 
         // B5-B6: 実績ベース数量計算
         $this->newLine();
