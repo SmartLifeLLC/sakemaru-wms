@@ -5,7 +5,9 @@ namespace App\Filament\Resources\WmsOrderDataFiles\Tables;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Filament\Resources\WmsOrderDataFiles\Pages\ListWmsOrderDataFiles;
 use App\Mail\OrderDataMail;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderDataFile;
 use App\Services\AutoOrder\OrderDataFileService;
@@ -14,13 +16,17 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -162,7 +168,71 @@ class WmsOrderDataFilesTable
                     ->label('作成日時')
                     ->dateTime('m/d H:i')
                     ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(),
+            ])
+            ->filters([
+                Filter::make('created_at')
+                    ->label('作成日時')
+                    ->form([
+                        DatePicker::make('created_from')
+                            ->label('作成日時 From'),
+                        DatePicker::make('created_until')
+                            ->label('作成日時 To'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['created_from'], fn (Builder $q, $date) => $q->whereDate('created_at', '>=', $date))
+                        ->when($data['created_until'], fn (Builder $q, $date) => $q->whereDate('created_at', '<=', $date))
+                    ),
+
+                Filter::make('order_date')
+                    ->label('発注日')
+                    ->form([
+                        DatePicker::make('order_date')
+                            ->label('発注日'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['order_date'], fn (Builder $q, $date) => $q->whereDate('order_date', $date))
+                    ),
+
+                SelectFilter::make('warehouse_id')
+                    ->label('倉庫')
+                    ->options(function ($livewire): array {
+                        $isTest = $livewire instanceof ListWmsOrderDataFiles
+                            && $livewire->fileTypeTab === 'test';
+
+                        $warehouseIds = WmsOrderDataFile::query()
+                            ->where('is_test', $isTest)
+                            ->forCreatedBy(auth()->id())
+                            ->whereNotNull('warehouse_id')
+                            ->distinct()
+                            ->pluck('warehouse_id')
+                            ->all();
+
+                        return Warehouse::query()
+                            ->whereIn('id', $warehouseIds)
+                            ->orderBy('code')
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    })
+                    ->searchable(),
+
+                SelectFilter::make('created_by_name')
+                    ->label('作成者')
+                    ->options(function ($livewire): array {
+                        $isTest = $livewire instanceof ListWmsOrderDataFiles
+                            && $livewire->fileTypeTab === 'test';
+
+                        return WmsOrderDataFile::query()
+                            ->where('is_test', $isTest)
+                            ->forCreatedBy(auth()->id())
+                            ->whereNotNull('created_by_name')
+                            ->distinct()
+                            ->orderBy('created_by_name')
+                            ->pluck('created_by_name', 'created_by_name')
+                            ->toArray();
+                    })
+                    ->searchable(),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([
