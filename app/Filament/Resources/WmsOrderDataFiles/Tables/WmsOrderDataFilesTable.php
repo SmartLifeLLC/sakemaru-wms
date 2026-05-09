@@ -199,6 +199,7 @@ class WmsOrderDataFilesTable
                     ->options(function ($livewire): array {
                         $isTest = $livewire instanceof ListWmsOrderDataFiles
                             && $livewire->fileTypeTab === 'test';
+                        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
 
                         $warehouseIds = WmsOrderDataFile::query()
                             ->where('is_test', $isTest)
@@ -209,12 +210,16 @@ class WmsOrderDataFilesTable
                             ->all();
 
                         return Warehouse::query()
-                            ->whereIn('id', $warehouseIds)
+                            ->where(function (Builder $query) use ($warehouseIds, $selectedWarehouseId) {
+                                $query->whereIn('id', $warehouseIds)
+                                    ->when($selectedWarehouseId, fn (Builder $q) => $q->orWhere('id', $selectedWarehouseId));
+                            })
                             ->orderBy('code')
                             ->get()
                             ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
                             ->toArray();
                     })
+                    ->default(fn () => auth()->user()?->getSelectedWarehouseId())
                     ->searchable(),
 
                 SelectFilter::make('created_by_name')
@@ -230,8 +235,10 @@ class WmsOrderDataFilesTable
                             ->distinct()
                             ->orderBy('created_by_name')
                             ->pluck('created_by_name', 'created_by_name')
+                            ->when(auth()->user()?->name, fn ($options, string $name) => $options->put($name, $name))
                             ->toArray();
                     })
+                    ->default(fn () => auth()->user()?->name)
                     ->searchable(),
             ])
             ->recordActionsColumnLabel('操作')
