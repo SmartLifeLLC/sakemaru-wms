@@ -66,6 +66,12 @@ class WmsOrderDataFilesTable
                     ->sortable()
                     ->searchable(),
 
+                TextColumn::make('created_by_name')
+                    ->label('作成者')
+                    ->searchable()
+                    ->placeholder('-')
+                    ->toggleable(),
+
                 TextColumn::make('status')
                     ->label('ステータス')
                     ->badge()
