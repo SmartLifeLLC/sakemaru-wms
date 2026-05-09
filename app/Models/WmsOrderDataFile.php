@@ -19,6 +19,7 @@ class WmsOrderDataFile extends WmsModel
 
     protected $fillable = [
         'batch_code',
+        'created_by_name',
         'warehouse_id',
         'contractor_id',
         'order_date',

@@ -1666,11 +1666,13 @@ class OrderTransmissionService
 
         // wms_order_data_filesにも記録（テストファイルは毎回新規作成、本番は更新）
         $firstCandidate = $candidates->first();
+        $createdByName = $this->resolveOrderDataFileCreatedByName($batchCode);
 
         if ($isTest) {
             // テストファイルは毎回新規作成（同じものを何回でも生成可能）
             WmsOrderDataFile::create([
                 'batch_code' => $batchCode,
+                'created_by_name' => $createdByName,
                 'warehouse_id' => $firstCandidate?->warehouse_id,
                 'contractor_id' => $file['contractor_id'],
                 'order_date' => ClientSetting::systemDateYMD(),
@@ -1696,6 +1698,7 @@ class OrderTransmissionService
                     'is_test' => false,
                 ],
                 [
+                    'created_by_name' => $createdByName,
                     'order_date' => ClientSetting::systemDateYMD(),
                     'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
                     'file_path' => $csvPath,
@@ -1714,6 +1717,18 @@ class OrderTransmissionService
         }
 
         return $csvPath;
+    }
+
+    private function resolveOrderDataFileCreatedByName(string $batchCode): ?string
+    {
+        return WmsAutoOrderJobControl::query()
+            ->where('batch_code', $batchCode)
+            ->whereNotNull('created_by')
+            ->with('createdByUser:id,name')
+            ->latest('id')
+            ->first()
+            ?->createdByUser
+            ?->name;
     }
 
     /**
