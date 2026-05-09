@@ -5,31 +5,22 @@ namespace App\Filament\Resources\WmsOrderDataFiles\Tables;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
-use App\Filament\Resources\WmsOrderDataFiles\Pages\ListWmsOrderDataFiles;
 use App\Mail\OrderDataMail;
-use App\Models\Sakemaru\ClientSetting;
-use App\Models\Sakemaru\Contractor;
-use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderDataFile;
 use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\PurchaseOrderPdfService;
-use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\CheckboxList;
-use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\Filter;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -166,95 +157,6 @@ class WmsOrderDataFilesTable
                     ->dateTime('m/d H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-            ])
-            ->filters([
-                SelectFilter::make('batch_code')
-                    ->label('実行CD')
-                    ->options(function ($livewire): array {
-                        $isTest = $livewire instanceof ListWmsOrderDataFiles
-                            && $livewire->fileTypeTab === 'test';
-
-                        return WmsOrderDataFile::query()
-                            ->where('is_test', $isTest)
-                            ->forCreatedBy(auth()->id())
-                            ->select('batch_code')
-                            ->distinct()
-                            ->orderByDesc('batch_code')
-                            ->limit(50)
-                            ->pluck('batch_code', 'batch_code')
-                            ->toArray();
-                    })
-                    ->searchable(),
-
-                Filter::make('order_date')
-                    ->label('発注日')
-                    ->form([
-                        DatePicker::make('order_date')
-                            ->label('発注日')
-                            ->default(ClientSetting::systemDateYMD()),
-                    ])
-                    ->query(fn (Builder $query, array $data) => $query
-                        ->when($data['order_date'], fn (Builder $q, $date) => $q->where('order_date', $date))
-                    )
-                    ->indicateUsing(function (array $data): ?string {
-                        if (! $data['order_date']) {
-                            return null;
-                        }
-
-                        return '発注日: '.Carbon::parse($data['order_date'])->format('Y年m月d日');
-                    }),
-
-                SelectFilter::make('status')
-                    ->label('ステータス')
-                    ->options(fn () => collect(OrderDataFileStatus::cases())
-                        ->mapWithKeys(fn ($s) => [$s->value => $s->getLabel()])),
-
-                SelectFilter::make('warehouse_id')
-                    ->label('倉庫')
-                    ->options(fn () => Warehouse::query()
-                        ->where('is_active', true)
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"]))
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search): array {
-                        $search = mb_convert_kana($search, 'as');
-
-                        return Warehouse::query()
-                            ->where('is_active', true)
-                            ->where(function ($query) use ($search) {
-                                $query->where('code', 'like', "%{$search}%")
-                                    ->orWhere('name', 'like', "%{$search}%");
-                            })
-                            ->orderBy('code')
-                            ->limit(50)
-                            ->get()
-                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
-                            ->toArray();
-                    }),
-
-                SelectFilter::make('contractor_id')
-                    ->label('発注先')
-                    ->multiple()
-                    ->options(fn () => Contractor::query()
-                        ->orderBy('code')
-                        ->get()
-                        ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"]))
-                    ->searchable()
-                    ->getSearchResultsUsing(function (string $search): array {
-                        $search = mb_convert_kana($search, 'as');
-
-                        return Contractor::query()
-                            ->where(function ($query) use ($search) {
-                                $query->where('code', 'like', "%{$search}%")
-                                    ->orWhere('name', 'like', "%{$search}%");
-                            })
-                            ->orderBy('code')
-                            ->limit(50)
-                            ->get()
-                            ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"])
-                            ->toArray();
-                    }),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([
