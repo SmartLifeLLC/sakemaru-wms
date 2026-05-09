@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderConfirmed\Pages;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Filament\Concerns\HasWmsUserViews;
+use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Filament\Resources\WmsOrderConfirmed\WmsOrderConfirmedResource;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCandidate;
@@ -11,6 +12,7 @@ use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
+use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -42,6 +44,18 @@ class ListWmsOrderConfirmed extends ListRecords
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')
             );
+    }
+
+    protected function paginateTableQuery(Builder $query): Paginator
+    {
+        $paginator = parent::paginateTableQuery($query);
+        $items = $paginator->getCollection();
+
+        if ($items->isNotEmpty()) {
+            WmsOrderConfirmationWaitingTable::preloadItemContractorOrderSettings($items);
+        }
+
+        return $paginator;
     }
 
     public function getPresetViews(): array
