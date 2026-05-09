@@ -5,6 +5,7 @@ namespace App\Services\AutoOrder;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderIncomingSchedule;
@@ -94,6 +95,62 @@ class OrderDataFileService
     }
 
     /**
+     * 選択された確定済み発注候補からFAX/MAIL/CSV用の発注データを生成する。
+     *
+     * @param  array<int>  $candidateIds
+     * @return array{success: bool, files: array, total_files: int, errors: array}
+     */
+    public function generateCsvFilesForCandidates(array $candidateIds, bool $splitByWarehouse = true): array
+    {
+        $candidates = WmsOrderCandidate::whereIn('id', $candidateIds)
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->with(['warehouse', 'item', 'contractor'])
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            return [
+                'success' => true,
+                'files' => [],
+                'total_files' => 0,
+                'errors' => [],
+                'message' => '生成対象の確定済み発注候補がありません',
+            ];
+        }
+
+        $results = [];
+        $errors = [];
+
+        foreach ($candidates->groupBy('batch_code') as $batchCode => $batchCandidates) {
+            $grouped = $splitByWarehouse
+                ? $batchCandidates->groupBy(fn ($candidate) => "{$candidate->warehouse_id}_{$candidate->contractor_id}")
+                : $batchCandidates->groupBy(fn ($candidate) => (string) $candidate->contractor_id);
+
+            foreach ($grouped as $groupKey => $groupCandidates) {
+                try {
+                    $results[] = $this->generateCsvFile((string) $batchCode, $groupCandidates, $splitByWarehouse);
+                } catch (\Exception $e) {
+                    $errors[] = [
+                        'group' => $groupKey,
+                        'error' => $e->getMessage(),
+                    ];
+                    Log::error('Order data CSV file generation failed', [
+                        'batch_code' => $batchCode,
+                        'group' => $groupKey,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        return [
+            'success' => empty($errors),
+            'files' => $results,
+            'total_files' => count($results),
+            'errors' => $errors,
+        ];
+    }
+
+    /**
      * 1つのCSVファイルを生成
      */
     private function generateCsvFile(string $batchCode, Collection $candidates, bool $splitByWarehouse = true): array
@@ -137,6 +194,7 @@ class OrderDataFileService
                 'is_test' => false,
             ],
             [
+                'created_by_name' => $this->resolveCreatedByName($batchCode),
                 'order_date' => ClientSetting::systemDateYMD(),
                 'expected_arrival_date' => $expectedArrivalDate,
                 'file_path' => $filePath,
@@ -159,6 +217,18 @@ class OrderDataFileService
             'order_count' => $candidates->count(),
             'total_quantity' => $totalQuantity,
         ];
+    }
+
+    private function resolveCreatedByName(string $batchCode): ?string
+    {
+        return WmsAutoOrderJobControl::query()
+            ->where('batch_code', $batchCode)
+            ->whereNotNull('created_by')
+            ->with('createdByUser:id,name')
+            ->latest('id')
+            ->first()
+            ?->createdByUser
+            ?->name;
     }
 
     /**
