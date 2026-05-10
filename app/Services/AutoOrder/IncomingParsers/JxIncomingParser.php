@@ -20,6 +20,8 @@ class JxIncomingParser implements IncomingFormatParserInterface
 
     private const ENCODING = 'SJIS-win';
 
+    private array $orderingUnitQuantityCache = [];
+
     public function parse(string $content, string $filename, ?int $contractorId = null): WmsIncomingReceivedFile
     {
         return $this->parseWithMetadata($content, $filename, $contractorId);
@@ -227,8 +229,10 @@ class JxIncomingParser implements IncomingFormatParserInterface
         $pieceQty = (int) $this->trimField($record, 101, 7);  // [102-108]
         $packQty = (int) $this->trimField($record, 88, 6);    // [89-94]
 
-        // バラ換算の総数量
-        $totalQuantity = ($packQty > 0) ? ($caseQty * $packQty) + $pieceQty : $pieceQty;
+        $janCode = $this->trimField($record, 69, 13);         // [70-82]
+        $itemCode = $this->trimField($record, 82, 6);         // [83-88]
+
+        $totalQuantity = $this->calculateTotalQuantity($caseQty, $pieceQty, $packQty, $janCode);
 
         // 欠品: ケース0 かつ バラ0
         $isShortage = ($caseQty === 0 && $pieceQty === 0);
@@ -241,8 +245,8 @@ class JxIncomingParser implements IncomingFormatParserInterface
             'd_product_name' => $this->convertToUtf8(
                 $this->trimField($record, 5, 64)                        // [6-69] 64バイト
             ),
-            'd_jan_code' => $this->trimField($record, 69, 13),         // [70-82]
-            'd_item_code' => $this->trimField($record, 82, 6),         // [83-88]
+            'd_jan_code' => $janCode,
+            'd_item_code' => $itemCode,
             'd_pack_quantity' => $packQty,
             'd_case_quantity' => $caseQty,
             'd_piece_quantity' => $pieceQty,
@@ -261,6 +265,76 @@ class JxIncomingParser implements IncomingFormatParserInterface
         }
 
         return $detail;
+    }
+
+    private function calculateTotalQuantity(int $caseQty, int $pieceQty, int $packQty, string $janCode): int
+    {
+        $totalQuantity = ($packQty > 0) ? ($caseQty * $packQty) + $pieceQty : $pieceQty;
+
+        if ($orderingUnitQty = $this->getOrderingUnitQuantity($janCode)) {
+            return $totalQuantity * $orderingUnitQty;
+        }
+
+        return $totalQuantity;
+    }
+
+    /**
+     * JX受信JANが6缶パック等の発注荷姿コードなら、バラ換算用の荷姿入数を返す。
+     */
+    private function getOrderingUnitQuantity(string $janCode): ?int
+    {
+        $codes = $this->normalizedSearchCodes($janCode);
+        if (empty($codes)) {
+            return null;
+        }
+
+        $cacheKey = implode('|', $codes);
+        if (array_key_exists($cacheKey, $this->orderingUnitQuantityCache)) {
+            return $this->orderingUnitQuantityCache[$cacheKey];
+        }
+
+        $row = DB::connection('sakemaru')
+            ->table('item_search_information as isi')
+            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
+            ->join('items as i', 'i.id', '=', 'isi.item_id')
+            ->where('isi.is_active', true)
+            ->whereIn('isi.search_string', $codes)
+            ->where('iqi.quantity', '>', 1)
+            ->select('iqi.quantity', 'i.capacity_case')
+            ->orderBy('iqi.quantity')
+            ->first();
+
+        if (! $row) {
+            return $this->orderingUnitQuantityCache[$cacheKey] = null;
+        }
+
+        $quantity = (int) $row->quantity;
+        $capacityCase = (int) ($row->capacity_case ?? 0);
+
+        if ($quantity <= 1 || ($capacityCase > 1 && $quantity === $capacityCase)) {
+            return $this->orderingUnitQuantityCache[$cacheKey] = null;
+        }
+
+        return $this->orderingUnitQuantityCache[$cacheKey] = $quantity;
+    }
+
+    private function normalizedSearchCodes(string $code): array
+    {
+        $code = trim($code);
+        if ($code === '' || preg_match('/^0+$/', $code) === 1) {
+            return [];
+        }
+
+        $codes = [$code];
+        $withoutLeadingZeros = ltrim($code, '0');
+        if ($withoutLeadingZeros !== '') {
+            $codes[] = $withoutLeadingZeros;
+            if (strlen($withoutLeadingZeros) < 13) {
+                $codes[] = str_pad($withoutLeadingZeros, 13, '0', STR_PAD_LEFT);
+            }
+        }
+
+        return array_values(array_unique($codes));
     }
 
     /**
