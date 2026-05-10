@@ -799,10 +799,8 @@ class WmsOrderCandidatesTable
 
                             if (! empty($pendingIds)) {
                                 WmsOrderCandidate::whereIn('id', $pendingIds)
-                                    ->with('item.current_price')
                                     ->get()
                                     ->each(function (WmsOrderCandidate $candidate) {
-                                        WmsOrderConfirmationWaitingTable::applyOrderingUnitConversionForApproval($candidate);
                                         $candidate->update([
                                             'status' => CandidateStatus::APPROVED,
                                             'updated_at' => now(),

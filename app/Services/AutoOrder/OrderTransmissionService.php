@@ -139,7 +139,8 @@ class OrderTransmissionService
         $candidates
     ): WmsOrderJxDocument {
         return DB::transaction(function () use ($batchCode, $warehouseId, $contractorId, $candidates) {
-            $totalQuantity = $candidates->sum('order_quantity');
+            $quantityResolver = app(OrderOutputQuantityResolver::class);
+            $totalQuantity = $quantityResolver->sumOutputOrderQuantity($candidates);
 
             return WmsOrderJxDocument::create([
                 'batch_code' => $batchCode,
@@ -149,7 +150,7 @@ class OrderTransmissionService
                 'status' => TransmissionDocumentStatus::PENDING,
                 'total_items' => $candidates->count(),
                 'total_quantity' => $totalQuantity,
-                'jx_request_data' => $this->buildJxRequestData($candidates),
+                'jx_request_data' => $this->buildJxRequestData($candidates, $quantityResolver),
             ]);
         });
     }
@@ -157,16 +158,18 @@ class OrderTransmissionService
     /**
      * JX送信データを構築
      */
-    private function buildJxRequestData($candidates): array
+    private function buildJxRequestData($candidates, OrderOutputQuantityResolver $quantityResolver): array
     {
         $items = [];
 
         foreach ($candidates as $candidate) {
+            $outputQuantity = $quantityResolver->resolve($candidate);
+
             $items[] = [
-                'item_code' => $candidate->item?->jan_code ?? $candidate->item_id,
+                'item_code' => $outputQuantity['ordering_code'] ?? $candidate->item?->jan_code ?? $candidate->item_id,
                 'item_name' => $candidate->item?->item_name ?? '',
-                'quantity' => $candidate->order_quantity,
-                'unit' => $candidate->quantity_type?->value ?? 'PIECE',
+                'quantity' => $outputQuantity['order_quantity'],
+                'unit' => $outputQuantity['quantity_type'],
                 'expected_arrival_date' => $candidate->expected_arrival_date?->format('Y-m-d'),
             ];
         }
@@ -1624,8 +1627,11 @@ class OrderTransmissionService
         // CSVデータ
         $rows = [];
         $rows[] = $headers;
+        $quantityResolver = app(OrderOutputQuantityResolver::class);
 
         foreach ($candidates as $candidate) {
+            $outputQuantity = $quantityResolver->resolve($candidate);
+
             $rows[] = [
                 $candidate->contractor?->code ?? '',
                 $candidate->contractor?->name ?? '',
@@ -1633,8 +1639,8 @@ class OrderTransmissionService
                 $candidate->warehouse?->name ?? '',
                 $candidate->item?->code ?? '',
                 $candidate->item?->name ?? '',
-                $candidate->ordering_code ?? '',
-                $candidate->order_quantity,
+                $outputQuantity['ordering_code'] ?? '',
+                $outputQuantity['order_quantity'],
                 $candidate->expected_arrival_date?->format('Y-m-d') ?? '',
                 now()->format('Y-m-d'),
             ];
@@ -1680,7 +1686,7 @@ class OrderTransmissionService
                 'file_path' => $csvPath,
                 'file_size' => strlen($csvContent),
                 'order_count' => $candidates->count(),
-                'total_quantity' => $candidates->sum('order_quantity'),
+                'total_quantity' => $quantityResolver->sumOutputOrderQuantity($candidates),
                 'is_mail_order' => (bool) WmsContractorSetting::where('contractor_id', $file['contractor_id'])
                     ->whereNotNull('order_mail')
                     ->where('order_mail', '!=', '')
@@ -1704,7 +1710,7 @@ class OrderTransmissionService
                     'file_path' => $csvPath,
                     'file_size' => strlen($csvContent),
                     'order_count' => $candidates->count(),
-                    'total_quantity' => $candidates->sum('order_quantity'),
+                    'total_quantity' => $quantityResolver->sumOutputOrderQuantity($candidates),
                     'is_mail_order' => (bool) WmsContractorSetting::where('contractor_id', $file['contractor_id'])
                         ->whereNotNull('order_mail')
                         ->where('order_mail', '!=', '')

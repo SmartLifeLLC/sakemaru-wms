@@ -605,42 +605,6 @@ class WmsOrderConfirmationWaitingTable
                     }),
             ])
             ->toolbarActions([
-                Action::make('adjustSixPackOrders')
-                    ->label('6缶パック補正')
-                    ->icon('heroicon-o-calculator')
-                    ->color('warning')
-                    ->requiresConfirmation()
-                    ->modalHeading('6缶パック発注数・単価補正')
-                    ->modalDescription('承認待ちの発注候補から6缶パック発注CDの商品を確認し、発注数と単価を補正します。')
-                    ->modalSubmitActionLabel('補正を実行')
-                    ->modalCancelActionLabel('補正せず閉じる')
-                    ->action(function () {
-                        $result = static::adjustSixPackOrderCandidates();
-
-                        if ($result['target_count'] === 0) {
-                            Notification::make()
-                                ->title('6缶パック発注候補はありません')
-                                ->body('承認待ちの発注候補に6缶パック発注CDの商品は見つかりませんでした。')
-                                ->info()
-                                ->send();
-
-                            return;
-                        }
-
-                        $notification = Notification::make()
-                            ->title('6缶パック補正を実行しました')
-                            ->body("対象: {$result['target_count']}件 / 更新: {$result['updated_count']}件 / 変更なし: {$result['unchanged_count']}件")
-                            ->success();
-
-                        if ($result['skipped_count'] > 0) {
-                            $notification
-                                ->title('6缶パック補正が一部未完了です')
-                                ->body("対象: {$result['target_count']}件 / 更新: {$result['updated_count']}件 / 変更なし: {$result['unchanged_count']}件 / 単価未設定: {$result['skipped_count']}件")
-                                ->warning();
-                        }
-
-                        $notification->send();
-                    }),
                 static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('bulkCancelApproval')
@@ -766,136 +730,11 @@ class WmsOrderConfirmationWaitingTable
         }
     }
 
-    /**
-     * 承認待ちの6缶パック候補を、発注数=6缶パック数、単価=バラ単価×6に補正する。
-     *
-     * @return array{target_count: int, updated_count: int, unchanged_count: int, skipped_count: int}
-     */
-    private static function adjustSixPackOrderCandidates(): array
-    {
-        $result = [
-            'target_count' => 0,
-            'updated_count' => 0,
-            'unchanged_count' => 0,
-            'skipped_count' => 0,
-        ];
-
-        WmsOrderCandidate::query()
-            ->where('status', CandidateStatus::APPROVED)
-            ->forCreatedBy(auth()->id())
-            ->with('item.current_price')
-            ->orderBy('id')
-            ->get()
-            ->each(function (WmsOrderCandidate $record) use (&$result) {
-                if (! static::isSixPackOrderingCandidate($record)) {
-                    return;
-                }
-
-                $result['target_count']++;
-
-                $expectedUnitPrice = static::resolveSixPackPurchaseUnitPrice($record);
-                if ($expectedUnitPrice === null) {
-                    $result['skipped_count']++;
-
-                    return;
-                }
-
-                $expectedOrderingCode = static::resolveOrderingUnitCode($record);
-                $expectedOrderQuantity = static::resolveSixPackOrderQuantity($record);
-                $currentUnitPrice = $record->purchase_unit_price !== null
-                    ? round((float) $record->purchase_unit_price, 2)
-                    : null;
-
-                $needsUpdate = $record->quantity_type !== QuantityType::CASE
-                    || (int) $record->order_quantity !== $expectedOrderQuantity
-                    || $currentUnitPrice === null
-                    || abs($currentUnitPrice - $expectedUnitPrice) >= 0.01;
-
-                if (! $needsUpdate) {
-                    $result['unchanged_count']++;
-
-                    return;
-                }
-
-                $record->update([
-                    'quantity_type' => QuantityType::CASE->value,
-                    'order_quantity' => $expectedOrderQuantity,
-                    'ordering_code' => $expectedOrderingCode ?? $record->ordering_code,
-                    'purchase_unit_price' => $expectedUnitPrice,
-                    'is_manually_modified' => true,
-                    'modified_by' => auth()->id(),
-                    'modified_at' => now(),
-                ]);
-                $result['updated_count']++;
-            });
-
-        return $result;
-    }
-
-    public static function applyOrderingUnitConversionForApproval(WmsOrderCandidate $record): bool
-    {
-        $orderingUnitQty = static::resolveOrderingUnitQuantity($record);
-
-        if ($orderingUnitQty === null || $orderingUnitQty <= 1) {
-            return false;
-        }
-
-        $expectedOrderingCode = static::resolveOrderingUnitCode($record);
-        $expectedUnitPrice = static::resolveOrderingUnitPurchaseUnitPrice($record, $orderingUnitQty);
-        if ($expectedUnitPrice === null) {
-            return false;
-        }
-
-        $expectedOrderQuantity = static::resolveOrderingUnitOrderQuantity($record, $orderingUnitQty);
-        $currentUnitPrice = $record->purchase_unit_price !== null
-            ? round((float) $record->purchase_unit_price, 2)
-            : null;
-
-        $needsUpdate = $record->quantity_type !== QuantityType::CASE
-            || (int) $record->order_quantity !== $expectedOrderQuantity
-            || $currentUnitPrice === null
-            || abs($currentUnitPrice - $expectedUnitPrice) >= 0.01;
-
-        if (! $needsUpdate) {
-            return false;
-        }
-
-        $record->update([
-            'quantity_type' => QuantityType::CASE->value,
-            'order_quantity' => $expectedOrderQuantity,
-            'ordering_code' => $expectedOrderingCode ?? $record->ordering_code,
-            'purchase_unit_price' => $expectedUnitPrice,
-            'is_manually_modified' => true,
-            'modified_by' => auth()->id(),
-            'modified_at' => now(),
-        ]);
-
-        return true;
-    }
-
-    private static function isSixPackOrderingCandidate(WmsOrderCandidate $record): bool
-    {
-        return static::resolveOrderingUnitQuantity($record) === 6;
-    }
-
     public static function resolveOrderingUnitQuantity(WmsOrderCandidate $record): ?int
-    {
-        $info = static::resolveOrderingUnitInfo($record);
-
-        return $info ? (int) $info->quantity : null;
-    }
-
-    private static function resolveOrderingUnitCode(WmsOrderCandidate $record): ?string
-    {
-        $info = static::resolveOrderingUnitInfo($record);
-
-        return $info ? static::normalizeOrderingCode($info->search_string) : null;
-    }
-
-    private static function resolveOrderingUnitInfo(WmsOrderCandidate $record): ?object
     {
         $orderingCode = static::normalizeOrderingCode($record->ordering_code);
         $capacityCase = (int) ($record->item?->capacity_case ?? 0);
+
         if ($capacityCase <= 0) {
             $capacityCase = (int) (DB::connection('sakemaru')
                 ->table('items')
@@ -903,7 +742,7 @@ class WmsOrderConfirmationWaitingTable
                 ->value('capacity_case') ?? 0);
         }
 
-        $baseQuery = DB::connection('sakemaru')
+        $query = DB::connection('sakemaru')
             ->table('item_search_information as isi')
             ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
             ->where('isi.item_id', $record->item_id)
@@ -912,97 +751,22 @@ class WmsOrderConfirmationWaitingTable
             ->when($capacityCase > 1, fn ($query) => $query->where('iqi.quantity', '!=', $capacityCase));
 
         if ($orderingCode) {
-            $exact = (clone $baseQuery)
+            $exact = (clone $query)
                 ->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode])
-                ->select('isi.search_string', 'iqi.quantity')
-                ->first();
+                ->value('iqi.quantity');
 
-            if ($exact) {
-                return $exact;
+            if ($exact !== null) {
+                return (int) $exact;
             }
         }
 
-        return $baseQuery
+        $quantity = $query
             ->whereRaw("isi.search_string REGEXP '[1-9]'")
             ->orderByDesc('isi.is_used_for_ordering')
             ->orderBy('iqi.quantity')
-            ->select('isi.search_string', 'iqi.quantity')
-            ->first();
-    }
+            ->value('iqi.quantity');
 
-    private static function resolveSixPackOrderQuantity(WmsOrderCandidate $record): int
-    {
-        return static::resolveOrderingUnitOrderQuantity($record, 6);
-    }
-
-    private static function resolveOrderingUnitOrderQuantity(WmsOrderCandidate $record, int $orderingUnitQty): int
-    {
-        if (static::isAlreadyConvertedToOrderingUnit($record, $orderingUnitQty)) {
-            return max(0, (int) $record->order_quantity);
-        }
-
-        $pieceQuantity = static::resolveSystemPieceQuantity($record);
-        $packQuantity = (int) ceil($pieceQuantity / $orderingUnitQty);
-
-        if ($orderingUnitQty === 6 && $packQuantity > 0) {
-            $packQuantity = (int) (ceil($packQuantity / 4) * 4);
-        }
-
-        return $packQuantity;
-    }
-
-    private static function resolveSystemPieceQuantity(WmsOrderCandidate $record): int
-    {
-        $quantity = max(0, (int) $record->order_quantity);
-        $quantityType = $record->quantity_type instanceof QuantityType
-            ? $record->quantity_type
-            : QuantityType::tryFrom((string) $record->quantity_type);
-
-        if ($quantityType !== QuantityType::CASE) {
-            return $quantity;
-        }
-
-        $capacityCase = (int) ($record->item?->capacity_case ?? 0);
-        if ($capacityCase <= 0) {
-            $capacityCase = (int) (DB::connection('sakemaru')
-                ->table('items')
-                ->where('id', $record->item_id)
-                ->value('capacity_case') ?? 1);
-        }
-
-        return $quantity * max(1, $capacityCase);
-    }
-
-    private static function resolveSixPackPurchaseUnitPrice(WmsOrderCandidate $record): ?float
-    {
-        return static::resolveOrderingUnitPurchaseUnitPrice($record, 6);
-    }
-
-    private static function resolveOrderingUnitPurchaseUnitPrice(WmsOrderCandidate $record, int $orderingUnitQty): ?float
-    {
-        $piecePrice = $record->item?->current_price?->purchase_unit_price;
-
-        if ($piecePrice === null) {
-            return null;
-        }
-
-        return round((float) $piecePrice * $orderingUnitQty, 2);
-    }
-
-    private static function isAlreadyConvertedToOrderingUnit(WmsOrderCandidate $record, int $orderingUnitQty): bool
-    {
-        $quantityType = $record->quantity_type instanceof QuantityType
-            ? $record->quantity_type
-            : QuantityType::tryFrom((string) $record->quantity_type);
-
-        if ($quantityType !== QuantityType::CASE || $record->purchase_unit_price === null) {
-            return false;
-        }
-
-        $expectedUnitPrice = static::resolveOrderingUnitPurchaseUnitPrice($record, $orderingUnitQty);
-
-        return $expectedUnitPrice !== null
-            && abs(round((float) $record->purchase_unit_price, 2) - $expectedUnitPrice) < 0.01;
+        return $quantity !== null ? (int) $quantity : null;
     }
 
     private static function normalizeOrderingCode(?string $code): ?string

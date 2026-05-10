@@ -166,8 +166,10 @@ class OrderDataFileService
         // 入荷予定日（グループ内で最も早い日付）
         $expectedArrivalDate = $candidates->min('expected_arrival_date');
 
+        $quantityResolver = app(OrderOutputQuantityResolver::class);
+
         // CSV生成
-        $csvContent = $this->buildCsvContent($candidates);
+        $csvContent = $this->buildCsvContent($candidates, $quantityResolver);
 
         // S3に保存
         $date = now()->format('Y-m-d');
@@ -183,7 +185,7 @@ class OrderDataFileService
         Storage::disk('s3')->put($filePath, $csvContent);
 
         // 合計数量を計算
-        $totalQuantity = $candidates->sum('order_quantity');
+        $totalQuantity = $quantityResolver->sumOutputOrderQuantity($candidates);
 
         // DBに記録
         $dataFile = WmsOrderDataFile::updateOrCreate(
@@ -237,7 +239,7 @@ class OrderDataFileService
      * 伝票ヘッダー情報と明細情報が1行に表示される形式
      * （ヘッダーは明細分重複表示される）
      */
-    private function buildCsvContent(Collection $candidates): string
+    private function buildCsvContent(Collection $candidates, OrderOutputQuantityResolver $quantityResolver): string
     {
         // 候補IDから入荷予定レコードを取得（伝票番号・単価情報用）
         $candidateIds = $candidates->pluck('id')->toArray();
@@ -286,24 +288,11 @@ class OrderDataFileService
             }
             $lineNumbers[$slipNumber]++;
 
-            // 単位の日本語表記
-            $quantityType = $candidate->quantity_type;
-            $unitLabel = match ($quantityType?->value ?? $quantityType) {
-                'CASE' => 'ケース',
-                'CARTON' => 'ボール',
-                default => 'バラ',
-            };
+            $outputQuantity = $quantityResolver->resolve($candidate);
 
             // 単価（ケース/バラに合わせて）
             $schedule = $incomingSchedules[$candidate->id] ?? null;
-            $unitPrice = '';
-            if ($schedule) {
-                $unitPrice = match ($schedule->price_type) {
-                    'CASE' => $schedule->case_price,
-                    default => $schedule->unit_price,
-                };
-                $unitPrice = $unitPrice !== null ? (float) $unitPrice : '';
-            }
+            $unitPrice = $quantityResolver->resolveUnitPrice($candidate, $schedule);
 
             $rows[] = [
                 // 伝票ヘッダー（明細分重複）
@@ -319,9 +308,9 @@ class OrderDataFileService
                 $candidate->item?->code ?? '',
                 $candidate->item?->name ?? '',
                 $candidate->item?->packaging ?? '',
-                $candidate->ordering_code ?? '',
-                $candidate->order_quantity,
-                $unitLabel,
+                $outputQuantity['ordering_code'] ?? '',
+                $outputQuantity['order_quantity'],
+                $outputQuantity['unit_label'],
                 $unitPrice,
             ];
         }
