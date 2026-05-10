@@ -17,6 +17,7 @@ use App\Models\WmsMonthlySafetyStock;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\OrderAuditService;
+use App\Services\AutoOrder\OrderCandidateToTransferCandidateService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -780,6 +781,35 @@ class WmsOrderCandidatesTable
                             ->warning()
                             ->send();
                     }),
+
+                Action::make('convertToTransferCandidate')
+                    ->label('移動候補へ変更')
+                    ->icon('heroicon-o-arrows-right-left')
+                    ->color('warning')
+                    ->visible(fn ($record) => $record->status === CandidateStatus::PENDING
+                        && (string) $record->contractor?->code === '9012')
+                    ->requiresConfirmation()
+                    ->modalHeading('発注候補を移動候補へ変更')
+                    ->modalDescription(fn ($record) => "[{$record->item_code}] {$record->item?->name}\n発注先CD9012の発注候補を、91倉庫からの移動候補に変更します。")
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('移動候補へ変更')->color('danger'))
+                    ->modalCancelActionLabel('変更せず閉じる')
+                    ->action(function (WmsOrderCandidate $record) {
+                        try {
+                            app(OrderCandidateToTransferCandidateService::class)->convert($record, auth()->id());
+
+                            Notification::make()
+                                ->title('移動候補へ変更しました')
+                                ->body('元の発注候補は除外に変更しました。')
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title('移動候補へ変更できませんでした')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
             ])
             ->toolbarActions([
                 static::getExportAction(),
@@ -815,6 +845,62 @@ class WmsOrderCandidatesTable
                                 ->success()
                                 ->send();
                         }),
+
+                    BulkAction::make('bulkConvertToTransferCandidate')
+                        ->label('選択を移動候補へ変更')
+                        ->icon('heroicon-o-arrows-right-left')
+                        ->color('warning')
+                        ->requiresConfirmation()
+                        ->modalHeading('選択した発注候補を移動候補へ変更')
+                        ->modalDescription('選択した承認前かつ発注先CD9012の発注候補を、91倉庫からの移動候補に変更します。対象外の行はスキップします。')
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('移動候補へ変更')->color('danger'))
+                        ->modalCancelActionLabel('変更せず閉じる')
+                        ->action(function (Collection $records) {
+                            $service = app(OrderCandidateToTransferCandidateService::class);
+                            $converted = 0;
+                            $skipped = 0;
+                            $errors = [];
+
+                            $records->loadMissing('contractor');
+
+                            foreach ($records as $record) {
+                                if ($record->status !== CandidateStatus::PENDING || (string) $record->contractor?->code !== '9012') {
+                                    $skipped++;
+
+                                    continue;
+                                }
+
+                                try {
+                                    $service->convert($record, auth()->id());
+                                    $converted++;
+                                } catch (\Throwable $e) {
+                                    $errors[] = "[{$record->item_code}] {$e->getMessage()}";
+                                }
+                            }
+
+                            if ($converted > 0) {
+                                Notification::make()
+                                    ->title("{$converted}件を移動候補へ変更しました")
+                                    ->body($skipped > 0 ? "対象外 {$skipped}件はスキップしました。" : null)
+                                    ->success()
+                                    ->send();
+                            } elseif ($skipped > 0 && empty($errors)) {
+                                Notification::make()
+                                    ->title('変更対象がありません')
+                                    ->body('承認前かつ発注先CD9012の発注候補を選択してください。')
+                                    ->warning()
+                                    ->send();
+                            }
+
+                            if (! empty($errors)) {
+                                Notification::make()
+                                    ->title(count($errors).'件でエラーが発生しました')
+                                    ->body(implode("\n", array_slice($errors, 0, 5)))
+                                    ->danger()
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
 
                     BulkAction::make('bulkUpdateArrivalDate')
                         ->label('入荷予定日変更')

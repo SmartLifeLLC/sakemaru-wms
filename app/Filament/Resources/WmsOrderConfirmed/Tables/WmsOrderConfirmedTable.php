@@ -15,14 +15,18 @@ use App\Services\AutoOrder\OrderDataFileService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class WmsOrderConfirmedTable
@@ -212,6 +216,62 @@ class WmsOrderConfirmedTable
                 static::warehouseFilter(),
 
                 static::contractorFilter(),
+
+                Filter::make('executed_at_range')
+                    ->label('実行時刻')
+                    ->schema([
+                        Grid::make(2)->schema([
+                            DateTimePicker::make('executed_from')
+                                ->label('開始'),
+                            DateTimePicker::make('executed_until')
+                                ->label('終了'),
+                        ]),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
+                            ->when($data['executed_from'] ?? null, fn (Builder $q, $date) => $q
+                                ->where('batch_code', '>=', \Carbon\Carbon::parse($date)->format('YmdHis')))
+                            ->when($data['executed_until'] ?? null, fn (Builder $q, $date) => $q
+                                ->where('batch_code', '<=', \Carbon\Carbon::parse($date)->endOfMinute()->format('YmdHis').'999'));
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                        if ($data['executed_from'] ?? null) {
+                            $indicators[] = '実行時刻開始: '.\Carbon\Carbon::parse($data['executed_from'])->format('Y/m/d H:i');
+                        }
+                        if ($data['executed_until'] ?? null) {
+                            $indicators[] = '実行時刻終了: '.\Carbon\Carbon::parse($data['executed_until'])->format('Y/m/d H:i');
+                        }
+
+                        return $indicators;
+                    }),
+
+                Filter::make('expected_arrival_date_range')
+                    ->label('入荷予定')
+                    ->schema([
+                        Grid::make(2)->schema([
+                            DatePicker::make('arrival_from')
+                                ->label('開始日'),
+                            DatePicker::make('arrival_until')
+                                ->label('終了日'),
+                        ]),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
+                            ->when($data['arrival_from'] ?? null, fn (Builder $q, $date) => $q->where('expected_arrival_date', '>=', $date))
+                            ->when($data['arrival_until'] ?? null, fn (Builder $q, $date) => $q->where('expected_arrival_date', '<=', $date));
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                        if ($data['arrival_from'] ?? null) {
+                            $indicators[] = '入荷予定開始: '.\Carbon\Carbon::parse($data['arrival_from'])->format('Y/m/d');
+                        }
+                        if ($data['arrival_until'] ?? null) {
+                            $indicators[] = '入荷予定終了: '.\Carbon\Carbon::parse($data['arrival_until'])->format('Y/m/d');
+                        }
+
+                        return $indicators;
+                    }),
 
                 static::modifierFilter(),
             ])
