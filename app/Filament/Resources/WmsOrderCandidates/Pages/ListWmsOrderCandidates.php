@@ -622,9 +622,6 @@ class ListWmsOrderCandidates extends ListRecords
                     'contractor',
                     'supplier.partner',
                 ])
-                // デフォルトでPENDINGのみ表示（大幅な高速化）
-                ->where('status', CandidateStatus::PENDING)
-                ->forCreatedBy(auth()->id())
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')
@@ -668,10 +665,9 @@ class ListWmsOrderCandidates extends ListRecords
             return $this->presetViewWarehouseData;
         }
 
-        $cacheKey = 'order_candidates_pending_warehouses_'.auth()->id();
+        $cacheKey = 'order_candidates_pending_warehouses_all';
         $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
             $warehouseIds = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
-                ->forCreatedBy(auth()->id())
                 ->distinct()
                 ->pluck('warehouse_id')
                 ->toArray();

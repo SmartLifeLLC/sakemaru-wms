@@ -13,6 +13,8 @@ use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\Concerns\OptimisticLockException;
 use App\Models\Sakemaru\ItemContractor;
+use App\Models\Sakemaru\User;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsMonthlySafetyStock;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
@@ -452,7 +454,10 @@ class WmsOrderCandidatesTable
                     ->options([
                         CandidateStatus::PENDING->value => CandidateStatus::PENDING->label(),
                         CandidateStatus::EXCLUDED->value => CandidateStatus::EXCLUDED->label(),
-                    ]),
+                    ])
+                    ->default(CandidateStatus::PENDING->value),
+
+                static::candidateCreatorFilter(),
 
                 SelectFilter::make('origin_type')
                     ->label('生成元')
@@ -1001,5 +1006,48 @@ class WmsOrderCandidatesTable
             ->where('warehouse_id', $record->warehouse_id)
             ->where('contractor_id', $record->contractor_id)
             ->first();
+    }
+
+    private static function candidateCreatorFilter(): SelectFilter
+    {
+        return SelectFilter::make('candidate_created_by')
+            ->label('作成者')
+            ->searchable()
+            ->default(auth()->id())
+            ->options(fn () => self::buildCandidateCreatorOptions())
+            ->getSearchResultsUsing(fn (string $search) => self::buildCandidateCreatorOptions($search))
+            ->query(function ($query, array $data) {
+                if (blank($data['value'])) {
+                    return;
+                }
+
+                $query->whereIn('batch_code', WmsAutoOrderJobControl::query()
+                    ->where('created_by', $data['value'])
+                    ->select('batch_code'));
+            });
+    }
+
+    private static function buildCandidateCreatorOptions(?string $search = null): array
+    {
+        $query = User::query()
+            ->whereIn('id', fn ($q) => $q
+                ->select('created_by')
+                ->from((new WmsAutoOrderJobControl)->getTable())
+                ->whereNotNull('created_by')
+                ->distinct());
+
+        if ($search) {
+            $search = mb_convert_kana($search, 'as');
+            $query->where(fn ($q) => $q
+                ->where('code', 'like', "%{$search}%")
+                ->orWhere('name', 'like', "%{$search}%"));
+        }
+
+        return $query
+            ->orderBy('code')
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn ($u) => [$u->id => "[{$u->code}]{$u->name}"])
+            ->toArray();
     }
 }
