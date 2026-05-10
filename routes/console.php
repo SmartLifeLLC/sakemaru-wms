@@ -40,7 +40,7 @@ Artisan::command('inspire', function () {
 | │                                    │                  │ wms_contractor_settings.receive_time                  │
 | │                                    │                  │ に基づきJXデータ取得→パース→照合を実行               │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
-| │ wms:sync-sales-summaries           │ 1時間ごと        │ trade_itemsから倉庫別商品別の出荷実績を更新            │
+| │ wms:sync-sales-summaries --days=4  │ 09:30以降30分ごと│ trade_itemsから倉庫別商品別の出荷実績を更新            │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
 | │ wms:switch-delivery-course         │ 15分ごと         │ 得意先の配送コースを時間帯で自動切替                   │
 | │                                    │                  │ wms_buyer_delivery_course_switch_settingsに基づく      │
@@ -113,10 +113,11 @@ Schedule::command('wms:incoming-receive-scheduled')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
 
-// 倉庫別商品別の出荷実績サマリ更新（1時間ごと）
+// 倉庫別商品別の出荷実績サマリ更新（09:30以降30分ごと・過去4日分）
 // ※ --dry-run は確認用のため、スケジュールでは実更新を行う
-Schedule::command('wms:sync-sales-summaries')
-    ->hourly()
+Schedule::command('wms:sync-sales-summaries --days=4')
+    ->everyThirtyMinutes()
+    ->when(fn () => now()->format('H:i') >= '09:30')
     ->onOneServer()
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/wms-sales-summaries.log'));

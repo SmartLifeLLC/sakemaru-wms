@@ -120,7 +120,7 @@ class SyncSalesSummariesCommand extends Command
 
     private function dailySalesQuery(CarbonImmutable $from, CarbonImmutable $to, ?int $warehouseId)
     {
-        $query = DB::connection('sakemaru')
+        $earningQuery = DB::connection('sakemaru')
             ->table('earnings as e')
             ->join('trade_items as ti', 'e.trade_id', '=', 'ti.trade_id')
             ->whereBetween('e.delivered_date', [$from->toDateString(), $to->toDateString()])
@@ -136,16 +136,48 @@ class SyncSalesSummariesCommand extends Command
                 SUM(CASE WHEN ti.quantity_type = "CASE" THEN ti.quantity ELSE 0 END) as shipped_case_qty,
                 SUM(CASE WHEN ti.quantity_type = "PIECE" THEN ti.quantity ELSE 0 END) as shipped_bottle_qty
             ')
-            ->groupBy('e.delivered_date', 'e.warehouse_id', 'ti.item_id')
-            ->orderBy('e.delivered_date')
-            ->orderBy('e.warehouse_id')
-            ->orderBy('ti.item_id');
+            ->groupBy('e.delivered_date', 'e.warehouse_id', 'ti.item_id');
+
+        $retailQuery = DB::connection('sakemaru')
+            ->table('retails as r')
+            ->join('trades as t', 'r.trade_id', '=', 't.id')
+            ->join('trade_items as ti', 'r.trade_id', '=', 'ti.trade_id')
+            ->whereBetween('r.shipped_date', [$from->toDateString(), $to->toDateString()])
+            ->where('t.trade_category', 'RETAIL')
+            ->where('t.is_active', true)
+            ->where('ti.is_active', true)
+            ->whereNotNull('ti.item_id')
+            ->where('ti.quantity', '>', 0)
+            ->selectRaw('
+                r.shipped_date as business_date,
+                r.warehouse_id,
+                ti.item_id,
+                SUM(COALESCE(CAST(ti.total_piece_quantity AS UNSIGNED), 0)) as shipped_piece_qty,
+                SUM(CASE WHEN ti.quantity_type = "CASE" THEN ti.quantity ELSE 0 END) as shipped_case_qty,
+                SUM(CASE WHEN ti.quantity_type = "PIECE" THEN ti.quantity ELSE 0 END) as shipped_bottle_qty
+            ')
+            ->groupBy('r.shipped_date', 'r.warehouse_id', 'ti.item_id');
 
         if ($warehouseId) {
-            $query->where('e.warehouse_id', $warehouseId);
+            $earningQuery->where('e.warehouse_id', $warehouseId);
+            $retailQuery->where('r.warehouse_id', $warehouseId);
         }
 
-        return $query;
+        return DB::connection('sakemaru')
+            ->query()
+            ->fromSub($earningQuery->unionAll($retailQuery), 'sales')
+            ->selectRaw('
+                business_date,
+                warehouse_id,
+                item_id,
+                SUM(shipped_piece_qty) as shipped_piece_qty,
+                SUM(shipped_case_qty) as shipped_case_qty,
+                SUM(shipped_bottle_qty) as shipped_bottle_qty
+            ')
+            ->groupBy('business_date', 'warehouse_id', 'item_id')
+            ->orderBy('business_date')
+            ->orderBy('warehouse_id')
+            ->orderBy('item_id');
     }
 
     private function getWarehouseCoverage(?int $warehouseId): Collection
