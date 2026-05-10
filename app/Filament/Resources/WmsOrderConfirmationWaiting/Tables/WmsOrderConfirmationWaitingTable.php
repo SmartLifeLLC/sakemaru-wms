@@ -9,6 +9,8 @@ use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
+use App\Models\Sakemaru\User;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use Filament\Actions\Action;
@@ -402,6 +404,8 @@ class WmsOrderConfirmationWaitingTable
                 static::warehouseFilter()->label('在庫拠点倉庫'),
 
                 static::contractorFilter(),
+
+                static::candidateCreatorFilter(),
 
                 static::modifierFilter(),
             ])
@@ -809,5 +813,48 @@ class WmsOrderConfirmationWaitingTable
         $ids = array_values(array_unique(array_merge($jxContractorIds, $mappedContractorIds)));
 
         return $ids;
+    }
+
+    private static function candidateCreatorFilter(): SelectFilter
+    {
+        return SelectFilter::make('candidate_created_by')
+            ->label('作成者')
+            ->searchable()
+            ->default(auth()->id())
+            ->options(fn () => self::buildCandidateCreatorOptions())
+            ->getSearchResultsUsing(fn (string $search) => self::buildCandidateCreatorOptions($search))
+            ->query(function ($query, array $data) {
+                if (blank($data['value'])) {
+                    return;
+                }
+
+                $query->whereIn('batch_code', WmsAutoOrderJobControl::query()
+                    ->where('created_by', $data['value'])
+                    ->select('batch_code'));
+            });
+    }
+
+    private static function buildCandidateCreatorOptions(?string $search = null): array
+    {
+        $query = User::query()
+            ->whereIn('id', fn ($q) => $q
+                ->select('created_by')
+                ->from((new WmsAutoOrderJobControl)->getTable())
+                ->whereNotNull('created_by')
+                ->distinct());
+
+        if ($search) {
+            $search = mb_convert_kana($search, 'as');
+            $query->where(fn ($q) => $q
+                ->where('code', 'like', "%{$search}%")
+                ->orWhere('name', 'like', "%{$search}%"));
+        }
+
+        return $query
+            ->orderBy('code')
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn ($u) => [$u->id => "[{$u->code}]{$u->name}"])
+            ->toArray();
     }
 }
