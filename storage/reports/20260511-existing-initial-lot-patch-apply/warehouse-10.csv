@@ -1,0 +1,11 @@
+status,message,real_stock_id,item_id,item_code,item_name,current_quantity,reserved_quantity,parent_available,pickable_available,missing_pickable_qty,patch_lot_id,patch_lot_location_id,pickable_current,missing_current_qty,patch_lot_current_before,patch_lot_reserved_before,patch_qty
+updated,,32312,112103,112103,　黒龍　吟醸　いっちょらい３００ｍｌ,118,0,118,0,118,32147,15,-2,120,-2,0,120
+skipped,"no active NULL/NULL pickable lot",51517,221797,221797,　早崎商店　オーロラ印の味付たら　№３００４０ｇ,10,0,10,0,10,,,0,10,,,10
+updated,,34431,112597,112597,　黒龍　純吟　いっちょらい７２０ｍｌ,10,0,10,1,9,34257,15,1,9,1,0,9
+skipped,"no active NULL/NULL pickable lot",51767,112888,112888,　黒龍　大吟醸７２０ｍｌ,8,0,8,0,8,,,0,8,,,8
+skipped,"no active NULL/NULL pickable lot",51768,112619,112619,　黒龍　吟醸　いっちょらい７２０ｍｌ,7,0,7,0,7,,,0,7,,,7
+updated,,51203,122523,122523,　２５°浪漫の大地（麦）パック１．８Ｌ,13,0,13,7,6,50758,15,7,6,1,0,6
+skipped,"no active NULL/NULL pickable lot",51766,112779,112779,　黒龍　大吟醸１．８Ｌ,6,0,6,0,6,,,0,6,,,6
+updated,,30272,111116,111116,　松竹梅　上撰１．８Ｌ,18,0,18,14,4,30120,15,14,4,8,0,4
+updated,,32329,112272,112272,　黒龍　大吟醸　龍７２０ｍｌ,3,0,3,1,2,32164,15,1,2,1,0,2
+updated,,34416,112506,112506,　黒龍　九頭龍　逸品１．８Ｌ,30,0,30,28,2,34242,15,28,2,28,0,2

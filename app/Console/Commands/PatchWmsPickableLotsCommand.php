@@ -15,6 +15,8 @@ class PatchWmsPickableLotsCommand extends Command
                             {--quantity-type=PIECE : CASE|PIECE|CARTON}
                             {--location-id= : 補正先ロケーションID。未指定時は商品デフォルト、次に倉庫内の最小ID引当可能ロケーション}
                             {--limit=50 : 最大処理件数}
+                            {--exclude-empty-containers : 商品名に空容器を含む在庫を除外する}
+                            {--include-negative-reserved : real_stocks.reserved_quantity < 0 の在庫も対象に含める}
                             {--apply : 実際にreal_stock_lotsへ作成する}';
 
     protected $description = 'Patch existing real_stocks that have available stock but no WMS-pickable lot.';
@@ -153,6 +155,14 @@ class PatchWmsPickableLotsCommand extends Command
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.available_quantity', '>', 0);
 
+        if (! $this->option('include-negative-reserved')) {
+            $query->where('rs.reserved_quantity', '>=', 0);
+        }
+
+        if ($this->option('exclude-empty-containers')) {
+            $query->where('i.name', 'not like', '%空容器%');
+        }
+
         if ($itemId !== null) {
             $query->where('rs.item_id', $itemId);
         }
@@ -205,14 +215,6 @@ class PatchWmsPickableLotsCommand extends Command
             ->whereNotNull('l.floor_id')
             ->where('l.available_quantity_flags', '!=', AvailableQuantityFlag::UNKNOWN->value)
             ->whereRaw("(l.available_quantity_flags & {$quantityFlag->value}) != 0")
-            ->where(function ($query) {
-                $query->where('l.code1', '!=', 'Z')
-                    ->orWhere('l.code2', '!=', '0')
-                    ->orWhere('l.code3', '!=', '0')
-                    ->orWhereNull('l.code1')
-                    ->orWhereNull('l.code2')
-                    ->orWhereNull('l.code3');
-            })
             ->select('l.id', 'l.floor_id', 'l.code1', 'l.code2', 'l.code3', 'l.name', 'l.available_quantity_flags');
     }
 }
