@@ -11,7 +11,9 @@ use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Support\StockTransferSlipHistory;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\ItemContractor;
+use App\Models\Sakemaru\User;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsMonthlySafetyStock;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
@@ -20,6 +22,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -30,8 +33,10 @@ use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -349,7 +354,39 @@ class WmsStockTransferCandidatesTable
             ->filters([
                 static::batchCodeFilter(WmsStockTransferCandidate::class),
 
-                static::statusFilter(CandidateStatus::class),
+                static::statusFilter(CandidateStatus::class)
+                    ->default(CandidateStatus::PENDING->value),
+
+                static::candidateCreatorFilter(),
+
+                Filter::make('executed_at_range')
+                    ->label('実行時刻')
+                    ->schema([
+                        Grid::make(2)->schema([
+                            DateTimePicker::make('executed_from')
+                                ->label('開始'),
+                            DateTimePicker::make('executed_until')
+                                ->label('終了'),
+                        ]),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
+                            ->when($data['executed_from'] ?? null, fn (Builder $q, $date) => $q
+                                ->where('batch_code', '>=', \Carbon\Carbon::parse($date)->format('YmdHis')))
+                            ->when($data['executed_until'] ?? null, fn (Builder $q, $date) => $q
+                                ->where('batch_code', '<=', \Carbon\Carbon::parse($date)->endOfMinute()->format('YmdHis').'999'));
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                        if ($data['executed_from'] ?? null) {
+                            $indicators[] = '実行時刻開始: '.\Carbon\Carbon::parse($data['executed_from'])->format('Y/m/d H:i');
+                        }
+                        if ($data['executed_until'] ?? null) {
+                            $indicators[] = '実行時刻終了: '.\Carbon\Carbon::parse($data['executed_until'])->format('Y/m/d H:i');
+                        }
+
+                        return $indicators;
+                    }),
 
                 SelectFilter::make('satellite_warehouse_id')
                     ->label('在庫依頼倉庫')
@@ -882,5 +919,48 @@ class WmsStockTransferCandidatesTable
             ->where('warehouse_id', $record->satellite_warehouse_id)
             ->where('contractor_id', $record->contractor_id)
             ->first();
+    }
+
+    private static function candidateCreatorFilter(): SelectFilter
+    {
+        return SelectFilter::make('candidate_created_by')
+            ->label('作成者')
+            ->searchable()
+            ->default(auth()->id())
+            ->options(fn () => self::buildCandidateCreatorOptions())
+            ->getSearchResultsUsing(fn (string $search) => self::buildCandidateCreatorOptions($search))
+            ->query(function ($query, array $data) {
+                if (blank($data['value'])) {
+                    return;
+                }
+
+                $query->whereIn('batch_code', WmsAutoOrderJobControl::query()
+                    ->where('created_by', $data['value'])
+                    ->select('batch_code'));
+            });
+    }
+
+    private static function buildCandidateCreatorOptions(?string $search = null): array
+    {
+        $query = User::query()
+            ->whereIn('id', fn ($q) => $q
+                ->select('created_by')
+                ->from((new WmsAutoOrderJobControl)->getTable())
+                ->whereNotNull('created_by')
+                ->distinct());
+
+        if ($search) {
+            $search = mb_convert_kana($search, 'as');
+            $query->where(fn ($q) => $q
+                ->where('code', 'like', "%{$search}%")
+                ->orWhere('name', 'like', "%{$search}%"));
+        }
+
+        return $query
+            ->orderBy('code')
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn ($u) => [$u->id => "[{$u->code}]{$u->name}"])
+            ->toArray();
     }
 }

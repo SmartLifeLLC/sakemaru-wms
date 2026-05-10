@@ -46,7 +46,6 @@ class WmsStockTransferCandidateResource extends AdminResource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->forCreatedBy(auth()->id())
             ->with(['modifiedByUser']);
     }
 

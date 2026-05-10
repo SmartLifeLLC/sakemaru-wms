@@ -558,9 +558,6 @@ class ListWmsStockTransferCandidates extends ListRecords
                     'item',
                     'contractor',
                 ])
-                // デフォルトでPENDINGのみ表示
-                ->where('status', CandidateStatus::PENDING)
-                ->forCreatedBy(auth()->id())
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('satellite_warehouse_id')
                 ->orderBy('item_id')
@@ -603,10 +600,9 @@ class ListWmsStockTransferCandidates extends ListRecords
             return $this->presetViewWarehouseData;
         }
 
-        $cacheKey = 'transfer_candidates_pending_warehouses_'.auth()->id();
+        $cacheKey = 'transfer_candidates_pending_warehouses_all';
         $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
             $warehouseIds = WmsStockTransferCandidate::where('status', CandidateStatus::PENDING)
-                ->forCreatedBy(auth()->id())
                 ->distinct()
                 ->pluck('satellite_warehouse_id')
                 ->toArray();
