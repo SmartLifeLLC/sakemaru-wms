@@ -20,10 +20,10 @@ use App\Services\WarehouseResolver;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
-use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\ToggleButtons;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
@@ -332,7 +332,7 @@ class ListWaves extends ListRecords
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn (Action $action) => $action->label('波動を生成')->color('danger'))
                 ->modalCancelActionLabel('生成せず閉じる')
-                ->schema($this->getWaveSelectionSchema(includeTargetDocumentTypeFilter: true))
+                ->schema($this->getWaveSelectionSchema(includeTargetDocumentTypeFilter: true, includePastDefault: false))
                 ->action(function (array $data): void {
                     $this->generateManualWave($data);
                 }),
@@ -364,12 +364,12 @@ class ListWaves extends ListRecords
      *
      * @return array<int, mixed>
      */
-    protected function getWaveSelectionSchema(bool $includeTargetDocumentTypeFilter = false): array
+    protected function getWaveSelectionSchema(bool $includeTargetDocumentTypeFilter = false, bool $includePastDefault = true): array
     {
         return [
             Toggle::make('include_past')
                 ->label('過去の未出荷も含む')
-                ->default(true)
+                ->default($includePastDefault)
                 ->live(),
 
             Grid::make(2)->schema([
@@ -415,13 +415,15 @@ class ListWaves extends ListRecords
                 ->live(),
 
             ...($includeTargetDocumentTypeFilter ? [
-                CheckboxList::make('target_document_types')
+                ToggleButtons::make('target_document_types')
                     ->label('対象伝票区分')
                     ->options([
                         'shipment' => '出荷',
                         'transfer' => '物流（移動伝票）',
                     ])
+                    ->multiple()
                     ->default(['shipment', 'transfer'])
+                    ->inline()
                     ->columns(2)
                     ->required()
                     ->helperText('出荷のみ・移動のみ・両方で配送コース候補と生成対象を絞り込みます。')
