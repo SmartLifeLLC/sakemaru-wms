@@ -52,7 +52,6 @@ class WmsOrderConfirmationWaitingResource extends AdminResource
         // 発注確定済み（CONFIRMED）は別画面、送信済み（EXECUTED）は表示しない
         return parent::getEloquentQuery()
             ->where('status', CandidateStatus::APPROVED)
-            ->forCreatedBy(auth()->id())
             ->with([
                 'warehouse',
                 'item.current_price',

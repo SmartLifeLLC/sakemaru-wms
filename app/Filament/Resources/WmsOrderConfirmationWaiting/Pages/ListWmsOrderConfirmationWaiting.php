@@ -435,7 +435,6 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                 ->query(
                     WmsStockTransferCandidate::query()
                         ->where('status', CandidateStatus::APPROVED)
-                        ->forCreatedBy(auth()->id())
                         ->with([
                             'satelliteWarehouse',
                             'hubWarehouse',
