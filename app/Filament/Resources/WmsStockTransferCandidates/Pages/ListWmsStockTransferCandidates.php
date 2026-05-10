@@ -32,7 +32,9 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Grid;
 use Filament\Tables\Table;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class ListWmsStockTransferCandidates extends ListRecords
@@ -95,7 +97,6 @@ class ListWmsStockTransferCandidates extends ListRecords
                 'items.code',
                 'items.name',
                 'items.packaging',
-                'items.capacity_case',
             ])
             ->with('piece_jan_code_information')
             ->where('items.end_of_sale_type', 'NORMAL');
@@ -182,11 +183,14 @@ class ListWmsStockTransferCandidates extends ListRecords
                 'code' => $item->code,
                 'name' => $item->name,
                 'packaging' => $item->packaging,
-                'capacity_case' => $item->capacity_case ?? 1,
                 'search_code' => $item->piece_jan_code_information?->search_string ?? '',
                 'contractor_name' => $ic?->contractor
                     ? "[{$ic->contractor->code}]{$ic->contractor->name}"
                     : null,
+                'safety_stock' => $ic?->safety_stock ?? 0,
+                'auto_order_quantity' => $ic?->auto_order_quantity ?? 0,
+                'is_auto_order' => (bool) ($ic?->is_auto_order ?? false),
+                'is_consumable' => $ic !== null && ! (bool) $ic->is_auto_order,
                 'last_shipped_at' => $summary?->last_shipped_at?->format('m/d'),
                 'last_3d_qty' => $summary?->last_3d_qty ?? 0,
                 'last_7d_qty' => $summary?->last_7d_qty ?? 0,
@@ -242,7 +246,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ->modalHeading('移動発注を追加')
                 ->modalWidth('7xl')
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
-                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('追加する')->color('danger'))
+                ->modalSubmitAction(fn (Action $action) => $action->label('追加する')->color('danger'))
                 ->modalCancelActionLabel('変更せず閉じる')
                 ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
                 ->schema([
@@ -313,146 +317,27 @@ class ListWmsStockTransferCandidates extends ListRecords
                         return;
                     }
 
-                    // 同日・同倉庫のPENDINGジョブを再利用、なければ新規作成
-                    $satelliteWarehouseId = $data['satellite_warehouse_id'];
-                    $existingJob = WmsAutoOrderJobControl::where('process_name', JobProcessName::ORDER_CALC)
-                        ->where('settlement_status', SettlementStatus::PENDING)
-                        ->where('created_by', auth()->id())
-                        ->where('warehouse_id', $satelliteWarehouseId)
-                        ->whereDate('started_at', today())
-                        ->orderByDesc('id')
-                        ->first();
-
-                    if ($existingJob) {
-                        $batchCode = $existingJob->batch_code;
-                    } else {
-                        $newJob = WmsAutoOrderJobControl::startJob(
-                            processName: JobProcessName::ORDER_CALC,
-                            createdBy: auth()->id(),
-                            warehouseId: $satelliteWarehouseId,
-                            batchCode: WmsAutoOrderJobControl::generateBatchCode($satelliteWarehouseId),
-                        );
-                        $batchCode = $newJob->batch_code;
-                        $newJob->markAsSuccess(0);
-                    }
-
                     $created = 0;
                     $errors = [];
+                    $lockKey = implode(':', [
+                        'wms-stock-transfer-create',
+                        auth()->id() ?? 0,
+                        $data['satellite_warehouse_id'],
+                        $data['hub_warehouse_id'],
+                    ]);
 
-                    foreach ($items as $itemData) {
-                        $itemId = $itemData['item_id'];
-                        $totalPieceQty = (int) ($itemData['quantity'] ?? 0);
-                        $itemCode = $itemData['item_code'] ?? null;
-                        $searchCode = $itemData['search_code'] ?? null;
-                        $capacityCase = (int) ($itemData['capacity_case'] ?? 1);
-                        if ($capacityCase < 1) {
-                            $capacityCase = 1;
-                        }
+                    try {
+                        Cache::lock($lockKey, 10)->block(5, function () use ($data, $items, &$created, &$errors): void {
+                            $this->createTransferOrderCandidates($data, $items, $created, $errors);
+                        });
+                    } catch (LockTimeoutException) {
+                        Notification::make()
+                            ->title('追加処理中です')
+                            ->body('直前の追加処理が完了してから再度実行してください。')
+                            ->warning()
+                            ->send();
 
-                        if ($totalPieceQty < 1) {
-                            $errors[] = "[{$itemCode}]: 数量が不正です";
-
-                            continue;
-                        }
-
-                        // 販売終了品チェック
-                        $item = Item::find($itemId);
-                        if ($item && $item->end_of_sale_type !== 'NORMAL') {
-                            $errors[] = "[{$itemCode}] {$item->name}: 販売終了品";
-
-                            continue;
-                        }
-
-                        // 重複チェック
-                        $exists = WmsStockTransferCandidate::where('satellite_warehouse_id', $data['satellite_warehouse_id'])
-                            ->where('hub_warehouse_id', $data['hub_warehouse_id'])
-                            ->where('item_id', $itemId)
-                            ->where('status', CandidateStatus::PENDING)
-                            ->forCreatedBy(auth()->id())
-                            ->exists();
-
-                        if ($exists) {
-                            $errors[] = "[{$itemCode}] {$item->name}: 既に存在";
-
-                            continue;
-                        }
-
-                        // ケース/バラ自動分割
-                        $caseQty = intdiv($totalPieceQty, $capacityCase);
-                        $pieceQty = $totalPieceQty % $capacityCase;
-
-                        // 在庫・入荷予定数をリアルタイム取得
-                        $currentStock = $this->getItemStockForCreate($data['satellite_warehouse_id'], $itemId);
-                        $hubStock = $this->getItemStockForCreate($data['hub_warehouse_id'], $itemId);
-                        $incomingQty = $this->getItemIncomingQuantityForCreate($data['satellite_warehouse_id'], $itemId);
-
-                        // 発注点取得
-                        $safetyStock = ItemContractor::where('warehouse_id', $data['satellite_warehouse_id'])
-                            ->where('item_id', $itemId)
-                            ->value('safety_stock');
-
-                        $commonFields = [
-                            'batch_code' => $batchCode,
-                            'satellite_warehouse_id' => $data['satellite_warehouse_id'],
-                            'hub_warehouse_id' => $data['hub_warehouse_id'],
-                            'item_id' => $itemId,
-                            'item_code' => $itemCode,
-                            'search_code' => $searchCode,
-                            'contractor_id' => null,
-                            'delivery_course_id' => $data['delivery_course_id'] ?? null,
-                            'current_effective_stock' => $currentStock,
-                            'incoming_quantity' => $incomingQty,
-                            'safety_stock' => $safetyStock,
-                            'hub_effective_stock' => $hubStock,
-                            'expected_arrival_date' => $data['expected_arrival_date'],
-                            'original_arrival_date' => $data['expected_arrival_date'],
-                            'status' => CandidateStatus::PENDING,
-                            'lot_status' => LotStatus::RAW,
-                            'is_manually_modified' => true,
-                            'modified_by' => auth()->id(),
-                            'modified_at' => now(),
-                        ];
-
-                        // ケース行を作成（ケース数 > 0 の場合）
-                        if ($caseQty > 0) {
-                            WmsStockTransferCandidate::create(array_merge($commonFields, [
-                                'suggested_quantity' => $caseQty,
-                                'transfer_quantity' => $caseQty,
-                                'quantity_type' => QuantityType::CASE,
-                            ]));
-                            $created++;
-                        }
-
-                        // バラ行を作成（バラ数 > 0 の場合）
-                        if ($pieceQty > 0) {
-                            WmsStockTransferCandidate::create(array_merge($commonFields, [
-                                'suggested_quantity' => $pieceQty,
-                                'transfer_quantity' => $pieceQty,
-                                'quantity_type' => QuantityType::PIECE,
-                            ]));
-                            $created++;
-                        }
-
-                        WmsOrderCalculationLog::create([
-                            'batch_code' => $batchCode,
-                            'warehouse_id' => $data['satellite_warehouse_id'],
-                            'item_id' => $itemId,
-                            'calculation_type' => CalculationType::INTERNAL,
-                            'contractor_id' => null,
-                            'source_warehouse_id' => $data['hub_warehouse_id'],
-                            'current_effective_stock' => $currentStock,
-                            'incoming_quantity' => $incomingQty,
-                            'safety_stock_setting' => $safetyStock ?? 0,
-                            'lead_time_days' => 1,
-                            'calculated_shortage_qty' => $totalPieceQty,
-                            'calculated_order_quantity' => $totalPieceQty,
-                            'calculation_details' => [
-                                'manual_entry' => true,
-                                'created_by' => auth()->id(),
-                                'created_at' => now()->toDateTimeString(),
-                                'formula' => "手動追加（ケース:{$caseQty} バラ:{$pieceQty}）",
-                            ],
-                        ]);
+                        return;
                     }
 
                     $this->transferOrderItems = [];
@@ -538,6 +423,128 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ->color('gray')
                 ->button(),
         ];
+    }
+
+    private function createTransferOrderCandidates(array $data, array $items, int &$created, array &$errors): void
+    {
+        // 同日・同倉庫のPENDINGジョブを再利用、なければ新規作成
+        $satelliteWarehouseId = $data['satellite_warehouse_id'];
+        $existingJob = WmsAutoOrderJobControl::where('process_name', JobProcessName::ORDER_CALC)
+            ->where('settlement_status', SettlementStatus::PENDING)
+            ->where('created_by', auth()->id())
+            ->where('warehouse_id', $satelliteWarehouseId)
+            ->whereDate('started_at', today())
+            ->orderByDesc('id')
+            ->first();
+
+        if ($existingJob) {
+            $batchCode = $existingJob->batch_code;
+        } else {
+            $newJob = WmsAutoOrderJobControl::startJob(
+                processName: JobProcessName::ORDER_CALC,
+                createdBy: auth()->id(),
+                warehouseId: $satelliteWarehouseId,
+                batchCode: WmsAutoOrderJobControl::generateBatchCode($satelliteWarehouseId),
+            );
+            $batchCode = $newJob->batch_code;
+            $newJob->markAsSuccess(0);
+        }
+
+        foreach ($items as $itemData) {
+            $itemId = $itemData['item_id'];
+            $totalPieceQty = (int) ($itemData['quantity'] ?? 0);
+            $itemCode = $itemData['item_code'] ?? null;
+            $searchCode = $itemData['search_code'] ?? null;
+
+            if ($totalPieceQty < 1) {
+                $errors[] = "[{$itemCode}]: 数量が不正です";
+
+                continue;
+            }
+
+            // 販売終了品チェック
+            $item = Item::find($itemId);
+            if ($item && $item->end_of_sale_type !== 'NORMAL') {
+                $errors[] = "[{$itemCode}] {$item->name}: 販売終了品";
+
+                continue;
+            }
+
+            // 重複チェック
+            $exists = WmsStockTransferCandidate::where('satellite_warehouse_id', $data['satellite_warehouse_id'])
+                ->where('hub_warehouse_id', $data['hub_warehouse_id'])
+                ->where('item_id', $itemId)
+                ->where('status', CandidateStatus::PENDING)
+                ->forCreatedBy(auth()->id())
+                ->exists();
+
+            if ($exists) {
+                $errors[] = "[{$itemCode}] {$item->name}: 既に存在";
+
+                continue;
+            }
+
+            // 在庫・入荷予定数をリアルタイム取得
+            $currentStock = $this->getItemStockForCreate($data['satellite_warehouse_id'], $itemId);
+            $hubStock = $this->getItemStockForCreate($data['hub_warehouse_id'], $itemId);
+            $incomingQty = $this->getItemIncomingQuantityForCreate($data['satellite_warehouse_id'], $itemId);
+
+            // 発注点取得
+            $safetyStock = ItemContractor::where('warehouse_id', $data['satellite_warehouse_id'])
+                ->where('item_id', $itemId)
+                ->value('safety_stock');
+
+            $commonFields = [
+                'batch_code' => $batchCode,
+                'satellite_warehouse_id' => $data['satellite_warehouse_id'],
+                'hub_warehouse_id' => $data['hub_warehouse_id'],
+                'item_id' => $itemId,
+                'item_code' => $itemCode,
+                'search_code' => $searchCode,
+                'contractor_id' => null,
+                'delivery_course_id' => $data['delivery_course_id'] ?? null,
+                'current_effective_stock' => $currentStock,
+                'incoming_quantity' => $incomingQty,
+                'safety_stock' => $safetyStock,
+                'hub_effective_stock' => $hubStock,
+                'expected_arrival_date' => $data['expected_arrival_date'],
+                'original_arrival_date' => $data['expected_arrival_date'],
+                'status' => CandidateStatus::PENDING,
+                'lot_status' => LotStatus::RAW,
+                'is_manually_modified' => true,
+                'modified_by' => auth()->id(),
+                'modified_at' => now(),
+            ];
+
+            WmsStockTransferCandidate::create(array_merge($commonFields, [
+                'suggested_quantity' => $totalPieceQty,
+                'transfer_quantity' => $totalPieceQty,
+                'quantity_type' => QuantityType::PIECE,
+            ]));
+            $created++;
+
+            WmsOrderCalculationLog::create([
+                'batch_code' => $batchCode,
+                'warehouse_id' => $data['satellite_warehouse_id'],
+                'item_id' => $itemId,
+                'calculation_type' => CalculationType::INTERNAL,
+                'contractor_id' => null,
+                'source_warehouse_id' => $data['hub_warehouse_id'],
+                'current_effective_stock' => $currentStock,
+                'incoming_quantity' => $incomingQty,
+                'safety_stock_setting' => $safetyStock ?? 0,
+                'lead_time_days' => 1,
+                'calculated_shortage_qty' => $totalPieceQty,
+                'calculated_order_quantity' => $totalPieceQty,
+                'calculation_details' => [
+                    'manual_entry' => true,
+                    'created_by' => auth()->id(),
+                    'created_at' => now()->toDateTimeString(),
+                    'formula' => "手動追加（バラ:{$totalPieceQty}）",
+                ],
+            ]);
+        }
+
     }
 
     public function table(Table $table): Table

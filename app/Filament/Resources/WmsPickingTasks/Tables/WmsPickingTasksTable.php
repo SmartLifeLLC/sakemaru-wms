@@ -17,6 +17,7 @@ use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
 use App\Services\PickingList\PickingListPdfService;
 use App\Services\PickingList\PickingListService;
+use App\Services\Shortage\PickingShortageDetector;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
@@ -886,7 +887,7 @@ class WmsPickingTasksTable
                         // 現在のテーブルクエリから未完了タスクを取得
                         $tasks = $table->getQuery()
                             ->where('status', '!=', WmsPickingTask::STATUS_COMPLETED)
-                            ->with('pickingItemResults.shortage.allocations')
+                            ->with('pickingItemResults')
                             ->get();
 
                         if ($tasks->isEmpty()) {
@@ -902,61 +903,46 @@ class WmsPickingTasksTable
                         $completedCount = 0;
                         $itemCount = 0;
                         $errors = [];
+                        $shortageDetector = app(PickingShortageDetector::class);
 
-                        DB::connection('sakemaru')->transaction(function () use ($tasks, &$completedCount, &$itemCount, &$errors) {
+                        DB::connection('sakemaru')->transaction(function () use ($tasks, $shortageDetector, &$completedCount, &$itemCount, &$errors) {
                             foreach ($tasks as $task) {
                                 try {
-                                    $blockers = [];
-
+                                    // 現在のピック数を確定値として終了する。
+                                    // 未入力の明細だけ、通常明細は予定数、引当欠品明細は引当済み数量をデフォルトにする。
                                     foreach ($task->pickingItemResults as $item) {
-                                        if (($item->ordered_qty ?? 0) <= ($item->planned_qty ?? 0)) {
-                                            continue;
+                                        $pickedQty = (int) ($item->picked_qty ?? 0);
+
+                                        if ($pickedQty === 0) {
+                                            $pickedQty = (int) ($item->planned_qty ?? 0);
                                         }
 
-                                        $shortage = $item->shortage;
-                                        if (! $shortage) {
-                                            $blockers[] = "商品ID {$item->item_id}: 欠品未記録";
+                                        $shortageQty = max(0, (int) ($item->ordered_qty ?? 0) - $pickedQty);
+                                        $status = $shortageQty > 0
+                                            ? WmsPickingItemResult::STATUS_SHORTAGE
+                                            : WmsPickingItemResult::STATUS_COMPLETED;
 
-                                            continue;
-                                        }
-
-                                        if (! $shortage->is_confirmed) {
-                                            $blockers[] = "欠品ID {$shortage->id}: 欠品対応未承認";
-                                        }
-
-                                        if (! $shortage->is_synced) {
-                                            $blockers[] = "欠品ID {$shortage->id}: 在庫同期未完了";
-                                        }
-
-                                        $unfinishedAllocationCount = $shortage->allocations
-                                            ->filter(fn ($allocation) => $allocation->is_confirmed && ! $allocation->is_finished)
-                                            ->count();
-
-                                        if ($unfinishedAllocationCount > 0) {
-                                            $blockers[] = "欠品ID {$shortage->id}: 横持ち出荷未完了 {$unfinishedAllocationCount}件";
-                                        }
-                                    }
-
-                                    if (! empty($blockers)) {
-                                        $errors[] = "タスクID {$task->id}: ".implode(' / ', $blockers);
-
-                                        continue;
-                                    }
-
-                                    // 全アイテムのpicked_qtyを予定数に設定
-                                    foreach ($task->pickingItemResults as $item) {
                                         $item->update([
-                                            'picked_qty' => $item->planned_qty,
-                                            'shortage_qty' => 0,
-                                            'status' => 'COMPLETED',
+                                            'picked_qty' => $pickedQty,
+                                            'picked_qty_type' => $item->picked_qty_type ?? $item->planned_qty_type,
+                                            'shortage_qty' => $shortageQty,
+                                            'status' => $status,
                                             'picked_at' => $item->picked_at ?? now(),
                                         ]);
+
+                                        if ($status === WmsPickingItemResult::STATUS_SHORTAGE) {
+                                            $shortageDetector->detectAndRecord($item->fresh());
+                                        }
+
                                         $itemCount++;
                                     }
 
                                     // タスクを完了
+                                    $hasShortage = $task->pickingItemResults
+                                        ->contains(fn ($item) => (int) ($item->ordered_qty ?? 0) > (int) ($item->picked_qty ?? 0));
+
                                     $task->update([
-                                        'status' => WmsPickingTask::STATUS_COMPLETED,
+                                        'status' => $hasShortage ? WmsPickingTask::STATUS_SHORTAGE : WmsPickingTask::STATUS_COMPLETED,
                                         'completed_at' => $task->completed_at ?? now(),
                                     ]);
 

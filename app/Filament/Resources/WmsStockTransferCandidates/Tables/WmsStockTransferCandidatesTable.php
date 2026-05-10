@@ -8,6 +8,7 @@ use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
+use App\Filament\Support\StockTransferSlipHistory;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
@@ -19,7 +20,6 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -191,32 +191,26 @@ class WmsStockTransferCandidatesTable
                         }
                         $log = $record->calculationLog;
 
-                        return $log?->safety_stock_setting ?? '-';
+                        return $log?->safety_stock_setting ?? 0;
                     })
                     ->numeric()
                     ->alignEnd()
                     ->toggleable()
                     ->width('60px'),
 
-                TextColumn::make('shortage_qty')
-                    ->label('不足分')
+                TextColumn::make('auto_order_quantity')
+                    ->label('自動発注数')
                     ->state(function ($record) {
-                        if ($record->shortage_qty !== null) {
-                            return $record->shortage_qty;
-                        }
-                        $log = $record->calculationLog;
+                        $details = $record->calculationLog?->calculation_details ?? [];
 
-                        return $log?->calculated_shortage_qty ?? '-';
+                        return $details['旧自動発注数']
+                            ?? static::resolveItemContractor($record)?->auto_order_quantity
+                            ?? 0;
                     })
                     ->numeric()
                     ->alignEnd()
                     ->toggleable()
-                    ->width('55px')
-                    ->color(function ($record) {
-                        $shortageQty = $record->shortage_qty ?? $record->calculationLog?->calculated_shortage_qty ?? 0;
-
-                        return $shortageQty > 0 ? 'danger' : null;
-                    }),
+                    ->width('75px'),
 
                 TextColumn::make('suggested_quantity')
                     ->label('算出数')
@@ -419,7 +413,6 @@ class WmsStockTransferCandidatesTable
                             'expected_arrival_date' => $record->expected_arrival_date,
                             'delivery_course_id' => $record->delivery_course_id,
                             'safety_stock' => $record->safety_stock,
-                            'max_stock' => $itemContractor?->max_stock ?? 0,
                             'auto_order_quantity' => $itemContractor?->auto_order_quantity ?? 0,
                             'is_auto_order' => (bool) ($itemContractor?->is_auto_order ?? false),
                             'ordering_code' => $record->search_code ?? $record->ordering_code,
@@ -499,7 +492,6 @@ class WmsStockTransferCandidatesTable
                                     'transferOutgoing' => $details['移動出庫予定'] ?? 0,
                                     'safetyStock' => $details['発注点'] ?? $details['安全在庫'] ?? 0,
                                     'settingAutoOrderQuantity' => $itemContractor?->auto_order_quantity ?? 0,
-                                    'maxStock' => $details['最大発注点'] ?? $itemContractor?->max_stock ?? 0,
                                     'isAutoOrder' => (bool) ($itemContractor?->is_auto_order ?? false),
                                     'shortageQty' => $details['不足数'] ?? 0,
                                     'isEditable' => $isEditable,
@@ -507,8 +499,6 @@ class WmsStockTransferCandidatesTable
                         ];
 
                         if ($isEditable) {
-                            $schema[] = Hidden::make('safety_stock');
-
                             $schema[] = Grid::make(3)->schema([
                                 TextInput::make('transfer_quantity')
                                     ->label('発注数')
@@ -526,9 +516,9 @@ class WmsStockTransferCandidatesTable
                                     ->searchable(),
                             ]);
 
-                            $schema[] = Grid::make(3)->schema([
-                                TextInput::make('max_stock')
-                                    ->label('最大発注点')
+                            $schema[] = Grid::make(2)->schema([
+                                TextInput::make('safety_stock')
+                                    ->label('発注点')
                                     ->integer()
                                     ->minValue(0),
                                 TextInput::make('auto_order_quantity')
@@ -572,7 +562,6 @@ class WmsStockTransferCandidatesTable
                             || $data['expected_arrival_date'] != $record->expected_arrival_date?->format('Y-m-d')
                             || $data['delivery_course_id'] != $record->delivery_course_id
                             || (isset($data['safety_stock']) && (int) $data['safety_stock'] !== (int) $record->safety_stock)
-                            || (isset($data['max_stock']) && (int) $data['max_stock'] !== (int) ($itemContractor?->max_stock ?? 0))
                             || (isset($data['auto_order_quantity']) && (int) $data['auto_order_quantity'] !== (int) ($itemContractor?->auto_order_quantity ?? 0))
                             || (array_key_exists('is_auto_order', $data) && (bool) $data['is_auto_order'] !== (bool) ($itemContractor?->is_auto_order ?? false))
                             || (isset($data['ordering_code']) && $data['ordering_code'] !== ($record->search_code ?? $record->ordering_code));
@@ -612,9 +601,6 @@ class WmsStockTransferCandidatesTable
                             $itemContractorData = [];
                             if (isset($data['safety_stock']) && (int) $data['safety_stock'] !== (int) ($itemContractor?->safety_stock ?? 0)) {
                                 $itemContractorData['safety_stock'] = max(0, (int) $data['safety_stock']);
-                            }
-                            if (isset($data['max_stock']) && (int) $data['max_stock'] !== (int) ($itemContractor?->max_stock ?? 0)) {
-                                $itemContractorData['max_stock'] = max(0, (int) $data['max_stock']);
                             }
                             if (isset($data['auto_order_quantity']) && (int) $data['auto_order_quantity'] !== (int) ($itemContractor?->auto_order_quantity ?? 0)) {
                                 $itemContractorData['auto_order_quantity'] = max(0, (int) $data['auto_order_quantity']);
@@ -659,6 +645,22 @@ class WmsStockTransferCandidatesTable
                                 ->send();
                         }
                     }),
+
+                Action::make('viewTransferSlip')
+                    ->label('伝票履歴')
+                    ->icon('heroicon-o-document-text')
+                    ->color('info')
+                    ->visible(fn ($record) => $record->status === CandidateStatus::EXECUTED)
+                    ->modalHeading(fn ($record) => "移動伝票履歴 バッチ:{$record->batch_code}")
+                    ->modalWidth('6xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('閉じる')
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalContent(fn ($record) => view(
+                        'filament.components.stock-transfer-slip-history',
+                        StockTransferSlipHistory::resolveForBatchCode($record->batch_code),
+                    )),
 
                 Action::make('toggleAutoOrder')
                     ->label('発注消')

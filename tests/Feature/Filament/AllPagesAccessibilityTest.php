@@ -65,6 +65,7 @@ use App\Filament\Resources\WmsShortageAllocations\Pages\ListWmsShortageAllocatio
 use App\Filament\Resources\WmsShortages\Pages\ListWmsShortages;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\Pages\ListWmsShortagesWaitingApprovals;
 use App\Filament\Resources\WmsStockTransferCandidates\Pages\ListWmsStockTransferCandidates;
+use App\Filament\Resources\WmsStockTransferConfirmed\Pages\ListWmsStockTransferConfirmed;
 use App\Filament\Resources\WmsWarehouseCalendars\Pages\ListWmsWarehouseCalendars;
 use App\Models\Sakemaru\User;
 use Illuminate\Support\Facades\DB;
@@ -192,6 +193,7 @@ class AllPagesAccessibilityTest extends TestCase
         return [
             'TP64: ListWmsAutoOrderExecutionLogs' => [ListWmsAutoOrderExecutionLogs::class],
             'TP65: ListWmsExportLogs' => [ListWmsExportLogs::class],
+            'TP66: ListWmsStockTransferConfirmed' => [ListWmsStockTransferConfirmed::class],
         ];
     }
 

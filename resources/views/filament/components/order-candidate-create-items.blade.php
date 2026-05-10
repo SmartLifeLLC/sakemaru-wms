@@ -257,14 +257,14 @@
             </div>
         </div>
 
-        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-y-auto" style="max-height: 320px">
-            <table class="w-full text-sm table-fixed">
+        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-auto" style="max-height: 320px">
+            <table class="w-full min-w-[1120px] text-sm table-fixed">
                 <colgroup>
                     <col style="width: 70px" />
                     <col />
                     <col style="width: 60px" />
                     <col style="width: 38px" />
-                    <col style="width: 100px" />
+                    <col style="width: 150px" />
                     <col style="width: 65px" />
                     <col style="width: 40px" />
                     <col style="width: 40px" />
@@ -305,7 +305,7 @@
                                 <span class="text-xs font-mono text-gray-500 dark:text-gray-400" x-text="item.capacity_case"></span>
                             </td>
                             <td class="px-1.5 py-0.5">
-                                <span class="text-xs text-gray-500 dark:text-gray-400 truncate block" x-text="item.contractor_name || '-'"></span>
+                                <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-normal break-words" x-text="item.contractor_name || '-'"></span>
                             </td>
                             <td class="px-1.5 py-0.5 text-center">
                                 <span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.last_shipped_at || '-'"></span>
