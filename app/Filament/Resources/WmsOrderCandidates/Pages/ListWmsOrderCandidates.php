@@ -11,7 +11,6 @@ use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderCandidates\WmsOrderCandidateResource;
-use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemCategory;
@@ -561,11 +560,9 @@ class ListWmsOrderCandidates extends ListRecords
                         $updated = 0;
                         WmsOrderCandidate::where('status', CandidateStatus::PENDING)
                             ->forCreatedBy(auth()->id())
-                            ->with('item.current_price')
                             ->orderBy('id')
                             ->chunkById(500, function ($candidates) use (&$updated) {
                                 foreach ($candidates as $candidate) {
-                                    WmsOrderConfirmationWaitingTable::applyOrderingUnitConversionForApproval($candidate);
                                     $candidate->update([
                                         'status' => CandidateStatus::APPROVED,
                                         'updated_at' => now(),

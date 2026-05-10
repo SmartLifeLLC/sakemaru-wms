@@ -84,6 +84,8 @@ class PurchaseOrderPdfService
 
     private $warehouse;
 
+    private OrderOutputQuantityResolver $quantityResolver;
+
     /**
      * WmsOrderDataFileからPDFを生成
      */
@@ -205,6 +207,7 @@ class PurchaseOrderPdfService
         $this->warehouse = $firstCandidate->warehouse;
         $this->contractor = $firstCandidate->contractor;
         $this->client = $this->getClientInfo($this->warehouse);
+        $this->quantityResolver = app(OrderOutputQuantityResolver::class);
 
         // 最初のページ
         $this->pdf->AddPage();
@@ -480,23 +483,18 @@ class PurchaseOrderPdfService
         // 行データ準備
         $item = $candidate->item;
 
-        // 入り数（ケース入り数）
-        $capacityCase = $item?->capacity_case ?? 1;
-        $orderQty = $candidate->order_quantity ?? 0;
-
-        // FAXは発注候補の単位をそのまま表示する。
-        // CASE の order_quantity はケース数、PIECE の order_quantity はバラ数。
-        $quantityType = $candidate->quantity_type?->value ?? $candidate->quantity_type;
-        $caseQty = $quantityType === 'CASE' ? $orderQty : '';
-        $pieceQty = $quantityType === 'PIECE' ? $orderQty : '';
+        $outputQuantity = $this->quantityResolver->resolve($candidate);
+        $capacityCase = $outputQuantity['display_capacity'];
+        $caseQty = $outputQuantity['case_quantity'];
+        $pieceQty = $outputQuantity['piece_quantity'];
 
         $rowData = [
-            $this->truncateText($candidate->ordering_code ?? '', 28),  // 発注CD（JANコード）
-            $this->truncateText($item?->code ?? '', 22),               // 自社コード
-            $capacityCase > 1 ? $capacityCase : '',                    // 入数（1は表示しない）
-            $item?->name ?? '',                                        // 商品名（省略なし - 複数行対応）
-            $caseQty !== '' && $caseQty !== 0 ? $caseQty : '',         // ケース
-            $pieceQty !== '' && $pieceQty !== 0 ? $pieceQty : '',      // バラ
+            $this->truncateText($outputQuantity['ordering_code'] ?? '', 28), // 発注CD（JANコード）
+            $this->truncateText($item?->code ?? '', 22),                     // 自社コード
+            $capacityCase > 1 ? $capacityCase : '',                          // 入数（1は表示しない）
+            $item?->name ?? '',                                              // 商品名（省略なし - 複数行対応）
+            $caseQty !== 0 ? $caseQty : '',                                  // ケース
+            $pieceQty !== 0 ? $pieceQty : '',                                // バラ
         ];
 
         // 入数・ケース・バラは中央揃え、商品名は左揃え
