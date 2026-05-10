@@ -85,7 +85,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         parent::mount();
 
         // キャッシュをクリアしてプリセットビューを再取得
-        cache()->forget('transfer_confirmation_approved_warehouses_'.auth()->id());
+        cache()->forget('transfer_confirmation_approved_warehouses_all');
         cache()->forget('order_confirmation_approved_warehouses_'.auth()->id());
 
         // アクティブな発注確定ジョブがあるかチェック
@@ -462,7 +462,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
     public function setConfirmationTab(string $tab): void
     {
         // キャッシュをクリア
-        cache()->forget('transfer_confirmation_approved_warehouses_'.auth()->id());
+        cache()->forget('transfer_confirmation_approved_warehouses_all');
         cache()->forget('order_confirmation_approved_warehouses_'.auth()->id());
 
         // 現在のプリセットビューを引き継いでリダイレクト
@@ -503,7 +503,6 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
     private function getTransferApprovedCountForWarehouse(?int $warehouseId): int
     {
         $query = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
-        $query->forCreatedBy(auth()->id());
 
         if ($warehouseId !== null) {
             $query->where('satellite_warehouse_id', $warehouseId);
@@ -531,10 +530,9 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         // タブに応じて倉庫リストを取得
         if ($this->confirmationTab === 'transfer') {
             // 移動確定待ち（APPROVED）に存在する依頼倉庫を取得
-            $cacheKey = 'transfer_confirmation_approved_warehouses_'.auth()->id();
+            $cacheKey = 'transfer_confirmation_approved_warehouses_all';
             $warehouseData = cache()->remember($cacheKey, 30, function () {
                 $warehouseIds = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
-                    ->forCreatedBy(auth()->id())
                     ->distinct()
                     ->pluck('satellite_warehouse_id')
                     ->toArray();
@@ -556,24 +554,18 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
             $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
+            $views = [
+                'default' => PresetView::make()
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+
             if ($defaultWarehouse) {
-                $views = [
-                    'default' => PresetView::make()
-                        ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $userDefaultWarehouseId))
-                        ->favorite()
-                        ->label($defaultWarehouse->name)
-                        ->default(),
-                    'all' => PresetView::make()
-                        ->favorite()
-                        ->label('全て'),
-                ];
-            } else {
-                $views = [
-                    'default' => PresetView::make()
-                        ->favorite()
-                        ->label('全て')
-                        ->default(),
-                ];
+                $views["default_{$defaultWarehouse->id}"] = PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('satellite_warehouse_id', $userDefaultWarehouseId))
+                    ->favorite()
+                    ->label($defaultWarehouse->name);
             }
 
             foreach ($warehouses as $warehouse) {
