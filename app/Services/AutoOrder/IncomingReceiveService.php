@@ -159,6 +159,12 @@ class IncomingReceiveService
             $created = $this->createSchedulesFromSlip($slip);
 
             if ($created > 0) {
+                if ($slip->details()->where('match_status', 'NOT_FOUND')->exists()) {
+                    $slip->update(['match_status' => 'NOT_FOUND']);
+
+                    return 'NOT_FOUND';
+                }
+
                 $slip->update(['match_status' => 'CREATED']);
                 Log::info('[IncomingReceiveService] 未照合伝票から入荷予定を新規作成', [
                     'slip_id' => $slip->id,
@@ -469,6 +475,28 @@ class IncomingReceiveService
             // 3段階で商品特定
             $itemId = $this->resolveItemId($detail);
 
+            if (! $itemId) {
+                $detail->update(['match_status' => 'NOT_FOUND']);
+
+                WmsIncomingImportError::firstOrCreate([
+                    'received_file_id' => $receivedFile?->id,
+                    'received_slip_id' => $slip->id,
+                    'received_detail_id' => $detail->id,
+                    'error_code' => 'ITEM_NOT_FOUND',
+                ], [
+                    'error_type' => 'ERROR',
+                    'error_message' => "商品を特定できません: JAN={$detail->d_jan_code}, 商品CD={$detail->d_item_code}",
+                    'item_code' => $detail->d_jan_code ?: $detail->d_item_code,
+                    'raw_data' => [
+                        'd_jan_code' => $detail->d_jan_code,
+                        'd_item_code' => $detail->d_item_code,
+                        'd_product_name' => $detail->d_product_name,
+                    ],
+                ]);
+
+                continue;
+            }
+
             $isShortage = $detail->is_shortage || $detail->total_quantity === 0;
             $shippedQty = $isShortage ? 0 : $detail->total_quantity;
 
@@ -565,7 +593,7 @@ class IncomingReceiveService
         }
 
         // Step 2: item_search_information
-        $searchCodes = array_filter([$detail->d_jan_code, $detail->d_item_code]);
+        $searchCodes = $this->normalizedIncomingSearchCodes($detail);
         if (! empty($searchCodes)) {
             $itemId = DB::connection('sakemaru')
                 ->table('item_search_information')
@@ -577,6 +605,34 @@ class IncomingReceiveService
         }
 
         return null;
+    }
+
+    /**
+     * JX受信コードの表記揺れを検索用に正規化する。
+     */
+    private function normalizedIncomingSearchCodes($detail): array
+    {
+        $codes = [];
+
+        foreach ([$detail->d_jan_code, $detail->d_item_code] as $code) {
+            $code = trim((string) $code);
+            if ($code === '') {
+                continue;
+            }
+
+            $codes[] = $code;
+
+            $withoutLeadingZeros = ltrim($code, '0');
+            if ($withoutLeadingZeros !== '') {
+                $codes[] = $withoutLeadingZeros;
+
+                if (strlen($withoutLeadingZeros) < 13) {
+                    $codes[] = str_pad($withoutLeadingZeros, 13, '0', STR_PAD_LEFT);
+                }
+            }
+        }
+
+        return array_values(array_unique($codes));
     }
 
     /**
