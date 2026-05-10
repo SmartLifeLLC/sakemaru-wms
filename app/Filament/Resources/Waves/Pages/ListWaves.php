@@ -20,6 +20,7 @@ use App\Services\WarehouseResolver;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
@@ -331,11 +332,30 @@ class ListWaves extends ListRecords
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn (Action $action) => $action->label('波動を生成')->color('danger'))
                 ->modalCancelActionLabel('生成せず閉じる')
-                ->schema($this->getWaveSelectionSchema())
+                ->schema($this->getWaveSelectionSchema(includeTargetDocumentTypeFilter: true))
                 ->action(function (array $data): void {
                     $this->generateManualWave($data);
                 }),
         ];
+    }
+
+    private function normalizeTargetDocumentTypes(mixed $targetDocumentTypes): array
+    {
+        if (! is_array($targetDocumentTypes)) {
+            return ['shipment', 'transfer'];
+        }
+
+        return array_values(array_intersect($targetDocumentTypes, ['shipment', 'transfer']));
+    }
+
+    private function includesShipmentDocuments(array $targetDocumentTypes): bool
+    {
+        return in_array('shipment', $targetDocumentTypes, true);
+    }
+
+    private function includesTransferDocuments(array $targetDocumentTypes): bool
+    {
+        return in_array('transfer', $targetDocumentTypes, true);
     }
 
     /**
@@ -344,7 +364,7 @@ class ListWaves extends ListRecords
      *
      * @return array<int, mixed>
      */
-    protected function getWaveSelectionSchema(): array
+    protected function getWaveSelectionSchema(bool $includeTargetDocumentTypeFilter = false): array
     {
         return [
             Toggle::make('include_past')
@@ -394,6 +414,21 @@ class ListWaves extends ListRecords
                 ->required()
                 ->live(),
 
+            ...($includeTargetDocumentTypeFilter ? [
+                CheckboxList::make('target_document_types')
+                    ->label('対象伝票区分')
+                    ->options([
+                        'shipment' => '出荷',
+                        'transfer' => '物流（移動伝票）',
+                    ])
+                    ->default(['shipment', 'transfer'])
+                    ->columns(2)
+                    ->required()
+                    ->helperText('出荷のみ・移動のみ・両方で配送コース候補と生成対象を絞り込みます。')
+                    ->live()
+                    ->visible(fn (Get $get) => ($get('generation_type') ?? 'delivery_course') === 'delivery_course'),
+            ] : []),
+
             Grid::make(2)->schema([
                 ViewField::make('delivery_course_ids')
                     ->label('配送コース')
@@ -402,6 +437,7 @@ class ListWaves extends ListRecords
                         $warehouseId = $get('warehouse_id');
                         $shippingDate = $get('shipping_date');
                         $includePast = $get('include_past');
+                        $targetDocumentTypes = $this->normalizeTargetDocumentTypes($get('target_document_types'));
 
                         if (! $warehouseId || ! $shippingDate) {
                             return ['options' => []];
@@ -411,42 +447,48 @@ class ListWaves extends ListRecords
 
                         $dateOperator = $includePast ? '<=' : '=';
 
-                        $earningCounts = DB::connection('sakemaru')
-                            ->table('earnings')
-                            ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
-                            ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
-                            ->where('earnings.delivered_date', $dateOperator, $shippingDate)
-                            ->where('earnings.is_active', true)
-                            ->where('earnings.is_delivered', 0)
-                            ->where('earnings.picking_status', 'BEFORE')
-                            ->selectRaw('delivery_courses.id as course_id, delivery_courses.code as course_code, delivery_courses.name as course_name, COUNT(*) as count')
-                            ->groupBy('delivery_courses.id', 'delivery_courses.code', 'delivery_courses.name')
-                            ->get()
-                            ->keyBy('course_id');
+                        $earningCounts = collect();
+                        if ($this->includesShipmentDocuments($targetDocumentTypes)) {
+                            $earningCounts = DB::connection('sakemaru')
+                                ->table('earnings')
+                                ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
+                                ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
+                                ->where('earnings.delivered_date', $dateOperator, $shippingDate)
+                                ->where('earnings.is_active', true)
+                                ->where('earnings.is_delivered', 0)
+                                ->where('earnings.picking_status', 'BEFORE')
+                                ->selectRaw('delivery_courses.id as course_id, delivery_courses.code as course_code, delivery_courses.name as course_name, COUNT(*) as count')
+                                ->groupBy('delivery_courses.id', 'delivery_courses.code', 'delivery_courses.name')
+                                ->get()
+                                ->keyBy('course_id');
+                        }
 
-                        $stockTransferCounts = DB::connection('sakemaru')
-                            ->table('stock_transfers as st')
-                            ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
-                            ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
-                            ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
-                            ->whereIn('st.from_warehouse_id', $warehouseIds)
-                            ->whereIn('dc.warehouse_id', $warehouseIds)
-                            ->whereRaw("COALESCE(st.picking_date, st.delivered_date) {$dateOperator} ?", [$shippingDate])
-                            ->where('st.is_active', true)
-                            ->where('st.picking_status', 'BEFORE')
-                            ->where(function ($query) {
-                                $query->where(function ($q) {
-                                    $q->where('fw.is_virtual', false)
-                                        ->orWhere('tw.is_virtual', false);
+                        $stockTransferCounts = collect();
+                        if ($this->includesTransferDocuments($targetDocumentTypes)) {
+                            $stockTransferCounts = DB::connection('sakemaru')
+                                ->table('stock_transfers as st')
+                                ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
+                                ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
+                                ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
+                                ->whereIn('st.from_warehouse_id', $warehouseIds)
+                                ->whereIn('dc.warehouse_id', $warehouseIds)
+                                ->whereRaw("COALESCE(st.picking_date, st.delivered_date) {$dateOperator} ?", [$shippingDate])
+                                ->where('st.is_active', true)
+                                ->where('st.picking_status', 'BEFORE')
+                                ->where(function ($query) {
+                                    $query->where(function ($q) {
+                                        $q->where('fw.is_virtual', false)
+                                            ->orWhere('tw.is_virtual', false);
+                                    })
+                                        ->where(function ($q) {
+                                            $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
+                                        });
                                 })
-                                    ->where(function ($q) {
-                                        $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
-                                    });
-                            })
-                            ->selectRaw('dc.id as course_id, dc.code as course_code, dc.name as course_name, COUNT(*) as count')
-                            ->groupBy('dc.id', 'dc.code', 'dc.name')
-                            ->get()
-                            ->keyBy('course_id');
+                                ->selectRaw('dc.id as course_id, dc.code as course_code, dc.name as course_name, COUNT(*) as count')
+                                ->groupBy('dc.id', 'dc.code', 'dc.name')
+                                ->get()
+                                ->keyBy('course_id');
+                        }
 
                         $allCourseIds = $earningCounts->keys()->merge($stockTransferCounts->keys())->unique();
 
@@ -455,9 +497,16 @@ class ListWaves extends ListRecords
                             $earningData = $earningCounts->get($courseId);
                             $stockTransferData = $stockTransferCounts->get($courseId);
                             $name = $earningData->course_name ?? $stockTransferData->course_name ?? '不明';
+                            $counts = [];
+                            if ($this->includesShipmentDocuments($targetDocumentTypes)) {
+                                $counts[] = '出荷'.($earningData->count ?? 0).'件';
+                            }
+                            if ($this->includesTransferDocuments($targetDocumentTypes)) {
+                                $counts[] = '移動'.($stockTransferData->count ?? 0).'件';
+                            }
                             $options[] = [
                                 'id' => $courseId,
-                                'label' => $name,
+                                'label' => $name.'（'.implode(' / ', $counts).'）',
                             ];
                         }
 
@@ -525,6 +574,7 @@ class ListWaves extends ListRecords
                         $shippingDate = $get('shipping_date');
                         $deliveryCourseIds = $get('delivery_course_ids');
                         $includePast = $get('include_past');
+                        $targetDocumentTypes = $this->normalizeTargetDocumentTypes($get('target_document_types'));
 
                         if (! $warehouseId || ! $shippingDate) {
                             return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-warehouse text-2xl mb-2"></i><p class="text-sm">倉庫と出荷日を選択してください</p></div>');
@@ -538,46 +588,52 @@ class ListWaves extends ListRecords
 
                         $dateOperator = $includePast ? '<=' : '=';
 
-                        $earningSummary = DB::connection('sakemaru')
-                            ->table('earnings')
-                            ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
-                            ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
-                            ->where('earnings.delivered_date', $dateOperator, $shippingDate)
-                            ->where('earnings.is_active', true)
-                            ->where('earnings.is_delivered', 0)
-                            ->where('earnings.picking_status', 'BEFORE')
-                            ->whereIn('earnings.delivery_course_id', $deliveryCourseIds)
-                            ->selectRaw('delivery_courses.id as course_id, delivery_courses.name as course_name, COUNT(*) as count')
-                            ->groupBy('delivery_courses.id', 'delivery_courses.name')
-                            ->orderBy('delivery_courses.name')
-                            ->get()
-                            ->keyBy('course_id');
+                        $earningSummary = collect();
+                        if ($this->includesShipmentDocuments($targetDocumentTypes)) {
+                            $earningSummary = DB::connection('sakemaru')
+                                ->table('earnings')
+                                ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
+                                ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
+                                ->where('earnings.delivered_date', $dateOperator, $shippingDate)
+                                ->where('earnings.is_active', true)
+                                ->where('earnings.is_delivered', 0)
+                                ->where('earnings.picking_status', 'BEFORE')
+                                ->whereIn('earnings.delivery_course_id', $deliveryCourseIds)
+                                ->selectRaw('delivery_courses.id as course_id, delivery_courses.name as course_name, COUNT(*) as count')
+                                ->groupBy('delivery_courses.id', 'delivery_courses.name')
+                                ->orderBy('delivery_courses.name')
+                                ->get()
+                                ->keyBy('course_id');
+                        }
 
-                        $stockTransferSummary = DB::connection('sakemaru')
-                            ->table('stock_transfers as st')
-                            ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
-                            ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
-                            ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
-                            ->whereIn('st.from_warehouse_id', $warehouseIds)
-                            ->whereIn('dc.warehouse_id', $warehouseIds)
-                            ->whereRaw("COALESCE(st.picking_date, st.delivered_date) {$dateOperator} ?", [$shippingDate])
-                            ->where('st.is_active', true)
-                            ->where('st.picking_status', 'BEFORE')
-                            ->whereIn('st.delivery_course_id', $deliveryCourseIds)
-                            ->where(function ($query) {
-                                $query->where(function ($q) {
-                                    $q->where('fw.is_virtual', false)
-                                        ->orWhere('tw.is_virtual', false);
+                        $stockTransferSummary = collect();
+                        if ($this->includesTransferDocuments($targetDocumentTypes)) {
+                            $stockTransferSummary = DB::connection('sakemaru')
+                                ->table('stock_transfers as st')
+                                ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
+                                ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
+                                ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
+                                ->whereIn('st.from_warehouse_id', $warehouseIds)
+                                ->whereIn('dc.warehouse_id', $warehouseIds)
+                                ->whereRaw("COALESCE(st.picking_date, st.delivered_date) {$dateOperator} ?", [$shippingDate])
+                                ->where('st.is_active', true)
+                                ->where('st.picking_status', 'BEFORE')
+                                ->whereIn('st.delivery_course_id', $deliveryCourseIds)
+                                ->where(function ($query) {
+                                    $query->where(function ($q) {
+                                        $q->where('fw.is_virtual', false)
+                                            ->orWhere('tw.is_virtual', false);
+                                    })
+                                        ->where(function ($q) {
+                                            $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
+                                        });
                                 })
-                                    ->where(function ($q) {
-                                        $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
-                                    });
-                            })
-                            ->selectRaw('dc.id as course_id, dc.name as course_name, COUNT(*) as count')
-                            ->groupBy('dc.id', 'dc.name')
-                            ->orderBy('dc.name')
-                            ->get()
-                            ->keyBy('course_id');
+                                ->selectRaw('dc.id as course_id, dc.name as course_name, COUNT(*) as count')
+                                ->groupBy('dc.id', 'dc.name')
+                                ->orderBy('dc.name')
+                                ->get()
+                                ->keyBy('course_id');
+                        }
 
                         if ($earningSummary->isEmpty() && $stockTransferSummary->isEmpty()) {
                             return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">選択した配送コースに対象伝票がありません</p></div>');
@@ -780,6 +836,7 @@ class ListWaves extends ListRecords
         $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
         $buyerIds = $data['buyer_ids'] ?? [];
         $includePast = $data['include_past'] ?? true;
+        $targetDocumentTypes = $this->normalizeTargetDocumentTypes($data['target_document_types'] ?? null);
 
         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
@@ -807,17 +864,23 @@ class ListWaves extends ListRecords
                 ->pluck('id')
                 ->toArray();
 
-            $earnings = Earning::query()
-                ->where('delivered_date', $dateOperator, $shippingDate)
-                ->where('is_delivered', 0)
-                ->where('picking_status', 'BEFORE')
-                ->whereNotNull('delivery_course_id')
-                ->whereIn('delivery_course_id', $validCourseIds)
-                ->get();
+            $earnings = collect();
+            if ($this->includesShipmentDocuments($targetDocumentTypes)) {
+                $earnings = Earning::query()
+                    ->where('delivered_date', $dateOperator, $shippingDate)
+                    ->where('is_delivered', 0)
+                    ->where('picking_status', 'BEFORE')
+                    ->whereNotNull('delivery_course_id')
+                    ->whereIn('delivery_course_id', $validCourseIds)
+                    ->get();
+            }
 
-            $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId, $includePast)
-                ->whereIn('st.delivery_course_id', $validCourseIds)
-                ->get();
+            $stockTransfers = collect();
+            if ($this->includesTransferDocuments($targetDocumentTypes)) {
+                $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId, $includePast)
+                    ->whereIn('st.delivery_course_id', $validCourseIds)
+                    ->get();
+            }
         }
 
         if ($earnings->isEmpty() && $stockTransfers->isEmpty()) {
