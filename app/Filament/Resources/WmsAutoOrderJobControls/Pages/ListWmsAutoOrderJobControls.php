@@ -192,7 +192,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
         }
 
         $baseDescription = $selectedWarehouse
-            ? "倉庫「{$selectedWarehouseName}」の発注・移動候補を生成します。対象の仕入先を選択してください。"
+            ? "倉庫「{$selectedWarehouseName}」の発注・移動候補を生成します。自動発注ON・発注点あり・自動発注数ありの商品が対象です。"
             : '倉庫が選択されていません。トップバーから倉庫を選択してください。';
 
         return Action::make('generateByWarehouse')
@@ -346,7 +346,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
         }
 
         $baseDescription = $selectedWarehouse
-            ? "倉庫「{$selectedWarehouseName}」の発注候補を生成します。\n発注点・自動発注数が設定済み・発注コードありで、見込み在庫が発注点以下の商品が対象です。"
+            ? "倉庫「{$selectedWarehouseName}」の発注候補を生成します。\n自動発注OFF・出荷実績あり・発注コードありで、見込み在庫が3日実績を下回る商品が対象です。"
             : '倉庫が選択されていません。トップバーから倉庫を選択してください。';
 
         return Action::make('generateSalesBased')

@@ -429,10 +429,6 @@ class SalesBasedOrderCandidateService
             }
         }
 
-        if (! $this->hasItemContractorColumn('auto_order_quantity')) {
-            return 0;
-        }
-
         $itemContractors = DB::connection('sakemaru')
             ->table('item_contractors')
             ->join('items', 'item_contractors.item_id', '=', 'items.id')
@@ -445,7 +441,7 @@ class SalesBasedOrderCandidateService
             ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
             ->where(fn ($q) => $q->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
             ->where('contractors.is_auto_change_order', true)
-            ->select('item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit', 'item_contractors.auto_order_quantity')
+            ->select('item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit')
             ->get();
 
         $insertData = [];
@@ -472,8 +468,7 @@ class SalesBasedOrderCandidateService
             }
 
             $shortageQty = $sales3dQty - $projectedStock;
-            $autoOrderQuantity = max(0, (int) ($ic->auto_order_quantity ?? 0));
-            $orderQty = $autoOrderQuantity > 0 ? $autoOrderQuantity : $shortageQty;
+            $orderQty = $shortageQty;
 
             $supplyWarehouseId = $this->internalSettings[$ic->contractor_id] ?? null;
             if (! $supplyWarehouseId) {
@@ -554,8 +549,7 @@ class SalesBasedOrderCandidateService
                     '入荷予定' => $incomingStock,
                     '見込み在庫' => $projectedStock,
                     '不足数' => $shortageQty,
-                    '旧自動発注数' => $autoOrderQuantity,
-                    '発注数量計算元' => $autoOrderQuantity > 0 ? '自動発注数' : '不足数',
+                    '発注数量計算元' => '不足数',
                     '発注数量' => $orderQty,
                 ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],
@@ -577,10 +571,6 @@ class SalesBasedOrderCandidateService
 
     private function createExternalOrderCandidatesBulk(string $batchCode, Carbon $now, array $transferCandidates): int
     {
-        if (! $this->hasItemContractorColumn('auto_order_quantity')) {
-            return 0;
-        }
-
         $externalQuery = DB::connection('sakemaru')
             ->table('item_contractors')
             ->join('items', 'item_contractors.item_id', '=', 'items.id')
@@ -598,7 +588,7 @@ class SalesBasedOrderCandidateService
             $externalQuery->whereIn('contractor_id', $this->targetContractorIds);
         }
 
-        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.max_stock', 'item_contractors.purchase_unit', 'item_contractors.auto_order_quantity'];
+        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.max_stock', 'item_contractors.purchase_unit'];
 
         $itemContractors = $externalQuery
             ->select($selectColumns)
@@ -759,7 +749,6 @@ class SalesBasedOrderCandidateService
                     '移動出庫予定' => $outgoingToTransfer,
                     '見込み在庫' => $calculatedStock,
                     '不足数' => $shortageQty,
-                    '旧自動発注数' => $quantityCalculation['auto_order_quantity'],
                     '最大発注点' => $quantityCalculation['max_stock'],
                     '最大発注可能数量(バラ)' => $quantityCalculation['max_order_quantity'],
                     '発注数量計算元' => $quantityCalculation['source_label'],
@@ -907,15 +896,10 @@ class SalesBasedOrderCandidateService
         return (int) ceil($quantity / $unit) * $unit;
     }
 
-    private function hasItemContractorColumn(string $column): bool
-    {
-        return DB::connection('sakemaru')->getSchemaBuilder()->hasColumn('item_contractors', $column);
-    }
-
     /**
      * 問屋発注数量をバラ数量で算出する。
      *
-     * 旧システムの自動発注数が設定されている場合は、不足数ではなく固定発注数として採用する。
+     * 実績ベースでは不足数を初期値として採用し、仕入単位・発注コード入数で調整する。
      */
     private function calculateOrderQuantity(
         int $shortageQty,

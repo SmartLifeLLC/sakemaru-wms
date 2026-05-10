@@ -683,10 +683,13 @@ class OrderCandidateCalculationService
             }
         }
 
-        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit'];
-        if ($this->hasItemContractorColumn('auto_order_quantity')) {
-            $selectColumns[] = 'item_contractors.auto_order_quantity';
+        if (! $this->hasItemContractorColumn('auto_order_quantity')) {
+            Log::warning('auto_order_quantity カラムがないため、通常の移動候補生成をスキップ');
+
+            return 0;
         }
+
+        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit', 'item_contractors.auto_order_quantity'];
 
         $itemContractors = DB::connection('sakemaru')
             ->table('item_contractors')
@@ -695,7 +698,8 @@ class OrderCandidateCalculationService
             ->whereIn('item_contractors.contractor_id', $internalContractorIds)
             ->whereIn('item_contractors.warehouse_id', $this->realWarehouseIds)
             ->where('item_contractors.is_auto_order', true)
-            ->where('item_contractors.safety_stock', '>=', 0)
+            ->where('item_contractors.safety_stock', '>', 0)
+            ->where('item_contractors.auto_order_quantity', '>', 0)
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
             ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
@@ -734,11 +738,6 @@ class OrderCandidateCalculationService
             // 見込み在庫
             $projectedStock = $effectiveStock + $incomingStock;
 
-            // safety_stock = 0 の場合はスキップ（実績ベース計算は別機能で実施）
-            if ((int) $ic->safety_stock === 0) {
-                continue;
-            }
-
             // 通常の発注点ベース計算
             $shortageQty = $ic->safety_stock - $projectedStock;
 
@@ -747,7 +746,7 @@ class OrderCandidateCalculationService
             }
 
             $autoOrderQuantity = max(0, (int) ($ic->auto_order_quantity ?? 0));
-            $orderQty = $autoOrderQuantity > 0 ? $autoOrderQuantity : $shortageQty;
+            $orderQty = $autoOrderQuantity;
 
             // 配送コースIDを取得（移動元 → 移動先）
             $deliveryCourseId = $this->transferDeliveryCourses[$supplyWarehouseId][$ic->warehouse_id] ?? null;
@@ -833,9 +832,9 @@ class OrderCandidateCalculationService
                     '利用可能在庫' => $projectedStock,
                     '不足数' => $shortageQty,
                     '旧自動発注数' => $autoOrderQuantity,
-                    '発注数量計算元' => $autoOrderQuantity > 0 ? '自動発注数' : '不足数',
+                    '発注数量計算元' => '自動発注数',
                     '発注数量' => $orderQty,
-                    '備考' => '発注点を下回った場合、自動発注数を移動数量の初期値に使用',
+                    '備考' => '発注点を下回り、かつ自動発注数が設定されている場合のみ候補生成',
                 ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],
                     '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
@@ -904,6 +903,12 @@ class OrderCandidateCalculationService
      */
     private function createExternalOrderCandidatesBulk(string $batchCode, Carbon $now, array $transferCandidates): int
     {
+        if (! $this->hasItemContractorColumn('auto_order_quantity')) {
+            Log::warning('auto_order_quantity カラムがないため、通常の発注候補生成をスキップ');
+
+            return 0;
+        }
+
         // EXTERNAL発注先の商品を取得（is_auto_order有効、実倉庫のみ、販売終了品を除外）
         $externalQuery = DB::connection('sakemaru')
             ->table('item_contractors')
@@ -912,7 +917,8 @@ class OrderCandidateCalculationService
             ->whereNotIn('item_contractors.contractor_id', $this->internalContractorIds ?: [0])
             ->whereIn('item_contractors.warehouse_id', $this->realWarehouseIds)
             ->where('item_contractors.is_auto_order', true)
-            ->where('item_contractors.safety_stock', '>=', 0)
+            ->where('item_contractors.safety_stock', '>', 0)
+            ->where('item_contractors.auto_order_quantity', '>', 0)
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
             ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
@@ -924,10 +930,7 @@ class OrderCandidateCalculationService
             $externalQuery->whereIn('contractor_id', $this->targetContractorIds);
         }
 
-        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.max_stock', 'item_contractors.purchase_unit'];
-        if ($this->hasItemContractorColumn('auto_order_quantity')) {
-            $selectColumns[] = 'item_contractors.auto_order_quantity';
-        }
+        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.max_stock', 'item_contractors.purchase_unit', 'item_contractors.auto_order_quantity'];
 
         $itemContractors = $externalQuery
             ->select($selectColumns)
@@ -951,11 +954,6 @@ class OrderCandidateCalculationService
 
             // 計算用在庫
             $calculatedStock = $effectiveStock + $incomingStock + $incomingFromTransfer - $outgoingToTransfer;
-
-            // safety_stock = 0 の場合はスキップ（実績ベース計算は別機能で実施）
-            if ((int) $ic->safety_stock === 0) {
-                continue;
-            }
 
             // 通常の発注点ベース計算
             $shortageQty = $ic->safety_stock - $calculatedStock;

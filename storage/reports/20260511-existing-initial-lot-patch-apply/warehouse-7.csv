@@ -1,0 +1,2 @@
+status,message,real_stock_id,item_id,item_code,item_name,current_quantity,reserved_quantity,parent_available,pickable_available,missing_pickable_qty,patch_lot_id,patch_lot_location_id,pickable_current,missing_current_qty,patch_lot_current_before,patch_lot_reserved_before,patch_qty
+updated,,16356,141036,141036,◎キリン　一番搾り　大瓶６３３ｍｌ,248,0,248,61,187,16356,16,61,187,41,0,187

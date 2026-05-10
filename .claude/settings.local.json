@@ -56,7 +56,10 @@
       "Bash(grep \"\\\\.php$\")",
       "Bash(mysql -h 127.0.0.1 -u root sakemaru_hana_prod -e \"SHOW PROCESSLIST;\")",
       "Bash(grep -E \"\\\\.\\(php|sql\\)$\")",
-      "Bash(grep -E \"\\\\.\\(php|md\\)$\")"
+      "Bash(grep -E \"\\\\.\\(php|md\\)$\")",
+      "Bash(grep -v 'vendor\\\\|node_modules\\\\|test\\\\|Test\\\\|->slip_number\\\\|pluck.*slip\\\\|value.*slip\\\\|\\\\$slip_number\\\\s*=.*->slip\\\\|matched_schedule.*slip\\\\|this->slip\\\\|getKey\\\\|search_code\\\\|b_slip\\\\|received\\\\|LIKE\\\\|like\\\\|where.*slip')",
+      "Bash(grep -i 'update\\\\|\\\\->save\\\\|->fill\\\\|$schedule->slip')",
+      "Bash(iconv *)"
     ]
   }
 }

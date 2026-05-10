@@ -1,0 +1,5 @@
+status,message,real_stock_id,item_id,item_code,item_name,current_quantity,reserved_quantity,parent_available,pickable_available,missing_pickable_qty,patch_lot_id,patch_lot_location_id,pickable_current,missing_current_qty,patch_lot_current_before,patch_lot_reserved_before,patch_qty
+updated,,44426,143277,143277,　キリン　一番搾り　生樽１５Ｌ,25,7,18,16,2,44057,9,23,2,23,7,2
+updated,,23845,171909,171909,　キリン　氷結　無糖　レモン　コンク１．８Ｌ,42,5,37,36,1,23766,9,41,1,41,5,1
+updated,,42635,141020,141020,◎アサヒ　スーパードライ　中瓶５００ｍｌ,446,145,301,300,1,42302,9,445,1,445,145,1
+updated,,42649,141077,141077,　サッポロ　ラガー　中瓶５００ｍｌ,186,59,127,126,1,42316,9,185,1,125,44,1

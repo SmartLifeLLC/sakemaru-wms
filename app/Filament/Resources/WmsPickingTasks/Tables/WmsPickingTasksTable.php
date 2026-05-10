@@ -877,12 +877,12 @@ class WmsPickingTasksTable
             ])
             ->toolbarActions([
                 Action::make('forceShipAll')
-                    ->label('全件強制出荷')
+                    ->label('現状確定')
                     ->icon('heroicon-o-truck')
                     ->color('danger')
                     ->requiresConfirmation()
-                    ->modalHeading('全件強制出荷確認')
-                    ->modalDescription('現在表示中のすべての未完了タスクを強制出荷します。すべての商品のピッキング数を予定数に自動設定し、出荷完了にします。この操作は取り消せません。')
+                    ->modalHeading('現状確定確認')
+                    ->modalDescription('現在表示中の未完了タスクを現在のピック数で確定します。未入力の明細は引当数をピック数として扱い、受注数との差分は欠品として記録します。横持ち出荷は完了しません。この操作は取り消せません。')
                     ->action(function (Table $table) {
                         // 現在のテーブルクエリから未完了タスクを取得
                         $tasks = $table->getQuery()
@@ -989,8 +989,8 @@ class WmsPickingTasksTable
 
                         if ($completedCount > 0) {
                             Notification::make()
-                                ->title('全件強制出荷しました')
-                                ->body("{$completedCount}件のタスク（{$itemCount}件の商品）を自動完了し、出荷可能状態にしました")
+                                ->title('現状確定しました')
+                                ->body("{$completedCount}件のタスク（{$itemCount}件の商品）を現在のピック数で確定しました")
                                 ->success()
                                 ->send();
                         }
