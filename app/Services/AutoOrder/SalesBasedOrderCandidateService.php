@@ -472,7 +472,8 @@ class SalesBasedOrderCandidateService
             }
 
             $shortageQty = $sales3dQty - $projectedStock;
-            $orderQty = $shortageQty;
+            $autoOrderQuantity = max(0, (int) ($ic->auto_order_quantity ?? 0));
+            $orderQty = $autoOrderQuantity > 0 ? $autoOrderQuantity : $shortageQty;
 
             $supplyWarehouseId = $this->internalSettings[$ic->contractor_id] ?? null;
             if (! $supplyWarehouseId) {
@@ -553,6 +554,8 @@ class SalesBasedOrderCandidateService
                     '入荷予定' => $incomingStock,
                     '見込み在庫' => $projectedStock,
                     '不足数' => $shortageQty,
+                    '旧自動発注数' => $autoOrderQuantity,
+                    '発注数量計算元' => $autoOrderQuantity > 0 ? '自動発注数' : '不足数',
                     '発注数量' => $orderQty,
                 ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],

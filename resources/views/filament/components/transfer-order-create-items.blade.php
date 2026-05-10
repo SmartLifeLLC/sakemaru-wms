@@ -53,9 +53,19 @@
             this.results.forEach(item => {
                 const key = String(item.id);
                 if (!(key in this.quantities)) {
-                    this.quantities[key] = { qty: item.pending_qty || null };
+                    const autoOrderQuantity = parseInt(item.auto_order_quantity || 0);
+                    const defaultQty = item.pending_qty ?? (autoOrderQuantity > 0 ? autoOrderQuantity : null);
+                    this.quantities[key] = {
+                        qty: defaultQty,
+                        item_code: item.code,
+                        search_code: item.search_code || '',
+                    };
+                } else {
+                    this.quantities[key].item_code = item.code;
+                    this.quantities[key].search_code = item.search_code || '';
                 }
             });
+            this.syncToWire();
         } finally {
             this.loading = false;
         }
@@ -66,8 +76,10 @@
         this.categories2 = [];
         this.categories3 = [];
         this.results = [];
+        this.quantities = {};
         this.searched = false;
         this.totalCount = 0;
+        $wire.set('transferOrderItems', []);
     },
 
     async loadCategories2() {
@@ -98,12 +110,12 @@
         const items = [];
         for (const [itemId, qty] of Object.entries(this.quantities)) {
             const item = this.results.find(r => String(r.id) === itemId);
-            if (!item || !qty.qty || qty.qty <= 0) continue;
+            const itemCode = item?.code || qty.item_code;
+            if (!itemCode || !qty.qty || qty.qty <= 0) continue;
             items.push({
                 item_id: parseInt(itemId),
-                item_code: item.code,
-                search_code: item.search_code || '',
-                capacity_case: item.capacity_case || 1,
+                item_code: itemCode,
+                search_code: item?.search_code || qty.search_code || '',
                 quantity: qty.qty,
             });
         }
@@ -121,7 +133,7 @@
     getQty(itemId) {
         const key = String(itemId);
         if (!(key in this.quantities)) {
-            this.quantities[key] = { qty: null };
+            this.quantities[key] = { qty: null, item_code: null, search_code: '' };
         }
         return this.quantities[key];
     }
@@ -232,31 +244,34 @@
             </div>
         </div>
 
-        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-y-auto" style="max-height: 320px">
-            <table class="w-full text-sm table-fixed">
+        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-auto" style="max-height: 320px">
+            <table class="w-full min-w-[1120px] text-sm table-fixed">
                 <colgroup>
                     <col style="width: 70px" />
                     <col />
                     <col style="width: 60px" />
-                    <col style="width: 38px" />
-                    <col style="width: 100px" />
+                    <col style="width: 150px" />
+                    <col style="width: 55px" />
+                    <col style="width: 75px" />
                     <col style="width: 65px" />
                     <col style="width: 40px" />
                     <col style="width: 40px" />
-                    <col style="width: 60px" />
+                    <col style="width: 40px" />
+                    <col style="width: 70px" />
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-white/10">
                     <tr class="divide-x divide-gray-200 dark:divide-white/10">
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品CD</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品名</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">規格</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入数</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">発注先</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">発注点</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">自動発注数</th>
                         <th class="px-1.5 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">最終出荷</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">3日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">30日</th>
-                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">数量(バラ)</th>
+                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ総数</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -266,8 +281,9 @@
                             <td class="px-1.5 py-0.5"><span class="text-xs font-mono text-gray-900 dark:text-white" x-text="item.code"></span></td>
                             <td class="px-1.5 py-0.5"><span class="text-xs text-gray-700 dark:text-gray-300 truncate block" x-text="item.name"></span></td>
                             <td class="px-1.5 py-0.5"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.packaging || '-'"></span></td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-500 dark:text-gray-400" x-text="item.capacity_case"></span></td>
-                            <td class="px-1.5 py-0.5"><span class="text-xs text-gray-500 dark:text-gray-400 truncate block" x-text="item.contractor_name || '-'"></span></td>
+                            <td class="px-1.5 py-0.5"><span class="text-xs text-gray-500 dark:text-gray-400 whitespace-normal break-words" x-text="item.contractor_name || '-'"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.safety_stock || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.auto_order_quantity || 0"></span></td>
                             <td class="px-1.5 py-0.5 text-center"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.last_shipped_at || '-'"></span></td>
                             <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_3d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_3d_qty || 0"></span></td>
                             <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_7d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_7d_qty || 0"></span></td>
@@ -285,7 +301,7 @@
                     </template>
                     <template x-if="results.length === 0">
                         <tr>
-                            <td colspan="10" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                            <td colspan="11" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
                                 検索結果がありません
                             </td>
                         </tr>

@@ -689,6 +689,19 @@ html.fi {
     padding-left: 0.75rem !important;
 }
 
+.stock-transfer-confirmed-table .fi-ta-actions-header-cell,
+.stock-transfer-confirmed-table .fi-ta-row td:last-child {
+    width: 11rem !important;
+    min-width: 11rem !important;
+    max-width: 11rem !important;
+}
+
+.stock-transfer-confirmed-table .fi-ta-row td:last-child .fi-ta-actions {
+    justify-content: center !important;
+    gap: 0.25rem !important;
+    flex-wrap: nowrap !important;
+}
+
 /* アクション列の左ボーダー（::before疑似要素で描画） */
 .sticky-actions .fi-ta-actions-header-cell::before,
 .sticky-actions .fi-ta-table thead th:last-child::before,

@@ -43,6 +43,7 @@ enum EMenu: string
 
     // 発注履歴
     case WMS_ORDER_CONFIRMED = 'order_history.wms_order_confirmed';
+    case WMS_STOCK_TRANSFER_CONFIRMED = 'order_history.wms_stock_transfer_confirmed';
     case WMS_ORDER_DATA_FILES = 'order_history.wms_order_data_files';
     case WMS_ORDER_DOCUMENTS = 'order_history.wms_order_documents';
 
@@ -128,6 +129,7 @@ enum EMenu: string
             self::WMS_ORDER_CONFIRMATION_WAITING => EMenuCategory::AUTO_ORDER,
 
             self::WMS_ORDER_CONFIRMED,
+            self::WMS_STOCK_TRANSFER_CONFIRMED,
             self::WMS_ORDER_DATA_FILES,
             self::WMS_ORDER_DOCUMENTS => EMenuCategory::ORDER_HISTORY,
 
@@ -215,6 +217,7 @@ enum EMenu: string
             self::WMS_ORDER_CANDIDATES => '発注候補一覧',
             self::WMS_ORDER_CONFIRMATION_WAITING => '発注・移動確定待ち',
             self::WMS_ORDER_CONFIRMED => '発注確定済み',
+            self::WMS_STOCK_TRANSFER_CONFIRMED => '移動確定済み',
             self::WMS_ORDER_DATA_FILES => '発注データファイル',
             self::WMS_AUTO_ORDER_JOBS => '発注・移動候補生成',
             self::WMS_ORDER_DOCUMENTS => 'JX送信ファイル',
@@ -297,6 +300,7 @@ enum EMenu: string
             self::WMS_ORDER_CANDIDATES => 'heroicon-o-shopping-cart',
             self::WMS_ORDER_CONFIRMATION_WAITING => 'heroicon-o-clipboard-document-check',
             self::WMS_ORDER_CONFIRMED => 'heroicon-o-check-badge',
+            self::WMS_STOCK_TRANSFER_CONFIRMED => 'heroicon-o-arrows-right-left',
             self::WMS_ORDER_DATA_FILES => 'heroicon-o-document-text',
             self::WMS_AUTO_ORDER_JOBS => 'heroicon-o-queue-list',
             self::WMS_ORDER_DOCUMENTS => 'heroicon-o-document-arrow-down',
@@ -384,8 +388,9 @@ enum EMenu: string
 
             // 発注履歴
             self::WMS_ORDER_CONFIRMED => 1,
-            self::WMS_ORDER_DATA_FILES => 2,
-            self::WMS_ORDER_DOCUMENTS => 3,
+            self::WMS_STOCK_TRANSFER_CONFIRMED => 2,
+            self::WMS_ORDER_DATA_FILES => 3,
+            self::WMS_ORDER_DOCUMENTS => 4,
 
             // 在庫管理
             self::REAL_STOCKS => 1,

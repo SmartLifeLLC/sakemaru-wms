@@ -683,6 +683,11 @@ class OrderCandidateCalculationService
             }
         }
 
+        $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit'];
+        if ($this->hasItemContractorColumn('auto_order_quantity')) {
+            $selectColumns[] = 'item_contractors.auto_order_quantity';
+        }
+
         $itemContractors = DB::connection('sakemaru')
             ->table('item_contractors')
             ->join('items', 'item_contractors.item_id', '=', 'items.id')
@@ -696,7 +701,7 @@ class OrderCandidateCalculationService
             ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
             ->where(fn ($q) => $q->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
             ->where('contractors.is_auto_change_order', true)
-            ->select('item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit')
+            ->select($selectColumns)
             ->get();
 
         $insertData = [];
@@ -741,8 +746,8 @@ class OrderCandidateCalculationService
                 continue;
             }
 
-            // 移動候補はバラ発注可能（仕入れ単位の切り上げなし）
-            $orderQty = $shortageQty;
+            $autoOrderQuantity = max(0, (int) ($ic->auto_order_quantity ?? 0));
+            $orderQty = $autoOrderQuantity > 0 ? $autoOrderQuantity : $shortageQty;
 
             // 配送コースIDを取得（移動元 → 移動先）
             $deliveryCourseId = $this->transferDeliveryCourses[$supplyWarehouseId][$ic->warehouse_id] ?? null;
@@ -827,8 +832,10 @@ class OrderCandidateCalculationService
                     '安全在庫' => $ic->safety_stock,
                     '利用可能在庫' => $projectedStock,
                     '不足数' => $shortageQty,
+                    '旧自動発注数' => $autoOrderQuantity,
+                    '発注数量計算元' => $autoOrderQuantity > 0 ? '自動発注数' : '不足数',
                     '発注数量' => $orderQty,
-                    '備考' => '移動候補はバラ発注可能（仕入れ単位切り上げなし）',
+                    '備考' => '発注点を下回った場合、自動発注数を移動数量の初期値に使用',
                 ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],
                     '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
