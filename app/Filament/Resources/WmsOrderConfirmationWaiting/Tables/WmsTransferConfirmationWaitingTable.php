@@ -13,6 +13,7 @@ use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsStockTransferCandidate;
+use App\Services\AutoOrder\TransferCandidateExecutionService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -409,6 +410,63 @@ class WmsTransferConfirmationWaitingTable
             ->toolbarActions([
                 static::getExportAction(),
                 BulkActionGroup::make([
+                    BulkAction::make('bulkConfirmSelectedTransfers')
+                        ->label('選択を移動確定')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->visible(fn (): bool => auth()->user()?->email === 'admin@sakemaru.ai')
+                        ->requiresConfirmation()
+                        ->modalHeading('選択した移動候補を確定')
+                        ->modalDescription('選択した承認済み移動候補を、作成者に関係なく確定します。')
+                        ->modalSubmitActionLabel('確定実行')
+                        ->modalCancelActionLabel('確定せず閉じる')
+                        ->action(function (Collection $records) {
+                            $user = auth()->user();
+
+                            if ($user?->email !== 'admin@sakemaru.ai' || ! $user->id) {
+                                Notification::make()
+                                    ->title('この操作は許可されていません')
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $approvedIds = $records
+                                ->filter(fn ($r) => $r->status === CandidateStatus::APPROVED)
+                                ->pluck('id')
+                                ->map(fn ($id) => (int) $id)
+                                ->all();
+
+                            if (empty($approvedIds)) {
+                                Notification::make()
+                                    ->title('承認済みのレコードがありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $executed = app(TransferCandidateExecutionService::class)
+                                ->executeMultiple($approvedIds, (int) $user->id)
+                                ->count();
+
+                            if ($executed === 0) {
+                                Notification::make()
+                                    ->title('確定できた移動候補がありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            Notification::make()
+                                ->title("{$executed}件の移動候補を確定しました")
+                                ->success()
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+
                     BulkAction::make('bulkCancelApproval')
                         ->label('選択の承認取消')
                         ->icon('heroicon-o-x-circle')
@@ -455,7 +513,6 @@ class WmsTransferConfirmationWaitingTable
         return SelectFilter::make('candidate_created_by')
             ->label('作成者')
             ->searchable()
-            ->default(auth()->id())
             ->options(fn () => self::buildCandidateCreatorOptions())
             ->getSearchResultsUsing(fn (string $search) => self::buildCandidateCreatorOptions($search))
             ->query(function ($query, array $data) {
