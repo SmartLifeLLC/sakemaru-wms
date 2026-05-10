@@ -10,8 +10,12 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
 {
     protected $signature = 'wms:patch-stock-transfer-delivery-courses
         {--date= : 対象出庫日。COALESCE(picking_date, delivered_date) で判定}
+        {--picking-date= : 対象出庫日。picking_date で判定}
+        {--delivered-date= : 対象入庫日。delivered_date で判定}
+        {--created-date= : 対象作成日。stock_transfers.created_at の日付で判定}
         {--id=* : 対象 stock_transfers.id。複数指定可}
         {--all-statuses : picking_status / is_active 条件を外す}
+        {--fix-mismatched-course : NULLだけでなく、移動元/移動先設定と異なる配送コースも補正する}
         {--execute : 実更新する。未指定時は dry-run}
         {--limit=1000 : 最大処理件数}';
 
@@ -20,6 +24,9 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
     public function handle(): int
     {
         $date = $this->option('date');
+        $pickingDate = $this->option('picking-date');
+        $deliveredDate = $this->option('delivered-date');
+        $createdDate = $this->option('created-date');
         $ids = collect($this->option('id'))
             ->filter(fn ($id) => is_numeric($id))
             ->map(fn ($id) => (int) $id)
@@ -27,15 +34,25 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
             ->values();
         $execute = (bool) $this->option('execute');
         $allStatuses = (bool) $this->option('all-statuses');
+        $fixMismatchedCourse = (bool) $this->option('fix-mismatched-course');
         $limit = max(1, (int) $this->option('limit'));
 
-        if ($execute && ! $date && $ids->isEmpty()) {
-            $this->error('--execute には --date か --id が必要です。');
+        if ($execute && ! $date && ! $pickingDate && ! $deliveredDate && ! $createdDate && $ids->isEmpty()) {
+            $this->error('--execute には --date / --picking-date / --delivered-date / --created-date / --id のいずれかが必要です。');
 
             return self::FAILURE;
         }
 
-        $rows = $this->targetRows($date, $ids, $allStatuses, $limit);
+        $rows = $this->targetRows(
+            date: $date,
+            pickingDate: $pickingDate,
+            deliveredDate: $deliveredDate,
+            createdDate: $createdDate,
+            ids: $ids,
+            allStatuses: $allStatuses,
+            fixMismatchedCourse: $fixMismatchedCourse,
+            limit: $limit,
+        );
 
         $this->info(($execute ? '実更新' : 'dry-run').' 対象: '.$rows->count().' 件');
 
@@ -68,8 +85,16 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
      * @param  Collection<int, int>  $ids
      * @return Collection<int, object>
      */
-    private function targetRows(?string $date, Collection $ids, bool $allStatuses, int $limit): Collection
-    {
+    private function targetRows(
+        ?string $date,
+        ?string $pickingDate,
+        ?string $deliveredDate,
+        ?string $createdDate,
+        Collection $ids,
+        bool $allStatuses,
+        bool $fixMismatchedCourse,
+        int $limit
+    ): Collection {
         $query = DB::connection('sakemaru')
             ->table('stock_transfers as st')
             ->join('warehouse_stock_transfer_delivery_courses as map', function ($join) {
@@ -83,11 +108,31 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
                 $join->on('q.stock_transfer_id', '=', 'st.id')
                     ->where('q.action_type', '=', 'CREATE');
             })
-            ->whereNull('st.delivery_course_id')
             ->whereNotNull('map.delivery_course_id');
+
+        if ($fixMismatchedCourse) {
+            $query->where(function ($query) {
+                $query->whereNull('st.delivery_course_id')
+                    ->orWhereColumn('st.delivery_course_id', '!=', 'map.delivery_course_id');
+            });
+        } else {
+            $query->whereNull('st.delivery_course_id');
+        }
 
         if ($date) {
             $query->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$date]);
+        }
+
+        if ($pickingDate) {
+            $query->whereDate('st.picking_date', $pickingDate);
+        }
+
+        if ($deliveredDate) {
+            $query->whereDate('st.delivered_date', $deliveredDate);
+        }
+
+        if ($createdDate) {
+            $query->whereDate('st.created_at', $createdDate);
         }
 
         if ($ids->isNotEmpty()) {
@@ -104,6 +149,7 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
             ->limit($limit)
             ->select([
                 'st.id as stock_transfer_id',
+                'st.delivery_course_id as current_delivery_course_id',
                 'st.picking_date',
                 'st.delivered_date',
                 'st.picking_status',
@@ -130,13 +176,14 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
     private function printSummary(Collection $rows): void
     {
         $summary = $rows
-            ->groupBy(fn ($row) => "{$row->from_warehouse_code}->{$row->to_warehouse_code}|{$row->patch_delivery_course_code}")
+            ->groupBy(fn ($row) => "{$row->from_warehouse_code}->{$row->to_warehouse_code}|{$row->current_delivery_course_id}|{$row->patch_delivery_course_code}")
             ->map(function (Collection $group) {
                 $first = $group->first();
 
                 return [
                     'from' => "[{$first->from_warehouse_code}] {$first->from_warehouse_name}",
                     'to' => "[{$first->to_warehouse_code}] {$first->to_warehouse_name}",
+                    'current_course' => $first->current_delivery_course_id ?: 'NULL',
                     'course' => "[{$first->patch_delivery_course_code}] {$first->patch_delivery_course_name}",
                     'count' => $group->count(),
                     'min_id' => $group->min('stock_transfer_id'),
@@ -146,10 +193,11 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
             ->values();
 
         $this->table(
-            ['移動元', '移動先', '補正配送コース', '件数', 'min ID', 'max ID'],
+            ['移動元', '移動先', '現在コースID', '補正配送コース', '件数', 'min ID', 'max ID'],
             $summary->map(fn ($row) => [
                 $row['from'],
                 $row['to'],
+                $row['current_course'],
                 $row['course'],
                 $row['count'],
                 $row['min_id'],
@@ -168,7 +216,6 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
         foreach ($rows->groupBy('patch_delivery_course_id') as $deliveryCourseId => $group) {
             $updated += DB::connection('sakemaru')
                 ->table('stock_transfers')
-                ->whereNull('delivery_course_id')
                 ->whereIn('id', $group->pluck('stock_transfer_id')->all())
                 ->update([
                     'delivery_course_id' => (int) $deliveryCourseId,
@@ -189,7 +236,6 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
         foreach ($rows->whereNotNull('queue_id')->groupBy('patch_delivery_course_id') as $deliveryCourseId => $group) {
             $updated += DB::connection('sakemaru')
                 ->table('stock_transfer_queue')
-                ->whereNull('delivery_course_id')
                 ->whereIn('id', $group->pluck('queue_id')->all())
                 ->update([
                     'delivery_course_id' => (int) $deliveryCourseId,
@@ -218,7 +264,6 @@ class PatchStockTransferDeliveryCoursesCommand extends Command
         foreach ($candidateIdsByCourse as $deliveryCourseId => $candidateIds) {
             $updated += DB::connection('sakemaru')
                 ->table('wms_stock_transfer_candidates')
-                ->whereNull('delivery_course_id')
                 ->whereIn('id', array_values(array_unique($candidateIds)))
                 ->update([
                     'delivery_course_id' => $deliveryCourseId,
