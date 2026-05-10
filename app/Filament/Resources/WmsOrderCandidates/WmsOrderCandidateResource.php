@@ -52,7 +52,6 @@ class WmsOrderCandidateResource extends AdminResource
     {
         return parent::getEloquentQuery()
             ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::EXCLUDED])
-            ->forCreatedBy(auth()->id())
             ->with(['item.current_price', 'contractor', 'modifiedByUser']);
     }
 
