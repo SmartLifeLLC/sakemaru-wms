@@ -24,6 +24,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -36,6 +37,7 @@ use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\Summarizers\Summarizer;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
@@ -448,6 +450,35 @@ class WmsOrderCandidatesTable
             ])
             ->filters([
                 static::batchCodeFilter(WmsOrderCandidate::class),
+
+                Filter::make('executed_at_range')
+                    ->label('実行時間')
+                    ->schema([
+                        Grid::make(2)->schema([
+                            DateTimePicker::make('executed_from')
+                                ->label('開始'),
+                            DateTimePicker::make('executed_until')
+                                ->label('終了'),
+                        ]),
+                    ])
+                    ->query(function ($query, array $data) {
+                        return $query
+                            ->when($data['executed_from'] ?? null, fn ($q, $date) => $q
+                                ->where('batch_code', '>=', \Carbon\Carbon::parse($date)->format('YmdHis')))
+                            ->when($data['executed_until'] ?? null, fn ($q, $date) => $q
+                                ->where('batch_code', '<=', \Carbon\Carbon::parse($date)->endOfMinute()->format('YmdHis').'999'));
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                        if ($data['executed_from'] ?? null) {
+                            $indicators[] = '実行時間開始: '.\Carbon\Carbon::parse($data['executed_from'])->format('Y/m/d H:i');
+                        }
+                        if ($data['executed_until'] ?? null) {
+                            $indicators[] = '実行時間終了: '.\Carbon\Carbon::parse($data['executed_until'])->format('Y/m/d H:i');
+                        }
+
+                        return $indicators;
+                    }),
 
                 SelectFilter::make('status')
                     ->label('ステータス')
