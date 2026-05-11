@@ -179,11 +179,10 @@ class WmsShipmentSlipsTable
                     })
                     ->icon('heroicon-o-printer')
                     ->color(function (WmsPickingTask $record) {
-                        $systemDate = ClientSetting::systemDate();
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d'),
+                            $record->shipment_date,
                             $record->wave_id
                         );
 
@@ -196,11 +195,10 @@ class WmsShipmentSlipsTable
                         return $printCount === 0 ? '出荷確定(伝票印刷)' : '伝票再印刷';
                     })
                     ->modalDescription(function (WmsPickingTask $record) {
-                        $systemDate = ClientSetting::systemDate();
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d'),
+                            $record->shipment_date,
                             $record->wave_id
                         );
 
@@ -279,13 +277,13 @@ class WmsShipmentSlipsTable
                         return $printCount === 0 ? '出荷確定(伝票印刷)' : '伝票再印刷';
                     })
                     ->action(function (WmsPickingTask $record, array $data) {
-                        $systemDate = ClientSetting::systemDate();
+                        $shipmentDate = $record->shipment_date;
 
                         // 印刷可能性チェック
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d'),
+                            $shipmentDate,
                             $record->wave_id
                         );
 
@@ -298,7 +296,7 @@ class WmsShipmentSlipsTable
                         $printService = app(PrintRequestService::class);
                         $result = $printService->createPrintRequest(
                             $record->delivery_course_id,
-                            $systemDate->format('Y-m-d'),
+                            $shipmentDate,
                             $record->warehouse_id,
                             $record->wave_id,
                             $selectedPrinterId
@@ -315,7 +313,7 @@ class WmsShipmentSlipsTable
                         }
 
                         // 同じ配送コース・納品日・Waveのタスクをすべて取得
-                        $query = WmsPickingTask::where('shipment_date', $systemDate)
+                        $query = WmsPickingTask::where('shipment_date', $shipmentDate)
                             ->where('delivery_course_id', $record->delivery_course_id);
 
                         if ($record->wave_id) {
@@ -387,7 +385,6 @@ class WmsShipmentSlipsTable
                     ->requiresConfirmation()
                     ->modalHeading('一括出荷確定')
                     ->modalDescription(function (Collection $records): \Illuminate\Support\HtmlString|string {
-                        $systemDate = ClientSetting::systemDate();
                         $approvalService = app(ShortageApprovalService::class);
 
                         $printableCount = 0;
@@ -409,7 +406,7 @@ class WmsShipmentSlipsTable
 
                             $printability = $approvalService->checkPrintability(
                                 $record->delivery_course_id,
-                                $systemDate->format('Y-m-d'),
+                                $record->shipment_date,
                                 $record->wave_id
                             );
 
@@ -506,7 +503,6 @@ class WmsShipmentSlipsTable
                     })
                     ->modalSubmitActionLabel('一括出荷確定')
                     ->action(function (Collection $records): void {
-                        $systemDate = ClientSetting::systemDate();
                         $printService = app(PrintRequestService::class);
                         $approvalService = app(ShortageApprovalService::class);
                         $successCount = 0;
@@ -528,7 +524,7 @@ class WmsShipmentSlipsTable
                             // 印刷不可のものも、確認後の一括処理では強制出荷確定する
                             $printability = $approvalService->checkPrintability(
                                 $record->delivery_course_id,
-                                $systemDate->format('Y-m-d'),
+                                $record->shipment_date,
                                 $record->wave_id
                             );
 
@@ -540,14 +536,14 @@ class WmsShipmentSlipsTable
                                 // 印刷依頼を作成
                                 $result = $printService->createPrintRequest(
                                     $record->delivery_course_id,
-                                    $systemDate->format('Y-m-d'),
+                                    $record->shipment_date,
                                     $record->warehouse_id,
                                     $record->wave_id
                                 );
 
                                 if ($result['success']) {
                                     // 同じ配送コース・納品日・Waveのタスクをすべて取得
-                                    $query = WmsPickingTask::where('shipment_date', $systemDate)
+                                    $query = WmsPickingTask::where('shipment_date', $record->shipment_date)
                                         ->where('delivery_course_id', $record->delivery_course_id);
 
                                     if ($record->wave_id) {
