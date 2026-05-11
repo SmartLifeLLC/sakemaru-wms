@@ -61,12 +61,6 @@ class PatchNoLocationToZz1Command extends Command
         }
         $this->info("CSV: {$outputPath}");
 
-        if ($plan['target_location_id'] === null) {
-            $this->error('Target ZZ1 location could not be resolved.');
-
-            return self::FAILURE;
-        }
-
         if ($apply) {
             $result = $this->applyPatch($plan);
             foreach ($result as $key => $value) {
