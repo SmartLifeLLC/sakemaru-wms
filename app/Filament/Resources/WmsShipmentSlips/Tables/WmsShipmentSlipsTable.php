@@ -289,16 +289,6 @@ class WmsShipmentSlipsTable
                             $record->wave_id
                         );
 
-                        if (! $printability['can_print']) {
-                            Notification::make()
-                                ->title('出荷確定できません')
-                                ->body($printability['error_message'] ?? '欠品対応または在庫同期が完了していません。')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
                         // モーダルで選択されたプリンター（空文字列はnullに変換）
                         $selectedPrinterId = ! empty($data['printer_driver_id'])
                             ? (int) $data['printer_driver_id']
