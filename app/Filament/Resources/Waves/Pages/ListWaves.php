@@ -332,7 +332,11 @@ class ListWaves extends ListRecords
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn (Action $action) => $action->label('波動を生成')->color('danger'))
                 ->modalCancelActionLabel('生成せず閉じる')
-                ->schema($this->getWaveSelectionSchema(includeTargetDocumentTypeFilter: true, includePastDefault: false))
+                ->schema($this->getWaveSelectionSchema(
+                    includeTargetDocumentTypeFilter: true,
+                    includePastDefault: false,
+                    allowMultipleShippingDates: true
+                ))
                 ->action(function (array $data): void {
                     $this->generateManualWave($data);
                 }),
@@ -358,14 +362,92 @@ class ListWaves extends ListRecords
         return in_array('transfer', $targetDocumentTypes, true);
     }
 
+    private function normalizeShippingDates(mixed $shippingDates): array
+    {
+        if (! is_array($shippingDates)) {
+            $shippingDates = $shippingDates ? [$shippingDates] : [];
+        }
+
+        $dates = collect($shippingDates)
+            ->filter(fn ($date): bool => is_string($date) && $date !== '')
+            ->map(function (string $date): ?string {
+                try {
+                    return \Carbon\Carbon::parse($date)->format('Y-m-d');
+                } catch (\Throwable) {
+                    return null;
+                }
+            })
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
+        return $dates;
+    }
+
+    private function getShippingDatesFromForm(Get $get, bool $allowMultipleShippingDates): array
+    {
+        return $this->normalizeShippingDates(
+            $allowMultipleShippingDates
+                ? $get('shipping_dates')
+                : $get('shipping_date')
+        );
+    }
+
+    private function getShippingDatesFromData(array $data): array
+    {
+        return $this->normalizeShippingDates($data['shipping_dates'] ?? ($data['shipping_date'] ?? null));
+    }
+
+    private function latestShippingDate(array $shippingDates): ?string
+    {
+        return empty($shippingDates) ? null : max($shippingDates);
+    }
+
+    private function applyDateFilter($query, string $column, array $shippingDates, bool $includePast)
+    {
+        if (empty($shippingDates)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        if ($includePast) {
+            return $query->where($column, '<=', $this->latestShippingDate($shippingDates));
+        }
+
+        return count($shippingDates) === 1
+            ? $query->where($column, $shippingDates[0])
+            : $query->whereIn($column, $shippingDates);
+    }
+
+    private function applyRawDateFilter($query, string $expression, array $shippingDates, bool $includePast)
+    {
+        if (empty($shippingDates)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        if ($includePast) {
+            return $query->whereRaw("{$expression} <= ?", [$this->latestShippingDate($shippingDates)]);
+        }
+
+        return $query->where(function ($query) use ($expression, $shippingDates) {
+            foreach ($shippingDates as $shippingDate) {
+                $query->orWhereRaw("{$expression} = ?", [$shippingDate]);
+            }
+        });
+    }
+
     /**
      * 倉庫・出荷日・配送コース選択用のフォームスキーマ。
      * 出荷波動生成・仮ピッキングリスト出力で共有する。
      *
      * @return array<int, mixed>
      */
-    protected function getWaveSelectionSchema(bool $includeTargetDocumentTypeFilter = false, bool $includePastDefault = true): array
-    {
+    protected function getWaveSelectionSchema(
+        bool $includeTargetDocumentTypeFilter = false,
+        bool $includePastDefault = true,
+        bool $allowMultipleShippingDates = false
+    ): array {
         return [
             Toggle::make('include_past')
                 ->label('過去の未出荷も含む')
@@ -394,17 +476,31 @@ class ListWaves extends ListRecords
                     ->required()
                     ->live(),
 
-                ViewField::make('shipping_date')
-                    ->label(fn (Get $get) => new HtmlString(
-                        '出荷日 '
-                        .($get('include_past')
-                            ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">過去日も含む</span>'
-                            : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-gray-700 dark:text-gray-300">当日分のみ</span>')
-                    ))
-                    ->view('filament.forms.components.date-input')
-                    ->default(fn () => ClientSetting::systemDate()->format('Y-m-d'))
-                    ->required()
-                    ->live(),
+                ...($allowMultipleShippingDates ? [
+                    ViewField::make('shipping_dates')
+                        ->label(fn (Get $get) => new HtmlString(
+                            '出荷日（複数選択可） '
+                            .($get('include_past')
+                                ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">選択最終日以前も含む</span>'
+                                : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-gray-700 dark:text-gray-300">選択日のみ</span>')
+                        ))
+                        ->view('filament.forms.components.multi-date-input')
+                        ->default(fn () => [ClientSetting::systemDate()->format('Y-m-d')])
+                        ->required()
+                        ->live(),
+                ] : [
+                    ViewField::make('shipping_date')
+                        ->label(fn (Get $get) => new HtmlString(
+                            '出荷日 '
+                            .($get('include_past')
+                                ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">過去日も含む</span>'
+                                : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-gray-700 dark:text-gray-300">当日分のみ</span>')
+                        ))
+                        ->view('filament.forms.components.date-input')
+                        ->default(fn () => ClientSetting::systemDate()->format('Y-m-d'))
+                        ->required()
+                        ->live(),
+                ]),
             ]),
 
             ViewField::make('generation_type')
@@ -435,30 +531,29 @@ class ListWaves extends ListRecords
                 ViewField::make('delivery_course_ids')
                     ->label('配送コース')
                     ->view('filament.forms.components.checkbox-grid')
-                    ->viewData(function (Get $get): array {
+                    ->viewData(function (Get $get) use ($allowMultipleShippingDates): array {
                         $warehouseId = $get('warehouse_id');
-                        $shippingDate = $get('shipping_date');
+                        $shippingDates = $this->getShippingDatesFromForm($get, $allowMultipleShippingDates);
                         $includePast = $get('include_past');
                         $targetDocumentTypes = $this->normalizeTargetDocumentTypes($get('target_document_types'));
 
-                        if (! $warehouseId || ! $shippingDate) {
+                        if (! $warehouseId || empty($shippingDates)) {
                             return ['options' => []];
                         }
 
                         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
-                        $dateOperator = $includePast ? '<=' : '=';
-
                         $earningCounts = collect();
                         if ($this->includesShipmentDocuments($targetDocumentTypes)) {
-                            $earningCounts = DB::connection('sakemaru')
+                            $earningQuery = DB::connection('sakemaru')
                                 ->table('earnings')
                                 ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
                                 ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
-                                ->where('earnings.delivered_date', $dateOperator, $shippingDate)
                                 ->where('earnings.is_active', true)
                                 ->where('earnings.is_delivered', 0)
-                                ->where('earnings.picking_status', 'BEFORE')
+                                ->where('earnings.picking_status', 'BEFORE');
+
+                            $earningCounts = $this->applyDateFilter($earningQuery, 'earnings.delivered_date', $shippingDates, $includePast)
                                 ->selectRaw('delivery_courses.id as course_id, delivery_courses.code as course_code, delivery_courses.name as course_name, COUNT(*) as count')
                                 ->groupBy('delivery_courses.id', 'delivery_courses.code', 'delivery_courses.name')
                                 ->get()
@@ -467,14 +562,13 @@ class ListWaves extends ListRecords
 
                         $stockTransferCounts = collect();
                         if ($this->includesTransferDocuments($targetDocumentTypes)) {
-                            $stockTransferCounts = DB::connection('sakemaru')
+                            $stockTransferQuery = DB::connection('sakemaru')
                                 ->table('stock_transfers as st')
                                 ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
                                 ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
                                 ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
                                 ->whereIn('st.from_warehouse_id', $warehouseIds)
                                 ->whereIn('dc.warehouse_id', $warehouseIds)
-                                ->whereRaw("COALESCE(st.picking_date, st.delivered_date) {$dateOperator} ?", [$shippingDate])
                                 ->where('st.is_active', true)
                                 ->where('st.picking_status', 'BEFORE')
                                 ->where(function ($query) {
@@ -485,7 +579,9 @@ class ListWaves extends ListRecords
                                         ->where(function ($q) {
                                             $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
                                         });
-                                })
+                                });
+
+                            $stockTransferCounts = $this->applyRawDateFilter($stockTransferQuery, 'COALESCE(st.picking_date, st.delivered_date)', $shippingDates, $includePast)
                                 ->selectRaw('dc.id as course_id, dc.code as course_code, dc.name as course_name, COUNT(*) as count')
                                 ->groupBy('dc.id', 'dc.code', 'dc.name')
                                 ->get()
@@ -521,34 +617,34 @@ class ListWaves extends ListRecords
                     })
                     ->required()
                     ->live()
-                    ->visible(fn (Get $get) => $get('warehouse_id') && $get('shipping_date') && ($get('generation_type') ?? 'delivery_course') === 'delivery_course'),
+                    ->visible(fn (Get $get) => $get('warehouse_id') && ! empty($this->getShippingDatesFromForm($get, $allowMultipleShippingDates)) && ($get('generation_type') ?? 'delivery_course') === 'delivery_course'),
 
                 ViewField::make('buyer_ids')
                     ->label('得意先')
                     ->view('filament.forms.components.checkbox-grid')
-                    ->viewData(function (Get $get): array {
+                    ->viewData(function (Get $get) use ($allowMultipleShippingDates): array {
                         $warehouseId = $get('warehouse_id');
-                        $shippingDate = $get('shipping_date');
+                        $shippingDates = $this->getShippingDatesFromForm($get, $allowMultipleShippingDates);
                         $includePast = $get('include_past');
 
-                        if (! $warehouseId || ! $shippingDate) {
+                        if (! $warehouseId || empty($shippingDates)) {
                             return ['options' => []];
                         }
 
                         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
-                        $dateOperator = $includePast ? '<=' : '=';
 
-                        $options = DB::connection('sakemaru')
+                        $query = DB::connection('sakemaru')
                             ->table('earnings')
                             ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
                             ->join('buyers', 'earnings.buyer_id', '=', 'buyers.id')
                             ->join('partners', 'buyers.partner_id', '=', 'partners.id')
                             ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
-                            ->where('earnings.delivered_date', $dateOperator, $shippingDate)
                             ->where('earnings.is_active', true)
                             ->where('earnings.is_delivered', 0)
                             ->where('earnings.picking_status', 'BEFORE')
-                            ->whereNotNull('earnings.buyer_id')
+                            ->whereNotNull('earnings.buyer_id');
+
+                        $options = $this->applyDateFilter($query, 'earnings.delivered_date', $shippingDates, $includePast)
                             ->selectRaw('buyers.id as buyer_id, partners.code as partner_code, partners.name as partner_name, COUNT(*) as count')
                             ->groupBy('buyers.id', 'partners.code', 'partners.name')
                             ->orderBy('partners.code')
@@ -567,18 +663,18 @@ class ListWaves extends ListRecords
                     })
                     ->required()
                     ->live()
-                    ->visible(fn (Get $get) => $get('warehouse_id') && $get('shipping_date') && $get('generation_type') === 'buyer'),
+                    ->visible(fn (Get $get) => $get('warehouse_id') && ! empty($this->getShippingDatesFromForm($get, $allowMultipleShippingDates)) && $get('generation_type') === 'buyer'),
 
                 Placeholder::make('earnings_preview')
                     ->label('対象伝票')
-                    ->content(function (Get $get): HtmlString {
+                    ->content(function (Get $get) use ($allowMultipleShippingDates): HtmlString {
                         $warehouseId = $get('warehouse_id');
-                        $shippingDate = $get('shipping_date');
+                        $shippingDates = $this->getShippingDatesFromForm($get, $allowMultipleShippingDates);
                         $deliveryCourseIds = $get('delivery_course_ids');
                         $includePast = $get('include_past');
                         $targetDocumentTypes = $this->normalizeTargetDocumentTypes($get('target_document_types'));
 
-                        if (! $warehouseId || ! $shippingDate) {
+                        if (! $warehouseId || empty($shippingDates)) {
                             return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-warehouse text-2xl mb-2"></i><p class="text-sm">倉庫と出荷日を選択してください</p></div>');
                         }
 
@@ -588,19 +684,18 @@ class ListWaves extends ListRecords
 
                         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
-                        $dateOperator = $includePast ? '<=' : '=';
-
                         $earningSummary = collect();
                         if ($this->includesShipmentDocuments($targetDocumentTypes)) {
-                            $earningSummary = DB::connection('sakemaru')
+                            $earningQuery = DB::connection('sakemaru')
                                 ->table('earnings')
                                 ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
                                 ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
-                                ->where('earnings.delivered_date', $dateOperator, $shippingDate)
                                 ->where('earnings.is_active', true)
                                 ->where('earnings.is_delivered', 0)
                                 ->where('earnings.picking_status', 'BEFORE')
-                                ->whereIn('earnings.delivery_course_id', $deliveryCourseIds)
+                                ->whereIn('earnings.delivery_course_id', $deliveryCourseIds);
+
+                            $earningSummary = $this->applyDateFilter($earningQuery, 'earnings.delivered_date', $shippingDates, $includePast)
                                 ->selectRaw('delivery_courses.id as course_id, delivery_courses.name as course_name, COUNT(*) as count')
                                 ->groupBy('delivery_courses.id', 'delivery_courses.name')
                                 ->orderBy('delivery_courses.name')
@@ -610,14 +705,13 @@ class ListWaves extends ListRecords
 
                         $stockTransferSummary = collect();
                         if ($this->includesTransferDocuments($targetDocumentTypes)) {
-                            $stockTransferSummary = DB::connection('sakemaru')
+                            $stockTransferQuery = DB::connection('sakemaru')
                                 ->table('stock_transfers as st')
                                 ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
                                 ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
                                 ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
                                 ->whereIn('st.from_warehouse_id', $warehouseIds)
                                 ->whereIn('dc.warehouse_id', $warehouseIds)
-                                ->whereRaw("COALESCE(st.picking_date, st.delivered_date) {$dateOperator} ?", [$shippingDate])
                                 ->where('st.is_active', true)
                                 ->where('st.picking_status', 'BEFORE')
                                 ->whereIn('st.delivery_course_id', $deliveryCourseIds)
@@ -629,7 +723,9 @@ class ListWaves extends ListRecords
                                         ->where(function ($q) {
                                             $q->whereRaw('COALESCE(fw.stock_warehouse_id, fw.id) != COALESCE(tw.stock_warehouse_id, tw.id)');
                                         });
-                                })
+                                });
+
+                            $stockTransferSummary = $this->applyRawDateFilter($stockTransferQuery, 'COALESCE(st.picking_date, st.delivered_date)', $shippingDates, $includePast)
                                 ->selectRaw('dc.id as course_id, dc.name as course_name, COUNT(*) as count')
                                 ->groupBy('dc.id', 'dc.name')
                                 ->orderBy('dc.name')
@@ -708,13 +804,13 @@ class ListWaves extends ListRecords
 
                 Placeholder::make('buyer_earnings_preview')
                     ->label('対象伝票')
-                    ->content(function (Get $get): HtmlString {
+                    ->content(function (Get $get) use ($allowMultipleShippingDates): HtmlString {
                         $warehouseId = $get('warehouse_id');
-                        $shippingDate = $get('shipping_date');
+                        $shippingDates = $this->getShippingDatesFromForm($get, $allowMultipleShippingDates);
                         $buyerIds = $get('buyer_ids');
                         $includePast = $get('include_past');
 
-                        if (! $warehouseId || ! $shippingDate) {
+                        if (! $warehouseId || empty($shippingDates)) {
                             return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-warehouse text-2xl mb-2"></i><p class="text-sm">倉庫と出荷日を選択してください</p></div>');
                         }
 
@@ -723,19 +819,19 @@ class ListWaves extends ListRecords
                         }
 
                         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
-                        $dateOperator = $includePast ? '<=' : '=';
 
-                        $summary = DB::connection('sakemaru')
+                        $query = DB::connection('sakemaru')
                             ->table('earnings')
                             ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
                             ->join('buyers', 'earnings.buyer_id', '=', 'buyers.id')
                             ->join('partners', 'buyers.partner_id', '=', 'partners.id')
                             ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
-                            ->where('earnings.delivered_date', $dateOperator, $shippingDate)
                             ->where('earnings.is_active', true)
                             ->where('earnings.is_delivered', 0)
                             ->where('earnings.picking_status', 'BEFORE')
-                            ->whereIn('earnings.buyer_id', $buyerIds)
+                            ->whereIn('earnings.buyer_id', $buyerIds);
+
+                        $summary = $this->applyDateFilter($query, 'earnings.delivered_date', $shippingDates, $includePast)
                             ->selectRaw('buyers.id as buyer_id, partners.code as partner_code, partners.name as partner_name, delivery_courses.name as course_name, COUNT(*) as count')
                             ->groupBy('buyers.id', 'partners.code', 'partners.name', 'delivery_courses.name')
                             ->orderBy('partners.code')
@@ -833,28 +929,31 @@ class ListWaves extends ListRecords
     protected function createWavesFromCourses(array $data): array
     {
         $warehouseId = $data['warehouse_id'];
-        $shippingDate = $data['shipping_date'];
+        $shippingDates = $this->getShippingDatesFromData($data);
         $generationType = $data['generation_type'] ?? 'delivery_course';
         $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
         $buyerIds = $data['buyer_ids'] ?? [];
         $includePast = $data['include_past'] ?? true;
         $targetDocumentTypes = $this->normalizeTargetDocumentTypes($data['target_document_types'] ?? null);
 
+        if (empty($shippingDates)) {
+            return ['wave_ids' => [], 'earning_count' => 0, 'stock_transfer_count' => 0];
+        }
+
         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
-        $dateOperator = $includePast ? '<=' : '=';
-
         if ($generationType === 'buyer') {
-            $earnings = Earning::query()
+            $earningQuery = Earning::query()
                 ->join('delivery_courses', 'earnings.delivery_course_id', '=', 'delivery_courses.id')
                 ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
-                ->where('earnings.delivered_date', $dateOperator, $shippingDate)
                 ->where('earnings.is_active', true)
                 ->where('earnings.is_delivered', 0)
                 ->where('earnings.picking_status', 'BEFORE')
                 ->whereNotNull('earnings.delivery_course_id')
                 ->whereIn('earnings.buyer_id', $buyerIds)
-                ->select('earnings.*')
+                ->select('earnings.*');
+
+            $earnings = $this->applyDateFilter($earningQuery, 'earnings.delivered_date', $shippingDates, $includePast)
                 ->get();
 
             $stockTransfers = collect();
@@ -868,18 +967,19 @@ class ListWaves extends ListRecords
 
             $earnings = collect();
             if ($this->includesShipmentDocuments($targetDocumentTypes)) {
-                $earnings = Earning::query()
-                    ->where('delivered_date', $dateOperator, $shippingDate)
+                $earningQuery = Earning::query()
                     ->where('is_delivered', 0)
                     ->where('picking_status', 'BEFORE')
                     ->whereNotNull('delivery_course_id')
-                    ->whereIn('delivery_course_id', $validCourseIds)
+                    ->whereIn('delivery_course_id', $validCourseIds);
+
+                $earnings = $this->applyDateFilter($earningQuery, 'delivered_date', $shippingDates, $includePast)
                     ->get();
             }
 
             $stockTransfers = collect();
             if ($this->includesTransferDocuments($targetDocumentTypes)) {
-                $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDate, $warehouseId, $includePast)
+                $stockTransfers = $this->getEligibleStockTransfersQuery($shippingDates, $warehouseId, $includePast)
                     ->whereIn('st.delivery_course_id', $validCourseIds)
                     ->get();
             }
@@ -889,12 +989,18 @@ class ListWaves extends ListRecords
             return ['wave_ids' => [], 'earning_count' => 0, 'stock_transfer_count' => 0];
         }
 
-        $earningsByDeliveryCourse = $earnings->groupBy('delivery_course_id');
-        $stockTransfersByDeliveryCourse = $stockTransfers->groupBy('delivery_course_id');
+        $earningsByShippingDateAndDeliveryCourse = $earnings->groupBy(
+            fn ($earning): string => \Carbon\Carbon::parse($earning->delivered_date)->format('Y-m-d').'|'.$earning->delivery_course_id
+        );
+        $stockTransfersByShippingDateAndDeliveryCourse = $stockTransfers->groupBy(
+            fn ($stockTransfer): string => \Carbon\Carbon::parse($stockTransfer->picking_date ?? $stockTransfer->delivered_date)->format('Y-m-d').'|'.$stockTransfer->delivery_course_id
+        );
 
-        $allDeliveryCourseIds = $earningsByDeliveryCourse->keys()
-            ->merge($stockTransfersByDeliveryCourse->keys())
-            ->unique();
+        $shippingDateAndDeliveryCourseKeys = $earningsByShippingDateAndDeliveryCourse->keys()
+            ->merge($stockTransfersByShippingDateAndDeliveryCourse->keys())
+            ->unique()
+            ->sort()
+            ->values();
 
         $createdWaveIds = [];
         $totalEarnings = 0;
@@ -902,10 +1008,9 @@ class ListWaves extends ListRecords
 
         DB::connection('sakemaru')->transaction(function () use (
             $warehouseId,
-            $allDeliveryCourseIds,
-            $earningsByDeliveryCourse,
-            $stockTransfersByDeliveryCourse,
-            $shippingDate,
+            $shippingDateAndDeliveryCourseKeys,
+            $earningsByShippingDateAndDeliveryCourse,
+            $stockTransfersByShippingDateAndDeliveryCourse,
             &$createdWaveIds,
             &$totalEarnings,
             &$totalStockTransfers
@@ -915,9 +1020,11 @@ class ListWaves extends ListRecords
                 ->where('id', $warehouseId)
                 ->first();
 
-            foreach ($allDeliveryCourseIds as $deliveryCourseId) {
-                $courseEarnings = $earningsByDeliveryCourse->get($deliveryCourseId, collect());
-                $courseStockTransfers = $stockTransfersByDeliveryCourse->get($deliveryCourseId, collect());
+            foreach ($shippingDateAndDeliveryCourseKeys as $key) {
+                [$shippingDate, $deliveryCourseId] = explode('|', (string) $key, 2);
+                $deliveryCourseId = (int) $deliveryCourseId;
+                $courseEarnings = $earningsByShippingDateAndDeliveryCourse->get($key, collect());
+                $courseStockTransfers = $stockTransfersByShippingDateAndDeliveryCourse->get($key, collect());
 
                 $waveSetting = WaveSetting::where('delivery_course_id', $deliveryCourseId)
                     ->first();
@@ -2310,18 +2417,16 @@ class ListWaves extends ListRecords
             ]);
     }
 
-    protected function getEligibleStockTransfersQuery(string $shippingDate, int $warehouseId, bool $includePast = false)
+    protected function getEligibleStockTransfersQuery(string|array $shippingDate, int $warehouseId, bool $includePast = false)
     {
+        $shippingDates = $this->normalizeShippingDates($shippingDate);
         $warehouseIds = WarehouseResolver::resolveAllWarehouseIds($warehouseId);
 
-        $dateOperator = $includePast ? '<=' : '=';
-
-        return DB::connection('sakemaru')
+        $query = DB::connection('sakemaru')
             ->table('stock_transfers as st')
             ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
             ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
             ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
-            ->whereRaw("COALESCE(st.picking_date, st.delivered_date) {$dateOperator} ?", [$shippingDate])
             ->where('st.is_active', true)
             ->where('st.picking_status', 'BEFORE')
             ->whereIn('st.from_warehouse_id', $warehouseIds)
@@ -2337,5 +2442,7 @@ class ListWaves extends ListRecords
                     });
             })
             ->select('st.*');
+
+        return $this->applyRawDateFilter($query, 'COALESCE(st.picking_date, st.delivered_date)', $shippingDates, $includePast);
     }
 }
