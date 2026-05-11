@@ -465,7 +465,6 @@ class GenerateWavesCommand extends Command
                             'allocated_qty' => $result['allocated'],
                             'real_stock_id' => $primaryReservation->real_stock_id ?? null,
                             'location_id' => $primaryReservation->location_id ?? null,
-                            'walking_order' => null,
                         ];
 
                         // Get picking area and floor from locations table
