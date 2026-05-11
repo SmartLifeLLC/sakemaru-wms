@@ -41,6 +41,69 @@ class OrderOutputQuantityResolverTest extends TestCase
         $this->assertSame('ケース', $output['unit_label']);
     }
 
+    public function test_piece_quantity_is_converted_to_six_pack_quantity_for_output(): void
+    {
+        $resolver = new OrderOutputQuantityResolver;
+        $this->setPrivateProperty($resolver, 'orderingCodeInfoCache', [
+            '999006:4901411004754' => (object) ['quantity' => 6],
+        ]);
+        $this->setPrivateProperty($resolver, 'purchaseUnitPriceCache', [
+            999006 => 215.0,
+        ]);
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => 999006,
+            'quantity_type' => QuantityType::PIECE,
+            'order_quantity' => 24,
+            'ordering_code' => '4901411004754',
+            'purchase_unit_price' => 5160,
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => 999006,
+            'capacity_case' => 24,
+        ]);
+
+        $output = $resolver->resolve($candidate);
+
+        $this->assertSame('4901411004754', $output['ordering_code']);
+        $this->assertSame(6, $output['display_capacity']);
+        $this->assertSame(4, $output['order_quantity']);
+        $this->assertSame(4, $output['case_quantity']);
+        $this->assertSame(0, $output['piece_quantity']);
+        $this->assertSame('ケース', $output['unit_label']);
+    }
+
+    public function test_normal_ordering_code_is_not_replaced_by_preferred_six_pack_code(): void
+    {
+        $resolver = new OrderOutputQuantityResolver;
+        $this->setPrivateProperty($resolver, 'orderingCodeInfoCache', [
+            '999006:4900000000001' => null,
+        ]);
+        $this->setPrivateProperty($resolver, 'preferredOrderingUnitCodeCache', [
+            999006 => '4901411004754',
+        ]);
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => 999006,
+            'quantity_type' => QuantityType::PIECE,
+            'order_quantity' => 24,
+            'ordering_code' => '4900000000001',
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => 999006,
+            'capacity_case' => 24,
+        ]);
+
+        $output = $resolver->resolve($candidate);
+
+        $this->assertSame('4900000000001', $output['ordering_code']);
+        $this->assertNull($output['ordering_unit_quantity']);
+        $this->assertSame(24, $output['order_quantity']);
+        $this->assertSame(0, $output['case_quantity']);
+        $this->assertSame(24, $output['piece_quantity']);
+        $this->assertSame('バラ', $output['unit_label']);
+    }
+
     public function test_already_converted_six_pack_quantity_is_not_converted_again(): void
     {
         $resolver = new OrderOutputQuantityResolver;

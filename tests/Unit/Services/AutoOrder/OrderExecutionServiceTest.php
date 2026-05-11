@@ -10,15 +10,11 @@ use Tests\TestCase;
 
 class OrderExecutionServiceTest extends TestCase
 {
-    public function test_pack_order_incoming_quantity_is_saved_as_piece_quantity(): void
+    public function test_pack_order_incoming_quantity_keeps_candidate_quantity_and_type(): void
     {
         $service = new OrderExecutionService($this->createMock(OrderAuditService::class));
 
         $reflection = new \ReflectionClass($service);
-        $cache = $reflection->getProperty('orderingUnitQtyCache');
-        $cache->setAccessible(true);
-        $cache->setValue($service, ['100:4901411004754' => 6]);
-
         $candidate = new WmsOrderCandidate([
             'item_id' => 100,
             'ordering_code' => '4901411004754',
@@ -31,8 +27,8 @@ class OrderExecutionServiceTest extends TestCase
 
         [$quantity, $quantityType] = $method->invoke($service, $candidate);
 
-        $this->assertSame(24, $quantity);
-        $this->assertSame(QuantityType::PIECE, $quantityType);
+        $this->assertSame(4, $quantity);
+        $this->assertSame(QuantityType::CASE, $quantityType);
     }
 
     public function test_regular_case_order_incoming_quantity_stays_case_quantity(): void
@@ -40,10 +36,6 @@ class OrderExecutionServiceTest extends TestCase
         $service = new OrderExecutionService($this->createMock(OrderAuditService::class));
 
         $reflection = new \ReflectionClass($service);
-        $cache = $reflection->getProperty('orderingUnitQtyCache');
-        $cache->setAccessible(true);
-        $cache->setValue($service, ['100:4900000000000' => null]);
-
         $candidate = new WmsOrderCandidate([
             'item_id' => 100,
             'ordering_code' => '4900000000000',
@@ -60,15 +52,11 @@ class OrderExecutionServiceTest extends TestCase
         $this->assertSame(QuantityType::CASE, $quantityType);
     }
 
-    public function test_ordering_unit_order_incoming_quantity_is_saved_as_piece_quantity(): void
+    public function test_ordering_unit_order_incoming_quantity_keeps_candidate_quantity_and_type(): void
     {
         $service = new OrderExecutionService($this->createMock(OrderAuditService::class));
 
         $reflection = new \ReflectionClass($service);
-        $cache = $reflection->getProperty('orderingUnitQtyCache');
-        $cache->setAccessible(true);
-        $cache->setValue($service, ['100:4900000000012' => 12]);
-
         $candidate = new WmsOrderCandidate([
             'item_id' => 100,
             'ordering_code' => '4900000000012',
@@ -81,7 +69,7 @@ class OrderExecutionServiceTest extends TestCase
 
         [$quantity, $quantityType] = $method->invoke($service, $candidate);
 
-        $this->assertSame(48, $quantity);
-        $this->assertSame(QuantityType::PIECE, $quantityType);
+        $this->assertSame(4, $quantity);
+        $this->assertSame(QuantityType::CASE, $quantityType);
     }
 }

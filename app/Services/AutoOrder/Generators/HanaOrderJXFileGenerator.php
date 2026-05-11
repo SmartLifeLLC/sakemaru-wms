@@ -784,7 +784,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $item = $candidate->item;
         $candidateCode = $this->normalizeOrderingCode($candidate->ordering_code);
 
-        if ($candidateCode && $this->getOrderingUnitQuantity($item?->id, $candidateCode, (int) ($item?->capacity_case ?? 1)) !== null) {
+        if ($candidateCode) {
             return $candidateCode;
         }
 

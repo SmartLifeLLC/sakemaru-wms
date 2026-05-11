@@ -24,11 +24,6 @@ use Illuminate\Support\Facades\Log;
  */
 class OrderExecutionService
 {
-    /**
-     * 商品ID:発注コード => 発注荷姿入数 のキャッシュ（6缶パックのみ）
-     */
-    private array $orderingUnitQtyCache = [];
-
     public function __construct(
         private readonly OrderAuditService $auditService,
         private readonly PurchasePriceService $purchasePriceService = new PurchasePriceService,
@@ -260,88 +255,13 @@ class OrderExecutionService
     }
 
     /**
-     * 発注コード数量区分がある場合のみ、入荷予定をバラ数量で保存する。
-     *
-     * 発注候補のorder_quantityは発注コード単位（例: 6缶パックなら4）なので、
-     * 入荷予定では実入荷本数（4 * 6 = 24）として扱う。
+     * 入荷予定は候補の数量・単位をそのまま保持する。
      *
      * @return array{0: int, 1: QuantityType}
      */
     private function resolveIncomingQuantity(WmsOrderCandidate $candidate): array
     {
-        $quantity = (int) $candidate->order_quantity;
-
-        if ($candidate->quantity_type !== QuantityType::CASE) {
-            return [$quantity, $candidate->quantity_type];
-        }
-
-        $orderingUnitQty = $this->getOrderingUnitQuantity($candidate);
-
-        if ($orderingUnitQty === null || $orderingUnitQty <= 1) {
-            return [$quantity, QuantityType::CASE];
-        }
-
-        return [$quantity * $orderingUnitQty, QuantityType::PIECE];
-    }
-
-    /**
-     * 候補の発注CDに紐づく発注コード数量区分を取得する。それ以外はnull。
-     */
-    private function getOrderingUnitQuantity(WmsOrderCandidate $candidate): ?int
-    {
-        $orderingCode = $this->normalizeOrderingCode($candidate->ordering_code);
-        $cacheKey = $candidate->item_id.':'.($orderingCode ?? '');
-
-        if (array_key_exists($cacheKey, $this->orderingUnitQtyCache)) {
-            return $this->orderingUnitQtyCache[$cacheKey];
-        }
-
-        $query = DB::connection('sakemaru')
-            ->table('item_search_information as isi')
-            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
-            ->where('isi.item_id', $candidate->item_id)
-            ->where('isi.is_active', true)
-            ->where('iqi.quantity', '>', 1);
-
-        if ($orderingCode) {
-            $query->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode]);
-        } else {
-            $query->where('isi.is_used_for_ordering', true);
-        }
-
-        $qty = $query->value('iqi.quantity');
-        $qty = $qty !== null ? (int) $qty : null;
-
-        if ($qty !== null && $qty > 1) {
-            $capacityCase = (int) (DB::connection('sakemaru')
-                ->table('items')
-                ->where('id', $candidate->item_id)
-                ->value('capacity_case') ?? 0);
-
-            if ($qty === $capacityCase) {
-                $qty = null;
-            }
-        } else {
-            $qty = null;
-        }
-
-        $this->orderingUnitQtyCache[$cacheKey] = $qty;
-
-        return $qty;
-    }
-
-    /**
-     * 発注CDを13桁に正規化する。空欄と全ゼロは未設定として扱う。
-     */
-    private function normalizeOrderingCode(?string $code): ?string
-    {
-        $code = trim((string) $code);
-
-        if ($code === '' || preg_match('/^0+$/', $code) === 1) {
-            return null;
-        }
-
-        return str_pad($code, 13, '0', STR_PAD_LEFT);
+        return [(int) $candidate->order_quantity, $candidate->quantity_type];
     }
 
     /**

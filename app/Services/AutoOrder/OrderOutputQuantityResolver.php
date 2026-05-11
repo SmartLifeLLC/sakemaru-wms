@@ -214,7 +214,7 @@ class OrderOutputQuantityResolver
         $candidateCode = $this->normalizeOrderingCode($candidate->ordering_code);
         $capacityCase = (int) ($item?->capacity_case ?? 1);
 
-        if ($candidateCode && $this->getOrderingUnitQuantity($item?->id, $candidateCode, $capacityCase) !== null) {
+        if ($candidateCode) {
             return $candidateCode;
         }
 

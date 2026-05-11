@@ -36,7 +36,7 @@ class OrderQuantityAdjustmentServiceTest extends TestCase
         $this->assertTrue($result['max_stock_adjusted']);
     }
 
-    public function test_six_pack_keeps_four_pack_lot_when_rounding_up(): void
+    public function test_ordering_unit_is_not_used_for_candidate_quantity_rounding(): void
     {
         $result = app(OrderQuantityAdjustmentService::class)->calculate(
             shortageQty: 23,
@@ -47,11 +47,11 @@ class OrderQuantityAdjustmentServiceTest extends TestCase
             orderingUnitQty: 6,
         );
 
-        $this->assertSame(24, $result['valid_order_unit']);
-        $this->assertSame(24, $result['order_quantity']);
+        $this->assertSame(1, $result['valid_order_unit']);
+        $this->assertSame(23, $result['order_quantity']);
     }
 
-    public function test_six_pack_max_stock_cap_keeps_four_pack_lot(): void
+    public function test_max_stock_cap_ignores_six_pack_lot_for_candidate_quantity(): void
     {
         $result = app(OrderQuantityAdjustmentService::class)->calculate(
             shortageQty: 80,
@@ -63,11 +63,11 @@ class OrderQuantityAdjustmentServiceTest extends TestCase
         );
 
         $this->assertSame(50, $result['max_order_quantity']);
-        $this->assertSame(48, $result['order_quantity']);
-        $this->assertSame(0, $result['order_quantity'] % 24);
+        $this->assertSame(50, $result['order_quantity']);
+        $this->assertFalse($result['skipped_by_max_stock']);
     }
 
-    public function test_six_pack_returns_zero_when_max_stock_cannot_fit_one_four_pack_lot(): void
+    public function test_six_pack_does_not_skip_candidate_when_max_stock_is_less_than_four_pack_lot(): void
     {
         $result = app(OrderQuantityAdjustmentService::class)->calculate(
             shortageQty: 23,
@@ -79,7 +79,7 @@ class OrderQuantityAdjustmentServiceTest extends TestCase
         );
 
         $this->assertSame(20, $result['max_order_quantity']);
-        $this->assertSame(0, $result['order_quantity']);
-        $this->assertTrue($result['skipped_by_max_stock']);
+        $this->assertSame(20, $result['order_quantity']);
+        $this->assertFalse($result['skipped_by_max_stock']);
     }
 }

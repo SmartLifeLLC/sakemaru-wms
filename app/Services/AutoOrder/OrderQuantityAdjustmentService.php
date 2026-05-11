@@ -32,7 +32,7 @@ class OrderQuantityAdjustmentService
         $maxStock = max(0, $maxStock);
         $baseQuantity = $autoOrderQuantity > 0 ? $autoOrderQuantity : max(0, $shortageQty);
         $sourceLabel = $autoOrderQuantity > 0 ? '自動発注数' : '不足数';
-        $validOrderUnit = $this->resolveValidOrderUnit($purchaseUnit, $orderingUnitQty);
+        $validOrderUnit = $this->resolveValidOrderUnit($purchaseUnit);
 
         $beforeMaxStockQuantity = $this->roundUpToUnit($baseQuantity, $validOrderUnit);
         $maxOrderQuantity = $maxStock > 0 ? max(0, $maxStock - $calculatedStock) : null;
@@ -67,21 +67,12 @@ class OrderQuantityAdjustmentService
                 $maxOrderQuantity,
                 $orderQuantity,
                 $maxStockAdjusted,
-                $orderingUnitQty,
             ),
         ];
     }
 
-    private function resolveValidOrderUnit(int $purchaseUnit, ?int $orderingUnitQty): int
+    private function resolveValidOrderUnit(int $purchaseUnit): int
     {
-        if ($orderingUnitQty === 6) {
-            return $this->leastCommonMultiple($purchaseUnit, 24);
-        }
-
-        if ($orderingUnitQty !== null && $orderingUnitQty > 1) {
-            return $this->leastCommonMultiple($purchaseUnit, $orderingUnitQty);
-        }
-
         return max(1, $purchaseUnit);
     }
 
@@ -94,15 +85,10 @@ class OrderQuantityAdjustmentService
         ?int $maxOrderQuantity,
         int $orderQuantity,
         bool $maxStockAdjusted,
-        ?int $orderingUnitQty,
     ): string {
         $description = "{$sourceLabel}{$baseQuantity}バラ";
 
-        if ($orderingUnitQty === 6) {
-            $description .= 'を6缶パック制約（4パック=24バラ単位）で調整';
-        } elseif ($orderingUnitQty !== null && $orderingUnitQty > 1) {
-            $description .= "を発注CD入数{$orderingUnitQty}バラ単位で調整";
-        } elseif ($validOrderUnit > 1) {
+        if ($validOrderUnit > 1) {
             $description .= "を最小仕入単位{$validOrderUnit}で調整";
         } else {
             $description .= '（最小仕入単位1のため調整なし）';
@@ -135,22 +121,5 @@ class OrderQuantityAdjustmentService
         }
 
         return (int) floor($quantity / $unit) * $unit;
-    }
-
-    private function leastCommonMultiple(int $a, int $b): int
-    {
-        $a = max(1, abs($a));
-        $b = max(1, abs($b));
-
-        return intdiv($a * $b, $this->greatestCommonDivisor($a, $b));
-    }
-
-    private function greatestCommonDivisor(int $a, int $b): int
-    {
-        while ($b !== 0) {
-            [$a, $b] = [$b, $a % $b];
-        }
-
-        return max(1, $a);
     }
 }
