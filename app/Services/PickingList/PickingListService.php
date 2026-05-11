@@ -956,7 +956,12 @@ class PickingListService
             ->join('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
-            ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
+            ->leftJoin('item_incoming_default_locations as idl', function ($join) {
+                $join->on('idl.item_id', '=', 'pir.item_id')
+                    ->whereColumn('idl.warehouse_id', 'pt.warehouse_id');
+            })
+            ->leftJoin('locations as default_l', 'idl.location_id', '=', 'default_l.id')
+            ->leftJoin('floors as f', DB::raw('COALESCE(l.floor_id, default_l.floor_id)'), '=', 'f.id')
             ->whereIn('pt.wave_id', $waveIds)
             ->tap(fn ($query) => $this->applyPrintablePickingItemScope($query))
             ->select([
@@ -973,21 +978,21 @@ class PickingListService
                 'i.name as item_name',
                 'i.capacity_case',
                 'ssi.jancode as jan_code',
-                'pir.location_id',
-                'l.code1',
-                'l.code2',
-                'l.code3',
-                'l.floor_id',
+                DB::raw('COALESCE(pir.location_id, idl.location_id) as location_id'),
+                DB::raw('COALESCE(l.code1, default_l.code1) as code1'),
+                DB::raw('COALESCE(l.code2, default_l.code2) as code2'),
+                DB::raw('COALESCE(l.code3, default_l.code3) as code3'),
+                DB::raw('COALESCE(l.floor_id, default_l.floor_id) as floor_id'),
                 'f.name as floor_name',
                 'pir.planned_qty',
                 'pir.planned_qty_type',
                 'pir.shortage_qty',
             ])
             ->orderBy('dc.code')
-            ->orderByRaw('COALESCE(l.floor_id, 999999)')
-            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
-            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
-            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
+            ->orderByRaw('COALESCE(l.floor_id, default_l.floor_id, 999999)')
+            ->orderByRaw("COALESCE(l.code1, default_l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, default_l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, default_l.code3, 'ZZZ')")
             ->orderBy('i.code')
             ->orderByRaw('COALESCE(e.id, st.id)')
             ->get();
@@ -1110,6 +1115,11 @@ class PickingListService
             ->join('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->leftJoin('item_incoming_default_locations as idl', function ($join) {
+                $join->on('idl.item_id', '=', 'pir.item_id')
+                    ->whereColumn('idl.warehouse_id', 'pt.warehouse_id');
+            })
+            ->leftJoin('locations as default_l', 'idl.location_id', '=', 'default_l.id')
             ->whereIn('pt.wave_id', $waveIds)
             ->tap(fn ($query) => $this->applyPrintablePickingItemScope($query))
             ->select([
@@ -1128,19 +1138,19 @@ class PickingListService
                 'i.name as item_name',
                 'i.capacity_case',
                 'ssi.jancode as jan_code',
-                'pir.location_id',
-                'l.code1',
-                'l.code2',
-                'l.code3',
+                DB::raw('COALESCE(pir.location_id, idl.location_id) as location_id'),
+                DB::raw('COALESCE(l.code1, default_l.code1) as code1'),
+                DB::raw('COALESCE(l.code2, default_l.code2) as code2'),
+                DB::raw('COALESCE(l.code3, default_l.code3) as code3'),
                 'pir.planned_qty',
                 'pir.planned_qty_type',
                 'pir.shortage_qty',
             ])
             ->orderBy('dc.code')
             ->orderByRaw('COALESCE(p.code, dest_wh.code, 999999999)')
-            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
-            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
-            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code1, default_l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, default_l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, default_l.code3, 'ZZZ')")
             ->orderBy('i.code')
             ->get();
 
