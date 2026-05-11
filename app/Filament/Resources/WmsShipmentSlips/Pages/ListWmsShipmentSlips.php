@@ -99,6 +99,11 @@ class ListWmsShipmentSlips extends ListRecords
             ->label('全て')
             ->favorite();
 
+        $views['past'] = PresetView::make()
+            ->modifyQueryUsing(fn (Builder $query) => $query->where('shipment_date', '<', $systemDate))
+            ->label('過去')
+            ->favorite();
+
         foreach ($warehouses as $warehouse) {
             if ($defaultWarehouse && $warehouse->id === $defaultWarehouse->id) {
                 continue;

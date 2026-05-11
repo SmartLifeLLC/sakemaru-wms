@@ -4,10 +4,11 @@ namespace App\Filament\Resources\WmsPickingTasks;
 
 use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingItemEdits;
+use App\Filament\Support\AdminResource;
 use App\Models\Sakemaru\Partner;
+use App\Models\Sakemaru\RealStock;
 use App\Models\WmsPickingItemResult;
 use Filament\Notifications\Notification;
-use App\Filament\Support\AdminResource;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -35,6 +36,45 @@ class WmsPickingItemEditResource extends AdminResource
                 if (isset($livewire->pickingTaskId) && filled($livewire->pickingTaskId)) {
                     $query->where('picking_task_id', $livewire->pickingTaskId);
                 }
+
+                $query->with([
+                    'pickingTask.wave',
+                    'trade',
+                    'earning.buyer.partner',
+                    'item',
+                    'location',
+                ])
+                    ->addSelect([
+                        'stock_location_display' => RealStock::query()
+                            ->join('real_stock_lots as rsl', function ($join) {
+                                $join->on('rsl.real_stock_id', '=', 'real_stocks.id')
+                                    ->where('rsl.status', '=', 'ACTIVE')
+                                    ->where('rsl.current_quantity', '<>', 0);
+                            })
+                            ->join('locations as l', 'l.id', '=', 'rsl.location_id')
+                            ->selectRaw("TRIM(CONCAT_WS(' ', l.code1, l.code2, l.code3))")
+                            ->whereColumn('real_stocks.item_id', 'wms_picking_item_results.item_id')
+                            ->whereRaw('real_stocks.warehouse_id = (
+                                select warehouse_id
+                                from wms_picking_tasks
+                                where wms_picking_tasks.id = wms_picking_item_results.picking_task_id
+                                limit 1
+                            )')
+                            ->orderByRaw('rsl.expiration_date IS NULL')
+                            ->orderBy('rsl.expiration_date')
+                            ->orderBy('rsl.created_at')
+                            ->orderBy('rsl.id')
+                            ->limit(1),
+                        'real_stock_current_quantity' => RealStock::query()
+                            ->selectRaw('COALESCE(SUM(current_quantity), 0)')
+                            ->whereColumn('real_stocks.item_id', 'wms_picking_item_results.item_id')
+                            ->whereRaw('real_stocks.warehouse_id = (
+                                select warehouse_id
+                                from wms_picking_tasks
+                                where wms_picking_tasks.id = wms_picking_item_results.picking_task_id
+                                limit 1
+                            )'),
+                    ]);
             })
             ->defaultSort('id', 'desc')
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
@@ -45,6 +85,15 @@ class WmsPickingItemEditResource extends AdminResource
                     ->label('ID')
                     ->alignCenter(),
                 TextColumn::make('pickingTask.wave.id')->label('wave id'),
+                TextColumn::make('location_display')
+                    ->label('棚番')
+                    ->state(function ($record) {
+                        $allocatedLocation = $record->location_display;
+
+                        return $allocatedLocation !== '-' ? $allocatedLocation : ($record->stock_location_display ?: '-');
+                    })
+                    ->default('-')
+                    ->toggleable(isToggledHiddenByDefault: false),
                 TextColumn::make('trade.serial_id')
                     ->label('伝票番号')
                     ->alignCenter()
@@ -52,22 +101,30 @@ class WmsPickingItemEditResource extends AdminResource
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: false),
                 TextColumn::make('earning.buyer.partner.code')
-                    ->label('得意先コード')
+                    ->label('得意先CD')
                     ->sortable()
                     ->searchable()
+                    ->default('-')
                     ->toggleable(isToggledHiddenByDefault: false),
                 TextColumn::make('earning.buyer.partner.name')
                     ->label('得意先名')
                     ->sortable()
-                    ->searchable(),
+                    ->searchable()
+                    ->default('-'),
                 TextColumn::make('item.code')
-                    ->label('商品コード')
+                    ->label('商品CD')
                     ->sortable()
                     ->searchable(),
                 TextColumn::make('item.name')
                     ->label('商品名')
                     ->sortable()
                     ->searchable(),
+                TextColumn::make('real_stock_current_quantity')
+                    ->label('総バラ数在庫')
+                    ->numeric()
+                    ->alignCenter()
+                    ->default(0)
+                    ->toggleable(isToggledHiddenByDefault: false),
                 TextColumn::make('ordered_qty_case')
                     ->label('ケース')
                     ->state(fn ($record) => $record->ordered_qty_type === 'CASE' ? $record->ordered_qty : '-')
