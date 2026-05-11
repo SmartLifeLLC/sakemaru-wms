@@ -3,14 +3,21 @@
 namespace App\Filament\Resources\WmsStockTransferConfirmed\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Enums\QuantityType;
+use App\Enums\StockIssueReason;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Support\StockTransferSlipHistory;
+use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\StockTransfer;
 use App\Models\Sakemaru\StockTransferQueue;
 use App\Models\Sakemaru\Warehouse;
+use App\Services\StockIssueTransferService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -122,6 +129,14 @@ class WmsStockTransferConfirmedTable
                     ->state(fn ($record): string => static::warehouseLabel($record->to_warehouse_code, $record->to_warehouse_name))
                     ->searchable()
                     ->width('150px'),
+
+                TextColumn::make('issue_reason')
+                    ->label('払出理由')
+                    ->state(fn ($record): ?string => static::issueReasonFromNote($record->note))
+                    ->placeholder('-')
+                    ->badge()
+                    ->color('warning')
+                    ->width('140px'),
 
                 TextColumn::make('delivery_course_name')
                     ->label('配送コース')
@@ -264,9 +279,91 @@ class WmsStockTransferConfirmedTable
                     )),
             ])
             ->toolbarActions([
+                static::stockIssueAction(),
                 static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
+    }
+
+    private static function stockIssueAction(): Action
+    {
+        return Action::make('stockIssue')
+            ->label('在庫払出')
+            ->icon('heroicon-o-arrow-uturn-right')
+            ->color('danger')
+            ->modalHeading('在庫払出')
+            ->modalDescription(fn (): string => '移動先: '.app(StockIssueTransferService::class)->issueWarehouseLabel())
+            ->modalWidth('3xl')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+            ->modalFooterActionsAlignment(Alignment::End)
+            ->modalSubmitActionLabel('払出し作成')
+            ->modalCancelActionLabel('払出しせず閉じる')
+            ->schema([
+                Select::make('from_warehouse_id')
+                    ->label('払出元倉庫')
+                    ->searchable()
+                    ->required()
+                    ->getSearchResultsUsing(fn (string $search): array => static::warehouseOptions($search))
+                    ->getOptionLabelUsing(fn ($value): ?string => static::warehouseOptionLabel((int) $value)),
+
+                Select::make('item_id')
+                    ->label('商品')
+                    ->searchable()
+                    ->required()
+                    ->getSearchResultsUsing(fn (string $search): array => static::itemOptions($search))
+                    ->getOptionLabelUsing(fn ($value): ?string => static::itemOptionLabel((int) $value)),
+
+                TextInput::make('quantity')
+                    ->label('払出数量')
+                    ->numeric()
+                    ->integer()
+                    ->minValue(1)
+                    ->required(),
+
+                Select::make('quantity_type')
+                    ->label('数量単位')
+                    ->options([
+                        QuantityType::CASE->value => QuantityType::CASE->name(),
+                        QuantityType::PIECE->value => QuantityType::PIECE->name(),
+                        QuantityType::CARTON->value => QuantityType::CARTON->name(),
+                    ])
+                    ->default(QuantityType::PIECE->value)
+                    ->required(),
+
+                Select::make('reason')
+                    ->label('払出理由')
+                    ->options(StockIssueReason::options())
+                    ->required(),
+
+                DatePicker::make('process_date')
+                    ->label('処理日')
+                    ->default(now())
+                    ->required(),
+
+                Textarea::make('note')
+                    ->label('備考')
+                    ->maxLength(255)
+                    ->rows(3),
+            ])
+            ->action(function (array $data): void {
+                try {
+                    $result = app(StockIssueTransferService::class)->create($data, auth()->id());
+                } catch (\Throwable $e) {
+                    Notification::make()
+                        ->danger()
+                        ->title('在庫払出しを作成できませんでした')
+                        ->body($e->getMessage())
+                        ->send();
+
+                    return;
+                }
+
+                Notification::make()
+                    ->success()
+                    ->title('在庫払出しを作成しました')
+                    ->body("キューID: {$result['queue_id']} / 理由: {$result['reason_label']}")
+                    ->send();
+            });
     }
 
     private static function warehouseOptions(string $search): array
@@ -285,6 +382,36 @@ class WmsStockTransferConfirmedTable
             ->toArray();
     }
 
+    private static function warehouseOptionLabel(int $warehouseId): ?string
+    {
+        $warehouse = Warehouse::query()->find($warehouseId);
+
+        return $warehouse ? "[{$warehouse->code}]{$warehouse->name}" : null;
+    }
+
+    private static function itemOptions(string $search): array
+    {
+        $search = mb_convert_kana($search, 'as');
+
+        return Item::query()
+            ->where('is_active', true)
+            ->where(fn ($query) => $query
+                ->where('code', 'like', "%{$search}%")
+                ->orWhere('name', 'like', "%{$search}%"))
+            ->orderBy('code')
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn (Item $item) => [$item->id => "[{$item->code}]{$item->name}"])
+            ->toArray();
+    }
+
+    private static function itemOptionLabel(int $itemId): ?string
+    {
+        $item = Item::query()->find($itemId);
+
+        return $item ? "[{$item->code}]{$item->name}" : null;
+    }
+
     private static function batchCodeFromNote(?string $note): ?string
     {
         preg_match('/バッチ:([0-9]+)/u', (string) $note, $matches);
@@ -299,6 +426,13 @@ class WmsStockTransferConfirmedTable
         }
 
         return '['.($code ?? '-').']'.($name ?? '-');
+    }
+
+    private static function issueReasonFromNote(?string $note): ?string
+    {
+        preg_match('/在庫払出し\s+理由:([^ ]+)/u', (string) $note, $matches);
+
+        return $matches[1] ?? null;
     }
 
     private static function resolveSlipHistory($record): array

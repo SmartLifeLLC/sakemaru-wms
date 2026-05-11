@@ -26,6 +26,29 @@ class Location extends CustomModel
         'is_restricted_area' => 'boolean',
     ];
 
+    protected static function booted(): void
+    {
+        static::creating(function (Location $location) {
+            static::fillClientId($location);
+        });
+
+        static::updating(function (Location $location) {
+            static::fillClientId($location);
+        });
+    }
+
+    private static function fillClientId(Location $location): void
+    {
+        if (! empty($location->client_id)) {
+            return;
+        }
+
+        $firstClient = Client::first();
+        if ($firstClient) {
+            $location->client_id = $firstClient->id;
+        }
+    }
+
     public function warehouse(): belongsTo
     {
         return $this->belongsTo(Warehouse::class);

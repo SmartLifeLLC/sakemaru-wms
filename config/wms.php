@@ -29,4 +29,18 @@ return [
     */
     // 's3_prefix' => env('WMS_S3_PREFIX', 'wms/'),  // 非推奨: AWS_BUCKET_PREFIXを使用
 
+    /*
+    |--------------------------------------------------------------------------
+    | Stock Issue Transfer
+    |--------------------------------------------------------------------------
+    |
+    | 在庫払出しは既存の stock_transfer_queue を使い、移動先を払出し専用倉庫に固定する。
+    | 初回払出し時に該当倉庫がなければ WMS 側で作成する。
+    |
+    */
+    'stock_issue' => [
+        'warehouse_code' => env('WMS_STOCK_ISSUE_WAREHOUSE_CODE', '999'),
+        'warehouse_name' => env('WMS_STOCK_ISSUE_WAREHOUSE_NAME', '在庫払出し専用倉庫'),
+    ],
+
 ];
