@@ -2146,10 +2146,15 @@ class ListWaves extends ListRecords
                     ->where('rs.warehouse_id', $waveSetting->warehouse_id)
                     ->where('rs.item_id', $tradeItem->item_id)
                     ->whereNotNull('l.wms_picking_area_id')
-                    ->select('l.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
+                    ->select('l.id as location_id', 'rs.id as real_stock_id', 'l.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
                     ->first();
 
                 if ($itemLocation) {
+                    if ($reservationResult['location_id'] === null) {
+                        $reservationResult['location_id'] = $itemLocation->location_id;
+                        $reservationResult['real_stock_id'] = $itemLocation->real_stock_id;
+                        $reservationResults[$tradeItem->id] = $reservationResult;
+                    }
                     $pickingAreaId = $pickingAreaId ?? $itemLocation->wms_picking_area_id;
                     $floorId = $floorId ?? $itemLocation->floor_id;
                     $temperatureType = $temperatureType ?? $itemLocation->temperature_type;
@@ -2354,14 +2359,33 @@ class ListWaves extends ListRecords
                 $pickingAreaId = $location->wms_picking_area_id ?? null;
             }
 
-            if ($pickingAreaId === null) {
-                $defaultArea = DB::connection('sakemaru')
-                    ->table('wms_picking_areas')
-                    ->where('warehouse_id', $waveSetting->warehouse_id)
-                    ->where('is_active', true)
-                    ->orderBy('display_order', 'asc')
+            if ($pickingAreaId === null || $floorId === null) {
+                $itemLocation = DB::connection('sakemaru')
+                    ->table('real_stocks as rs')
+                    ->join('real_stock_lots as rsl', 'rs.id', '=', 'rsl.real_stock_id')
+                    ->join('locations as l', 'rsl.location_id', '=', 'l.id')
+                    ->where('rs.warehouse_id', $waveSetting->warehouse_id)
+                    ->where('rs.item_id', $tradeItem->item_id)
+                    ->whereNotNull('l.wms_picking_area_id')
+                    ->select('l.id as location_id', 'rs.id as real_stock_id', 'l.wms_picking_area_id', 'l.floor_id')
                     ->first();
-                $pickingAreaId = $defaultArea->id ?? null;
+
+                if ($itemLocation) {
+                    if ($reservationResult['location_id'] === null) {
+                        $reservationResult['location_id'] = $itemLocation->location_id;
+                        $reservationResult['real_stock_id'] = $itemLocation->real_stock_id;
+                    }
+                    $pickingAreaId = $pickingAreaId ?? $itemLocation->wms_picking_area_id;
+                    $floorId = $floorId ?? $itemLocation->floor_id;
+                } else {
+                    $defaultArea = DB::connection('sakemaru')
+                        ->table('wms_picking_areas')
+                        ->where('warehouse_id', $waveSetting->warehouse_id)
+                        ->where('is_active', true)
+                        ->orderBy('display_order', 'asc')
+                        ->first();
+                    $pickingAreaId = $pickingAreaId ?? ($defaultArea->id ?? null);
+                }
             }
 
             $existingTask = DB::connection('sakemaru')
