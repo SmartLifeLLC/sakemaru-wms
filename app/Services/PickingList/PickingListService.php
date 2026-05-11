@@ -997,6 +997,8 @@ class PickingListService
             ->orderByRaw('COALESCE(e.id, st.id)')
             ->get();
 
+        $rows = $this->fillMissingLocations($rows);
+
         // 配送コース×フロア でバケット化
         $byCourseFloor = [];
         foreach ($rows as $row) {
@@ -1154,6 +1156,8 @@ class PickingListService
             ->orderBy('i.code')
             ->get();
 
+        $rows = $this->fillMissingLocations($rows);
+
         // 配送コース別にバケット化
         $byCourse = [];
         foreach ($rows as $row) {
@@ -1273,6 +1277,51 @@ class PickingListService
         }
 
         return (string) $tokens[0];
+    }
+
+    /**
+     * location_id が NULL の行にデフォルトロケーションを補完する。
+     * item_incoming_default_locations（全倉庫）からバッチ取得。
+     */
+    private function fillMissingLocations(\Illuminate\Support\Collection $rows): \Illuminate\Support\Collection
+    {
+        $missingItemIds = $rows->filter(fn ($r) => $r->location_id === null)
+            ->pluck('item_id')
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($missingItemIds)) {
+            return $rows;
+        }
+
+        $defaults = $this->db()->table('item_incoming_default_locations as idl')
+            ->join('locations as l', 'idl.location_id', '=', 'l.id')
+            ->whereIn('idl.item_id', $missingItemIds)
+            ->select('idl.item_id', 'idl.location_id', 'l.code1', 'l.code2', 'l.code3', 'l.floor_id')
+            ->orderBy('idl.item_id')
+            ->orderBy('idl.location_id')
+            ->get()
+            ->unique('item_id')
+            ->keyBy('item_id');
+
+        foreach ($rows as $row) {
+            if ($row->location_id !== null) {
+                continue;
+            }
+            $default = $defaults->get($row->item_id);
+            if ($default) {
+                $row->location_id = $default->location_id;
+                $row->code1 = $default->code1;
+                $row->code2 = $default->code2;
+                $row->code3 = $default->code3;
+                if (property_exists($row, 'floor_id')) {
+                    $row->floor_id = $default->floor_id;
+                }
+            }
+        }
+
+        return $rows;
     }
 
     /**
