@@ -110,10 +110,6 @@ class WmsPickingTask extends Model
                     ->pluck('earning_id')
                     ->toArray();
 
-                if (empty($earningIds)) {
-                    return;
-                }
-
                 // 各earning_idについて、全てのタスクが完了しているかチェック
                 $completableEarningIds = [];
                 foreach ($earningIds as $earningId) {
@@ -150,6 +146,8 @@ class WmsPickingTask extends Model
                 }
             }
 
+            self::syncStockTransferPickingStatus($task);
+
             // ステータスがSHIPPEDに変更されたときに、出荷倉庫不一致チェックを実行
             if ($task->status === self::STATUS_SHIPPED) {
                 // このタスクに関連するearning_idを取得
@@ -177,6 +175,76 @@ class WmsPickingTask extends Model
                 }
             }
         });
+    }
+
+    private static function syncStockTransferPickingStatus(WmsPickingTask $task): void
+    {
+        $targetStatus = match ($task->status) {
+            self::STATUS_PICKING => 'PICKING',
+            self::STATUS_SHORTAGE => 'SHORTAGE',
+            self::STATUS_COMPLETED => 'COMPLETED',
+            self::STATUS_SHIPPED => 'SHIPPED',
+            default => null,
+        };
+
+        if ($targetStatus === null) {
+            return;
+        }
+
+        $stockTransferIds = DB::connection('sakemaru')
+            ->table('wms_picking_item_results')
+            ->where('picking_task_id', $task->id)
+            ->whereNotNull('stock_transfer_id')
+            ->distinct()
+            ->pluck('stock_transfer_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if (empty($stockTransferIds)) {
+            return;
+        }
+
+        $updatableIds = [];
+        foreach ($stockTransferIds as $stockTransferId) {
+            if (in_array($targetStatus, ['PICKING', 'SHORTAGE'], true)) {
+                $updatableIds[] = $stockTransferId;
+
+                continue;
+            }
+
+            $allowedTaskStatuses = $targetStatus === 'SHIPPED'
+                ? [self::STATUS_SHIPPED]
+                : [self::STATUS_COMPLETED, self::STATUS_SHIPPED];
+
+            $unfinishedTaskCount = DB::connection('sakemaru')
+                ->table('wms_picking_item_results as pir')
+                ->join('wms_picking_tasks as pt', 'pt.id', '=', 'pir.picking_task_id')
+                ->where('pir.stock_transfer_id', $stockTransferId)
+                ->whereNotIn('pt.status', $allowedTaskStatuses)
+                ->distinct()
+                ->count('pt.id');
+
+            if ($unfinishedTaskCount === 0) {
+                $updatableIds[] = $stockTransferId;
+            }
+        }
+
+        if (empty($updatableIds)) {
+            return;
+        }
+
+        $query = DB::connection('sakemaru')
+            ->table('stock_transfers')
+            ->whereIn('id', array_values(array_unique($updatableIds)));
+
+        if ($targetStatus === 'COMPLETED') {
+            $query->where('picking_status', '!=', 'SHIPPED');
+        }
+
+        $query->update([
+            'picking_status' => $targetStatus,
+            'updated_at' => now(),
+        ]);
     }
 
     /**
