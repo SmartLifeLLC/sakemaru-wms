@@ -79,7 +79,7 @@ class ListFinishedWmsShortageAllocations extends ListRecords
     {
         $table = WmsShortageAllocationsFinishedTable::configure($table);
 
-        $systemDate = \App\Models\Sakemaru\ClientSetting::first()?->system_date;
+        $systemDate = ClientSetting::cachedFirst()?->system_date;
 
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query

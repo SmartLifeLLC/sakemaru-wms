@@ -7,10 +7,19 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 
 class ClientSetting extends CustomModel
 {
     use HasFactory;
+
+    private const CACHE_TTL_SECONDS = 600;
+
+    private const CACHE_KEY_FIRST = 'client_settings:first';
+
+    private const CACHE_KEY_CLIENT_PREFIX = 'client_settings:client:';
+
+    private static array $cachedSettings = [];
 
     protected $guarded = [];
 
@@ -20,6 +29,35 @@ class ClientSetting extends CustomModel
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(fn (self $setting) => self::clearCachedSetting($setting->client_id));
+        static::deleted(fn (self $setting) => self::clearCachedSetting($setting->client_id));
+    }
+
+    public static function cachedFirst(): ?self
+    {
+        return self::rememberSetting(self::CACHE_KEY_FIRST, fn () => self::query()->first());
+    }
+
+    public static function cachedByClient(?int $clientId): ?self
+    {
+        return self::rememberSetting(
+            self::CACHE_KEY_CLIENT_PREFIX.($clientId ?? 'null'),
+            fn () => self::query()->where('client_id', $clientId)->first(),
+        );
+    }
+
+    public static function clearCachedSetting(?int $clientId = null): void
+    {
+        unset(self::$cachedSettings[self::CACHE_KEY_FIRST]);
+        Cache::forget(self::CACHE_KEY_FIRST);
+
+        $clientKey = self::CACHE_KEY_CLIENT_PREFIX.($clientId ?? 'null');
+        unset(self::$cachedSettings[$clientKey]);
+        Cache::forget($clientKey);
     }
 
     /**
@@ -39,7 +77,17 @@ class ClientSetting extends CustomModel
         //            return TimeZone::TOKYO->now();
         //        }
 
-        return new Carbon(ClientSetting::first()->system_date);
+        $systemDate = self::cachedFirst()?->system_date;
+
+        if ($systemDate) {
+            return new Carbon($systemDate);
+        }
+
+        if ($default_now) {
+            return TimeZone::TOKYO->now();
+        }
+
+        return null;
 
     }
 
@@ -121,7 +169,20 @@ class ClientSetting extends CustomModel
     {
         $client_id = auth()?->user()?->client_id ?? null;
 
-        return ClientSetting::where('client_id', $client_id)->first()?->has_wms ?? false;
+        return self::cachedByClient($client_id)?->has_wms ?? false;
+    }
+
+    private static function rememberSetting(string $key, callable $resolver): ?self
+    {
+        if (array_key_exists($key, self::$cachedSettings)) {
+            return self::$cachedSettings[$key];
+        }
+
+        return self::$cachedSettings[$key] = Cache::remember(
+            $key,
+            self::CACHE_TTL_SECONDS,
+            $resolver,
+        );
     }
 
     public static function authSetting(): ?self

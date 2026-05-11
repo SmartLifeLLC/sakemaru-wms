@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\RealStocks\Pages;
 
 use App\Filament\Resources\RealStocks\RealStockResource;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\RealStockLot;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Support\Facades\DB;
@@ -20,9 +21,7 @@ class ViewRealStock extends ViewRecord
         parent::mount($record);
 
         // システム日付を取得（client_settingsの最初のレコード）
-        $this->systemDate = DB::connection('sakemaru')
-            ->table('client_settings')
-            ->value('system_date') ?? now()->toDateString();
+        $this->systemDate = ClientSetting::cachedFirst()?->system_date ?? now()->toDateString();
 
         // Load additional relationships
         $this->record->load([
