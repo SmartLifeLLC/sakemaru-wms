@@ -207,12 +207,11 @@ class ListWaves extends ListRecords
                                 return new HtmlString('<div class="flex flex-col items-center justify-center py-8 text-slate-400 dark:text-gray-500"><i class="fa fa-file-alt text-2xl mb-2"></i><p class="text-sm">倉庫と出荷日を選択してください</p></div>');
                             }
 
-                            $waves = Wave::query()
+                            $waves = $this->applyPickingListShippingDateScope(Wave::query()
                                 ->join('wms_wave_settings as ws', 'wms_waves.wms_wave_setting_id', '=', 'ws.id')
                                 ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
                                 ->where('dc.warehouse_id', $warehouseId)
-                                ->where('wms_waves.shipping_date', $shippingDate)
-                                ->whereNotIn('wms_waves.status', ['COMPLETED', 'CLOSED'])
+                                ->whereNotIn('wms_waves.status', ['COMPLETED', 'CLOSED']), $shippingDate)
                                 ->select(['wms_waves.*', 'dc.name as course_name'])
                                 ->orderBy('dc.name')
                                 ->get();
@@ -264,12 +263,11 @@ class ListWaves extends ListRecords
                     $warehouseId = $data['warehouse_id'];
                     $shippingDate = $data['shipping_date'];
 
-                    $waves = Wave::query()
+                    $waves = $this->applyPickingListShippingDateScope(Wave::query()
                         ->join('wms_wave_settings as ws', 'wms_waves.wms_wave_setting_id', '=', 'ws.id')
                         ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
                         ->where('dc.warehouse_id', $warehouseId)
-                        ->where('wms_waves.shipping_date', $shippingDate)
-                        ->whereNotIn('wms_waves.status', ['COMPLETED', 'CLOSED'])
+                        ->whereNotIn('wms_waves.status', ['COMPLETED', 'CLOSED']), $shippingDate)
                         ->select('wms_waves.*')
                         ->orderBy('wms_waves.wave_no')
                         ->get();
@@ -341,6 +339,21 @@ class ListWaves extends ListRecords
                     $this->generateManualWave($data);
                 }),
         ];
+    }
+
+    private function applyPickingListShippingDateScope(Builder $query, string $shippingDate): Builder
+    {
+        return $query->where(function (Builder $query) use ($shippingDate) {
+            $query->where('wms_waves.shipping_date', $shippingDate)
+                ->orWhereExists(function ($query) use ($shippingDate) {
+                    $query->select(DB::raw(1))
+                        ->from('wms_picking_tasks as transfer_pt')
+                        ->join('wms_picking_item_results as transfer_pir', 'transfer_pir.picking_task_id', '=', 'transfer_pt.id')
+                        ->join('stock_transfers as transfer_st', 'transfer_st.id', '=', 'transfer_pir.stock_transfer_id')
+                        ->whereColumn('transfer_pt.wave_id', 'wms_waves.id')
+                        ->whereDate('transfer_st.delivered_date', $shippingDate);
+                });
+        });
     }
 
     private function normalizeTargetDocumentTypes(mixed $targetDocumentTypes): array
