@@ -463,7 +463,7 @@ class WmsShipmentSlipsTable
                         // 強制印刷が必要なもの
                         if (! empty($forcePrintRecords)) {
                             $html .= '<div class="text-danger-600 dark:text-danger-400 font-medium">';
-                            $html .= '以下は強制印刷が必要なため、一括出荷確定できません:';
+                            $html .= '以下は欠品対応または在庫同期が未完了ですが、強制出荷確定します:';
                             $html .= '</div>';
 
                             $html .= '<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 max-h-32 overflow-y-auto">';
@@ -484,13 +484,19 @@ class WmsShipmentSlipsTable
                             $html .= '</div>';
                         }
 
-                        if ($printableCount > 0) {
+                        $forcePrintCount = count($forcePrintRecords);
+                        $processCount = $printableCount + $forcePrintCount;
+
+                        if ($processCount > 0) {
                             $html .= '<div class="text-sm text-gray-600 dark:text-gray-400">';
-                            $html .= "出荷確定可能な {$printableCount} 件のみ処理されます。";
+                            $html .= "{$processCount} 件を出荷確定します。";
+                            if ($forcePrintCount > 0) {
+                                $html .= "（うち {$forcePrintCount} 件は強制出荷確定）";
+                            }
                             $html .= '</div>';
                         } else {
                             $html .= '<div class="text-sm text-danger-600 dark:text-danger-400">';
-                            $html .= '出荷確定可能な配送コースがありません。';
+                            $html .= '出荷確定対象の配送コースがありません。';
                             $html .= '</div>';
                         }
 
@@ -504,7 +510,7 @@ class WmsShipmentSlipsTable
                         $printService = app(PrintRequestService::class);
                         $approvalService = app(ShortageApprovalService::class);
                         $successCount = 0;
-                        $skippedCount = 0;
+                        $forcePrintCount = 0;
                         $alreadyPrintedCount = 0;
                         $errorCount = 0;
                         $totalEarnings = 0;
@@ -519,7 +525,7 @@ class WmsShipmentSlipsTable
                                 continue;
                             }
 
-                            // 印刷可能かチェック（強制印刷が必要なものはスキップ）
+                            // 印刷不可のものも、確認後の一括処理では強制出荷確定する
                             $printability = $approvalService->checkPrintability(
                                 $record->delivery_course_id,
                                 $systemDate->format('Y-m-d'),
@@ -527,9 +533,7 @@ class WmsShipmentSlipsTable
                             );
 
                             if (! $printability['can_print']) {
-                                $skippedCount++;
-
-                                continue;
+                                $forcePrintCount++;
                             }
 
                             try {
@@ -588,15 +592,12 @@ class WmsShipmentSlipsTable
                             }
                         }
 
-                        $totalSkipped = $skippedCount + $alreadyPrintedCount;
+                        $totalSkipped = $alreadyPrintedCount;
 
                         if ($successCount === 0 && $totalSkipped > 0) {
                             $reasons = [];
                             if ($alreadyPrintedCount > 0) {
                                 $reasons[] = "{$alreadyPrintedCount}件は出荷確定済み";
-                            }
-                            if ($skippedCount > 0) {
-                                $reasons[] = "{$skippedCount}件は強制印刷が必要";
                             }
 
                             Notification::make()
@@ -612,8 +613,8 @@ class WmsShipmentSlipsTable
                         if ($alreadyPrintedCount > 0) {
                             $message .= "、{$alreadyPrintedCount}件スキップ（出荷確定済み）";
                         }
-                        if ($skippedCount > 0) {
-                            $message .= "、{$skippedCount}件スキップ（強制印刷必要）";
+                        if ($forcePrintCount > 0) {
+                            $message .= "、{$forcePrintCount}件強制出荷確定";
                         }
                         if ($errorCount > 0) {
                             $message .= "、{$errorCount}件失敗";
