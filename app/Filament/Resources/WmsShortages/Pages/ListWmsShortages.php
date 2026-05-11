@@ -27,6 +27,8 @@ class ListWmsShortages extends ListRecords
 
     protected string $view = 'filament.resources.wms-shortages.pages.list-wms-shortages';
 
+    protected ?array $presetViewsCache = null;
+
     protected function getHeaderActions(): array
     {
         return [];
@@ -34,6 +36,10 @@ class ListWmsShortages extends ListRecords
 
     public function getPresetViews(): array
     {
+        if ($this->presetViewsCache !== null) {
+            return $this->presetViewsCache;
+        }
+
         $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
         $systemDate = ClientSetting::systemDateYMD();
 
@@ -57,7 +63,7 @@ class ListWmsShortages extends ListRecords
             : null;
 
         if ($defaultWarehouse) {
-            $views = [
+            $this->presetViewsCache = [
                 'default' => PresetView::make()
                     ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
                     ->defaultFilters($defaultFilterData)
@@ -66,7 +72,7 @@ class ListWmsShortages extends ListRecords
                     ->default(),
             ];
         } else {
-            $views = [
+            $this->presetViewsCache = [
                 'default' => PresetView::make()
                     ->defaultFilters($defaultFilterData)
                     ->favorite()
@@ -75,7 +81,7 @@ class ListWmsShortages extends ListRecords
             ];
         }
 
-        $views['all'] = PresetView::make()
+        $this->presetViewsCache['all'] = PresetView::make()
             ->defaultFilters($defaultFilterData)
             ->label('全て')
             ->favorite();
@@ -84,14 +90,14 @@ class ListWmsShortages extends ListRecords
             if ($defaultWarehouse && $warehouse->id === $defaultWarehouse->id) {
                 continue;
             }
-            $views["wh_{$warehouse->id}"] = PresetView::make()
+            $this->presetViewsCache["wh_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label($warehouse->name);
         }
 
-        return $views;
+        return $this->presetViewsCache;
     }
 
     public function table(Table $table): Table

@@ -4,14 +4,15 @@ namespace App\Filament\Resources\RealStocks\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\RealStockLot;
 use Filament\Actions\Action;
-use Filament\Support\Enums\Alignment;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -158,9 +159,7 @@ class RealStocksTable
         ]);
 
         // システム日付を取得
-        $systemDate = DB::connection('sakemaru')
-            ->table('client_settings')
-            ->value('system_date') ?? now()->toDateString();
+        $systemDate = ClientSetting::cachedFirst()?->system_date ?? now()->toDateString();
 
         $item = $record->item;
         $capacityCase = $item?->capacity_case ?? 1;
