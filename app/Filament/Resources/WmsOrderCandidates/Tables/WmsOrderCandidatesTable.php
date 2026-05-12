@@ -142,34 +142,34 @@ class WmsOrderCandidatesTable
 
                 TextColumn::make('safety_stock')
                     ->label('発注点')
-                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['safety_stock'])
+                    ->state(fn (WmsOrderCandidate $record) => (int) ($record->ic_safety_stock ?? $record->safety_stock ?? 0))
                     ->numeric()
                     ->alignEnd(),
 
                 TextColumn::make('setting_max_stock')
                     ->label('最大発注点')
-                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['max_stock'])
+                    ->state(fn (WmsOrderCandidate $record) => (int) ($record->ic_max_stock ?? 0))
                     ->numeric()
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('setting_min_stock')
                     ->label('最低在庫数')
-                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['min_stock'])
+                    ->state(fn (WmsOrderCandidate $record) => (int) ($record->ic_min_stock ?? 0))
                     ->numeric()
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('setting_auto_order_quantity')
                     ->label('自動発注数')
-                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['auto_order_quantity'])
+                    ->state(fn (WmsOrderCandidate $record) => (int) ($record->ic_auto_order_quantity ?? 0))
                     ->numeric()
                     ->alignEnd()
                     ->toggleable(),
 
                 TextColumn::make('setting_is_auto_order')
                     ->label('自動発注')
-                    ->state(fn (WmsOrderCandidate $record) => WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record)['is_auto_order'] ? 'ON' : 'OFF')
+                    ->state(fn (WmsOrderCandidate $record) => ((bool) ($record->ic_is_auto_order ?? false)) ? 'ON' : 'OFF')
                     ->badge()
                     ->color(fn (string $state): string => $state === 'ON' ? 'success' : 'gray')
                     ->alignCenter()

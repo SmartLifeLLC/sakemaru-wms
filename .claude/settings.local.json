@@ -59,7 +59,8 @@
       "Bash(grep -E \"\\\\.\\(php|md\\)$\")",
       "Bash(grep -v 'vendor\\\\|node_modules\\\\|test\\\\|Test\\\\|->slip_number\\\\|pluck.*slip\\\\|value.*slip\\\\|\\\\$slip_number\\\\s*=.*->slip\\\\|matched_schedule.*slip\\\\|this->slip\\\\|getKey\\\\|search_code\\\\|b_slip\\\\|received\\\\|LIKE\\\\|like\\\\|where.*slip')",
       "Bash(grep -i 'update\\\\|\\\\->save\\\\|->fill\\\\|$schedule->slip')",
-      "Bash(iconv *)"
+      "Bash(iconv *)",
+      "Bash(npm run *)"
     ]
   }
 }

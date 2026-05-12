@@ -1,0 +1,2 @@
+status,message,direction,mode,real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,real_current,real_reserved,real_available,pickable_available,delta,applied_qty,lot_ids,location_id,location_code,location_source
+dry,,increase,increase,46075,91,91,119695,119695,　常山　純米辛口　超１．８Ｌ,2,0,2,1,1,1,,327,Z-0-0,existing_initial_lot

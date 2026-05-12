@@ -12,9 +12,7 @@ use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
-use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
 
 class ListWmsOrderConfirmed extends ListRecords
 {
@@ -34,28 +32,17 @@ class ListWmsOrderConfirmed extends ListRecords
     public function table(Table $table): Table
     {
         return parent::table($table)
-            ->modifyQueryUsing(fn (Builder $query) => $query
-                ->with([
-                    'warehouse',
-                    'item',
-                    'contractor',
-                ])
-                ->orderBy('batch_code', 'desc')
-                ->orderBy('warehouse_id')
-                ->orderBy('item_id')
-            );
-    }
-
-    protected function paginateTableQuery(Builder $query): Paginator
-    {
-        $paginator = parent::paginateTableQuery($query);
-        $items = $paginator->getCollection();
-
-        if ($items->isNotEmpty()) {
-            WmsOrderConfirmationWaitingTable::preloadItemContractorOrderSettings($items);
-        }
-
-        return $paginator;
+            ->modifyQueryUsing(fn (Builder $query) => WmsOrderConfirmationWaitingTable::applyItemContractorJoin(
+                $query
+                    ->with([
+                        'warehouse',
+                        'item',
+                        'contractor',
+                    ])
+                    ->orderBy('batch_code', 'desc')
+                    ->orderBy('warehouse_id')
+                    ->orderBy('item_id')
+            ));
     }
 
     public function getPresetViews(): array

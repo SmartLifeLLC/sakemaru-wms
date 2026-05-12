@@ -45,6 +45,26 @@ class WmsOrderConfirmationWaitingTable
         return (new WmsOrderCandidate)->getTable();
     }
 
+    public static function applyItemContractorJoin(EloquentBuilder $query): EloquentBuilder
+    {
+        $mainTable = (new WmsOrderCandidate)->getTable();
+
+        return $query
+            ->select([
+                "{$mainTable}.*",
+                'ic.safety_stock as ic_safety_stock',
+                'ic.max_stock as ic_max_stock',
+                'ic.min_stock as ic_min_stock',
+                'ic.auto_order_quantity as ic_auto_order_quantity',
+                'ic.is_auto_order as ic_is_auto_order',
+            ])
+            ->leftJoin('item_contractors as ic', function ($join) use ($mainTable) {
+                $join->on('ic.warehouse_id', '=', "{$mainTable}.warehouse_id")
+                    ->on('ic.item_id', '=', "{$mainTable}.item_id")
+                    ->on('ic.contractor_id', '=', "{$mainTable}.contractor_id");
+            });
+    }
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -105,7 +125,7 @@ class WmsOrderConfirmationWaitingTable
 
                 TextColumn::make('setting_safety_stock')
                     ->label('発注点')
-                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['safety_stock'])
+                    ->state(fn (WmsOrderCandidate $record) => (int) ($record->ic_safety_stock ?? $record->safety_stock ?? 0))
                     ->numeric()
                     ->alignEnd()
                     ->toggleable()
@@ -113,7 +133,7 @@ class WmsOrderConfirmationWaitingTable
 
                 TextColumn::make('setting_max_stock')
                     ->label('最大発注点')
-                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['max_stock'])
+                    ->state(fn (WmsOrderCandidate $record) => (int) ($record->ic_max_stock ?? 0))
                     ->numeric()
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true)
@@ -121,7 +141,7 @@ class WmsOrderConfirmationWaitingTable
 
                 TextColumn::make('setting_min_stock')
                     ->label('最低在庫数')
-                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['min_stock'])
+                    ->state(fn (WmsOrderCandidate $record) => (int) ($record->ic_min_stock ?? 0))
                     ->numeric()
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true)
@@ -129,7 +149,7 @@ class WmsOrderConfirmationWaitingTable
 
                 TextColumn::make('setting_auto_order_quantity')
                     ->label('自動発注数')
-                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['auto_order_quantity'])
+                    ->state(fn (WmsOrderCandidate $record) => (int) ($record->ic_auto_order_quantity ?? 0))
                     ->numeric()
                     ->alignEnd()
                     ->toggleable()
@@ -137,7 +157,7 @@ class WmsOrderConfirmationWaitingTable
 
                 TextColumn::make('setting_is_auto_order')
                     ->label('自動発注')
-                    ->state(fn (WmsOrderCandidate $record) => static::resolveItemContractorOrderSettings($record)['is_auto_order'] ? 'ON' : 'OFF')
+                    ->state(fn (WmsOrderCandidate $record) => ((bool) ($record->ic_is_auto_order ?? false)) ? 'ON' : 'OFF')
                     ->badge()
                     ->color(fn (string $state): string => $state === 'ON' ? 'success' : 'gray')
                     ->toggleable(isToggledHiddenByDefault: true)
@@ -454,7 +474,6 @@ class WmsOrderConfirmationWaitingTable
                         }
 
                         $isEditable = $record->status->isEditable();
-                        $orderSettings = static::resolveItemContractorOrderSettings($record);
 
                         // 手動変更判定
                         $shiftedDays = (int) ($details['到着日調整'] ?? 0);
@@ -500,11 +519,11 @@ class WmsOrderConfirmationWaitingTable
                                     'incomingStock' => $details['入庫予定数'] ?? 0,
                                     'transferIncoming' => $details['移動入庫予定'] ?? 0,
                                     'transferOutgoing' => $details['移動出庫予定'] ?? 0,
-                                    'safetyStock' => $details['発注点'] ?? $details['安全在庫'] ?? $orderSettings['safety_stock'],
-                                    'maxStock' => $details['最大発注点'] ?? $orderSettings['max_stock'],
-                                    'minStock' => $orderSettings['min_stock'],
-                                    'autoOrderQuantity' => $details['旧自動発注数'] ?? $orderSettings['auto_order_quantity'],
-                                    'isAutoOrder' => $orderSettings['is_auto_order'],
+                                    'safetyStock' => $details['発注点'] ?? $details['安全在庫'] ?? (int) ($record->ic_safety_stock ?? $record->safety_stock ?? 0),
+                                    'maxStock' => $details['最大発注点'] ?? (int) ($record->ic_max_stock ?? 0),
+                                    'minStock' => (int) ($record->ic_min_stock ?? 0),
+                                    'autoOrderQuantity' => $details['旧自動発注数'] ?? (int) ($record->ic_auto_order_quantity ?? 0),
+                                    'isAutoOrder' => (bool) ($record->ic_is_auto_order ?? false),
                                     'shortageQty' => $details['不足数'] ?? 0,
                                     'purchaseUnit' => $details['最小仕入単位'] ?? 1,
                                     'purchaseUnitAdjustment' => $details['単位調整説明'] ?? null,

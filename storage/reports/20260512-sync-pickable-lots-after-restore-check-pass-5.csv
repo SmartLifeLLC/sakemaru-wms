@@ -1,0 +1,2 @@
+status,message,direction,mode,real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,real_current,real_reserved,real_available,pickable_available,delta,applied_qty,lot_ids,location_id,location_code,location_source
+dry,,decrease,decrease,50795,8,8,184274,184274,　キリン　本搾り　ピンクグレープフルーツ５００ｍｌ,9,0,9,12,-3,3,,,,

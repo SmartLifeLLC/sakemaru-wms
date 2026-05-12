@@ -1,0 +1,3 @@
+﻿real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,current_quantity,reserved_quantity,available_quantity,pickable_available,missing_pickable_qty,active_lot_count,oracle_status,expected_oracle_shelf,oracle_products,patch_status,patch_message,patch_qty,missing_pickable_qty_after_recheck,patch_mode,patch_lot_id,patch_location_id,patch_location_code
+46060,91,91,119615,119615,　梵　純米５５　磨き五割五分　３００ｍｌ,19,0,19,0,19,2,single_oracle_shelf,G06410,119615000:G06410:0:1514:-7,patched,,7,7,update,45685,1518,G06410
+51540,91,91,311243,311243,　若狭三方ビバレッジ　若狭梅酒・レモングラス梅酒　２００ｍｌセット,15,0,15,0,15,0,single_oracle_shelf,YX0000,311243000:YX0000:0:1516:0,skipped,gap already closed,0,,,,,

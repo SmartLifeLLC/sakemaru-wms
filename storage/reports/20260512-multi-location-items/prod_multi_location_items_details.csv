@@ -1,0 +1,3 @@
+﻿item_id,item_code,item_name,real_stock_id,parent_current_qty,parent_available_qty,lot_id,status,current_quantity,reserved_quantity,purchase_id,trade_item_id,expiration_date,lot_floor_id,location_id,shelf,location_name,location_floor_id
+141336,141336,　アサヒ　スーパードライ　冷涼辛口　中瓶５００ｍｌ,51568,100,100,55116,ACTIVE,160,0,678,50841,2026-11-07,10,398,AG-3-0SN,AG30SN,10
+141336,141336,　アサヒ　スーパードライ　冷涼辛口　中瓶５００ｍｌ,51568,100,100,51306,ACTIVE,220,0,88,2076,2026-11-03,11,327,Z-0-0,デフォルト,11

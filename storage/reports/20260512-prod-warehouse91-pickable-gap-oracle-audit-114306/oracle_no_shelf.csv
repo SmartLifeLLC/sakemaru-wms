@@ -1,0 +1,2 @@
+﻿real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,current_quantity,reserved_quantity,available_quantity,pickable_available,missing_pickable_qty,active_lot_count,oracle_status,expected_oracle_shelf,oracle_products
+46075,91,91,119695,119695,　常山　純米辛口　超１．８Ｌ,2,0,2,1,1,1,oracle_no_shelf,,119695000::0:0001:1

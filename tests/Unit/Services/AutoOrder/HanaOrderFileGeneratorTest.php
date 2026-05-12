@@ -677,6 +677,187 @@ class HanaOrderFileGeneratorTest extends TestCase
 
     /**
      * @test
+     * 未補正のバラ数量はJX生成時に6缶パックのケース数量へ変換すること
+     */
+    public function it_outputs_piece_quantity_as_six_pack_case_quantity_for_jx(): void
+    {
+        $itemId = 999007;
+        $orderingCode = '4901411004754';
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => $itemId,
+            'quantity_type' => \App\Enums\QuantityType::PIECE,
+            'order_quantity' => 1,
+            'ordering_code' => $orderingCode,
+            'purchase_unit_price' => 215,
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => $itemId,
+            'code' => '143060',
+            'name_main' => 'TEST SIX PACK PIECE',
+            'capacity_case' => 24,
+        ]);
+
+        $generatorReflection = new \ReflectionClass($this->generator);
+
+        $orderingCodeInfoCache = $generatorReflection->getProperty('orderingCodeInfoCache');
+        $orderingCodeInfoCache->setAccessible(true);
+        $orderingCodeInfoCache->setValue($this->generator, [
+            $itemId.':'.$orderingCode => (object) [
+                'quantity' => 6,
+            ],
+        ]);
+
+        $costPriceCache = $generatorReflection->getProperty('costPriceCache');
+        $costPriceCache->setAccessible(true);
+        $costPriceCache->setValue($this->generator, [$itemId => (object) [
+            'cost_case_price' => 5160,
+            'cost_unit_price' => 215,
+            'purchase_unit_price' => 215,
+        ]]);
+
+        $generateDRecord = $generatorReflection->getMethod('generateDRecord');
+        $generateDRecord->setAccessible(true);
+        $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
+
+        $this->assertEquals(6, (int) substr($dRecord, 88, 6), 'Capacity should use ordering code quantity');
+        $this->assertEquals(4, (int) substr($dRecord, 94, 7), 'One piece should become one full-case six-pack quantity');
+        $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Ordering code quantity should be sent as case quantity');
+        $this->assertEquals(129000, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost multiplied by ordering code quantity');
+    }
+
+    /**
+     * @test
+     * JXの6缶パック出力は多数のバラ数量で整数のケース数量になること
+     */
+    public function it_outputs_integer_six_pack_jx_quantities_for_many_piece_quantities(): void
+    {
+        $generatorReflection = $this->prepareSixPackJxGenerator(999009);
+        $generateDRecord = $generatorReflection->getMethod('generateDRecord');
+        $generateDRecord->setAccessible(true);
+
+        for ($pieceQuantity = 0; $pieceQuantity <= 49; $pieceQuantity++) {
+            $candidate = $this->sixPackJxCandidate(999009, \App\Enums\QuantityType::PIECE, $pieceQuantity, 215);
+            $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
+            $expected = $this->expectedSixPackCaseQuantityFromPieces($pieceQuantity);
+            $caseQuantityField = substr($dRecord, 94, 7);
+            $pieceQuantityField = substr($dRecord, 101, 7);
+
+            $this->assertMatchesRegularExpression('/^\d{7}$/', $caseQuantityField, "piece={$pieceQuantity}");
+            $this->assertSame($expected, (int) $caseQuantityField, "piece={$pieceQuantity}");
+            $this->assertSame(0, (int) $pieceQuantityField, "piece={$pieceQuantity}");
+        }
+    }
+
+    /**
+     * @test
+     * JXの6缶パック出力は多数のケース数量で整数になり、ケース入数24から4倍へ変換すること
+     */
+    public function it_outputs_integer_six_pack_jx_quantities_for_many_case_quantities(): void
+    {
+        $generatorReflection = $this->prepareSixPackJxGenerator(999010);
+        $generateDRecord = $generatorReflection->getMethod('generateDRecord');
+        $generateDRecord->setAccessible(true);
+
+        for ($caseQuantity = 0; $caseQuantity <= 10; $caseQuantity++) {
+            $candidate = $this->sixPackJxCandidate(999010, \App\Enums\QuantityType::CASE, $caseQuantity, 5160);
+            $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
+            $expected = $caseQuantity * 4;
+            $caseQuantityField = substr($dRecord, 94, 7);
+            $pieceQuantityField = substr($dRecord, 101, 7);
+
+            $this->assertMatchesRegularExpression('/^\d{7}$/', $caseQuantityField, "case={$caseQuantity}");
+            $this->assertSame($expected, (int) $caseQuantityField, "case={$caseQuantity}");
+            $this->assertSame(0, (int) $pieceQuantityField, "case={$caseQuantity}");
+        }
+    }
+
+    /**
+     * @test
+     * 候補に発注コードがない場合は6缶パックコードを自動選択しないこと
+     */
+    public function it_does_not_replace_missing_ordering_code_with_preferred_six_pack_code_for_jx(): void
+    {
+        $itemId = 999008;
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => $itemId,
+            'quantity_type' => \App\Enums\QuantityType::PIECE,
+            'order_quantity' => 24,
+            'ordering_code' => null,
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => $itemId,
+            'code' => '143061',
+            'name_main' => 'TEST NORMAL JAN',
+            'capacity_case' => 24,
+        ]);
+
+        $generatorReflection = new \ReflectionClass($this->generator);
+
+        $janCodeCache = $generatorReflection->getProperty('janCodeCache');
+        $janCodeCache->setAccessible(true);
+        $janCodeCache->setValue($this->generator, [$itemId => '4900000000001']);
+
+        $resolveOrderingCode = $generatorReflection->getMethod('resolveOrderingCode');
+        $resolveOrderingCode->setAccessible(true);
+
+        $this->assertSame('4900000000001', $resolveOrderingCode->invoke($this->generator, $candidate));
+    }
+
+    private function prepareSixPackJxGenerator(int $itemId): \ReflectionClass
+    {
+        $generatorReflection = new \ReflectionClass($this->generator);
+
+        $orderingCodeInfoCache = $generatorReflection->getProperty('orderingCodeInfoCache');
+        $orderingCodeInfoCache->setAccessible(true);
+        $orderingCodeInfoCache->setValue($this->generator, [
+            $itemId.':4901411004754' => (object) [
+                'quantity' => 6,
+            ],
+        ]);
+
+        $costPriceCache = $generatorReflection->getProperty('costPriceCache');
+        $costPriceCache->setAccessible(true);
+        $costPriceCache->setValue($this->generator, [$itemId => (object) [
+            'cost_case_price' => 5160,
+            'cost_unit_price' => 215,
+            'purchase_unit_price' => 215,
+        ]]);
+
+        return $generatorReflection;
+    }
+
+    private function sixPackJxCandidate(int $itemId, \App\Enums\QuantityType $quantityType, int $quantity, int $purchaseUnitPrice): WmsOrderCandidate
+    {
+        $candidate = new WmsOrderCandidate([
+            'item_id' => $itemId,
+            'quantity_type' => $quantityType,
+            'order_quantity' => $quantity,
+            'ordering_code' => '4901411004754',
+            'purchase_unit_price' => $purchaseUnitPrice,
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => $itemId,
+            'code' => (string) $itemId,
+            'name_main' => 'TEST SIX PACK MANY',
+            'capacity_case' => 24,
+        ]);
+
+        return $candidate;
+    }
+
+    private function expectedSixPackCaseQuantityFromPieces(int $pieceQuantity): int
+    {
+        if ($pieceQuantity <= 0) {
+            return 0;
+        }
+
+        return (int) ceil($pieceQuantity / 24) * 4;
+    }
+
+    /**
+     * @test
      * is_used_for_orderingフラグが設定されているコードが優先されること
      */
     public function it_prioritizes_is_used_for_ordering_flag(): void

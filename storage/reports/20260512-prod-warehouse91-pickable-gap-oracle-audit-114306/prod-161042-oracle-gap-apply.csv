@@ -1,0 +1,2 @@
+﻿real_stock_id,item_code,expected_oracle_shelf,patch_status,patch_message,patch_qty,missing_pickable_qty_after_recheck,patch_mode,patch_lot_id,patch_location_id,patch_location_code
+40614,161042,Q00000,patched,,1,1,update,40322,2495,Q00000

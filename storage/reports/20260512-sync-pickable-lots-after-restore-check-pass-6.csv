@@ -1,0 +1,2 @@
+status,message,direction,mode,real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,real_current,real_reserved,real_available,pickable_available,delta,applied_qty,lot_ids,location_id,location_code,location_source
+dry,,decrease,decrease,50033,21,21,224227,224227,　山栄食品　炙りいかジャーキー３７ｇ,16,0,16,18,-2,2,,,,

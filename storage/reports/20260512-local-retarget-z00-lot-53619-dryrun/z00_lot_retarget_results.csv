@@ -1,0 +1,2 @@
+﻿lot_id,real_stock_id,item_id,item_code,item_name,status,current_quantity,reserved_quantity,purchase_id,trade_item_id,old_floor_id,old_location_id,old_shelf,oracle_status,expected_oracle_shelf,oracle_products,patch_status,patch_message,new_location_id,replacement_reduced_qty,replacement_lot_ids
+53619,51540,311243,311243,　若狭三方ビバレッジ　若狭梅酒・レモングラス梅酒　２００ｍｌセット,DEPLETED,15,0,518,27054,,327,Z00,single_oracle_shelf,YX0000,311243000:YX0000:0:1516:0,planned,,2671,15,56673:15

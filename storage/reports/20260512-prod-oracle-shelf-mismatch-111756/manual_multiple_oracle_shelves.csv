@@ -1,0 +1,3 @@
+﻿status,source,item_code,item_name,warehouse_id,ref_id,current_quantity,reserved_quantity,location_id,wms_shelf,expected_oracle_shelf,oracle_shelves,oracle_products
+manual_multiple_oracle_shelves,lot,214194,　アサヒワンダ　特製カフェオレ１８５ｇ缶,91,51138,30,30,327,Z00,H08202|Q00000,H08202|Q00000,214194000:Q00000:0:1106|214194100:H08202::|214194900:H08202::
+manual_multiple_oracle_shelves,lot,212069,　カゴメ　野菜生活１００　１９０ｇ,91,55922,62,0,327,Z00,N01101|Q00000,N01101|Q00000,212069000:Q00000:0:1202|212069100:N01101::|212069900:N01101::

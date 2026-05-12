@@ -1,0 +1,2 @@
+status,message,direction,mode,real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,real_current,real_reserved,real_available,pickable_available,delta,applied_qty,lot_ids,location_id,location_code,location_source
+dry,,decrease,decrease,48742,8,8,184155,184155,　サントリー　ほろよい　レモみかん３５０ｍｌ,8,0,8,14,-6,6,,,,

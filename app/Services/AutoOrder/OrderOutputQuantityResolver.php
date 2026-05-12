@@ -135,12 +135,15 @@ class OrderOutputQuantityResolver
             ? $quantity * max(1, $capacityCase)
             : $quantity;
 
-        $orderQuantity = (int) ceil($pieceQuantity / $orderingUnitQty);
-        if ($orderingUnitQty === 6 && $orderQuantity > 0) {
-            $orderQuantity = (int) (ceil($orderQuantity / 4) * 4);
+        if ($orderingUnitQty === 6 && $capacityCase >= 24) {
+            if ($pieceQuantity <= 0) {
+                return 0;
+            }
+
+            return (int) ceil($pieceQuantity / $capacityCase) * (int) floor($capacityCase / $orderingUnitQty);
         }
 
-        return $orderQuantity;
+        return (int) ceil($pieceQuantity / $orderingUnitQty);
     }
 
     private function isAlreadyConvertedToOrderingUnit($candidate, int $orderingUnitQty): bool
@@ -218,8 +221,7 @@ class OrderOutputQuantityResolver
             return $candidateCode;
         }
 
-        return $this->getPreferredOrderingUnitCode($item?->id, $capacityCase)
-            ?? $candidateCode
+        return $candidateCode
             ?? $this->normalizeOrderingCode($this->getJanCode($item?->id));
     }
 

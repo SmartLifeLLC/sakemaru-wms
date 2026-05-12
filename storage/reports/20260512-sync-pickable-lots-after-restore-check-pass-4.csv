@@ -1,0 +1,2 @@
+status,message,direction,mode,real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,real_current,real_reserved,real_available,pickable_available,delta,applied_qty,lot_ids,location_id,location_code,location_source
+dry,,decrease,decrease,51361,10,10,249001,249001,　肴屋　サラミソーセージ　２４２ｇ,51,0,51,54,-3,3,,,,

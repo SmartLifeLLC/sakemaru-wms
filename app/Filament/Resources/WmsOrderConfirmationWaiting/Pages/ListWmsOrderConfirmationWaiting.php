@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderConfirmationWaiting\Pages;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Filament\Concerns\HasWmsUserViews;
+use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsTransferConfirmationWaitingTable;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\WmsOrderConfirmationWaitingResource;
 use App\Jobs\ProcessOrderConfirmationJob;
@@ -452,11 +453,12 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         }
 
         return parent::table($table)
-            ->modifyQueryUsing(fn (Builder $query) => $query
-                ->orderBy('batch_code', 'desc')
-                ->orderBy('warehouse_id')
-                ->orderBy('item_id')
-            );
+            ->modifyQueryUsing(fn (Builder $query) => WmsOrderConfirmationWaitingTable::applyItemContractorJoin(
+                $query
+                    ->orderBy('batch_code', 'desc')
+                    ->orderBy('warehouse_id')
+                    ->orderBy('item_id')
+            ));
     }
 
     public function setConfirmationTab(string $tab): void

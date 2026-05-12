@@ -1,0 +1,2 @@
+﻿real_stock_id,item_id,item_code,lot_id,status,current_quantity,reserved_quantity,purchase_id,trade_item_id,lot_floor_id,location_id,shelf,location_floor_id
+51856,123644,123644,56601,ACTIVE,1,0,835,53316,11,327,Z00,11

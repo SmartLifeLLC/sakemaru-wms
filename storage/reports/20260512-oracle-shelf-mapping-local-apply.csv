@@ -1,0 +1,51 @@
+warehouse_code,item_code,item_name,old_shelf,new_shelf,status,reason,item_id,old_location_ids,old_location_names,old_location_code_paths,new_location_id,new_location_create,new_floor_id,real_stock_lots_updates,item_default_location_updates,active_document_reference_count
+91,111118,○松竹梅上撰　３００ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,111118,327,デフォルト,Z-0-0,2495,no,11,2,0,0
+91,112117,　越前岬　大吟醸　吟の雫１．８Ｌ,Z-0-0,Q00000,planned,default_location_fallback,112117,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,112788,　福千歳冷酒３００ｍｌ,Z-0-0,G05402,planned,default_location_fallback,112788,327,デフォルト,Z-0-0,,yes,11,1,0,0
+91,113628,　久保田千寿　吟醸７２０ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,113628,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,116026,　無冠盃辛口パック２Ｌ,Z-0-0,YX0000,planned,default_location_fallback,116026,327,デフォルト,Z-0-0,2671,no,10,1,0,0
+91,116060,　名城播州の地酒　辛口２Ｌパック,Z-0-0,YX0000,planned,default_location_fallback,116060,327,デフォルト,Z-0-0,2671,no,10,1,0,1
+91,119093,　舞美人　山廃純米　無濾過生原酒　ｓａｎＱ７２０ｍｌ,Z-0-0,AW0000,planned,default_location_fallback,119093,327,デフォルト,Z-0-0,471,no,10,1,0,0
+91,119159,　梵　ささ雪　しぼりたて薄にごり活性生酒７２０ｍｌ,Z-0-0,AW0000,planned,default_location_fallback,119159,327,デフォルト,Z-0-0,471,no,10,1,0,0
+91,119333,　梵　艶　純米大吟醸７２０ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,119333,327,デフォルト,Z-0-0,2495,no,11,1,0,1
+91,119518,　舞美人　純米吟醸　こしのひかり　無濾過生原酒５００ｍｌ,Z-0-0,AW0000,planned,default_location_fallback,119518,327,デフォルト,Z-0-0,471,no,10,1,0,2
+91,119776,　永平寺白龍　薫風　生原酒７２０ｍｌ,Z-0-0,AW0000,planned,default_location_fallback,119776,327,デフォルト,Z-0-0,471,no,10,1,0,0
+91,132247,　ノアーズ　ミル　７５０ｍｌ（正規）,Z-0-0,Q00000,planned,default_location_fallback,132247,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,132761,　バスカー　アイリッシュウィスキー　７００ｍｌ,Z-0-0,YX0000,planned,default_location_fallback,132761,327,デフォルト,Z-0-0,2671,no,10,1,0,0
+91,142773,　キリン　一番搾り　ホワイトビール３５０ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,142773,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,142932,　アサヒ　スーパードライ　冷涼辛口３５０ｍｌ,Z-0-0,A99999,planned,default_location_fallback,142932,327,デフォルト,Z-0-0,,yes,10,1,0,0
+91,142933,　アサヒ　スーパードライ　冷涼辛口５００ｍｌ,Z-0-0,A99999,planned,default_location_fallback,142933,327,デフォルト,Z-0-0,,yes,10,1,0,0
+91,143052,　ハイネケン３５０ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,143052,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,149365,　オハラズ　フィフティファースト　ステイトＩＰＡ３３０ｍｌ瓶,Z-0-0,W06112,planned,default_location_fallback,149365,327,デフォルト,Z-0-0,,yes,11,1,0,0
+91,149693,　ＡＢインベブ　バドワイザー　缶３３０ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,149693,327,デフォルト,Z-0-0,2495,no,11,2,0,0
+91,156935,　レ　タンヌ　オクシタン　カベルネソービニヨン　７５０ｍｌ,ZZ1100,I07307,planned,cross_warehouse_location_reference,156935,4,ZZ1100,ZZ-1-100,2084,no,11,1,0,0
+91,171335,　鳴門鯛にごりゆず酒７２０ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,171335,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,185094,　アサヒ　贅沢搾り　キウイ３５０ｍｌ,Z-0-0,YC0000,planned,default_location_fallback,185094,327,デフォルト,Z-0-0,2669,no,10,1,0,2
+91,185138,　ジーマ　缶　３３０ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,185138,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,210113,　モナン　カシスシロップ７００ｍｌ,G04,G04201,planned,prefix_only_location,210113,104,G04,G-04,1415,no,11,0,0,0
+91,210608,　明治　明治フルーツ２２０ｍｌ,Z-0-0,YX0000,planned,default_location_fallback,210608,327,デフォルト,Z-0-0,2671,no,10,1,0,2
+91,210619,　森永　おいしい牛乳１Ｌ,Z-0-0,AY0000,planned,default_location_fallback,210619,327,デフォルト,Z-0-0,472,no,10,1,0,0
+91,210929,　日清ヨーク　十勝　のむヨーグルト９００ｇ,Z-0-0,AY0000,planned,default_location_fallback,210929,327,デフォルト,Z-0-0,472,no,10,1,0,0
+91,211792,　ＡＢインベブ　ヒューガルデン　ゼロ３３０ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,211792,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,212069,　カゴメ　野菜生活１００　１９０ｇ,Z-0-0,Q00000,planned,default_location_fallback,212069,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,212087,　大塚　ポカリスエット　イオンウォーター９００ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,212087,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,213211,　キリン　世界のキッチンから　ソルティライチ５００ｍｌ,Z-0-0,YX0000,planned,default_location_fallback,213211,327,デフォルト,Z-0-0,2671,no,10,1,0,1
+91,214194,　アサヒワンダ　特製カフェオレ１８５ｇ缶,Z-0-0,Q00000,planned,default_location_fallback,214194,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,215031,　キリン　生茶　５２５ｍｌペット,Z-0-0,Q00000,planned,default_location_fallback,215031,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,221715,　森永　白銀北海道牛乳１Ｌ,Z-0-0,AY0000,planned,default_location_fallback,221715,327,デフォルト,Z-0-0,472,no,10,1,0,0
+91,221859,　協同インターナショナル　モモマイルド生ハム切り落とし１２０ｇ,Z-0-0,AY0000,planned,default_location_fallback,221859,327,デフォルト,Z-0-0,472,no,10,1,0,0
+91,241040,　ＭＹ　グレナデン　シロップ３００ｍｌ,Z-0-0,Q00000,planned,default_location_fallback,241040,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,244062,　森永　フレッシュＣ３８％１Ｌ,Z-0-0,AY0000,planned,default_location_fallback,244062,327,デフォルト,Z-0-0,472,no,10,2,0,0
+91,244095,　ナビスコ　チップスターＳ　うすしお,Z-0-0,YX0000,planned,default_location_fallback,244095,327,デフォルト,Z-0-0,2671,no,10,1,0,0
+91,244147,　ナビスコ　チップスターＳ　コンソメ４５ｇ,Z-0-0,YX0000,planned,default_location_fallback,244147,327,デフォルト,Z-0-0,2671,no,10,1,0,2
+91,244158,　ブルボンプチうす焼き３６ｇ,Z-0-0,Q00000,planned,default_location_fallback,244158,327,デフォルト,Z-0-0,2495,no,11,1,0,0
+91,244187,　ブルボンプチチョコチップ６０ｇ,Z-0-0,I00000,planned,default_location_fallback,244187,327,デフォルト,Z-0-0,1810,no,11,1,0,0
+91,244328,　ナビスコ　チップスターＳ　のりしお,Z-0-0,YX0000,planned,default_location_fallback,244328,327,デフォルト,Z-0-0,2671,no,10,1,0,0
+91,244444,　朝日のり　酒屋さんが選んでくれました８０枚箱なし,Z-0-0,YX0000,planned,default_location_fallback,244444,327,デフォルト,Z-0-0,2671,no,10,1,0,0
+91,244464,　天狗　横綱あられ１７５ｇ,Z-0-0,I16309,planned,default_location_fallback,244464,327,デフォルト,Z-0-0,,yes,11,1,0,0
+91,247096,　明治　果汁グミ　ぶどう５４ｇ,Z-0-0,I00000,planned,default_location_fallback,247096,327,デフォルト,Z-0-0,1810,no,11,1,0,0
+91,247264,　ロッテ　のど飴１１粒,Z-0-0,I00000,planned,default_location_fallback,247264,327,デフォルト,Z-0-0,1810,no,11,1,0,0
+91,261137,　キャステロ　ダナブルー９１ｇ,Z-0-0,AY0000,planned,default_location_fallback,261137,327,デフォルト,Z-0-0,472,no,10,1,0,0
+91,261194,　ジェラールセレクション　ブルーチーズ１２５ｇ,Z-0-0,AY0000,planned,default_location_fallback,261194,327,デフォルト,Z-0-0,472,no,10,1,0,0
+91,261382,　森永　無塩バター　発酵４５０ｇ,Z-0-0,YB8000,planned,default_location_fallback,261382,327,デフォルト,Z-0-0,2668,no,10,2,0,0
+91,262270,　月島　ラブール５００ｇ,Z-0-0,AY0000,planned,default_location_fallback,262270,327,デフォルト,Z-0-0,472,no,10,1,0,0

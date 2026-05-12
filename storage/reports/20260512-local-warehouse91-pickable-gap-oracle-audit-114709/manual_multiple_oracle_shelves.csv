@@ -1,0 +1,1 @@
+﻿real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,current_quantity,reserved_quantity,available_quantity,pickable_available,missing_pickable_qty,active_lot_count,oracle_status,expected_oracle_shelf,oracle_products

@@ -1,0 +1,2 @@
+status,message,direction,mode,real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,real_current,real_reserved,real_available,pickable_available,delta,applied_qty,lot_ids,location_id,location_code,location_source
+dry,,increase,increase,52687,4,4,142677,142677,　ＯＵＲ　ＢＲＥＷＩＮＧ　ホッピー・アワー３６５ｍｌ缶,4,0,4,0,4,4,,2790,Z-0-0,z00_fallback

@@ -1,0 +1,1 @@
+﻿status,warehouse_code,warehouse_id,item_code,item_name,real_stock_id,real_current_quantity,real_available_quantity,lot_id,lot_current_quantity,lot_reserved_quantity,lot_available_quantity,purchase_id,trade_item_id,location_id,wms_shelf,expected_oracle_shelf,oracle_shelves,oracle_products

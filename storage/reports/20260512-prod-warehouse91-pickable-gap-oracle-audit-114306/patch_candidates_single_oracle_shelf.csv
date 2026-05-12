@@ -1,0 +1,5 @@
+﻿real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,current_quantity,reserved_quantity,available_quantity,pickable_available,missing_pickable_qty,active_lot_count,oracle_status,expected_oracle_shelf,oracle_products
+46060,91,91,119615,119615,　梵　純米５５　磨き五割五分　３００ｍｌ,19,0,19,0,19,2,single_oracle_shelf,G06410,119615000:G06410:0:1514:-7
+51540,91,91,311243,311243,　若狭三方ビバレッジ　若狭梅酒・レモングラス梅酒　２００ｍｌセット,15,0,15,0,15,0,single_oracle_shelf,YX0000,311243000:YX0000:0:1516:0
+25589,91,91,155340,155340,　ヴーヴクリコ　イエローラベル　ブリュット　７５０ｍｌ正規,35,1,34,33,1,1,single_oracle_shelf,I15203,155340000:I15203:0:1202:49
+25642,91,91,155675,155675,　ローランペリエ　ラ　キュヴェ　（箱入）　７５０ｍｌ,22,4,18,17,1,2,single_oracle_shelf,I15205,155675000:I15205:0:1313:17

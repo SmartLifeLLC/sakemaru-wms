@@ -1,0 +1,7 @@
+﻿status,lot_ref_count
+manual_multiple_oracle_shelves,2
+match,3259
+match_one_of_multiple,186
+mismatch_single_oracle_shelf,58
+oracle_item_not_found,23
+oracle_no_shelf,1816

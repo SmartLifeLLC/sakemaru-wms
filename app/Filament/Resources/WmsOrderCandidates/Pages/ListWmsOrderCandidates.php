@@ -11,6 +11,7 @@ use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderCandidates\WmsOrderCandidateResource;
+use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemCategory;
@@ -614,18 +615,19 @@ class ListWmsOrderCandidates extends ListRecords
     public function table(Table $table): Table
     {
         return parent::table($table)
-            ->modifyQueryUsing(fn (Builder $query) => $query
-                ->with([
-                    'warehouse',
-                    'item.current_price',
-                    'item.piece_jan_code_information',
-                    'contractor',
-                    'supplier.partner',
-                ])
-                ->orderBy('batch_code', 'desc')
-                ->orderBy('warehouse_id')
-                ->orderBy('item_id')
-            );
+            ->modifyQueryUsing(fn (Builder $query) => WmsOrderConfirmationWaitingTable::applyItemContractorJoin(
+                $query
+                    ->with([
+                        'warehouse',
+                        'item.current_price',
+                        'item.piece_jan_code_information',
+                        'contractor',
+                        'supplier.partner',
+                    ])
+                    ->orderBy('batch_code', 'desc')
+                    ->orderBy('warehouse_id')
+                    ->orderBy('item_id')
+            ));
     }
 
     /**

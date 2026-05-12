@@ -1,0 +1,8 @@
+﻿metric,value
+output_dir,/Users/jungsinyu/Projects/sakemaru-wms/storage/reports/20260512-091215-oracle-mysql-shelf-diff
+mysql_reference_rows,111308
+mysql_unique_warehouse_item_old_shelf,55943
+oracle_store_item_with_shelf,3083
+different_mapping_rows,50
+same_rows,3035
+no_oracle_shelf_rows,52858

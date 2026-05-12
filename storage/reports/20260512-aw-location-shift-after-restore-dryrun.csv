@@ -1,0 +1,6 @@
+type,table,source_location_id,target_location_id,rows,message
+reference_update,item_incoming_default_locations,471,202,39,
+reference_update,real_stock_lots,471,202,36,
+reference_update,wms_reservations,471,202,23,
+reference_update,wms_picking_item_results,471,202,23,
+reference_update,wms_shortages,471,202,4,
