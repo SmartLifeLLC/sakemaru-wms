@@ -163,6 +163,12 @@ class TransferCandidateExecutionService
             ?? $candidate->expected_arrival_date?->format('Y-m-d')
             ?? now()->format('Y-m-d');
 
+        $deliveryCourseId = $this->resolveTransferDeliveryCourseId(
+            (int) $candidate->hub_warehouse_id,
+            (int) $candidate->satellite_warehouse_id,
+            $candidate->delivery_course_id ? (int) $candidate->delivery_course_id : null,
+        );
+
         $queueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId([
             'client_id' => config('app.client_id'),
             'request_id' => $requestId,
@@ -173,7 +179,7 @@ class TransferCandidateExecutionService
             'items' => json_encode($items, JSON_UNESCAPED_UNICODE),
             'from_warehouse_code' => $hubWarehouse->code,    // 移動元（Hub）
             'to_warehouse_code' => $satelliteWarehouse->code, // 移動先（Satellite）
-            'delivery_course_id' => $candidate->delivery_course_id, // 配送コースID
+            'delivery_course_id' => $deliveryCourseId, // 配送コースID
             'status' => 'BEFORE',
             'action_type' => 'CREATE',  // 新規追加
             'created_at' => now(),
@@ -186,7 +192,7 @@ class TransferCandidateExecutionService
             'request_id' => $requestId,
             'from_warehouse' => $hubWarehouse->code,
             'to_warehouse' => $satelliteWarehouse->code,
-            'delivery_course_id' => $candidate->delivery_course_id,
+            'delivery_course_id' => $deliveryCourseId,
             'transfer_quantity' => $candidate->transfer_quantity,
         ]);
 
@@ -452,6 +458,12 @@ class TransferCandidateExecutionService
         // バッチコードを収集
         $batchCodes = $candidates->pluck('batch_code')->unique()->implode(',');
 
+        $deliveryCourseId = $this->resolveTransferDeliveryCourseId(
+            (int) $firstCandidate->hub_warehouse_id,
+            (int) $firstCandidate->satellite_warehouse_id,
+            $firstCandidate->delivery_course_id ? (int) $firstCandidate->delivery_course_id : null,
+        );
+
         $queueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId([
             'client_id' => config('app.client_id'),
             'request_id' => $requestId,
@@ -462,7 +474,7 @@ class TransferCandidateExecutionService
             'items' => json_encode($items, JSON_UNESCAPED_UNICODE),
             'from_warehouse_code' => $hubWarehouse->code,
             'to_warehouse_code' => $satelliteWarehouse->code,
-            'delivery_course_id' => $firstCandidate->delivery_course_id,
+            'delivery_course_id' => $deliveryCourseId,
             'status' => 'BEFORE',
             'action_type' => 'CREATE',  // 新規追加
             'created_at' => now(),
@@ -475,10 +487,25 @@ class TransferCandidateExecutionService
             'request_id' => $requestId,
             'from_warehouse' => $hubWarehouse->code,
             'to_warehouse' => $satelliteWarehouse->code,
-            'delivery_course_id' => $firstCandidate->delivery_course_id,
+            'delivery_course_id' => $deliveryCourseId,
             'item_count' => count($items),
         ]);
 
         return $queueId;
+    }
+
+    private function resolveTransferDeliveryCourseId(int $fromWarehouseId, int $toWarehouseId, ?int $currentDeliveryCourseId): ?int
+    {
+        if ($currentDeliveryCourseId !== null) {
+            return $currentDeliveryCourseId;
+        }
+
+        $deliveryCourseId = DB::connection('sakemaru')
+            ->table('warehouse_stock_transfer_delivery_courses')
+            ->where('from_warehouse_id', $fromWarehouseId)
+            ->where('to_warehouse_id', $toWarehouseId)
+            ->value('delivery_course_id');
+
+        return $deliveryCourseId !== null ? (int) $deliveryCourseId : null;
     }
 }
