@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsPickingTasks;
 
 use App\Enums\EMenu;
+use App\Filament\Resources\WmsPickingTasks\Pages\ExecuteWmsPickingTaskV2;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingWaitingsV2;
 use App\Filament\Support\AdminResource;
 use App\Models\WmsPickingTask;
@@ -35,13 +36,19 @@ class WmsPickingWaitingV2Resource extends AdminResource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->where('wms_picking_tasks.status', WmsPickingTask::STATUS_PENDING);
+            ->whereIn('wms_picking_tasks.status', [
+                WmsPickingTask::STATUS_PENDING,
+                WmsPickingTask::STATUS_PICKING_READY,
+                WmsPickingTask::STATUS_PICKING,
+                WmsPickingTask::STATUS_SHORTAGE,
+            ]);
     }
 
     public static function getPages(): array
     {
         return [
             'index' => ListWmsPickingWaitingsV2::route('/'),
+            'execute' => ExecuteWmsPickingTaskV2::route('/{record}/execute'),
         ];
     }
 }

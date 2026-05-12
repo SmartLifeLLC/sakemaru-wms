@@ -157,6 +157,71 @@ class TransferCandidateExecutionServiceTest extends TestCase
 
     /**
      * @test
+     * 倉庫間移動の配送コース設定から配送コースIDを取得すること
+     */
+    public function it_resolves_transfer_delivery_course_from_mapping(): void
+    {
+        $mapping = DB::connection('sakemaru')
+            ->table('warehouse_stock_transfer_delivery_courses')
+            ->whereNotNull('delivery_course_id')
+            ->first();
+
+        if (! $mapping) {
+            $this->markTestSkipped('No warehouse stock transfer delivery course mapping available');
+        }
+
+        $method = new \ReflectionMethod($this->service, 'resolveTransferDeliveryCourseId');
+        $method->setAccessible(true);
+
+        $deliveryCourseId = $method->invoke(
+            $this->service,
+            (int) $mapping->from_warehouse_id,
+            (int) $mapping->to_warehouse_id,
+            null,
+        );
+
+        $this->assertSame((int) $mapping->delivery_course_id, $deliveryCourseId);
+    }
+
+    /**
+     * @test
+     * 倉庫間移動の配送コース設定がない場合は現在値をそのまま使うこと
+     */
+    public function it_keeps_current_delivery_course_when_mapping_is_missing(): void
+    {
+        $method = new \ReflectionMethod($this->service, 'resolveTransferDeliveryCourseId');
+        $method->setAccessible(true);
+
+        $deliveryCourseId = $method->invoke($this->service, 999999998, 999999999, null);
+
+        $this->assertNull($deliveryCourseId);
+    }
+
+    /**
+     * @test
+     * 解決済み配送コースIDを一時保持してもモデルの更新対象カラムに混ざらないこと
+     */
+    public function it_does_not_store_resolved_delivery_course_as_model_attribute(): void
+    {
+        $candidate = new WmsStockTransferCandidate([
+            'delivery_course_id' => null,
+        ]);
+        $candidate->id = 123456789;
+        $candidate->syncOriginal();
+
+        $setMethod = new \ReflectionMethod($this->service, 'setResolvedDeliveryCourseId');
+        $setMethod->setAccessible(true);
+        $setMethod->invoke($this->service, $candidate, 919207);
+
+        $resolveMethod = new \ReflectionMethod($this->service, 'resolvedDeliveryCourseId');
+        $resolveMethod->setAccessible(true);
+
+        $this->assertSame(919207, $resolveMethod->invoke($this->service, $candidate));
+        $this->assertArrayNotHasKey('resolved_delivery_course_id', $candidate->getDirty());
+    }
+
+    /**
+     * @test
      * stock_transfer_queueテーブルにaction_typeカラムが存在すること
      * 注意: action_typeカラムはsakemaru-ai-core側で追加される
      */

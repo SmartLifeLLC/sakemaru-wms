@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsPickingTasks\Pages;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
+use App\Services\QuantityUpdate\QuantityUpdateQueueService;
 use App\Services\Shortage\PickingShortageDetector;
 use Filament\Actions\Action;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -110,7 +111,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
             Action::make('back')
                 ->label('保存せず戻る')
                 ->icon('heroicon-o-arrow-left')
-                ->url(WmsPickingTaskResource::getUrl('index'))
+                ->url($this->getBackUrl())
                 ->color('gray'),
         ];
     }
@@ -138,7 +139,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
 
                 // 受注数を超える場合は受注数に補正
                 $maxQty = max($item->ordered_qty, $item->planned_qty);
-                if ($pickedQty > $maxQty) {
+                if (! $this->allowsOverPickedQuantity() && $pickedQty > $maxQty) {
                     $pickedQty = $maxQty;
                     Notification::make()
                         ->title('数量を補正しました')
@@ -239,7 +240,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 ->success()
                 ->send();
 
-            $this->redirect(WmsPickingTaskResource::getUrl('index'));
+            $this->redirect($this->getBackUrl());
         });
     }
 
@@ -364,9 +365,14 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     ]);
             }
 
+            $quantityUpdateQueueCount = $this->createOverPickedQuantityUpdateQueues();
+
             $message = 'タスクが完了しました';
             if ($shortagesCreated > 0) {
                 $message .= "（欠品{$shortagesCreated}件を記録しました）";
+            }
+            if ($quantityUpdateQueueCount > 0) {
+                $message .= "（伝票数量更新{$quantityUpdateQueueCount}件を登録しました）";
             }
 
             Notification::make()
@@ -375,7 +381,7 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 ->success()
                 ->send();
 
-            $this->redirect(WmsPickingTaskResource::getUrl('index'));
+            $this->redirect($this->getBackUrl());
         });
     }
 
@@ -396,8 +402,11 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 }
 
                 $pickedQty = (int) ($input['picked_qty'] ?? 0);
-                $maxQty = max((int) $item->ordered_qty, (int) $item->planned_qty);
-                $pickedQty = min(max($pickedQty, 0), $maxQty);
+                $pickedQty = max($pickedQty, 0);
+                if (! $this->allowsOverPickedQuantity()) {
+                    $maxQty = max((int) $item->ordered_qty, (int) $item->planned_qty);
+                    $pickedQty = min($pickedQty, $maxQty);
+                }
                 $shortageQty = max(0, (int) $item->planned_qty - $pickedQty);
 
                 $item->update([
@@ -408,6 +417,42 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     'updated_at' => now(),
                 ]);
             });
+    }
+
+    protected function allowsOverPickedQuantity(): bool
+    {
+        return false;
+    }
+
+    public function canOverPick(): bool
+    {
+        return $this->allowsOverPickedQuantity();
+    }
+
+    protected function getBackUrl(): string
+    {
+        return WmsPickingTaskResource::getUrl('index');
+    }
+
+    protected function createOverPickedQuantityUpdateQueues(): int
+    {
+        if (! $this->allowsOverPickedQuantity()) {
+            return 0;
+        }
+
+        $queueService = app(QuantityUpdateQueueService::class);
+        $created = 0;
+
+        $this->record->pickingItemResults()
+            ->whereColumn('picked_qty', '>', 'ordered_qty')
+            ->get()
+            ->each(function ($item) use ($queueService, &$created) {
+                if ($queueService->createQueueForPickingQuantityCorrection($item)) {
+                    $created++;
+                }
+            });
+
+        return $created;
     }
 
     public function getTitle(): string

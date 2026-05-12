@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsPickingTasks\Tables;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasOptimizedFilters;
+use App\Filament\Resources\WmsPickingTasks\WmsPickingWaitingV2Resource;
 use App\Models\Sakemaru\DeliveryCourse;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
@@ -166,6 +167,11 @@ class WmsPickingWaitingsV2Table
                         'delivery_course_id' => $record->delivery_course_id,
                         'shipment_date' => $record->shipment_date?->format('Y-m-d') ?? $record->shipment_date,
                     ])),
+                Action::make('execute')
+                    ->label('ピッキング実施')
+                    ->icon('heroicon-o-play')
+                    ->color('success')
+                    ->url(fn ($record) => WmsPickingWaitingV2Resource::getUrl('execute', ['record' => $record->id])),
             ], position: RecordActionsPosition::BeforeColumns)
             ->recordUrl(fn ($record) => route('filament.admin.resources.wms-picking-item-edit-v2.index', [
                 'warehouse_id' => $record->warehouse_id,

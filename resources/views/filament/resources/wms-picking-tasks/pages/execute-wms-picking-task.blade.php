@@ -225,9 +225,11 @@
                                 <input
                                     type="number"
                                     wire:model="items.{{ $loop->index }}.picked_qty"
-                                    x-on:input="let v = parseInt($event.target.value.replace(/[^0-9]/g, '')) || 0; v = Math.min(v, {{ (int) $item['planned_qty'] }}); $event.target.value = v; pickedQty = v"
+                                    x-on:input="let v = parseInt($event.target.value.replace(/[^0-9]/g, '')) || 0; @unless($this->canOverPick()) v = Math.min(v, {{ (int) $item['planned_qty'] }}); @endunless $event.target.value = v; pickedQty = v"
                                     min="0"
+                                    @unless($this->canOverPick())
                                     max="{{ (int) $item['planned_qty'] }}"
+                                    @endunless
                                     step="1"
                                     inputmode="numeric"
                                     pattern="[0-9]*"
