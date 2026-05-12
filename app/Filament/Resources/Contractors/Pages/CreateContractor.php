@@ -47,7 +47,7 @@ class CreateContractor extends CreateRecord
             'transmission_contractor_id' => $data['wms_transmission_contractor_id'] ?? null,
             'format_strategy_class' => $data['wms_format_strategy_class'] ?? null,
             'is_receive_enabled' => $data['wms_is_receive_enabled'] ?? false,
-            'receive_format' => $data['wms_receive_format'] ?? null,
+            'receive_format' => $data['wms_receive_format'] ?? 'JX',
             'receive_time' => $data['wms_receive_time'] ?? null,
             'is_receive_mon' => $data['wms_is_receive_mon'] ?? false,
             'is_receive_tue' => $data['wms_is_receive_tue'] ?? false,
