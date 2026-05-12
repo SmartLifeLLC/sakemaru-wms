@@ -43,6 +43,12 @@ class ListWmsPickingWaitings extends ListRecords
         $defaultWarehouseId = $user->warehouse?->id;
 
         return [
+            Action::make('openVersion2')
+                ->label('配送コース集約版')
+                ->icon('heroicon-o-squares-2x2')
+                ->color('gray')
+                ->url('/admin/wms-picking-waitings-v2'),
+
             Action::make('assignPickers')
                 ->label('ピッカー割り当て')
                 ->icon('heroicon-o-user-group')
