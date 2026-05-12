@@ -1,0 +1,681 @@
+﻿item_code,mysql_item_id,mysql_item_name,parent_current_quantity,parent_available_quantity,oracle_shelves,oracle_stock_shelves,mysql_default_shelves,mysql_nonzero_lot_shelves,mysql_all_shelves,issue
+10001,10001,　仕入経費（仕入送料）　外税,49,49,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+10003,10003,　仕入経費（仕入送料）　内税,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+100015,1004019,　森永　フレッシュヘビィ４５,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+111056,111056,○月桂冠上撰　キャップエース１８０ｍｌ,52,52,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+111119,111119,　白鶴サケカップ　米だけのまる　純米酒２００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+111209,111209,　白鶴まる辛口カップ２００ｍｌ,30,30,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+111218,111218,　菊正宗上撰生貯蔵酒３００ｍｌ（段ボ－ル）,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+111344,111344,　白鶴　大吟醸７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+111512,111512,　月桂冠　　京山水　本醸造１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+111513,111513,　白鶴　特別純米酒　山田錦３００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+111897,111897,　大関ワンカップミニ１００ｍｌ,15,15,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112002,112002,　越の磯　一期一会　純米大吟醸３８　７２０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112057,112057,×常山弐の升　純米１．８Ｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112143,112143,　福千歳上撰１．８Ｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112174,112174,　北の庄純米酒「長命酔」１．８Ｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112186,112186,　北の庄純米酒「長命酔」７２０ｍｌ,-8,-8,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112196,112196,　真名鶴美雨ｒｏｓｅ７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112219,112219,　真名鶴懐石本醸造　上吟１．８Ｌ,-1,-1,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112237,112237,　福千歳さくらクラシック１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112244,112244,　一乃谷金印１．８Ｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112261,112261,　小浜酒造上撰わかさ７２０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112268,112268,　華燭大吟醸７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112294,112294,　小浜酒造上撰わかさ１．８Ｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112353,112353,　北の庄純米吟醸７２０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112363,112363,　一乃谷本醸造　勝鬼７２０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112381,112381,　梵　初雪　しぼりたて生原酒　山田錦７２０ｍｌ（純米大吟醸）　※卸不可,,,AWA000,,AWA00000,,AWA00000,mysql_default_not_in_oracle
+112383,112383,　飛鳥井　特別純米酒７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112385,112385,　北の庄甘口の酒７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112386,112386,　雲乃井　純米酒　福雲７２０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112411,112411,　小浜酒造純米わかさ７２０ｍｌ,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112418,112418,　雲乃井　純米吟醸　東雲７２０ｍｌ,8,8,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112426,112426,　一乃谷純米酒　純７２０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112471,112471,　畠山酒造雪きらら　純米酒７２０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112487,112487,　福千歳キュヴェ純米吟醸７２０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112495,112495,　華燭本醸造７２０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112539,112539,　永平寺白龍　純米酒７２０ｍｌ,11,11,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112549,112549,　永平寺白龍　純米大吟醸７２０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112556,112556,　一乃谷大吟醸原酒　薫７２０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112558,112558,　一乃谷上撰カップ１８０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112568,112568,×真名鶴懐石本醸造　吟撰１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112574,112574,　鳥浜酒造若狭自慢　純米酒７２０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112584,112584,　鳥浜酒造　純米吟醸７２０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112586,112586,×真名鶴懐石本醸造　吟撰７２０ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112588,112588,　真名鶴山廃仕込純米酒７２０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112599,112599,　雲乃井　純米酒　福雲１．８Ｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112624,112624,　華燭越前国府　純米酒７２０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112651,112651,　一乃谷金印カップ１８０ｍｌ,57,57,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112678,112678,　花垣超特撰　大吟醸７２０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112690,112690,　越前岬　特別純米酒　五百万石７２０ｍｌ　※２６’４月から卸可,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112692,112692,　舞美人　純米吟醸７２０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112739,112739,　伝心　「土」７２０ｍｌ　※直送・卸不可,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112757,112757,　福千歳徳　山廃純米吟醸７２０ｍｌ（箱無）,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112758,112758,　福千歳円　純米酒　山廃仕込１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112759,112759,　福千歳円　山廃純米７２０ｍｌ,13,13,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112761,112761,　福千歳満　山廃本醸造７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112762,112762,　加茂栄冷酒３００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112783,112783,　游　純米吟醸　芳醇超辛口７２０ｍｌ（白龍）,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112785,112785,　游　芳醇超辛口　番外山田錦７２０ｍｌ（白龍）,11,11,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112792,112792,　飛鳥井　純米吟醸　山田錦７２０ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112807,112807,　花垣純米大吟醸　棚田米７２０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112812,112812,　永平寺白龍　長期氷温熟成　純米大吟醸７２０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112819,112819,　関西　佳撰　生貯蔵酒３００ｍｌ,25,25,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112828,112828,　真名鶴極上純米酒　厳選素材７２０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112839,112839,　一乃谷純米大吟醸　稀覯７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112842,112842,　一乃谷山廃仕込み特別純米７２０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+112843,112843,　一乃谷上撰７２０ｍｌ,-2,-2,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112851,112851,　富久駒一筆啓上　純米吟醸３００ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112864,112864,　舞美人山廃純米酒７２０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112868,112868,　富久駒鬼作左　純米酒３００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+112882,112882,　鳥浜酒造　若狭自慢　冷酒３００ｍｌ（純米）,5,5,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+112975,112975,　小浜酒造純米酒わかさ３００ｍｌ,40,40,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+113038,113038,　菊姫山廃純米７２０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+113137,113137,　大七　純米生もと　生原酒７２０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+113200,113200,　北鹿すずらぎ　生貯蔵酒７２０ｍｌ,0,0,H02001|J04103,,,,,missing_mysql_default
+113213,113213,　北鹿すずらぎ　生貯蔵酒１．８Ｌ,0,0,H02002|J04104,,,,,missing_mysql_default
+113517,113517,　男山生もと純米酒１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+113588,113588,　手取川　本流１．８Ｌ　※石川県内限定,8,8,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+114051,114051,　白鶴上撰　サケパック９００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+114058,114058,　白鶴米だけのまる　純米酒パック９００ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+114095,114095,○白鶴上撰サケパック２Ｌ,6,0,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+114096,114096,　松竹梅　上撰パック２Ｌ,,,Q00000|R03101,,,,,missing_mysql_default
+114133,114133,　白鶴まる辛口パック９００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+114150,114150,　白鶴　上撰　サケカップ２００ｍｌ,60,60,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+114237,114237,　白鶴　上撰サケパック　山田錦９００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+114238,114238,　白鶴　上撰サケカップ　山田錦２００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+114246,114246,　月桂冠　糖質・プリン体Ｗゼロ　パック９００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+114288,114288,　菊正宗　上撰　さけパック　生もと辛口２Ｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+116080,116080,　清洲城　信長鬼ころし　パック１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+118201,118201,　初孫生もと純米本辛口　魔斬７２０ｍｌ（まきり）,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+118412,118412,　神泉　純米大吟醸１．８Ｌ（箱無し）,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+118483,118483,　黒帯特別純米　悠々１．８Ｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+118599,118599,　銀盤特別純米　剱岳１．８Ｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+118713,118713,　初孫生もと純米本辛口　魔斬１．８Ｌ（まきり）,4,4,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+118758,118758,　神泉　大吟醸１．８Ｌ（箱有）,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+118829,118829,　竹葉能登純米１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+118918,118918,　菊水　菊水の純米酒７２０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+118920,118920,　名倉山　純米　Ｌａｋｅ×Ｗｈａｌｅ？　夕涼７２０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119016,119016,　福千歳オーク樽仕込ライスワイン７２０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119044,119044,　小浜酒造純米吟醸わかさ７２０ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119048,119048,　越前岬　純米大吟醸　さかほまれ７２０ｍｌ,-2,-2,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119049,119049,　月暈　純米大吟醸７２０ｍｌ（箱入）,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119052,119052,　北の庄　純米大吟醸　さかほまれ米７２０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119055,119055,　一乃谷大吟醸　さかほまれ７２０ｍｌ,0,0,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119057,119057,　福千歳純米大吟醸　さかほまれ７２０ｍｌ,-1,-1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119060,119060,　雪きらら純米大吟醸　さかほまれ７２０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119098,119098,　月暈　大吟醸７２０ｍｌ（箱入）,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119116,119116,　明乃鶴　本醸造７２０ｍｌ,4,4,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119123,119123,　梵艶　純米大吟醸１．８Ｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119157,119157,　小浜酒造　大吟醸わかさ７２０ｍｌ（新）,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119168,119168,　雲乃井　純米吟醸生貯　東雲３００ｍｌ,13,13,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119171,119171,　福千歳　純米辛口　さかほまれ７２０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119173,119173,　越の磯　一期一会　純米大吟醸３３　７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119176,119176,　越の磯　越前忘憂　純米酒７２０ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119177,119177,　越の磯　越前忘憂　純米酒３００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119199,119199,　永平寺白龍　純米吟醸　夏さらら７２０ｍｌ,12,12,,,,G06307,G06307,mysql_location_but_oracle_no_shelf
+119231,119231,　越の鷹　辛口純米吟醸７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119235,119235,　真名鶴　純米大吟醸７２０ｍｌ,-2,-2,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119325,119325,　越前岬　槽搾り純米「九頭竜」１．８Ｌ　※卸不可,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119326,119326,　越前岬　純米吟醸原酒「斗瓶取り」７２０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119345,119345,　完売　永平寺白龍　ドラゴンウォーター　うすにごりミルキー７２０ｍｌ,24,24,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119349,119349,　北の庄　純米吟醸３００ｍｌ,8,8,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119403,119403,　北の庄　純米酒　カップ１８０ｍｌ,36,36,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119404,119404,　福千歳　鯖純米７２０ｍｌ,-46,-36,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119411,119411,　北の庄　純米大吟醸　望３００ｍｌ,133,133,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119417,119417,　月暈　純米吟醸７２０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119418,119418,　月暈　純米７２０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119519,119519,　福千歳　ＲＩＣＥ　ＷＩＮＥ（らいすわいん）３００ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119529,119529,　福千歳　ＦＵＫＵＩ　純米７２０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119530,119530,　福千歳　ＦＵＫＵＩ　純米３００ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119576,119576,　花垣　純米大吟醸３００ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119622,119622,　永平寺白龍　米てきてき３００ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119623,119623,　永平寺白龍　水てきてき３００ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119624,119624,　永平寺白龍　土てきてき３００ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119625,119625,　一本義　大吟醸　事無笑酒　Ｒｅｇａｌｏ７２０ｍｌ（レガロ）　※直送・卸不可,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119672,119672,　福千歳　蕎麦冷酒３００ｍｌ,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119681,119681,　永平寺白龍　山田錦　純米大吟醸４０７２０ｍｌ（頒布会２０２５）,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119682,119682,　一乃谷　さかほまれ純米大吟醸　稀覯７２０ｍｌ（頒布会２０２５）,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119683,119683,　越前岬　さかほまれ純米大吟醸　あらばしり７２０ｍｌ（頒布会２０２５）,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119686,119686,　永平寺白龍　純米吉峯７２０ｍｌ,12,12,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119695,119695,　常山　純米辛口　超１．８Ｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119718,119718,　真名鶴　純米大吟醸　奏雨３００ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119726,119726,　越前岬　純米大吟醸１８０ｍｌ（プレミアム）,207,207,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119729,119729,　若鹿　上撰１８０ｍｌ　スリム瓶　※レトロ代替,120,120,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119731,119731,　雲乃井　純米大吟醸　瑞雲７２０ｍｌ,12,12,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119735,119735,　越の鷹　辛口純米吟醸３００ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119738,119738,　花垣　純米大吟醸　廻めぐり７２０ｍｌ,8,8,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+119739,119739,　関西　本醸造　上撰７２０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119740,119740,　ツキガサ　純米吟醸　恐竜ラベル７２０ｍｌ,24,24,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119752,119752,　越の鷹　大辛口純米酒７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+119758,119758,　永平寺白龍　純米吟醸生原酒７２０ｍｌ,12,12,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+119774,119774,　越前岬　大吟醸　吟の雫　プレミアム生原酒　７２０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+120000,120000,部システム １２０ ,41,41,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+121043,121043,　２５°宝　純７２０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+121077,121077,　２５°サッポロ焼酎　北極星４Ｌ,8,8,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+121109,121109,　２５°ジャイアントペット４Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+121216,121216,　３５°宝焼酎　タカラカップ２２０ｍｌ,29,29,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+122171,122171,○２０°いいちこ（麦）瓶１．８Ｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+122264,122264,　２０°わんこペット２．７Ｌ（麦）,15,15,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+122455,122455,　２５°なんこ７２０ｍｌ（芋）,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+122768,122768,　２５°黒力　紫芋４Ｌ,-2,-2,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+122870,122870,　２３°バリピ！（ＢａｒｉＰｉ！）７２０ｍｌ（麦）,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+122887,122887,　２５°本格芋焼酎　伊七郎７２０ｍｌ,45,45,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+122895,122895,　２５°本格芋焼酎　伊七郎　１．８Ｌ,17,17,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+122898,122898,×２５°長期調和熟成麦焼酎　千年華７２０ｍｌ,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+122957,122957,　２５°橙華１．８Ｌ（芋）,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123013,123013,×２５°黒丸１．８Ｌ（芋）,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123261,123261,×２５°西郷が里５Ｌ（芋）,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123342,123342,　３０°ニコニコ太郎１．８Ｌ（泡盛）,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123370,123370,　２５°本格麦焼酎　さつま雷パック１．８Ｌ（麦）,-8,-8,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+123390,123390,　２５°田苑　金ラベル９００ｍｌ（麦）,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123429,123429,　２５°黒丸　黒７２０ｍｌ（芋）,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123478,123478,　２５°薩摩一７２０ｍｌ（芋）,30,30,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123485,123485,　２５°白鶴　本格麦焼酎　千夜一酔７２０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123486,123486,　２５°女帝　麦１．８Ｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+123488,123488,×２５°金黒９００ｍｌ（芋）,13,13,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123569,123569,　２５°いいちこ　深薫１．８Ｌ（麦）,16,16,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+123908,123908,　２０°西の星１．８Ｌ（麦）,4,4,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+131264,131264,　サントリー　レッド　１８０ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+131524,131524,　桜尾蒸留所　ソガイニ　７００ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+131530,131530,　御岳蒸留所　日置　Ｈｉｏｋｉ　１．８Ｌ瓶,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+131534,131534,　ニッカ　フロンティア　４Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+132022,132022,　メーカーズマーク　１Ｌ,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+132067,132067,　ジョニーウォーカー　ブロンド　７００ｍｌ,9,9,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+132069,132069,　アイラミスト８年　アモンティリャードカスク　ミニセレクション１００ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+132224,132224,　グレンリベット　１８年　（正規）７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+132383,132383,　ボウモア　１８年　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+132395,132395,　ジムビーム　ダブルオーク　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+132893,132893,　ジョニーウォーカー１８年　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+132899,132899,　ボウモア１２年　７００ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+133034,133034,　☆★サントリー　ＸＯデラックス　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+134001,134001,　カミュＶＳＯＰエレガンス７００ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+134023,134023,　レミーマルタン　ＸＯ　エクセレンス　７００ｍｌ　（正規品）,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+140000,140000,部システム １４０   分類,76,76,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+141043,141043,○サッポロ　エビス　大瓶６３３ｍｌ,,,B01102|YX0000,,,,,missing_mysql_default
+141336,141336,　アサヒ　スーパードライ　冷涼辛口　中瓶５００ｍｌ,100,100,,,,AG30SN|Z00,AG30SN|Z00,mysql_location_but_oracle_no_shelf
+142388,142388,　網走ビール　桜ドラフト３５０ｍｌ缶,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+142453,142453,　サントリー　東京クラフト　フルーティーエール３５０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+142606,142606,　　ブリュードッグパンクＩＰＡ　缶３５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+143201,143201,　タップマルシェ　豊潤（４９６）６Ｌ,-1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+143333,143333,　タップマルシェ　スプリングバレー　ホップ飲みくらべセット６Ｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+147044,147044,　アサヒ　スタイルフリー５００ｍｌ,,,K08301|Q00000,,,,,missing_mysql_default
+149293,149293,　ブリュードッグ　エルビスジュース　缶３３０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+149322,149322,　ＡＢインベブ　モデロ　エスペシアル３５５ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+149868,149868,　ブリュードッグ　ヘイジージェーン　ＮＥＩＰＡ　缶３３０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+150000,150000,部部システム１５０　分類,152,152,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151031,151031,　アルプス　あずさワイン　無添加コンコード　７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151034,151034,　メルシャン　おいしい酸化防止剤無添加赤ワイン　厳選素材　７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151049,151049,　あずさワイン　ブラック甘口　７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151054,151054,　白山ワイン　山麓　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151055,151055,　メルシャン　ボンルージュ（赤）新　７２０,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151056,151056,○サントリー　彩食健美　赤６００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151072,151072,　メルシャン美味しい酸化防止剤無添加白ワイン　厳選素材　７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151106,151106,　勝沼醸造　甲州　穂坂　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151115,151115,　ＪＡ三方五湖　梅ワイン（ロゼ）　５００ｍｌ,18,18,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151152,151152,　機山　スパークリング　トラディッショナル　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151153,151153,　ＪＡ三方五湖　梅ワイン（白）　５００ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151165,151165,　白山　霧晴　７５０ｍｌ,18,18,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151217,151217,　メルシャン　甘熟ぶどうのおいしいワイン　白　５００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151230,151230,　アルプス　信州りんご　フルーツワイン　５００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151231,151231,　白山ワイナリー　梅ワイン　５００ｍｌ,8,8,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151245,151245,　メルシャン　ビストロ　ペットボトル　赤　１．５Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151257,151257,　メルシャン　ビストロ　ボックス　白　パック　１．８Ｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151258,151258,　メルシャン　ビストロ　ボックス　赤パック　１．８Ｌ,16,16,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151268,151268,　白山ワイン　梅スパークリング　７５０ｍｌ,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151307,151307,　アルプス　酸化防止剤無添加信州コンコード　７２０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151343,151343,　サントリー　酸化防止剤無添加ワイン　濃い白　７２０ｍｌ　,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151350,151350,　白山ワイナリー　Ｄｓｔｙｌｅ　７２０ｍｌ,13,13,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151361,151361,　能登ワイン　ヤマソーヴィニヨン　７２０ｍｌ,12,12,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+151370,151370,　能登ワイン　ヤマソービニヨン　３６０ｍｌ,12,12,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+151382,151382,　白山ワイン　ｄａｎｄａｎ　ロゼ　３６０ｍｌ,18,18,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151397,151397,　白山アンドソル　ヤマソーヴィニヨン　７５０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151446,151446,　白山ワイン　シェルピンク　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151489,151489,　サントリー　デリカメゾン　白　パック　１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151490,151490,　サントリー　　デリカメゾン　赤　パック　１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151542,151542,　サントリーフロムファーム　甲州　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151543,151543,　サントリーフロムファーム　マスカットベーリーＡ赤　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151607,151607,　能登ワイン　アッサンブラージュロゼ　３６０ｍｌ,-5,-5,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151658,151658,　ココファーム　農民ロッソ　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151659,151659,　ココファーム　農民ドライ　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151672,151672,　白山やまぶどうワイン　梅スパーク　３７５ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151673,151673,　あわここペティヤン　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+151683,151683,　マンズエコノミー　赤　紙パック　１．８Ｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+151688,151688,　マンズワイン　酵母の泡　甲州　３６０ｍｌ,11,11,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+152070,152070,　フォッシ　ロッソ　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152107,152107,×ジャンジャン　ジュナール　カベルネソーヴィニヨン７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152113,152113,　ル　デュモン　ボージョレヌーヴォー　ＶＶ　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+152145,152145,　ＬＬ　シモネ　フェブル　シャブリ７５０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+152175,152175,　アンリ　フェッシ　ボージョレ　ヌーヴォー　３７５ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+152225,152225,　ヴァインインフレイム　ピノノワール　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+152380,152380,×カルベ　メドック　赤　３７５ｍｌ,16,16,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152407,152407,　イルプーモ　ネグロアマーロ　７５０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+152419,152419,×シルヴィオ　シャルドネ　７５０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+152435,152435,　フォルタン　カベルネソービニヨン　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152491,152491,　ミレジム　ソービニヨンブラン　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152512,152512,　レニャー　シャブリ　サンピエール　７５０ｍｌ,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152514,152514,　シャトーデマラドレ　ボージョレヴィラージュヌーヴォー　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+152567,152567,　ＬＬシャブリ　プルミエ　クリュ７５０ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152633,152633,　シーラーメドック　プライベートリザーヴ３７５ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+152670,152670,　ベンド　シャルドネ　７５０ｍｌ,18,18,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152714,152714,　ＬＬ　ジュヴレ　シャンベルタン　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152738,152738,　サンタヘレナ　アルパカ　ソービニヨンブラン　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152794,152794,　ＪＰシェネ　ボージョレヌーヴォー　パック　１８７ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+152805,152805,　エリックパルドン　ボージョレヌーヴォー　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+152836,152836,　アリウェン　レセルヴァ　カベルネソービニヨン　７５０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+152842,152842,　ブレッド＆バター　ピノノワール　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+152852,152852,　ドンナマルツィア　マルヴァージアビアンカ　７５０ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+152876,152876,　ウィリアムフェーブル　シャブリ　３７５ｍｌ,11,11,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152914,152914,×ボッラ　ヴァルポリチェッラクラシコ　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152918,152918,　シャルドネ　アンデスコレクション　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+152949,152949,　チリンギート　コベ　シャルドネ　７５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+152951,152951,　チリンギート　コベ　カベルネ　７５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+153029,153029,　サントリー　赤玉スイート　白　５５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+153105,153105,　ナーリーヘッド　ダブルブラック　カベルネ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+153194,153194,　ドルーアン　ピュリニーモンラッシェ　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153336,153336,　フォルタン　カベルネソービニヨン　１８７ｍｌ,58,58,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153430,153430,　ムラダル　ティント　７５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+153485,153485,　ボデガス・サン・ヴィヴェール　コンパイ　サングリア　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+153490,153490,　シャトー　パラディ　カスイユ　ブラン　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153498,153498,　フォルタン　シャルドネ　１８７ｍｌ,45,45,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153545,153545,　フェーブル　シャブリ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+153561,153561,　イエローテイル　メルロ　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153569,153569,　マジ　ユヌ　テール　コート　デュ　ローヌ　ルージュ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+153595,153595,×サンタヘレナ　シグロ　カベルネソービニヨン　３７５ｍｌ,15,15,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153606,153606,　ヴィアヘロ　赤　３Ｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153614,153614,　フローリオ　モルシ　ディ　ルーチェ　５００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+153656,153656,　レゾルムドカンブラス　カベルネ　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153673,153673,　ジェイコブス　ダブルバレル　シラーズ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+153716,153716,　ヴィアヘロ　白　３Ｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153744,153744,　デロー　レゼルヴ　赤　７５０ｍｌ,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153747,153747,　オーパスワン　’２２　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+153755,153755,　バローネ　コルナッキア　トレッビアーノダブルッツォ　７５０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+153798,153798,　シャトー　トゥール　サンヴァンサン　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153883,153883,　ミシオネス　カベルネソービニヨン　７５０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+153893,153893,　アリウェン　レセルヴァ　ピノノワール　７５０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+153894,153894,　アリウェン　レセルヴァ　シャルドネ　７５０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+153954,153954,　シャプティエ　リュベロン　ラシボワーズ　ルージュ　７５０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+153958,153958,　シャプティエ　リュベロン　ラシボワーズ　ブラン　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+153967,153967,　ミラヴァル　ロゼ　７５０ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154009,154009,　チンザノ　ロッソ　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154010,154010,　チンザノ　ドライ　７５０ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154016,154016,　チンザノ　ロッソ　１Ｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154037,154037,×チンザノ　ドライ　１Ｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154077,154077,　アンブレッド　ビアンコ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+154078,154078,　アンブレッド　ロッソ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+154095,154095,　サンマルツァーノ　ティモ　ヴェルメンティーノ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+154096,154096,　シャトー　レゾルム　ソルベ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+154098,154098,　セレニータ　マカベオ　ブリザード　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+154099,154099,　ナッククール　ヴィーノ　ブランコ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+154101,154101,　オーカ　シャルドネ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+154145,154145,　モンメイラック　白　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154146,154146,　ムラダル　ブランコ　７５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+154150,154150,　エゴット　トレッビアーノ　シャルドネ　３Ｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+154154,154154,　エゴット　メルロサンジョベーゼ　３Ｌ,4,4,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+154179,154179,×デュモル　シャルドネ　ハイランド　ディヴァイド７５０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+154180,154180,×クロ　アンリ　プティ　クロ　ソービニヨン　ブラン７５０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+154413,154413,　プリュレロック　ニュイサンジョルジュ　クロデコルヴェ　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154464,154464,　ブシャールＰ＆Ｆ　ピュリニーモンラッシェ　シャンガン　７５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+154466,154466,　オーパスワン　’２２　７５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+154495,154495,　ＬＬ　ボーヌ　ヴィーニュフランシュ　７５０ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154524,154524,　ＬＬ　ピュリニーモンラッシェ　ルフェール　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154528,154528,　シャトーデロージュ　ボージョレヴィラージュヌーヴォーＶＶ　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+154599,154599,　テール　デトワール　キュヴェ　ギョタク　７５０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154611,154611,　ブシャール　ペール　エ　フィス　シャンベルタン　クロ　ド　ベーズ　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154633,154633,　デュブッフ　ボージョレ　ヌーヴォー　３７５ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+154749,154749,　ドメーヌ　フランソワ　ヴィラール　ヴィオニエ　７５０ｍｌ,14,14,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+154895,154895,　フィリップ　ル　アルディ　サン　トーバン　ブラン　７５０ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155005,155005,　ロジャーグラート　カヴァ　グランキュヴェ　７５０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+155030,155030,　ロジャーグラート　カヴァ　ドゥミセック　７５０ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155083,155083,　ニコラ　フィアット　パルムドール　ブリュット　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155110,155110,　マルティーニ　アスティ　７５０ｍｌ,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155142,155142,　ペリエジュエ　ベルエポック　ブランドブラン　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155166,155166,　サントリー　ポンパドール　ライチ　７５０ｍｌ,17,17,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155187,155187,　エンジェルシャンパン　ブリュットロゼ　ホワイト　,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155209,155209,　バーロワイヤル　グリーンアップル　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155249,155249,　ソウメイ　ブルー　ブリュットナチュール　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+155253,155253,　ラシャス　ポワレフレッシュ　７５０ｍｌ,21,21,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155254,155254,　ローランペリエ　グランシエクル　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155271,155271,　サントリーポンパドール　マスカット３７５ｍｌ,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155343,155343,×ヴーヴクリコ　ポンサルダン　ホワイトラベル　ドゥミセック７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155346,155346,　サントリー　ポンパドール　ストロベリー　７５０ｍｌ,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155348,155348,×マム　グランコルドン　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155359,155359,　パルムドール　ゴールドＥＤ　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155400,155400,　ロータリ　タレン　ブリュット　ロゼ　７５０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+155406,155406,　アンジュエール　白　７５０ｍｌ,18,18,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155408,155408,　アルマンド　ブリニャック　ロゼ　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155411,155411,　アンジュエール　ロゼ　７５０ｍｌ,13,13,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155423,155423,　デコルディ　ランブルスコ　ロッソ７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+155434,155434,　マム　グラン　コルドン　ロゼ７５０ｍｌ,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155441,155441,　ポンパドール　チェリー　７５０ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155455,155455,×ネブリナ　スパークリング　７５０ｍｌ,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155473,155473,　レミーパニエ　ブーケドール　ロゼ　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155492,155492,　パルムドール　ロゼ　インテンス　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155499,155499,　ニコラフィアット　ヴィンテージ　ブランドブラン　７５０ｍｌ,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155503,155503,　ニコラフィアット　エクスクルーシブ　ブリュット　３７５ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155510,155510,　ニコラフィアット　エクスクルーシブ　ブリュットロゼ　７５０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155546,155546,　クローヴァーヒル　ピレネーズ　７５０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+155569,155569,　ニコラ　フィアット　ロゼ　ファースト　ブルーム　オブ　サクラ　７５０ｍｌ,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155571,155571,　マルティーニ　ブリュット　３７５ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155582,155582,　サロン　ブランドブラン　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155586,155586,　ベルエポック　’１６　７５０ｍｌ,11,11,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155591,155591,　テタンジェ　コントドシャンパーニュ　ブランドブラン　１．５Ｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155600,155600,　テタンジェ　ノクターン　白　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155611,155611,　ペリエジュエ　ベルエポック　フロレサンス　７５０ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155621,155621,　ランソン　ホワイトラベル　セック　７５０ｍｌ,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155650,155650,　ボッテガ　ゴールド７５０ｍｌ,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155661,155661,　グランクルタージュ　グランキュヴェ　ブランドブラン　７５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+155694,155694,　アンジュエール　ブリュット　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155718,155718,　アルマンド　ブリニャック　ゴールド　箱無し　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155743,155743,　ヴーヴ　デュ　ヴェルネ　ロゼ７５０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+155762,155762,　サンテロ　モスカートスプマンテ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+155764,155764,　ボランジェ　ＰＮＶＺ　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155770,155770,　バルディビエソ　リミテッド　ブリュット　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+155783,155783,　メゾンマム　ＲＳＲＶ　ブランドブラン　２０１５　７５０ｍｌ,8,8,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155786,155786,　ニコラフィアット　グラフィックアイス　ロゼ　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155802,155802,　ソウメイ　プラチナ　箱入　７５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+155803,155803,　ルイナール　ブランドブラン　３７５ｍｌ,72,72,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+155850,155850,　アンリオ　リナタンデュ　箱入　７５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+155893,155893,　マム　アイスエクストラ　７５０ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+155965,155965,　エンジェルシャンパン　ブリュットブラック　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156043,156043,　エリックパルドン　ボージョレヴィラージュ　ヌーヴォー　３７５ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+156104,156104,　モンダヴィ　ウッドブリッジ　シャルドネ　７５０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156122,156122,　フォルタン　シャルドネ　７５０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156375,156375,　ドンナマルツィア　シャルドネ　オーク樽熟成　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+156420,156420,　テールセクレット　マコンヴィラージュヌーヴォー　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+156478,156478,×タクン　レゼルヴァ　シャルドネ　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156498,156498,　ドルーアン　マコンヴィラージュ　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156589,156589,　タリー　シャルドネ　サンルイス　オビスポコースト　７５０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156631,156631,×カリテラ　レゼルヴァ　シャルドネ　７５０ｍｌ,20,20,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156634,156634,　ジャンドロレール　ボージョレヌーヴォー　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+156639,156639,　シャプティエ　コートデュローヌ　ルージュ　ペルルーシュ　７５０ｍｌ,12,12,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156643,156643,　シャプティエ　コートデュローヌ　ブラン　ペルルーシュ　７５０ｍｌ,21,21,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156663,156663,　ＬＬ　シャブリ　ラ　シャンフルーフ　３７５ｍｌ,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156677,156677,　ルロワ　ボージョレヴィラージュ　プリムール　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+156685,156685,×ヴィーニャドリア　赤　７５０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156693,156693,　ヴィーニャドリア　白　７５０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156716,156716,　シャトーポールマス　クロ　デ　ミュール　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+156748,156748,×コニェット　ミュスカデセーヴルエメーヌ　７５０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156758,156758,　フランソワラベ　ピノノワール　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156763,156763,×カリテラ　レセルヴァ　シャルドネ　３７５ｍｌ,20,20,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156865,156865,　ラデラ　ヴェルデ　レッド　１．５Ｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156876,156876,　コセチャ　カベルネソービニヨン　７５０ｍｌ,120,120,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156889,156889,　アルベールビショー　ブルゴーニュシャルドネ　ＶＶ　７５０ｍｌ,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156899,156899,　コセチャ　メルロ　７５０ｍｌ,120,120,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156904,156904,　ドルーアン　ブルゴーニュ　ピノノワール　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156905,156905,　ドルーアン　ブルゴーニュ　シャルドネ　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156930,156930,　ブシャールＰ＆Ｆ　コルトンシャルルマーニュ　’２１　７５０ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156932,156932,　コセチャ　ピノノワール　７５０ｍｌ,120,120,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156934,156934,　コセチャ　シャルドネ　７５０ｍｌ,124,124,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+156962,156962,　コセチャ　ソービニヨンブラン　７５０ｍｌ,120,120,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+156969,156969,×ブシャールＰ＆Ｆ　ブルゴーニュピノノワールラヴィニェ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+156987,156987,　ジャンロロン　ボージョレヴィラージュヌーヴォー　リフト６９　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+157002,157002,　ボルサオ　クラシコ　ブランコ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+157025,157025,　サンタヘレナ　アルパカ　カベルネメルロ　７５０ｍｌ,31,31,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157135,157135,　カサベナサル　ゲヴルツトラミネール　モスカテル　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157137,157137,　シャトー　オーブランダ　７５０ｍｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+157160,157160,　ブシャールＰ＆Ｆ　コルトンシャルルマーニュ　’２１　７５０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157201,157201,×ドルーアン　サンロマン　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157241,157241,　サンタヘレナ　アルパカ　シャルドネセミヨン　７５０ｍｌ,39,39,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157314,157314,　マリーシェルメット　ロゼ　ボージョレヌーヴォー　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+157326,157326,　ムーチョマス　赤　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157466,157466,　ドルーアン　シャブリ　レゼルヴドヴォードン　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157557,157557,　コートデュローヌルージュ　ルプティアンデソン　７５０ｍｌ,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157659,157659,　カステルカンブラス　赤　７５０ｍｌ,18,18,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157751,157751,　カステルカンブラス　白　７５０ｍｌ,19,19,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157835,157835,　フェルナンドラロッシュ　ボージョレヌーヴォー　ＰＥＴ　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+157840,157840,×カステル　バロンド　レスタック　赤　３７５ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+157848,157848,×ロスガンソス　ピノノワール　７５０ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157851,157851,　　ヴァレ　ド　オーメン　ブランコ　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157867,157867,×ドルーアン　サン　ヴェラン　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157904,157904,　　イエローテイル　カベルネソービニヨン　１８７ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157956,157956,　パラ　ヒメネス　カベルネソーヴィニヨン　オーガニック,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+157957,157957,　テタンジェ　ブリュットレゼルヴ　３７５ｍｌ,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158013,158013,　ドルーアン　ボーヌプルミエクリュ　クロデムーシュブラン　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+158022,158022,　フォルタン　シャルドネ　３７５ｍｌ,38,38,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158023,158023,　ドルーアン　シャブリ　プルミエ　クリュ　モンマン　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158116,158116,　ドルーアン　シャブリ　グランクリュ　レクロ　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158117,158117,　　ドルーアン　ヴォルネイ　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158126,158126,　ペティロホ　シャルドネ　７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+158136,158136,　ビオンタ　アルバリーニョ　７５０ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158144,158144,　ドルーアン　サヴィニレボーヌ　クロデゴドー　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158147,158147,　ドンナ　マルツィア　プリミティーヴォ　オーク樽熟成７５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+158159,158159,　ドルーアン　マランジュ　プルミエ　クリュ　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158199,158199,×ミッシェルリンチ　ボルドールージュ　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158201,158201,　ミッシェルリンチ　ボルドーブラン　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158293,158293,　タヴェルネッロ　ロッソ　バッグインボックス３Ｌ,-3,-3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+158426,158426,　パラヒメネス　シャルドネ　オーガニック　７５０ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158600,158600,　マリーシェルメット　ボージョレヌーヴォー　グリオット　３７５ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+158603,158603,　ラブレロワ　ボージョレ　ヌーヴォー　７５０ｍｌ,,,YBN000,,YBN00000,,YBN00000,mysql_default_not_in_oracle
+158717,158717,　オーボンクリマ　シャルドネ　ニュイブランシュ　’２０　７５０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+158973,158973,　ベンド　カベルネソービニヨン　７５０ｍｌ,15,15,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+158987,158987,×ＪＪドミニク　テロワールセレクション　ピノノワール　７５０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+159008,159008,×プレザンス　カベルネソーヴィニヨン　７５０ｍｌ,24,24,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+159013,159013,　プレミオ　モンテプルチアーノ　ダブルッツォ　７５０ｍｌ,35,35,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+159112,159112,　レザレ　ド　セノザン　ピノノワール　７５０ｍｌ,24,24,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+159131,159131,　ドメーヌ　ラ　ガルレ　フェランダ　７５０ｍｌ,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+159132,159132,　シャトー　ブリュンデスパーニュ　エリタージュ　７５０ｍｌ,22,22,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+159137,159137,　シャトー　ダイギルケール　７５０ｍｌ,36,36,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+160000,160000,部システム １６０ ,60,60,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+161001,161001,　サントリーウォッカ　８０プルーフ　１．８Ｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+161005,161005,　サントリー　ウオッカ８０プルーフ　７２０ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+161027,161027,　サントリー　ドライジンエクストラ　７２０ｍｌ,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+161056,161056,　サントリー　ジン　ＲＯＫＵ　２００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+161059,161059,　アサヒ　ハイボリー　ジン　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+162021,162021,　ロンリコ　ホワイト　４０°（正規）　７００ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+162029,162029,×パンペロ　アニバサリオ　ラム　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+162037,162037,　エリストフ　ウォッカ　７００ｍｌ,5,5,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+162050,162050,　ボンベイ　ドライジン７００ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+162127,162127,×ウィルキンソン　ウォッカ５０°　７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+162151,162151,　ドンフリオ　レポサド　７００ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+162250,162250,　ドーバー　ラム４５　１００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+162289,162289,　　ストリチナヤ　プレミアム　ウオッカ　５００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+170000,170000,部システム １７０ ,7,7,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+171004,171004,　合同　ＴＡＮＴＡＫＡＴＡＮ　ＳＨＩＳＯ梅酒　７２０ｍｌ（鍛高譚の梅酒）,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171031,171031,×ヘルメス　ブルーキュラソー　７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171202,171202,　天狗舞　梅酒１．８Ｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171236,171236,　サッポロ　３種のポリフェノール　赤梅酒　パック１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171237,171237,　梅乃宿　甘くておいしいキャロット＆オレンジ１．８Ｌ,14,14,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171248,171248,　サントリー　バイオレットフィズ　６００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171252,171252,　舟木酒造　ブルーベリー酒　３００ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171366,171366,　サクラオ　紫蘇ダルマ　１．８Ｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171373,171373,　チョーヤ　Ｔｈｅ　ＣＨＯＹＡ　黒糖梅酒７００ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171388,171388,　サッポロ　濃いめのグレフルサワーの素５００ｍｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171507,171507,　富久駒　一筆啓上　梅の酒１８０ｍｌ（ケース無し）,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171553,171553,　チョーヤ　ザ・チョーヤ　ブランデー仕立てブラック７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171578,171578,　一本義　吟香梅　般若刀　７２０ｍｌ,3,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171600,171600,×サントリー　ふんわり鏡月　ゆず　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171606,171606,　アサヒ　ジノン　グレープフルーツ　コンク１．８Ｌ　ペット,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171615,171615,　若鶴　ウメスキー３００ｍｌ,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171617,171617,×サントリー　ふんわり鏡月　うめ　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171701,171701,　サッポロ　ウメカク　梅酒カクテル　ピンクＧＦ　５００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171748,171748,　若狭三方ビバレッジ　レモングラス梅酒　１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171751,171751,　富久駒一筆啓上　柚子の酒５００ｍｌ（ケース無し）,18,18,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171755,171755,　サントリー　こだわり酒場のレモンサワーの素５００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171757,171757,　富久駒　一筆啓上　梅の酒５００ｍｌ（クリアケース入）,10,10,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171761,171761,　南都酒造所　ハブ入りハブ酒１．８Ｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+171764,171764,　富久駒　一筆啓上　梅の酒５００ｍｌ（ケース無し）,14,14,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171767,171767,　サッポロサワー　氷彩１９８４　素５００ｍｌ瓶,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171779,171779,　富久駒　一筆啓上　梅すぱ３００ｍｌ（クリアケース無し）,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171798,171798,　富久駒　一筆啓上　柚子すぱ３００ｍｌ（クリアケース無し）,7,7,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171830,171830,×サントリー　Ｊクラフトリキュール　奏　抹茶７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171841,171841,　明利　そのまんまパイナップルのお酒７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171849,171849,　サッポロ　濃いめのレモンサワーの素５００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171859,171859,　一本義　吟香梅７２０ｍｌ（新）,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171880,171880,　梵　ゆずリキュール５００ｍｌ,12,12,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+171937,171937,　サッポロ　男梅サワーの素５００ｍｌ,2,0,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+171938,171938,　山元　にごり梅酒　梅太夫１．８Ｌ,5,5,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+171943,171943,　悠久の梅酒　雫　四年熟成　７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171951,171951,　梅乃宿　あらごしジンジャー　７２０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+171976,171976,　サントリー　こだわり酒場のレモンサワーの素　濃い旨５００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+171990,171990,　チョーヤ　梅サルーテ　７５０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+171991,171991,　チョーヤ　フレンチオーク樽熟成　７００ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+172042,172042,　ボルス　ストロベリー７００ｍｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+172068,172068,　ボルス　トリプルセック７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+172093,172093,　プラム　リキュール　ド　フランス　プルシア　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+172119,172119,×サッポロ　リモンチェッロ　７２０ｍｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+172164,172164,　ソウルマッコリ　ペットボトル　７５０ｍｌ,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+172223,172223,×ボルスモヒート　７００ｍｌ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+172227,172227,　ボルスアプリコットブランデー７００ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+172232,172232,　モーツァルト　チョコレートクリーム　３５０ｍｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+172241,172241,×ペパーミントジェット２７　７００ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+172401,172401,　眞露　チャミスル　ピーチ３６０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+173008,173008,　日の出　本みりん　醇良１．８Ｌペット,30,30,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+173012,173012,　富貴　本みりん１．８Ｌ瓶,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+173015,173015,　白鹿　酒蔵割烹酒パック２Ｌ,18,18,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+181021,181021,　宝　本みりん　ペット　１Ｌ,12,12,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+181033,181033,　万上　本みりん　割烹　１．８Ｌ,18,18,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+181269,181269,　サッポロ　サッポロサワー　氷彩１９８４　３５０ｍｌ,48,48,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+181314,181314,　東肥　本伝赤酒　１．８Ｌ,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+181372,181372,　サントリー　ほろよい　青いサワー３５０ｍｌ,24,24,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+182012,182012,　チョーヤ　梅酒　プラＱ　１６０ｍｌ,20,20,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+183039,183039,　キリン　檸檬酒５００ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+184036,184036,　スミノフアイス　ピンクグレープフルーツ２７５ｍｌ,8,8,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+184155,184155,　サントリー　ほろよい　レモみかん３５０ｍｌ,5,5,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+184247,184247,　タカラ　焼酎ハイボール　シークァーサー３５０ｍｌ,,,Q00000|Z01203,,,,,missing_mysql_default
+184421,184421,　チョーヤ　さらりとした梅酒　パック１Ｌ,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+184486,184486,　サントリー　ほろよい　梅酒ソーダ　３５０ｍｌ,0,0,C11404|Q00000,,,,Z00,missing_mysql_default
+184587,184587,　キリン　氷結　ウメ　５００ｍｌ,24,24,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+184654,184654,　白鶴　ぷるぷる林檎酒１９０ｍｌ,,,M06306|Q00000,,,,,missing_mysql_default
+210000,210000,部システム ２１０ ,18,18,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+210155,210155,　アサヒ富士山のバナジウム天然水６００ｍｌ,,,Q00000|Y99999,,,,,missing_mysql_default
+210310,210310,　大黒屋　酎割　巨峰１Ｌ瓶,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+210311,210311,　大黒屋酎割　ゆず１Ｌ瓶,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+210418,210418,　花垣　自然のあまみ　米糀甘酒３００ｇ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+210518,210518,　ネスレ　特選ココア　ミルク仕立て７５０ｇ,2,4,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+210591,210591,　ドーバー　ビアリッツレモン瓶７００ｍｌ,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+210594,210594,　サントリー　ゼロッパ　５００ｍｌ,66,66,,,Z00,Z00,Z00|ZZ1100,mysql_location_but_oracle_no_shelf
+210717,210717,　ピエールゼロ　シニャチュール　７５０ｍｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+210746,210746,　ＭＩＺＵＳＨＩＭＡ　ＢＬＵＥ　ジンジャービア　３３０ｍｌ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+210807,210807,　宮崎本店　焼酎用うめエキス　割梅１ＬＰＥＴ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+210894,210894,　雜賀　ノンアルコール梅　ロックンプラム　７２０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+210895,210895,　雜賀　ノンアルコール柚　ロックンユズ　７２０ｍｌ,4,4,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+211020,211020,　アサヒ　ドデカミン　ストロング３００ｍｌ缶,,,Q00000|Y99999,,,,,missing_mysql_default
+211028,211028,　アサヒ　三ツ矢サイダー１．５Ｌペット,,,C09203|YX0000,,,,,missing_mysql_default
+211030,211030,　コカコーラ　ゼロ５００ｍｌ,,,B10104|Q00000,,,,,missing_mysql_default
+211033,211033,　キリン　キリンレモン５００ｍｌペット,,,D16300|Q00000,,,,,missing_mysql_default
+211075,211075,　サントリー　ペプシ生　ＢＩＧ　ＣＯＬＡ６００ｍｌペット,24,24,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+211183,211183,　コカコーラ　アンバサ３５０ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+211203,211203,　アサヒ　スタイルバランス　グレープフルーツテイスト３５０ｍｌ,5,5,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+211210,211210,　コカコーラ　ファンタ　グレープ５００ｍｌペット,,,M01205|Q00000,,,,,missing_mysql_default
+211683,211683,　サントリー　ソーダ（業務用）３３０ｍｌＰＥＴ,0,0,L08206|Q00000,,,,Z00,missing_mysql_default
+211798,211798,　博水社ホームハイサワースンチー杏仁檸檬３６０ｍｌ,24,24,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+211870,211870,　コカコーラ　カナダドライジンジャーエール　缶２５０ｍｌ（ＨＯＲＥＣＡ）,,,G01415|Q00000,,,,,missing_mysql_default
+211914,211914,　サントリー　天然水スパークリング５００ｍｌ,96,96,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+211977,211977,　サントリー　おうちドリンクバー　ペプシコーラ３４０ｍｌ,34,34,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+212069,212069,　カゴメ　野菜生活１００　１９０ｇ,62,62,N01101|Q00000,,,Z00,Z00,missing_mysql_default|mysql_lot_not_in_oracle
+212171,212171,　コカコーラ　アクエリアス　ザ　ゼロ５００ｍｌ,,,K07105|YX0000,,,,,missing_mysql_default
+213113,213113,　サッポロ　リボン　オレンジ２００ｍｌ瓶,,,C02204|YX0000,,,,,missing_mysql_default
+213131,213131,　不二家　ネクターピーチ３５０ｇ,,,M04111|Q00000,,,,,missing_mysql_default
+213296,213296,　サントリーまるで梅酒な　ノンアルコール２８０ｍｌ,,,M01302|Q00000,,,,,missing_mysql_default
+213524,213524,　コカコーラ　ミニッツメイド　オレンジ　業務用１Ｌパック,1,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+213543,213543,　ポン　グレープジュース８００ｍｌペット,6,6,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+214121,214121,　サントリー　ボス　無糖ブラック１８５ｇ,,,G01302|Q00000,,,,,missing_mysql_default
+214194,214194,　アサヒワンダ　特製カフェオレ１８５ｇ缶,30,0,H08202|Q00000,,,Z00,Z00,missing_mysql_default|mysql_lot_not_in_oracle
+215017,215017,　サントリー　烏龍茶　缶３４０ｇ,24,24,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+215027,215027,　コカコーラ　爽健美茶２Ｌペット,,,D09206|Q00000,,,,,missing_mysql_default
+215131,215131,　キリン　午後の紅茶　ミルクティー　ホット＆コールド２８０ｍｌＰＥＴ（自販機）,,,C11202|Q00000,,,,,missing_mysql_default
+215162,215162,　コカコーラ　爽健美茶６００ｍｌ,,,B01207|Q00000,,,,,missing_mysql_default
+215204,215204,×エムアールアイおいしい緑茶　２Ｌ,0,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+215307,215307,　アサヒ十六茶　ボトル缶２７５ｇ,,,K08302|Q00000,,,,,missing_mysql_default
+215445,215445,　サントリー　伊右衛門　贅沢ジャスミン６００ｍｌ,,,F07300|Q00000,,,,,missing_mysql_default
+221277,221277,　トーレ・デ・ヌニエズ　ハモンセラーノ１４ヶ月熟成６０ｇ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+221358,221358,　しいの食品　たこわさび８０ｇ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+221448,221448,　伍魚福　サラミチーズサンド３４ｇ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+221648,221648,　Ｄ＆Ｈランプフィッシュキャビア５０ｇ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+222040,222040,　華セレクト　落花生　業務仕様４５０ｇ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+223020,223020,　県米純そば茶１Ｋｇ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+223506,223506,　伊藤園　ワンポット緑茶　ティーバック３０Ｐ,10,10,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+224273,224273,　丸味食品　７種のミックスナッツ５００ｇ,17,17,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+231091,231091,　フクしょうゆ　しょうゆ菊１．８ＬＰＥＴ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+231106,231106,　フクしょうゆ　しょうゆ藤１．８ＬＰＥＴ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+231257,231257,　ブルドック　徳用とんかつソース１．８Ｌ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+231282,231282,　ピンクロックソルト１Ｋｇ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+231291,231291,　ミツカン　パッチョ　トマト＆ガーリック１Ｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+231293,231293,　キューピー　フレンチドレッシング赤１Ｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+231310,231310,　キッコーマン　こいくち　天パット缶１８Ｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+231337,231337,　フクしょうゆ　しょうゆ甘口１．８ＬＰＥＴ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+231446,231446,　ミツカン　ぽん酢　ＰＥＴ１．８Ｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+231511,231511,　直源　丸庄印　醤油１．８Ｌペット,12,12,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+231593,231593,　フクしょうゆ　フク　ニューマイルド１．８ＬＰＥＴ,6,6,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+231607,231607,　ハウス　カレーホット　２．７ｇ×１００,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+231608,231608,　Ｓ＆Ｂ　金沢風カツカレーソース３Ｋｇ,4,4,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+231629,231629,　キッコーマン　ステーキしょうゆ　トリュフ風味５７０ｇ,9,9,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+231842,231842,　東海ナッツ　アーモンドパウダー１Ｋｇ,0,0,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+231883,231883,　ヒガシマル　うすくちしょうゆ１０Ｌ,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+231958,231958,　ブルドックソース　徳用　ウスターソース１．８Ｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+243205,243205,　岩泉ファーム　牛乳アイスモナカ９５ｍｌ,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+244057,244057,　ダッチカカオココアパウダーミッドレッド　２２２４,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+244081,244081,　小山製麺　焼肉専門店　盛岡冷麺３７０ｇ,240,240,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+244501,244501,　竹内製菓　柿の種　サラダ味２３０ｇ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+244798,244798,　日清食品　カップヌードル７８ｇ,,,999999|YX0000,,,,,missing_mysql_default
+245067,245067,　ギアアンチョビペースト６０ｇ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+246756,246756,　ボワロン　冷凍ピューレ　マンゴ１Ｋｇ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+248054,248054,　東洋ナッツ　ヘーゼルパウダー　皮付１Ｋｇ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+248690,248690,　ピュラトス　ショコランテ　ガーデナー　ミルク３９％１Ｋｇ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+249546,249546,　ケロッグ　業務用コーンフレーク３４０ｇ,0,0,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+250039,250039,　大黒屋　酎割うめ１Ｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+250044,250044,　大黒屋　酎割　青りんご１Ｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+250048,250048,　大黒屋　酎割カシス１Ｌ,3,3,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+251031,251031,　アサヒ　スタイルバランス　和梨サワー３５０ｍｌ,4,4,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+251040,251040,　アサヒ　ウィルキンソン　タグソバー　レモンジンジャー３５０ｍｌ,24,24,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+251064,251064,　ＡＢインベブ　コロナ　セロ　缶３３０ｍｌ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+251094,251094,　アサヒ　スタイルバランス　無糖レモンサワー２００ｍｌ,139,139,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+255034,255034,　サントリー　伊右衛門　特茶　（特保）１Ｌ,,,M07207|Q00000,,,,,missing_mysql_default
+260000,260000,部システム ２６０ ,34,34,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+262571,262571,　ブルサン　ガーリック＆ハーブ８０ｇ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+284105,284105,　岡田屋製菓　お徳用えびせんミックス２１０ｇ,4,4,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+284758,284758,　ハートフル畑　切り餅シングルパック１Ｋｇ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+286119,286119,　ＪＡめむろ　十勝産シューストリングポテト８００ｇ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+287350,287350,×福井精米　国内産無洗米　紫５Ｋｇ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+287420,287420,　Ｃ＆Ｃ　ライ麦　中挽１Ｋｇ,2,2,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+312103,312103,　サントリー　プレミアムモルツセット　ＢＰＥＳＮ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+322501,322501,　はぐるま会　ゴルフコンペ景品,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+340000,340000,　ハリカ金額管理ギフト（仕入用）,71,71,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+400000,400000,部システム ４００   分類打,1996,1996,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+410049,410049,　箱入りポリ絞り袋　５５ｃｍ　青色,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+410066,410066,　福重　ＣＦ－６０　無地７０巾　ケーキフィル,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+410102,410102,　バキュフレッシュ　替え栓　２個入　１個,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+410109,410109,　クタール　ソムリエナイフ　１個,3,3,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+410152,410152,　プライベートプリザーブ　１ｍｌ,,,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+410225,410225,　まほろば　デコシート　５寸　１０００枚,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+410226,410226,　まほろば　デコサイドシート　１０００枚,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+470000,470000,　部システム４７０（化粧箱）,1048,1048,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+471010,471010,　一本義　７２０ｍｌ　共通カートン１枚,645,645,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+471012,471012,　越の鷹　７２０ｍｌ　共通カートン１枚,12,12,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+471014,471014,　永平寺白龍　７２０ｍｌ共通カートン１枚,454,454,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+471015,471015,　永平寺白龍　１．８Ｌ　１本　共通カートン１枚,40,40,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+471017,471017,　福千歳　７２０ｍｌ　共通カートン１枚,42,42,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+471028,471028,　梵　７２０ｍｌ　共通カートン１枚,334,334,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+471042,471042,　真名鶴　７２０ｍｌ共通カートン１枚,36,36,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+471046,471046,　黒龍　ギフトボックス７２０ｍｌ　１枚,35,35,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+471099,471099,　一本義一本用箱,39,39,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+471100,471100,　一本義二本用箱,40,40,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+631231,631231,　味の素　フレンチドレッシング　白　１Ｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+631587,631587,　エスビー　オールスパイスパウダー袋１Ｋｇ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+632659,632659,×永谷園お茶漬海苔　業務用５０袋,2,2,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+712020,712020,　空容器　ビール樽７Ｌ,1,1,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+720001,720001,　空容器（内税）,7,7,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+721001,721001,　空容器　清酒　瓶,228,228,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+722001,722001,　空容器　ビール瓶,20517,20512,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+722003,722003,　空容器　ビ－ルケ－ス（大中）,165,165,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+722009,722009,　空容器　サントリー樽１０Ｌ,12,12,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+722010,722010,　空容器ビ－ル瓶２０＋Ｐ箱（大中）,1233,1228,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+722015,722015,　空容器　ビール小瓶,110,110,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+722017,722017,　空容器　ビール瓶３０＋Ｐ箱（小）　,220,218,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+722018,722018,　空容器　ビールケース（小）,49,49,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+722020,722020,　空容器　ビール樽７Ｌ,216,216,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+722021,722021,　空容器　ビール樽１０Ｌ,1284,1278,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+722022,722022,　空容器　ビール樽１５Ｌ,616,616,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+722023,722023,　空容器　ビール樽１９Ｌ,970,970,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+722024,722024,　空容器　ビール樽２０Ｌ,1484,1484,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+722030,722030,　空容器　ボンベ５Ｋｇ,293,293,,,,Z00,Z00,mysql_location_but_oracle_no_shelf
+722031,722031,　空容器　ボンベ　１０Ｋｇ,3,3,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+722035,722035,　空容器ビール樽５Ｌ,88,88,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+722052,722052,　空容器サントリー　樽１５Ｌ,16,16,,,Z00,,Z00,mysql_location_but_oracle_no_shelf
+723002,723002,　空容器　ジュース　瓶,11987,11973,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+723006,723006,　空容器　ジュースケース,178,178,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+723010,723010,　空容器　ジュース瓶２４＋Ｐ箱,647,640,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+920000,920000,部システム９２０（お肉）,17536,17536,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+941002,941002,　立力やわらか牛カルビ１Ｋｇ,4,4,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf
+999002,999002,　システムテスト１,1,1,,,Z00,Z00,Z00,mysql_location_but_oracle_no_shelf

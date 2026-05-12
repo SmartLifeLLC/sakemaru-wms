@@ -1,0 +1,5 @@
+﻿issue,count
+missing_mysql_default,30
+mysql_default_not_in_oracle,17
+mysql_location_but_oracle_no_shelf,633
+mysql_lot_not_in_oracle,2
