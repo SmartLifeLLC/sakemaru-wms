@@ -708,7 +708,7 @@ class ListWmsOrderCandidates extends ListRecords
         // デフォルト倉庫タブ（設定されている場合は先頭に配置してデフォルト選択）
         if ($defaultWarehouse) {
             $views["default_{$defaultWarehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $userDefaultWarehouseId))
                 ->favorite()
                 ->label($defaultWarehouse->name)
                 ->default();
@@ -720,7 +720,7 @@ class ListWmsOrderCandidates extends ListRecords
                 continue;
             }
             $views["default_{$warehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $warehouse->id))
                 ->favorite()
                 ->label($warehouse->name);
         }

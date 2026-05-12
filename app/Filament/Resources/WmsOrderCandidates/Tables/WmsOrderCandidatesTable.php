@@ -494,7 +494,15 @@ class WmsOrderCandidatesTable
                     ->label('生成元')
                     ->options(collect(OriginType::cases())->mapWithKeys(fn ($t) => [$t->value => $t->label()])),
 
-                static::warehouseFilter()->label('発注倉庫'),
+                static::warehouseFilter()
+                    ->label('発注倉庫')
+                    ->query(function ($query, array $data) {
+                        if (blank($data['value'])) {
+                            return;
+                        }
+
+                        $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $data['value']);
+                    }),
 
                 static::contractorFilter(),
 
