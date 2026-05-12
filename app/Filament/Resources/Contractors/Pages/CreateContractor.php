@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Contractors\Pages;
 
 use App\Filament\Resources\Contractors\ContractorResource;
+use App\Models\Sakemaru\Client;
 use App\Models\WmsContractorSetting;
 use Filament\Resources\Pages\CreateRecord;
 
@@ -14,7 +15,10 @@ class CreateContractor extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        return collect($data)->reject(fn ($value, $key) => str_starts_with($key, 'wms_'))->all();
+        $data = collect($data)->reject(fn ($value, $key) => str_starts_with($key, 'wms_'))->all();
+        $data['client_id'] = Client::first()->id;
+
+        return $data;
     }
 
     protected function afterCreate(): void
