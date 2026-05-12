@@ -1322,6 +1322,24 @@ class PickingListPdfService
         $janFontSize = 7;
 
         foreach ($items as $item) {
+            // セクション区切り行（1F / 2F / YX）
+            $sectionLabel = $item['section_label'] ?? null;
+            if ($sectionLabel !== null && $sectionLabel !== '') {
+                $sectionH = 7;
+                if ($this->currentY + $sectionH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 25) {
+                    $this->pdf->AddPage();
+                    $this->currentY = self::COURSE_GROUPED_MARGIN;
+                    $this->renderCourseGroupedHeader($header);
+                    $this->renderCourseGroupedTableHeader();
+                }
+                $this->pdf->SetFillColor(220, 230, 241);
+                $this->pdf->Rect($margin, $this->currentY, $tableWidth, $sectionH, 'DF');
+                $this->pdf->SetFont('kozgopromedium', 'B', 11);
+                $this->pdf->SetXY($margin + 3, $this->currentY);
+                $this->pdf->Cell($tableWidth - 3, $sectionH, $sectionLabel, 0, 0, 'L');
+                $this->currentY += $sectionH;
+            }
+
             $itemName = (string) ($item['item_name'] ?? '');
 
             $this->pdf->SetFont('kozgopromedium', 'B', $bodyFontSize);

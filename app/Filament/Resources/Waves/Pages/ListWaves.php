@@ -1943,13 +1943,15 @@ class ListWaves extends ListRecords
                 })
                 ->values();
 
-            $items = [];
+            $aggregated = [];
             foreach ($sortedGroupRows->groupBy(fn (array $row) => ($row['location_id'] ?? 0).'|'.$row['item_code']) as $itemRows) {
                 $row = $itemRows->first();
+                $isYx = str_starts_with($row['code1'] ?? '', 'YX');
                 $totalPieces = $this->sumProvisionalPieces($itemRows);
                 $capacityCase = max(1, (int) $row['capacity_case']);
-                $items[] = [
-                    'no' => count($items) + 1,
+                $aggregated[] = [
+                    'floor_name' => $row['floor_name'] ?? '',
+                    'is_yx' => $isYx,
                     'location_code' => $row['location_id']
                         ? Location::formatCode($row['code1'], $row['code2'], $row['code3'], '-')
                         : '',
@@ -1961,6 +1963,30 @@ class ListWaves extends ListRecords
                     'piece_qty' => $totalPieces % $capacityCase,
                     'total_pieces' => $totalPieces,
                     'shortage_qty' => (int) $itemRows->sum('shortage_qty'),
+                ];
+            }
+
+            $items = [];
+            $currentSection = null;
+            foreach ($aggregated as $entry) {
+                $section = $entry['is_yx'] ? 'YX' : ($entry['floor_name'] ?: '');
+                $sectionLabel = null;
+                if ($section !== $currentSection) {
+                    $sectionLabel = $section;
+                    $currentSection = $section;
+                }
+                $items[] = [
+                    'no' => count($items) + 1,
+                    'section_label' => $sectionLabel,
+                    'location_code' => $entry['location_code'],
+                    'item_code' => $entry['item_code'],
+                    'jan_code' => $entry['jan_code'],
+                    'item_name' => $entry['item_name'],
+                    'capacity_case' => $entry['capacity_case'],
+                    'case_qty' => $entry['case_qty'],
+                    'piece_qty' => $entry['piece_qty'],
+                    'total_pieces' => $entry['total_pieces'],
+                    'shortage_qty' => $entry['shortage_qty'],
                 ];
             }
 

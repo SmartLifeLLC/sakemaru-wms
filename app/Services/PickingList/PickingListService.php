@@ -1238,7 +1238,15 @@ class PickingListService
 
             $items = [];
             $no = 0;
+            $currentSection = null;
             foreach ($rowsByLocationItem as $entry) {
+                $section = $entry['is_yx'] ? 'YX' : ($entry['floor_name'] ?: '');
+                $sectionLabel = null;
+                if ($section !== $currentSection) {
+                    $sectionLabel = $section;
+                    $currentSection = $section;
+                }
+
                 $no++;
                 $capacityCase = max(1, $entry['capacity_case']);
                 $totalPieces = $entry['total_pieces'];
@@ -1251,6 +1259,7 @@ class PickingListService
 
                 $items[] = [
                     'no' => $no,
+                    'section_label' => $sectionLabel,
                     'location_code' => $locationCode,
                     'item_code' => $entry['item_code'],
                     'jan_code' => $entry['jan_code'],
