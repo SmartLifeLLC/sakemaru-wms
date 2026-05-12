@@ -496,16 +496,12 @@ class TransferCandidateExecutionService
 
     private function resolveTransferDeliveryCourseId(int $fromWarehouseId, int $toWarehouseId, ?int $currentDeliveryCourseId): ?int
     {
-        if ($currentDeliveryCourseId !== null) {
-            return $currentDeliveryCourseId;
-        }
-
         $deliveryCourseId = DB::connection('sakemaru')
             ->table('warehouse_stock_transfer_delivery_courses')
             ->where('from_warehouse_id', $fromWarehouseId)
             ->where('to_warehouse_id', $toWarehouseId)
             ->value('delivery_course_id');
 
-        return $deliveryCourseId !== null ? (int) $deliveryCourseId : null;
+        return $deliveryCourseId !== null ? (int) $deliveryCourseId : $currentDeliveryCourseId;
     }
 }
