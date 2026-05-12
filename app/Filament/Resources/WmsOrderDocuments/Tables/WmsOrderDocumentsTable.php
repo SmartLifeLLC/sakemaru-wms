@@ -283,6 +283,42 @@ class WmsOrderDocumentsTable
                         }
                     }),
 
+                Action::make('cancelAllPending')
+                    ->label('全件送信取消')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->modalHeading('送信前データを全件送信取消')
+                    ->modalDescription(function () {
+                        $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET)
+                            ->pluck('contractor_id')
+                            ->toArray();
+                        $count = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
+                            ->whereIn('contractor_id', $jxContractorIds)
+                            ->count();
+
+                        return "送信待ちのJXデータ {$count} 件を送信せずに「送信取消」にします。この操作は元に戻せません。";
+                    })
+                    ->modalSubmitActionLabel('全件送信取消を実行')
+                    ->modalCancelActionLabel('取消せず閉じる')
+                    ->requiresConfirmation()
+                    ->action(function () {
+                        $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET)
+                            ->pluck('contractor_id')
+                            ->toArray();
+
+                        $count = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
+                            ->whereIn('contractor_id', $jxContractorIds)
+                            ->update([
+                                'status' => TransmissionDocumentStatus::CANCELLED,
+                            ]);
+
+                        Notification::make()
+                            ->title("送信取消完了（{$count}件）")
+                            ->body('送信待ちのJXデータを全件送信取消にしました')
+                            ->success()
+                            ->send();
+                    }),
+
                 Action::make('transmitJx')
                     ->label('JX送信')
                     ->icon('heroicon-o-paper-airplane')

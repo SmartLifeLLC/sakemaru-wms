@@ -12,6 +12,7 @@ enum TransmissionDocumentStatus: string implements HasLabel
     case TRANSMITTED = 'TRANSMITTED';
     case CONFIRMED = 'CONFIRMED';
     case ERROR = 'ERROR';
+    case CANCELLED = 'CANCELLED';
 
     public function getLabel(): ?string
     {
@@ -22,6 +23,7 @@ enum TransmissionDocumentStatus: string implements HasLabel
             self::TRANSMITTED => '送信済み',
             self::CONFIRMED => '確認済み',
             self::ERROR => 'エラー',
+            self::CANCELLED => '送信取消',
         };
     }
 
@@ -34,6 +36,7 @@ enum TransmissionDocumentStatus: string implements HasLabel
             self::TRANSMITTED => 'success',
             self::CONFIRMED => 'info',
             self::ERROR => 'danger',
+            self::CANCELLED => 'gray',
         };
     }
 
