@@ -210,7 +210,7 @@ class OrderDataFileService
         );
 
         if ($warehouseId !== null) {
-            app(PurchaseOrderPdfService::class)->generateAndStore($dataFile);
+            app(PurchaseOrderPdfService::class)->generateAndStoreFromCandidates($candidates, $dataFile);
             $dataFile->refresh();
         }
 
