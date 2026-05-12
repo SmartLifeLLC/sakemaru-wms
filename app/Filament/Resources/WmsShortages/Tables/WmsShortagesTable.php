@@ -34,7 +34,7 @@ class WmsShortagesTable
             ->striped()
             ->extraAttributes(['class' => 'sticky-actions-left'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
-            ->paginationPageOptions(PaginationOptions::all())
+            ->paginationPageOptions([100, 500])
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -73,7 +73,7 @@ class WmsShortagesTable
                     })
                     ->alignment('center'),
 
-                TextColumn::make('wave.shipping_date')
+                TextColumn::make('shipment_date')
                     ->label('出荷日')
                     ->date('Y-m-d')
                     ->sortable()
@@ -95,7 +95,6 @@ class WmsShortagesTable
                 TextColumn::make('trade.partner.name')
                     ->label('得意先名')
                     ->searchable()
-                    ->limit(20)
                     ->default('-')
                     ->alignment('center'),
 
@@ -111,16 +110,15 @@ class WmsShortagesTable
                         : '-')
                     ->alignment('center'),
 
-                TextColumn::make('trade.earning.delivery_course.code')
+                TextColumn::make('deliveryCourse.code')
                     ->label('配送コード')
                     ->searchable()
                     ->default('-')
                     ->alignment('center'),
 
-                TextColumn::make('trade.earning.delivery_course.name')
+                TextColumn::make('deliveryCourse.name')
                     ->label('配送コース')
                     ->searchable()
-                    ->limit(20)
                     ->default('-')
                     ->alignment('center'),
 
@@ -211,7 +209,7 @@ class WmsShortagesTable
                     ->sortable()
                     ->alignment('center'),
 
-                TextColumn::make('trade.earning.buyer.current_detail.salesman.name')
+                TextColumn::make('earning.buyer.current_detail.salesman.name')
                     ->label('担当営業')
                     ->default('-')
                     ->limit(15)
@@ -263,13 +261,11 @@ class WmsShortagesTable
 
                 SelectFilter::make('delivery_course_id')
                     ->label('配送コース')
-                    ->relationship('trade.earning.delivery_course', 'name')
+                    ->relationship('deliveryCourse', 'name')
                     ->searchable()
                     ->query(function ($query, $data) {
                         if (! empty($data['value'])) {
-                            $query->whereHas('trade.earning', function ($q) use ($data) {
-                                $q->where('delivery_course_id', $data['value']);
-                            });
+                            $query->where('delivery_course_id', $data['value']);
                         }
                     }),
 
@@ -285,33 +281,13 @@ class WmsShortagesTable
                         }
                     }),
 
-                SelectFilter::make('shipping_date')
-                    ->label('出荷日')
-                    ->options(function () {
-                        return \App\Models\Wave::query()
-                            ->select('shipping_date')
-                            ->distinct()
-                            ->orderBy('shipping_date', 'desc')
-                            ->limit(30)
-                            ->pluck('shipping_date', 'shipping_date')
-                            ->map(fn ($date) => $date ? $date->format('Y-m-d') : '-')
-                            ->toArray();
-                    })
-                    ->query(function ($query, $data) {
-                        if (! empty($data['value'])) {
-                            $query->whereHas('wave', function ($q) use ($data) {
-                                $q->whereDate('shipping_date', $data['value']);
-                            });
-                        }
-                    }),
-
                 SelectFilter::make('salesman_id')
                     ->label('担当営業')
-                    ->relationship('trade.earning.buyer.current_detail.salesman', 'name')
+                    ->relationship('earning.buyer.current_detail.salesman', 'name')
                     ->searchable()
                     ->query(function ($query, $data) {
                         if (! empty($data['value'])) {
-                            $query->whereHas('trade.earning.buyer.current_detail.salesman', function ($q) use ($data) {
+                            $query->whereHas('earning.buyer.current_detail.salesman', function ($q) use ($data) {
                                 $q->where('id', $data['value']);
                             });
                         }
@@ -833,7 +809,7 @@ class WmsShortagesTable
 
                                 Select::make('from_warehouse_id')
                                     ->label('横持ち出荷倉庫')
-                                    ->options(Warehouse::pluck('name', 'id')->toArray())
+                                    ->options(fn () => Warehouse::pluck('name', 'id')->toArray())
                                     ->disabled()
                                     ->columnSpan(1),
 

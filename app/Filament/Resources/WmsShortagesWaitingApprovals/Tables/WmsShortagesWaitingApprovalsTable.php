@@ -38,7 +38,7 @@ class WmsShortagesWaitingApprovalsTable
             ->striped()
             ->extraAttributes(['class' => 'sticky-actions-left'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
-            ->paginationPageOptions(PaginationOptions::all())
+            ->paginationPageOptions([100, 500])
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -91,7 +91,7 @@ class WmsShortagesWaitingApprovalsTable
                     ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('wave.shipping_date')
+                TextColumn::make('shipment_date')
                     ->label('納品日')
                     ->date('Y-m-d')
                     ->sortable()
@@ -107,7 +107,6 @@ class WmsShortagesWaitingApprovalsTable
                     ->label('得意先名')
                     ->sortable()
                     ->searchable()
-                    ->limit(20)
                     ->alignment('center'),
 
                 TextColumn::make('item.code')

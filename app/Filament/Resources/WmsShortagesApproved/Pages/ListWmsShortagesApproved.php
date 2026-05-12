@@ -48,6 +48,7 @@ class ListWmsShortagesApproved extends ListRecords
         $defaultFilterData = [
             'shipment_date' => ['shipment_date' => $systemDate],
         ];
+        $applySystemDate = fn (Builder $query) => $query->where('shipment_date', $systemDate);
 
         $defaultWarehouse = $userDefaultWarehouseId
             ? $warehouses->firstWhere('id', $userDefaultWarehouseId)
@@ -56,7 +57,8 @@ class ListWmsShortagesApproved extends ListRecords
         if ($defaultWarehouse) {
             $views = [
                 'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->modifyQueryUsing(fn (Builder $query) => $applySystemDate($query)
+                        ->where('warehouse_id', $userDefaultWarehouseId))
                     ->defaultFilters($defaultFilterData)
                     ->favorite()
                     ->label($defaultWarehouse->name)
@@ -65,6 +67,7 @@ class ListWmsShortagesApproved extends ListRecords
         } else {
             $views = [
                 'default' => PresetView::make()
+                    ->modifyQueryUsing($applySystemDate)
                     ->defaultFilters($defaultFilterData)
                     ->favorite()
                     ->label('全て')
@@ -73,6 +76,7 @@ class ListWmsShortagesApproved extends ListRecords
         }
 
         $views['all'] = PresetView::make()
+            ->modifyQueryUsing($applySystemDate)
             ->defaultFilters($defaultFilterData)
             ->label('全て')
             ->favorite();
@@ -82,7 +86,8 @@ class ListWmsShortagesApproved extends ListRecords
                 continue;
             }
             $views["wh_{$warehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
+                ->modifyQueryUsing(fn (Builder $query) => $applySystemDate($query)
+                    ->where('warehouse_id', $warehouse->id))
                 ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label($warehouse->name);
@@ -96,17 +101,13 @@ class ListWmsShortagesApproved extends ListRecords
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with([
-                    'wave',
-                    'warehouse',
-                    'item',
-                    'trade.partner',
-                    'trade.earning.delivery_course',
-                    'trade.earning.buyer.current_detail.salesman',
-                    'allocations.targetWarehouse',
-                    'allocations.sourceWarehouse',
-                    'updater',
-                    'confirmedBy',
-                    'confirmedUser',
+                    'warehouse:id,code,name,latitude,longitude',
+                    'location:id,code1,code2,code3',
+                    'item:id,code,name,capacity_case,volume,volume_unit',
+                    'trade:id,serial_id,partner_id',
+                    'trade.partner:id,code,name,latitude,longitude',
+                    'confirmedBy:id,name',
+                    'confirmedUser:id,name',
                 ])
                 ->withSum('allocations as allocations_total_qty', 'assign_qty')
                 ->withSum([

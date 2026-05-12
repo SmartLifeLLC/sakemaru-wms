@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\DeliveryCourse;
+use App\Models\Sakemaru\Earning;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Trade;
@@ -129,6 +131,16 @@ class WmsShortage extends Model
     public function trade(): BelongsTo
     {
         return $this->belongsTo(Trade::class, 'trade_id');
+    }
+
+    public function earning(): BelongsTo
+    {
+        return $this->belongsTo(Earning::class, 'earning_id');
+    }
+
+    public function deliveryCourse(): BelongsTo
+    {
+        return $this->belongsTo(DeliveryCourse::class, 'delivery_course_id');
     }
 
     public function parentShortage(): BelongsTo

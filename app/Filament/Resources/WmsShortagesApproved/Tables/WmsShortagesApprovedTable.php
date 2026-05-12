@@ -26,7 +26,7 @@ class WmsShortagesApprovedTable
             ->striped()
             ->extraAttributes(['class' => 'sticky-actions-left'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
-            ->paginationPageOptions(PaginationOptions::all())
+            ->paginationPageOptions([100, 500])
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -71,7 +71,7 @@ class WmsShortagesApprovedTable
                     ->alignment('center')
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('wave.shipping_date')
+                TextColumn::make('shipment_date')
                     ->label('納品日')
                     ->date('Y-m-d')
                     ->sortable()
@@ -87,7 +87,6 @@ class WmsShortagesApprovedTable
                     ->label('得意先名')
                     ->sortable()
                     ->searchable()
-                    ->limit(20)
                     ->alignment('center'),
 
                 TextColumn::make('item.code')
@@ -295,14 +294,17 @@ class WmsShortagesApprovedTable
                                             'CANCELLED' => 'キャンセル',
                                         ];
 
-                                        $allocations = $record->allocations->map(function ($allocation) use ($statusLabels) {
-                                            return [
-                                                'warehouse_name' => $allocation->targetWarehouse->name ?? '-',
-                                                'assign_qty' => $allocation->assign_qty,
-                                                'qty_type_label' => QuantityType::tryFrom($allocation->assign_qty_type)?->name() ?? $allocation->assign_qty_type ?? '-',
-                                                'status_label' => $statusLabels[$allocation->status] ?? $allocation->status ?? '-',
-                                            ];
-                                        })->toArray();
+                                        $allocations = $record->allocations()
+                                            ->with('targetWarehouse:id,name')
+                                            ->get()
+                                            ->map(function ($allocation) use ($statusLabels) {
+                                                return [
+                                                    'warehouse_name' => $allocation->targetWarehouse->name ?? '-',
+                                                    'assign_qty' => $allocation->assign_qty,
+                                                    'qty_type_label' => QuantityType::tryFrom($allocation->assign_qty_type)?->name() ?? $allocation->assign_qty_type ?? '-',
+                                                    'status_label' => $statusLabels[$allocation->status] ?? $allocation->status ?? '-',
+                                                ];
+                                            })->toArray();
 
                                         return ['allocations' => $allocations];
                                     }),
