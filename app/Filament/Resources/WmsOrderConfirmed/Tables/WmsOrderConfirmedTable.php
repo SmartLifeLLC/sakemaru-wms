@@ -12,6 +12,7 @@ use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmati
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\OrderCancellationService;
 use App\Services\AutoOrder\OrderDataFileService;
+use App\Services\AutoOrder\OrderTransmissionService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -433,6 +434,48 @@ class WmsOrderConfirmedTable
                                 Notification::make()
                                     ->title(count($faxErrors).'件のFAX生成エラーが発生しました')
                                     ->body(implode("\n", array_slice($faxErrors, 0, 5)))
+                                    ->danger()
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
+
+                    BulkAction::make('bulkGenerateJxFiles')
+                        ->label('JXファイル生成')
+                        ->icon('heroicon-o-document-arrow-up')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('JXファイル生成（送信しない）')
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件からJXファイルを生成します。送信はされません。生成後「発注データファイル」画面から送信してください。")
+                        ->modalSubmitActionLabel('JXファイル生成')
+                        ->modalCancelActionLabel('生成せず閉じる')
+                        ->action(function (Collection $records) {
+                            $candidateIds = $records->pluck('id')->map(fn ($id) => (int) $id)->all();
+                            $result = app(OrderTransmissionService::class)
+                                ->generateJxFilesForCandidateIds($candidateIds);
+
+                            $fileCount = count($result['files'] ?? []);
+                            $totalOrders = $result['total_orders'] ?? 0;
+
+                            if ($fileCount > 0) {
+                                $documentIds = collect($result['files'])->pluck('document_id')->filter()->implode(', ');
+                                Notification::make()
+                                    ->title("JXファイルを生成しました（{$fileCount}件）")
+                                    ->body("発注数: {$totalOrders} / 伝票ID: {$documentIds}\n「発注データファイル」画面の送信前タブから送信してください。")
+                                    ->success()
+                                    ->send();
+                            } else {
+                                Notification::make()
+                                    ->title('生成対象がありません')
+                                    ->body($result['errors'][0] ?? '確定済みの発注候補がありません')
+                                    ->warning()
+                                    ->send();
+                            }
+
+                            if (! empty($result['errors'])) {
+                                Notification::make()
+                                    ->title(count($result['errors']).'件のエラー')
+                                    ->body(implode("\n", array_slice($result['errors'], 0, 5)))
                                     ->danger()
                                     ->send();
                             }
