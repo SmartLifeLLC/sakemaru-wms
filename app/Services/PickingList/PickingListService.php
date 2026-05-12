@@ -547,6 +547,11 @@ class PickingListService
         $rows = $this->db()->table('wms_shortages as ws')
             ->join('items as i', 'ws.item_id', '=', 'i.id')
             ->leftJoin('locations as l', 'ws.location_id', '=', 'l.id')
+            ->leftJoin('item_incoming_default_locations as idl', function ($join) {
+                $join->on('idl.item_id', '=', 'ws.item_id')
+                    ->whereColumn('idl.warehouse_id', 'ws.warehouse_id');
+            })
+            ->leftJoin('locations as default_l', 'idl.location_id', '=', 'default_l.id')
             ->leftJoin('trades as t', 'ws.trade_id', '=', 't.id')
             ->leftJoin('partners as tp', 't.partner_id', '=', 'tp.id')
             ->leftJoin('earnings as e', 'ws.earning_id', '=', 'e.id')
@@ -569,19 +574,19 @@ class PickingListService
                 'i.code as item_code',
                 'i.name as item_name',
                 'i.packaging',
-                'ws.location_id',
-                'l.code1',
-                'l.code2',
-                'l.code3',
+                DB::raw('COALESCE(ws.location_id, idl.location_id) as location_id'),
+                DB::raw('COALESCE(l.code1, default_l.code1) as code1'),
+                DB::raw('COALESCE(l.code2, default_l.code2) as code2'),
+                DB::raw('COALESCE(l.code3, default_l.code3) as code3'),
                 'ws.order_qty',
                 'ws.planned_qty',
                 'ws.shortage_qty',
                 'ws.qty_type_at_order as planned_qty_type',
             ])
             ->orderBy('t.serial_id')
-            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
-            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
-            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code1, default_l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, default_l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, default_l.code3, 'ZZZ')")
             ->orderBy('i.code')
             ->get();
 

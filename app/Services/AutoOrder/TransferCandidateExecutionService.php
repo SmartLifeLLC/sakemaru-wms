@@ -29,6 +29,16 @@ use Illuminate\Support\Facades\Log;
 class TransferCandidateExecutionService
 {
     /**
+     * @var array<string, int>|null
+     */
+    private ?array $transferDeliveryCourseMap = null;
+
+    /**
+     * @var array<int, int|null>
+     */
+    private array $resolvedDeliveryCourseIds = [];
+
+    /**
      * 移動候補を確定
      * - stock_transfer_queue を作成 (action_type=CREATE)
      * - WmsOrderIncomingSchedule を作成（Satellite入荷予定）
@@ -55,6 +65,7 @@ class TransferCandidateExecutionService
 
             // 3. 候補ステータスを更新
             $candidate->update([
+                'delivery_course_id' => $this->resolvedDeliveryCourseId($candidate),
                 'status' => CandidateStatus::EXECUTED,
                 'modified_by' => $executedBy,
                 'modified_at' => now(),
@@ -168,8 +179,9 @@ class TransferCandidateExecutionService
             (int) $candidate->satellite_warehouse_id,
             $candidate->delivery_course_id ? (int) $candidate->delivery_course_id : null,
         );
+        $this->setResolvedDeliveryCourseId($candidate, $deliveryCourseId);
 
-        $queueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId([
+        $queueData = [
             'client_id' => config('app.client_id'),
             'request_id' => $requestId,
             'slip_number' => null, // 自動採番
@@ -184,7 +196,28 @@ class TransferCandidateExecutionService
             'action_type' => 'CREATE',  // 新規追加
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+
+        $existingQueue = DB::connection('sakemaru')
+            ->table('stock_transfer_queue')
+            ->where('request_id', $requestId)
+            ->where('action_type', 'CREATE')
+            ->first();
+
+        if ($existingQueue) {
+            if ($existingQueue->status === 'BEFORE') {
+                DB::connection('sakemaru')
+                    ->table('stock_transfer_queue')
+                    ->where('id', $existingQueue->id)
+                    ->update(array_merge($queueData, [
+                        'created_at' => $existingQueue->created_at,
+                    ]));
+            }
+
+            $queueId = (int) $existingQueue->id;
+        } else {
+            $queueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId($queueData);
+        }
 
         Log::info('Stock transfer queue created (action_type=CREATE)', [
             'queue_id' => $queueId,
@@ -207,10 +240,16 @@ class TransferCandidateExecutionService
      */
     private function createIncomingSchedule(WmsStockTransferCandidate $candidate): WmsOrderIncomingSchedule
     {
+        $existingSchedule = WmsOrderIncomingSchedule::query()
+            ->where('transfer_candidate_id', $candidate->id)
+            ->where('order_source', OrderSource::TRANSFER)
+            ->where('status', '!=', IncomingScheduleStatus::CANCELLED->value)
+            ->first();
+
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
 
         $orderDate = ClientSetting::systemDateYMD();
-        $schedule = WmsOrderIncomingSchedule::create([
+        $scheduleData = [
             'warehouse_id' => $candidate->satellite_warehouse_id,
             'item_id' => $candidate->item_id,
             'item_code' => $candidate->item_code,
@@ -230,7 +269,20 @@ class TransferCandidateExecutionService
             'expected_arrival_date' => $candidate->expected_arrival_date,
             'expiration_date' => $expirationDate,
             'status' => IncomingScheduleStatus::PENDING,
-        ]);
+        ];
+
+        if ($existingSchedule) {
+            if ($existingSchedule->status === IncomingScheduleStatus::PENDING) {
+                $scheduleUpdateData = $scheduleData;
+                unset($scheduleUpdateData['slip_number']);
+
+                $existingSchedule->update($scheduleUpdateData);
+            }
+
+            $schedule = $existingSchedule->refresh();
+        } else {
+            $schedule = WmsOrderIncomingSchedule::create($scheduleData);
+        }
 
         Log::info('Incoming schedule created for transfer', [
             'schedule_id' => $schedule->id,
@@ -345,14 +397,40 @@ class TransferCandidateExecutionService
             ];
         }
 
-        // hub_warehouse + satellite_warehouse + delivery_course_id でグループ化
-        $grouped = $candidates->groupBy(function ($candidate) {
-            return "{$candidate->hub_warehouse_id}_{$candidate->satellite_warehouse_id}_{$candidate->delivery_course_id}";
-        });
-
         $queueCount = 0;
         $candidateCount = 0;
         $errors = [];
+
+        $candidates = $candidates->filter(function (WmsStockTransferCandidate $candidate) use (&$errors) {
+            try {
+                $this->setResolvedDeliveryCourseId($candidate, $this->resolveTransferDeliveryCourseId(
+                    (int) $candidate->hub_warehouse_id,
+                    (int) $candidate->satellite_warehouse_id,
+                    $candidate->delivery_course_id ? (int) $candidate->delivery_course_id : null,
+                ));
+
+                return true;
+            } catch (\Exception $e) {
+                $groupKey = "{$candidate->hub_warehouse_id}_{$candidate->satellite_warehouse_id}";
+                $errors[] = [
+                    'group_key' => $groupKey,
+                    'candidate_id' => $candidate->id,
+                    'error' => $e->getMessage(),
+                ];
+                Log::error('Failed to resolve transfer delivery course', [
+                    'group_key' => $groupKey,
+                    'candidate_id' => $candidate->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return false;
+            }
+        });
+
+        // hub_warehouse + satellite_warehouse + resolved delivery_course_id でグループ化
+        $grouped = $candidates->groupBy(function (WmsStockTransferCandidate $candidate) {
+            return "{$candidate->hub_warehouse_id}_{$candidate->satellite_warehouse_id}_{$this->resolvedDeliveryCourseId($candidate)}";
+        });
 
         // 各グループを個別のトランザクション（セーブポイント）で処理
         // これにより、1グループ失敗しても他グループには影響しない
@@ -370,6 +448,7 @@ class TransferCandidateExecutionService
                     // 3. ステータスを更新
                     foreach ($groupCandidates as $candidate) {
                         $candidate->update([
+                            'delivery_course_id' => $this->resolvedDeliveryCourseId($candidate),
                             'status' => CandidateStatus::EXECUTED,
                             'modified_by' => $executedBy,
                             'modified_at' => now(),
@@ -458,13 +537,25 @@ class TransferCandidateExecutionService
         // バッチコードを収集
         $batchCodes = $candidates->pluck('batch_code')->unique()->implode(',');
 
-        $deliveryCourseId = $this->resolveTransferDeliveryCourseId(
+        $deliveryCourseId = $this->resolvedDeliveryCourseId($firstCandidate);
+
+        if ($deliveryCourseId === null) {
+            $deliveryCourseId = $this->resolveTransferDeliveryCourseId(
+                (int) $firstCandidate->hub_warehouse_id,
+                (int) $firstCandidate->satellite_warehouse_id,
+                $firstCandidate->delivery_course_id ? (int) $firstCandidate->delivery_course_id : null,
+            );
+            $this->setResolvedDeliveryCourseId($firstCandidate, $deliveryCourseId);
+        }
+
+        $this->assertGroupedCandidatesUseSameDeliveryCourse(
+            $candidates,
             (int) $firstCandidate->hub_warehouse_id,
             (int) $firstCandidate->satellite_warehouse_id,
-            $firstCandidate->delivery_course_id ? (int) $firstCandidate->delivery_course_id : null,
+            $deliveryCourseId,
         );
 
-        $queueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId([
+        $queueData = [
             'client_id' => config('app.client_id'),
             'request_id' => $requestId,
             'slip_number' => null,
@@ -479,7 +570,28 @@ class TransferCandidateExecutionService
             'action_type' => 'CREATE',  // 新規追加
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+
+        $existingQueue = DB::connection('sakemaru')
+            ->table('stock_transfer_queue')
+            ->where('request_id', $requestId)
+            ->where('action_type', 'CREATE')
+            ->first();
+
+        if ($existingQueue) {
+            if ($existingQueue->status === 'BEFORE') {
+                DB::connection('sakemaru')
+                    ->table('stock_transfer_queue')
+                    ->where('id', $existingQueue->id)
+                    ->update(array_merge($queueData, [
+                        'created_at' => $existingQueue->created_at,
+                    ]));
+            }
+
+            $queueId = (int) $existingQueue->id;
+        } else {
+            $queueId = DB::connection('sakemaru')->table('stock_transfer_queue')->insertGetId($queueData);
+        }
 
         Log::info('Grouped stock transfer queue created (action_type=CREATE)', [
             'queue_id' => $queueId,
@@ -496,12 +608,63 @@ class TransferCandidateExecutionService
 
     private function resolveTransferDeliveryCourseId(int $fromWarehouseId, int $toWarehouseId, ?int $currentDeliveryCourseId): ?int
     {
-        $deliveryCourseId = DB::connection('sakemaru')
-            ->table('warehouse_stock_transfer_delivery_courses')
-            ->where('from_warehouse_id', $fromWarehouseId)
-            ->where('to_warehouse_id', $toWarehouseId)
-            ->value('delivery_course_id');
+        $deliveryCourseId = $this->transferDeliveryCourseMap()["{$fromWarehouseId}:{$toWarehouseId}"] ?? null;
 
         return $deliveryCourseId !== null ? (int) $deliveryCourseId : $currentDeliveryCourseId;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function transferDeliveryCourseMap(): array
+    {
+        if ($this->transferDeliveryCourseMap !== null) {
+            return $this->transferDeliveryCourseMap;
+        }
+
+        $this->transferDeliveryCourseMap = DB::connection('sakemaru')
+            ->table('warehouse_stock_transfer_delivery_courses')
+            ->whereNotNull('delivery_course_id')
+            ->get(['from_warehouse_id', 'to_warehouse_id', 'delivery_course_id'])
+            ->mapWithKeys(fn ($row) => [
+                "{$row->from_warehouse_id}:{$row->to_warehouse_id}" => (int) $row->delivery_course_id,
+            ])
+            ->all();
+
+        return $this->transferDeliveryCourseMap;
+    }
+
+    private function resolvedDeliveryCourseId(WmsStockTransferCandidate $candidate): ?int
+    {
+        $deliveryCourseId = $this->resolvedDeliveryCourseIds[(int) $candidate->id]
+            ?? $candidate->delivery_course_id;
+
+        return $deliveryCourseId !== null ? (int) $deliveryCourseId : null;
+    }
+
+    private function setResolvedDeliveryCourseId(WmsStockTransferCandidate $candidate, ?int $deliveryCourseId): void
+    {
+        $this->resolvedDeliveryCourseIds[(int) $candidate->id] = $deliveryCourseId;
+    }
+
+    /**
+     * @param  Collection<int, WmsStockTransferCandidate>  $candidates
+     */
+    private function assertGroupedCandidatesUseSameDeliveryCourse(
+        Collection $candidates,
+        int $fromWarehouseId,
+        int $toWarehouseId,
+        ?int $deliveryCourseId
+    ): void {
+        foreach ($candidates as $candidate) {
+            $candidateDeliveryCourseId = $this->resolvedDeliveryCourseId($candidate);
+            if ($candidateDeliveryCourseId === $deliveryCourseId) {
+                continue;
+            }
+
+            throw new \RuntimeException(
+                "Delivery course mismatch in stock transfer group: from_warehouse_id={$fromWarehouseId}, to_warehouse_id={$toWarehouseId}, candidate_id={$candidate->id}"
+            );
+        }
     }
 }
