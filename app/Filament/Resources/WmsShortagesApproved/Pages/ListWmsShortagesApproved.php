@@ -30,58 +30,50 @@ class ListWmsShortagesApproved extends ListRecords
 
     public function getPresetViews(): array
     {
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
+        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
         $systemDate = ClientSetting::systemDateYMD();
 
-        // 承認済み（is_confirmed=true）かつ当日の欠品が存在する倉庫のみタブ表示
+        // 承認済み（is_confirmed=true）が存在する倉庫のみタブ表示（日付はユーザのフィルタ操作に委ねる）
         $warehouseIds = WmsShortage::where('is_confirmed', true)
-            ->where('shipment_date', $systemDate)
             ->distinct()
             ->pluck('warehouse_id')
             ->toArray();
 
         $warehouses = Warehouse::whereIn('id', $warehouseIds)
             ->where('is_virtual', false)
-            ->orderBy('code')
-            ->get(['id', 'code', 'name']);
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
         $defaultFilterData = [
             'shipment_date' => ['shipment_date' => $systemDate],
         ];
 
-        $defaultWarehouse = $userDefaultWarehouseId
-            ? $warehouses->firstWhere('id', $userDefaultWarehouseId)
-            : null;
+        $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
+        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
+
+        $views = [
+            'default' => PresetView::make()
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label('全て')
+                ->default(! $hasDefaultWarehouse),
+        ];
 
         if ($defaultWarehouse) {
-            $views = [
-                'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
-                    ->defaultFilters($defaultFilterData)
-                    ->favorite()
-                    ->label($defaultWarehouse->name)
-                    ->default(),
-            ];
-        } else {
-            $views = [
-                'default' => PresetView::make()
-                    ->defaultFilters($defaultFilterData)
-                    ->favorite()
-                    ->label('全て')
-                    ->default(),
-            ];
+            $views["default_{$defaultWarehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label($defaultWarehouse->name)
+                ->default();
         }
 
-        $views['all'] = PresetView::make()
-            ->defaultFilters($defaultFilterData)
-            ->label('全て')
-            ->favorite();
-
         foreach ($warehouses as $warehouse) {
-            if ($defaultWarehouse && $warehouse->id === $defaultWarehouse->id) {
+            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
                 continue;
             }
-            $views["wh_{$warehouse->id}"] = PresetView::make()
+
+            $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->defaultFilters($defaultFilterData)
                 ->favorite()
