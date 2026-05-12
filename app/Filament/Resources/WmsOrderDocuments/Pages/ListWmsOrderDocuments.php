@@ -52,6 +52,9 @@ class ListWmsOrderDocuments extends ListRecords
         $transmittedCount = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::TRANSMITTED)
             ->whereIn('contractor_id', $jxContractorIds)
             ->count();
+        $cancelledCount = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::CANCELLED)
+            ->whereIn('contractor_id', $jxContractorIds)
+            ->count();
         $testCount = WmsOrderJxDocument::whereIn('status', [
             TransmissionDocumentStatus::TEST,
             TransmissionDocumentStatus::DRAFT,
@@ -70,6 +73,11 @@ class ListWmsOrderDocuments extends ListRecords
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', TransmissionDocumentStatus::TRANSMITTED))
                 ->favorite()
                 ->label("送信済 ({$transmittedCount})"),
+
+            'cancelled' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', TransmissionDocumentStatus::CANCELLED))
+                ->favorite()
+                ->label("送信取消 ({$cancelledCount})"),
 
             'test' => PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', [
