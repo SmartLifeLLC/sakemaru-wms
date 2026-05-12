@@ -209,6 +209,11 @@ class OrderDataFileService
             ]
         );
 
+        if ($warehouseId !== null) {
+            app(PurchaseOrderPdfService::class)->generateAndStore($dataFile);
+            $dataFile->refresh();
+        }
+
         return [
             'id' => $dataFile->id,
             'warehouse_id' => $warehouseId,
@@ -216,6 +221,7 @@ class OrderDataFileService
             'contractor_id' => $contractorId,
             'contractor_name' => $contractor?->name,
             'file_path' => $filePath,
+            'fax_file_path' => $dataFile->fax_file_path,
             'order_count' => $candidates->count(),
             'total_quantity' => $totalQuantity,
         ];
@@ -263,6 +269,7 @@ class OrderDataFileService
             '商品名',
             '規格',
             '発注コード',
+            '発注単位',
             '発注数量',
             '単位',
             '単価',
@@ -309,6 +316,7 @@ class OrderDataFileService
                 $candidate->item?->name ?? '',
                 $candidate->item?->packaging ?? '',
                 $outputQuantity['ordering_code'] ?? '',
+                $outputQuantity['display_capacity'] ?? '',
                 $outputQuantity['order_quantity'],
                 $outputQuantity['unit_label'],
                 $unitPrice,
