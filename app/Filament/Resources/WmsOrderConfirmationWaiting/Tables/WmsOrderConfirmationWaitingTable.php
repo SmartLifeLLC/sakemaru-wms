@@ -401,7 +401,15 @@ class WmsOrderConfirmationWaitingTable
                         CandidateStatus::CONFIRMED->value => CandidateStatus::CONFIRMED->label(),
                     ]),
 
-                static::warehouseFilter()->label('在庫拠点倉庫'),
+                static::warehouseFilter()
+                    ->label('在庫拠点倉庫')
+                    ->query(function ($query, array $data) {
+                        if (blank($data['value'])) {
+                            return;
+                        }
+
+                        $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $data['value']);
+                    }),
 
                 static::contractorFilter(),
 
