@@ -670,7 +670,7 @@ class HanaOrderFileGeneratorTest extends TestCase
         $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
 
         $this->assertEquals(6, (int) substr($dRecord, 88, 6), 'Capacity should use ordering code quantity');
-        $this->assertEquals(4, (int) substr($dRecord, 94, 7), 'One 24-piece case should become four 6-pack units');
+        $this->assertEquals(1, (int) substr($dRecord, 94, 7), 'One 24-piece case should become one case quantity');
         $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Ordering code quantity should be sent as case quantity');
         $this->assertEquals(129000, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost multiplied by ordering code quantity');
     }
@@ -721,7 +721,7 @@ class HanaOrderFileGeneratorTest extends TestCase
         $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
 
         $this->assertEquals(6, (int) substr($dRecord, 88, 6), 'Capacity should use ordering code quantity');
-        $this->assertEquals(4, (int) substr($dRecord, 94, 7), 'One piece should become one full-case six-pack quantity');
+        $this->assertEquals(1, (int) substr($dRecord, 94, 7), 'One piece should become one case quantity');
         $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Ordering code quantity should be sent as case quantity');
         $this->assertEquals(129000, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost multiplied by ordering code quantity');
     }
@@ -751,7 +751,7 @@ class HanaOrderFileGeneratorTest extends TestCase
 
     /**
      * @test
-     * JXの6缶パック出力は多数のケース数量で整数になり、ケース入数24から4倍へ変換すること
+     * JXの6缶パック出力は多数のケース数量で整数になり、ケース欄に出力すること
      */
     public function it_outputs_integer_six_pack_jx_quantities_for_many_case_quantities(): void
     {
@@ -762,7 +762,7 @@ class HanaOrderFileGeneratorTest extends TestCase
         for ($caseQuantity = 0; $caseQuantity <= 10; $caseQuantity++) {
             $candidate = $this->sixPackJxCandidate(999010, \App\Enums\QuantityType::CASE, $caseQuantity, 5160);
             $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
-            $expected = $caseQuantity * 4;
+            $expected = $caseQuantity;
             $caseQuantityField = substr($dRecord, 94, 7);
             $pieceQuantityField = substr($dRecord, 101, 7);
 
@@ -853,7 +853,7 @@ class HanaOrderFileGeneratorTest extends TestCase
             return 0;
         }
 
-        return (int) ceil($pieceQuantity / 24) * 4;
+        return (int) ceil($pieceQuantity / 24);
     }
 
     /**

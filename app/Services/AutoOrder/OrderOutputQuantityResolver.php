@@ -136,11 +136,7 @@ class OrderOutputQuantityResolver
             : $quantity;
 
         if ($orderingUnitQty === 6 && $capacityCase >= 24) {
-            if ($pieceQuantity <= 0) {
-                return 0;
-            }
-
-            return (int) ceil($pieceQuantity / $capacityCase) * (int) floor($capacityCase / $orderingUnitQty);
+            return (int) ceil($pieceQuantity / $capacityCase);
         }
 
         return (int) ceil($pieceQuantity / $orderingUnitQty);

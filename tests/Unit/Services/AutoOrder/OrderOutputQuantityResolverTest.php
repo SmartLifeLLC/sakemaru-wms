@@ -35,8 +35,8 @@ class OrderOutputQuantityResolverTest extends TestCase
 
         $this->assertSame('4901411004754', $output['ordering_code']);
         $this->assertSame(6, $output['display_capacity']);
-        $this->assertSame(4, $output['order_quantity']);
-        $this->assertSame(4, $output['case_quantity']);
+        $this->assertSame(1, $output['order_quantity']);
+        $this->assertSame(1, $output['case_quantity']);
         $this->assertSame(0, $output['piece_quantity']);
         $this->assertSame('ケース', $output['unit_label']);
     }
@@ -67,8 +67,8 @@ class OrderOutputQuantityResolverTest extends TestCase
 
         $this->assertSame('4901411004754', $output['ordering_code']);
         $this->assertSame(6, $output['display_capacity']);
-        $this->assertSame(4, $output['order_quantity']);
-        $this->assertSame(4, $output['case_quantity']);
+        $this->assertSame(1, $output['order_quantity']);
+        $this->assertSame(1, $output['case_quantity']);
         $this->assertSame(0, $output['piece_quantity']);
         $this->assertSame('ケース', $output['unit_label']);
     }
@@ -97,8 +97,8 @@ class OrderOutputQuantityResolverTest extends TestCase
 
         $output = $resolver->resolve($candidate);
 
-        $this->assertSame(4, $output['order_quantity']);
-        $this->assertSame(4, $output['case_quantity']);
+        $this->assertSame(1, $output['order_quantity']);
+        $this->assertSame(1, $output['case_quantity']);
         $this->assertSame(0, $output['piece_quantity']);
     }
 
@@ -128,7 +128,7 @@ class OrderOutputQuantityResolverTest extends TestCase
             $candidate = $this->sixPackCandidate(QuantityType::CASE, $caseQuantity, 5160);
 
             $output = $resolver->resolve($candidate);
-            $expected = $caseQuantity * 4;
+            $expected = $caseQuantity;
 
             $this->assertIsInt($output['order_quantity'], "case={$caseQuantity}");
             $this->assertSame($expected, $output['order_quantity'], "case={$caseQuantity}");
@@ -272,6 +272,6 @@ class OrderOutputQuantityResolverTest extends TestCase
             return 0;
         }
 
-        return (int) ceil($pieceQuantity / 24) * 4;
+        return (int) ceil($pieceQuantity / 24);
     }
 }

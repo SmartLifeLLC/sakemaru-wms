@@ -106,7 +106,7 @@ class ExportJxAutoOrderSamplesCommand extends Command
                     'JX明細数' => 0,
                     '128バイト固定長' => 'NG',
                     'Dレコード件数一致' => 'NG',
-                    '6缶4倍数' => '未検証',
+                    '6缶ケース欄' => '未検証',
                     'ファイル' => '',
                     '備考' => 'JXファイルが生成されませんでした',
                 ];
@@ -125,7 +125,7 @@ class ExportJxAutoOrderSamplesCommand extends Command
                     'JX明細数' => $validation['d_record_count'],
                     '128バイト固定長' => $validation['fixed_128'] ? 'OK' : 'NG',
                     'Dレコード件数一致' => $validation['d_record_count'] === count($candidates) ? 'OK' : 'NG',
-                    '6缶4倍数' => $this->validateSixPackRows($this->csvRowsByTargetId[$targetId] ?? []),
+                    '6缶ケース欄' => $this->validateSixPackRows($this->csvRowsByTargetId[$targetId] ?? []),
                     'ファイル' => $jxPath,
                     '備考' => $validation['message'],
                 ];
@@ -354,7 +354,7 @@ class ExportJxAutoOrderSamplesCommand extends Command
             'JX仕入入数' => $ordering['ordering_unit_qty'] ?? $capacityCase,
             'JXケース数' => $ordering['ordering_unit_qty'] ? $jxOrderQty : $orderQuantityCase,
             'JXバラ数' => $ordering['ordering_unit_qty'] ? 0 : 0,
-            '6缶4倍数OK' => (int) $ordering['ordering_unit_qty'] === 6 ? ($jxOrderQty % 4 === 0 ? 'OK' : 'NG') : '',
+            '6缶ケース欄OK' => (int) $ordering['ordering_unit_qty'] === 6 ? 'OK' : '',
             '発注点' => (int) ($row->safety_stock ?? 0),
             '最大発注点' => (int) ($row->max_stock ?? 0),
             '最低在庫数' => (int) ($row->min_stock ?? 0),
@@ -441,12 +441,11 @@ class ExportJxAutoOrderSamplesCommand extends Command
             return $orderQuantityCase;
         }
 
-        $qty = (int) ceil(($orderQuantityCase * $capacityCase) / $orderingUnitQty);
-        if ($orderingUnitQty === 6 && $qty > 0) {
-            $qty = (int) ceil($qty / 4) * 4;
+        if ($orderingUnitQty === 6 && $capacityCase >= 24) {
+            return $orderQuantityCase;
         }
 
-        return $qty;
+        return (int) ceil(($orderQuantityCase * $capacityCase) / $orderingUnitQty);
     }
 
     private function validateJxFile(string $content, int $expectedDetails): array
@@ -480,7 +479,7 @@ class ExportJxAutoOrderSamplesCommand extends Command
         }
 
         foreach ($sixPackRows as $row) {
-            if (($row['6缶4倍数OK'] ?? '') !== 'OK') {
+            if (($row['6缶ケース欄OK'] ?? '') !== 'OK') {
                 return 'NG';
             }
         }
