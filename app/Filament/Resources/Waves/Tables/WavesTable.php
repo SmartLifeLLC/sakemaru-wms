@@ -203,9 +203,13 @@ class WavesTable
                             try {
                                 $service = new PickingListService;
                                 $pdfService = new PickingListPdfService;
-                                $resultPages = $records
+                                $waveIds = $records
                                     ->sortBy('wave_no')
-                                    ->flatMap(fn ($record) => $service->generatePrimaryListPages($record->id, $data['separate_floors'] ?? true))
+                                    ->pluck('id')
+                                    ->values()
+                                    ->all();
+
+                                $resultPages = collect($service->generatePrimaryCourseListPages($waveIds, $data['separate_floors'] ?? true))
                                     ->filter(fn ($result) => ! empty($result['items']))
                                     ->values()
                                     ->all();
@@ -292,11 +296,12 @@ class WavesTable
                             try {
                                 $service = new PickingListService;
                                 $pdfService = new PickingListPdfService;
-                                $dataList = $records
+                                $waveIds = $records
                                     ->sortBy('wave_no')
-                                    ->map(fn ($record) => $service->generateShortageList($record->id))
+                                    ->pluck('id')
                                     ->values()
                                     ->all();
+                                $dataList = $service->generateShortageCourseLists($waveIds);
 
                                 $pdf = $pdfService->renderBatchShortagePdf($dataList);
                                 $dateStr = now()->format('YmdHis');

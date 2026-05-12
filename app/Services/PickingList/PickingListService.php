@@ -212,6 +212,71 @@ class PickingListService
     }
 
     /**
+     * 1次ピッキングリストを配送コース単位でまとめる。
+     *
+     * 同一出荷日・同一倉庫・同一配送コースのWaveは、波動生成が複数回に分かれていても
+     * 1つの1次リストとして棚番・商品単位に集計する。
+     *
+     * @param  array<int>  $waveIds
+     * @return array<int, array{header: array, items: array, summary: array}>
+     */
+    public function generatePrimaryCourseListPages(array $waveIds, bool $separateFloors = true): array
+    {
+        $waveIds = collect($waveIds)->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+
+        if (empty($waveIds)) {
+            return [];
+        }
+
+        $waves = $this->db()->table('wms_waves as w')
+            ->join('wms_wave_settings as ws', 'w.wms_wave_setting_id', '=', 'ws.id')
+            ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
+            ->leftJoin('warehouses as wh', 'dc.warehouse_id', '=', 'wh.id')
+            ->whereIn('w.id', $waveIds)
+            ->select([
+                'w.id',
+                'w.wave_no',
+                'w.shipping_date',
+                'dc.id as delivery_course_id',
+                'dc.code as delivery_course_code',
+                'dc.name as delivery_course_name',
+                'wh.id as warehouse_id',
+                'wh.name as warehouse_name',
+            ])
+            ->orderBy('w.shipping_date')
+            ->orderBy('wh.id')
+            ->orderBy('dc.code')
+            ->orderBy('w.wave_no')
+            ->get();
+
+        return $waves
+            ->groupBy(fn ($wave) => implode('|', [
+                $wave->shipping_date,
+                $wave->warehouse_id ?? 0,
+                $wave->delivery_course_id,
+            ]))
+            ->flatMap(function ($group) use ($separateFloors) {
+                $group = $group->sortBy('wave_no')->values();
+                $header = [
+                    'wave_no' => $this->formatWaveNoSummary($group->pluck('wave_no')->all()),
+                    'shipping_date' => $group->first()->shipping_date,
+                    'warehouse_name' => $group->first()->warehouse_name ?? '',
+                    'delivery_course_code' => $group->first()->delivery_course_code ?? '',
+                    'delivery_course_name' => $group->first()->delivery_course_name ?? '',
+                    'list_title' => '1次ピッキングリスト',
+                ];
+
+                return $this->generatePrimaryTotalListPages(
+                    $group->pluck('id')->all(),
+                    $separateFloors,
+                    $header
+                );
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
      * 1次ピッキングリスト（一括）
      *
      * 複数Waveをまたいで棚番・商品単位に集計する。波動番号は集計キーに含めない。
@@ -323,9 +388,9 @@ class PickingListService
      * @param  array<int>  $waveIds
      * @return array<int, array{header: array, items: array, summary: array}>
      */
-    public function generatePrimaryTotalListPages(array $waveIds, bool $separateFloors = true): array
+    public function generatePrimaryTotalListPages(array $waveIds, bool $separateFloors = true, array $header = []): array
     {
-        $data = $this->generatePrimaryTotalList($waveIds, groupByFloor: $separateFloors);
+        $data = $this->generatePrimaryTotalList($waveIds, $header, groupByFloor: $separateFloors);
 
         if (! $separateFloors || empty($data['items'])) {
             return [$data];
@@ -354,6 +419,17 @@ class PickingListService
             ->all();
     }
 
+    private function formatWaveNoSummary(array $waveNos): string
+    {
+        $waveNos = collect($waveNos)->filter()->unique()->values();
+
+        if ($waveNos->count() <= 2) {
+            return $waveNos->implode(' / ');
+        }
+
+        return $waveNos->first().' 他'.($waveNos->count() - 1).'件';
+    }
+
     private function summarizePrimaryItems(array $items): array
     {
         return [
@@ -373,16 +449,93 @@ class PickingListService
      */
     public function generateShortageList(int $waveId): array
     {
+        return $this->generateShortageListByWaveIds([$waveId]);
+    }
+
+    /**
+     * 1次欠品リストを配送コース単位でまとめる。
+     *
+     * @param  array<int>  $waveIds
+     * @return array<int, array{header: array, items: array, summary: array}>
+     */
+    public function generateShortageCourseLists(array $waveIds): array
+    {
+        $waveIds = collect($waveIds)->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+
+        if (empty($waveIds)) {
+            return [];
+        }
+
+        $waves = $this->db()->table('wms_waves as w')
+            ->join('wms_wave_settings as ws', 'w.wms_wave_setting_id', '=', 'ws.id')
+            ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
+            ->leftJoin('warehouses as wh', 'dc.warehouse_id', '=', 'wh.id')
+            ->whereIn('w.id', $waveIds)
+            ->select([
+                'w.id',
+                'w.wave_no',
+                'w.shipping_date',
+                'dc.id as delivery_course_id',
+                'dc.code as delivery_course_code',
+                'dc.name as delivery_course_name',
+                'wh.id as warehouse_id',
+                'wh.name as warehouse_name',
+            ])
+            ->orderBy('w.shipping_date')
+            ->orderBy('wh.id')
+            ->orderBy('dc.code')
+            ->orderBy('w.wave_no')
+            ->get();
+
+        return $waves
+            ->groupBy(fn ($wave) => implode('|', [
+                $wave->shipping_date,
+                $wave->warehouse_id ?? 0,
+                $wave->delivery_course_id,
+            ]))
+            ->map(function ($group) {
+                $group = $group->sortBy('wave_no')->values();
+                $header = [
+                    'wave_no' => $this->formatWaveNoSummary($group->pluck('wave_no')->all()),
+                    'shipping_date' => $group->first()->shipping_date,
+                    'warehouse_name' => $group->first()->warehouse_name ?? '',
+                    'delivery_course_code' => $group->first()->delivery_course_code ?? '',
+                    'delivery_course_name' => $group->first()->delivery_course_name ?? '',
+                ];
+
+                return $this->generateShortageListByWaveIds($group->pluck('id')->all(), $header);
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * 1次欠品リスト（複数Wave集約・欠品のみ）
+     *
+     * @param  array<int>  $waveIds
+     * @return array{header: array, items: array, summary: array}
+     */
+    public function generateShortageListByWaveIds(array $waveIds, array $header = []): array
+    {
+        $waveIds = collect($waveIds)->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+
+        if (empty($waveIds)) {
+            return ['header' => $header, 'items' => [], 'summary' => []];
+        }
+
         $wave = $this->db()->table('wms_waves as w')
             ->join('wms_wave_settings as ws', 'w.wms_wave_setting_id', '=', 'ws.id')
             ->join('delivery_courses as dc', 'ws.delivery_course_id', '=', 'dc.id')
             ->leftJoin('warehouses as wh', 'dc.warehouse_id', '=', 'wh.id')
-            ->where('w.id', $waveId)
+            ->whereIn('w.id', $waveIds)
             ->select([
                 'w.wave_no',
                 'w.shipping_date',
+                'dc.code as delivery_course_code',
+                'dc.name as delivery_course_name',
                 'wh.name as warehouse_name',
             ])
+            ->orderBy('w.wave_no')
             ->first();
 
         if (! $wave) {
@@ -407,7 +560,7 @@ class PickingListService
                 'bd.buyer_id', '=', 'b.id'
             )
             ->leftJoin('users as salesman', 'salesman.id', '=', 'bd.salesman_id')
-            ->where('ws.wave_id', $waveId)
+            ->whereIn('ws.wave_id', $waveIds)
             ->where('ws.shortage_qty', '>', 0)
             ->select([
                 't.serial_id',
@@ -454,7 +607,7 @@ class PickingListService
                 'bd.buyer_id', '=', 'b.id'
             )
             ->leftJoin('users as salesman', 'salesman.id', '=', 'bd.salesman_id')
-            ->where('pt.wave_id', $waveId)
+            ->whereIn('pt.wave_id', $waveIds)
             ->where('pir.shortage_qty', '>', 0)
             ->whereNotExists(function ($query) {
                 $query->select(DB::raw(1))
@@ -533,11 +686,13 @@ class PickingListService
         }
 
         return [
-            'header' => [
+            'header' => array_merge([
                 'wave_no' => $wave->wave_no,
                 'shipping_date' => $wave->shipping_date,
                 'warehouse_name' => $wave->warehouse_name ?? '',
-            ],
+                'delivery_course_code' => $wave->delivery_course_code ?? '',
+                'delivery_course_name' => $wave->delivery_course_name ?? '',
+            ], $header),
             'items' => $formattedItems,
             'summary' => [
                 'sku_count' => count($formattedItems),
@@ -1333,9 +1488,11 @@ class PickingListService
                         'wave_no' => $row->wave_no ?? '',
                         'shipping_date' => $row->shipping_date,
                     ],
+                    '_wave_nos' => [],
                     'rows' => [],
                 ];
             }
+            $byCourse[$courseId]['_wave_nos'][$row->wave_no] = true;
             $byCourse[$courseId]['rows'][] = $row;
         }
 
@@ -1411,7 +1568,9 @@ class PickingListService
             }
 
             $results[] = [
-                'header' => $bucket['header'],
+                'header' => array_merge($bucket['header'], [
+                    'wave_no' => $this->formatWaveNoSummary(array_keys($bucket['_wave_nos'])),
+                ]),
                 'items' => $items,
                 'summary' => [
                     'row_count' => count($items),
