@@ -133,7 +133,7 @@ class PickingListService
             }
 
             $locationCode = $item->location_id
-                ? Location::formatCode($item->code1, $item->code2, $item->code3, '-')
+                ? $this->formatLocationCode($item->code1, $item->code2, $item->code3, '-')
                 : '';
 
             $formattedItems[] = [
@@ -287,7 +287,7 @@ class PickingListService
             $caseQty = $capacityCase > 1 ? intdiv($pieceTotalQty, $capacityCase) : 0;
             $pieceQty = $capacityCase > 1 ? $pieceTotalQty % $capacityCase : $pieceTotalQty;
             $locationCode = $item->location_id
-                ? Location::formatCode($item->code1, $item->code2, $item->code3, '-')
+                ? $this->formatLocationCode($item->code1, $item->code2, $item->code3, '-')
                 : '';
 
             $formattedItems[] = [
@@ -512,7 +512,7 @@ class PickingListService
             $qtyLabel = $qtyType === QuantityType::CASE ? 'ケース' : 'バラ';
 
             $locationCode = $row->location_id
-                ? Location::formatCode($row->code1, $row->code2, $row->code3, '-')
+                ? $this->formatLocationCode($row->code1, $row->code2, $row->code3, '-')
                 : '';
 
             $formattedItems[] = [
@@ -738,7 +738,7 @@ class PickingListService
 
         foreach ($results as $row) {
             $locationCode = $row->location_id
-                ? Location::formatCode($row->code1, $row->code2, $row->code3)
+                ? $this->formatLocationCode($row->code1, $row->code2, $row->code3)
                 : '未設定';
 
             $key = "{$locationCode}|{$row->item_id}";
@@ -876,7 +876,7 @@ class PickingListService
 
         foreach ($results as $row) {
             $locationCode = $row->location_id
-                ? Location::formatCode($row->code1, $row->code2, $row->code3)
+                ? $this->formatLocationCode($row->code1, $row->code2, $row->code3)
                 : '未設定';
 
             $key = "{$locationCode}|{$row->item_id}";
@@ -1061,7 +1061,7 @@ class PickingListService
                 $pieceQty = $totalPieces % $capacityCase;
 
                 $locationCode = $entry['location_id']
-                    ? Location::formatCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
+                    ? $this->formatLocationCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
                     : '';
 
                 $items[] = [
@@ -1233,7 +1233,7 @@ class PickingListService
                 $items[] = [
                     'no' => $no,
                     'location_code' => $entry['location_id']
-                        ? Location::formatCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
+                        ? $this->formatLocationCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
                         : '',
                     'item_code' => $entry['item_code'],
                     'jan_code' => $entry['jan_code'],
@@ -1386,7 +1386,7 @@ class PickingListService
                 $pieceQty = $totalPieces % $capacityCase;
 
                 $locationCode = $entry['location_id']
-                    ? Location::formatCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
+                    ? $this->formatLocationCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
                     : '';
 
                 $items[] = [
@@ -1452,6 +1452,15 @@ class PickingListService
      *   TCPDFが空白で折り返してLine1に大きな空白が残るのを防ぐ
      *   （文字単位で折り返すようにする）
      */
+    private function formatLocationCode(?string $code1, ?string $code2, ?string $code3, string $separator = '-'): string
+    {
+        if ($code1 === 'Z' && $code2 === '0' && $code3 === '0') {
+            return '';
+        }
+
+        return Location::formatCode($code1, $code2, $code3, $separator);
+    }
+
     private function normalizeItemName(?string $raw): string
     {
         if ($raw === null) {
