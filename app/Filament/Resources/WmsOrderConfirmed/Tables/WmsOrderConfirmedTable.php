@@ -422,6 +422,20 @@ class WmsOrderConfirmedTable
                                     ->danger()
                                     ->send();
                             }
+
+                            $faxErrors = collect($result['files'] ?? [])
+                                ->filter(fn (array $file): bool => filled($file['fax_error'] ?? null))
+                                ->map(fn (array $file): string => ($file['contractor_name'] ?? '発注先不明').': '.$file['fax_error'])
+                                ->values()
+                                ->all();
+
+                            if (! empty($faxErrors)) {
+                                Notification::make()
+                                    ->title(count($faxErrors).'件のFAX生成エラーが発生しました')
+                                    ->body(implode("\n", array_slice($faxErrors, 0, 5)))
+                                    ->danger()
+                                    ->send();
+                            }
                         })
                         ->deselectRecordsAfterCompletion(),
 

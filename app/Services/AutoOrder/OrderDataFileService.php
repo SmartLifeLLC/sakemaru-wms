@@ -73,7 +73,7 @@ class OrderDataFileService
                     'split_by_warehouse' => $shouldSplitByWarehouse,
                     'requested_warehouse_id' => $warehouseId,
                 ]);
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 $errors[] = [
                     'group' => $groupKey,
                     'error' => $e->getMessage(),
@@ -128,7 +128,7 @@ class OrderDataFileService
             foreach ($grouped as $groupKey => $groupCandidates) {
                 try {
                     $results[] = $this->generateCsvFile((string) $batchCode, $groupCandidates, $splitByWarehouse);
-                } catch (\Exception $e) {
+                } catch (\Throwable $e) {
                     $errors[] = [
                         'group' => $groupKey,
                         'error' => $e->getMessage(),
@@ -209,9 +209,21 @@ class OrderDataFileService
             ]
         );
 
+        $faxError = null;
         if ($warehouseId !== null) {
-            app(PurchaseOrderPdfService::class)->generateAndStoreFromCandidates($candidates, $dataFile);
-            $dataFile->refresh();
+            try {
+                app(PurchaseOrderPdfService::class)->generateAndStoreFromCandidates($candidates, $dataFile);
+                $dataFile->refresh();
+            } catch (\Throwable $e) {
+                $faxError = $e->getMessage();
+                Log::error('Order data FAX PDF generation failed', [
+                    'batch_code' => $batchCode,
+                    'warehouse_id' => $warehouseId,
+                    'contractor_id' => $contractorId,
+                    'candidate_ids' => $candidates->pluck('id')->all(),
+                    'error' => $faxError,
+                ]);
+            }
         }
 
         return [
@@ -222,6 +234,7 @@ class OrderDataFileService
             'contractor_name' => $contractor?->name,
             'file_path' => $filePath,
             'fax_file_path' => $dataFile->fax_file_path,
+            'fax_error' => $faxError,
             'order_count' => $candidates->count(),
             'total_quantity' => $totalQuantity,
         ];
