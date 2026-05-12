@@ -7,6 +7,7 @@
                 { value: 'primary_total', label: '1次リスト(一括)', icon: 'fa-calculator', desc: '波動をまたいだ商品別合計', color: 'blue' },
                 { value: 'shortage', label: '1次欠品', icon: 'fa-exclamation-triangle', desc: '引当欠品リスト', color: 'red' },
                 { value: 'secondary', label: '2次（配送コース別）', icon: 'fa-user-hard-hat', desc: '配送者別、フロア別', color: 'blue' },
+                { value: 'secondary_v2', label: '2次リスト2', icon: 'fa-user-hard-hat', desc: '1F→2F→YX順', color: 'blue' },
                 { value: 'tertiary', label: '3次（得意先別）', icon: 'fa-store', desc: '配送者別、得意先別', color: 'blue' },
             ],
             init() {
@@ -35,7 +36,7 @@
                 return Array.isArray(this.state) && this.state.includes(value);
             }
         }"
-        class="grid grid-cols-5 gap-3"
+        class="grid grid-cols-6 gap-3"
     >
         <template x-for="opt in options" :key="opt.value">
             <button

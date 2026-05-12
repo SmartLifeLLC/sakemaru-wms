@@ -299,6 +299,9 @@ class ListWaves extends ListRecords
                             'secondary' => $pdfService->renderCourseGroupedPdf(
                                 $service->generateCourseGroupedListByWaveIds($waveIds)
                             ),
+                            'secondary_v2' => $pdfService->renderCourseGroupedPdf(
+                                $service->generateCourseGroupedListV2ByWaveIds($waveIds)
+                            ),
                             'tertiary' => $pdfService->renderBuyerGroupedPdf(
                                 $service->generateBuyerGroupedListByWaveIds($waveIds)
                             ),
@@ -1223,6 +1226,9 @@ class ListWaves extends ListRecords
             'secondary' => $pdfService->renderCourseGroupedPdf(
                 $this->buildProvisionalCourseGroupedLists($rows)
             ),
+            'secondary_v2' => $pdfService->renderCourseGroupedPdf(
+                $this->buildProvisionalCourseGroupedListsV2($rows)
+            ),
             'tertiary' => $pdfService->renderBuyerGroupedPdf(
                 $this->buildProvisionalBuyerGroupedLists($rows, $shippingDate)
             ),
@@ -1905,6 +1911,68 @@ class ListWaves extends ListRecords
                     'shipping_date' => $first['shipping_date'],
                     'warehouse_name' => $first['warehouse_name'],
                     'floor_name' => $first['floor_name'],
+                ],
+                'items' => $items,
+            ];
+        }
+
+        return $results;
+    }
+
+    private function buildProvisionalCourseGroupedListsV2(\Illuminate\Support\Collection $rows): array
+    {
+        $results = [];
+        $groups = $rows->groupBy('course_id');
+
+        foreach ($groups as $groupRows) {
+            $first = $groupRows->first();
+
+            $sortedGroupRows = $groupRows
+                ->sort(function (array $a, array $b): int {
+                    $aIsYx = str_starts_with($a['code1'] ?? '', 'YX');
+                    $bIsYx = str_starts_with($b['code1'] ?? '', 'YX');
+                    if ($aIsYx !== $bIsYx) {
+                        return $aIsYx ? 1 : -1;
+                    }
+                    $floorCmp = (($a['floor_id'] ?? 999999) <=> ($b['floor_id'] ?? 999999));
+                    if ($floorCmp !== 0) {
+                        return $floorCmp;
+                    }
+
+                    return $this->compareProvisionalCourseGroupedRows($a, $b);
+                })
+                ->values();
+
+            $items = [];
+            foreach ($sortedGroupRows->groupBy(fn (array $row) => ($row['location_id'] ?? 0).'|'.$row['item_code']) as $itemRows) {
+                $row = $itemRows->first();
+                $totalPieces = $this->sumProvisionalPieces($itemRows);
+                $capacityCase = max(1, (int) $row['capacity_case']);
+                $items[] = [
+                    'no' => count($items) + 1,
+                    'location_code' => $row['location_id']
+                        ? Location::formatCode($row['code1'], $row['code2'], $row['code3'], '-')
+                        : '',
+                    'item_code' => $row['item_code'],
+                    'jan_code' => $row['jan_code'],
+                    'item_name' => $row['item_name'],
+                    'capacity_case' => $capacityCase,
+                    'case_qty' => intdiv($totalPieces, $capacityCase),
+                    'piece_qty' => $totalPieces % $capacityCase,
+                    'total_pieces' => $totalPieces,
+                    'shortage_qty' => (int) $itemRows->sum('shortage_qty'),
+                ];
+            }
+
+            $slipCount = $groupRows->map(fn (array $row) => $row['earning_id'] ? "E:{$row['earning_id']}" : "ST:{$row['stock_transfer_id']}")->unique()->count();
+
+            $results[] = [
+                'header' => [
+                    'course_name' => $first['course_name'],
+                    'slip_count' => $slipCount,
+                    'shipping_date' => $first['shipping_date'],
+                    'warehouse_name' => $first['warehouse_name'],
+                    'floor_name' => '',
                 ],
                 'items' => $items,
             ];

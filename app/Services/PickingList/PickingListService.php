@@ -1090,6 +1090,191 @@ class PickingListService
     }
 
     /**
+     * 2次ピッキングリスト2（配送コース別、1F→2F→YX順）
+     *
+     * 配送コース単位でグループ化し、フロア分割しない。
+     * 棚番の並び: 1F → 2F → YXで始まる棚番は末尾に別塊。
+     */
+    public function generateCourseGroupedListV2ByWaveIds(array $waveIds): array
+    {
+        if (empty($waveIds)) {
+            return [];
+        }
+
+        $rows = $this->db()->table('wms_picking_item_results as pir')
+            ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
+            ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('stock_transfers as st', 'pir.stock_transfer_id', '=', 'st.id')
+            ->leftJoin('trades as t', 't.id', '=', DB::raw('COALESCE(e.trade_id, st.trade_id)'))
+            ->leftJoin('delivery_courses as dc', 'pt.delivery_course_id', '=', 'dc.id')
+            ->leftJoin('warehouses as wh', 'pt.warehouse_id', '=', 'wh.id')
+            ->join('items as i', 'pir.item_id', '=', 'i.id')
+            ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
+            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->leftJoin('item_incoming_default_locations as idl', function ($join) {
+                $join->on('idl.item_id', '=', 'pir.item_id')
+                    ->whereColumn('idl.warehouse_id', 'pt.warehouse_id');
+            })
+            ->leftJoin('locations as default_l', 'idl.location_id', '=', 'default_l.id')
+            ->leftJoin('floors as f', DB::raw('COALESCE(l.floor_id, default_l.floor_id)'), '=', 'f.id')
+            ->whereIn('pt.wave_id', $waveIds)
+            ->tap(fn ($query) => $this->applyPrintablePickingItemScope($query))
+            ->select([
+                'pir.id as pir_id',
+                'pir.earning_id',
+                'pir.stock_transfer_id',
+                't.slip_number',
+                DB::raw('COALESCE(e.delivered_date, st.delivered_date) as delivered_date'),
+                'dc.id as course_id',
+                'dc.name as course_name',
+                'dc.code as course_code',
+                'wh.name as warehouse_name',
+                'i.code as item_code',
+                'i.name as item_name',
+                'i.capacity_case',
+                'ssi.jancode as jan_code',
+                DB::raw('COALESCE(pir.location_id, idl.location_id) as location_id'),
+                DB::raw('COALESCE(l.code1, default_l.code1) as code1'),
+                DB::raw('COALESCE(l.code2, default_l.code2) as code2'),
+                DB::raw('COALESCE(l.code3, default_l.code3) as code3'),
+                DB::raw('COALESCE(l.floor_id, default_l.floor_id) as floor_id'),
+                'f.name as floor_name',
+                DB::raw('COALESCE(l.floor_id, default_l.floor_id) as floor_sort_key'),
+                'pir.planned_qty',
+                'pir.planned_qty_type',
+                'pir.shortage_qty',
+            ])
+            ->orderBy('dc.code')
+            ->orderByRaw('COALESCE(l.floor_id, default_l.floor_id, 999999)')
+            ->orderByRaw("COALESCE(l.code1, default_l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, default_l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, default_l.code3, 'ZZZ')")
+            ->orderBy('i.code')
+            ->orderByRaw('COALESCE(e.id, st.id)')
+            ->get();
+
+        // 配送コース単位でバケット化（フロア分割しない）
+        $byCourse = [];
+        foreach ($rows as $row) {
+            $courseId = $row->course_id ?? 0;
+            if (! isset($byCourse[$courseId])) {
+                $byCourse[$courseId] = [
+                    'header' => [
+                        'course_name' => $row->course_name ?? '',
+                        'shipping_date' => $row->delivered_date,
+                        'warehouse_name' => $row->warehouse_name ?? '',
+                        'floor_name' => '',
+                    ],
+                    '_source_ids' => [],
+                    '_rows' => [],
+                ];
+            }
+            $sourceKey = $row->earning_id ? "E:{$row->earning_id}" : "ST:{$row->stock_transfer_id}";
+            $byCourse[$courseId]['_source_ids'][$sourceKey] = true;
+            $byCourse[$courseId]['_rows'][] = $row;
+        }
+
+        $results = [];
+        foreach ($byCourse as $bucket) {
+            $rowsByLocationItem = [];
+
+            foreach ($bucket['_rows'] as $row) {
+                $key = ($row->location_id ?? 0).'|'.$row->item_code;
+                if (! isset($rowsByLocationItem[$key])) {
+                    $code1 = $row->code1 ?? '';
+                    $isYx = str_starts_with($code1, 'YX');
+                    $rowsByLocationItem[$key] = [
+                        'item_code' => $row->item_code,
+                        'item_name' => $this->normalizeItemName($row->item_name),
+                        'capacity_case' => (int) ($row->capacity_case ?: 1),
+                        'jan_code' => $this->extractFirstJanCode($row->jan_code),
+                        'location_id' => $row->location_id,
+                        'code1' => $code1,
+                        'code2' => $row->code2,
+                        'code3' => $row->code3,
+                        'floor_id' => $row->floor_id,
+                        'floor_name' => $row->floor_name ?? '',
+                        'floor_sort_key' => $row->floor_sort_key ?? 999999,
+                        'is_yx' => $isYx,
+                        'total_pieces' => 0,
+                        'shortage_qty' => 0,
+                        'planned_qty_type' => $row->planned_qty_type,
+                    ];
+                }
+
+                $qtyType = QuantityType::tryFrom($row->planned_qty_type) ?? QuantityType::PIECE;
+                $capacityCase = max(1, (int) ($row->capacity_case ?: 1));
+                $qty = (int) $row->planned_qty;
+                $piecesContribution = $qtyType === QuantityType::CASE ? $qty * $capacityCase : $qty;
+
+                $rowsByLocationItem[$key]['total_pieces'] += $piecesContribution;
+                $rowsByLocationItem[$key]['shortage_qty'] += (int) $row->shortage_qty;
+            }
+
+            // 1F→2F→YX の順でソート
+            uasort($rowsByLocationItem, function ($a, $b) {
+                if ($a['is_yx'] !== $b['is_yx']) {
+                    return $a['is_yx'] ? 1 : -1;
+                }
+                $floorCmp = ($a['floor_sort_key'] ?? 999999) <=> ($b['floor_sort_key'] ?? 999999);
+                if ($floorCmp !== 0) {
+                    return $floorCmp;
+                }
+                $c1 = ($a['code1'] ?? 'ZZZ') <=> ($b['code1'] ?? 'ZZZ');
+                if ($c1 !== 0) {
+                    return $c1;
+                }
+                $c2 = ($a['code2'] ?? 'ZZZ') <=> ($b['code2'] ?? 'ZZZ');
+                if ($c2 !== 0) {
+                    return $c2;
+                }
+                $c3 = ($a['code3'] ?? 'ZZZ') <=> ($b['code3'] ?? 'ZZZ');
+                if ($c3 !== 0) {
+                    return $c3;
+                }
+
+                return ($a['item_code'] ?? '') <=> ($b['item_code'] ?? '');
+            });
+
+            $items = [];
+            $no = 0;
+            foreach ($rowsByLocationItem as $entry) {
+                $no++;
+                $capacityCase = max(1, $entry['capacity_case']);
+                $totalPieces = $entry['total_pieces'];
+                $caseQty = intdiv($totalPieces, $capacityCase);
+                $pieceQty = $totalPieces % $capacityCase;
+
+                $locationCode = $entry['location_id']
+                    ? Location::formatCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
+                    : '';
+
+                $items[] = [
+                    'no' => $no,
+                    'location_code' => $locationCode,
+                    'item_code' => $entry['item_code'],
+                    'jan_code' => $entry['jan_code'],
+                    'item_name' => $entry['item_name'],
+                    'capacity_case' => $capacityCase,
+                    'case_qty' => $caseQty,
+                    'piece_qty' => $pieceQty,
+                    'total_pieces' => $totalPieces,
+                    'shortage_qty' => $entry['shortage_qty'],
+                ];
+            }
+
+            $results[] = [
+                'header' => array_merge($bucket['header'], [
+                    'slip_count' => count($bucket['_source_ids']),
+                ]),
+                'items' => $items,
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
      * 得意先別ピッキングリスト V2（配送コース別＋得意先内訳）
      *
      * 仮ピッキングリスト出力の3次ピッキングリストとして使用する。
