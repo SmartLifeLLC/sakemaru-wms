@@ -1921,37 +1921,51 @@ class ListWaves extends ListRecords
 
     private function buildProvisionalCourseGroupedListsV2(\Illuminate\Support\Collection $rows): array
     {
+        // 配送コース×フロアでバケット化（YXは別バケット）
+        $buckets = [];
+        foreach ($rows as $row) {
+            $courseId = $row['course_id'] ?? 0;
+            $floorId = $row['floor_id'] ?? 0;
+            $isYx = str_starts_with($row['code1'] ?? '', 'YX');
+            $bucketKey = $isYx ? $courseId.'|YX' : $courseId.'|'.$floorId;
+
+            if (! isset($buckets[$bucketKey])) {
+                $buckets[$bucketKey] = [
+                    'course_code' => $row['course_code'] ?? '',
+                    'floor_id' => $isYx ? PHP_INT_MAX : ($floorId ?: PHP_INT_MAX - 1),
+                    'header' => [
+                        'course_name' => $row['course_name'] ?? '',
+                        'shipping_date' => $row['shipping_date'] ?? '',
+                        'warehouse_name' => $row['warehouse_name'] ?? '',
+                        'floor_name' => $isYx ? 'YX' : ($row['floor_name'] ?? ''),
+                    ],
+                    '_rows' => collect(),
+                ];
+            }
+            $buckets[$bucketKey]['_rows']->push($row);
+        }
+
+        // フロア優先→コース順でソート
+        uasort($buckets, function ($a, $b) {
+            $floorCmp = $a['floor_id'] <=> $b['floor_id'];
+
+            return $floorCmp !== 0 ? $floorCmp : ($a['course_code'] <=> $b['course_code']);
+        });
+
         $results = [];
-        $groups = $rows->groupBy('course_id');
-
-        foreach ($groups as $groupRows) {
-            $first = $groupRows->first();
-
+        foreach ($buckets as $bucket) {
+            $groupRows = $bucket['_rows'];
             $sortedGroupRows = $groupRows
-                ->sort(function (array $a, array $b): int {
-                    $aIsYx = str_starts_with($a['code1'] ?? '', 'YX');
-                    $bIsYx = str_starts_with($b['code1'] ?? '', 'YX');
-                    if ($aIsYx !== $bIsYx) {
-                        return $aIsYx ? 1 : -1;
-                    }
-                    $floorCmp = (($a['floor_id'] ?? 999999) <=> ($b['floor_id'] ?? 999999));
-                    if ($floorCmp !== 0) {
-                        return $floorCmp;
-                    }
-
-                    return $this->compareProvisionalCourseGroupedRows($a, $b);
-                })
+                ->sort(fn (array $a, array $b): int => $this->compareProvisionalCourseGroupedRows($a, $b))
                 ->values();
 
-            $aggregated = [];
+            $items = [];
             foreach ($sortedGroupRows->groupBy(fn (array $row) => ($row['location_id'] ?? 0).'|'.$row['item_code']) as $itemRows) {
                 $row = $itemRows->first();
-                $isYx = str_starts_with($row['code1'] ?? '', 'YX');
                 $totalPieces = $this->sumProvisionalPieces($itemRows);
                 $capacityCase = max(1, (int) $row['capacity_case']);
-                $aggregated[] = [
-                    'floor_name' => $row['floor_name'] ?? '',
-                    'is_yx' => $isYx,
+                $items[] = [
+                    'no' => count($items) + 1,
                     'location_code' => $row['location_id']
                         ? Location::formatCode($row['code1'], $row['code2'], $row['code3'], '-')
                         : '',
@@ -1966,40 +1980,12 @@ class ListWaves extends ListRecords
                 ];
             }
 
-            $items = [];
-            $currentSection = null;
-            foreach ($aggregated as $entry) {
-                $section = $entry['is_yx'] ? 'YX' : ($entry['floor_name'] ?: '');
-                $sectionLabel = null;
-                if ($section !== $currentSection) {
-                    $sectionLabel = $section;
-                    $currentSection = $section;
-                }
-                $items[] = [
-                    'no' => count($items) + 1,
-                    'section_label' => $sectionLabel,
-                    'location_code' => $entry['location_code'],
-                    'item_code' => $entry['item_code'],
-                    'jan_code' => $entry['jan_code'],
-                    'item_name' => $entry['item_name'],
-                    'capacity_case' => $entry['capacity_case'],
-                    'case_qty' => $entry['case_qty'],
-                    'piece_qty' => $entry['piece_qty'],
-                    'total_pieces' => $entry['total_pieces'],
-                    'shortage_qty' => $entry['shortage_qty'],
-                ];
-            }
-
             $slipCount = $groupRows->map(fn (array $row) => $row['earning_id'] ? "E:{$row['earning_id']}" : "ST:{$row['stock_transfer_id']}")->unique()->count();
 
             $results[] = [
-                'header' => [
-                    'course_name' => $first['course_name'],
+                'header' => array_merge($bucket['header'], [
                     'slip_count' => $slipCount,
-                    'shipping_date' => $first['shipping_date'],
-                    'warehouse_name' => $first['warehouse_name'],
-                    'floor_name' => '',
-                ],
+                ]),
                 'items' => $items,
             ];
         }

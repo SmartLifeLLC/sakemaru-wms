@@ -1090,10 +1090,11 @@ class PickingListService
     }
 
     /**
-     * 2次ピッキングリスト2（配送コース別、1F→2F→YX順）
+     * 2次ピッキングリスト2（フロア優先→配送コース順）
      *
-     * 配送コース単位でグループ化し、フロア分割しない。
-     * 棚番の並び: 1F → 2F → YXで始まる棚番は末尾に別塊。
+     * ページ単位は配送コース×フロア（V1と同じ）。
+     * ページ順: 全コースの1F → 全コースの2F → 全コースのYX。
+     * YX棚番は1Fから分離して末尾に別塊として出力。
      */
     public function generateCourseGroupedListV2ByWaveIds(array $waveIds): array
     {
@@ -1139,7 +1140,6 @@ class PickingListService
                 DB::raw('COALESCE(l.code3, default_l.code3) as code3'),
                 DB::raw('COALESCE(l.floor_id, default_l.floor_id) as floor_id'),
                 'f.name as floor_name',
-                DB::raw('COALESCE(l.floor_id, default_l.floor_id) as floor_sort_key'),
                 'pir.planned_qty',
                 'pir.planned_qty_type',
                 'pir.shortage_qty',
@@ -1153,49 +1153,60 @@ class PickingListService
             ->orderByRaw('COALESCE(e.id, st.id)')
             ->get();
 
-        // 配送コース単位でバケット化（フロア分割しない）
-        $byCourse = [];
+        // 配送コース×フロア でバケット化（YXは別バケット）
+        $buckets = [];
         foreach ($rows as $row) {
             $courseId = $row->course_id ?? 0;
-            if (! isset($byCourse[$courseId])) {
-                $byCourse[$courseId] = [
+            $floorId = $row->floor_id ?? 0;
+            $isYx = str_starts_with($row->code1 ?? '', 'YX');
+            $bucketKey = $isYx ? $courseId.'|YX' : $courseId.'|'.$floorId;
+
+            if (! isset($buckets[$bucketKey])) {
+                $buckets[$bucketKey] = [
+                    'course_code' => $row->course_code ?? '',
+                    'floor_id' => $isYx ? PHP_INT_MAX : ($floorId ?: PHP_INT_MAX - 1),
+                    'is_yx' => $isYx,
                     'header' => [
                         'course_name' => $row->course_name ?? '',
                         'shipping_date' => $row->delivered_date,
                         'warehouse_name' => $row->warehouse_name ?? '',
-                        'floor_name' => '',
+                        'floor_name' => $isYx ? 'YX' : ($row->floor_name ?? ''),
                     ],
                     '_source_ids' => [],
                     '_rows' => [],
                 ];
             }
             $sourceKey = $row->earning_id ? "E:{$row->earning_id}" : "ST:{$row->stock_transfer_id}";
-            $byCourse[$courseId]['_source_ids'][$sourceKey] = true;
-            $byCourse[$courseId]['_rows'][] = $row;
+            $buckets[$bucketKey]['_source_ids'][$sourceKey] = true;
+            $buckets[$bucketKey]['_rows'][] = $row;
         }
 
+        // フロア優先→コース順でソート
+        uasort($buckets, function ($a, $b) {
+            $floorCmp = $a['floor_id'] <=> $b['floor_id'];
+            if ($floorCmp !== 0) {
+                return $floorCmp;
+            }
+
+            return $a['course_code'] <=> $b['course_code'];
+        });
+
         $results = [];
-        foreach ($byCourse as $bucket) {
+        foreach ($buckets as $bucket) {
             $rowsByLocationItem = [];
 
             foreach ($bucket['_rows'] as $row) {
                 $key = ($row->location_id ?? 0).'|'.$row->item_code;
                 if (! isset($rowsByLocationItem[$key])) {
-                    $code1 = $row->code1 ?? '';
-                    $isYx = str_starts_with($code1, 'YX');
                     $rowsByLocationItem[$key] = [
                         'item_code' => $row->item_code,
                         'item_name' => $this->normalizeItemName($row->item_name),
                         'capacity_case' => (int) ($row->capacity_case ?: 1),
                         'jan_code' => $this->extractFirstJanCode($row->jan_code),
                         'location_id' => $row->location_id,
-                        'code1' => $code1,
+                        'code1' => $row->code1,
                         'code2' => $row->code2,
                         'code3' => $row->code3,
-                        'floor_id' => $row->floor_id,
-                        'floor_name' => $row->floor_name ?? '',
-                        'floor_sort_key' => $row->floor_sort_key ?? 999999,
-                        'is_yx' => $isYx,
                         'total_pieces' => 0,
                         'shortage_qty' => 0,
                         'planned_qty_type' => $row->planned_qty_type,
@@ -1211,62 +1222,24 @@ class PickingListService
                 $rowsByLocationItem[$key]['shortage_qty'] += (int) $row->shortage_qty;
             }
 
-            // 1F→2F→YX の順でソート
-            uasort($rowsByLocationItem, function ($a, $b) {
-                if ($a['is_yx'] !== $b['is_yx']) {
-                    return $a['is_yx'] ? 1 : -1;
-                }
-                $floorCmp = ($a['floor_sort_key'] ?? 999999) <=> ($b['floor_sort_key'] ?? 999999);
-                if ($floorCmp !== 0) {
-                    return $floorCmp;
-                }
-                $c1 = ($a['code1'] ?? 'ZZZ') <=> ($b['code1'] ?? 'ZZZ');
-                if ($c1 !== 0) {
-                    return $c1;
-                }
-                $c2 = ($a['code2'] ?? 'ZZZ') <=> ($b['code2'] ?? 'ZZZ');
-                if ($c2 !== 0) {
-                    return $c2;
-                }
-                $c3 = ($a['code3'] ?? 'ZZZ') <=> ($b['code3'] ?? 'ZZZ');
-                if ($c3 !== 0) {
-                    return $c3;
-                }
-
-                return ($a['item_code'] ?? '') <=> ($b['item_code'] ?? '');
-            });
-
-            $items = [];
             $no = 0;
-            $currentSection = null;
+            $items = [];
             foreach ($rowsByLocationItem as $entry) {
-                $section = $entry['is_yx'] ? 'YX' : ($entry['floor_name'] ?: '');
-                $sectionLabel = null;
-                if ($section !== $currentSection) {
-                    $sectionLabel = $section;
-                    $currentSection = $section;
-                }
-
                 $no++;
                 $capacityCase = max(1, $entry['capacity_case']);
                 $totalPieces = $entry['total_pieces'];
-                $caseQty = intdiv($totalPieces, $capacityCase);
-                $pieceQty = $totalPieces % $capacityCase;
-
-                $locationCode = $entry['location_id']
-                    ? Location::formatCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
-                    : '';
 
                 $items[] = [
                     'no' => $no,
-                    'section_label' => $sectionLabel,
-                    'location_code' => $locationCode,
+                    'location_code' => $entry['location_id']
+                        ? Location::formatCode($entry['code1'], $entry['code2'], $entry['code3'], '-')
+                        : '',
                     'item_code' => $entry['item_code'],
                     'jan_code' => $entry['jan_code'],
                     'item_name' => $entry['item_name'],
                     'capacity_case' => $capacityCase,
-                    'case_qty' => $caseQty,
-                    'piece_qty' => $pieceQty,
+                    'case_qty' => intdiv($totalPieces, $capacityCase),
+                    'piece_qty' => $totalPieces % $capacityCase,
                     'total_pieces' => $totalPieces,
                     'shortage_qty' => $entry['shortage_qty'],
                 ];
