@@ -5,7 +5,6 @@ namespace App\Filament\Resources\WmsShortagesWaitingApprovals\Pages;
 use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\WmsShortagesWaitingApprovalResource;
-use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Services\QuantityUpdate\QuantityUpdateQueueService;
@@ -30,12 +29,9 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
     public function getPresetViews(): array
     {
         $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
-        $systemDate = ClientSetting::systemDateYMD();
-
-        // 承認待ち（is_confirmed=false, status!='BEFORE'）かつ当日の欠品が存在する倉庫のみタブ表示
+        // 承認待ち（is_confirmed=false, status!='BEFORE'）が存在する倉庫のみタブ表示
         $warehouseIds = WmsShortage::where('is_confirmed', false)
             ->where('status', '!=', WmsShortage::STATUS_BEFORE)
-            ->where('shipment_date', $systemDate)
             ->distinct()
             ->pluck('warehouse_id')
             ->toArray();
@@ -45,11 +41,6 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
             ->orderBy('code')
             ->get(['id', 'code', 'name']);
 
-        $defaultFilterData = [
-            'shipment_date' => ['shipment_date' => $systemDate],
-        ];
-        $applySystemDate = fn (Builder $query) => $query->where('shipment_date', $systemDate);
-
         $defaultWarehouse = $userDefaultWarehouseId
             ? $warehouses->firstWhere('id', $userDefaultWarehouseId)
             : null;
@@ -57,9 +48,7 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
         if ($defaultWarehouse) {
             $views = [
                 'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $applySystemDate($query)
-                        ->where('warehouse_id', $userDefaultWarehouseId))
-                    ->defaultFilters($defaultFilterData)
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
                     ->favorite()
                     ->label($defaultWarehouse->name)
                     ->default(),
@@ -67,8 +56,6 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
         } else {
             $views = [
                 'default' => PresetView::make()
-                    ->modifyQueryUsing($applySystemDate)
-                    ->defaultFilters($defaultFilterData)
                     ->favorite()
                     ->label('全て')
                     ->default(),
@@ -76,8 +63,6 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
         }
 
         $views['all'] = PresetView::make()
-            ->modifyQueryUsing($applySystemDate)
-            ->defaultFilters($defaultFilterData)
             ->label('全て')
             ->favorite();
 
@@ -86,9 +71,7 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
                 continue;
             }
             $views["wh_{$warehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $applySystemDate($query)
-                    ->where('warehouse_id', $warehouse->id))
-                ->defaultFilters($defaultFilterData)
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
                 ->label($warehouse->name);
         }
