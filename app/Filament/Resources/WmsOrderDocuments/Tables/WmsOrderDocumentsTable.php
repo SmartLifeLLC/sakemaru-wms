@@ -16,12 +16,15 @@ use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
 use App\Services\AutoOrder\PurchaseOrderPdfService;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
 class WmsOrderDocumentsTable
@@ -437,6 +440,31 @@ class WmsOrderDocumentsTable
                     }),
 
                 static::getExportAction(),
+
+                BulkActionGroup::make([
+                    BulkAction::make('bulkRestorePending')
+                        ->label('送信待ちに戻す')
+                        ->icon('heroicon-o-arrow-path')
+                        ->color('warning')
+                        ->requiresConfirmation()
+                        ->modalHeading('送信取消を送信待ちに戻す')
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件を「送信待ち」に戻します。戻した後、JX送信ボタンから送信できます。")
+                        ->modalSubmitActionLabel('送信待ちに戻す')
+                        ->modalCancelActionLabel('戻さず閉じる')
+                        ->action(function (Collection $records) {
+                            $count = $records
+                                ->filter(fn ($r) => $r->status === TransmissionDocumentStatus::CANCELLED)
+                                ->each(fn ($r) => $r->update(['status' => TransmissionDocumentStatus::PENDING]))
+                                ->count();
+
+                            Notification::make()
+                                ->title("送信待ちに戻しました（{$count}件）")
+                                ->body('JX送信ボタンから送信してください')
+                                ->success()
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                ]),
             ])
             ->defaultSort('created_at', 'desc');
     }
