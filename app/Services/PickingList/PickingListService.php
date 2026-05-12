@@ -1158,19 +1158,20 @@ class PickingListService
         foreach ($rows as $row) {
             $courseId = $row->course_id ?? 0;
             $floorId = $row->floor_id ?? 0;
-            $isYx = str_starts_with($row->code1 ?? '', 'YX');
-            $bucketKey = $isYx ? $courseId.'|YX' : $courseId.'|'.$floorId;
+            $code1 = $row->code1 ?? '';
+            $isYxGroup = str_starts_with($code1, 'YX') || str_starts_with($code1, 'YC');
+            $bucketKey = $isYxGroup ? $courseId.'|YX' : $courseId.'|'.$floorId;
 
             if (! isset($buckets[$bucketKey])) {
                 $buckets[$bucketKey] = [
                     'course_code' => $row->course_code ?? '',
-                    'floor_id' => $isYx ? PHP_INT_MAX : ($floorId ?: PHP_INT_MAX - 1),
-                    'is_yx' => $isYx,
+                    'floor_id' => $isYxGroup ? PHP_INT_MAX : ($floorId ?: PHP_INT_MAX - 1),
+                    'is_yx' => $isYxGroup,
                     'header' => [
                         'course_name' => $row->course_name ?? '',
                         'shipping_date' => $row->delivered_date,
                         'warehouse_name' => $row->warehouse_name ?? '',
-                        'floor_name' => $isYx ? 'YX' : ($row->floor_name ?? ''),
+                        'floor_name' => $isYxGroup ? 'YX' : ($row->floor_name ?? ''),
                     ],
                     '_source_ids' => [],
                     '_rows' => [],
