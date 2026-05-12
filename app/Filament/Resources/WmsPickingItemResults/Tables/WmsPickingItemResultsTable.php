@@ -9,6 +9,7 @@ use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
+use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -321,7 +322,15 @@ class WmsPickingItemResultsTable
             ])
             ->defaultSort('walking_order', 'asc')
             ->recordActions([
-                //
+                Action::make('cancel')
+                    ->label('削除')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->modalHeading('ピッキング実績を削除')
+                    ->modalDescription(fn ($record) => "ID: {$record->id}（{$record->item?->name}）をキャンセルしますか？伝票出力から除外されます。")
+                    ->action(fn ($record) => $record->update(['status' => 'CANCELLED']))
+                    ->hidden(fn ($record) => $record->status === 'CANCELLED'),
             ])
             ->toolbarActions([
                 static::getExportAction(),
