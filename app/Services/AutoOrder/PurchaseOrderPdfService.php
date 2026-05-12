@@ -156,6 +156,25 @@ class PurchaseOrderPdfService
     {
         $pdfBinary = $this->generateFromDataFile($dataFile, $communicationNotes);
 
+        return $this->storePdfBinary($pdfBinary, $dataFile);
+    }
+
+    /**
+     * 指定済み候補からPDFを生成しS3に保存
+     */
+    public function generateAndStoreFromCandidates(Collection $candidates, WmsOrderDataFile $dataFile, ?string $communicationNotes = null): string
+    {
+        if ($candidates->isEmpty()) {
+            throw new \RuntimeException('生成対象の発注候補がありません');
+        }
+
+        $pdfBinary = $this->generate($candidates, $dataFile, $communicationNotes);
+
+        return $this->storePdfBinary($pdfBinary, $dataFile);
+    }
+
+    private function storePdfBinary(string $pdfBinary, WmsOrderDataFile $dataFile): string
+    {
         // S3パス生成
         $date = now()->format('Y-m-d');
         $warehouseCode = $dataFile->warehouse?->code ?? $dataFile->warehouse_id;
