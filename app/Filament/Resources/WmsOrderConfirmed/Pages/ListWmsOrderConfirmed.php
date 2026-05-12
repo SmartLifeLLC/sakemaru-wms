@@ -13,6 +13,7 @@ use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class ListWmsOrderConfirmed extends ListRecords
 {
@@ -40,8 +41,8 @@ class ListWmsOrderConfirmed extends ListRecords
                         'contractor',
                     ])
                     ->orderBy('batch_code', 'desc')
-                    ->orderBy('warehouse_id')
-                    ->orderBy('item_id')
+                    ->orderBy((new WmsOrderCandidate)->getTable().'.warehouse_id')
+                    ->orderBy((new WmsOrderCandidate)->getTable().'.item_id')
             ));
     }
 
@@ -62,7 +63,7 @@ class ListWmsOrderConfirmed extends ListRecords
         if ($defaultWarehouse) {
             $views = [
                 'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $userDefaultWarehouseId))
                     ->favorite()
                     ->label($defaultWarehouse->name)
                     ->default(),
@@ -96,7 +97,7 @@ class ListWmsOrderConfirmed extends ListRecords
                 continue;
             }
             $views["default_{$warehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $warehouse->id))
                 ->favorite()
                 ->label($warehouse->name);
         }
