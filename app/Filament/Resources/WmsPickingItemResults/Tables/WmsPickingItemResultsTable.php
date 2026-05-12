@@ -329,7 +329,11 @@ class WmsPickingItemResultsTable
                     ->requiresConfirmation()
                     ->modalHeading('ピッキング実績を削除')
                     ->modalDescription(fn ($record) => "ID: {$record->id}（{$record->item?->name}）をキャンセルしますか？伝票出力から除外されます。")
-                    ->action(fn ($record) => $record->update(['status' => 'CANCELLED']))
+                    ->action(fn ($record) => $record->update([
+                        'status' => 'CANCELLED',
+                        'picked_qty' => 0,
+                        'shortage_qty' => 0,
+                    ]))
                     ->hidden(fn ($record) => $record->status === 'CANCELLED'),
             ])
             ->toolbarActions([
