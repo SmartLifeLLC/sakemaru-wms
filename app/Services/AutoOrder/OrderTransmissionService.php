@@ -1950,6 +1950,33 @@ class OrderTransmissionService
     }
 
     /**
+     * 選択した発注候補IDからJXファイルを生成（送信しない）
+     *
+     * @param  array<int>  $candidateIds
+     */
+    public function generateJxFilesForCandidateIds(array $candidateIds): array
+    {
+        $candidates = WmsOrderCandidate::whereIn('id', $candidateIds)
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->with(['item', 'contractor', 'warehouse'])
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            return ['success' => false, 'files' => [], 'total_orders' => 0, 'errors' => ['確定済みの発注候補がありません']];
+        }
+
+        $batchCode = 'J'.now()->format('YmdHis').str_pad((string) random_int(0, 999), 3, '0', STR_PAD_LEFT);
+
+        return $this->doGenerateOrderFiles(
+            $batchCode,
+            $candidates,
+            TransmissionDocumentStatus::PENDING,
+            true,
+            false
+        );
+    }
+
+    /**
      * 指定した送信先に集約される元仕入先IDを取得する。
      */
     private function getCorrectionResendSourceContractorIds(int $contractorId): array
