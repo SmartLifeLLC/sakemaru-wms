@@ -20,16 +20,13 @@ class WmsShortagesWaitingApprovalResource extends AdminResource
     {
         return parent::getEloquentQuery()
             ->with([
-                'warehouse',
-                'location',
-                'wave',
-                'item',
-                'trade.partner',
-                'trade.earning.delivery_course',
-                'trade.earning.buyer.current_detail.salesman',
-                'confirmedBy',
-                'confirmedUser',
-                'allocations',
+                'warehouse:id,code,name,latitude,longitude',
+                'location:id,code1,code2,code3',
+                'item:id,code,name,capacity_case,volume,volume_unit',
+                'trade:id,serial_id,partner_id',
+                'trade.partner:id,code,name,latitude,longitude',
+                'confirmedBy:id,name',
+                'confirmedUser:id,name',
             ])
             ->withSum('allocations as allocations_total_qty', 'assign_qty');
     }

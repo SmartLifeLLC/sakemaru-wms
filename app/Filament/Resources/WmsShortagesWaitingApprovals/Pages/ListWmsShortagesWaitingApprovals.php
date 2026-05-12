@@ -48,6 +48,7 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
         $defaultFilterData = [
             'shipment_date' => ['shipment_date' => $systemDate],
         ];
+        $applySystemDate = fn (Builder $query) => $query->where('shipment_date', $systemDate);
 
         $defaultWarehouse = $userDefaultWarehouseId
             ? $warehouses->firstWhere('id', $userDefaultWarehouseId)
@@ -56,7 +57,8 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
         if ($defaultWarehouse) {
             $views = [
                 'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                    ->modifyQueryUsing(fn (Builder $query) => $applySystemDate($query)
+                        ->where('warehouse_id', $userDefaultWarehouseId))
                     ->defaultFilters($defaultFilterData)
                     ->favorite()
                     ->label($defaultWarehouse->name)
@@ -65,6 +67,7 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
         } else {
             $views = [
                 'default' => PresetView::make()
+                    ->modifyQueryUsing($applySystemDate)
                     ->defaultFilters($defaultFilterData)
                     ->favorite()
                     ->label('全て')
@@ -73,6 +76,7 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
         }
 
         $views['all'] = PresetView::make()
+            ->modifyQueryUsing($applySystemDate)
             ->defaultFilters($defaultFilterData)
             ->label('全て')
             ->favorite();
@@ -82,7 +86,8 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
                 continue;
             }
             $views["wh_{$warehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
+                ->modifyQueryUsing(fn (Builder $query) => $applySystemDate($query)
+                    ->where('warehouse_id', $warehouse->id))
                 ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label($warehouse->name);
