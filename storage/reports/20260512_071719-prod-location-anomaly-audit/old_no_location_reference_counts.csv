@@ -1,0 +1,6 @@
+﻿table_name,cnt
+item_incoming_default_locations,0
+real_stock_lots,1
+wms_reservations,2
+wms_picking_item_results,2
+wms_shortages,7

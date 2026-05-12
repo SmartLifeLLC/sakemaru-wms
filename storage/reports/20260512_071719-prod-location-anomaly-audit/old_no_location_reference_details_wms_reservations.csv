@@ -1,0 +1,3 @@
+﻿table_name,row_id,location_id,location_name,code1,code2,code3,item_code,item_name,quantity,shortage_qty,status,wave_id,source_type,source_id,source_line_id,created_at,updated_at
+wms_reservations,9871,193,YX0,YX,0,,412087,　コカコーラ炭酸ガス　スタビータイプ７Ｋｇ,1,0,RESERVED,224,EARNING,1686,26392,2026-05-09 13:22:54,2026-05-09 13:22:54
+wms_reservations,10397,193,YX0,YX,0,,172366,　クライナーファイグリング　ココビスケット　２０ｍｌ,3,0,RESERVED,247,EARNING,2217,50167,2026-05-11 07:26:05,2026-05-11 07:26:05

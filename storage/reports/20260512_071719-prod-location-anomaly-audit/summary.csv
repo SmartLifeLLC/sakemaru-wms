@@ -1,0 +1,13 @@
+﻿check,count
+active real_stock_lots on CHAR_LENGTH(location.name)=3,1
+item_incoming_default_locations on CHAR_LENGTH(location.name)=3,0
+active real_stock_lots on known no-location/hidden labels,296
+old no-location refs in item_incoming_default_locations,0
+old no-location refs in real_stock_lots,1
+old no-location refs in wms_reservations,2
+old no-location refs in wms_picking_item_results,2
+old no-location refs in wms_shortages,7
+active real_stock_lots with NULL location_id,1
+wms_reservations rows on CHAR_LENGTH(location.name)=3,9
+wms_picking_item_results rows on CHAR_LENGTH(location.name)=3,9
+wms_shortages rows on CHAR_LENGTH(location.name)=3,37

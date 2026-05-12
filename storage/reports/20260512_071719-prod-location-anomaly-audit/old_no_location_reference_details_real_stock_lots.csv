@@ -1,0 +1,2 @@
+﻿table_name,row_id,location_id,location_name,code1,code2,code3,item_code,item_name,quantity,reserved_quantity,status,created_at,updated_at
+real_stock_lots,53253,193,YX0,YX,0,,412087,　コカコーラ炭酸ガス　スタビータイプ７Ｋｇ,0,0,DEPLETED,2026-05-09 09:46:13,2026-05-09 14:02:31

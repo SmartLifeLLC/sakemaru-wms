@@ -1,0 +1,11 @@
+status,message,direction,mode,real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,real_current,real_reserved,real_available,pickable_available,delta,applied_qty,lot_ids,location_id,location_code,location_source
+dry,,increase,increase,35779,91,91,920000,920000,部システム９２０（お肉）,17536,0,17536,0,17536,17536,,11,ZZ-1,item_default_location
+dry,,decrease,decrease,50457,91,91,184067,184067,　キリン　のどごし＜生＞　３５０ｍｌ,6782,50,6732,15934,-9202,9202,,,,
+dry,,decrease,decrease,37402,91,91,143024,143024,◎アサヒ　スーパードライ３５０ｍｌ,32302,184,32118,40662,-8544,8544,,,,
+dry,,decrease,decrease,37407,91,91,143059,143059,◎キリン　一番搾り３５０ｍｌ,6738,50,6688,14173,-7485,7485,,,,
+dry,,decrease,decrease,35632,91,91,142543,142543,　サントリー　生ビール３５０ｍｌ,-1008,0,0,7008,-7008,7008,,,,
+dry,,decrease,decrease,38970,91,91,147017,147017,　キリン　本麒麟３５０ｍｌ,11310,0,11310,17208,-5898,5898,,,,
+dry,,decrease,decrease,37411,91,91,143074,143074,◎サッポロ　黒ラベル　３５０ｍｌ,2130,26,2104,7371,-5267,5267,,,,
+dry,,decrease,decrease,50465,91,91,184144,184144,　サントリー　金麦３５０ｍｌ,11583,24,11559,16344,-4785,4785,,,,
+dry,,decrease,decrease,21736,91,91,184409,184409,　キリン　氷結ＺＥＲＯ　レモン　３５０ｍｌ,2953,1,2952,7464,-4512,4512,,,,
+dry,,decrease,decrease,35633,91,91,142627,142627,　キリン　晴れ風３５０ｍｌ,408,24,384,4632,-4248,4248,,,,

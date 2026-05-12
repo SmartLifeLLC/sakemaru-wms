@@ -1,0 +1,6 @@
+status,message,direction,mode,real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,real_current,real_reserved,real_available,pickable_available,delta,applied_qty,lot_ids,location_id,location_code,location_source
+dry,,decrease,decrease,50457,91,91,184067,184067,　キリン　のどごし＜生＞　３５０ｍｌ,6782,50,6732,15934,-9202,9202,,,,
+dry,,decrease,decrease,37402,91,91,143024,143024,◎アサヒ　スーパードライ３５０ｍｌ,32302,184,32118,40662,-8544,8544,,,,
+dry,,decrease,decrease,37407,91,91,143059,143059,◎キリン　一番搾り３５０ｍｌ,6738,50,6688,14173,-7485,7485,,,,
+dry,,decrease,decrease,35632,91,91,142543,142543,　サントリー　生ビール３５０ｍｌ,-1008,0,0,7008,-7008,7008,,,,
+dry,,decrease,decrease,38970,91,91,147017,147017,　キリン　本麒麟３５０ｍｌ,11310,0,11310,17208,-5898,5898,,,,

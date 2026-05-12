@@ -1,0 +1,7 @@
+type,table,target_location_id,source_location_ids,rows,message
+reference_update,item_incoming_default_locations,11,"10,18",463,
+reference_update,real_stock_lots,11,"10,18",1097,
+reference_update,wms_reservations,11,"10,18",14,
+reference_update,wms_picking_item_results,11,"10,18",14,
+reference_update,wms_shortages,11,"10,18",126,
+location_update,locations,11,"10,18",3,"set no-location display names to full-width space and available flags to 3"

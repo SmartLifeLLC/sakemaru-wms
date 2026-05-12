@@ -1,0 +1,11 @@
+status,message,direction,mode,real_stock_id,warehouse_id,warehouse_code,item_id,item_code,item_name,real_current,real_reserved,real_available,pickable_available,delta,applied_qty,lot_ids,location_id,location_code,location_source
+updated,,decrease,decrease,35551,89,89,211235,211235,　ＩＢ　強炭酸水５００ｍｌＰＥＴ,1344,0,1344,5376,-4032,4032,35377,,,
+updated,,decrease,decrease,35552,89,89,211351,211351,　ＩＢ　強炭酸水１Ｌ,3000,0,3000,4500,-1500,1500,35378,,,
+updated,,decrease,decrease,33590,89,89,159133,159133,　シャトー　トゥーレル　７５０ｍｌ,756,0,756,888,-132,132,33425,,,
+updated,,decrease,decrease,33572,89,89,159093,159093,　カンタラス　カベルネソーヴィニヨン　７５０ｍｌ,2256,0,2256,2376,-120,120,33407,,,
+updated,,decrease,decrease,33574,89,89,159095,159095,　カンタラス　ソービニヨンブラン　７５０ｍｌ,1728,0,1728,1848,-120,120,33409,,,
+updated,,decrease,decrease,33561,89,89,159011,159011,　プレミオ　キャンティ　７５０ｍｌ,960,0,960,972,-12,12,33396,,,
+updated,,decrease,decrease,33565,89,89,159017,159017,　プレミオ　トレッビアーノ　ダブルッツォ　７５０ｍｌ,1212,0,1212,1224,-12,12,33400,,,
+updated,,increase,update,33575,89,89,159096,159096,　カンタラス　ヴェルデホ　７５０ｍｌ,1992,0,1992,1980,12,12,33410,312,ZZ-1-100,existing_initial_lot
+updated,,decrease,decrease,33580,89,89,159112,159112,　レザレ　ド　セノザン　ピノノワール　７５０ｍｌ,816,0,816,828,-12,12,33415,,,
+updated,,decrease,decrease,33592,89,89,159136,159136,　アステール　ド　ボーリュー　７５０ｍｌ　,1716,0,1716,1728,-12,12,33427,,,

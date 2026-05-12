@@ -1,0 +1,2 @@
+﻿lot_id,real_stock_id,warehouse_code,location_id,location_name,code1,code2,code3,item_id,item_code,item_name,lot_current_quantity,lot_reserved_quantity,real_stock_current_quantity,real_stock_reserved_quantity,real_stock_available_quantity,lot_created_at,lot_updated_at
+56062,23781,91,104,G04,G,04,,210113,210113,　モナン　カシスシロップ７００ｍｌ,7,0,6,-1,7,2026-05-12 07:07:01,2026-05-12 07:07:01
