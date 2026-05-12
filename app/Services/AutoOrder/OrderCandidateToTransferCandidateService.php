@@ -43,6 +43,12 @@ class OrderCandidateToTransferCandidateService
         }
 
         return DB::connection('sakemaru')->transaction(function () use ($candidate, $hubWarehouse, $modifiedBy) {
+            $deliveryCourseId = $this->resolveTransferDeliveryCourseId(
+                (int) $hubWarehouse->id,
+                (int) $candidate->warehouse_id,
+                $candidate->delivery_course_id ? (int) $candidate->delivery_course_id : null,
+            );
+
             $transferCandidate = WmsStockTransferCandidate::create([
                 'batch_code' => $candidate->batch_code,
                 'satellite_warehouse_id' => $candidate->warehouse_id,
@@ -52,7 +58,7 @@ class OrderCandidateToTransferCandidateService
                 'search_code' => $candidate->search_code,
                 'ordering_code' => $candidate->ordering_code,
                 'contractor_id' => $candidate->contractor_id,
-                'delivery_course_id' => $candidate->delivery_course_id,
+                'delivery_course_id' => $deliveryCourseId,
                 'suggested_quantity' => $candidate->suggested_quantity,
                 'transfer_quantity' => $candidate->order_quantity,
                 'current_effective_stock' => $candidate->current_effective_stock,
@@ -89,5 +95,20 @@ class OrderCandidateToTransferCandidateService
 
             return $transferCandidate;
         });
+    }
+
+    private function resolveTransferDeliveryCourseId(int $fromWarehouseId, int $toWarehouseId, ?int $currentDeliveryCourseId): ?int
+    {
+        if ($currentDeliveryCourseId !== null) {
+            return $currentDeliveryCourseId;
+        }
+
+        $deliveryCourseId = DB::connection('sakemaru')
+            ->table('warehouse_stock_transfer_delivery_courses')
+            ->where('from_warehouse_id', $fromWarehouseId)
+            ->where('to_warehouse_id', $toWarehouseId)
+            ->value('delivery_course_id');
+
+        return $deliveryCourseId !== null ? (int) $deliveryCourseId : null;
     }
 }
