@@ -107,13 +107,13 @@ class ListWmsShortages extends ListRecords
                 ->with([
                     'wave',
                     'warehouse',
+                    'location',
                     'item',
                     'trade.partner',
                     'trade.earning.delivery_course',
                     'trade.earning.buyer.current_detail.salesman',
                     'allocations.targetWarehouse',
                     'allocations.sourceWarehouse',
-                    'updater',
                     'confirmedBy',
                     'confirmedUser',
                 ])
