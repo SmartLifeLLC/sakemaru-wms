@@ -1927,7 +1927,7 @@ class ListWaves extends ListRecords
             $courseId = $row['course_id'] ?? 0;
             $floorId = $row['floor_id'] ?? 0;
             $code1 = $row['code1'] ?? '';
-            $isYxGroup = str_starts_with($code1, 'YX') || str_starts_with($code1, 'YC');
+            $isYxGroup = str_starts_with($code1, 'YA') || str_starts_with($code1, 'YB') || str_starts_with($code1, 'YC') || str_starts_with($code1, 'YX');
             $bucketKey = $isYxGroup ? $courseId.'|YX' : $courseId.'|'.$floorId;
 
             if (! isset($buckets[$bucketKey])) {
