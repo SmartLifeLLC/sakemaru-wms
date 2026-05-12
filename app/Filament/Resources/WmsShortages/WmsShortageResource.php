@@ -22,20 +22,7 @@ class WmsShortageResource extends AdminResource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()
-            ->with([
-                'warehouse',
-                'location',
-                'wave',
-                'item',
-                'trade.partner',
-                'trade.earning.delivery_course',
-                'trade.earning.buyer.current_detail.salesman',
-                'confirmedBy',
-                'confirmedUser',
-                'allocations',
-            ])
-            ->withSum('allocations as allocations_total_qty', 'assign_qty');
+        return parent::getEloquentQuery();
     }
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
