@@ -286,15 +286,13 @@ class ListWaves extends ListRecords
 
                         $pdf = match ($listType) {
                             'primary' => $pdfService->renderBatchPrimaryPdf(
-                                $waves
-                                    ->flatMap(fn ($w) => $service->generatePrimaryListPages($w->id, $data['separate_floors'] ?? true))
-                                    ->toArray()
+                                $service->generatePrimaryCourseListPages($waveIds, $data['separate_floors'] ?? true)
                             ),
                             'primary_total' => $pdfService->renderBatchPrimaryPdf(
                                 $service->generatePrimaryTotalListPages($waveIds, $data['separate_floors'] ?? true)
                             ),
                             'shortage' => $pdfService->renderBatchShortagePdf(
-                                $waves->map(fn ($w) => $service->generateShortageList($w->id))->toArray()
+                                $service->generateShortageCourseLists($waveIds)
                             ),
                             'secondary' => $pdfService->renderCourseGroupedPdf(
                                 $service->generateCourseGroupedListByWaveIds($waveIds)

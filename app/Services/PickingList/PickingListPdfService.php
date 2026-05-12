@@ -119,7 +119,21 @@ class PickingListPdfService
         }
 
         $this->pdf->Cell(95, self::LINE_HEIGHT, $warehouseText, 0, 0, 'R');
-        $this->currentY += self::LINE_HEIGHT + 3;
+        $this->currentY += self::LINE_HEIGHT;
+
+        if (! empty($header['delivery_course_name'])) {
+            $courseText = '配送コース: ';
+            if (! empty($header['delivery_course_code'])) {
+                $courseText .= '['.$header['delivery_course_code'].'] ';
+            }
+            $courseText .= $header['delivery_course_name'];
+
+            $this->pdf->SetXY(self::MARGIN, $this->currentY);
+            $this->pdf->Cell(self::PRIMARY_CONTENT_WIDTH, self::LINE_HEIGHT, $courseText, 0, 0, 'L');
+            $this->currentY += self::LINE_HEIGHT;
+        }
+
+        $this->currentY += 3;
     }
 
     private function renderPrimaryTableHeader(): void
@@ -295,7 +309,21 @@ class PickingListPdfService
 
         $this->pdf->SetXY(self::MARGIN + $halfWidth, $this->currentY);
         $this->pdf->Cell($halfWidth, self::LINE_HEIGHT, '倉庫: '.($header['warehouse_name'] ?? ''), 0, 0, 'R');
-        $this->currentY += self::LINE_HEIGHT + 3;
+        $this->currentY += self::LINE_HEIGHT;
+
+        if (! empty($header['delivery_course_name'])) {
+            $courseText = '配送コース: ';
+            if (! empty($header['delivery_course_code'])) {
+                $courseText .= '['.$header['delivery_course_code'].'] ';
+            }
+            $courseText .= $header['delivery_course_name'];
+
+            $this->pdf->SetXY(self::MARGIN, $this->currentY);
+            $this->pdf->Cell(self::SHORTAGE_CONTENT_WIDTH, self::LINE_HEIGHT, $courseText, 0, 0, 'L');
+            $this->currentY += self::LINE_HEIGHT;
+        }
+
+        $this->currentY += 3;
     }
 
     private function renderShortageTableHeader(): void
