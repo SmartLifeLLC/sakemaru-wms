@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsShortagesWaitingApprovals\Pages;
 use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\WmsShortagesWaitingApprovalResource;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Services\QuantityUpdate\QuantityUpdateQueueService;
@@ -29,23 +30,25 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
     public function getPresetViews(): array
     {
         $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
-        // 承認待ち（is_confirmed=false, status!='BEFORE'）が存在する倉庫のみタブ表示
-        $warehouseIds = WmsShortage::where('is_confirmed', false)
-            ->where('status', '!=', WmsShortage::STATUS_BEFORE)
-            ->distinct()
-            ->pluck('warehouse_id')
-            ->toArray();
+        $systemDate = ClientSetting::systemDateYMD();
 
-        $warehouses = Warehouse::whereIn('id', $warehouseIds)
+        $warehouses = Warehouse::query()
+            ->where('is_active', true)
             ->where('is_virtual', false)
             ->orderBy('name')
             ->get(['id', 'name']);
+        $warehouseIds = $warehouses->pluck('id')->all();
+
+        $defaultFilterData = [
+            'shipment_date' => ['shipment_date' => $systemDate],
+        ];
 
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
         $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
         $views = [
             'default' => PresetView::make()
+                ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label('全て')
                 ->default(! $hasDefaultWarehouse),
@@ -54,6 +57,7 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
         if ($defaultWarehouse) {
             $views["default_{$defaultWarehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label($defaultWarehouse->name)
                 ->default();
@@ -66,6 +70,7 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
 
             $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
+                ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label($warehouse->name);
         }
