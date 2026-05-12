@@ -440,7 +440,8 @@ class WmsOrderDocumentsTable
                     }),
 
                 static::getExportAction(),
-
+            ])
+            ->bulkActions([
                 BulkActionGroup::make([
                     BulkAction::make('bulkRestorePending')
                         ->label('送信待ちに戻す')
