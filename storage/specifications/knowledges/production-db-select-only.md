@@ -13,6 +13,7 @@
 - プロジェクト: `/Users/jungsinyu/PycharmProjects/HanaDBTransfer`
 - 接続関数: `lib/mysql_utils.py` の `create_mysql_connection_prod(force_new=True)`
 - 接続設定: `HanaDBTransfer/.env` の `MYSQL_*_PROD` と `MYSQL_CA_PROD`
+- 確認日: 2026-05-13。`MYSQL_HOST_PROD` / `MYSQL_DATABASE_PROD` / `MYSQL_USER_PROD` / `MYSQL_CA_PROD` は `.env` に存在する。値は出力・保存しない。
 
 確認用の最小パターン:
 
@@ -36,4 +37,5 @@ conn.close()
 
 - `master_main.py --prod` や migration 系スクリプトは投入処理を含むため、調査では使わない。
 - `lib/mysql_utils.py` には書き込み用関数もあるため、調査時は直接 `cursor.execute()` で `SELECT` のみ実行する。
+- 調査スクリプト内でも `conn.commit()` は呼ばない。
 - 出力前に秘匿値が含まれていないか確認する。
