@@ -32,6 +32,12 @@ class Warehouse91StockLotSyncService
     {
         $pickingChecks = $this->assertNoPickingInProgress();
         $rows = collect($this->loadPlan($locationOverrides));
+        $selectionRequiredRows = $rows->where('location_selection_required', true);
+
+        if ($selectionRequiredRows->isNotEmpty()) {
+            $itemCodes = $selectionRequiredRows->pluck('item_code')->take(10)->implode(', ');
+            throw new RuntimeException("棚番選択が必要な商品があります。item_code={$itemCodes}");
+        }
 
         DB::connection(self::CONNECTION)->transaction(function () use ($rows) {
             $now = now();
@@ -241,6 +247,31 @@ WHERE w.code = ?
   AND (
     rs.current_quantity <> COALESCE(la.lot_current_quantity, 0)
     OR COALESCE(rs.reserved_quantity, 0) <> COALESCE(la.lot_reserved_quantity, 0)
+    OR (
+      lr.id IS NOT NULL
+      AND (
+        (ot.target_shelf = 'Z00' AND lr.location_id <> zl.location_id)
+        OR (
+          ot.origin_status = 'unique'
+          AND target_loc.id IS NOT NULL
+          AND lr.location_id <> target_loc.id
+        )
+        OR (
+          ot.origin_status = 'ambiguous'
+          AND FIND_IN_SET(
+            COALESCE(
+              NULLIF(lr_loc.name, ''),
+              NULLIF(CONCAT(COALESCE(lr_loc.code1, ''), COALESCE(lr_loc.code2, ''), COALESCE(lr_loc.code3, '')), '')
+            ) COLLATE utf8mb4_unicode_ci,
+            ot.oracle_shelves COLLATE utf8mb4_unicode_ci
+          ) = 0
+          AND FIND_IN_SET(
+            NULLIF(CONCAT(COALESCE(lr_loc.code1, ''), COALESCE(lr_loc.code2, ''), COALESCE(lr_loc.code3, '')), '') COLLATE utf8mb4_unicode_ci,
+            ot.oracle_shelves COLLATE utf8mb4_unicode_ci
+          ) = 0
+        )
+      )
+    )
   )
 ORDER BY ABS(rs.current_quantity - COALESCE(la.lot_current_quantity, 0)) DESC,
          ABS(COALESCE(rs.reserved_quantity, 0) - COALESCE(la.lot_reserved_quantity, 0)) DESC,
@@ -305,6 +336,7 @@ SQL;
                     'retarget_lot' => false,
                     'location_options' => [],
                     'location_option_details' => [],
+                    'location_selection_required' => false,
                 ];
             })
             ->all();
@@ -444,12 +476,15 @@ SQL;
                 }
             }
 
-            if ($row['location_option_details'] !== []) {
-                $defaultLocationId = $row['target_lot_location_id'] && isset($row['location_option_details'][$row['target_lot_location_id']])
-                    ? $row['target_lot_location_id']
-                    : array_key_first($row['location_option_details']);
-
-                $row = $this->applyTargetLocationDetail($row, $row['location_option_details'][$defaultLocationId]);
+            if ($row['target_lot_location_id'] && isset($row['location_option_details'][$row['target_lot_location_id']])) {
+                $row = $this->applyTargetLocationDetail($row, $row['location_option_details'][$row['target_lot_location_id']]);
+            } elseif ($row['location_option_details'] !== []) {
+                $row['target_location_id'] = null;
+                $row['target_floor_id'] = null;
+                $row['target_location_code'] = '';
+                $row['target_location_label'] = '選択してください';
+                $row['target_location_display'] = '選択してください';
+                $row['location_selection_required'] = true;
             }
 
             return $row;
@@ -476,6 +511,7 @@ SQL;
         $row['target_location_code'] = $detail['location_code'];
         $row['target_location_label'] = $detail['location_label'];
         $row['target_location_display'] = $detail['location_display'];
+        $row['location_selection_required'] = false;
 
         return $row;
     }

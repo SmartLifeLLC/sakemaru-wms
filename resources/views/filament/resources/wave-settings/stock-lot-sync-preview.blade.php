@@ -75,7 +75,11 @@
                             <td class="whitespace-nowrap px-2 py-1 font-mono">{{ $row['oracle_shelves'] ?: '-' }}</td>
                             <td class="whitespace-nowrap px-2 py-1 font-mono">
                                 @if ($row['location_options'] !== [])
-                                    {{ $row['target_location_display'] }}（選択可）
+                                    @if ($row['location_selection_required'])
+                                        選択してください
+                                    @else
+                                        {{ $row['target_location_display'] }}（選択可）
+                                    @endif
                                 @else
                                     Z00
                                 @endif
