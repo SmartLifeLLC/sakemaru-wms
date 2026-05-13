@@ -451,6 +451,11 @@ class ListWaves extends ListRecords
         });
     }
 
+    private function stockTransferPickingDateExpression(): string
+    {
+        return 'COALESCE(st.picking_date, st.delivered_date)';
+    }
+
     /**
      * 倉庫・出荷日・配送コース選択用のフォームスキーマ。
      * 出荷波動生成・仮ピッキングリスト出力で共有する。
@@ -595,7 +600,7 @@ class ListWaves extends ListRecords
                                         });
                                 });
 
-                            $stockTransferCounts = $this->applyRawDateFilter($stockTransferQuery, 'st.delivered_date', $shippingDates, $includePast)
+                            $stockTransferCounts = $this->applyRawDateFilter($stockTransferQuery, $this->stockTransferPickingDateExpression(), $shippingDates, $includePast)
                                 ->selectRaw('dc.id as course_id, dc.code as course_code, dc.name as course_name, COUNT(*) as count')
                                 ->groupBy('dc.id', 'dc.code', 'dc.name')
                                 ->get()
@@ -739,7 +744,7 @@ class ListWaves extends ListRecords
                                         });
                                 });
 
-                            $stockTransferSummary = $this->applyRawDateFilter($stockTransferQuery, 'st.delivered_date', $shippingDates, $includePast)
+                            $stockTransferSummary = $this->applyRawDateFilter($stockTransferQuery, $this->stockTransferPickingDateExpression(), $shippingDates, $includePast)
                                 ->selectRaw('dc.id as course_id, dc.name as course_name, COUNT(*) as count')
                                 ->groupBy('dc.id', 'dc.name')
                                 ->orderBy('dc.name')
@@ -1007,7 +1012,7 @@ class ListWaves extends ListRecords
             fn ($earning): string => \Carbon\Carbon::parse($earning->delivered_date)->format('Y-m-d').'|'.$earning->delivery_course_id
         );
         $stockTransfersByShippingDateAndDeliveryCourse = $stockTransfers->groupBy(
-            fn ($stockTransfer): string => \Carbon\Carbon::parse($stockTransfer->delivered_date)->format('Y-m-d').'|'.$stockTransfer->delivery_course_id
+            fn ($stockTransfer): string => \Carbon\Carbon::parse($stockTransfer->picking_date ?? $stockTransfer->delivered_date)->format('Y-m-d').'|'.$stockTransfer->delivery_course_id
         );
 
         $shippingDateAndDeliveryCourseKeys = $earningsByShippingDateAndDeliveryCourse->keys()
@@ -2559,6 +2564,6 @@ class ListWaves extends ListRecords
             })
             ->select('st.*');
 
-        return $this->applyRawDateFilter($query, 'st.delivered_date', $shippingDates, $includePast);
+        return $this->applyRawDateFilter($query, $this->stockTransferPickingDateExpression(), $shippingDates, $includePast);
     }
 }
