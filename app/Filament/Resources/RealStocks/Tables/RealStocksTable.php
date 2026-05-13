@@ -11,7 +11,6 @@ use App\Models\Sakemaru\RealStockLot;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -115,6 +114,7 @@ class RealStocksTable
                     ->preload(),
             ])
             ->recordActionsColumnLabel('操作')
+            ->recordAction('view')
             ->recordActions([
                 Action::make('view')
                     ->label('詳細')
@@ -129,7 +129,6 @@ class RealStocksTable
                     ))
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる'),
-                EditAction::make(),
             ])
             ->toolbarActions([
                 static::getExportAction(),
