@@ -591,6 +591,10 @@ class WmsOrderConfirmedTable
                 ]),
             ])
             ->query(function (Builder $query, array $data): Builder {
+                if (blank($data['confirmed_from'] ?? null) && blank($data['confirmed_until'] ?? null)) {
+                    return $query;
+                }
+
                 $confirmedLogQuery = WmsOrderCandidateAuditLog::query()
                     ->where('action', WmsOrderCandidateAuditLog::ACTION_CONFIRMED)
                     ->when($data['confirmed_from'] ?? null, fn (Builder $q, $date) => $q->whereDate('created_at', '>=', $date))
