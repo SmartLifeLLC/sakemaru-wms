@@ -283,6 +283,8 @@ SQL;
                     'target_lot_reserved_quantity' => $row->target_lot_reserved_quantity === null ? null : (int) $row->target_lot_reserved_quantity,
                     'target_lot_current_quantity_after' => $targetLotCurrentAfter,
                     'target_lot_reserved_quantity_after' => $targetLotReservedAfter,
+                    'target_lot_location_code' => (string) $row->target_lot_location_code,
+                    'target_lot_location_label' => (string) $row->target_lot_location_label,
                     'current_location_display' => $row->target_lot_id ? $currentLocationDisplay : '-',
                     'origin_status' => (string) $row->origin_status,
                     'origin_rows' => (int) ($row->origin_rows ?? 0),
@@ -416,11 +418,38 @@ SQL;
                 return $row;
             }
 
-            foreach ($this->splitShelfCodes($row['oracle_shelves']) as $shelfCode) {
+            $shelfCodes = $this->splitShelfCodes($row['oracle_shelves']);
+
+            if (
+                $row['target_lot_location_id']
+                && (
+                    in_array($row['target_lot_location_code'], $shelfCodes, true)
+                    || in_array($row['target_lot_location_label'], $shelfCodes, true)
+                )
+            ) {
+                $row['location_options'][$row['target_lot_location_id']] = "{$row['current_location_display']} (現在lot)";
+                $row['location_option_details'][$row['target_lot_location_id']] = [
+                    'location_id' => $row['target_lot_location_id'],
+                    'floor_id' => $row['target_lot_floor_id'],
+                    'location_code' => $row['target_lot_location_code'],
+                    'location_label' => $row['target_lot_location_label'],
+                    'location_display' => $row['current_location_display'],
+                ];
+            }
+
+            foreach ($shelfCodes as $shelfCode) {
                 foreach ($locationsByShelf[$shelfCode] ?? [] as $locationId => $detail) {
                     $row['location_options'][$locationId] = "{$detail['location_display']} ({$shelfCode})";
                     $row['location_option_details'][$locationId] = $detail;
                 }
+            }
+
+            if ($row['location_option_details'] !== []) {
+                $defaultLocationId = $row['target_lot_location_id'] && isset($row['location_option_details'][$row['target_lot_location_id']])
+                    ? $row['target_lot_location_id']
+                    : array_key_first($row['location_option_details']);
+
+                $row = $this->applyTargetLocationDetail($row, $row['location_option_details'][$defaultLocationId]);
             }
 
             return $row;
@@ -436,15 +465,19 @@ SQL;
                 return $row;
             }
 
-            $detail = $row['location_option_details'][$overrideLocationId];
-            $row['target_location_id'] = $detail['location_id'];
-            $row['target_floor_id'] = $detail['floor_id'];
-            $row['target_location_code'] = $detail['location_code'];
-            $row['target_location_label'] = $detail['location_label'];
-            $row['target_location_display'] = $detail['location_display'];
-
-            return $row;
+            return $this->applyTargetLocationDetail($row, $row['location_option_details'][$overrideLocationId]);
         }, $rows);
+    }
+
+    private function applyTargetLocationDetail(array $row, array $detail): array
+    {
+        $row['target_location_id'] = $detail['location_id'];
+        $row['target_floor_id'] = $detail['floor_id'];
+        $row['target_location_code'] = $detail['location_code'];
+        $row['target_location_label'] = $detail['location_label'];
+        $row['target_location_display'] = $detail['location_display'];
+
+        return $row;
     }
 
     private function splitShelfCodes(string $shelves): array

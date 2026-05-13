@@ -35,7 +35,9 @@ class ListWaveSettings extends ListRecords
                     ->map(fn (array $row): Select => Select::make("location_override_{$row['real_stock_id']}")
                         ->label("{$row['item_code']} {$row['item_name']}")
                         ->options($row['location_options'])
-                        ->default(array_key_first($row['location_options']))
+                        ->default(isset($row['location_options'][$row['target_location_id']])
+                            ? $row['target_location_id']
+                            : array_key_first($row['location_options']))
                         ->required()
                         ->searchable()
                     )
