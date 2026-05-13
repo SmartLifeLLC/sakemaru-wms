@@ -9,7 +9,9 @@ use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
+use App\Models\Sakemaru\User;
 use App\Models\WmsOrderCandidate;
+use App\Models\WmsOrderCandidateAuditLog;
 use App\Services\AutoOrder\OrderCancellationService;
 use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\OrderTransmissionService;
@@ -217,6 +219,10 @@ class WmsOrderConfirmedTable
                 static::warehouseFilter(),
 
                 static::contractorFilter(),
+
+                static::confirmedByFilter(),
+
+                static::confirmedDateFilter(),
 
                 Filter::make('executed_at_range')
                     ->label('実行時刻')
@@ -548,5 +554,85 @@ class WmsOrderConfirmedTable
                 ]),
             ])
             ->defaultSort('batch_code', 'desc');
+    }
+
+    private static function confirmedByFilter(): SelectFilter
+    {
+        return SelectFilter::make('confirmed_by')
+            ->label('確定者')
+            ->searchable()
+            ->default(auth()->id())
+            ->options(fn () => self::buildConfirmedByOptions())
+            ->getSearchResultsUsing(fn (string $search) => self::buildConfirmedByOptions($search))
+            ->query(function (Builder $query, array $data) {
+                if (blank($data['value'])) {
+                    return;
+                }
+
+                $query->whereIn((new WmsOrderCandidate)->getTable().'.id', WmsOrderCandidateAuditLog::query()
+                    ->where('action', WmsOrderCandidateAuditLog::ACTION_CONFIRMED)
+                    ->where('performed_by', $data['value'])
+                    ->select('order_candidate_id'));
+            });
+    }
+
+    private static function confirmedDateFilter(): Filter
+    {
+        return Filter::make('confirmed_date')
+            ->label('確定日')
+            ->schema([
+                Grid::make(2)->schema([
+                    DatePicker::make('confirmed_from')
+                        ->label('開始日')
+                        ->default(today()),
+                    DatePicker::make('confirmed_until')
+                        ->label('終了日')
+                        ->default(today()),
+                ]),
+            ])
+            ->query(function (Builder $query, array $data): Builder {
+                $confirmedLogQuery = WmsOrderCandidateAuditLog::query()
+                    ->where('action', WmsOrderCandidateAuditLog::ACTION_CONFIRMED)
+                    ->when($data['confirmed_from'] ?? null, fn (Builder $q, $date) => $q->whereDate('created_at', '>=', $date))
+                    ->when($data['confirmed_until'] ?? null, fn (Builder $q, $date) => $q->whereDate('created_at', '<=', $date))
+                    ->select('order_candidate_id');
+
+                return $query->whereIn((new WmsOrderCandidate)->getTable().'.id', $confirmedLogQuery);
+            })
+            ->indicateUsing(function (array $data): array {
+                $indicators = [];
+                if ($data['confirmed_from'] ?? null) {
+                    $indicators[] = '確定日開始: '.\Carbon\Carbon::parse($data['confirmed_from'])->format('Y/m/d');
+                }
+                if ($data['confirmed_until'] ?? null) {
+                    $indicators[] = '確定日終了: '.\Carbon\Carbon::parse($data['confirmed_until'])->format('Y/m/d');
+                }
+
+                return $indicators;
+            });
+    }
+
+    private static function buildConfirmedByOptions(?string $search = null): array
+    {
+        $query = User::query()
+            ->whereIn('id', fn ($q) => $q
+                ->select('performed_by')
+                ->from((new WmsOrderCandidateAuditLog)->getTable())
+                ->where('action', WmsOrderCandidateAuditLog::ACTION_CONFIRMED)
+                ->whereNotNull('performed_by')
+                ->distinct());
+
+        if ($search) {
+            $search = mb_convert_kana($search, 'as');
+            $query->where(fn ($q) => $q
+                ->where('code', 'like', "%{$search}%")
+                ->orWhere('name', 'like', "%{$search}%"));
+        }
+
+        return $query
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn ($u) => [$u->id => "[{$u->code}]{$u->name}"])
+            ->toArray();
     }
 }
