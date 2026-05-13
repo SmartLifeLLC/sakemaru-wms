@@ -1818,7 +1818,6 @@ class OrderTransmissionService
             'JXバラ数',
             'JX総バラ数',
             'JX原単価',
-            'JXバラ単価',
         ];
 
         // CSVデータ
@@ -1838,9 +1837,6 @@ class OrderTransmissionService
                 ? ($caseQuantity * $itemCapacityCase) + ($pieceQuantity * (int) $outputQuantity['ordering_unit_quantity'])
                 : ($caseQuantity * $displayCapacity) + $pieceQuantity;
             $jxUnitPrice = $jx['d_unit_price'] ?? null;
-            $pieceUnitPrice = $jxUnitPrice === null
-                ? null
-                : round((float) $jxUnitPrice / ($caseQuantity > 0 ? $displayCapacity : 1), 2);
 
             $rows[] = [
                 $candidate->contractor?->code ?? '',
@@ -1895,7 +1891,6 @@ class OrderTransmissionService
                 $pieceQuantity,
                 $totalPieceQuantity,
                 $jxUnitPrice === null ? '' : number_format((float) $jxUnitPrice, 2, '.', ''),
-                $pieceUnitPrice === null ? '' : number_format((float) $pieceUnitPrice, 2, '.', ''),
             ];
         }
 
