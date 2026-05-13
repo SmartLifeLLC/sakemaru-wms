@@ -1833,7 +1833,10 @@ class OrderTransmissionService
             $displayCapacity = max(1, (int) ($jx['d_purchase_lot'] ?? $outputQuantity['display_capacity'] ?? 1));
             $caseQuantity = (int) ($jx['d_case_quantity'] ?? $outputQuantity['case_quantity'] ?? 0);
             $pieceQuantity = (int) ($jx['d_piece_quantity'] ?? $outputQuantity['piece_quantity'] ?? 0);
-            $totalPieceQuantity = ($caseQuantity * $displayCapacity) + $pieceQuantity;
+            $itemCapacityCase = max(1, (int) ($candidate->item?->capacity_case ?? $displayCapacity));
+            $totalPieceQuantity = ($outputQuantity['ordering_unit_quantity'] ?? null) !== null && $caseQuantity > 0
+                ? ($caseQuantity * $itemCapacityCase) + ($pieceQuantity * (int) $outputQuantity['ordering_unit_quantity'])
+                : ($caseQuantity * $displayCapacity) + $pieceQuantity;
             $jxUnitPrice = $jx['d_unit_price'] ?? null;
             $pieceUnitPrice = $jxUnitPrice === null
                 ? null

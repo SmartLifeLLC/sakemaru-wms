@@ -47,41 +47,25 @@ class ListWmsOrderDocuments extends ListRecords
 
     public function table(\Filament\Tables\Table $table): \Filament\Tables\Table
     {
-        // JX送信対象の発注先IDを取得
-        $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET)
-            ->pluck('contractor_id')
-            ->toArray();
-
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with(['warehouse', 'contractor'])
-                ->whereIn('contractor_id', $jxContractorIds)
                 ->orderBy('created_at', 'desc')
             );
     }
 
     public function getPresetViews(): array
     {
-        // JX送信対象の発注先IDを取得
-        $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET)
-            ->pluck('contractor_id')
-            ->toArray();
-
-        // 各ステータスの件数を取得（JX対象のみ）
         $pendingCount = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
-            ->whereIn('contractor_id', $jxContractorIds)
             ->count();
         $transmittedCount = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::TRANSMITTED)
-            ->whereIn('contractor_id', $jxContractorIds)
             ->count();
         $cancelledCount = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::CANCELLED)
-            ->whereIn('contractor_id', $jxContractorIds)
             ->count();
         $testCount = WmsOrderJxDocument::whereIn('status', [
             TransmissionDocumentStatus::TEST,
             TransmissionDocumentStatus::DRAFT,
         ])
-            ->whereIn('contractor_id', $jxContractorIds)
             ->count();
 
         return [
@@ -123,11 +107,7 @@ class ListWmsOrderDocuments extends ListRecords
             ->color('danger')
             ->modalHeading('送信前JXデータを全件送信取消')
             ->modalDescription(function () {
-                $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET->value)
-                    ->pluck('contractor_id')
-                    ->toArray();
                 $count = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
-                    ->whereIn('contractor_id', $jxContractorIds)
                     ->count();
 
                 return "送信待ちのJXデータ {$count} 件を送信せずに「送信取消」にします。この操作は元に戻せません。";
@@ -136,12 +116,7 @@ class ListWmsOrderDocuments extends ListRecords
             ->modalCancelActionLabel('取消せず閉じる')
             ->requiresConfirmation()
             ->action(function () {
-                $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET->value)
-                    ->pluck('contractor_id')
-                    ->toArray();
-
                 $count = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
-                    ->whereIn('contractor_id', $jxContractorIds)
                     ->update([
                         'status' => TransmissionDocumentStatus::CANCELLED,
                     ]);
