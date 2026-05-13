@@ -167,9 +167,38 @@ class WavesTable
                     ->modalCancelActionLabel('取消せず閉じる')
                     ->modalContent(fn (Wave $record): HtmlString => static::cancelWaveModalContent($record))
                     ->action(fn (Wave $record) => static::cancelWave($record)),
+
+                Action::make('forceCloseWave')
+                    ->label('強制終了')
+                    ->icon('heroicon-o-lock-closed')
+                    ->color('warning')
+                    ->visible(fn (Wave $record): bool => $record->status !== 'CLOSED')
+                    ->requiresConfirmation()
+                    ->modalHeading(fn (Wave $record): string => "波動強制終了: {$record->wave_no}")
+                    ->modalDescription('波動ステータスだけをクローズに変更します。ピッキングタスク、明細、伝票、外部連携キューは変更しません。')
+                    ->modalWidth('2xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn (Action $action) => $action->label('波動を強制終了')->color('danger'))
+                    ->modalCancelActionLabel('終了せず閉じる')
+                    ->action(fn (Wave $record) => static::forceCloseWave($record)),
             ], position: RecordActionsPosition::AfterColumns)
             ->toolbarActions([
                 BulkActionGroup::make([
+                    BulkAction::make('bulkForceCloseWaves')
+                        ->label('波動強制終了')
+                        ->icon('heroicon-o-lock-closed')
+                        ->color('warning')
+                        ->requiresConfirmation()
+                        ->modalHeading('選択波動の強制終了')
+                        ->modalDescription('選択した波動のステータスだけをクローズに変更します。ピッキングタスク、明細、伝票、外部連携キューは変更しません。')
+                        ->modalWidth('2xl')
+                        ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('選択波動を強制終了')->color('danger'))
+                        ->modalCancelActionLabel('終了せず閉じる')
+                        ->action(fn ($records) => static::forceCloseWaves($records)),
+
                     BulkAction::make('bulkCancelWaves')
                         ->label('波動取消')
                         ->icon('heroicon-o-x-circle')
@@ -538,6 +567,73 @@ HTML;
         } catch (\Throwable $e) {
             Notification::make()
                 ->title('選択波動の取消に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    protected static function forceCloseWave(Wave $wave): void
+    {
+        try {
+            DB::connection('sakemaru')->transaction(function () use ($wave) {
+                $lockedWave = Wave::query()
+                    ->whereKey($wave->id)
+                    ->where('status', '!=', 'CLOSED')
+                    ->lockForUpdate()
+                    ->first();
+
+                $lockedWave?->update([
+                    'status' => 'CLOSED',
+                    'updated_at' => now(),
+                ]);
+            });
+
+            Notification::make()
+                ->title('波動を強制終了しました')
+                ->body("波動 {$wave->wave_no} をクローズしました。")
+                ->success()
+                ->send();
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title('波動の強制終了に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    protected static function forceCloseWaves($waves): void
+    {
+        try {
+            $waveIds = $waves->pluck('id')->values()->all();
+            $closedCount = 0;
+
+            DB::connection('sakemaru')->transaction(function () use ($waveIds, &$closedCount) {
+                $lockedWaves = Wave::query()
+                    ->whereIn('id', $waveIds)
+                    ->where('status', '!=', 'CLOSED')
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($lockedWaves as $wave) {
+                    $wave->update([
+                        'status' => 'CLOSED',
+                        'updated_at' => now(),
+                    ]);
+                    $closedCount++;
+                }
+            });
+
+            Notification::make()
+                ->title('選択波動を強制終了しました')
+                ->body($closedCount.'件の波動をクローズしました。')
+                ->success()
+                ->send();
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title('選択波動の強制終了に失敗しました')
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
