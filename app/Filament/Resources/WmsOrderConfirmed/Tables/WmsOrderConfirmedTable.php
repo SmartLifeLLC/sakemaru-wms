@@ -9,9 +9,7 @@ use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
-use App\Models\Sakemaru\User;
 use App\Models\WmsOrderCandidate;
-use App\Models\WmsOrderCandidateAuditLog;
 use App\Services\AutoOrder\OrderCancellationService;
 use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\OrderTransmissionService;
@@ -69,12 +67,27 @@ class WmsOrderConfirmedTable
                     })
                     ->width('110px'),
 
+                TextColumn::make('modified_at')
+                    ->label('確定日時')
+                    ->dateTime('m/d H:i')
+                    ->sortable()
+                    ->width('90px'),
+
                 TextColumn::make('status')
                     ->label('状態')
                     ->badge()
                     ->formatStateUsing(fn (CandidateStatus $state): string => $state->label())
                     ->color(fn (CandidateStatus $state): string => $state->color())
                     ->sortable()
+                    ->width('80px'),
+
+                TextColumn::make('jx_generation_status')
+                    ->label('JX生成')
+                    ->state(fn (WmsOrderCandidate $record): string => $record->wms_order_jx_document_id
+                        ? ($record->jxDocument?->status?->getLabel() ?? '生成済み')
+                        : '未生成')
+                    ->badge()
+                    ->color(fn (WmsOrderCandidate $record): string => $record->wms_order_jx_document_id ? 'success' : 'warning')
                     ->width('80px'),
 
                 TextColumn::make('warehouse.code')
@@ -223,6 +236,8 @@ class WmsOrderConfirmedTable
                 static::confirmedByFilter(),
 
                 static::confirmedDateFilter(),
+
+                static::jxGenerationFilter(),
 
                 Filter::make('executed_at_range')
                     ->label('実行時刻')
@@ -554,7 +569,7 @@ class WmsOrderConfirmedTable
                         ->deselectRecordsAfterCompletion(),
                 ]),
             ])
-            ->defaultSort('batch_code', 'desc');
+            ->defaultSort((new WmsOrderCandidate)->getTable().'.modified_at', 'desc');
     }
 
     private static function confirmedByFilter(): SelectFilter
@@ -562,7 +577,7 @@ class WmsOrderConfirmedTable
         return SelectFilter::make('confirmed_by')
             ->label('確定者')
             ->searchable()
-            ->default(auth()->id())
+            ->default(fn () => self::defaultConfirmedByFilterValue())
             ->options(fn () => self::buildConfirmedByOptions())
             ->getSearchResultsUsing(fn (string $search) => self::buildConfirmedByOptions($search))
             ->query(function (Builder $query, array $data) {
@@ -570,10 +585,51 @@ class WmsOrderConfirmedTable
                     return;
                 }
 
-                $query->whereIn((new WmsOrderCandidate)->getTable().'.id', WmsOrderCandidateAuditLog::query()
-                    ->where('action', WmsOrderCandidateAuditLog::ACTION_CONFIRMED)
-                    ->where('performed_by', $data['value'])
-                    ->select('order_candidate_id'));
+                $query->where((new WmsOrderCandidate)->getTable().'.modified_by', $data['value']);
+            });
+    }
+
+    private static function defaultConfirmedByFilterValue(): ?int
+    {
+        $userId = auth()->id();
+
+        if (! $userId) {
+            return null;
+        }
+
+        $table = (new WmsOrderCandidate)->getTable();
+
+        return WmsOrderCandidate::query()
+            ->whereIn('status', [
+                CandidateStatus::CONFIRMED,
+                CandidateStatus::EXECUTED,
+            ])
+            ->whereDate("{$table}.modified_at", today())
+            ->where("{$table}.modified_by", $userId)
+            ->exists()
+                ? $userId
+                : null;
+    }
+
+    private static function jxGenerationFilter(): SelectFilter
+    {
+        return SelectFilter::make('jx_generation_status')
+            ->label('JX生成')
+            ->default('not_generated')
+            ->options([
+                'not_generated' => '未生成',
+                'generated' => '生成済み',
+                'all' => 'すべて',
+            ])
+            ->query(function (Builder $query, array $data): Builder {
+                $value = $data['value'] ?? null;
+                $table = (new WmsOrderCandidate)->getTable();
+
+                return match ($value) {
+                    'not_generated' => $query->whereNull("{$table}.wms_order_jx_document_id"),
+                    'generated' => $query->whereNotNull("{$table}.wms_order_jx_document_id"),
+                    default => $query,
+                };
             });
     }
 
@@ -596,13 +652,11 @@ class WmsOrderConfirmedTable
                     return $query;
                 }
 
-                $confirmedLogQuery = WmsOrderCandidateAuditLog::query()
-                    ->where('action', WmsOrderCandidateAuditLog::ACTION_CONFIRMED)
-                    ->when($data['confirmed_from'] ?? null, fn (Builder $q, $date) => $q->whereDate('created_at', '>=', $date))
-                    ->when($data['confirmed_until'] ?? null, fn (Builder $q, $date) => $q->whereDate('created_at', '<=', $date))
-                    ->select('order_candidate_id');
+                $table = (new WmsOrderCandidate)->getTable();
 
-                return $query->whereIn((new WmsOrderCandidate)->getTable().'.id', $confirmedLogQuery);
+                return $query
+                    ->when($data['confirmed_from'] ?? null, fn (Builder $q, $date) => $q->whereDate("{$table}.modified_at", '>=', $date))
+                    ->when($data['confirmed_until'] ?? null, fn (Builder $q, $date) => $q->whereDate("{$table}.modified_at", '<=', $date));
             })
             ->indicateUsing(function (array $data): array {
                 $indicators = [];
@@ -619,12 +673,15 @@ class WmsOrderConfirmedTable
 
     private static function buildConfirmedByOptions(?string $search = null): array
     {
-        $query = User::query()
+        $query = \App\Models\Sakemaru\User::query()
             ->whereIn('id', fn ($q) => $q
-                ->select('performed_by')
-                ->from((new WmsOrderCandidateAuditLog)->getTable())
-                ->where('action', WmsOrderCandidateAuditLog::ACTION_CONFIRMED)
-                ->whereNotNull('performed_by')
+                ->select('modified_by')
+                ->from((new WmsOrderCandidate)->getTable())
+                ->whereIn('status', [
+                    CandidateStatus::CONFIRMED->value,
+                    CandidateStatus::EXECUTED->value,
+                ])
+                ->whereNotNull('modified_by')
                 ->distinct());
 
         if ($search) {

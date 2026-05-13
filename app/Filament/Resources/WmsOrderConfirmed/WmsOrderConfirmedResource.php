@@ -6,9 +6,9 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsOrderConfirmed\Pages\ListWmsOrderConfirmed;
 use App\Filament\Resources\WmsOrderConfirmed\Tables\WmsOrderConfirmedTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsOrderCandidate;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -56,6 +56,7 @@ class WmsOrderConfirmedResource extends AdminResource
                 'item',
                 'contractor',
                 'modifiedByUser',
+                'jxDocument',
             ]);
     }
 
