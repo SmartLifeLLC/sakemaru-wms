@@ -56,20 +56,7 @@ class PrintRequestService
                 ];
             }
 
-            // earning_id と stock_transfer_id を収集
-            $earningIds = [];
-            $stockTransferIds = [];
-
-            foreach ($tasks as $task) {
-                foreach ($task->pickingItemResults as $itemResult) {
-                    if ($itemResult->earning_id && ! in_array($itemResult->earning_id, $earningIds)) {
-                        $earningIds[] = $itemResult->earning_id;
-                    }
-                    if ($itemResult->stock_transfer_id && ! in_array($itemResult->stock_transfer_id, $stockTransferIds)) {
-                        $stockTransferIds[] = $itemResult->stock_transfer_id;
-                    }
-                }
-            }
+            [$earningIds, $stockTransferIds] = $this->collectPrintTargetIds($tasks->pluck('id')->all());
 
             // 売上も倉庫移動もない場合はエラー
             if (empty($earningIds) && empty($stockTransferIds)) {
@@ -191,5 +178,48 @@ class PrintRequestService
         }
 
         return null;
+    }
+
+    /**
+     * 配送コース別ピッキングリストと同じ棚順で、帳票生成対象の伝票IDを収集する。
+     *
+     * @return array{0: array<int>, 1: array<int>}
+     */
+    private function collectPrintTargetIds(array $taskIds): array
+    {
+        $rows = DB::connection('sakemaru')
+            ->table('wms_picking_item_results as pir')
+            ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
+            ->join('items as i', 'pir.item_id', '=', 'i.id')
+            ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('stock_transfers as st', 'pir.stock_transfer_id', '=', 'st.id')
+            ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
+            ->whereIn('pir.picking_task_id', $taskIds)
+            ->whereRaw('(pir.planned_qty - COALESCE(pir.shortage_qty, 0)) > 0')
+            ->select([
+                'pir.earning_id',
+                'pir.stock_transfer_id',
+            ])
+            ->orderByRaw('COALESCE(l.floor_id, 999999)')
+            ->orderByRaw("COALESCE(l.code1, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code2, 'ZZZ')")
+            ->orderByRaw("COALESCE(l.code3, 'ZZZ')")
+            ->orderBy('i.code')
+            ->orderByRaw('COALESCE(e.id, st.id)')
+            ->get();
+
+        $earningIds = [];
+        $stockTransferIds = [];
+
+        foreach ($rows as $row) {
+            if ($row->earning_id && ! in_array((int) $row->earning_id, $earningIds, true)) {
+                $earningIds[] = (int) $row->earning_id;
+            }
+            if ($row->stock_transfer_id && ! in_array((int) $row->stock_transfer_id, $stockTransferIds, true)) {
+                $stockTransferIds[] = (int) $row->stock_transfer_id;
+            }
+        }
+
+        return [$earningIds, $stockTransferIds];
     }
 }

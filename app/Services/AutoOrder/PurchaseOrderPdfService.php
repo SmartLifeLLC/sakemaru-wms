@@ -19,10 +19,10 @@ use TCPDF;
  */
 class PurchaseOrderPdfService
 {
-    // A4サイズ（mm）
-    private const PAGE_WIDTH = 210;
+    // A4横サイズ（mm）
+    private const PAGE_WIDTH = 297;
 
-    private const PAGE_HEIGHT = 297;
+    private const PAGE_HEIGHT = 210;
 
     // マージン（mm）
     private const MARGIN_LEFT = 10;
@@ -34,21 +34,21 @@ class PurchaseOrderPdfService
     private const MARGIN_BOTTOM = 15;
 
     // 描画エリア
-    private const CONTENT_WIDTH = 190; // PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT
+    private const CONTENT_WIDTH = 277; // PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT
 
     // フォントサイズ（pt）
-    private const FONT_SIZE_TITLE = 16;
+    private const FONT_SIZE_TITLE = 22;
 
-    private const FONT_SIZE_LARGE = 12;
+    private const FONT_SIZE_LARGE = 16;
 
-    private const FONT_SIZE_NORMAL = 9;
+    private const FONT_SIZE_NORMAL = 13;
 
-    private const FONT_SIZE_SMALL = 8;
+    private const FONT_SIZE_SMALL = 12;
 
     // 行高さ（mm）
-    private const LINE_HEIGHT_NORMAL = 5;
+    private const LINE_HEIGHT_NORMAL = 7;
 
-    private const LINE_HEIGHT_TABLE = 6;
+    private const LINE_HEIGHT_TABLE = 9;
 
     // 罫線幅（mm）
     private const LINE_WIDTH = 0.2;
@@ -57,12 +57,12 @@ class PurchaseOrderPdfService
 
     // テーブル列幅（mm）
     private const COL_WIDTHS = [
-        'ordering_code' => 28,     // 発注CD（JANコード）
-        'item_code' => 22,         // 自社コード
-        'capacity_case' => 12,     // 入数
-        'item_name' => 108,        // 商品名（省略なし）- 規格削除分広く
-        'case_qty' => 10,          // ケース
-        'piece_qty' => 10,         // バラ
+        'ordering_code' => 55,     // 発注CD（JANコード）- 省略禁止
+        'item_code' => 32,         // 自社コード
+        'capacity_case' => 18,     // 入数
+        'item_name' => 143,        // 商品名（省略なし）
+        'case_qty' => 15,          // ケース
+        'piece_qty' => 14,         // バラ
     ];
 
     private TCPDF $pdf;
@@ -195,7 +195,7 @@ class PurchaseOrderPdfService
      */
     private function initPdf(): void
     {
-        $this->pdf = new TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
+        $this->pdf = new TCPDF('L', 'mm', 'A4', true, 'UTF-8', false);
 
         // メタデータ
         $this->pdf->SetCreator('Smart WMS');
@@ -256,15 +256,15 @@ class PurchaseOrderPdfService
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
         $titleWidth = $this->pdf->GetStringWidth('発注書');
         $this->pdf->SetXY((self::PAGE_WIDTH - $titleWidth) / 2, $this->currentY);
-        $this->pdf->Cell($titleWidth, 10, '発注書', 0, 0, 'C');
-        $this->currentY += 12;
+        $this->pdf->Cell($titleWidth, 14, '発注書', 0, 0, 'C');
+        $this->currentY += 16;
 
         // 発注日・発注番号（右上）
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
-        $this->pdf->SetXY(self::PAGE_WIDTH - self::MARGIN_RIGHT - 60, self::MARGIN_TOP);
-        $this->pdf->Cell(60, self::LINE_HEIGHT_NORMAL, '発注日: '.$this->dataFile->order_date->format('Y年m月d日'), 0, 1, 'R');
-        $this->pdf->SetX(self::PAGE_WIDTH - self::MARGIN_RIGHT - 60);
-        $this->pdf->Cell(60, self::LINE_HEIGHT_NORMAL, '発注番号: '.$this->dataFile->batch_code, 0, 1, 'R');
+        $this->pdf->SetXY(self::PAGE_WIDTH - self::MARGIN_RIGHT - 90, self::MARGIN_TOP);
+        $this->pdf->Cell(90, self::LINE_HEIGHT_NORMAL, '発注日: '.$this->dataFile->order_date->format('Y年m月d日'), 0, 1, 'R');
+        $this->pdf->SetX(self::PAGE_WIDTH - self::MARGIN_RIGHT - 90);
+        $this->pdf->Cell(90, self::LINE_HEIGHT_NORMAL, '発注番号: '.$this->dataFile->batch_code, 0, 1, 'R');
 
         // 発注先・発注元情報を同じ高さから描画
         $infoStartY = $this->currentY;
@@ -289,22 +289,22 @@ class PurchaseOrderPdfService
         $this->pdf->SetXY(self::MARGIN_LEFT, $startY);
 
         $contractorName = $this->contractor?->name ?? '（発注先名）';
-        $this->pdf->Cell(80, 8, $contractorName.' 御中', 0, 1, 'L');
+        $this->pdf->Cell(110, 10, $contractorName.' 御中', 0, 1, 'L');
 
         // 下線
-        $this->pdf->Line(self::MARGIN_LEFT, $startY + 8, self::MARGIN_LEFT + 80, $startY + 8);
+        $this->pdf->Line(self::MARGIN_LEFT, $startY + 10, self::MARGIN_LEFT + 110, $startY + 10);
 
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
-        $lineY = $startY + 10;
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+        $lineY = $startY + 13;
 
         if ($this->contractor?->tel) {
             $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-            $this->pdf->Cell(80, self::LINE_HEIGHT_NORMAL, 'TEL: '.$this->contractor->tel, 0, 1, 'L');
+            $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, 'TEL: '.$this->contractor->tel, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
         if ($this->contractor?->fax) {
             $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-            $this->pdf->Cell(80, self::LINE_HEIGHT_NORMAL, 'FAX: '.$this->contractor->fax, 0, 1, 'L');
+            $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, 'FAX: '.$this->contractor->fax, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
@@ -317,7 +317,7 @@ class PurchaseOrderPdfService
         $warehouseName = $deliveryWarehouse?->name ?? '';
         if ($warehouseName) {
             $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-            $this->pdf->Cell(80, self::LINE_HEIGHT_NORMAL, '納入場所: '.$warehouseName, 0, 1, 'L');
+            $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '納入場所: '.$warehouseName, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
@@ -327,14 +327,14 @@ class PurchaseOrderPdfService
             $this->contractor?->id ?? 0,
         );
         $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-        $this->pdf->Cell(80, self::LINE_HEIGHT_NORMAL, '納入先指定コード: '.($designatedCode ?? ' - '), 0, 1, 'L');
+        $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '納入先指定コード: '.($designatedCode ?? ' - '), 0, 1, 'L');
         $lineY += self::LINE_HEIGHT_NORMAL;
 
         // 納入予定日（入荷日）
         $expectedDate = $this->dataFile->expected_arrival_date?->format('Y年m月d日') ?? '';
         if ($expectedDate) {
             $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-            $this->pdf->Cell(80, self::LINE_HEIGHT_NORMAL, '納入予定日: '.$expectedDate, 0, 1, 'L');
+            $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '納入予定日: '.$expectedDate, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
@@ -342,7 +342,7 @@ class PurchaseOrderPdfService
         $orderingWarehouseName = $this->warehouse?->name ?? '';
         if ($orderingWarehouseName) {
             $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-            $this->pdf->Cell(80, self::LINE_HEIGHT_NORMAL, '発注担当: '.$orderingWarehouseName, 0, 1, 'L');
+            $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '発注担当: '.$orderingWarehouseName, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
@@ -355,7 +355,7 @@ class PurchaseOrderPdfService
      */
     private function renderClientInfo(float $startY): void
     {
-        $startX = self::PAGE_WIDTH - self::MARGIN_RIGHT - 75;
+        $startX = self::PAGE_WIDTH - self::MARGIN_RIGHT - 100;
         $wh = $this->warehouse;
 
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
@@ -364,14 +364,14 @@ class PurchaseOrderPdfService
 
         // 会社名（Clientから）
         $this->pdf->SetXY($startX, $lineY);
-        $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, $this->client->name ?? '', 0, 1, 'L');
+        $this->pdf->Cell(100, self::LINE_HEIGHT_NORMAL, $this->client->name ?? '', 0, 1, 'L');
         $lineY += self::LINE_HEIGHT_NORMAL;
 
         // 倉庫名
         if ($wh?->name) {
             $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
             $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, $wh->name, 0, 1, 'L');
+            $this->pdf->Cell(100, self::LINE_HEIGHT_NORMAL, $wh->name, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
@@ -385,7 +385,7 @@ class PurchaseOrderPdfService
             $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
             $this->pdf->SetXY($startX, $lineY);
             $displayAddress = $postalCode ? '〒'.$postalCode.' '.$address : $address;
-            $this->pdf->MultiCell(75, self::LINE_HEIGHT_NORMAL, $displayAddress, 0, 'L');
+            $this->pdf->MultiCell(100, self::LINE_HEIGHT_NORMAL, $displayAddress, 0, 'L');
             $lineY = $this->pdf->GetY();
         }
 
@@ -395,7 +395,7 @@ class PurchaseOrderPdfService
         $tel = $wh?->tel ?: $this->client->tel;
         if ($tel) {
             $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, 'TEL: '.$tel, 0, 1, 'L');
+            $this->pdf->Cell(100, self::LINE_HEIGHT_NORMAL, 'TEL: '.$tel, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
@@ -403,7 +403,7 @@ class PurchaseOrderPdfService
         $fax = $wh?->fax ?: $this->client->fax;
         if ($fax) {
             $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->Cell(75, self::LINE_HEIGHT_NORMAL, 'FAX: '.$fax, 0, 1, 'L');
+            $this->pdf->Cell(100, self::LINE_HEIGHT_NORMAL, 'FAX: '.$fax, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
@@ -508,7 +508,7 @@ class PurchaseOrderPdfService
         $pieceQty = $outputQuantity['piece_quantity'];
 
         $rowData = [
-            $this->truncateText($outputQuantity['ordering_code'] ?? '', 28), // 発注CD（JANコード）
+            $outputQuantity['ordering_code'] ?? '',                             // 発注CD（JANコード）- 省略禁止
             $this->truncateText($item?->code ?? '', 22),                     // 自社コード
             $capacityCase > 1 ? $capacityCase : '',                          // 入数（1は表示しない）
             $item?->name ?? '',                                              // 商品名（省略なし - 複数行対応）

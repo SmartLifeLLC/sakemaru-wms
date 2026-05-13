@@ -107,10 +107,64 @@ class JxClient
             $rawData = $wrapper->wrap($rawData);
         }
 
+        $this->logOrderPriceRowsBeforeSend($rawData, $documentType);
+
         // Base64エンコードして送信
         $encodedData = base64_encode($rawData);
 
         return $this->putDocument($encodedData, $documentType, $formatType, $compressType);
+    }
+
+    /**
+     * JX送信直前の実データからD明細の価格関連項目をログに残す。
+     */
+    private function logOrderPriceRowsBeforeSend(string $rawData, string $documentType): void
+    {
+        try {
+            $sjisData = mb_check_encoding($rawData, 'UTF-8')
+                ? mb_convert_encoding($rawData, 'SJIS-win', 'UTF-8')
+                : $rawData;
+            $sjisData = str_replace(["\r\n", "\n", "\r"], '', $sjisData);
+
+            $rows = [];
+            $recordIndex = 0;
+
+            for ($offset = 0, $length = strlen($sjisData); $offset + 128 <= $length; $offset += 128) {
+                $recordIndex++;
+                $record = substr($sjisData, $offset, 128);
+
+                if ($record[0] !== 'D') {
+                    continue;
+                }
+
+                $priceRaw = trim(substr($record, 108, 10));
+                $rows[] = [
+                    'record_index' => $recordIndex,
+                    'line_number' => (int) substr($record, 3, 2),
+                    'item_name' => trim(mb_convert_encoding(substr($record, 5, 64), 'UTF-8', 'SJIS-win')),
+                    'ordering_code' => trim(substr($record, 69, 13)),
+                    'item_code' => trim(substr($record, 82, 6)),
+                    'purchase_lot' => (int) substr($record, 88, 6),
+                    'case_quantity' => (int) substr($record, 94, 7),
+                    'piece_quantity' => (int) substr($record, 101, 7),
+                    'unit_price_raw' => $priceRaw,
+                    'unit_price' => is_numeric($priceRaw) ? ((int) $priceRaw) / 100 : null,
+                ];
+            }
+
+            Log::info('JX order price rows before send', [
+                'jx_setting_id' => $this->setting->id,
+                'document_type' => $documentType,
+                'd_record_count' => count($rows),
+                'rows' => $rows,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to log JX order price rows before send', [
+                'jx_setting_id' => $this->setting->id,
+                'document_type' => $documentType,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
