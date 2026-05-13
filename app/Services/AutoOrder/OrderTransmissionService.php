@@ -1102,6 +1102,55 @@ class OrderTransmissionService
         return $this->generateAndTransmitForContractor($contractorId);
     }
 
+    public function transmitSelectedDocuments(Collection $documents): array
+    {
+        $pendingDocuments = $documents
+            ->filter(fn (WmsOrderJxDocument $document): bool => $document->status === TransmissionDocumentStatus::PENDING)
+            ->values();
+
+        if ($pendingDocuments->isEmpty()) {
+            return [
+                'success' => false,
+                'transmitted' => [],
+                'errors' => [['error' => '選択データに送信待ちのJXデータがありません']],
+            ];
+        }
+
+        $candidates = $this->candidatesForDocumentCsvRows($pendingDocuments);
+        if ($candidates->isEmpty()) {
+            return [
+                'success' => false,
+                'transmitted' => [],
+                'errors' => [['error' => '選択データのCSVに一致する確定済み候補がありません']],
+            ];
+        }
+
+        $result = $this->generateAndTransmitForDocuments($pendingDocuments, $candidates);
+        $result['order_count'] = $candidates->count();
+
+        return $result;
+    }
+
+    public function candidatesForDocumentCsvRows(Collection $documents): Collection
+    {
+        $documentIds = $documents->pluck('id')->filter()->values();
+        if ($documentIds->isEmpty()) {
+            return collect();
+        }
+
+        $csvRows = $this->selectedDocumentCsvRows($documents);
+        $candidates = WmsOrderCandidate::query()
+            ->whereIn('wms_order_jx_document_id', $documentIds)
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->whereNotNull('ordering_code')
+            ->with(['warehouse', 'item', 'contractor'])
+            ->orderBy('wms_order_jx_document_id')
+            ->orderBy('id')
+            ->get();
+
+        return $this->filterCandidatesByCsvRows($candidates, $csvRows);
+    }
+
     private function expandTransmissionContractorIds(array $contractorIds): array
     {
         $generator = $this->getOrderFileGenerator();
@@ -1175,6 +1224,9 @@ class OrderTransmissionService
             $documents->each(fn ($d) => $d->update([
                 'status' => TransmissionDocumentStatus::TRANSMITTED,
                 'file_path' => $s3Path,
+                'file_size' => strlen($content),
+                'record_count' => $file['record_count'] ?? 0,
+                'order_count' => $candidates->count(),
                 'transmitted_at' => $now,
                 'transmitted_by' => auth()->id(),
                 'jx_message_id' => $result->messageId,
@@ -1191,6 +1243,11 @@ class OrderTransmissionService
                 'message_id' => $result->messageId,
                 's3_path' => $s3Path,
             ]);
+
+            $candidates->each(fn (WmsOrderCandidate $candidate) => $candidate->update([
+                'status' => CandidateStatus::EXECUTED,
+                'transmitted_at' => $now,
+            ]));
 
             return [
                 'success' => true,
@@ -1218,6 +1275,103 @@ class OrderTransmissionService
             'transmitted' => [],
             'errors' => [['document_id' => implode(',', $documentIds), 'error' => $result->error]],
         ];
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function selectedDocumentCsvRows(Collection $documents): array
+    {
+        $keys = [];
+
+        foreach ($documents as $document) {
+            if (! $document->csv_path || ! Storage::disk('s3')->exists($document->csv_path)) {
+                throw new \RuntimeException("選択データのCSVが見つかりません: {$document->batch_code}");
+            }
+
+            $stream = fopen('php://temp', 'r+');
+            fwrite($stream, Storage::disk('s3')->get($document->csv_path));
+            rewind($stream);
+
+            $columnMap = null;
+            while (($row = fgetcsv($stream)) !== false) {
+                if ($columnMap === null) {
+                    $row[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $row[0]);
+                    $columnMap = array_flip($row);
+
+                    continue;
+                }
+
+                if (count($row) < 10) {
+                    continue;
+                }
+
+                $row[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $row[0]);
+                $key = $this->csvCandidateKey(
+                    $row[$columnMap['発注先コード'] ?? 0] ?? '',
+                    $row[$columnMap['倉庫コード'] ?? 2] ?? '',
+                    $row[$columnMap['商品コード'] ?? 4] ?? '',
+                    $row[$columnMap['JX発注CD'] ?? $columnMap['発注コード'] ?? 6] ?? '',
+                    $row[$columnMap['発注数量'] ?? 7] ?? '',
+                    $row[$columnMap['入荷予定日'] ?? 8] ?? '',
+                );
+                $keys[$key] = ($keys[$key] ?? 0) + 1;
+            }
+
+            fclose($stream);
+        }
+
+        if ($keys === []) {
+            throw new \RuntimeException('選択データのCSVに明細行がありません');
+        }
+
+        return $keys;
+    }
+
+    private function filterCandidatesByCsvRows(Collection $candidates, array $csvRows): Collection
+    {
+        $resolver = app(OrderOutputQuantityResolver::class);
+        $remaining = $csvRows;
+
+        return $candidates
+            ->filter(function (WmsOrderCandidate $candidate) use ($resolver, &$remaining): bool {
+                $outputQuantity = $resolver->resolve($candidate);
+                $key = $this->csvCandidateKey(
+                    $candidate->contractor?->code ?? '',
+                    $candidate->warehouse?->code ?? '',
+                    $candidate->item?->code ?? '',
+                    $outputQuantity['ordering_code'] ?? '',
+                    $outputQuantity['order_quantity'],
+                    $candidate->expected_arrival_date?->format('Y-m-d') ?? '',
+                );
+
+                if (($remaining[$key] ?? 0) <= 0) {
+                    return false;
+                }
+
+                $remaining[$key]--;
+
+                return true;
+            })
+            ->values();
+    }
+
+    private function csvCandidateKey(
+        string|int|null $contractorCode,
+        string|int|null $warehouseCode,
+        string|int|null $itemCode,
+        string|int|null $orderingCode,
+        string|int|null $orderQuantity,
+        ?string $expectedArrivalDate,
+    ): string {
+        return implode('|', [
+            trim((string) $contractorCode),
+            trim((string) $warehouseCode),
+            trim((string) $itemCode),
+            trim((string) $orderingCode),
+            (string) (int) $orderQuantity,
+            trim((string) $expectedArrivalDate),
+        ]);
     }
 
     /**
@@ -1618,19 +1772,72 @@ class OrderTransmissionService
             '倉庫名',
             '商品コード',
             '商品名',
-            '発注コード',
+            'JX発注CD',
             '発注数量',
             '入荷予定日',
             '発注日',
+            'JXファイル名',
+            'JX_1データシリアルNo',
+            'JX_1データ種別',
+            'JX_1作成日',
+            'JX_1作成時刻',
+            'JX_1ファイルNo',
+            'JX_1処理日',
+            'JX_1利用者企業CD',
+            'JX_1送信元センターCD',
+            'JX_1最終送信先CD',
+            'JX_1直接送信先企業CD',
+            'JX_1提供企業CD',
+            'JX_1提供企業事業所CD',
+            'JX_1提供企業名',
+            'JX_1提供企業事業所名',
+            'JX_1送信データ件数',
+            'JX_1レコードサイズ',
+            'JX_A処理日付',
+            'JX_A処理時刻',
+            'JX_A送信元',
+            'JX_A送信先',
+            'JX_Aレコード件数',
+            'JX_A帳票枚数',
+            'JX_B伝票番号',
+            'JX_B社店CD',
+            'JX_B分類CD',
+            'JX_B伝票区分',
+            'JX_B発注日',
+            'JX_B納品日',
+            'JX_B便',
+            'JX_B取引先CD',
+            'JX_B店名',
+            'JX_B納品場所',
+            'JX_B備考',
+            'JX_B直送区分',
+            'JX_D行番号',
+            'JX_D品名',
+            'JX仕入入数',
+            'JXケース数',
+            'JXバラ数',
+            'JX総バラ数',
+            'JX原単価',
+            'JXバラ単価',
         ];
 
         // CSVデータ
         $rows = [];
         $rows[] = $headers;
         $quantityResolver = app(OrderOutputQuantityResolver::class);
+        $jxDetailRows = $this->extractJxDetailRowsFromContent($file['content']);
 
-        foreach ($candidates as $candidate) {
+        foreach ($candidates->values() as $index => $candidate) {
             $outputQuantity = $quantityResolver->resolve($candidate);
+            $jx = $jxDetailRows[$index] ?? [];
+            $displayCapacity = max(1, (int) ($jx['d_purchase_lot'] ?? $outputQuantity['display_capacity'] ?? 1));
+            $caseQuantity = (int) ($jx['d_case_quantity'] ?? $outputQuantity['case_quantity'] ?? 0);
+            $pieceQuantity = (int) ($jx['d_piece_quantity'] ?? $outputQuantity['piece_quantity'] ?? 0);
+            $totalPieceQuantity = ($caseQuantity * $displayCapacity) + $pieceQuantity;
+            $jxUnitPrice = $jx['d_unit_price'] ?? null;
+            $pieceUnitPrice = $jxUnitPrice === null
+                ? null
+                : round((float) $jxUnitPrice / ($caseQuantity > 0 ? $displayCapacity : 1), 2);
 
             $rows[] = [
                 $candidate->contractor?->code ?? '',
@@ -1643,6 +1850,49 @@ class OrderTransmissionService
                 $outputQuantity['order_quantity'],
                 $candidate->expected_arrival_date?->format('Y-m-d') ?? '',
                 now()->format('Y-m-d'),
+                $file['filename'] ?? '',
+                $jx['wrapper_serial_number'] ?? '',
+                $jx['wrapper_document_type'] ?? '',
+                $jx['wrapper_created_date'] ?? '',
+                $jx['wrapper_created_time'] ?? '',
+                $jx['wrapper_file_number'] ?? '',
+                $jx['wrapper_process_date'] ?? '',
+                $jx['wrapper_receiver_trading_code'] ?? '',
+                $jx['wrapper_sender_center_code'] ?? '',
+                $jx['wrapper_final_receiver_code'] ?? '',
+                $jx['wrapper_direct_receiver_company_code'] ?? '',
+                $jx['wrapper_sender_trading_code'] ?? '',
+                $jx['wrapper_sender_office_code'] ?? '',
+                $jx['wrapper_sender_name'] ?? '',
+                $jx['wrapper_sender_office_name'] ?? '',
+                $jx['wrapper_record_count'] ?? '',
+                $jx['wrapper_record_size'] ?? '',
+                $jx['a_process_date'] ?? '',
+                $jx['a_process_time'] ?? '',
+                $jx['a_sender'] ?? '',
+                $jx['a_receiver'] ?? '',
+                $jx['a_record_count'] ?? '',
+                $jx['a_slip_count'] ?? '',
+                $jx['b_slip_number'] ?? '',
+                $jx['b_store_code'] ?? '',
+                $jx['b_category_code'] ?? '',
+                $jx['b_slip_type'] ?? '',
+                $jx['b_order_date'] ?? '',
+                $jx['b_delivery_date'] ?? '',
+                $jx['b_delivery_bin'] ?? '',
+                $jx['b_contractor_code'] ?? '',
+                $jx['b_store_name'] ?? '',
+                $jx['b_delivery_place'] ?? '',
+                $jx['b_note'] ?? '',
+                $jx['b_direct_type'] ?? '',
+                $jx['d_line_number'] ?? '',
+                $jx['d_item_name'] ?? '',
+                $displayCapacity,
+                $caseQuantity,
+                $pieceQuantity,
+                $totalPieceQuantity,
+                $jxUnitPrice === null ? '' : number_format((float) $jxUnitPrice, 2, '.', ''),
+                $pieceUnitPrice === null ? '' : number_format((float) $pieceUnitPrice, 2, '.', ''),
             ];
         }
 
@@ -1958,11 +2208,12 @@ class OrderTransmissionService
     {
         $candidates = WmsOrderCandidate::whereIn('id', $candidateIds)
             ->where('status', CandidateStatus::CONFIRMED)
+            ->whereNull('wms_order_jx_document_id')
             ->with(['item', 'contractor', 'warehouse'])
             ->get();
 
         if ($candidates->isEmpty()) {
-            return ['success' => false, 'files' => [], 'total_orders' => 0, 'errors' => ['確定済みの発注候補がありません']];
+            return ['success' => false, 'files' => [], 'total_orders' => 0, 'errors' => ['JX未生成の確定済み発注候補がありません']];
         }
 
         $batchCode = 'J'.now()->format('YmdHis').str_pad((string) random_int(0, 999), 3, '0', STR_PAD_LEFT);
@@ -2017,6 +2268,108 @@ class OrderTransmissionService
         }
 
         return $records;
+    }
+
+    /**
+     * JX固定長内容をCSV確認用の明細行に展開する。
+     *
+     * @return array<int, array<string, int|string|float>>
+     */
+    private function extractJxDetailRowsFromContent(string $content): array
+    {
+        $content = str_replace(["\r\n", "\n", "\r"], '', $content);
+
+        $wrapper = [];
+        $a = [];
+        $currentB = [];
+        $rows = [];
+
+        for ($offset = 0, $length = strlen($content); $offset + 128 <= $length; $offset += 128) {
+            $record = substr($content, $offset, 128);
+
+            if ($record[0] === '1') {
+                $wrapper = [
+                    'wrapper_serial_number' => trim(substr($record, 1, 7)),
+                    'wrapper_document_type' => trim(substr($record, 8, 2)),
+                    'wrapper_created_date' => trim(substr($record, 10, 6)),
+                    'wrapper_created_time' => trim(substr($record, 16, 6)),
+                    'wrapper_file_number' => trim(substr($record, 22, 2)),
+                    'wrapper_process_date' => trim(substr($record, 24, 6)),
+                    'wrapper_receiver_trading_code' => trim(substr($record, 30, 12)),
+                    'wrapper_sender_center_code' => trim(substr($record, 42, 6)),
+                    'wrapper_final_receiver_code' => trim(substr($record, 50, 6)),
+                    'wrapper_direct_receiver_company_code' => trim(substr($record, 58, 6)),
+                    'wrapper_sender_trading_code' => trim(substr($record, 66, 12)),
+                    'wrapper_sender_office_code' => trim(substr($record, 78, 12)),
+                    'wrapper_sender_name' => $this->decodeJxText(substr($record, 90, 15)),
+                    'wrapper_sender_office_name' => $this->decodeJxText(substr($record, 105, 10)),
+                    'wrapper_record_count' => (int) substr($record, 115, 6),
+                    'wrapper_record_size' => (int) substr($record, 121, 3),
+                ];
+
+                continue;
+            }
+
+            if ($record[0] === 'A') {
+                $a = [
+                    'a_process_date' => trim(substr($record, 3, 8)),
+                    'a_process_time' => trim(substr($record, 11, 6)),
+                    'a_sender' => trim(substr($record, 17, 8)),
+                    'a_receiver' => trim(substr($record, 25, 8)),
+                    'a_record_count' => (int) substr($record, 33, 6),
+                    'a_slip_count' => (int) substr($record, 39, 6),
+                ];
+
+                continue;
+            }
+
+            if ($record[0] === 'B') {
+                $currentB = [
+                    'b_slip_number' => trim(substr($record, 3, 11)),
+                    'b_store_code' => trim(substr($record, 14, 4)),
+                    'b_category_code' => trim(substr($record, 18, 3)),
+                    'b_slip_type' => trim(substr($record, 21, 2)),
+                    'b_order_date' => trim(substr($record, 23, 6)),
+                    'b_delivery_date' => trim(substr($record, 29, 6)),
+                    'b_delivery_bin' => trim(substr($record, 35, 3)),
+                    'b_contractor_code' => trim(substr($record, 38, 4)),
+                    'b_store_name' => $this->decodeJxText(substr($record, 42, 15)),
+                    'b_delivery_place' => $this->decodeJxText(substr($record, 57, 10)),
+                    'b_note' => $this->decodeJxText(substr($record, 67, 25)),
+                    'b_direct_type' => trim(substr($record, 92, 2)),
+                ];
+
+                continue;
+            }
+
+            if ($record[0] !== 'D') {
+                continue;
+            }
+
+            $purchaseLot = (int) substr($record, 88, 6);
+            $caseQuantity = (int) substr($record, 94, 7);
+            $pieceQuantity = (int) substr($record, 101, 7);
+            $unitPrice = ((int) substr($record, 108, 10)) / 100;
+
+            $rows[] = array_merge($wrapper, $a, $currentB, [
+                'd_line_number' => (int) substr($record, 3, 2),
+                'd_item_name' => $this->decodeJxText(substr($record, 5, 64)),
+                'd_ordering_code' => trim(substr($record, 69, 13)),
+                'd_item_code' => trim(substr($record, 82, 6)),
+                'd_purchase_lot' => $purchaseLot,
+                'd_case_quantity' => $caseQuantity,
+                'd_piece_quantity' => $pieceQuantity,
+                'd_total_piece_quantity' => ($caseQuantity * max(1, $purchaseLot)) + $pieceQuantity,
+                'd_unit_price' => $unitPrice,
+            ]);
+        }
+
+        return $rows;
+    }
+
+    private function decodeJxText(string $value): string
+    {
+        return trim(mb_convert_encoding($value, 'UTF-8', 'SJIS-win'));
     }
 
     /**

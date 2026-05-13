@@ -13,6 +13,7 @@ use App\Models\Sakemaru\User;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
+use App\Services\AutoOrder\OrderExecutionService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -638,6 +639,76 @@ class WmsOrderConfirmationWaitingTable
             ->toolbarActions([
                 static::getExportAction(),
                 BulkActionGroup::make([
+                    BulkAction::make('bulkConfirmSelectedOrders')
+                        ->label('選択を発注確定')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('選択した発注候補を確定')
+                        ->modalDescription('選択した承認済み発注候補だけを確定し、入荷予定を作成します。選択していない候補は確定しません。')
+                        ->modalSubmitActionLabel('確定実行')
+                        ->modalCancelActionLabel('確定せず閉じる')
+                        ->action(function (Collection $records) {
+                            $user = auth()->user();
+                            if (! $user?->id) {
+                                Notification::make()
+                                    ->title('ログインユーザーを確認できません')
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $approvedIds = $records
+                                ->filter(fn ($r) => $r->status === CandidateStatus::APPROVED)
+                                ->pluck('id')
+                                ->map(fn ($id) => (int) $id)
+                                ->all();
+
+                            if (empty($approvedIds)) {
+                                Notification::make()
+                                    ->title('承認済みのレコードがありません')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $service = app(OrderExecutionService::class);
+                            $confirmed = 0;
+                            $failed = 0;
+
+                            WmsOrderCandidate::whereIn('id', $approvedIds)
+                                ->where('status', CandidateStatus::APPROVED)
+                                ->get()
+                                ->each(function (WmsOrderCandidate $candidate) use ($service, $user, &$confirmed, &$failed) {
+                                    try {
+                                        $service->confirmCandidate($candidate, (int) $user->id);
+                                        $confirmed++;
+                                    } catch (\Throwable $e) {
+                                        report($e);
+                                        $failed++;
+                                    }
+                                });
+
+                            if ($confirmed === 0) {
+                                Notification::make()
+                                    ->title('確定できた発注候補がありません')
+                                    ->body($failed > 0 ? "失敗: {$failed}件" : null)
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            Notification::make()
+                                ->title("{$confirmed}件の発注候補を確定しました")
+                                ->body($failed > 0 ? "失敗: {$failed}件" : null)
+                                ->success()
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+
                     BulkAction::make('bulkCancelApproval')
                         ->label('選択の承認取消')
                         ->icon('heroicon-o-x-circle')

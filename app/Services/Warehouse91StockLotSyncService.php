@@ -204,6 +204,7 @@ SELECT
     lr.id AS target_lot_id,
     lr.floor_id AS target_lot_floor_id,
     lr.location_id AS target_lot_location_id,
+    lr_ti.purchase_location_id AS target_lot_purchase_location_id,
     lr.current_quantity AS target_lot_current_quantity,
     lr.reserved_quantity AS target_lot_reserved_quantity,
     COALESCE(
@@ -233,6 +234,7 @@ JOIN warehouses w ON w.id = rs.warehouse_id
 JOIN items i ON i.id = rs.item_id
 LEFT JOIN lot_agg la ON la.real_stock_id = rs.id
 LEFT JOIN lot_ranked lr ON lr.real_stock_id = rs.id AND lr.rn = 1
+LEFT JOIN trade_items lr_ti ON lr_ti.id = lr.trade_item_id
 LEFT JOIN locations lr_loc ON lr_loc.id = lr.location_id
 LEFT JOIN origin_target ot ON ot.item_id = rs.item_id
 LEFT JOIN locations target_loc
@@ -250,7 +252,14 @@ WHERE w.code = ?
     OR (
       lr.id IS NOT NULL
       AND (
-        (ot.target_shelf = 'Z00' AND lr.location_id <> zl.location_id)
+        (
+          ot.target_shelf = 'Z00'
+          AND lr.location_id <> zl.location_id
+          AND NOT (
+            ot.origin_status IN ('origin_missing_z00', 'origin_no_shelf_z00')
+            AND lr_ti.purchase_location_id = lr.location_id
+          )
+        )
         OR (
           ot.origin_status = 'unique'
           AND target_loc.id IS NOT NULL
@@ -310,6 +319,7 @@ SQL;
                     'target_lot_id' => $row->target_lot_id ? (int) $row->target_lot_id : null,
                     'target_lot_floor_id' => $row->target_lot_floor_id ? (int) $row->target_lot_floor_id : null,
                     'target_lot_location_id' => $row->target_lot_location_id ? (int) $row->target_lot_location_id : null,
+                    'target_lot_purchase_location_id' => $row->target_lot_purchase_location_id ? (int) $row->target_lot_purchase_location_id : null,
                     'target_lot_current_quantity' => $row->target_lot_current_quantity === null ? null : (int) $row->target_lot_current_quantity,
                     'target_lot_reserved_quantity' => $row->target_lot_reserved_quantity === null ? null : (int) $row->target_lot_reserved_quantity,
                     'target_lot_current_quantity_after' => $targetLotCurrentAfter,
@@ -341,6 +351,7 @@ SQL;
             })
             ->all();
 
+        $rows = array_map(fn (array $row): array => $this->preservePurchaseLocationWhenOriginMissing($row), $rows);
         $rows = $this->appendLocationOptions($rows);
         $rows = $this->applyLocationOverrides($rows, $this->normalizeLocationOverrides($locationOverrides));
 
@@ -502,6 +513,27 @@ SQL;
 
             return $this->applyTargetLocationDetail($row, $row['location_option_details'][$overrideLocationId]);
         }, $rows);
+    }
+
+    private function preservePurchaseLocationWhenOriginMissing(array $row): array
+    {
+        if (
+            ! in_array($row['origin_status'], ['origin_missing_z00', 'origin_no_shelf_z00'], true)
+            || blank($row['target_lot_location_id'])
+            || blank($row['target_lot_purchase_location_id'])
+            || $row['target_lot_location_id'] !== $row['target_lot_purchase_location_id']
+            || $row['target_lot_location_code'] === 'Z00'
+        ) {
+            return $row;
+        }
+
+        return $this->applyTargetLocationDetail($row, [
+            'location_id' => $row['target_lot_location_id'],
+            'floor_id' => $row['target_lot_floor_id'],
+            'location_code' => $row['target_lot_location_code'],
+            'location_label' => $row['target_lot_location_label'],
+            'location_display' => $row['current_location_display'],
+        ]);
     }
 
     private function applyTargetLocationDetail(array $row, array $detail): array

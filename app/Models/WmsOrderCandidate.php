@@ -158,6 +158,11 @@ class WmsOrderCandidate extends WmsModel
         return $this->belongsTo(DeliveryCourse::class);
     }
 
+    public function jxDocument(): BelongsTo
+    {
+        return $this->belongsTo(WmsOrderJxDocument::class, 'wms_order_jx_document_id');
+    }
+
     /**
      * 計算ログを事前にセット（N+1対策）
      */

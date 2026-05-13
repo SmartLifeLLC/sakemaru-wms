@@ -780,36 +780,13 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      */
     private function resolveOrderingCode($candidate): ?string
     {
-        $item = $candidate->item;
         $candidateCode = $this->normalizeOrderingCode($candidate->ordering_code);
 
         if ($candidateCode) {
             return $candidateCode;
         }
 
-        return $candidateCode
-            ?? $this->normalizeOrderingCode($this->getJanCode($item?->id));
-    }
-
-    private function getPreferredOrderingUnitCode(?int $itemId, int $capacityCase): ?string
-    {
-        if (! $itemId) {
-            return null;
-        }
-
-        $row = DB::connection('sakemaru')
-            ->table('item_search_information as isi')
-            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
-            ->where('isi.item_id', $itemId)
-            ->where('isi.is_active', true)
-            ->where('iqi.quantity', '>', 1)
-            ->when($capacityCase > 1, fn ($query) => $query->where('iqi.quantity', '!=', $capacityCase))
-            ->whereRaw("isi.search_string REGEXP '[1-9]'")
-            ->orderByDesc('isi.is_used_for_ordering')
-            ->orderBy('iqi.quantity')
-            ->value('isi.search_string');
-
-        return $this->normalizeOrderingCode($row);
+        return $this->normalizeOrderingCode($this->getJanCode($candidate->item?->id));
     }
 
     /**

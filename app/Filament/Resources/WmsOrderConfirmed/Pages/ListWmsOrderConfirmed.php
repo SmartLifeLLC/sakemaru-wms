@@ -39,7 +39,9 @@ class ListWmsOrderConfirmed extends ListRecords
                     'warehouse',
                     'item',
                     'contractor',
+                    'jxDocument',
                 ])
+                ->orderBy((new WmsOrderCandidate)->getTable().'.modified_at', 'desc')
                 ->orderBy('batch_code', 'desc')
                 ->orderBy((new WmsOrderCandidate)->getTable().'.warehouse_id')
                 ->orderBy((new WmsOrderCandidate)->getTable().'.item_id')
@@ -60,34 +62,14 @@ class ListWmsOrderConfirmed extends ListRecords
 
     public function getPresetViews(): array
     {
-        // ユーザーのデフォルト倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
-
-        // 倉庫データをキャッシュから取得
         $warehouses = $this->getWarehousesForPresetViews();
-        $warehouseIds = $warehouses->pluck('id')->toArray();
 
-        // デフォルト倉庫が発注確定済みに存在するかチェック
-        $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
-        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
-
-        // プリセットビュー構築（キーはdefaultプレフィックスで統一）
-        if ($defaultWarehouse) {
-            $views = [
-                'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $userDefaultWarehouseId))
-                    ->favorite()
-                    ->label($defaultWarehouse->name)
-                    ->default(),
-            ];
-        } else {
-            $views = [
-                'default' => PresetView::make()
-                    ->favorite()
-                    ->label('全て')
-                    ->default(),
-            ];
-        }
+        $views = [
+            'default' => PresetView::make()
+                ->favorite()
+                ->label('全て')
+                ->default(),
+        ];
 
         $views['all'] = PresetView::make()
             ->favorite()
@@ -105,9 +87,6 @@ class ListWmsOrderConfirmed extends ListRecords
 
         // 倉庫タブを追加（データがある場合のみ）
         foreach ($warehouses as $warehouse) {
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
-                continue;
-            }
             $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $warehouse->id))
                 ->favorite()
