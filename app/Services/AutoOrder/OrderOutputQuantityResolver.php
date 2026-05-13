@@ -42,15 +42,20 @@ class OrderOutputQuantityResolver
             ? $candidate->quantity_type
             : QuantityType::tryFrom((string) $candidate->quantity_type);
 
-        if ($orderingUnitQty !== null && ! $this->isAlreadyConvertedToOrderingUnit($candidate, $orderingUnitQty)) {
-            $orderQuantity = $this->convertToOrderingUnitQuantity($candidate, $orderingUnitQty, $capacityCase);
-        }
-
         if ($orderingUnitQty !== null) {
+            $isCase = $quantityType === QuantityType::CASE;
+            if (! $isCase) {
+                $orderQuantity = $this->convertPieceQuantityToOrderingCaseQuantity(
+                    $orderQuantity,
+                    $capacityCase,
+                    $orderingUnitQty
+                );
+            }
+
             return [
                 'ordering_code' => $orderingCode,
                 'ordering_unit_quantity' => $orderingUnitQty,
-                'display_capacity' => $orderingUnitQty,
+                'display_capacity' => $this->resolveDisplayCapacity($capacityCase, $orderingUnitQty),
                 'order_quantity' => $orderQuantity,
                 'quantity_type' => QuantityType::CASE->value,
                 'unit_label' => QuantityType::CASE->name(),
@@ -122,39 +127,21 @@ class OrderOutputQuantityResolver
         return $total;
     }
 
-    private function convertToOrderingUnitQuantity($candidate, int $orderingUnitQty, int $capacityCase): int
+    private function convertPieceQuantityToOrderingCaseQuantity(int $pieceQuantity, int $capacityCase, int $orderingUnitQty): int
     {
-        $quantity = max(0, (int) $candidate->order_quantity);
-        $quantityType = $candidate->quantity_type instanceof QuantityType
-            ? $candidate->quantity_type
-            : QuantityType::tryFrom((string) $candidate->quantity_type);
+        $orderingPieceQuantity = (int) ceil(max(0, $pieceQuantity) / $orderingUnitQty);
+        $displayCapacity = $this->resolveDisplayCapacity($capacityCase, $orderingUnitQty);
 
-        $pieceQuantity = $quantityType === QuantityType::CASE
-            ? $quantity * max(1, $capacityCase)
-            : $quantity;
-
-        $orderQuantity = (int) ceil($pieceQuantity / $orderingUnitQty);
-        if ($orderingUnitQty === 6 && $orderQuantity > 0) {
-            $orderQuantity = (int) (ceil($orderQuantity / 4) * 4);
-        }
-
-        return $orderQuantity;
+        return (int) ceil($orderingPieceQuantity / max(1, $displayCapacity));
     }
 
-    private function isAlreadyConvertedToOrderingUnit($candidate, int $orderingUnitQty): bool
+    private function resolveDisplayCapacity(int $capacityCase, int $orderingUnitQty): int
     {
-        if ($candidate->purchase_unit_price === null) {
-            return false;
+        if ($orderingUnitQty > 1 && $orderingUnitQty < $capacityCase && $capacityCase % $orderingUnitQty === 0) {
+            return (int) ($capacityCase / $orderingUnitQty);
         }
 
-        $piecePurchasePrice = $this->getCurrentPurchaseUnitPrice($candidate->item?->id);
-        if ($piecePurchasePrice === null) {
-            return false;
-        }
-
-        $expectedUnitPrice = round($piecePurchasePrice * $orderingUnitQty, 2);
-
-        return abs(round((float) $candidate->purchase_unit_price, 2) - $expectedUnitPrice) < 0.01;
+        return $orderingUnitQty;
     }
 
     private function getOrderingUnitQuantity(?int $itemId, ?string $orderingCode = null, ?int $capacityCase = null): ?int

@@ -451,7 +451,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      * 6-69: 品名 X(64) - name_main、62バイト+2バイト空白、半角カナ変換なし
      * 70-82: JANコード X(13)
      * 83-88: 自社コード X(06)
-     * 89-94: 仕入入数 9(06) - ケース/バラ問わず常にcapacity_case
+     * 89-94: 仕入入数 9(06) - 通常はケース入数。6缶などの発注CDは1ケース内の発注単位数
      * 95-101: ケース数 9(07) - quantity_type=CASE の場合のみ数量設定
      * 102-108: バラ数量 9(07) - quantity_type=PIECE の場合のみ数量設定
      * 109-118: 原単価 9(10) - 小数点2桁（160.00→000016000）
@@ -468,15 +468,18 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         // 発注コード数量区分を取得
         $orderingUnitQty = $this->getOrderingUnitQuantity($item?->id, $orderingCode, $capacityCase);
-        $displayCapacity = $orderingUnitQty ?? $capacityCase;
-
-        if ($orderingUnitQty !== null && ! $this->isAlreadyConvertedToOrderingUnit($candidate, $orderingUnitQty)) {
-            $totalQty = $this->convertToOrderingUnitQuantity($candidate, $orderingUnitQty, $capacityCase);
-        }
+        $displayCapacity = $orderingUnitQty !== null
+            ? $this->resolveDisplayCapacity($capacityCase, $orderingUnitQty)
+            : $capacityCase;
 
         if ($orderingUnitQty !== null) {
-            $caseQty = $totalQty;
-            $pieceQty = 0;
+            if ($candidate->quantity_type === QuantityType::CASE || $candidate->quantity_type?->value === 'CASE') {
+                $caseQty = $totalQty;
+                $pieceQty = 0;
+            } else {
+                $caseQty = $this->convertPieceQuantityToOrderingCaseQuantity($totalQty, $capacityCase, $orderingUnitQty);
+                $pieceQty = 0;
+            }
         } elseif ($candidate->quantity_type === QuantityType::CASE || $candidate->quantity_type?->value === 'CASE') {
             $caseQty = $totalQty;
             $pieceQty = 0;
@@ -510,39 +513,21 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         return $this->ensureRecordLength($record);
     }
 
-    private function convertToOrderingUnitQuantity($candidate, int $orderingUnitQty, int $capacityCase): int
+    private function convertPieceQuantityToOrderingCaseQuantity(int $pieceQuantity, int $capacityCase, int $orderingUnitQty): int
     {
-        $quantity = max(0, (int) $candidate->order_quantity);
-        $quantityType = $candidate->quantity_type instanceof QuantityType
-            ? $candidate->quantity_type
-            : QuantityType::tryFrom((string) $candidate->quantity_type);
+        $orderingPieceQuantity = (int) ceil(max(0, $pieceQuantity) / $orderingUnitQty);
+        $displayCapacity = $this->resolveDisplayCapacity($capacityCase, $orderingUnitQty);
 
-        $pieceQuantity = $quantityType === QuantityType::CASE
-            ? $quantity * max(1, $capacityCase)
-            : $quantity;
-
-        $orderQuantity = (int) ceil($pieceQuantity / $orderingUnitQty);
-        if ($orderingUnitQty === 6 && $orderQuantity > 0) {
-            $orderQuantity = (int) (ceil($orderQuantity / 4) * 4);
-        }
-
-        return $orderQuantity;
+        return (int) ceil($orderingPieceQuantity / max(1, $displayCapacity));
     }
 
-    private function isAlreadyConvertedToOrderingUnit($candidate, int $orderingUnitQty): bool
+    private function resolveDisplayCapacity(int $capacityCase, int $orderingUnitQty): int
     {
-        if ($candidate->purchase_unit_price === null) {
-            return false;
+        if ($orderingUnitQty > 1 && $orderingUnitQty < $capacityCase && $capacityCase % $orderingUnitQty === 0) {
+            return (int) ($capacityCase / $orderingUnitQty);
         }
 
-        $piecePurchasePrice = $this->getCurrentPurchaseUnitPrice($candidate->item?->id);
-        if ($piecePurchasePrice === null) {
-            return false;
-        }
-
-        $expectedUnitPrice = round($piecePurchasePrice * $orderingUnitQty, 2);
-
-        return abs(round((float) $candidate->purchase_unit_price, 2) - $expectedUnitPrice) < 0.01;
+        return $orderingUnitQty;
     }
 
     /**
