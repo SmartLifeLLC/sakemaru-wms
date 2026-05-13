@@ -722,7 +722,12 @@ class GenerateWavesCommand extends Command
             ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
             // picking_date を使用（picking_date = ピッキング予定日）
             // ※ picking_date が NULL の場合は delivered_date を使用（後方互換性）
-            ->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
+            // ※ 倉庫間移動は移動元のリード日数で picking_date が前倒しになるため、
+            //    delivered_date が対象出荷日の伝票も波動対象に含める
+            ->where(function ($query) use ($shippingDate) {
+                $query->whereRaw('COALESCE(st.picking_date, st.delivered_date) = ?', [$shippingDate])
+                    ->orWhereDate('st.delivered_date', $shippingDate);
+            })
             ->where('st.is_active', true)
             ->where('st.picking_status', 'BEFORE')
             ->whereIn('st.from_warehouse_id', $warehouseIds)
