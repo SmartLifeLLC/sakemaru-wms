@@ -6,6 +6,7 @@ use App\Filament\Resources\WaveSettings\WaveSettingResource;
 use App\Services\Warehouse91StockLotSyncService;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Support\Enums\Alignment;
@@ -29,12 +30,22 @@ class ListWaveSettings extends ListRecords
                 ->modalSubmitAction(fn (Action $action) => $action->label('在庫同期を実行')->color('danger'))
                 ->modalCancelActionLabel('同期せず閉じる')
                 ->modalFooterActionsAlignment(Alignment::End)
+                ->schema(fn () => collect(app(Warehouse91StockLotSyncService::class)->preview()['selectable_location_rows'])
+                    ->filter(fn (array $row): bool => $row['location_options'] !== [])
+                    ->map(fn (array $row): Select => Select::make("location_override_{$row['real_stock_id']}")
+                        ->label("{$row['item_code']} {$row['item_name']}")
+                        ->options($row['location_options'])
+                        ->default(array_key_first($row['location_options']))
+                        ->required()
+                        ->searchable()
+                    )
+                    ->all())
                 ->modalContent(fn () => view('filament.resources.wave-settings.stock-lot-sync-preview', [
                     'preview' => app(Warehouse91StockLotSyncService::class)->preview(),
                 ]))
-                ->action(function (): void {
+                ->action(function (array $data): void {
                     try {
-                        $result = app(Warehouse91StockLotSyncService::class)->sync();
+                        $result = app(Warehouse91StockLotSyncService::class)->sync($data);
                         $before = $result['before'];
                         $after = $result['after_remaining'];
 

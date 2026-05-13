@@ -22,19 +22,16 @@ class Warehouse91StockLotSyncService
             'summary' => $this->summarize($rows),
             'rows' => $rows,
             'create_lots' => $rows->where('action', 'create_lot')->values(),
+            'selectable_location_rows' => $rows
+                ->filter(fn (array $row): bool => $row['origin_status'] === 'ambiguous')
+                ->values(),
         ];
     }
 
-    public function sync(): array
+    public function sync(array $locationOverrides = []): array
     {
         $pickingChecks = $this->assertNoPickingInProgress();
-        $rows = collect($this->loadPlan());
-        $blockedRows = $rows->filter(fn (array $row): bool => $row['origin_status'] === 'ambiguous' || blank($row['target_location_id']));
-
-        if ($blockedRows->isNotEmpty()) {
-            $itemCodes = $blockedRows->pluck('item_code')->take(10)->implode(', ');
-            throw new RuntimeException("origin棚番またはMySQLロケーションを確定できない商品があります。item_code={$itemCodes}");
-        }
+        $rows = collect($this->loadPlan($locationOverrides));
 
         DB::connection(self::CONNECTION)->transaction(function () use ($rows) {
             $now = now();
@@ -108,7 +105,7 @@ class Warehouse91StockLotSyncService
         ];
     }
 
-    private function loadPlan(): array
+    private function loadPlan(array $locationOverrides = []): array
     {
         $sql = <<<'SQL'
 WITH lot_ranked AS (
@@ -165,7 +162,7 @@ origin_target AS (
             WHEN oa.item_id IS NULL THEN 'Z00'
             WHEN us.shelf_code IS NOT NULL THEN us.shelf_code
             WHEN COALESCE(oa.shelf_rows, 0) = 0 THEN 'Z00'
-            ELSE NULL
+            ELSE 'Z00'
         END AS target_shelf,
         oa.origin_rows,
         oa.oracle_shelves
@@ -212,17 +209,17 @@ SELECT
     ot.target_shelf,
     ot.origin_rows,
     ot.oracle_shelves,
-    CASE WHEN ot.target_shelf = 'Z00' THEN zl.location_id ELSE target_loc.id END AS target_location_id,
-    CASE WHEN ot.target_shelf = 'Z00' THEN zl.floor_id ELSE target_loc.floor_id END AS target_floor_id,
+    CASE WHEN ot.target_shelf = 'Z00' OR target_loc.id IS NULL THEN zl.location_id ELSE target_loc.id END AS target_location_id,
+    CASE WHEN ot.target_shelf = 'Z00' OR target_loc.id IS NULL THEN zl.floor_id ELSE target_loc.floor_id END AS target_floor_id,
     CASE
-        WHEN ot.target_shelf = 'Z00' THEN COALESCE(zl.location_name, zl.location_code)
+        WHEN ot.target_shelf = 'Z00' OR target_loc.id IS NULL THEN COALESCE(zl.location_name, zl.location_code)
         ELSE COALESCE(
             NULLIF(target_loc.name, ''),
             NULLIF(CONCAT(COALESCE(target_loc.code1, ''), COALESCE(target_loc.code2, ''), COALESCE(target_loc.code3, '')), '')
         )
     END AS target_location_label,
     CASE
-        WHEN ot.target_shelf = 'Z00' THEN zl.location_code
+        WHEN ot.target_shelf = 'Z00' OR target_loc.id IS NULL THEN zl.location_code
         ELSE NULLIF(CONCAT(COALESCE(target_loc.code1, ''), COALESCE(target_loc.code2, ''), COALESCE(target_loc.code3, '')), '')
     END AS target_location_code
 FROM real_stocks rs
@@ -251,15 +248,11 @@ ORDER BY ABS(rs.current_quantity - COALESCE(la.lot_current_quantity, 0)) DESC,
          rs.id
 SQL;
 
-        return collect(DB::connection(self::CONNECTION)->select($sql, [self::WAREHOUSE_CODE]))
+        $rows = collect(DB::connection(self::CONNECTION)->select($sql, [self::WAREHOUSE_CODE]))
             ->map(function (object $row): array {
                 $currentDelta = (int) $row->real_stock_current_quantity - (int) $row->lot_current_quantity;
                 $reservedDelta = (int) $row->real_stock_reserved_quantity - (int) $row->lot_reserved_quantity;
                 $action = $row->target_lot_id ? 'update_lot' : 'create_lot';
-                $targetLocationId = $row->target_location_id ? (int) $row->target_location_id : null;
-                $retargetLot = $row->target_lot_id
-                    && $targetLocationId
-                    && (int) $row->target_lot_location_id !== $targetLocationId;
                 $targetLotCurrentAfter = $row->target_lot_id
                     ? (int) $row->target_lot_current_quantity + $currentDelta
                     : (int) $row->real_stock_current_quantity;
@@ -295,7 +288,7 @@ SQL;
                     'origin_rows' => (int) ($row->origin_rows ?? 0),
                     'oracle_shelves' => (string) ($row->oracle_shelves ?? ''),
                     'target_shelf' => (string) $row->target_shelf,
-                    'target_location_id' => $targetLocationId,
+                    'target_location_id' => $row->target_location_id ? (int) $row->target_location_id : null,
                     'target_floor_id' => $row->target_floor_id ? (int) $row->target_floor_id : null,
                     'target_location_code' => (string) $row->target_location_code,
                     'target_location_label' => (string) $row->target_location_label,
@@ -307,10 +300,23 @@ SQL;
                     'current_abs_delta' => abs($currentDelta),
                     'reserved_abs_delta' => abs($reservedDelta),
                     'action' => $action,
-                    'retarget_lot' => $retargetLot,
+                    'retarget_lot' => false,
+                    'location_options' => [],
+                    'location_option_details' => [],
                 ];
             })
             ->all();
+
+        $rows = $this->appendLocationOptions($rows);
+        $rows = $this->applyLocationOverrides($rows, $this->normalizeLocationOverrides($locationOverrides));
+
+        return array_map(function (array $row): array {
+            $row['retarget_lot'] = $row['target_lot_id']
+                && $row['target_location_id']
+                && $row['target_lot_location_id'] !== $row['target_location_id'];
+
+            return $row;
+        }, $rows);
     }
 
     private function summarize(Collection $rows): array
@@ -320,12 +326,135 @@ SQL;
             'update_lot' => $rows->where('action', 'update_lot')->count(),
             'create_lot' => $rows->where('action', 'create_lot')->count(),
             'retarget_lot' => $rows->where('retarget_lot', true)->count(),
-            'blocked' => $rows->filter(fn (array $row): bool => $row['origin_status'] === 'ambiguous' || blank($row['target_location_id']))->count(),
+            'selectable_location' => $rows->filter(fn (array $row): bool => $row['origin_status'] === 'ambiguous' && $row['location_options'] !== [])->count(),
+            'z00_fallback' => $rows->filter(fn (array $row): bool => $row['origin_status'] === 'ambiguous' && $row['location_options'] === [])->count(),
             'current_delta_total' => $rows->sum('current_delta'),
             'reserved_delta_total' => $rows->sum('reserved_delta'),
             'current_abs_delta_total' => $rows->sum('current_abs_delta'),
             'reserved_abs_delta_total' => $rows->sum('reserved_abs_delta'),
         ];
+    }
+
+    private function normalizeLocationOverrides(array $data): array
+    {
+        $overrides = [];
+
+        foreach ($data as $key => $value) {
+            if (! str_starts_with((string) $key, 'location_override_') || blank($value)) {
+                continue;
+            }
+
+            $realStockId = (int) substr((string) $key, strlen('location_override_'));
+
+            if ($realStockId > 0) {
+                $overrides[$realStockId] = (int) $value;
+            }
+        }
+
+        return $overrides;
+    }
+
+    private function appendLocationOptions(array $rows): array
+    {
+        $shelfCodes = collect($rows)
+            ->where('origin_status', 'ambiguous')
+            ->flatMap(fn (array $row): array => $this->splitShelfCodes($row['oracle_shelves']))
+            ->unique()
+            ->values();
+
+        if ($shelfCodes->isEmpty()) {
+            return $rows;
+        }
+
+        $locations = collect(DB::connection(self::CONNECTION)->table('locations as l')
+            ->join('warehouses as w', 'w.id', '=', 'l.warehouse_id')
+            ->where('w.code', self::WAREHOUSE_CODE)
+            ->where(function ($query) use ($shelfCodes): void {
+                $query
+                    ->whereIn('l.name', $shelfCodes)
+                    ->orWhereIn(DB::raw("CONCAT(COALESCE(l.code1, ''), COALESCE(l.code2, ''), COALESCE(l.code3, ''))"), $shelfCodes);
+            })
+            ->select([
+                'l.id',
+                'l.floor_id',
+                'l.name',
+                DB::raw("CONCAT(COALESCE(l.code1, ''), COALESCE(l.code2, ''), COALESCE(l.code3, '')) AS location_code"),
+            ])
+            ->orderBy('l.name')
+            ->orderBy('l.id')
+            ->get());
+
+        $locationsByShelf = $locations
+            ->flatMap(function (object $location): array {
+                $code = (string) $location->location_code;
+                $name = (string) $location->name;
+                $display = $code === 'Z00' ? 'Z00' : ($name !== '' ? $name : $code);
+                $detail = [
+                    'location_id' => (int) $location->id,
+                    'floor_id' => (int) $location->floor_id,
+                    'location_code' => $code,
+                    'location_label' => $name !== '' ? $name : $code,
+                    'location_display' => $display,
+                ];
+
+                return collect([$code, $name])
+                    ->filter()
+                    ->unique()
+                    ->mapWithKeys(fn (string $shelf): array => [$shelf => [$location->id => $detail]])
+                    ->all();
+            })
+            ->reduce(function (array $carry, array $item): array {
+                foreach ($item as $shelf => $details) {
+                    $carry[$shelf] = ($carry[$shelf] ?? []) + $details;
+                }
+
+                return $carry;
+            }, []);
+
+        return array_map(function (array $row) use ($locationsByShelf): array {
+            if ($row['origin_status'] !== 'ambiguous') {
+                return $row;
+            }
+
+            foreach ($this->splitShelfCodes($row['oracle_shelves']) as $shelfCode) {
+                foreach ($locationsByShelf[$shelfCode] ?? [] as $locationId => $detail) {
+                    $row['location_options'][$locationId] = "{$detail['location_display']} ({$shelfCode})";
+                    $row['location_option_details'][$locationId] = $detail;
+                }
+            }
+
+            return $row;
+        }, $rows);
+    }
+
+    private function applyLocationOverrides(array $rows, array $locationOverrides): array
+    {
+        return array_map(function (array $row) use ($locationOverrides): array {
+            $overrideLocationId = $locationOverrides[$row['real_stock_id']] ?? null;
+
+            if (! $overrideLocationId || ! isset($row['location_option_details'][$overrideLocationId])) {
+                return $row;
+            }
+
+            $detail = $row['location_option_details'][$overrideLocationId];
+            $row['target_location_id'] = $detail['location_id'];
+            $row['target_floor_id'] = $detail['floor_id'];
+            $row['target_location_code'] = $detail['location_code'];
+            $row['target_location_label'] = $detail['location_label'];
+            $row['target_location_display'] = $detail['location_display'];
+
+            return $row;
+        }, $rows);
+    }
+
+    private function splitShelfCodes(string $shelves): array
+    {
+        return collect(explode(',', $shelves))
+            ->map(fn (string $shelf): string => trim($shelf))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function assertNoPickingInProgress(): array
