@@ -6,7 +6,7 @@
 @endphp
 
 <div class="space-y-4 text-sm text-slate-700 dark:text-gray-200">
-    <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div class="grid grid-cols-2 gap-3 md:grid-cols-5">
         <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-gray-700 dark:bg-gray-800">
             <div class="text-xs text-slate-500 dark:text-gray-400">差分件数</div>
             <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-white">{{ number_format($summary['rows']) }}</div>
@@ -23,11 +23,21 @@
             <div class="text-xs text-slate-500 dark:text-gray-400">差分絶対値</div>
             <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-white">{{ number_format($summary['current_abs_delta_total']) }}</div>
         </div>
+        <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+            <div class="text-xs text-slate-500 dark:text-gray-400">棚番修正</div>
+            <div class="mt-1 text-xl font-semibold text-slate-900 dark:text-white">{{ number_format($summary['retarget_lot']) }}</div>
+        </div>
     </div>
 
     <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-        91倉庫限定で、real_stocks を正として ACTIVE ロット合計を同期します。新規ロットは商品別default棚番へ作成し、default棚番がない場合のみZ00へ作成します。実行時には最新差分を再計算します。
+        91倉庫限定で、real_stocks を正として ACTIVE ロット合計を同期します。新規ロット作成先と既存ロットの棚番修正は、wms_hana_origin_locations のorigin棚番を基準にします。origin棚番がない商品はZ00へ作成し、origin棚番が曖昧またはMySQLロケーションがない場合は実行を停止します。
     </div>
+
+    @if ($summary['blocked'] > 0)
+        <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100">
+            origin棚番またはMySQLロケーションを確定できない商品が {{ number_format($summary['blocked']) }} 件あります。この状態では在庫同期は実行できません。
+        </div>
+    @endif
 
     <div class="grid gap-3 md:grid-cols-3">
         <div class="rounded-lg border border-slate-200 p-3 dark:border-gray-700">
@@ -53,10 +63,13 @@
                         <th class="px-2 py-2 text-left">商品CD</th>
                         <th class="px-2 py-2 text-left">商品名</th>
                         <th class="px-2 py-2 text-right">real</th>
-                        <th class="px-2 py-2 text-right">lot</th>
+                        <th class="px-2 py-2 text-right">ACTIVE lot前</th>
                         <th class="px-2 py-2 text-right">差分</th>
+                        <th class="px-2 py-2 text-right">ACTIVE lot後</th>
                         <th class="px-2 py-2 text-left">処理</th>
-                        <th class="px-2 py-2 text-left">棚番</th>
+                        <th class="px-2 py-2 text-left">棚番前</th>
+                        <th class="px-2 py-2 text-left">棚番後</th>
+                        <th class="px-2 py-2 text-left">origin</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-gray-800">
@@ -67,12 +80,23 @@
                             <td class="px-2 py-1 text-right">{{ number_format($row['real_stock_current_quantity']) }}</td>
                             <td class="px-2 py-1 text-right">{{ number_format($row['lot_current_quantity']) }}</td>
                             <td class="px-2 py-1 text-right font-semibold">{{ number_format($row['current_delta']) }}</td>
-                            <td class="whitespace-nowrap px-2 py-1">{{ $row['action'] === 'create_lot' ? '新規作成' : '既存更新' }}</td>
-                            <td class="whitespace-nowrap px-2 py-1 font-mono">{{ $row['action'] === 'create_lot' ? $row['default_location_display'] : '-' }}</td>
+                            <td class="px-2 py-1 text-right font-semibold">{{ number_format($row['real_stock_current_quantity']) }}</td>
+                            <td class="whitespace-nowrap px-2 py-1">
+                                @if ($row['action'] === 'create_lot')
+                                    新規作成
+                                @elseif ($row['retarget_lot'])
+                                    既存更新+棚番修正
+                                @else
+                                    既存更新
+                                @endif
+                            </td>
+                            <td class="whitespace-nowrap px-2 py-1 font-mono">{{ $row['current_location_display'] }}</td>
+                            <td class="whitespace-nowrap px-2 py-1 font-mono">{{ $row['target_location_display'] }}</td>
+                            <td class="whitespace-nowrap px-2 py-1">{{ $row['origin_status'] }}</td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="px-3 py-8 text-center text-slate-400 dark:text-gray-500">在庫差分はありません。</td>
+                            <td colspan="10" class="px-3 py-8 text-center text-slate-400 dark:text-gray-500">在庫差分はありません。</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -100,7 +124,7 @@
                             <td class="max-w-96 px-2 py-1">{{ $row['item_name'] }}</td>
                             <td class="px-2 py-1 text-right font-semibold">{{ number_format($row['real_stock_current_quantity']) }}</td>
                             <td class="px-2 py-1 text-right">{{ number_format($row['real_stock_reserved_quantity']) }}</td>
-                            <td class="whitespace-nowrap px-2 py-1 font-mono">{{ $row['default_location_display'] }}</td>
+                            <td class="whitespace-nowrap px-2 py-1 font-mono">{{ $row['target_location_display'] }}</td>
                         </tr>
                     @empty
                         <tr>
