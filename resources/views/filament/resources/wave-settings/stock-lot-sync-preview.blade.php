@@ -2,6 +2,7 @@
     $summary = $preview['summary'];
     $rows = $preview['rows'];
     $createLots = $preview['create_lots'];
+    $selectableLocationRows = $preview['selectable_location_rows'];
     $pickingChecks = $preview['picking_checks'];
 @endphp
 
@@ -30,12 +31,12 @@
     </div>
 
     <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-        91倉庫限定で、real_stocks を正として ACTIVE ロット合計を同期します。新規ロット作成先と既存ロットの棚番修正は、wms_hana_origin_locations のorigin棚番を基準にします。origin棚番がない商品はZ00へ作成し、origin棚番が曖昧またはMySQLロケーションがない場合は実行を停止します。
+        91倉庫限定で、real_stocks を正として ACTIVE ロット合計を同期します。新規ロット作成先と既存ロットの棚番修正は、wms_hana_origin_locations のorigin棚番を基準にします。origin棚番が曖昧な商品は、候補がある場合はこの画面の選択値を使い、候補がない場合はZ00へ同期します。
     </div>
 
-    @if ($summary['blocked'] > 0)
-        <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100">
-            origin棚番またはMySQLロケーションを確定できない商品が {{ number_format($summary['blocked']) }} 件あります。この状態では在庫同期は実行できません。
+    @if ($summary['selectable_location'] > 0 || $summary['z00_fallback'] > 0)
+        <div class="rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100">
+            origin棚番が複数ある商品があります。選択可能: {{ number_format($summary['selectable_location']) }} 件 / 候補なしのZ00同期: {{ number_format($summary['z00_fallback']) }} 件
         </div>
     @endif
 
@@ -51,6 +52,42 @@
         <div class="rounded-lg border border-slate-200 p-3 dark:border-gray-700">
             <div class="text-xs text-slate-500 dark:text-gray-400">EARNING明細 PICKING</div>
             <div class="mt-1 font-semibold">{{ number_format($pickingChecks['wms_picking_item_results_earning_picking']) }}</div>
+        </div>
+    </div>
+
+    <div>
+        <div class="mb-2 font-semibold text-slate-900 dark:text-white">origin棚番が複数ある商品</div>
+        <div class="max-h-48 overflow-auto rounded-lg border border-slate-200 dark:border-gray-700">
+            <table class="min-w-full divide-y divide-slate-200 text-xs dark:divide-gray-700">
+                <thead class="sticky top-0 bg-slate-100 text-slate-600 dark:bg-gray-800 dark:text-gray-300">
+                    <tr>
+                        <th class="px-2 py-2 text-left">商品CD</th>
+                        <th class="px-2 py-2 text-left">商品名</th>
+                        <th class="px-2 py-2 text-left">origin棚番</th>
+                        <th class="px-2 py-2 text-left">同期先</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-gray-800">
+                    @forelse ($selectableLocationRows as $row)
+                        <tr>
+                            <td class="whitespace-nowrap px-2 py-1 font-mono">{{ $row['item_code'] }}</td>
+                            <td class="max-w-80 px-2 py-1">{{ $row['item_name'] }}</td>
+                            <td class="whitespace-nowrap px-2 py-1 font-mono">{{ $row['oracle_shelves'] ?: '-' }}</td>
+                            <td class="whitespace-nowrap px-2 py-1 font-mono">
+                                @if ($row['location_options'] !== [])
+                                    画面下部の選択値
+                                @else
+                                    Z00
+                                @endif
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="4" class="px-3 py-8 text-center text-slate-400 dark:text-gray-500">origin棚番が複数ある差分商品はありません。</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 
