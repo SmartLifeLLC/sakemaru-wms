@@ -314,28 +314,11 @@ class WmsOrderConfirmedTable
                             return [];
                         }
 
-                        $item = $record->item;
-                        $orderSettings = WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record);
-
                         return [
                             Grid::make(2)
                                 ->schema([
                                     View::make('filament.components.order-confirmed-detail-left')
-                                        ->viewData([
-                                            'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', substr($record->batch_code, 0, 14))->format('Y/m/d H:i'),
-                                            'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
-                                            'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
-                                            'itemCode' => $item?->code ?? '-',
-                                            'itemName' => $item?->name ?? '-',
-                                            'expectedArrivalDate' => $record->expected_arrival_date
-                                                ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
-                                                : '-',
-                                            'safetyStock' => $orderSettings['safety_stock'],
-                                            'maxStock' => $orderSettings['max_stock'],
-                                            'minStock' => $orderSettings['min_stock'],
-                                            'autoOrderQuantity' => $orderSettings['auto_order_quantity'],
-                                            'isAutoOrder' => $orderSettings['is_auto_order'],
-                                        ])
+                                        ->viewData(static::confirmedDetailLeftViewData($record))
                                         ->columnSpan(1),
 
                                     View::make('filament.components.order-confirmed-detail-right')
@@ -570,6 +553,28 @@ class WmsOrderConfirmedTable
                 ]),
             ])
             ->defaultSort((new WmsOrderCandidate)->getTable().'.modified_at', 'desc');
+    }
+
+    private static function confirmedDetailLeftViewData(WmsOrderCandidate $record): array
+    {
+        $item = $record->item;
+        $orderSettings = WmsOrderConfirmationWaitingTable::resolveItemContractorOrderSettings($record);
+
+        return [
+            'batchCodeFormatted' => \Carbon\Carbon::createFromFormat('YmdHis', substr($record->batch_code, 0, 14))->format('Y/m/d H:i'),
+            'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
+            'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+            'itemCode' => $item?->code ?? '-',
+            'itemName' => $item?->name ?? '-',
+            'expectedArrivalDate' => $record->expected_arrival_date
+                ? \Carbon\Carbon::parse($record->expected_arrival_date)->format('Y/m/d')
+                : '-',
+            'safetyStock' => $orderSettings['safety_stock'] ?? 0,
+            'maxStock' => $orderSettings['max_stock'] ?? 0,
+            'minStock' => $orderSettings['min_stock'] ?? 0,
+            'autoOrderQuantity' => $orderSettings['auto_order_quantity'] ?? 0,
+            'isAutoOrder' => $orderSettings['is_auto_order'] ?? false,
+        ];
     }
 
     private static function confirmedByFilter(): SelectFilter
