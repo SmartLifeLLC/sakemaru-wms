@@ -4,6 +4,7 @@ namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\OrderDataFileStatus;
+use App\Enums\EVolumeUnit;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCandidate;
@@ -275,6 +276,7 @@ class OrderDataFileService
             '商品コード',
             '商品名',
             '規格',
+            '容量',
             '発注コード',
             '発注単位',
             '発注数量',
@@ -322,6 +324,7 @@ class OrderDataFileService
                 $candidate->item?->code ?? '',
                 $candidate->item?->name ?? '',
                 $candidate->item?->packaging ?? '',
+                $this->formatVolume($candidate->item),
                 $outputQuantity['ordering_code'] ?? '',
                 $outputQuantity['display_capacity'] ?? '',
                 $outputQuantity['order_quantity'],
@@ -341,6 +344,17 @@ class OrderDataFileService
         fclose($stream);
 
         return $content;
+    }
+
+    private function formatVolume($item): string
+    {
+        if (! $item || ! $item->volume || ! $item->volume_unit) {
+            return '';
+        }
+
+        $unit = EVolumeUnit::tryFrom($item->volume_unit);
+
+        return $unit ? $item->volume . $unit->name() : '';
     }
 
     /**

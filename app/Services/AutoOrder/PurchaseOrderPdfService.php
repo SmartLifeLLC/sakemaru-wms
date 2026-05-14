@@ -3,6 +3,7 @@
 namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\EVolumeUnit;
 use App\Models\Sakemaru\Client;
 use App\Models\WmsContractorWarehouseSetting;
 use App\Models\WmsOrderCandidate;
@@ -59,8 +60,9 @@ class PurchaseOrderPdfService
     private const COL_WIDTHS = [
         'ordering_code' => 55,     // 発注CD（JANコード）- 省略禁止
         'item_code' => 32,         // 自社コード
+        'volume' => 22,            // 容量
         'capacity_case' => 18,     // 入数
-        'item_name' => 143,        // 商品名（省略なし）
+        'item_name' => 121,        // 商品名（省略なし）
         'case_qty' => 15,          // ケース
         'piece_qty' => 14,         // バラ
     ];
@@ -439,6 +441,7 @@ class PurchaseOrderPdfService
         $headers = [
             '発注CD',      // JANコード（ordering_code）
             '自社コード',   // 商品コード
+            '容量',        // volume + volume_unit
             '入数',        // capacity_case
             '商品名',      // 省略なし
             'ケース',      // ケース数
@@ -507,9 +510,12 @@ class PurchaseOrderPdfService
         $caseQty = $outputQuantity['case_quantity'];
         $pieceQty = $outputQuantity['piece_quantity'];
 
+        $volumeLabel = $this->formatVolume($item);
+
         $rowData = [
             $outputQuantity['ordering_code'] ?? '',                             // 発注CD（JANコード）- 省略禁止
             $this->truncateText($item?->code ?? '', 22),                     // 自社コード
+            $volumeLabel,                                                    // 容量
             $capacityCase > 1 ? $capacityCase : '',                          // 入数（1は表示しない）
             $item?->name ?? '',                                              // 商品名（省略なし - 複数行対応）
             $caseQty !== 0 ? $caseQty : '',                                  // ケース
@@ -517,20 +523,20 @@ class PurchaseOrderPdfService
         ];
 
         // 入数・ケース・バラは中央揃え、商品名は左揃え
-        $aligns = ['C', 'C', 'C', 'L', 'C', 'C'];
+        $aligns = ['C', 'C', 'C', 'C', 'L', 'C', 'C'];
         $widths = array_values(self::COL_WIDTHS);
 
-        // 商品名の高さを計算（複数行対応）- index 3
-        $itemName = $rowData[3];
-        $itemNameWidth = $widths[3] - 2; // パディング分引く
+        // 商品名の高さを計算（複数行対応）- index 4
+        $itemName = $rowData[4];
+        $itemNameWidth = $widths[4] - 2; // パディング分引く
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
         $itemNameLines = $this->pdf->getNumLines($itemName, $itemNameWidth);
         $actualRowHeight = max($rowHeight, $itemNameLines * self::LINE_HEIGHT_NORMAL);
 
         // 各セルを描画
         foreach ($rowData as $i => $value) {
-            if ($i === 3) {
-                // 商品名は複数行対応 - 垂直中央揃え (index 3)
+            if ($i === 4) {
+                // 商品名は複数行対応 - 垂直中央揃え (index 4)
                 $textHeight = $itemNameLines * self::LINE_HEIGHT_NORMAL;
                 $cellY = $y + ($actualRowHeight - $textHeight) / 2;
                 $this->pdf->SetXY($x, $cellY);
@@ -659,6 +665,23 @@ class PurchaseOrderPdfService
         }
 
         return $result.$ellipsis;
+    }
+
+    /**
+     * 容量表示フォーマット（例: 1000ml, 500g）
+     */
+    private function formatVolume($item): string
+    {
+        if (! $item || ! $item->volume || ! $item->volume_unit) {
+            return '';
+        }
+
+        $unit = EVolumeUnit::tryFrom($item->volume_unit);
+        if (! $unit) {
+            return '';
+        }
+
+        return $item->volume . $unit->name();
     }
 
     /**
