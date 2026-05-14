@@ -1501,25 +1501,25 @@ class PickingListPdfService
 
     private const BUYER_GROUPED_MARGIN = 6;
 
-    // A4 横向き: 297mm 幅
-    private const BUYER_GROUPED_PAGE_WIDTH = 297;
+    // A4 縦向き: 210mm 幅
+    private const BUYER_GROUPED_PAGE_WIDTH = 210;
 
-    private const BUYER_GROUPED_PAGE_HEIGHT = 210;
+    private const BUYER_GROUPED_PAGE_HEIGHT = 297;
 
-    private const BUYER_GROUPED_CONTENT_WIDTH = 285; // 297 - 6 - 6
+    private const BUYER_GROUPED_CONTENT_WIDTH = 198; // 210 - 6 - 6
 
-    // 合計285mm。得意先名が最大2行で収まるよう得意先列を広げ、商品名列を縮小。
+    // 合計198mm（A4縦向き）。各列を縮小して縦レイアウトに収める。
     private const BUYER_GROUPED_COL_WIDTHS = [
-        'no' => 12,
-        'location' => 22,
-        'buyer' => 42,
-        'item_code' => 28,
-        'item_name' => 110,
-        'capacity' => 12,
-        'case_qty' => 14,
-        'piece_qty' => 14,
-        'total_piece' => 14,
-        'shortage' => 17,
+        'no' => 8,
+        'location' => 15,
+        'buyer' => 29,
+        'item_code' => 19,
+        'item_name' => 76,
+        'capacity' => 8,
+        'case_qty' => 10,
+        'piece_qty' => 10,
+        'total_piece' => 10,
+        'shortage' => 13,
     ];
 
     private const BUYER_GROUPED_HEADERS = [
@@ -1542,8 +1542,8 @@ class PickingListPdfService
      */
     public function renderBuyerGroupedPdf(array $dataList): string
     {
-        // A4 横向きで初期化
-        $this->initPdf('L', '得意先別ピッキングリスト');
+        // A4 縦向きで初期化
+        $this->initPdf('P', '得意先別ピッキングリスト');
 
         if (empty($dataList)) {
             $this->pdf->AddPage();
@@ -1577,21 +1577,21 @@ class PickingListPdfService
         $margin = self::BUYER_GROUPED_MARGIN;
         $contentWidth = self::BUYER_GROUPED_CONTENT_WIDTH;
 
-        // タイトル（中央、20pt太字）
-        $this->pdf->SetFont('kozgopromedium', 'B', 20);
+        // タイトル（中央、16pt太字）
+        $this->pdf->SetFont('kozgopromedium', 'B', 16);
         $this->pdf->SetXY($margin, $this->currentY);
-        $this->pdf->Cell($contentWidth, 8, '得意先別ピッキングリスト', 0, 0, 'C');
-        $this->currentY += 9;
+        $this->pdf->Cell($contentWidth, 7, '得意先別ピッキングリスト', 0, 0, 'C');
+        $this->currentY += 8;
 
-        // 配送者（=配送コース名、中央、18pt太字）
-        $this->pdf->SetFont('kozgopromedium', 'B', 18);
+        // 配送者（=配送コース名、中央、14pt太字）
+        $this->pdf->SetFont('kozgopromedium', 'B', 14);
         $this->pdf->SetXY($margin, $this->currentY);
         $courseName = $header['course_name'] ?? '';
-        $this->pdf->Cell($contentWidth, 8, '配送者：'.$courseName, 0, 0, 'C');
-        $this->currentY += 9;
+        $this->pdf->Cell($contentWidth, 7, '配送者：'.$courseName, 0, 0, 'C');
+        $this->currentY += 8;
 
-        // 出力日（右側、10pt）— 区切り線と被らないよう0.5mm上げる
-        $this->pdf->SetFont('kozgopromedium', '', 10);
+        // 出力日（右側、8pt）— 区切り線と被らないよう0.5mm上げる
+        $this->pdf->SetFont('kozgopromedium', '', 8);
         $printDate = '出力日：'.now()->format('Y年m月d日');
         $printDateWidth = $this->pdf->GetStringWidth($printDate);
         $this->pdf->SetXY(self::BUYER_GROUPED_PAGE_WIDTH - $margin - $printDateWidth, $this->currentY - 0.5);
@@ -1604,10 +1604,10 @@ class PickingListPdfService
         $this->currentY += 2;
 
         // 伝票情報（伝票No・出荷日のみ、倉庫なし）
-        $this->pdf->SetFont('kozgopromedium', '', 12);
-        $infoX = $margin + 12;
-        $labelW = 20;
-        $valueW = 100;
+        $this->pdf->SetFont('kozgopromedium', '', 10);
+        $infoX = $margin + 8;
+        $labelW = 18;
+        $valueW = 80;
         $infoLineH = 6;
 
         $this->pdf->SetXY($infoX, $this->currentY);
@@ -1635,9 +1635,9 @@ class PickingListPdfService
     {
         $widths = array_values(self::BUYER_GROUPED_COL_WIDTHS);
         $headerLabels = array_values(self::BUYER_GROUPED_HEADERS);
-        $rowH = 11;
+        $rowH = 9;
 
-        $this->pdf->SetFont('kozgopromedium', 'B', 10);
+        $this->pdf->SetFont('kozgopromedium', 'B', 7);
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
         $this->pdf->SetFillColor(232, 232, 232);
 
@@ -1661,14 +1661,14 @@ class PickingListPdfService
         $tableWidth = array_sum($widths);
         $margin = self::BUYER_GROUPED_MARGIN;
         $minRowH = 8;
-        // 仕様PDF実測: 本文 ~12pt YuGothic-Bold / 棚番 11pt B / 商品CD 9pt B / JAN 7pt / 得意先 11pt
-        $bodyFontSize = 12;
-        $boldFontSize = 12;
-        $shelfFontSize = 11;
-        $noFontSize = 9;
-        $codeFontSize = 9;
-        $janFontSize = 7;
-        $buyerFontSize = 11;
+        // A4縦向き用に縮小
+        $bodyFontSize = 8;
+        $boldFontSize = 9;
+        $shelfFontSize = 6;
+        $noFontSize = 7;
+        $codeFontSize = 7;
+        $janFontSize = 6;
+        $buyerFontSize = 7;
 
         foreach ($items as $item) {
             $itemName = (string) ($item['item_name'] ?? '');
@@ -1682,7 +1682,7 @@ class PickingListPdfService
 
             $rowH = max($minRowH, $nameH, $buyerH);
 
-            // ページ送り（横向き: 高さ210mm）
+            // ページ送り（縦向き: 高さ297mm）
             if ($this->currentY + $rowH > self::BUYER_GROUPED_PAGE_HEIGHT - self::MARGIN_BOTTOM - 15) {
                 $this->pdf->AddPage();
                 $this->currentY = self::BUYER_GROUPED_MARGIN;
@@ -1721,12 +1721,12 @@ class PickingListPdfService
             $this->pdf->MultiCell($widths[2] - 2, $buyerLineH, $buyerLabel, 0, 'L', false, 0, $colX + 1, $y + 0.5, true, 0, false, true, 0, 'T');
             $colX += $widths[2];
 
-            // 商品CD（上、太字）+ JAN（直下、小）— 行高に関わらず上端に密着配置
+            // 商品CD（上、太字）+ JAN（直下）— 上端密着配置、行高8mm確保でJANが下線に被らない
             $this->pdf->SetFont('kozgopromedium', 'B', $codeFontSize);
-            $this->pdf->SetXY($colX, $y + 0.5);
-            $this->pdf->Cell($widths[3], 4, (string) ($item['item_code'] ?? ''), 0, 0, 'C');
+            $this->pdf->SetXY($colX, $y + 0.3);
+            $this->pdf->Cell($widths[3], 3.5, (string) ($item['item_code'] ?? ''), 0, 0, 'C');
             $this->pdf->SetFont('kozgopromedium', '', $janFontSize);
-            $this->pdf->SetXY($colX, $y + 4);
+            $this->pdf->SetXY($colX, $y + 3.8);
             $this->pdf->Cell($widths[3], 3.5, (string) ($item['jan_code'] ?? ''), 0, 0, 'C');
             $colX += $widths[3];
 
@@ -1737,7 +1737,7 @@ class PickingListPdfService
             $colX += $widths[4];
 
             // 入数
-            $this->pdf->SetFont('kozgopromedium', '', 10);
+            $this->pdf->SetFont('kozgopromedium', '', 7);
             $this->pdf->SetXY($colX, $y);
             $this->pdf->Cell($widths[5], $rowH, (string) ($item['capacity_case'] ?? ''), 0, 0, 'C');
             $colX += $widths[5];
@@ -1762,7 +1762,7 @@ class PickingListPdfService
 
             // 欠品
             $shortageQty = (int) ($item['shortage_qty'] ?? 0);
-            $this->pdf->SetFont('kozgopromedium', '', 10);
+            $this->pdf->SetFont('kozgopromedium', '', 7);
             $this->pdf->SetXY($colX, $y);
             $this->pdf->Cell($widths[9], $rowH, $shortageQty > 0 ? (string) $shortageQty : '', 0, 0, 'C');
 
@@ -1775,7 +1775,7 @@ class PickingListPdfService
         $widths = array_values(self::BUYER_GROUPED_COL_WIDTHS);
         $tableWidth = array_sum($widths);
         $margin = self::BUYER_GROUPED_MARGIN;
-        $rowH = 9;
+        $rowH = 7;
 
         $rowCount = (int) ($summary['row_count'] ?? 0);
         $totalCase = (int) ($summary['total_case'] ?? 0);
@@ -1803,13 +1803,13 @@ class PickingListPdfService
         $this->pdf->Line($margin, $y + $rowH, $margin + $tableWidth, $y + $rowH);
 
         // ラベル「合計（N行）」
-        $this->pdf->SetFont('kozgopromedium', '', 11);
+        $this->pdf->SetFont('kozgopromedium', '', 8);
         $this->pdf->SetXY($margin, $y);
         $this->pdf->Cell($labelWidth - 2, $rowH, "合計（{$rowCount}行）", 0, 0, 'R');
 
         // 数値
         $vx = $margin + $labelWidth;
-        $this->pdf->SetFont('kozgopromedium', '', 12);
+        $this->pdf->SetFont('kozgopromedium', '', 9);
 
         $this->pdf->SetXY($vx, $y);
         $this->pdf->Cell($widths[6], $rowH, (string) $totalCase, 0, 0, 'C');
@@ -1828,7 +1828,7 @@ class PickingListPdfService
 
     private function renderBuyerGroupedPageNumbers(): void
     {
-        $this->pdf->SetFont('kozgopromedium', '', 10);
+        $this->pdf->SetFont('kozgopromedium', '', 8);
         $total = $this->totalPages;
         for ($i = 1; $i <= $total; $i++) {
             $this->pdf->setPage($i);
