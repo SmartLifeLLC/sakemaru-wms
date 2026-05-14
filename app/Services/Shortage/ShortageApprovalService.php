@@ -143,7 +143,7 @@ class ShortageApprovalService
             $query->where('wave_id', $waveId);
         }
 
-        $tasks = $query->with(['pickingItemResults.shortage', 'pickingItemResults.item'])->get();
+        $tasks = $query->with(['pickingItemResults.item'])->get();
 
         if ($tasks->isEmpty()) {
             return [
@@ -156,12 +156,15 @@ class ShortageApprovalService
 
         $incompleteItems = [];
         $unsyncedShortages = [];
+        $itemResultsById = collect();
 
         // チェック1: 全てのwms_picking_item_resultsがCOMPLETEDまたはSHORTAGEであるか
         foreach ($tasks as $task) {
             $itemResults = $task->pickingItemResults;
 
             foreach ($itemResults as $itemResult) {
+                $itemResultsById->put($itemResult->id, $itemResult);
+
                 if (! in_array($itemResult->status, [
                     WmsPickingItemResult::STATUS_COMPLETED,
                     WmsPickingItemResult::STATUS_SHORTAGE,
@@ -174,20 +177,26 @@ class ShortageApprovalService
                         'status' => $itemResult->status,
                     ];
                 }
-
-                // チェック2: 欠品が全てis_synced=trueであるか
-                $shortage = $itemResult->shortage;
-                if ($shortage && ! $shortage->is_synced) {
-                    $unsyncedShortages[] = [
-                        'task_id' => $task->id,
-                        'shortage_id' => $shortage->id,
-                        'item_name' => $itemResult->item?->name ?? '不明',
-                        'item_code' => $itemResult->item?->code ?? '-',
-                        'shortage_qty' => $shortage->shortage_qty,
-                        'is_confirmed' => $shortage->is_confirmed,
-                    ];
-                }
             }
+        }
+
+        // チェック2: 該当ピッキング明細に紐づく欠品が全てis_synced=trueであるか
+        $shortages = WmsShortage::query()
+            ->whereIn('source_pick_result_id', $itemResultsById->keys())
+            ->where('is_synced', false)
+            ->get();
+
+        foreach ($shortages as $shortage) {
+            $itemResult = $itemResultsById->get($shortage->source_pick_result_id);
+
+            $unsyncedShortages[] = [
+                'task_id' => $itemResult?->picking_task_id,
+                'shortage_id' => $shortage->id,
+                'item_name' => $itemResult?->item?->name ?? '不明',
+                'item_code' => $itemResult?->item?->code ?? '-',
+                'shortage_qty' => $shortage->shortage_qty,
+                'is_confirmed' => $shortage->is_confirmed,
+            ];
         }
 
         // 結果を返す

@@ -3,18 +3,25 @@
 namespace App\Filament\Resources\WmsShipmentSlips\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Sakemaru\ClientPrinterDriver;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
+use App\Models\WmsShortage;
 use App\Services\Print\PrintRequestService;
+use App\Services\QuantityUpdate\QuantityUpdateQueueService;
 use App\Services\Shortage\ShortageApprovalService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
@@ -170,6 +177,55 @@ class WmsShipmentSlipsTable
             ->recordAction('')
             ->recordActionsColumnLabel('操作')
             ->recordActions([
+                Action::make('addShortage')
+                    ->extraAttributes(['class' => 'whitespace-nowrap'])
+                    ->label('追加欠品')
+                    ->icon('heroicon-o-exclamation-triangle')
+                    ->color('warning')
+                    ->modalHeading('追加欠品')
+                    ->modalWidth('7xl')
+                    ->schema(fn (WmsPickingTask $record) => [
+                        static::additionalShortagesSection($record),
+                    ])
+                    ->modalSubmitActionLabel('追加欠品を登録')
+                    ->action(function (WmsPickingTask $record, array $data) {
+                        $additionalShortageRows = static::normalizeAdditionalShortageRows($data['additional_shortages'] ?? []);
+
+                        try {
+                            static::validateAdditionalShortageRows($record, $additionalShortageRows);
+                        } catch (\RuntimeException $e) {
+                            Notification::make()
+                                ->title('追加欠品を登録できません')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $additionalShortageCount = static::createAdditionalConfirmedShortages(
+                            $record,
+                            $additionalShortageRows,
+                            auth()->id()
+                        );
+
+                        if ($additionalShortageCount === 0) {
+                            Notification::make()
+                                ->title('追加欠品は登録されませんでした')
+                                ->body('追加する欠品明細を入力してください。')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        Notification::make()
+                            ->title('追加欠品を登録しました')
+                            ->body("追加欠品を{$additionalShortageCount}件登録しました。在庫同期が完了するまで伝票処理は待機してください。")
+                            ->success()
+                            ->send();
+                    }),
+
                 Action::make('print')
                     ->extraAttributes(['class' => 'whitespace-nowrap'])
                     ->label(function (WmsPickingTask $record) {
@@ -194,6 +250,7 @@ class WmsShipmentSlipsTable
 
                         return $printCount === 0 ? '出荷確定(伝票印刷)' : '伝票再印刷';
                     })
+                    ->modalWidth('7xl')
                     ->modalDescription(function (WmsPickingTask $record) {
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
@@ -637,6 +694,209 @@ class WmsShipmentSlipsTable
                 static::getExportAction(),
             ])
             ->defaultSort('delivery_course_code', 'asc');
+    }
+
+    protected static function additionalShortagesSection(WmsPickingTask $record): Section
+    {
+        return Section::make('追加欠品')
+            ->description('既存の欠品連携済みレコードは変更せず、欠品確定済みの行だけを追加します。')
+            ->schema([
+                Repeater::make('additional_shortages')
+                    ->hiddenLabel()
+                    ->default([])
+                    ->addActionLabel('追加欠品を追加')
+                    ->columns(4)
+                    ->schema([
+                        Select::make('picking_item_result_id')
+                            ->label('対象明細')
+                            ->options(fn () => static::additionalShortageItemOptions($record))
+                            ->searchable()
+                            ->required(),
+
+                        TextInput::make('shortage_qty')
+                            ->label('追加欠品数')
+                            ->numeric()
+                            ->minValue(1)
+                            ->required(),
+
+                        Select::make('reason_code')
+                            ->label('理由')
+                            ->options([
+                                WmsShortage::REASON_NO_STOCK => '在庫不足',
+                                WmsShortage::REASON_DAMAGED => '破損',
+                                WmsShortage::REASON_MISSING_LOC => '所在不明',
+                                WmsShortage::REASON_OTHER => 'その他',
+                            ])
+                            ->default(WmsShortage::REASON_NO_STOCK)
+                            ->required(),
+
+                        Textarea::make('note')
+                            ->label('備考')
+                            ->maxLength(255)
+                            ->columnSpanFull(),
+                    ]),
+            ])
+            ->compact()
+            ->collapsible();
+    }
+
+    protected static function additionalShortageItemOptions(WmsPickingTask $record): array
+    {
+        return static::additionalShortagePickResults($record)
+            ->mapWithKeys(function (WmsPickingItemResult $pickResult) {
+                $itemCode = $pickResult->item?->code ?? $pickResult->item_id;
+                $itemName = $pickResult->item?->name ?? '-';
+                $orderedQtyTypeValue = $pickResult->ordered_qty_type ?: 'PIECE';
+                $pickedQtyTypeValue = $pickResult->picked_qty_type ?: $orderedQtyTypeValue;
+                $orderedQtyType = QuantityType::tryFrom($orderedQtyTypeValue)?->name() ?? $orderedQtyTypeValue;
+                $pickedQtyType = QuantityType::tryFrom($pickedQtyTypeValue)?->name() ?? $pickedQtyTypeValue;
+                $earningNo = $pickResult->earning?->slip_no
+                    ?? $pickResult->earning?->code
+                    ?? $pickResult->earning_id
+                    ?? '-';
+
+                return [
+                    $pickResult->id => "[{$earningNo}] [{$itemCode}]{$itemName} / 発注{$pickResult->ordered_qty}{$orderedQtyType} / 出荷{$pickResult->picked_qty}{$pickedQtyType}",
+                ];
+            })
+            ->toArray();
+    }
+
+    protected static function additionalShortagePickResults(WmsPickingTask $record): Collection
+    {
+        $taskIds = static::shipmentSlipTaskQuery($record)->pluck('id');
+
+        if ($taskIds->isEmpty()) {
+            return new Collection;
+        }
+
+        return WmsPickingItemResult::query()
+            ->with(['item', 'earning', 'pickingTask'])
+            ->whereIn('picking_task_id', $taskIds)
+            ->where(function (Builder $query) {
+                $query->where('source_type', WmsPickingItemResult::SOURCE_TYPE_EARNING)
+                    ->orWhereNull('source_type');
+            })
+            ->whereNotNull('trade_id')
+            ->whereNotNull('trade_item_id')
+            ->whereNotNull('earning_id')
+            ->where('picked_qty', '>', 0)
+            ->orderBy('earning_id')
+            ->orderBy('item_id')
+            ->get();
+    }
+
+    protected static function shipmentSlipTaskQuery(WmsPickingTask $record): Builder
+    {
+        return WmsPickingTask::query()
+            ->where('shipment_date', $record->shipment_date)
+            ->where('delivery_course_id', $record->delivery_course_id)
+            ->when(
+                $record->wave_id,
+                fn (Builder $query) => $query->where('wave_id', $record->wave_id),
+                fn (Builder $query) => $query->whereNull('wave_id'),
+            );
+    }
+
+    protected static function normalizeAdditionalShortageRows(array $rows): array
+    {
+        return collect($rows)
+            ->filter(fn (array $row) => filled($row['picking_item_result_id'] ?? null) || filled($row['shortage_qty'] ?? null))
+            ->map(fn (array $row) => [
+                'picking_item_result_id' => (int) ($row['picking_item_result_id'] ?? 0),
+                'shortage_qty' => (int) ($row['shortage_qty'] ?? 0),
+                'reason_code' => $row['reason_code'] ?? WmsShortage::REASON_NO_STOCK,
+                'note' => trim((string) ($row['note'] ?? '')),
+            ])
+            ->values()
+            ->all();
+    }
+
+    protected static function validateAdditionalShortageRows(WmsPickingTask $record, array $rows): void
+    {
+        if ($rows === []) {
+            return;
+        }
+
+        $pickResults = static::additionalShortagePickResults($record)->keyBy('id');
+        $seenPickResultIds = [];
+
+        foreach ($rows as $index => $row) {
+            $rowNumber = $index + 1;
+            $pickResult = $pickResults->get($row['picking_item_result_id']);
+
+            if (! $pickResult) {
+                throw new \RuntimeException("追加欠品{$rowNumber}行目の対象明細が、この配送コースの出荷済み明細ではありません。");
+            }
+
+            if (isset($seenPickResultIds[$pickResult->id])) {
+                throw new \RuntimeException("追加欠品{$rowNumber}行目の対象明細が重複しています。同じ明細の追加欠品は1行にまとめてください。");
+            }
+            $seenPickResultIds[$pickResult->id] = true;
+
+            if ($row['shortage_qty'] < 1) {
+                throw new \RuntimeException("追加欠品{$rowNumber}行目の欠品数は1以上で入力してください。");
+            }
+
+            if ($row['shortage_qty'] > (int) $pickResult->picked_qty) {
+                throw new \RuntimeException("追加欠品{$rowNumber}行目の欠品数が出荷数を超えています。");
+            }
+        }
+    }
+
+    protected static function createAdditionalConfirmedShortages(WmsPickingTask $record, array $rows, ?int $userId): int
+    {
+        if ($rows === []) {
+            return 0;
+        }
+
+        $pickResults = static::additionalShortagePickResults($record)->keyBy('id');
+        $createdCount = 0;
+        $queueService = app(QuantityUpdateQueueService::class);
+
+        DB::connection('sakemaru')->transaction(function () use ($rows, $pickResults, $userId, $queueService, &$createdCount) {
+            foreach ($rows as $row) {
+                /** @var WmsPickingItemResult $pickResult */
+                $pickResult = $pickResults->get($row['picking_item_result_id']);
+                $qtyType = $pickResult->ordered_qty_type ?: $pickResult->planned_qty_type ?: WmsShortage::QTY_TYPE_PIECE;
+                $notePrefix = "緊急追加欠品: 元ピッキング明細ID {$pickResult->id}";
+                $note = $row['note'] !== '' ? "{$notePrefix} / {$row['note']}" : $notePrefix;
+
+                $shortage = WmsShortage::create([
+                    'wave_id' => $pickResult->pickingTask?->wave_id,
+                    'shipment_date' => $pickResult->pickingTask?->shipment_date,
+                    'warehouse_id' => $pickResult->pickingTask?->warehouse_id,
+                    'location_id' => $pickResult->location_id,
+                    'item_id' => $pickResult->item_id,
+                    'trade_id' => $pickResult->trade_id,
+                    'earning_id' => $pickResult->earning_id,
+                    'delivery_course_id' => $pickResult->pickingTask?->delivery_course_id,
+                    'trade_item_id' => $pickResult->trade_item_id,
+                    'order_qty' => (int) $pickResult->ordered_qty,
+                    'planned_qty' => (int) $pickResult->planned_qty,
+                    'picked_qty' => max(0, (int) $pickResult->picked_qty - $row['shortage_qty']),
+                    'shortage_qty' => $row['shortage_qty'],
+                    'allocation_shortage_qty' => 0,
+                    'picking_shortage_qty' => $row['shortage_qty'],
+                    'qty_type_at_order' => $qtyType,
+                    'case_size_snap' => $pickResult->item?->capacity_case ?? 1,
+                    'is_confirmed' => true,
+                    'confirmed_by' => $userId,
+                    'confirmed_user_id' => $userId,
+                    'confirmed_at' => now(),
+                    'is_synced' => false,
+                    'source_pick_result_id' => $pickResult->id,
+                    'status' => WmsShortage::STATUS_SHORTAGE,
+                    'reason_code' => $row['reason_code'],
+                    'note' => mb_substr($note, 0, 255),
+                ]);
+
+                $queueService->createQueueForAllocationSync($shortage, "additional-shortage-{$shortage->id}");
+                $createdCount++;
+            }
+        });
+
+        return $createdCount;
     }
 
     /**
