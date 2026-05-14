@@ -1769,30 +1769,24 @@ class OrderTransmissionService
         $firstCandidate = $candidates->first();
         $createdByName = $this->resolveOrderDataFileCreatedByName($batchCode);
 
-        WmsOrderDataFile::updateOrCreate(
-            [
-                'batch_code' => $batchCode,
-                'warehouse_id' => $firstCandidate?->warehouse_id,
-                'contractor_id' => $file['contractor_id'],
-                'is_test' => false,
-            ],
-            [
-                'created_by_name' => $createdByName,
-                'order_date' => ClientSetting::systemDateYMD(),
-                'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
-                'file_path' => $csvPath,
-                'file_size' => strlen($csvContent),
-                'order_count' => $candidates->count(),
-                'total_quantity' => $quantityResolver->sumOutputOrderQuantity($candidates),
-                'is_mail_order' => (bool) WmsContractorSetting::where('contractor_id', $file['contractor_id'])
-                    ->whereNotNull('order_mail')
-                    ->where('order_mail', '!=', '')
-                    ->exists(),
-                'status' => OrderDataFileStatus::GENERATED,
-                'csv_downloaded_at' => null,
-                'csv_downloaded_by' => null,
-            ]
-        );
+        WmsOrderDataFile::create([
+            'batch_code' => $batchCode,
+            'created_by_name' => $createdByName,
+            'warehouse_id' => $firstCandidate?->warehouse_id,
+            'contractor_id' => $file['contractor_id'],
+            'order_date' => ClientSetting::systemDateYMD(),
+            'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
+            'file_path' => $csvPath,
+            'file_size' => strlen($csvContent),
+            'order_count' => $candidates->count(),
+            'total_quantity' => $quantityResolver->sumOutputOrderQuantity($candidates),
+            'is_mail_order' => (bool) WmsContractorSetting::where('contractor_id', $file['contractor_id'])
+                ->whereNotNull('order_mail')
+                ->where('order_mail', '!=', '')
+                ->exists(),
+            'is_test' => false,
+            'status' => OrderDataFileStatus::GENERATED,
+        ]);
 
         return $csvPath;
     }

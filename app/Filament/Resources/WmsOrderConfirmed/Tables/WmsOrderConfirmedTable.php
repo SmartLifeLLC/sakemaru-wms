@@ -421,9 +421,13 @@ class WmsOrderConfirmedTable
                             }
 
                             if (! empty($result['errors'])) {
+                                $errorMessages = collect($result['errors'])
+                                    ->map(fn ($e) => is_array($e) ? ($e['error'] ?? json_encode($e)) : $e)
+                                    ->take(5)
+                                    ->all();
                                 Notification::make()
                                     ->title(count($result['errors']).'件のエラーが発生しました')
-                                    ->body(implode("\n", array_slice($result['errors'], 0, 5)))
+                                    ->body(implode("\n", $errorMessages))
                                     ->danger()
                                     ->send();
                             }
