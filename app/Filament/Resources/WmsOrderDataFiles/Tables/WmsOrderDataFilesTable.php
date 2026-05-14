@@ -5,9 +5,7 @@ namespace App\Filament\Resources\WmsOrderDataFiles\Tables;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
-use App\Filament\Resources\WmsOrderDataFiles\Pages\ListWmsOrderDataFiles;
 use App\Mail\OrderDataMail;
-use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderDataFile;
 use App\Services\AutoOrder\OrderDataFileService;
@@ -194,42 +192,11 @@ class WmsOrderDataFilesTable
                         ->when($data['order_date'], fn (Builder $q, $date) => $q->whereDate('order_date', $date))
                     ),
 
-                SelectFilter::make('warehouse_id')
-                    ->label('倉庫')
-                    ->options(function ($livewire): array {
-                        $isTest = $livewire instanceof ListWmsOrderDataFiles
-                            && $livewire->fileTypeTab === 'test';
-                        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
-
-                        $warehouseIds = WmsOrderDataFile::query()
-                            ->where('is_test', $isTest)
-                            ->forCreatedBy(auth()->id())
-                            ->whereNotNull('warehouse_id')
-                            ->distinct()
-                            ->pluck('warehouse_id')
-                            ->all();
-
-                        return Warehouse::query()
-                            ->where(function (Builder $query) use ($warehouseIds, $selectedWarehouseId) {
-                                $query->whereIn('id', $warehouseIds)
-                                    ->when($selectedWarehouseId, fn (Builder $q) => $q->orWhere('id', $selectedWarehouseId));
-                            })
-                            ->orderBy('code')
-                            ->get()
-                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
-                            ->toArray();
-                    })
-                    ->default(fn () => auth()->user()?->getSelectedWarehouseId())
-                    ->searchable(),
-
                 SelectFilter::make('created_by_name')
                     ->label('作成者')
-                    ->options(function ($livewire): array {
-                        $isTest = $livewire instanceof ListWmsOrderDataFiles
-                            && $livewire->fileTypeTab === 'test';
-
+                    ->options(function (): array {
                         return WmsOrderDataFile::query()
-                            ->where('is_test', $isTest)
+                            ->where('is_test', false)
                             ->forCreatedBy(auth()->id())
                             ->whereNotNull('created_by_name')
                             ->distinct()

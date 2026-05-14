@@ -82,7 +82,7 @@ class ResetGeneratedOrderDataCommand extends Command
                         WmsQueueProgress::JOB_TYPE_ORDER_CONFIRMATION,
                         WmsQueueProgress::JOB_TYPE_CSV_GENERATION,
                         WmsQueueProgress::JOB_TYPE_JX_GENERATION,
-                        WmsQueueProgress::JOB_TYPE_TEST_ORDER_FILES,
+    
                         WmsQueueProgress::JOB_TYPE_AUTO_SEND,
                     ])
                     ->count(),
@@ -124,7 +124,7 @@ class ResetGeneratedOrderDataCommand extends Command
                     WmsQueueProgress::JOB_TYPE_ORDER_CONFIRMATION,
                     WmsQueueProgress::JOB_TYPE_CSV_GENERATION,
                     WmsQueueProgress::JOB_TYPE_JX_GENERATION,
-                    WmsQueueProgress::JOB_TYPE_TEST_ORDER_FILES,
+
                     WmsQueueProgress::JOB_TYPE_AUTO_SEND,
                 ])
                 ->delete();

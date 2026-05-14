@@ -96,9 +96,13 @@ class WmsOrderDataFile extends WmsModel
             return $query;
         }
 
-        return $query->whereIn('batch_code', WmsAutoOrderJobControl::query()
-            ->where('created_by', $userId)
-            ->select('batch_code'));
+        return $query->where(function (Builder $q) use ($userId) {
+            $q->whereIn('batch_code', WmsAutoOrderJobControl::query()
+                ->where('created_by', $userId)
+                ->select('batch_code'))
+            ->orWhereNotIn('batch_code', WmsAutoOrderJobControl::query()
+                ->select('batch_code'));
+        });
     }
 
     // Methods
@@ -144,23 +148,4 @@ class WmsOrderDataFile extends WmsModel
         $this->update($data);
     }
 
-    /**
-     * 後方互換性のためのエイリアス
-     *
-     * @deprecated Use csvDownloadedByUser() instead
-     */
-    public function downloadedByUser(): BelongsTo
-    {
-        return $this->csvDownloadedByUser();
-    }
-
-    /**
-     * 後方互換性のためのエイリアス
-     *
-     * @deprecated Use markAsCsvDownloaded() instead
-     */
-    public function markAsDownloaded(int $userId): void
-    {
-        $this->markAsCsvDownloaded($userId);
-    }
 }

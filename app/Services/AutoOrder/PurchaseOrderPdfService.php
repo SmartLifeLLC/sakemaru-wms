@@ -574,22 +574,35 @@ class PurchaseOrderPdfService
     {
         $boxX = self::MARGIN_LEFT;
         $boxY = $this->currentY;
-        $boxWidth = self::CONTENT_WIDTH; // 全幅
-        $boxHeight = 25;
+        $boxWidth = self::CONTENT_WIDTH;
+        $defaultBoxHeight = 25;
+        $lineHeight = 5;
+        $padding = 2;
 
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+
+        // テキスト行数に応じて高さを調整（4行以上で拡張）
+        $contentHeight = $defaultBoxHeight - self::LINE_HEIGHT_NORMAL;
+        if ($notes) {
+            $numLines = $this->pdf->getNumLines($notes, $boxWidth - ($padding * 2));
+            if ($numLines >= 4) {
+                $contentHeight = ($numLines * $lineHeight) + ($padding * 2);
+            }
+        }
+        $boxHeight = self::LINE_HEIGHT_NORMAL + $contentHeight;
+
         $this->pdf->SetXY($boxX, $boxY);
         $this->pdf->Cell($boxWidth, self::LINE_HEIGHT_NORMAL, '【通信欄】', 0, 1, 'L');
 
         // 枠線
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
-        $this->pdf->Rect($boxX, $boxY + self::LINE_HEIGHT_NORMAL, $boxWidth, $boxHeight - self::LINE_HEIGHT_NORMAL);
+        $this->pdf->Rect($boxX, $boxY + self::LINE_HEIGHT_NORMAL, $boxWidth, $contentHeight);
 
         // 枠内にテキストを描画
         if ($notes) {
             $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
-            $this->pdf->SetXY($boxX + 2, $boxY + self::LINE_HEIGHT_NORMAL + 1);
-            $this->pdf->MultiCell($boxWidth - 4, 4, $notes, 0, 'L');
+            $this->pdf->SetXY($boxX + $padding, $boxY + self::LINE_HEIGHT_NORMAL + 1);
+            $this->pdf->MultiCell($boxWidth - ($padding * 2), $lineHeight, $notes, 0, 'L');
         }
 
         // Y座標を通信欄の下へ進める

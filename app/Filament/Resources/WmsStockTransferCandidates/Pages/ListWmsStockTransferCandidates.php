@@ -61,7 +61,7 @@ class ListWmsStockTransferCandidates extends ListRecords
             ->where(function ($query) use ($search) {
                 $query->where('code', 'like', "%{$search}%")
                     ->orWhere('name', 'like', "%{$search}%")
-                    ->orWhereHas('piece_jan_code_information', function ($q) use ($search) {
+                    ->orWhereHas('item_search_information', function ($q) use ($search) {
                         $q->where('search_string', 'like', "%{$search}%");
                     });
             })
@@ -101,15 +101,21 @@ class ListWmsStockTransferCandidates extends ListRecords
             ->with('piece_jan_code_information')
             ->where('items.end_of_sale_type', 'NORMAL');
 
-        if ($itemCode && strlen($itemCode) >= 1) {
-            $itemCode = mb_convert_kana($itemCode, 'as');
-            $query->where('items.code', 'like', "%{$itemCode}%");
-        }
-
-        if ($janCode && strlen($janCode) >= 1) {
-            $janCode = mb_convert_kana($janCode, 'as');
-            $query->whereHas('piece_jan_code_information', function ($sq) use ($janCode) {
-                $sq->where('search_string', 'like', "%{$janCode}%");
+        // 商品CD・JANコード検索（OR）
+        $hasItemCode = $itemCode && strlen($itemCode) >= 1;
+        $hasJanCode = $janCode && strlen($janCode) >= 1;
+        if ($hasItemCode || $hasJanCode) {
+            $itemCode = $hasItemCode ? mb_convert_kana($itemCode, 'as') : null;
+            $janCode = $hasJanCode ? mb_convert_kana($janCode, 'as') : null;
+            $query->where(function ($q) use ($itemCode, $janCode) {
+                if ($itemCode) {
+                    $q->where('items.code', 'like', "%{$itemCode}%");
+                }
+                if ($janCode) {
+                    $q->orWhereHas('item_search_information', function ($sq) use ($janCode) {
+                        $sq->where('search_string', 'like', "%{$janCode}%");
+                    });
+                }
             });
         }
 
@@ -184,6 +190,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                 'name' => $item->name,
                 'packaging' => $item->packaging,
                 'search_code' => $item->piece_jan_code_information?->search_string ?? '',
+                'contractor_code' => $ic?->contractor?->code,
                 'contractor_name' => $ic?->contractor
                     ? "[{$ic->contractor->code}]{$ic->contractor->name}"
                     : null,

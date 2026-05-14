@@ -7,7 +7,6 @@ use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsTransferConfirmationWaitingTable;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\WmsOrderConfirmationWaitingResource;
 use App\Jobs\ProcessOrderConfirmationJob;
-use App\Jobs\ProcessTestOrderFilesJob;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsQueueProgress;
@@ -37,8 +36,6 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
     protected static string $resource = WmsOrderConfirmationWaitingResource::class;
 
     public ?string $activeJobId = null;
-
-    public ?string $activeTestJobId = null;
 
     public string $fileSplitMode = 'split';
 
@@ -112,29 +109,6 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             }
         }
 
-        // アクティブなテストデータ生成ジョブがあるかチェック
-        $activeTestJob = WmsQueueProgress::getActiveJobForUser(
-            WmsQueueProgress::JOB_TYPE_TEST_ORDER_FILES,
-            auth()->id()
-        );
-
-        if ($activeTestJob) {
-            // テストデータ生成もタイムアウトチェック
-            $cleanupService = app(OrderConfirmationCleanupService::class);
-            if ($cleanupService->isTimedOut($activeTestJob)) {
-                // テストデータは単純にエラー終了のみ（ファイル削除は不要、TEST状態のまま）
-                $activeTestJob->markAsFailed('タイムアウト（15分経過）によりキャンセルされました。');
-
-                Notification::make()
-                    ->title('テストデータ生成がタイムアウトしました')
-                    ->body('15分以上経過したため処理をキャンセルしました。')
-                    ->danger()
-                    ->persistent()
-                    ->send();
-            } else {
-                $this->activeTestJobId = $activeTestJob->job_id;
-            }
-        }
     }
 
     protected function getHeaderActions(): array
@@ -155,11 +129,6 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         // アクティブな発注確定ジョブがあるかチェック
         $activeJob = WmsQueueProgress::getActiveJobForUser(
             WmsQueueProgress::JOB_TYPE_ORDER_CONFIRMATION,
-            auth()->id()
-        );
-
-        $activeTestJob = WmsQueueProgress::getActiveJobForUser(
-            WmsQueueProgress::JOB_TYPE_TEST_ORDER_FILES,
             auth()->id()
         );
 
@@ -283,33 +252,6 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                             ->send();
                     }),
 
-                Action::make('generateTestOrderFiles')
-                    ->label('発注送信テストデータ生成')
-                    ->icon('heroicon-o-document-text')
-                    ->color('info')
-                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
-                    ->modalHeading('発注送信テストデータの生成')
-                    ->modalDescription('承認済みの発注候補からテスト用の発注ファイルを生成します。このファイルはJX送信できません。処理はバックグラウンドで実行されます。')
-                    ->modalFooterActionsAlignment(Alignment::End)
-                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('生成開始')->color('danger'))
-                    ->modalCancelActionLabel('生成せず閉じる')
-                    ->visible($globalOrderApprovedCount > 0 && ! $activeJob && ! $activeTestJob)
-                    ->action(function () {
-                        $progress = WmsQueueProgress::createJob(
-                            WmsQueueProgress::JOB_TYPE_TEST_ORDER_FILES,
-                            auth()->id()
-                        );
-
-                        ProcessTestOrderFilesJob::dispatch($progress->job_id, auth()->id());
-
-                        $this->activeTestJobId = $progress->job_id;
-
-                        Notification::make()
-                            ->title('テストデータ生成を開始しました')
-                            ->body('処理はバックグラウンドで実行されます。進捗は画面上部で確認できます。')
-                            ->success()
-                            ->send();
-                    }),
             ])
                 ->label('管理者メニュー')
                 ->icon('heroicon-o-shield-check')
@@ -373,59 +315,6 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         ];
     }
 
-    public function getTestProgressData(): ?array
-    {
-        if (! $this->activeTestJobId) {
-            return null;
-        }
-
-        $progress = WmsQueueProgress::findByJobId($this->activeTestJobId);
-
-        if (! $progress) {
-            $this->activeTestJobId = null;
-
-            return null;
-        }
-
-        // 完了または失敗の場合
-        if ($progress->isCompleted() || $progress->isFailed()) {
-            $data = [
-                'status' => $progress->status->value,
-                'progress' => $progress->progress,
-                'message' => $progress->message,
-                'result' => $progress->result,
-            ];
-
-            // 完了後にIDをクリア
-            if ($progress->isCompleted()) {
-                $this->activeTestJobId = null;
-
-                Notification::make()
-                    ->title('テストデータ生成が完了しました')
-                    ->body($progress->message)
-                    ->success()
-                    ->send();
-            } elseif ($progress->isFailed()) {
-                $this->activeTestJobId = null;
-
-                Notification::make()
-                    ->title('テストデータ生成が失敗しました')
-                    ->body($progress->message)
-                    ->danger()
-                    ->send();
-            }
-
-            return $data;
-        }
-
-        return [
-            'status' => $progress->status->value,
-            'progress' => $progress->progress,
-            'message' => $progress->message,
-            'processed_items' => $progress->processed_items,
-            'total_items' => $progress->total_items,
-        ];
-    }
 
     public function table(Table $table): Table
     {
