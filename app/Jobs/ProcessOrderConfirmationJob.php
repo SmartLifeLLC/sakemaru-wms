@@ -80,9 +80,8 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                 ]);
             }
 
-            // 承認済み移動候補の件数を取得
-            $transferApprovedQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
-                ->forCreatedBy($this->userId);
+            // 承認済み移動候補の件数を取得（移動候補は倉庫単位のため作成者フィルタなし）
+            $transferApprovedQuery = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED);
             if ($this->warehouseId !== null) {
                 $transferApprovedQuery->where('satellite_warehouse_id', $this->warehouseId);
             }
@@ -135,7 +134,7 @@ class ProcessOrderConfirmationJob implements ShouldQueue
                     "移動候補を確定処理中... ({$transferApprovedCount}件)"
                 );
 
-                $transferResult = $transferExecutionService->executeAllApprovedGrouped($this->userId, $this->warehouseId, $this->userId);
+                $transferResult = $transferExecutionService->executeAllApprovedGrouped($this->userId, $this->warehouseId);
                 $totalTransferQueues = $transferResult['queue_count'];
                 $totalTransferCandidates = $transferResult['candidate_count'];
 

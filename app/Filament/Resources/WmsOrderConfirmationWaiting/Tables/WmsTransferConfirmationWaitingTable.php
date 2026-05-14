@@ -26,7 +26,9 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 class WmsTransferConfirmationWaitingTable
 {
@@ -77,7 +79,22 @@ class WmsTransferConfirmationWaitingTable
 
                 TextColumn::make('item_code')
                     ->label('商品CD')
-                    ->searchable()
+                    ->searchable(query: function (Builder $query, string $search): Builder {
+                        $itemIds = DB::connection('sakemaru')
+                            ->table('item_search_information as isi')
+                            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
+                            ->where('isi.is_active', true)
+                            ->where(fn ($q) => $q
+                                ->where('iqi.own_code', 'like', "%{$search}%")
+                                ->orWhere('iqi.product_code', 'like', "%{$search}%"))
+                            ->distinct()
+                            ->pluck('isi.item_id')
+                            ->all();
+
+                        return $query->where(fn ($q) => $q
+                            ->where('item_code', 'like', "%{$search}%")
+                            ->orWhereIn('item_id', $itemIds));
+                    })
                     ->sortable()
                     ->width('100px'),
 
