@@ -31,6 +31,11 @@ class ItemContractorsTable
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'sticky-actions'])
             ->columns([
+                ToggleColumn::make('is_auto_order')
+                    ->label('自動発注')
+                    ->sortable()
+                    ->alignCenter(),
+
                 TextColumn::make('item.code')
                     ->label('商品CD')
                     ->searchable()
@@ -103,11 +108,6 @@ class ItemContractorsTable
                     ->sortable()
                     ->alignEnd()
                     ->width('110px'),
-
-                ToggleColumn::make('is_auto_order')
-                    ->label('自動発注')
-                    ->sortable()
-                    ->alignCenter(),
 
                 ToggleColumn::make('use_safety_stock_auto_update')
                     ->label('在庫自動更新')
