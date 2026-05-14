@@ -12,6 +12,7 @@
     },
     results: [],
     quantities: {},
+    pinnedItems: {},
     totalCount: 0,
     currentPage: 1,
     lastPage: 1,
@@ -29,6 +30,7 @@
         }
         this.loading = true;
         this.currentPage = page;
+        this.updatePinnedItems();
         try {
             const result = await $wire.searchItemsForModal(
                 parseInt(warehouseId),
@@ -44,19 +46,20 @@
                 page,
                 this.perPage
             );
-            this.results = result.data;
             this.totalCount = result.total;
             this.currentPage = result.current_page;
             this.lastPage = result.last_page;
             this.searched = true;
 
+            const newIds = new Set(result.data.map(r => String(r.id)));
+            const pinned = Object.values(this.pinnedItems).filter(p => !newIds.has(String(p.id)));
+            this.results = [...pinned, ...result.data];
+
             this.results.forEach(item => {
                 const key = String(item.id);
                 if (!(key in this.quantities)) {
-                    const autoOrderQuantity = parseInt(item.auto_order_quantity || 0);
-                    const defaultQty = item.pending_qty ?? (autoOrderQuantity > 0 ? autoOrderQuantity : null);
                     this.quantities[key] = {
-                        qty: defaultQty,
+                        qty: item.pending_qty ?? null,
                         item_code: item.code,
                         search_code: item.search_code || '',
                     };
@@ -71,12 +74,25 @@
         }
     },
 
+    updatePinnedItems() {
+        this.results.forEach(item => {
+            const key = String(item.id);
+            const qty = this.quantities[key]?.qty;
+            if (qty > 0) {
+                this.pinnedItems[key] = { ...item };
+            } else {
+                delete this.pinnedItems[key];
+            }
+        });
+    },
+
     resetFilters() {
         this.filters = { itemCode: '', janCode: '', itemName: '', contractorId: '', category1Id: '', category2Id: '', category3Id: '', lastShippedFrom: '', lastShippedTo: '' };
         this.categories2 = [];
         this.categories3 = [];
         this.results = [];
         this.quantities = {};
+        this.pinnedItems = {};
         this.searched = false;
         this.totalCount = 0;
         $wire.set('transferOrderItems', []);
@@ -145,17 +161,17 @@
         <div class="grid grid-cols-5 gap-2">
             <div>
                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">商品CD</label>
-                <input type="text" x-model="filters.itemCode" @keydown.enter="search(1)"
+                <input type="text" x-model="filters.itemCode" @keydown.enter.prevent="search(1)"
                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
             </div>
             <div>
                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">JANコード</label>
-                <input type="text" x-model="filters.janCode" @keydown.enter="search(1)"
+                <input type="text" x-model="filters.janCode" @keydown.enter.prevent="search(1)"
                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
             </div>
             <div>
                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">商品名</label>
-                <input type="text" x-model="filters.itemName" @keydown.enter="search(1)"
+                <input type="text" x-model="filters.itemName" @keydown.enter.prevent="search(1)"
                     placeholder="2文字以上"
                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
             </div>
@@ -276,12 +292,23 @@
                 </thead>
                 <tbody>
                     <template x-for="(item, index) in results" :key="item.id">
-                        <tr :class="index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-blue-50/30 dark:bg-blue-950/20'"
+                        <tr :class="String(item.contractor_code) !== '9012'
+                                ? 'bg-red-50 dark:bg-red-950/30'
+                                : (String(item.id) in pinnedItems)
+                                    ? 'bg-green-50 dark:bg-green-950/30'
+                                    : (index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-blue-50/30 dark:bg-blue-950/20')"
                             class="divide-x divide-gray-200 dark:divide-white/10 border-t border-gray-200 dark:border-white/10">
                             <td class="px-1.5 py-0.5"><span class="text-xs font-mono text-gray-900 dark:text-white" x-text="item.code"></span></td>
-                            <td class="px-1.5 py-0.5"><span class="text-xs text-gray-700 dark:text-gray-300 truncate block" x-text="item.name"></span></td>
+                            <td class="px-1.5 py-0.5">
+                                <span class="text-xs text-gray-700 dark:text-gray-300 truncate block" x-text="item.name"></span>
+                                <span x-show="String(item.contractor_code) !== '9012'" class="text-[10px] font-bold text-red-600 dark:text-red-400">本部発注対象ではありません</span>
+                            </td>
                             <td class="px-1.5 py-0.5"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.packaging || '-'"></span></td>
-                            <td class="px-1.5 py-0.5"><span class="text-xs text-gray-500 dark:text-gray-400 whitespace-normal break-words" x-text="item.contractor_name || '-'"></span></td>
+                            <td class="px-1.5 py-0.5">
+                                <span class="text-xs whitespace-normal break-words"
+                                    :class="String(item.contractor_code) !== '9012' ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-500 dark:text-gray-400'"
+                                    x-text="item.contractor_name || '-'"></span>
+                            </td>
                             <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.safety_stock || 0"></span></td>
                             <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.auto_order_quantity || 0"></span></td>
                             <td class="px-1.5 py-0.5 text-center"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.last_shipped_at || '-'"></span></td>
@@ -292,6 +319,7 @@
                                 <input type="number"
                                     :value="getQty(item.id).qty"
                                     @input="getQty(item.id).qty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
+                                    @keydown.enter.prevent
                                     min="0"
                                     placeholder=""
                                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"

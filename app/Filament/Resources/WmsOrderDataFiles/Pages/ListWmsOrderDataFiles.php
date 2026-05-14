@@ -12,8 +12,6 @@ use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
-use Livewire\Attributes\Url;
-
 class ListWmsOrderDataFiles extends ListRecords
 {
     use AdvancedTables;
@@ -23,9 +21,6 @@ class ListWmsOrderDataFiles extends ListRecords
     }
 
     protected static string $resource = WmsOrderDataFileResource::class;
-
-    #[Url(as: 'tab')]
-    public string $fileTypeTab = 'production';
 
     /**
      * プリセットビュー用倉庫データのキャッシュ
@@ -40,25 +35,15 @@ class ListWmsOrderDataFiles extends ListRecords
 
     public function table(Table $table): Table
     {
-        $isTest = $this->fileTypeTab === 'test';
-
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
-                ->with(['warehouse', 'contractor', 'downloadedByUser'])
+                ->with(['warehouse', 'contractor', 'csvDownloadedByUser'])
                 ->forCreatedBy(auth()->id())
-                ->where('is_test', $isTest)
+                ->where('is_test', false)
                 ->orderBy('batch_code', 'desc')
                 ->orderBy('warehouse_id')
                 ->orderBy('contractor_id')
             );
-    }
-
-    public function setFileTypeTab(string $tab): void
-    {
-        $this->redirect(
-            static::getResource()::getUrl('index', ['tab' => $tab]),
-            navigate: true
-        );
     }
 
     public function getPresetViews(): array
@@ -119,8 +104,7 @@ class ListWmsOrderDataFiles extends ListRecords
             return $this->cachedWarehouses;
         }
 
-        $isTest = $this->fileTypeTab === 'test';
-        $warehouseIds = WmsOrderDataFile::where('is_test', $isTest)
+        $warehouseIds = WmsOrderDataFile::where('is_test', false)
             ->forCreatedBy(auth()->id())
             ->distinct()
             ->pluck('warehouse_id')

@@ -62,31 +62,38 @@ class ListWmsOrderConfirmed extends ListRecords
 
     public function getPresetViews(): array
     {
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
         $warehouses = $this->getWarehousesForPresetViews();
+        $warehouseIds = $warehouses->pluck('id')->toArray();
 
-        $views = [
-            'default' => PresetView::make()
-                ->favorite()
-                ->label('全て')
-                ->default(),
-        ];
+        $hasSelectedWarehouse = $selectedWarehouseId && in_array($selectedWarehouseId, $warehouseIds);
+        $selectedWarehouse = $hasSelectedWarehouse ? $warehouses->firstWhere('id', $selectedWarehouseId) : null;
+
+        if ($selectedWarehouse) {
+            $views = [
+                'default' => PresetView::make()
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $selectedWarehouseId))
+                    ->favorite()
+                    ->label($selectedWarehouse->name)
+                    ->default(),
+            ];
+        } else {
+            $views = [
+                'default' => PresetView::make()
+                    ->favorite()
+                    ->label('全て')
+                    ->default(),
+            ];
+        }
 
         $views['all'] = PresetView::make()
             ->favorite()
             ->label('全て');
 
-        $views['default_confirmed'] = PresetView::make()
-            ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::CONFIRMED))
-            ->favorite()
-            ->label('確定済み');
-
-        $views['default_executed'] = PresetView::make()
-            ->modifyQueryUsing(fn (Builder $query) => $query->where('status', CandidateStatus::EXECUTED))
-            ->favorite()
-            ->label('送信済み');
-
-        // 倉庫タブを追加（データがある場合のみ）
         foreach ($warehouses as $warehouse) {
+            if ($hasSelectedWarehouse && $warehouse->id === $selectedWarehouseId) {
+                continue;
+            }
             $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where((new WmsOrderCandidate)->getTable().'.warehouse_id', $warehouse->id))
                 ->favorite()
