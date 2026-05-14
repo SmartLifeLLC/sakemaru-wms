@@ -112,7 +112,8 @@ class ItemContractorsTable
                 ToggleColumn::make('use_safety_stock_auto_update')
                     ->label('在庫自動更新')
                     ->sortable()
-                    ->alignCenter(),
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Filter::make('item_code')
@@ -150,11 +151,6 @@ class ItemContractorsTable
                     ->trueLabel('自動発注のみ')
                     ->falseLabel('手動発注のみ'),
 
-                TernaryFilter::make('use_safety_stock_auto_update')
-                    ->label('安全在庫自動更新')
-                    ->placeholder('すべて')
-                    ->trueLabel('自動更新あり')
-                    ->falseLabel('自動更新なし'),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([

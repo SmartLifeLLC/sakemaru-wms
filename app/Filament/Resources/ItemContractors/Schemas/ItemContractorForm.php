@@ -22,10 +22,6 @@ class ItemContractorForm
                     ->schema([
                         Select::make('item_id')
                             ->label('商品')
-                            ->options(fn () => Item::query()
-                                ->limit(100)
-                                ->get()
-                                ->mapWithKeys(fn ($item) => [$item->id => "[{$item->item_code}] {$item->item_name}"]))
                             ->searchable()
                             ->getSearchResultsUsing(fn (string $search) => Item::query()
                                 ->where('item_code', 'like', "%{$search}%")
@@ -33,6 +29,7 @@ class ItemContractorForm
                                 ->limit(50)
                                 ->get()
                                 ->mapWithKeys(fn ($item) => [$item->id => "[{$item->item_code}] {$item->item_name}"]))
+                            ->getOptionLabelUsing(fn ($value) => ($item = Item::find($value)) ? "[{$item->item_code}] {$item->item_name}" : null)
                             ->required()
                             ->helperText('発注対象の商品を選択'),
 
