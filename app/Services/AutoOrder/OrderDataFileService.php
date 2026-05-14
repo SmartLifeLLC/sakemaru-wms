@@ -188,26 +188,20 @@ class OrderDataFileService
         $totalQuantity = $quantityResolver->sumOutputOrderQuantity($candidates);
 
         // DBに記録
-        $dataFile = WmsOrderDataFile::updateOrCreate(
-            [
-                'batch_code' => $batchCode,
-                'warehouse_id' => $warehouseId,
-                'contractor_id' => $contractorId,
-                'is_test' => false,
-            ],
-            [
-                'created_by_name' => $this->resolveCreatedByName($batchCode),
-                'order_date' => ClientSetting::systemDateYMD(),
-                'expected_arrival_date' => $expectedArrivalDate,
-                'file_path' => $filePath,
-                'file_size' => strlen($csvContent),
-                'order_count' => $candidates->count(),
-                'total_quantity' => $totalQuantity,
-                'status' => OrderDataFileStatus::GENERATED,
-                'csv_downloaded_at' => null,
-                'csv_downloaded_by' => null,
-            ]
-        );
+        $dataFile = WmsOrderDataFile::create([
+            'batch_code' => $batchCode,
+            'created_by_name' => $this->resolveCreatedByName($batchCode),
+            'warehouse_id' => $warehouseId,
+            'contractor_id' => $contractorId,
+            'order_date' => ClientSetting::systemDateYMD(),
+            'expected_arrival_date' => $expectedArrivalDate,
+            'file_path' => $filePath,
+            'file_size' => strlen($csvContent),
+            'order_count' => $candidates->count(),
+            'total_quantity' => $totalQuantity,
+            'is_test' => false,
+            'status' => OrderDataFileStatus::GENERATED,
+        ]);
 
         $faxError = null;
         if ($warehouseId !== null) {
