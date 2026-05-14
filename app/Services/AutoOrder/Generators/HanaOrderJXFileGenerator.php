@@ -489,12 +489,11 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         }
 
         // 原単価を取得
-        $costPrice = $this->getCurrentCostPrice($item?->id, $candidate->quantity_type);
-        // 発注コード数量区分がある場合: バラ単価 × 発注コード入数
-        if ($orderingUnitQty !== null) {
-            $pieceCostPrice = $this->getCurrentCostPrice($item?->id, QuantityType::PIECE);
-            $costPrice = $pieceCostPrice * $orderingUnitQty;
-        }
+        // 発注コード数量区分がある場合も、先方は原単価を仕入入数で割るためケース原価を送る。
+        $costPrice = $this->getCurrentCostPrice(
+            $item?->id,
+            $orderingUnitQty !== null ? QuantityType::CASE : $candidate->quantity_type
+        );
         $priceFormatted = (int) round($costPrice * 100);
 
         $record = '';

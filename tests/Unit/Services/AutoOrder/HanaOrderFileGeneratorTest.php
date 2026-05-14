@@ -576,7 +576,7 @@ class HanaOrderFileGeneratorTest extends TestCase
      * @test
      * JXの仕入入数は発注コードに紐づく入数、ケース数は候補の発注コード単位数で出力されること
      */
-    public function it_uses_ordering_code_quantity_for_jx_capacity_and_case_quantity(): void
+    public function it_uses_packs_per_case_and_case_cost_for_six_pack_ordering_code(): void
     {
         $itemId = 999002;
         $orderingCode = '4901411004754';
@@ -618,17 +618,17 @@ class HanaOrderFileGeneratorTest extends TestCase
         $generateDRecord->setAccessible(true);
         $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
 
-        $this->assertEquals(6, (int) substr($dRecord, 88, 6), 'Capacity should use ordering code quantity');
+        $this->assertEquals(4, (int) substr($dRecord, 88, 6), 'Capacity should use packs per case for six-pack ordering code');
         $this->assertEquals(4, (int) substr($dRecord, 94, 7), 'Case quantity should use the candidate order quantity');
         $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Piece quantity should remain zero for case ordering code');
-        $this->assertEquals(129000, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost multiplied by ordering code quantity');
+        $this->assertEquals(516000, (int) substr($dRecord, 108, 10), 'Unit price should use case cost for six-pack ordering code');
     }
 
     /**
      * @test
-     * 未補正のケース数量はJX生成時に総バラから発注コード単位へ変換されること
+     * ケース発注の数量はそのまま送り、6缶発注CDでも原単価はケース原価を使うこと
      */
-    public function it_converts_unadjusted_case_quantity_to_ordering_code_quantity_for_jx(): void
+    public function it_keeps_case_quantity_and_uses_case_cost_for_six_pack_ordering_code(): void
     {
         $itemId = 999006;
         $orderingCode = '4901411004754';
@@ -669,10 +669,10 @@ class HanaOrderFileGeneratorTest extends TestCase
         $generateDRecord->setAccessible(true);
         $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
 
-        $this->assertEquals(6, (int) substr($dRecord, 88, 6), 'Capacity should use ordering code quantity');
-        $this->assertEquals(4, (int) substr($dRecord, 94, 7), 'One 24-piece case should become four 6-pack units');
+        $this->assertEquals(4, (int) substr($dRecord, 88, 6), 'Capacity should use packs per case for six-pack ordering code');
+        $this->assertEquals(1, (int) substr($dRecord, 94, 7), 'Case quantity should use the candidate order quantity');
         $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Ordering code quantity should be sent as case quantity');
-        $this->assertEquals(129000, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost multiplied by ordering code quantity');
+        $this->assertEquals(516000, (int) substr($dRecord, 108, 10), 'Unit price should use case cost for six-pack ordering code');
     }
 
     /**
