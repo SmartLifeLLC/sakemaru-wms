@@ -14,13 +14,13 @@ class SyncSalesSummariesCommand extends Command
 
     protected $signature = 'wms:sync-sales-summaries
         {--warehouse-id= : 特定倉庫のみ集計}
-        {--from= : trade_itemsから日次実績を再集計する開始日(Y-m-d)}
-        {--to= : trade_itemsから日次実績を再集計する終了日(Y-m-d)。未指定ならシステム日付}
+        {--from= : 売上・小売・倉庫移動から日次実績を再集計する開始日(Y-m-d)}
+        {--to= : 売上・小売・倉庫移動から日次実績を再集計する終了日(Y-m-d)。未指定ならシステム日付}
         {--days=3 : --from未指定時に再集計する日数}
-        {--summary-only : trade_itemsからの日次実績更新をスキップ}
+        {--summary-only : 日次実績更新をスキップ}
         {--dry-run : 実際の書き込みなしに集計結果を表示}';
 
-    protected $description = 'trade_itemsを基に倉庫別商品別の出荷実績日次・サマリを更新';
+    protected $description = '売上・小売・倉庫移動を基に倉庫別商品別の出荷実績日次・サマリを更新';
 
     public function handle(): int
     {
@@ -160,14 +160,38 @@ class SyncSalesSummariesCommand extends Command
             ')
             ->groupBy('r.shipped_date', 'r.warehouse_id', 'ti.item_id');
 
+        $stockTransferQuery = DB::connection('sakemaru')
+            ->table('stock_transfers as st')
+            ->join('trades as t', 'st.trade_id', '=', 't.id')
+            ->join('trade_items as ti', 'st.trade_id', '=', 'ti.trade_id')
+            ->whereRaw('COALESCE(st.picking_date, st.delivered_date) BETWEEN ? AND ?', [
+                $from->toDateString(),
+                $to->toDateString(),
+            ])
+            ->where('st.is_active', true)
+            ->where('t.is_active', true)
+            ->where('ti.is_active', true)
+            ->whereNotNull('ti.item_id')
+            ->where('ti.quantity', '>', 0)
+            ->selectRaw('
+                COALESCE(st.picking_date, st.delivered_date) as business_date,
+                st.from_warehouse_id as warehouse_id,
+                ti.item_id,
+                SUM(COALESCE(CAST(ti.total_piece_quantity AS UNSIGNED), 0)) as shipped_piece_qty,
+                SUM(CASE WHEN ti.quantity_type = "CASE" THEN ti.quantity ELSE 0 END) as shipped_case_qty,
+                SUM(CASE WHEN ti.quantity_type = "PIECE" THEN ti.quantity ELSE 0 END) as shipped_bottle_qty
+            ')
+            ->groupBy(DB::raw('COALESCE(st.picking_date, st.delivered_date)'), 'st.from_warehouse_id', 'ti.item_id');
+
         if ($warehouseId) {
             $earningQuery->where('e.warehouse_id', $warehouseId);
             $retailQuery->where('r.warehouse_id', $warehouseId);
+            $stockTransferQuery->where('st.from_warehouse_id', $warehouseId);
         }
 
         return DB::connection('sakemaru')
             ->query()
-            ->fromSub($earningQuery->unionAll($retailQuery), 'sales')
+            ->fromSub($earningQuery->unionAll($retailQuery)->unionAll($stockTransferQuery), 'sales')
             ->selectRaw('
                 business_date,
                 warehouse_id,
