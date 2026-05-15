@@ -94,17 +94,36 @@ class WmsShortagesTable
                     ->default('-')
                     ->alignment('center'),
 
-                TextColumn::make('partner_or_request_warehouse_code')
-                    ->label('得意先CD/依頼元倉庫CD')
-                    ->state(fn (WmsShortage $record): string => $record->trade?->partner?->code
-                        ?? $record->sourcePickResult?->stockTransfer?->from_warehouse?->code
-                        ?? '-')
-                    ->searchable(query: fn (Builder $query, string $search) => $query->where(function (Builder $query) use ($search) {
-                        $query->whereHas('trade.partner', fn (Builder $query) => $query->where('code', 'like', "%{$search}%"))
-                            ->orWhereHas('sourcePickResult.stockTransfer.from_warehouse', fn (Builder $query) => $query->where('code', 'like', "%{$search}%"));
-                    }))
-                    ->default('-')
+                TextColumn::make('shortage_qty')
+                    ->label('欠品')
+                    ->color(fn ($record) => $record->shortage_qty > 0 ? 'danger' : 'gray')
+                    ->weight('bold')
                     ->alignment('center'),
+
+                TextColumn::make('shortage_qty_type')
+                    ->label('単位')
+                    ->state(function (WmsShortage $record): string {
+                        $qtyType = QuantityType::tryFrom($record->qty_type_at_order);
+
+                        return $qtyType ? $qtyType->name() : $record->qty_type_at_order;
+                    })
+                    ->badge()
+                    ->color(fn (WmsShortage $record): string => match (QuantityType::tryFrom($record->qty_type_at_order)) {
+                        QuantityType::PIECE => 'info',
+                        QuantityType::CASE => 'success',
+                        default => 'gray',
+                    })
+                    ->alignment('center'),
+
+                TextColumn::make('earning.buyer.current_detail.salesman.name')
+                    ->label('担当営業')
+                    ->default('-')
+                    ->limit(15)
+                    ->alignment('center'),
+
+                TextColumn::make('item.name')
+                    ->label('商品名')
+                    ->searchable(),
 
                 TextColumn::make('partner_or_request_warehouse_name')
                     ->label('得意先名/依頼元倉庫名')
@@ -118,6 +137,18 @@ class WmsShortagesTable
                     ->default('-')
                     ->alignment('center'),
 
+                TextColumn::make('partner_or_request_warehouse_code')
+                    ->label('得意先CD/依頼元倉庫CD')
+                    ->state(fn (WmsShortage $record): string => $record->trade?->partner?->code
+                        ?? $record->sourcePickResult?->stockTransfer?->from_warehouse?->code
+                        ?? '-')
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(function (Builder $query) use ($search) {
+                        $query->whereHas('trade.partner', fn (Builder $query) => $query->where('code', 'like', "%{$search}%"))
+                            ->orWhereHas('sourcePickResult.stockTransfer.from_warehouse', fn (Builder $query) => $query->where('code', 'like', "%{$search}%"));
+                    }))
+                    ->default('-')
+                    ->alignment('center'),
+
                 TextColumn::make('resolved_delivery_course_name')
                     ->label('配送コース')
                     ->searchable(query: fn (Builder $query, string $search) => $query->where(function (Builder $query) use ($search) {
@@ -126,22 +157,6 @@ class WmsShortagesTable
                             ->orWhereHas('sourcePickResult.stockTransfer.deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"));
                     }))
                     ->default('-')
-                    ->alignment('center'),
-
-                TextColumn::make('earning.buyer.current_detail.salesman.name')
-                    ->label('担当営業')
-                    ->default('-')
-                    ->limit(15)
-                    ->alignment('center'),
-
-                TextColumn::make('item.name')
-                    ->label('商品名')
-                    ->searchable(),
-
-                TextColumn::make('shortage_qty')
-                    ->label('欠品')
-                    ->color(fn ($record) => $record->shortage_qty > 0 ? 'danger' : 'gray')
-                    ->weight('bold')
                     ->alignment('center'),
 
                 TextColumn::make('id')
