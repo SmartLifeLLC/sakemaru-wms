@@ -39,29 +39,57 @@ class StatsItemWarehouseSalesSummariesTable
                     ->grow()
                     ->searchable(),
 
+                TextColumn::make('sales_today_qty')
+                    ->label('当日')
+                    ->numeric()
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('70px'),
+
+                TextColumn::make('sales_yesterday_qty')
+                    ->label('前日')
+                    ->numeric()
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('70px'),
+
+                TextColumn::make('sales_2days_ago_qty')
+                    ->label('前々日')
+                    ->numeric()
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('70px'),
+
                 TextColumn::make('last_3d_qty')
-                    ->label('3日実績')
+                    ->label('3日累計')
+                    ->numeric()
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('80px'),
+
+                TextColumn::make('last_5d_qty')
+                    ->label('5日累計')
                     ->numeric()
                     ->sortable()
                     ->alignEnd()
                     ->width('80px'),
 
                 TextColumn::make('last_7d_qty')
-                    ->label('7日実績')
+                    ->label('7日累計')
                     ->numeric()
                     ->sortable()
                     ->alignEnd()
                     ->width('80px'),
 
                 TextColumn::make('last_14d_qty')
-                    ->label('14日実績')
+                    ->label('14日累計')
                     ->numeric()
                     ->sortable()
                     ->alignEnd()
                     ->width('80px'),
 
                 TextColumn::make('last_30d_qty')
-                    ->label('30日実績')
+                    ->label('30日累計')
                     ->numeric()
                     ->sortable()
                     ->alignEnd()
@@ -69,6 +97,13 @@ class StatsItemWarehouseSalesSummariesTable
 
                 TextColumn::make('avg_3d_qty')
                     ->label('3日平均')
+                    ->numeric(2)
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('80px'),
+
+                TextColumn::make('avg_5d_qty')
+                    ->label('5日平均')
                     ->numeric(2)
                     ->sortable()
                     ->alignEnd()

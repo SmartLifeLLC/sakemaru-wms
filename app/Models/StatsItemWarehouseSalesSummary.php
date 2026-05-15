@@ -22,17 +22,22 @@ class StatsItemWarehouseSalesSummary extends WmsModel
      */
     public function getKey(): mixed
     {
-        return $this->warehouse_id . '-' . $this->item_id;
+        return $this->warehouse_id.'-'.$this->item_id;
     }
 
     protected $fillable = [
         'warehouse_id',
         'item_id',
+        'sales_today_qty',
+        'sales_yesterday_qty',
+        'sales_2days_ago_qty',
         'last_3d_qty',
+        'last_5d_qty',
         'last_7d_qty',
         'last_14d_qty',
         'last_30d_qty',
         'avg_3d_qty',
+        'avg_5d_qty',
         'avg_7d_qty',
         'avg_14d_qty',
         'avg_30d_qty',
@@ -44,6 +49,7 @@ class StatsItemWarehouseSalesSummary extends WmsModel
         'last_shipped_at' => 'date',
         'calculated_at' => 'datetime',
         'avg_3d_qty' => 'decimal:2',
+        'avg_5d_qty' => 'decimal:2',
         'avg_7d_qty' => 'decimal:2',
         'avg_14d_qty' => 'decimal:2',
         'avg_30d_qty' => 'decimal:2',

@@ -28,6 +28,9 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
         public ?array $contractorIds = null,
         public ?string $batchCode = null,
         public ?string $originType = null,
+        public string $salesBasis = 'last_3d',
+        public string $orderPointFilter = 'ignore',
+        public string $autoOrderFlagFilter = 'ignore',
     ) {}
 
     public function handle(): void
@@ -45,6 +48,10 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
         }
 
         try {
+            $salesBasis = $this->salesBasis ?? 'last_3d';
+            $orderPointFilter = $this->orderPointFilter ?? 'ignore';
+            $autoOrderFlagFilter = $this->autoOrderFlagFilter ?? 'ignore';
+
             $progress->markAsProcessing(100, '実績ベース発注候補を生成中...');
 
             $progress->update([
@@ -59,6 +66,9 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
                 contractorIds: $this->contractorIds,
                 batchCode: $this->batchCode,
                 originType: $this->originType ? OriginType::from($this->originType) : null,
+                salesBasis: $salesBasis,
+                orderPointFilter: $orderPointFilter,
+                autoOrderFlagFilter: $autoOrderFlagFilter,
             );
 
             $results = [
@@ -93,7 +103,7 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
                 'job_id' => $this->jobId,
                 'results' => $results,
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('[SalesBasedJob] failed', [
                 'job_id' => $this->jobId,
                 'error' => $e->getMessage(),

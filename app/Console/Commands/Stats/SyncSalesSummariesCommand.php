@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 
 class SyncSalesSummariesCommand extends Command
 {
-    private const WINDOWS = [3, 7, 14, 30];
+    private const WINDOWS = [3, 5, 7, 14, 30];
 
     protected $signature = 'wms:sync-sales-summaries
         {--warehouse-id= : 特定倉庫のみ集計}
@@ -49,10 +49,12 @@ class SyncSalesSummariesCommand extends Command
 
         $coverage = $this->getWarehouseCoverage($warehouseId);
         $summaryCounts = $this->syncSummaries($to, $warehouseId, $coverage, $dryRun);
+        $dailyBreakdownCount = $this->syncRecentDailyBreakdown($to, $warehouseId, $coverage, $dryRun);
 
         foreach ($summaryCounts as $days => $count) {
             $this->info("{$days}日サマリ: {$count} 件");
         }
+        $this->info("日別内訳: {$dailyBreakdownCount} 件");
 
         if ($dryRun) {
             $this->info('[DRY RUN] 書き込みはスキップしました。');
@@ -223,6 +225,103 @@ class SyncSalesSummariesCommand extends Command
         }
 
         return $counts;
+    }
+
+    private function syncRecentDailyBreakdown(
+        CarbonImmutable $to,
+        ?int $warehouseId,
+        Collection $coverage,
+        bool $dryRun
+    ): int {
+        $from = $to->subDays(2);
+        $warehouseIds = $this->maturedWarehouseIds($coverage, $from, $warehouseId);
+
+        if ($warehouseIds === []) {
+            return 0;
+        }
+
+        $today = $to->toDateString();
+        $yesterday = $to->subDay()->toDateString();
+        $twoDaysAgo = $to->subDays(2)->toDateString();
+
+        $results = DB::connection('sakemaru')
+            ->table('stats_item_warehouse_daily_sales')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereBetween('business_date', [$twoDaysAgo, $today])
+            ->select([
+                'warehouse_id',
+                'item_id',
+                DB::raw("SUM(CASE WHEN business_date = '{$today}' THEN shipped_piece_qty ELSE 0 END) as sales_today_qty"),
+                DB::raw("SUM(CASE WHEN business_date = '{$yesterday}' THEN shipped_piece_qty ELSE 0 END) as sales_yesterday_qty"),
+                DB::raw("SUM(CASE WHEN business_date = '{$twoDaysAgo}' THEN shipped_piece_qty ELSE 0 END) as sales_2days_ago_qty"),
+            ])
+            ->groupBy('warehouse_id', 'item_id')
+            ->get();
+
+        if ($dryRun) {
+            return $results->count();
+        }
+
+        if ($results->isEmpty()) {
+            $this->zeroMissingRecentDailyBreakdown($from, $to, $warehouseIds);
+
+            return 0;
+        }
+
+        $now = now();
+        $rows = $results
+            ->map(fn ($row) => [
+                'warehouse_id' => (int) $row->warehouse_id,
+                'item_id' => (int) $row->item_id,
+                'sales_today_qty' => (int) $row->sales_today_qty,
+                'sales_yesterday_qty' => (int) $row->sales_yesterday_qty,
+                'sales_2days_ago_qty' => (int) $row->sales_2days_ago_qty,
+                'calculated_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])
+            ->all();
+
+        foreach (array_chunk($rows, 1000) as $chunk) {
+            DB::connection('sakemaru')
+                ->table('stats_item_warehouse_sales_summaries')
+                ->upsert(
+                    $chunk,
+                    ['warehouse_id', 'item_id'],
+                    ['sales_today_qty', 'sales_yesterday_qty', 'sales_2days_ago_qty', 'calculated_at', 'updated_at']
+                );
+        }
+
+        $this->zeroMissingRecentDailyBreakdown($from, $to, $warehouseIds);
+
+        return count($rows);
+    }
+
+    /**
+     * @param  array<int>  $warehouseIds
+     */
+    private function zeroMissingRecentDailyBreakdown(CarbonImmutable $from, CarbonImmutable $to, array $warehouseIds): void
+    {
+        $now = now();
+
+        DB::connection('sakemaru')
+            ->table('stats_item_warehouse_sales_summaries as s')
+            ->whereIn('s.warehouse_id', $warehouseIds)
+            ->whereNotExists(function ($query) use ($from, $to) {
+                $query
+                    ->selectRaw('1')
+                    ->from('stats_item_warehouse_daily_sales as d')
+                    ->whereColumn('d.warehouse_id', 's.warehouse_id')
+                    ->whereColumn('d.item_id', 's.item_id')
+                    ->whereBetween('d.business_date', [$from->toDateString(), $to->toDateString()]);
+            })
+            ->update([
+                'sales_today_qty' => 0,
+                'sales_yesterday_qty' => 0,
+                'sales_2days_ago_qty' => 0,
+                'calculated_at' => $now,
+                'updated_at' => $now,
+            ]);
     }
 
     /**

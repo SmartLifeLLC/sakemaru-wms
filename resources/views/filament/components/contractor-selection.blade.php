@@ -5,6 +5,7 @@
     $fallbackMethod = $fallbackMethod ?? 'getContractorsForWarehouse';
     $notice = $notice ?? null;
     $grouped = (bool) ($grouped ?? false);
+    $compactListHeight = (bool) ($compactListHeight ?? false);
     $data = $lw->{$dataProperty} ?? [];
 
     // contractorsData が空の場合、直接取得を試みる
@@ -119,13 +120,13 @@
     <div class="flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between dark:border-gray-600 dark:bg-gray-800">
         <div class="flex items-center gap-2">
             <x-heroicon-m-check-circle class="h-5 w-5 text-primary-500" />
-            <span class="text-sm text-gray-700 dark:text-gray-300" x-text="`${selectedCount}/${totalCount}件 選択中`"></span>
+            <span class="text-xs text-gray-700 dark:text-gray-300" x-text="`${selectedCount}/${totalCount}件 選択中`"></span>
         </div>
         <div class="relative w-full sm:w-72">
             <input type="text"
                    x-model="searchQuery"
                    placeholder="仕入先CD・名前で検索..."
-                   class="w-full rounded-lg border-gray-300 py-1.5 pl-8 text-sm shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                   class="w-full rounded-lg border-gray-300 py-1.5 pl-8 text-xs shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
             <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5">
                 <x-heroicon-m-magnifying-glass class="h-4 w-4 text-gray-400" />
             </div>
@@ -136,30 +137,38 @@
         <div class="min-w-0 space-y-2 lg:border-r lg:border-gray-200 lg:pr-4 dark:lg:border-gray-700">
             <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
-                    <div class="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{{ $primaryLabel }}</div>
+                    <div class="truncate text-xs font-semibold text-gray-800 dark:text-gray-100">{{ $primaryLabel }}</div>
                     <div class="text-xs text-gray-500 dark:text-gray-400" x-text="`${filteredPrimaryContractors.length}件`"></div>
                 </div>
                 <div class="flex shrink-0 items-center gap-2">
                     <button type="button"
                             @click="selectGroup(filteredPrimaryContractors)"
-                            class="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                            class="rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
                         全選択
                     </button>
                     <button type="button"
                             @click="deselectGroup(filteredPrimaryContractors)"
-                            class="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                            class="rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
                         解除
                     </button>
                 </div>
             </div>
 
-            <div class="h-[28rem] overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600">
+            <div @class([
+                'overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600',
+                'h-[9rem]' => $compactListHeight,
+                'h-[28rem]' => ! $compactListHeight,
+            ])>
                 <template x-if="filteredPrimaryContractors.length === 0">
                     <div class="p-4 text-center text-sm text-gray-500 dark:text-gray-400">該当する仕入先がありません</div>
                 </template>
                 <div class="grid grid-cols-1">
                     <template x-for="(contractor, index) in filteredPrimaryContractors" :key="`primary-${contractor.id}`">
-                        <label class="flex cursor-pointer items-center gap-2 border-b px-3 py-2 transition hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700/50"
+                        <label @class([
+                            'flex cursor-pointer items-center gap-2 border-b transition hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700/50',
+                            'px-2 py-1' => $compactListHeight,
+                            'px-3 py-2' => ! $compactListHeight,
+                        ])
                                :class="{
                                    'bg-primary-50 dark:bg-primary-900/20': isSelected(contractor.id),
                                    'bg-gray-50 dark:bg-gray-800/50': !isSelected(contractor.id) && index % 2 === 1,
@@ -170,8 +179,8 @@
                                    class="shrink-0 rounded border-gray-300 text-primary-600 shadow-sm focus:ring-primary-500 dark:border-gray-500 dark:bg-gray-700">
                             <div class="min-w-0 flex-1">
                                 <div class="flex min-w-0 items-center gap-1.5">
-                                    <span class="shrink-0 font-mono text-xs font-semibold text-gray-500 dark:text-gray-400" x-text="contractor.code"></span>
-                                    <span class="truncate text-sm text-gray-900 dark:text-gray-100" x-text="contractor.name"></span>
+                                    <span class="shrink-0 font-mono text-[11px] font-semibold text-gray-500 dark:text-gray-400" x-text="contractor.code"></span>
+                                    <span class="truncate text-xs text-gray-900 dark:text-gray-100" x-text="contractor.name"></span>
                                 </div>
                             </div>
                             <div class="flex shrink-0 items-center gap-1">
@@ -193,30 +202,38 @@
         <div class="min-w-0 space-y-2 overflow-x-auto pb-1">
             <div class="flex min-w-[24rem] items-center justify-between gap-3">
                 <div class="min-w-0">
-                    <div class="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{{ $secondaryLabel }}</div>
+                    <div class="truncate text-xs font-semibold text-gray-800 dark:text-gray-100">{{ $secondaryLabel }}</div>
                     <div class="text-xs text-gray-500 dark:text-gray-400" x-text="`${filteredSecondaryContractors.length}件`"></div>
                 </div>
                 <div class="flex shrink-0 items-center gap-2">
                     <button type="button"
                             @click="selectGroup(filteredSecondaryContractors)"
-                            class="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                            class="rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
                         全選択
                     </button>
                     <button type="button"
                             @click="deselectGroup(filteredSecondaryContractors)"
-                            class="rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                            class="rounded-md bg-gray-100 px-2 py-1 text-[11px] text-gray-700 transition hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
                         解除
                     </button>
                 </div>
             </div>
 
-            <div class="h-[28rem] min-w-[24rem] overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600">
+            <div @class([
+                'min-w-[24rem] overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600',
+                'h-[9rem]' => $compactListHeight,
+                'h-[28rem]' => ! $compactListHeight,
+            ])>
                 <template x-if="filteredSecondaryContractors.length === 0">
                     <div class="p-4 text-center text-sm text-gray-500 dark:text-gray-400">該当する仕入先がありません</div>
                 </template>
                 <div class="grid grid-cols-1">
                     <template x-for="(contractor, index) in filteredSecondaryContractors" :key="`secondary-${contractor.id}`">
-                        <label class="flex cursor-pointer items-center gap-2 border-b px-3 py-2 transition hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700/50"
+                        <label @class([
+                            'flex cursor-pointer items-center gap-2 border-b transition hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700/50',
+                            'px-2 py-1' => $compactListHeight,
+                            'px-3 py-2' => ! $compactListHeight,
+                        ])
                                :class="{
                                    'bg-primary-50 dark:bg-primary-900/20': isSelected(contractor.id),
                                    'bg-gray-50 dark:bg-gray-800/50': !isSelected(contractor.id) && index % 2 === 1,
@@ -227,8 +244,8 @@
                                    class="shrink-0 rounded border-gray-300 text-primary-600 shadow-sm focus:ring-primary-500 dark:border-gray-500 dark:bg-gray-700">
                             <div class="min-w-0 flex-1">
                                 <div class="flex min-w-0 items-center gap-1.5">
-                                    <span class="shrink-0 font-mono text-xs font-semibold text-gray-500 dark:text-gray-400" x-text="contractor.code"></span>
-                                    <span class="truncate text-sm text-gray-900 dark:text-gray-100" x-text="contractor.name"></span>
+                                    <span class="shrink-0 font-mono text-[11px] font-semibold text-gray-500 dark:text-gray-400" x-text="contractor.code"></span>
+                                    <span class="truncate text-xs text-gray-900 dark:text-gray-100" x-text="contractor.name"></span>
                                 </div>
                             </div>
                             <div class="flex shrink-0 items-center gap-1">
