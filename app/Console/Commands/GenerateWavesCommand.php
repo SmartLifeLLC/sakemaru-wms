@@ -88,9 +88,11 @@ class GenerateWavesCommand extends Command
             // Check if there are eligible earnings for this wave
             // Filter by delivery_course_id only (warehouse_id is no longer on wave_setting)
             $earningsCount = Earning::where('delivered_date', $shippingDate)
+                ->where('is_active', true)
                 ->where('is_delivered', 0)
                 ->where('picking_status', 'BEFORE')
                 ->where('delivery_course_id', $setting->delivery_course_id)
+                ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query))
                 ->count();
 
             // Check if there are eligible stock_transfers for this wave
@@ -141,9 +143,11 @@ class GenerateWavesCommand extends Command
 
                 // Get earnings for this wave (filter by delivery_course_id only)
                 $earnings = Earning::where('delivered_date', $shippingDate)
+                    ->where('is_active', true)
                     ->where('is_delivered', 0)
                     ->where('picking_status', 'BEFORE')
                     ->where('delivery_course_id', $setting->delivery_course_id)
+                    ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query))
                     ->get();
 
                 // Create picking tasks grouped by warehouse, floor, picking_area, and delivery_course
@@ -156,6 +160,7 @@ class GenerateWavesCommand extends Command
                 $tradeItems = DB::connection('sakemaru')
                     ->table('trade_items')
                     ->whereIn('trade_id', $tradeIds)
+                    ->where('is_active', true)
                     ->get();
 
                 // Create earning_id and buyer_id lookup for each trade_item
@@ -422,7 +427,7 @@ class GenerateWavesCommand extends Command
                     $stockTransferTradeItems = DB::connection('sakemaru')
                         ->table('trade_items')
                         ->whereIn('trade_id', $stockTransferTradeIds)
-                        ->where('is_deleted', false)
+                        ->where('is_active', true)
                         ->get();
 
                     // Create stock_transfer_id lookup from trade_id
@@ -718,6 +723,7 @@ class GenerateWavesCommand extends Command
 
         return DB::connection('sakemaru')
             ->table('stock_transfers as st')
+            ->join('trades as st_trade', 'st.trade_id', '=', 'st_trade.id')
             ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
             ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
             // picking_date を使用（picking_date = ピッキング予定日）
@@ -729,6 +735,7 @@ class GenerateWavesCommand extends Command
                     ->orWhereDate('st.delivered_date', $shippingDate);
             })
             ->where('st.is_active', true)
+            ->where('st_trade.is_active', true)
             ->where('st.picking_status', 'BEFORE')
             ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->where('st.delivery_course_id', $deliveryCourseId)
@@ -745,5 +752,16 @@ class GenerateWavesCommand extends Command
                     });
             })
             ->select('st.*');
+    }
+
+    protected function activeTradeItemsExistsQuery($query)
+    {
+        return $query
+            ->select(DB::raw(1))
+            ->from('trade_items as active_trade_items')
+            ->join('trades as active_trades', 'active_trade_items.trade_id', '=', 'active_trades.id')
+            ->whereColumn('active_trade_items.trade_id', 'earnings.trade_id')
+            ->where('active_trade_items.is_active', true)
+            ->where('active_trades.is_active', true);
     }
 }

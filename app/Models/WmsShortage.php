@@ -8,6 +8,7 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\Trade;
 use App\Models\Sakemaru\Warehouse;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -143,6 +144,11 @@ class WmsShortage extends Model
         return $this->belongsTo(DeliveryCourse::class, 'delivery_course_id');
     }
 
+    public function sourcePickResult(): BelongsTo
+    {
+        return $this->belongsTo(WmsPickingItemResult::class, 'source_pick_result_id');
+    }
+
     public function parentShortage(): BelongsTo
     {
         return $this->belongsTo(WmsShortage::class, 'parent_shortage_id');
@@ -156,6 +162,29 @@ class WmsShortage extends Model
     public function allocations(): HasMany
     {
         return $this->hasMany(WmsShortageAllocation::class, 'shortage_id');
+    }
+
+    protected function resolvedShipmentDate(): Attribute
+    {
+        return Attribute::get(fn () => $this->shipment_date
+            ?? $this->sourcePickResult?->pickingTask?->shipment_date
+            ?? $this->earning?->delivered_date);
+    }
+
+    protected function resolvedDeliveryCourseCode(): Attribute
+    {
+        return Attribute::get(fn () => $this->deliveryCourse?->code
+            ?? $this->sourcePickResult?->stockTransfer?->deliveryCourse?->code
+            ?? $this->sourcePickResult?->pickingTask?->deliveryCourse?->code
+            ?? '-');
+    }
+
+    protected function resolvedDeliveryCourseName(): Attribute
+    {
+        return Attribute::get(fn () => $this->deliveryCourse?->name
+            ?? $this->sourcePickResult?->stockTransfer?->deliveryCourse?->name
+            ?? $this->sourcePickResult?->pickingTask?->deliveryCourse?->name
+            ?? '-');
     }
 
     public function confirmedBy(): BelongsTo

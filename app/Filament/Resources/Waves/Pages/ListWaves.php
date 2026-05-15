@@ -570,7 +570,8 @@ class ListWaves extends ListRecords
                                 ->whereIn('delivery_courses.warehouse_id', $warehouseIds)
                                 ->where('earnings.is_active', true)
                                 ->where('earnings.is_delivered', 0)
-                                ->where('earnings.picking_status', 'BEFORE');
+                                ->where('earnings.picking_status', 'BEFORE')
+                                ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query));
 
                             $earningCounts = $this->applyDateFilter($earningQuery, 'earnings.delivered_date', $shippingDates, $includePast)
                                 ->selectRaw('delivery_courses.id as course_id, delivery_courses.code as course_code, delivery_courses.name as course_name, COUNT(*) as count')
@@ -583,12 +584,14 @@ class ListWaves extends ListRecords
                         if ($this->includesTransferDocuments($targetDocumentTypes)) {
                             $stockTransferQuery = DB::connection('sakemaru')
                                 ->table('stock_transfers as st')
+                                ->join('trades as st_trade', 'st.trade_id', '=', 'st_trade.id')
                                 ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
                                 ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
                                 ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
                                 ->whereIn('st.from_warehouse_id', $warehouseIds)
                                 ->whereIn('dc.warehouse_id', $warehouseIds)
                                 ->where('st.is_active', true)
+                                ->where('st_trade.is_active', true)
                                 ->where('st.picking_status', 'BEFORE')
                                 ->where(function ($query) {
                                     $query->where(function ($q) {
@@ -661,7 +664,8 @@ class ListWaves extends ListRecords
                             ->where('earnings.is_active', true)
                             ->where('earnings.is_delivered', 0)
                             ->where('earnings.picking_status', 'BEFORE')
-                            ->whereNotNull('earnings.buyer_id');
+                            ->whereNotNull('earnings.buyer_id')
+                            ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query));
 
                         $options = $this->applyDateFilter($query, 'earnings.delivered_date', $shippingDates, $includePast)
                             ->selectRaw('buyers.id as buyer_id, partners.code as partner_code, partners.name as partner_name, COUNT(*) as count')
@@ -712,7 +716,8 @@ class ListWaves extends ListRecords
                                 ->where('earnings.is_active', true)
                                 ->where('earnings.is_delivered', 0)
                                 ->where('earnings.picking_status', 'BEFORE')
-                                ->whereIn('earnings.delivery_course_id', $deliveryCourseIds);
+                                ->whereIn('earnings.delivery_course_id', $deliveryCourseIds)
+                                ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query));
 
                             $earningSummary = $this->applyDateFilter($earningQuery, 'earnings.delivered_date', $shippingDates, $includePast)
                                 ->selectRaw('delivery_courses.id as course_id, delivery_courses.name as course_name, COUNT(*) as count')
@@ -726,12 +731,14 @@ class ListWaves extends ListRecords
                         if ($this->includesTransferDocuments($targetDocumentTypes)) {
                             $stockTransferQuery = DB::connection('sakemaru')
                                 ->table('stock_transfers as st')
+                                ->join('trades as st_trade', 'st.trade_id', '=', 'st_trade.id')
                                 ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
                                 ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
                                 ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
                                 ->whereIn('st.from_warehouse_id', $warehouseIds)
                                 ->whereIn('dc.warehouse_id', $warehouseIds)
                                 ->where('st.is_active', true)
+                                ->where('st_trade.is_active', true)
                                 ->where('st.picking_status', 'BEFORE')
                                 ->whereIn('st.delivery_course_id', $deliveryCourseIds)
                                 ->where(function ($query) {
@@ -848,7 +855,8 @@ class ListWaves extends ListRecords
                             ->where('earnings.is_active', true)
                             ->where('earnings.is_delivered', 0)
                             ->where('earnings.picking_status', 'BEFORE')
-                            ->whereIn('earnings.buyer_id', $buyerIds);
+                            ->whereIn('earnings.buyer_id', $buyerIds)
+                            ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query));
 
                         $summary = $this->applyDateFilter($query, 'earnings.delivered_date', $shippingDates, $includePast)
                             ->selectRaw('buyers.id as buyer_id, partners.code as partner_code, partners.name as partner_name, delivery_courses.name as course_name, COUNT(*) as count')
@@ -940,6 +948,20 @@ class ListWaves extends ListRecords
     }
 
     /**
+     * 売上伝票に有効な商品明細があることを保証する。
+     */
+    protected function activeTradeItemsExistsQuery($query)
+    {
+        return $query
+            ->select(DB::raw(1))
+            ->from('trade_items as active_trade_items')
+            ->join('trades as active_trades', 'active_trade_items.trade_id', '=', 'active_trades.id')
+            ->whereColumn('active_trade_items.trade_id', 'earnings.trade_id')
+            ->where('active_trade_items.is_active', true)
+            ->where('active_trades.is_active', true);
+    }
+
+    /**
      * 配送コース選択データから波動を作成し、作成された wave_id 配列と件数を返す。
      * 通知は送らない。呼び出し側でハンドリングする。
      *
@@ -970,6 +992,7 @@ class ListWaves extends ListRecords
                 ->where('earnings.picking_status', 'BEFORE')
                 ->whereNotNull('earnings.delivery_course_id')
                 ->whereIn('earnings.buyer_id', $buyerIds)
+                ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query))
                 ->select('earnings.*');
 
             $earnings = $this->applyDateFilter($earningQuery, 'earnings.delivered_date', $shippingDates, $includePast)
@@ -988,9 +1011,11 @@ class ListWaves extends ListRecords
             if ($this->includesShipmentDocuments($targetDocumentTypes)) {
                 $earningQuery = Earning::query()
                     ->where('is_delivered', 0)
+                    ->where('is_active', true)
                     ->where('picking_status', 'BEFORE')
                     ->whereNotNull('delivery_course_id')
-                    ->whereIn('delivery_course_id', $validCourseIds);
+                    ->whereIn('delivery_course_id', $validCourseIds)
+                    ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query));
 
                 $earnings = $this->applyDateFilter($earningQuery, 'delivered_date', $shippingDates, $includePast)
                     ->get();
@@ -1311,6 +1336,7 @@ class ListWaves extends ListRecords
                 ->where('earnings.picking_status', 'BEFORE')
                 ->whereNotNull('earnings.delivery_course_id')
                 ->whereIn('earnings.buyer_id', $data['buyer_ids'] ?? [])
+                ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query))
                 ->select([
                     'earnings.id',
                     'earnings.trade_id',
@@ -1346,6 +1372,7 @@ class ListWaves extends ListRecords
                 ->where('earnings.picking_status', 'BEFORE')
                 ->whereNotNull('earnings.delivery_course_id')
                 ->whereIn('earnings.delivery_course_id', $validCourseIds)
+                ->whereExists(fn ($query) => $this->activeTradeItemsExistsQuery($query))
                 ->select([
                     'earnings.id',
                     'earnings.trade_id',
@@ -1381,6 +1408,7 @@ class ListWaves extends ListRecords
             $matchedTradeIds = DB::connection('sakemaru')
                 ->table('trade_items')
                 ->whereIn('item_id', $filterItemIds)
+                ->where('is_active', true)
                 ->whereIn('trade_id', $earnings->pluck('trade_id')
                     ->merge($stockTransfers->pluck('trade_id'))
                     ->filter()
@@ -1422,6 +1450,7 @@ class ListWaves extends ListRecords
             ->join('items as i', 'ti.item_id', '=', 'i.id')
             ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->whereIn('ti.trade_id', array_keys($sourcesByTradeId))
+            ->where('ti.is_active', true)
             ->select([
                 'ti.id',
                 'ti.trade_id',
@@ -2158,6 +2187,7 @@ class ListWaves extends ListRecords
         $tradeItems = DB::connection('sakemaru')
             ->table('trade_items')
             ->whereIn('trade_id', $tradeIds)
+            ->where('is_active', true)
             ->get();
 
         $tradeIdToEarningId = $earnings->pluck('id', 'trade_id')->toArray();
@@ -2545,10 +2575,12 @@ class ListWaves extends ListRecords
 
         $query = DB::connection('sakemaru')
             ->table('stock_transfers as st')
+            ->join('trades as st_trade', 'st.trade_id', '=', 'st_trade.id')
             ->join('delivery_courses as dc', 'st.delivery_course_id', '=', 'dc.id')
             ->join('warehouses as fw', 'st.from_warehouse_id', '=', 'fw.id')
             ->join('warehouses as tw', 'st.to_warehouse_id', '=', 'tw.id')
             ->where('st.is_active', true)
+            ->where('st_trade.is_active', true)
             ->where('st.picking_status', 'BEFORE')
             ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->whereIn('dc.warehouse_id', $warehouseIds)

@@ -61,9 +61,13 @@ class PrintRequestService
             // 売上も倉庫移動もない場合はエラー
             if (empty($earningIds) && empty($stockTransferIds)) {
                 return [
-                    'success' => false,
+                    'success' => true,
                     'message' => '印刷対象の売上・倉庫移動が見つかりません。',
                     'queue_id' => null,
+                    'earning_count' => 0,
+                    'stock_transfer_count' => 0,
+                    'has_printer' => false,
+                    'no_print_targets' => true,
                 ];
             }
 
@@ -192,10 +196,26 @@ class PrintRequestService
             ->join('wms_picking_tasks as pt', 'pir.picking_task_id', '=', 'pt.id')
             ->join('items as i', 'pir.item_id', '=', 'i.id')
             ->leftJoin('earnings as e', 'pir.earning_id', '=', 'e.id')
+            ->leftJoin('trades as et', 'e.trade_id', '=', 'et.id')
             ->leftJoin('stock_transfers as st', 'pir.stock_transfer_id', '=', 'st.id')
+            ->leftJoin('trades as stt', 'st.trade_id', '=', 'stt.id')
+            ->leftJoin('trade_items as ti', 'pir.trade_item_id', '=', 'ti.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->whereIn('pir.picking_task_id', $taskIds)
             ->whereRaw('(pir.planned_qty - COALESCE(pir.shortage_qty, 0)) > 0')
+            ->where(function ($query) {
+                $query->where(function ($query) {
+                    $query->whereNotNull('pir.earning_id')
+                        ->where('e.is_active', true)
+                        ->where('et.is_active', true);
+                })
+                    ->orWhere(function ($query) {
+                        $query->whereNotNull('pir.stock_transfer_id')
+                            ->where('st.is_active', true)
+                            ->where('stt.is_active', true);
+                    });
+            })
+            ->where('ti.is_active', true)
             ->select([
                 'pir.earning_id',
                 'pir.stock_transfer_id',
