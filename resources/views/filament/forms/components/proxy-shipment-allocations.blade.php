@@ -1,6 +1,6 @@
 <style>
     .proxy-shipment-modal {
-        max-width: 90vw !important;
+        max-width: 82vw !important;
     }
     .proxy-shipment-modal .fi-modal-header {
         background-color: #1e3a5f;
@@ -19,6 +19,30 @@
     }
     .proxy-shipment-modal .fi-modal-footer > * {
         justify-content: flex-end !important;
+    }
+    .proxy-shipment-left-pane {
+        font-size: 0.75rem;
+        line-height: 1rem;
+    }
+    .proxy-shipment-left-pane table,
+    .proxy-shipment-left-pane th,
+    .proxy-shipment-left-pane td,
+    .proxy-shipment-left-pane select,
+    .proxy-shipment-left-pane input,
+    .proxy-shipment-left-pane button {
+        font-size: 0.75rem !important;
+        line-height: 1rem !important;
+    }
+    .proxy-shipment-map-label {
+        padding: 1px 5px !important;
+        border: 1px solid rgba(31, 41, 55, 0.25) !important;
+        border-radius: 4px !important;
+        background: rgba(255, 255, 255, 0.9) !important;
+        color: #111827 !important;
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.16) !important;
     }
 </style>
 
@@ -109,18 +133,19 @@
 
             await this.loadLeaflet();
 
-            this.map = L.map(this.$refs.mapContainer).setView([36.5, 136.5], 10);
+            const departure = this.locations.find(loc => loc.type === 'departure');
+            const initialCenter = departure ? [departure.lat, departure.lng] : [36.5, 136.5];
+
+            this.map = L.map(this.$refs.mapContainer).setView(initialCenter, 12);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; OpenStreetMap'
             }).addTo(this.map);
 
-            const bounds = [];
-            this.locations.forEach(loc => {
+            this.locations.filter(loc => loc.type !== 'warehouse' || loc.stock_info).forEach(loc => {
                 let color, opacity;
                 if (loc.type === 'departure') { color = '#000000'; opacity = 0.9; }
                 else if (loc.type === 'customer') { color = '#ef4444'; opacity = 0.8; }
-                else if (loc.stock_info) { color = '#3b82f6'; opacity = 0.8; }
-                else { color = '#93c5fd'; opacity = 0.5; }
+                else { color = '#3b82f6'; opacity = 0.8; }
 
                 const marker = L.circleMarker([loc.lat, loc.lng], {
                     radius: 8, fillColor: color, color: '#fff', weight: 2, fillOpacity: opacity
@@ -132,14 +157,15 @@
                 if (loc.type === 'departure') popup += '<br><span style=\'color:#666\'>出発倉庫</span>';
                 if (loc.type === 'customer') popup += '<br><span style=\'color:#ef4444\'>納品先</span>';
                 marker.bindPopup(popup);
+                marker.bindTooltip(loc.name, {
+                    permanent: true,
+                    direction: 'top',
+                    offset: [0, -10],
+                    className: 'proxy-shipment-map-label',
+                });
 
                 this.markers[loc.type + '_' + loc.id] = marker;
-                bounds.push([loc.lat, loc.lng]);
             });
-
-            if (bounds.length > 0) {
-                this.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 10 });
-            }
         },
 
         updateRoute() {
@@ -245,9 +271,9 @@
     x-init="$nextTick(async () => { await initMap(); if (map) { setTimeout(() => map.invalidateSize(), 200); setTimeout(() => map.invalidateSize(), 600); } updateRoute(); $watch('state', () => updateRoute(), { deep: true }); })"
     >
         <!-- 2カラムレイアウト: 左=情報＋フォーム / 右=マップ -->
-        <div class="grid grid-cols-12 gap-4 -mt-2" style="height: 78vh;">
+        <div class="grid grid-cols-12 gap-4 -mt-2" style="height: 62vh;">
             <!-- 左カラム: 商品情報＋倉庫情報＋在庫リスト＋横持ち出荷指示 -->
-            <div class="col-span-5 overflow-y-auto pr-1">
+            <div class="proxy-shipment-left-pane col-span-7 overflow-y-auto pr-1">
                 <!-- 商品基本情報 -->
                 <div class="mb-3 overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600">
                     <table class="w-full text-sm border-collapse">
@@ -256,7 +282,7 @@
                             <td class="px-2 py-1 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900" colspan="3">{{ $item_code }}　{{ $item_name }}</td>
                         </tr>
                         <tr>
-                            <th class="text-left px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">得意先CD</th>
+                            <th class="text-left px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">{{ $partner_label ?? '得意先CD' }}</th>
                             <td class="px-2 py-1 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900" colspan="3">{{ $partner_code }}　{{ $partner_name }}</td>
                         </tr>
                     </table>
@@ -501,7 +527,7 @@
             </div>
 
             <!-- 右カラム: 配送ルートマップ（フル高さ） -->
-            <div class="col-span-7 flex flex-col">
+            <div class="col-span-5 flex flex-col">
                 <div class="rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden flex flex-col flex-1">
                     <div class="px-3 py-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 flex justify-between items-center shrink-0">
                         <span class="font-bold text-sm text-gray-700 dark:text-gray-300">配送ルートマップ</span>
@@ -509,12 +535,11 @@
                             総距離: <span class="font-bold text-blue-600" x-text="totalDistance.toFixed(1) + 'km'"></span>
                         </span>
                     </div>
-                    <div x-ref="mapContainer" class="flex-1" style="min-height: 400px;"></div>
+                    <div x-ref="mapContainer" class="flex-1" style="min-height: 300px;"></div>
                     <!-- 凡例 -->
                     <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-700 border-t border-gray-200 dark:border-gray-600 flex flex-wrap gap-3 text-xs shrink-0">
                         <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-black"></span>出発倉庫</span>
                         <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-blue-500"></span>在庫あり倉庫</span>
-                        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-blue-300 opacity-50"></span>在庫なし倉庫</span>
                         <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-red-500"></span>納品先</span>
                         <span x-show="totalDistance > 0" x-cloak class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-amber-500"></span>選択倉庫</span>
                     </div>

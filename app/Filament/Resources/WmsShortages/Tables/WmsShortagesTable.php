@@ -36,22 +36,11 @@ class WmsShortagesTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions([100, 500])
             ->columns([
-                TextColumn::make('id')
-                    ->label('ID')
-                    ->sortable()
-                    ->alignment('center')
-                    ->toggleable(isToggledHiddenByDefault: true),
-
                 TextColumn::make('is_confirmed')
                     ->label('承認')
                     ->badge()
                     ->formatStateUsing(fn (bool $state): string => $state ? '承認済み' : '未承認')
                     ->color(fn (bool $state): string => $state ? 'success' : 'gray')
-                    ->alignment('center'),
-
-                TextColumn::make('confirmedBy.name')
-                    ->label('承認者')
-                    ->default('-')
                     ->alignment('center'),
 
                 TextColumn::make('status')
@@ -79,6 +68,25 @@ class WmsShortagesTable
                     ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy('shipment_date', $direction))
                     ->alignment('center'),
 
+                TextColumn::make('wave_shift')
+                    ->label('便')
+                    ->state(function (WmsShortage $record): string {
+                        $createdAt = $record->wave?->created_at;
+
+                        if (! $createdAt) {
+                            return '-';
+                        }
+
+                        return (int) $createdAt->format('H') < 12 ? '午前' : '午後';
+                    })
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        '午前' => 'info',
+                        '午後' => 'warning',
+                        default => 'gray',
+                    })
+                    ->alignment('center'),
+
                 TextColumn::make('trade.serial_id')
                     ->label('伝票番号')
                     ->searchable()
@@ -86,15 +94,64 @@ class WmsShortagesTable
                     ->default('-')
                     ->alignment('center'),
 
-                TextColumn::make('trade.partner.code')
-                    ->label('得意先コード')
-                    ->searchable()
+                TextColumn::make('partner_or_request_warehouse_code')
+                    ->label('得意先CD/依頼元倉庫CD')
+                    ->state(fn (WmsShortage $record): string => $record->trade?->partner?->code
+                        ?? $record->sourcePickResult?->stockTransfer?->from_warehouse?->code
+                        ?? '-')
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(function (Builder $query) use ($search) {
+                        $query->whereHas('trade.partner', fn (Builder $query) => $query->where('code', 'like', "%{$search}%"))
+                            ->orWhereHas('sourcePickResult.stockTransfer.from_warehouse', fn (Builder $query) => $query->where('code', 'like', "%{$search}%"));
+                    }))
                     ->default('-')
                     ->alignment('center'),
 
-                TextColumn::make('trade.partner.name')
-                    ->label('得意先名')
-                    ->searchable()
+                TextColumn::make('partner_or_request_warehouse_name')
+                    ->label('得意先名/依頼元倉庫名')
+                    ->state(fn (WmsShortage $record): string => $record->trade?->partner?->name
+                        ?? $record->sourcePickResult?->stockTransfer?->from_warehouse?->name
+                        ?? '-')
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(function (Builder $query) use ($search) {
+                        $query->whereHas('trade.partner', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"))
+                            ->orWhereHas('sourcePickResult.stockTransfer.from_warehouse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"));
+                    }))
+                    ->default('-')
+                    ->alignment('center'),
+
+                TextColumn::make('resolved_delivery_course_name')
+                    ->label('配送コース')
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(function (Builder $query) use ($search) {
+                        $query->whereHas('deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"))
+                            ->orWhereHas('sourcePickResult.pickingTask.deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"))
+                            ->orWhereHas('sourcePickResult.stockTransfer.deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"));
+                    }))
+                    ->default('-')
+                    ->alignment('center'),
+
+                TextColumn::make('earning.buyer.current_detail.salesman.name')
+                    ->label('担当営業')
+                    ->default('-')
+                    ->limit(15)
+                    ->alignment('center'),
+
+                TextColumn::make('item.name')
+                    ->label('商品名')
+                    ->searchable(),
+
+                TextColumn::make('shortage_qty')
+                    ->label('欠品')
+                    ->color(fn ($record) => $record->shortage_qty > 0 ? 'danger' : 'gray')
+                    ->weight('bold')
+                    ->alignment('center'),
+
+                TextColumn::make('id')
+                    ->label('ID')
+                    ->sortable()
+                    ->alignment('center')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('confirmedBy.name')
+                    ->label('承認者')
                     ->default('-')
                     ->alignment('center'),
 
@@ -119,20 +176,6 @@ class WmsShortagesTable
                     }))
                     ->default('-')
                     ->alignment('center'),
-
-                TextColumn::make('resolved_delivery_course_name')
-                    ->label('配送コース')
-                    ->searchable(query: fn (Builder $query, string $search) => $query->where(function (Builder $query) use ($search) {
-                        $query->whereHas('deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"))
-                            ->orWhereHas('sourcePickResult.pickingTask.deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"))
-                            ->orWhereHas('sourcePickResult.stockTransfer.deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"));
-                    }))
-                    ->default('-')
-                    ->alignment('center'),
-
-                TextColumn::make('item.name')
-                    ->label('商品名')
-                    ->searchable(),
 
                 TextColumn::make('item.capacity_case')
                     ->label('入り数')
@@ -167,12 +210,6 @@ class WmsShortagesTable
 
                 TextColumn::make('picked_qty')
                     ->label('出荷')
-                    ->alignment('center'),
-
-                TextColumn::make('shortage_qty')
-                    ->label('欠品')
-                    ->color(fn ($record) => $record->shortage_qty > 0 ? 'danger' : 'gray')
-                    ->weight('bold')
                     ->alignment('center'),
 
                 TextColumn::make('allocations_total_qty')
@@ -215,12 +252,6 @@ class WmsShortagesTable
                     ->label('発生日時')
                     ->dateTime('Y-m-d H:i')
                     ->sortable()
-                    ->alignment('center'),
-
-                TextColumn::make('earning.buyer.current_detail.salesman.name')
-                    ->label('担当営業')
-                    ->default('-')
-                    ->limit(15)
                     ->alignment('center'),
 
                 TextColumn::make('confirmed_at')
@@ -326,7 +357,7 @@ class WmsShortagesTable
                     ->color('warning')
                     ->hidden(fn (WmsShortage $record) => $record->is_confirmed)
                     ->modalHeading('欠品対応-横持ち出荷指示')
-                    ->modalWidth('7xl')
+                    ->modalWidth('6xl')
                     ->extraModalWindowAttributes(['class' => 'proxy-shipment-modal'])
                     ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('欠品対応確定')->color('danger'))
@@ -397,7 +428,13 @@ class WmsShortagesTable
                                 // 同一配送コース内の横持ち出荷予定倉庫を取得
                                 $sameCourseAllocations = [];
                                 $courseNearestWarehouses = [];
+                                $courseShortages = collect();
                                 if ($record->wave_id && $record->delivery_course_id) {
+                                    $courseShortages = WmsShortage::where('wave_id', $record->wave_id)
+                                        ->where('delivery_course_id', $record->delivery_course_id)
+                                        ->with('trade.partner')
+                                        ->get();
+
                                     $sameCourseAllocations = WmsShortageAllocation::query()
                                         ->whereHas('shortage', function ($q) use ($record) {
                                             $q->where('wave_id', $record->wave_id)
@@ -422,10 +459,7 @@ class WmsShortagesTable
                                         ->toArray();
 
                                     // コース内最短倉庫を取得（同一配送コース内の得意先の最短距離倉庫）
-                                    $coursePartnerIds = WmsShortage::where('wave_id', $record->wave_id)
-                                        ->where('delivery_course_id', $record->delivery_course_id)
-                                        ->with('trade')
-                                        ->get()
+                                    $coursePartnerIds = $courseShortages
                                         ->pluck('trade.partner_id')
                                         ->filter()
                                         ->unique()
@@ -433,14 +467,21 @@ class WmsShortagesTable
                                         ->toArray();
 
                                     if (! empty($coursePartnerIds)) {
-                                        $nearestDistances = \App\Models\WmsPartnerWarehouseDistance::whereIn('partner_id', $coursePartnerIds)
-                                            ->orderBy('distance_km', 'asc')
+                                        $nearestDistances = \DB::connection('sakemaru')
+                                            ->table('wms_partner_warehouse_distances')
+                                            ->select('warehouse_id', \DB::raw('MIN(distance_km) as distance_km'))
+                                            ->whereIn('partner_id', $coursePartnerIds)
+                                            ->groupBy('warehouse_id')
+                                            ->orderBy('distance_km')
+                                            ->limit(3)
+                                            ->get();
+
+                                        $distanceWarehouses = Warehouse::whereIn('id', $nearestDistances->pluck('warehouse_id')->all())
                                             ->get()
-                                            ->unique('warehouse_id')
-                                            ->take(3);
+                                            ->keyBy('id');
 
                                         foreach ($nearestDistances as $dist) {
-                                            $warehouse = Warehouse::find($dist->warehouse_id);
+                                            $warehouse = $distanceWarehouses->get($dist->warehouse_id);
                                             if ($warehouse) {
                                                 $courseNearestWarehouses[] = [
                                                     'warehouse_id' => $warehouse->id,
@@ -469,17 +510,20 @@ class WmsShortagesTable
 
                                 // 2. 横持ち出荷倉庫（warehouse）: ret_stores.pos_store_code IS NOT NULL の全倉庫
                                 $stockByWarehouse = collect($stockData)->keyBy('warehouse_id');
-                                $proxyWarehouses = \DB::connection('sakemaru')
+                                $proxyWarehouses = cache()->remember('wms_shortages.proxy_warehouses', 300, fn () => \DB::connection('sakemaru')
                                     ->table('warehouses')
                                     ->join('ret_stores', 'warehouses.code', '=', 'ret_stores.code')
                                     ->whereNotNull('ret_stores.pos_store_code')
                                     ->whereNotNull('warehouses.latitude')
                                     ->whereNotNull('warehouses.longitude')
-                                    ->where('warehouses.id', '!=', $record->warehouse_id)
                                     ->select('warehouses.id', 'warehouses.name', 'warehouses.latitude', 'warehouses.longitude')
-                                    ->get();
+                                    ->get());
 
                                 foreach ($proxyWarehouses as $wh) {
+                                    if ((int) $wh->id === (int) $record->warehouse_id) {
+                                        continue;
+                                    }
+
                                     $stockInfo = null;
                                     if ($stockByWarehouse->has($wh->id)) {
                                         $s = $stockByWarehouse->get($wh->id);
@@ -497,11 +541,6 @@ class WmsShortagesTable
 
                                 // 3. 納品先（customer）: 同一配送コース内の得意先
                                 if ($record->wave_id && $record->delivery_course_id) {
-                                    $courseShortages = WmsShortage::where('wave_id', $record->wave_id)
-                                        ->where('delivery_course_id', $record->delivery_course_id)
-                                        ->with('trade.partner')
-                                        ->get();
-
                                     $addedPartnerIds = [];
                                     foreach ($courseShortages as $s) {
                                         $partner = $s->trade?->partner;
@@ -520,7 +559,7 @@ class WmsShortagesTable
 
                                 return [
                                     'stocks' => $stockData,
-                                    'warehouses' => Warehouse::pluck('name', 'id')->toArray(),
+                                    'warehouses' => cache()->remember('wms_shortages.warehouse_options', 300, fn () => Warehouse::orderBy('name')->pluck('name', 'id')->toArray()),
                                     'shortage_qty' => $record->shortage_qty,
                                     'qty_type' => $record->qty_type_at_order,
                                     'qty_type_label' => $qtyType ? $qtyType->name() : $record->qty_type_at_order,
@@ -529,8 +568,13 @@ class WmsShortagesTable
                                     'item_name' => $record->item->name ?? '-',
                                     'capacity_case' => $record->item->capacity_case ? (string) $record->item->capacity_case : '-',
                                     'volume_value' => $volumeValue,
-                                    'partner_code' => $record->trade->partner->code ?? '-',
-                                    'partner_name' => $record->trade->partner->name ?? '-',
+                                    'partner_label' => $record->trade?->partner ? '得意先CD' : '依頼元倉庫CD',
+                                    'partner_code' => $record->trade?->partner?->code
+                                        ?? $record->sourcePickResult?->stockTransfer?->from_warehouse?->code
+                                        ?? '-',
+                                    'partner_name' => $record->trade?->partner?->name
+                                        ?? $record->sourcePickResult?->stockTransfer?->from_warehouse?->name
+                                        ?? '-',
                                     'warehouse_name' => $record->warehouse->name ?? '-',
                                     'order_qty' => (string) $record->order_qty,
                                     'picked_qty' => (string) $record->picked_qty,
@@ -638,7 +682,7 @@ class WmsShortagesTable
                                     $existingAllocation = WmsShortageAllocation::find($allocation['id']);
                                     if ($existingAllocation && in_array($existingAllocation->status, ['PENDING', 'RESERVED'])) {
                                         $existingAllocation->update([
-                                            'from_warehouse_id' => $allocation['from_warehouse_id'],
+                                            'target_warehouse_id' => $allocation['from_warehouse_id'],
                                             'assign_qty' => $allocation['assign_qty'],
                                         ]);
                                         $updatedCount++;
