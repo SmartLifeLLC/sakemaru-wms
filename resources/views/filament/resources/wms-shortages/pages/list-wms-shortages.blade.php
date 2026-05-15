@@ -46,7 +46,5 @@
             border-top-color: rgb(55 65 81);
         }
     </style>
-    <x-advanced-tables::favorites-bar />
-
     {{ $this->table }}
 </x-filament-panels::page>

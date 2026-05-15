@@ -4,11 +4,7 @@ namespace App\Filament\Resources\WmsShortages\Pages;
 
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsShortages\WmsShortageResource;
-use App\Models\Sakemaru\ClientSetting;
-use App\Models\Sakemaru\Warehouse;
-use App\Models\WmsShortage;
 use Archilex\AdvancedTables\AdvancedTables;
-use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -36,69 +32,19 @@ class ListWmsShortages extends ListRecords
 
     public function getPresetViews(): array
     {
-        if ($this->presetViewsCache !== null) {
-            return $this->presetViewsCache;
-        }
-
-        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
-        $systemDate = ClientSetting::systemDateYMD();
-
-        // 欠品が存在する倉庫のみタブ表示（日付はユーザのフィルタ操作に委ねる）
-        $warehouseIds = WmsShortage::query()
-            ->distinct()
-            ->pluck('warehouse_id')
-            ->toArray();
-
-        $warehouses = Warehouse::whereIn('id', $warehouseIds)
-            ->where('is_virtual', false)
-            ->orderBy('name')
-            ->get(['id', 'name']);
-
-        $defaultFilterData = [
-            'shipment_date' => ['shipment_date' => $systemDate],
-        ];
-
-        $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
-        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
-
-        $this->presetViewsCache = [
-            'default' => PresetView::make()
-                ->defaultFilters($defaultFilterData)
-                ->favorite()
-                ->label('全て')
-                ->default(! $hasDefaultWarehouse),
-        ];
-
-        if ($defaultWarehouse) {
-            $this->presetViewsCache["default_{$defaultWarehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
-                ->defaultFilters($defaultFilterData)
-                ->favorite()
-                ->label($defaultWarehouse->name)
-                ->default();
-        }
-
-        foreach ($warehouses as $warehouse) {
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
-                continue;
-            }
-
-            $this->presetViewsCache["default_{$warehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
-                ->defaultFilters($defaultFilterData)
-                ->favorite()
-                ->label($warehouse->name);
-        }
-
-        return $this->presetViewsCache;
+        return [];
     }
 
     public function table(Table $table): Table
     {
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
+
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
+                ->when($selectedWarehouseId, fn (Builder $query) => $query->where('warehouse_id', $selectedWarehouseId))
                 ->with([
                     'warehouse:id,code,name,latitude,longitude',
+                    'wave:id,created_at',
                     'location:id,code1,code2,code3',
                     'item:id,code,name,capacity_case,volume,volume_unit',
                     'trade:id,serial_id,partner_id',
@@ -107,7 +53,8 @@ class ListWmsShortages extends ListRecords
                     'sourcePickResult:id,picking_task_id,stock_transfer_id',
                     'sourcePickResult.pickingTask:id,shipment_date,delivery_course_id',
                     'sourcePickResult.pickingTask.deliveryCourse:id,code,name',
-                    'sourcePickResult.stockTransfer:id,delivery_course_id',
+                    'sourcePickResult.stockTransfer:id,from_warehouse_id,delivery_course_id',
+                    'sourcePickResult.stockTransfer.from_warehouse:id,code,name',
                     'sourcePickResult.stockTransfer.deliveryCourse:id,code,name',
                     'earning:id,buyer_id,delivered_date',
                     'earning.buyer:id',

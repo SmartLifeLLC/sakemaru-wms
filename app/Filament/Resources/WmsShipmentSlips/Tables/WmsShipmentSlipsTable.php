@@ -160,6 +160,35 @@ class WmsShipmentSlipsTable
                             ->toArray();
                     }),
 
+                SelectFilter::make('print_status')
+                    ->label('出荷確定状態')
+                    ->options([
+                        'unprinted' => '未出荷確定',
+                        'printed' => '出荷確定済み',
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return match ($data['value'] ?? null) {
+                            'printed' => $query->where(function (Builder $query) {
+                                $query->where('print_requested_count', '>', 0)
+                                    ->orWhereNotNull('last_printed_at')
+                                    ->orWhereHas('wave', fn (Builder $query) => $query->where('print_count', '>', 0));
+                            }),
+                            'unprinted' => $query
+                                ->where(function (Builder $query) {
+                                    $query->whereNull('print_requested_count')
+                                        ->orWhere('print_requested_count', 0);
+                                })
+                                ->whereNull('last_printed_at')
+                                ->where(function (Builder $query) {
+                                    $query->whereDoesntHave('wave')
+                                        ->orWhereHas('wave', fn (Builder $query) => $query
+                                            ->whereNull('print_count')
+                                            ->orWhere('print_count', 0));
+                                }),
+                            default => $query,
+                        };
+                    }),
+
                 \Filament\Tables\Filters\Filter::make('shipment_date')
                     ->label('出荷日')
                     ->form([
