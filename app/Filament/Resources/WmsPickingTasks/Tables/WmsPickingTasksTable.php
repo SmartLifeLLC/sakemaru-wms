@@ -22,6 +22,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -443,7 +444,7 @@ class WmsPickingTasksTable
                     ->icon('heroicon-o-play')
                     ->color('primary')
                     ->url(fn ($record) => WmsPickingTaskResource::getUrl('execute', ['record' => $record->id]))
-                    ->visible(fn ($record) => in_array($record->status, ['PICKING_READY', 'PICKING'])),
+                    ->visible(fn ($record) => in_array($record->status, ['PICKING_READY', 'PICKING', 'SHORTAGE'])),
 
                 Action::make('printSecondaryList')
                     ->label('2次リスト')
@@ -470,6 +471,51 @@ class WmsPickingTasksTable
                             );
                         } catch (\Exception $e) {
                             Notification::make()->title('PDF生成に失敗しました')->body($e->getMessage())->danger()->send();
+                        }
+                    }),
+
+                Action::make('revertPickingShortage')
+                    ->label('欠品戻し')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('warning')
+                    ->visible(fn (WmsPickingTask $record) => static::hasRevertiblePickingShortages($record))
+                    ->modalHeading('欠品を戻す')
+                    ->modalDescription('間違って庫内欠品にした明細を通常ピッキング済みに戻します。承認済み・同期済み・出荷済みの欠品は戻せません。')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('欠品を戻す')->color('danger'))
+                    ->modalCancelActionLabel('戻さず閉じる')
+                    ->schema(fn (WmsPickingTask $record) => [
+                        Select::make('picking_item_result_ids')
+                            ->label('戻す欠品明細')
+                            ->options(fn () => static::revertiblePickingShortageOptions($record))
+                            ->multiple()
+                            ->required()
+                            ->searchable()
+                            ->helperText('選択した明細のピック数を引当数に戻し、庫内欠品を取り消します。'),
+                    ])
+                    ->action(function (WmsPickingTask $record, array $data) {
+                        try {
+                            $result = static::revertPickingShortages(
+                                $record,
+                                collect($data['picking_item_result_ids'] ?? [])
+                                    ->map(fn ($id) => (int) $id)
+                                    ->filter()
+                                    ->values()
+                                    ->all()
+                            );
+
+                            Notification::make()
+                                ->title('欠品を戻しました')
+                                ->body("{$result['item_count']}件の庫内欠品を戻しました。".($result['deleted_shortage_count'] > 0 ? "欠品レコード{$result['deleted_shortage_count']}件を削除しました。" : ''))
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $e) {
+                            Notification::make()
+                                ->title('欠品を戻せません')
+                                ->body($e->getMessage())
+                                ->danger()
+                                ->send();
                         }
                     }),
 
@@ -1260,5 +1306,161 @@ class WmsPickingTasksTable
         //                    ->modalHeading('一括強制出荷確認')
         //                    ->modalDescription('選択したすべてのタスクを強制出荷します。各タスクのすべての商品のピッキング数が予定数に自動設定され、出荷可能状態になります。この操作は取り消せません。'),
         //            ]);
+    }
+
+    private static function hasRevertiblePickingShortages(WmsPickingTask $task): bool
+    {
+        return $task->status !== WmsPickingTask::STATUS_SHIPPED
+            && static::revertiblePickingShortageQuery($task)->exists();
+    }
+
+    private static function revertiblePickingShortageOptions(WmsPickingTask $task): array
+    {
+        return static::revertiblePickingShortageQuery($task)
+            ->with(['item', 'trade'])
+            ->orderBy('walking_order')
+            ->orderBy('id')
+            ->get()
+            ->mapWithKeys(function (WmsPickingItemResult $item): array {
+                $itemCode = $item->item?->code ?? $item->item_id;
+                $itemName = $item->item?->name ?? '-';
+                $serialId = $item->trade?->serial_id ? " / 識別ID: {$item->trade->serial_id}" : '';
+                $quantity = "引当 {$item->planned_qty} / ピック {$item->picked_qty} / 欠品 ".max(0, (int) $item->planned_qty - (int) $item->picked_qty);
+
+                return [$item->id => "[{$itemCode}]{$itemName} ({$quantity}{$serialId})"];
+            })
+            ->toArray();
+    }
+
+    private static function revertiblePickingShortageQuery(WmsPickingTask $task)
+    {
+        return WmsPickingItemResult::query()
+            ->where('picking_task_id', $task->id)
+            ->whereColumn('planned_qty', '>', 'picked_qty')
+            ->where(function ($query) {
+                $query->where('status', WmsPickingItemResult::STATUS_SHORTAGE)
+                    ->orWhere('shortage_qty', '>', 0);
+            })
+            ->whereDoesntHave('shortage', function ($query) {
+                $query->where('is_confirmed', true)
+                    ->orWhere('is_synced', true)
+                    ->orWhereExists(function ($subQuery) {
+                        $subQuery->selectRaw('1')
+                            ->from('wms_shortage_allocations as wsa')
+                            ->whereColumn('wsa.shortage_id', 'wms_shortages.id');
+                    });
+            });
+    }
+
+    private static function revertPickingShortages(WmsPickingTask $task, array $itemIds): array
+    {
+        if ($task->status === WmsPickingTask::STATUS_SHIPPED) {
+            throw new \RuntimeException('出荷済みのピッキングタスクは戻せません。');
+        }
+
+        if (empty($itemIds)) {
+            throw new \RuntimeException('戻す欠品明細を選択してください。');
+        }
+
+        $itemCount = 0;
+        $deletedShortageCount = 0;
+
+        DB::connection('sakemaru')->transaction(function () use ($task, $itemIds, &$itemCount, &$deletedShortageCount) {
+            $items = static::revertiblePickingShortageQuery($task)
+                ->whereIn('id', $itemIds)
+                ->lockForUpdate()
+                ->get();
+
+            if ($items->count() !== count(array_unique($itemIds))) {
+                throw new \RuntimeException('選択した明細に戻せない欠品が含まれています。画面を更新して再確認してください。');
+            }
+
+            foreach ($items as $item) {
+                $shortage = WmsShortage::query()
+                    ->where(function ($query) use ($task, $item) {
+                        $query->where('source_pick_result_id', $item->id)
+                            ->orWhere(function ($subQuery) use ($task, $item) {
+                                $subQuery->where('wave_id', $task->wave_id)
+                                    ->where('warehouse_id', $task->warehouse_id)
+                                    ->where('item_id', $item->item_id)
+                                    ->where('trade_item_id', $item->trade_item_id);
+                            });
+                    })
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($shortage) {
+                    if ($shortage->is_confirmed || $shortage->is_synced) {
+                        throw new \RuntimeException("欠品ID {$shortage->id} は承認済みまたは同期済みのため戻せません。");
+                    }
+
+                    $allocationExists = DB::connection('sakemaru')
+                        ->table('wms_shortage_allocations')
+                        ->where('shortage_id', $shortage->id)
+                        ->exists();
+
+                    if ($allocationExists) {
+                        throw new \RuntimeException("欠品ID {$shortage->id} は横持ち出荷指示があるため戻せません。先に欠品対応を取り消してください。");
+                    }
+                }
+
+                $pickedQty = (int) $item->planned_qty;
+                $remainingAllocationShortageQty = max(0, (int) $item->ordered_qty - $pickedQty);
+
+                $item->update([
+                    'picked_qty' => $pickedQty,
+                    'picked_qty_type' => $item->picked_qty_type ?? $item->planned_qty_type,
+                    'shortage_qty' => 0,
+                    'status' => WmsPickingItemResult::STATUS_COMPLETED,
+                    'picked_at' => $item->picked_at ?? now(),
+                    'updated_at' => now(),
+                ]);
+
+                if ($shortage) {
+                    if ($remainingAllocationShortageQty > 0) {
+                        $shortage->update([
+                            'picked_qty' => $pickedQty,
+                            'shortage_qty' => $remainingAllocationShortageQty,
+                            'allocation_shortage_qty' => $remainingAllocationShortageQty,
+                            'picking_shortage_qty' => 0,
+                            'status' => WmsShortage::STATUS_BEFORE,
+                            'updated_at' => now(),
+                        ]);
+                    } else {
+                        $shortage->delete();
+                        $deletedShortageCount++;
+                    }
+                }
+
+                $itemCount++;
+            }
+
+            static::refreshPickingTaskStatus($task->fresh());
+        });
+
+        return [
+            'item_count' => $itemCount,
+            'deleted_shortage_count' => $deletedShortageCount,
+        ];
+    }
+
+    private static function refreshPickingTaskStatus(?WmsPickingTask $task): void
+    {
+        if (! $task || ! in_array($task->status, [WmsPickingTask::STATUS_SHORTAGE, WmsPickingTask::STATUS_COMPLETED], true)) {
+            return;
+        }
+
+        $hasShortage = $task->pickingItemResults()
+            ->where(function ($query) {
+                $query->where('status', WmsPickingItemResult::STATUS_SHORTAGE)
+                    ->orWhere('shortage_qty', '>', 0)
+                    ->orWhereColumn('ordered_qty', '>', 'picked_qty');
+            })
+            ->exists();
+
+        $task->update([
+            'status' => $hasShortage ? WmsPickingTask::STATUS_SHORTAGE : WmsPickingTask::STATUS_COMPLETED,
+            'completed_at' => $hasShortage ? $task->completed_at : ($task->completed_at ?? now()),
+        ]);
     }
 }
