@@ -166,6 +166,8 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     'status' => $shortageQty > 0 ? 'SHORTAGE' : 'COMPLETED',
                     'picked_at' => now(),
                 ]);
+
+                $this->syncShortageAfterPickingCorrection($item->fresh());
             }
 
         });
@@ -416,7 +418,61 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     'picked_at' => $item->picked_at ?? now(),
                     'updated_at' => now(),
                 ]);
+
+                $this->syncShortageAfterPickingCorrection($item->fresh());
             });
+    }
+
+    private function syncShortageAfterPickingCorrection($item): void
+    {
+        $totalShortageQty = max(0, (int) $item->ordered_qty - (int) $item->picked_qty);
+        $allocationShortageQty = max(0, (int) $item->ordered_qty - (int) $item->planned_qty);
+        $pickingShortageQty = max(0, (int) $item->planned_qty - (int) $item->picked_qty);
+
+        $shortage = WmsShortage::query()
+            ->where(function ($query) use ($item) {
+                $query->where('source_pick_result_id', $item->id)
+                    ->orWhere(function ($subQuery) use ($item) {
+                        $subQuery->where('wave_id', $this->record->wave_id)
+                            ->where('warehouse_id', $this->record->warehouse_id)
+                            ->where('item_id', $item->item_id)
+                            ->where('trade_item_id', $item->trade_item_id);
+                    });
+            })
+            ->lockForUpdate()
+            ->first();
+
+        if (! $shortage) {
+            return;
+        }
+
+        if ($shortage->is_confirmed || $shortage->is_synced) {
+            throw new \RuntimeException("欠品ID {$shortage->id} は承認済みまたは同期済みのため、ピッキング修正では戻せません。");
+        }
+
+        $allocationExists = DB::connection('sakemaru')
+            ->table('wms_shortage_allocations')
+            ->where('shortage_id', $shortage->id)
+            ->exists();
+
+        if ($allocationExists) {
+            throw new \RuntimeException("欠品ID {$shortage->id} は横持ち出荷指示があるため、先に欠品対応を取り消してください。");
+        }
+
+        if ($totalShortageQty <= 0) {
+            $shortage->delete();
+
+            return;
+        }
+
+        $shortage->update([
+            'picked_qty' => (int) $item->picked_qty,
+            'shortage_qty' => $totalShortageQty,
+            'allocation_shortage_qty' => $allocationShortageQty,
+            'picking_shortage_qty' => $pickingShortageQty,
+            'status' => WmsShortage::STATUS_BEFORE,
+            'updated_at' => now(),
+        ]);
     }
 
     protected function allowsOverPickedQuantity(): bool
