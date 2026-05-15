@@ -284,7 +284,11 @@
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">発注点</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">自動発注数</th>
                         <th class="px-1.5 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">最終出荷</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">当日</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">前日</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">前々日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">3日</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">5日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">30日</th>
                         <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ総数</th>
@@ -312,7 +316,11 @@
                             <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.safety_stock || 0"></span></td>
                             <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.auto_order_quantity || 0"></span></td>
                             <td class="px-1.5 py-0.5 text-center"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.last_shipped_at || '-'"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.sales_today_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_today_qty || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.sales_yesterday_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_yesterday_qty || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.sales_2days_ago_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_2days_ago_qty || 0"></span></td>
                             <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_3d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_3d_qty || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_5d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_5d_qty || 0"></span></td>
                             <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_7d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_7d_qty || 0"></span></td>
                             <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_30d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_30d_qty || 0"></span></td>
                             <td class="px-0.5 py-0.5">

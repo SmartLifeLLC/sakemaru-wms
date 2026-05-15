@@ -275,7 +275,7 @@
         </div>
 
         <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-auto" style="max-height: 320px">
-            <table class="w-full min-w-[1120px] text-sm table-fixed">
+            <table class="w-full min-w-[1280px] text-sm table-fixed">
                 <colgroup>
                     <col style="width: 70px" />
                     <col />
@@ -283,6 +283,10 @@
                     <col style="width: 38px" />
                     <col style="width: 150px" />
                     <col style="width: 65px" />
+                    <col style="width: 40px" />
+                    <col style="width: 40px" />
+                    <col style="width: 48px" />
+                    <col style="width: 40px" />
                     <col style="width: 40px" />
                     <col style="width: 40px" />
                     <col style="width: 55px" />
@@ -297,7 +301,11 @@
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入数</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">発注先</th>
                         <th class="px-1.5 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">最終出荷</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">当日</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">前日</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">前々日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">3日</th>
+                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">5日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">30日</th>
                         <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">ケース</th>
@@ -335,7 +343,19 @@
                                 <span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.last_shipped_at || '-'"></span>
                             </td>
                             <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono" :class="item.sales_today_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_today_qty || 0"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono" :class="item.sales_yesterday_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_yesterday_qty || 0"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono" :class="item.sales_2days_ago_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_2days_ago_qty || 0"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-right">
                                 <span class="text-xs font-mono" :class="item.last_3d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_3d_qty || 0"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono" :class="item.last_5d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_5d_qty || 0"></span>
                             </td>
                             <td class="px-1.5 py-0.5 text-right">
                                 <span class="text-xs font-mono" :class="item.last_7d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_7d_qty || 0"></span>

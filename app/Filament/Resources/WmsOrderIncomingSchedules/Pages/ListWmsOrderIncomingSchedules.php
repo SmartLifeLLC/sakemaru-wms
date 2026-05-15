@@ -22,8 +22,8 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -142,7 +142,7 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                             continue;
                         }
 
-                            $arrivalDate = $data['expected_arrival_date'];
+                        $arrivalDate = $data['expected_arrival_date'];
 
                         try {
                             // ケース行を作成
@@ -362,7 +362,11 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                 'contractor_name' => $ic?->contractor
                     ? "[{$ic->contractor->code}]{$ic->contractor->name}"
                     : null,
+                'sales_today_qty' => $summary?->sales_today_qty ?? 0,
+                'sales_yesterday_qty' => $summary?->sales_yesterday_qty ?? 0,
+                'sales_2days_ago_qty' => $summary?->sales_2days_ago_qty ?? 0,
                 'last_3d_qty' => $summary?->last_3d_qty ?? 0,
+                'last_5d_qty' => $summary?->last_5d_qty ?? 0,
                 'last_7d_qty' => $summary?->last_7d_qty ?? 0,
                 'last_30d_qty' => $summary?->last_30d_qty ?? 0,
                 'pending_case_qty' => $pendingCaseQty ?: null,

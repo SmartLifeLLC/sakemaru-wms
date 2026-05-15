@@ -16,6 +16,7 @@ use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsStockTransferCandidate;
 use App\Models\WmsWarehouseAutoOrderSetting;
+use App\Support\DbMutex;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -61,6 +62,12 @@ class SalesBasedOrderCandidateService
 
     private array $salesSummaries3d = [];
 
+    private string $salesBasis = 'last_3d';
+
+    private string $orderPointFilter = 'ignore';
+
+    private string $autoOrderFlagFilter = 'ignore';
+
     private ?array $targetContractorIds = null;
 
     private ?int $targetWarehouseId = null;
@@ -73,10 +80,49 @@ class SalesBasedOrderCandidateService
         ?array $contractorIds = null,
         ?string $batchCode = null,
         ?OriginType $originType = null,
+        string $salesBasis = 'last_3d',
+        string $orderPointFilter = 'ignore',
+        string $autoOrderFlagFilter = 'ignore',
     ): WmsAutoOrderJobControl {
-        if (WmsAutoOrderJobControl::hasRunningJob(JobProcessName::SALES_BASED_CALC)) {
-            throw new \RuntimeException('Sales-based calculation job is already running');
+        $lockKey = $this->salesBasedGenerationLockKey($warehouseId);
+
+        if (! DbMutex::acquire($lockKey, 5, 'sakemaru')) {
+            throw new \RuntimeException('同じ倉庫の実績ベース発注候補生成が実行中です。完了後に再実行してください。');
         }
+
+        try {
+            return $this->calculateLocked(
+                warehouseId: $warehouseId,
+                createdBy: $createdBy,
+                contractorIds: $contractorIds,
+                batchCode: $batchCode,
+                originType: $originType,
+                salesBasis: $salesBasis,
+                orderPointFilter: $orderPointFilter,
+                autoOrderFlagFilter: $autoOrderFlagFilter,
+            );
+        } finally {
+            DbMutex::release($lockKey, 'sakemaru');
+        }
+    }
+
+    private function calculateLocked(
+        ?int $warehouseId,
+        int $createdBy,
+        ?array $contractorIds = null,
+        ?string $batchCode = null,
+        ?OriginType $originType = null,
+        string $salesBasis = 'last_3d',
+        string $orderPointFilter = 'ignore',
+        string $autoOrderFlagFilter = 'ignore',
+    ): WmsAutoOrderJobControl {
+        if ($this->hasRunningSalesBasedJobForWarehouse($warehouseId)) {
+            throw new \RuntimeException('同じ倉庫の実績ベース発注候補生成が実行中です。完了後に再実行してください。');
+        }
+
+        $salesBasis = $this->normalizeSalesBasis($salesBasis);
+        $orderPointFilter = $this->normalizeOrderPointFilter($orderPointFilter);
+        $autoOrderFlagFilter = $this->normalizeAutoOrderFlagFilter($autoOrderFlagFilter);
 
         $expandedContractorIds = null;
         if ($contractorIds !== null && ! empty($contractorIds)) {
@@ -109,7 +155,13 @@ class SalesBasedOrderCandidateService
 
         $job = WmsAutoOrderJobControl::startJob(
             processName: JobProcessName::SALES_BASED_CALC,
-            scope: $contractorIds !== null ? ['contractor_ids' => $contractorIds, 'source' => 'sales_based'] : null,
+            scope: [
+                'contractor_ids' => $contractorIds,
+                'source' => 'sales_based',
+                'sales_basis' => $salesBasis,
+                'order_point_filter' => $orderPointFilter,
+                'auto_order_flag_filter' => $autoOrderFlagFilter,
+            ],
             batchCode: $batchCode,
             settlementStatus: SettlementStatus::PENDING,
             createdBy: $createdBy,
@@ -119,12 +171,20 @@ class SalesBasedOrderCandidateService
         $this->targetContractorIds = $expandedContractorIds;
         $this->targetWarehouseId = $warehouseId;
         $this->originType = $originType ?? OriginType::MANUAL_SALES_BASED;
+        $this->salesBasis = $salesBasis;
+        $this->orderPointFilter = $orderPointFilter;
+        $this->autoOrderFlagFilter = $autoOrderFlagFilter;
 
         try {
             $batchCode = $job->batch_code;
             $now = now();
 
-            Log::info('Sales-based order candidate calculation started', ['batch_code' => $batchCode]);
+            Log::info('Sales-based order candidate calculation started', [
+                'batch_code' => $batchCode,
+                'sales_basis' => $this->salesBasis,
+                'order_point_filter' => $this->orderPointFilter,
+                'auto_order_flag_filter' => $this->autoOrderFlagFilter,
+            ]);
 
             $this->loadAllDataToMemory();
             $job->updateProgress(1, 4);
@@ -160,6 +220,24 @@ class SalesBasedOrderCandidateService
         return $job;
     }
 
+    private function salesBasedGenerationLockKey(?int $warehouseId): string
+    {
+        return 'wms:sales_based_order_candidate:warehouse:'.($warehouseId ?? 'all');
+    }
+
+    private function hasRunningSalesBasedJobForWarehouse(?int $warehouseId): bool
+    {
+        return WmsAutoOrderJobControl::query()
+            ->where('process_name', JobProcessName::SALES_BASED_CALC)
+            ->where('status', \App\Enums\AutoOrder\JobStatus::RUNNING)
+            ->when(
+                $warehouseId !== null,
+                fn ($query) => $query->where('warehouse_id', $warehouseId),
+                fn ($query) => $query->whereNull('warehouse_id'),
+            )
+            ->exists();
+    }
+
     private function loadAllDataToMemory(): void
     {
         $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
@@ -167,7 +245,19 @@ class SalesBasedOrderCandidateService
             ->toArray();
 
         if ($this->targetWarehouseId !== null) {
-            $enabledWarehouseIds = array_intersect($enabledWarehouseIds, [$this->targetWarehouseId]);
+            $satelliteWarehouseIds = DB::connection('sakemaru')
+                ->table('item_contractors')
+                ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
+                ->where('wcs.transmission_type', TransmissionType::INTERNAL->value)
+                ->where('wcs.supply_warehouse_id', $this->targetWarehouseId)
+                ->pluck('item_contractors.warehouse_id')
+                ->unique()
+                ->toArray();
+
+            $enabledWarehouseIds = array_intersect(
+                $enabledWarehouseIds,
+                array_values(array_unique(array_merge([$this->targetWarehouseId], $satelliteWarehouseIds))),
+            );
         }
 
         $this->realWarehouseIds = DB::connection('sakemaru')
@@ -401,15 +491,19 @@ class SalesBasedOrderCandidateService
         $salesSummaries = DB::connection('sakemaru')
             ->table('stats_item_warehouse_sales_summaries')
             ->whereIn('warehouse_id', $this->realWarehouseIds)
-            ->where('last_3d_qty', '>', 0)
-            ->select('warehouse_id', 'item_id', 'last_3d_qty')
+            ->where($this->salesBasisColumn(), '>', 0)
+            ->select('warehouse_id', 'item_id', 'sales_today_qty', 'sales_yesterday_qty', 'last_3d_qty')
             ->get();
 
         foreach ($salesSummaries as $s) {
             if (! isset($this->salesSummaries3d[$s->warehouse_id])) {
                 $this->salesSummaries3d[$s->warehouse_id] = [];
             }
-            $this->salesSummaries3d[$s->warehouse_id][$s->item_id] = (int) $s->last_3d_qty;
+            $this->salesSummaries3d[$s->warehouse_id][$s->item_id] = (int) match ($this->salesBasis) {
+                'today' => $s->sales_today_qty,
+                'yesterday' => $s->sales_yesterday_qty,
+                default => $s->last_3d_qty,
+            };
         }
 
         Log::info('[SalesBased] データロード完了');
@@ -429,22 +523,32 @@ class SalesBasedOrderCandidateService
             }
         }
 
-        $itemContractors = DB::connection('sakemaru')
+        $itemContractorQuery = DB::connection('sakemaru')
             ->table('item_contractors')
             ->join('items', 'item_contractors.item_id', '=', 'items.id')
             ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
             ->whereIn('item_contractors.contractor_id', $internalContractorIds)
             ->whereIn('item_contractors.warehouse_id', $this->realWarehouseIds)
-            ->where('item_contractors.is_auto_order', false)
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
             ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
             ->where(fn ($q) => $q->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
-            ->where('contractors.is_auto_change_order', true)
+            ->where('contractors.is_auto_change_order', true);
+
+        if ($this->autoOrderFlagFilter === 'on') {
+            $itemContractorQuery->where('item_contractors.is_auto_order', true);
+        } elseif ($this->autoOrderFlagFilter === 'off') {
+            $itemContractorQuery->where('item_contractors.is_auto_order', false);
+        }
+
+        $itemContractors = $itemContractorQuery
             ->select('item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.purchase_unit')
             ->get();
 
         $insertData = [];
+        $existingTransferKeys = $this->loadExistingTransferCandidateKeys($batchCode);
+        $seenTransferKeys = $existingTransferKeys;
+        $skippedExistingCount = 0;
 
         foreach ($itemContractors as $ic) {
             if (! isset($this->orderingCodes[$ic->item_id])) {
@@ -474,6 +578,14 @@ class SalesBasedOrderCandidateService
             if (! $supplyWarehouseId) {
                 continue;
             }
+
+            $candidateKey = "{$ic->warehouse_id}:{$supplyWarehouseId}:{$ic->item_id}:{$ic->contractor_id}";
+            if (isset($seenTransferKeys[$candidateKey])) {
+                $skippedExistingCount++;
+
+                continue;
+            }
+            $seenTransferKeys[$candidateKey] = true;
 
             $deliveryCourseId = $this->transferDeliveryCourses[$supplyWarehouseId][$ic->warehouse_id] ?? null;
 
@@ -564,7 +676,10 @@ class SalesBasedOrderCandidateService
         }
 
         $count = count($insertData);
-        Log::info('[SalesBased] 内部移動候補を作成', ['count' => $count]);
+        Log::info('[SalesBased] 内部移動候補を作成', [
+            'count' => $count,
+            'skipped_existing' => $skippedExistingCount,
+        ]);
 
         return $count;
     }
@@ -577,7 +692,6 @@ class SalesBasedOrderCandidateService
             ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
             ->whereNotIn('item_contractors.contractor_id', $this->internalContractorIds ?: [0])
             ->whereIn('item_contractors.warehouse_id', $this->realWarehouseIds)
-            ->where('item_contractors.is_auto_order', false)
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
             ->where(fn ($q) => $q->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
@@ -588,13 +702,22 @@ class SalesBasedOrderCandidateService
             $externalQuery->whereIn('contractor_id', $this->targetContractorIds);
         }
 
+        if ($this->autoOrderFlagFilter === 'on') {
+            $externalQuery->where('item_contractors.is_auto_order', true);
+        } elseif ($this->autoOrderFlagFilter === 'off') {
+            $externalQuery->where('item_contractors.is_auto_order', false);
+        }
+
         $selectColumns = ['item_contractors.id', 'item_contractors.warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id', 'item_contractors.supplier_id', 'item_contractors.safety_stock', 'item_contractors.max_stock', 'item_contractors.purchase_unit'];
 
         $itemContractors = $externalQuery
             ->select($selectColumns)
             ->get();
 
+        $existingCandidateKeys = $this->loadExistingOrderCandidateKeys($batchCode);
         $insertData = [];
+        $skippedExistingCount = 0;
+        $seenCandidateKeys = $existingCandidateKeys;
 
         foreach ($itemContractors as $ic) {
             if (! isset($this->orderingCodes[$ic->item_id])) {
@@ -617,54 +740,52 @@ class SalesBasedOrderCandidateService
             $outgoingToTransfer = $transfer['outgoing'] ?? 0;
 
             $calculatedStock = $effectiveStock + $incomingStock + $incomingFromTransfer - $outgoingToTransfer;
+            $shortageQty = max(0, $sales3dQty - $calculatedStock);
 
-            if ($calculatedStock >= $sales3dQty) {
+            if ($this->orderPointFilter === 'below_or_equal' && $calculatedStock > $safetyStock) {
                 continue;
             }
 
-            $shortageQty = $sales3dQty - $calculatedStock;
+            $candidateKey = "{$ic->warehouse_id}:{$ic->item_id}:{$ic->contractor_id}";
+            if (isset($seenCandidateKeys[$candidateKey])) {
+                $skippedExistingCount++;
+
+                continue;
+            }
+            $seenCandidateKeys[$candidateKey] = true;
 
             $purchaseUnit = max(1, (int) ($ic->purchase_unit ?? 1));
             $quantityCalculation = $this->calculateOrderQuantity(
-                $shortageQty,
+                $sales3dQty,
                 $purchaseUnit,
                 0,
                 0,
                 $calculatedStock,
                 $this->orderingUnitQuantities[$ic->item_id] ?? null,
             );
-            $orderQty = $quantityCalculation['order_quantity'];
-            if ($orderQty <= 0) {
-                continue;
-            }
+            $suggestedQty = $quantityCalculation['order_quantity'];
 
             $demandBreakdown = [];
             $originWarehouseIds = [];
 
-            $satelliteDemandQty = min($outgoingToTransfer, $shortageQty);
-            $selfShortageOnly = max(0, $shortageQty - $satelliteDemandQty);
+            $satelliteDemandQty = max(0, $outgoingToTransfer);
+            $selfShortageOnly = $sales3dQty;
 
             if ($selfShortageOnly > 0) {
                 $demandBreakdown[] = ['warehouse_id' => $ic->warehouse_id, 'quantity' => $selfShortageOnly];
                 $originWarehouseIds[] = $ic->warehouse_id;
             }
 
-            $outgoingBreakdown = $transfer['outgoing_breakdown'] ?? [];
-            if ($satelliteDemandQty > 0 && $outgoingToTransfer > 0) {
-                $ratio = $satelliteDemandQty / $outgoingToTransfer;
-                foreach ($outgoingBreakdown as $breakdown) {
-                    $qty = (int) round($breakdown['quantity'] * $ratio);
-                    if ($qty > 0) {
-                        $demandBreakdown[] = ['warehouse_id' => $breakdown['warehouse_id'], 'quantity' => $qty];
-                        $originWarehouseIds[] = $breakdown['warehouse_id'];
-                    }
+            foreach ($transfer['outgoing_breakdown'] ?? [] as $breakdown) {
+                $qty = (int) ($breakdown['quantity'] ?? 0);
+                if ($qty > 0) {
+                    $demandBreakdown[] = ['warehouse_id' => $breakdown['warehouse_id'], 'quantity' => $qty];
+                    $originWarehouseIds[] = $breakdown['warehouse_id'];
                 }
             }
 
             $capacityCase = max(1, (int) ($this->itemMaster[$ic->item_id]['capacity_case'] ?? 1));
-            // 発注候補ではユーザーが見る通常数量を保持する。発注コード数量への変換は承認時/JX生成時に行う。
-            $divisor = $capacityCase;
-            $orderQtyCase = (int) ceil($orderQty / $divisor);
+            $suggestedQtyCase = (int) ceil($suggestedQty / $capacityCase);
 
             $purchaseUnitPrice = $this->supplierItemPrices[$ic->item_id][$ic->supplier_id] ?? null;
             $orderingCode = $this->orderingCodes[$ic->item_id] ?? null;
@@ -692,8 +813,8 @@ class SalesBasedOrderCandidateService
                 'satellite_demand_qty' => $satelliteDemandQty,
                 'demand_breakdown' => ! empty($demandBreakdown) ? json_encode($demandBreakdown, JSON_UNESCAPED_UNICODE) : null,
                 'origin_warehouse_ids' => ! empty($originWarehouseIds) ? implode(',', $originWarehouseIds) : null,
-                'suggested_quantity' => $orderQty,
-                'order_quantity' => $orderQtyCase,
+                'suggested_quantity' => $suggestedQty,
+                'order_quantity' => 0,
                 'current_effective_stock' => $effectiveStock,
                 'incoming_quantity' => $incomingStock,
                 'safety_stock' => $safetyStock,
@@ -726,7 +847,7 @@ class SalesBasedOrderCandidateService
                 'safety_stock_setting' => $safetyStock,
                 'lead_time_days' => $leadTimeDays,
                 'calculated_shortage_qty' => $shortageQty,
-                'calculated_order_quantity' => $orderQtyCase,
+                'calculated_order_quantity' => 0,
                 'calculation_details' => json_encode(array_merge([
                     '商品コード' => $itemInfo['code'] ?? null,
                     '商品名' => $itemInfo['name'] ?? null,
@@ -740,8 +861,11 @@ class SalesBasedOrderCandidateService
                     '発注倉庫名' => $warehouseInfo['name'] ?? null,
                 ], [
                     '計算タイプ' => '実績ベース',
-                    '計算式' => '3日実績 - (有効在庫 + 入荷予定 + 移動入庫 - 移動出庫)',
-                    '3日実績' => $sales3dQty,
+                    '計算式' => "{$this->salesBasisLabel()}販売あり商品を候補表示（初期発注数0）",
+                    '販売実績条件' => $this->salesBasisLabel(),
+                    '発注点条件' => $this->orderPointFilterLabel(),
+                    '自動発注フラグ条件' => $this->autoOrderFlagFilterLabel(),
+                    '対象販売実績' => $sales3dQty,
                     '発注点' => $safetyStock,
                     '有効在庫' => $effectiveStock,
                     '入荷予定' => $incomingStock,
@@ -757,10 +881,11 @@ class SalesBasedOrderCandidateService
                     '有効発注単位(バラ)' => $quantityCalculation['valid_order_unit'],
                     '最大発注点調整前数量(バラ)' => $quantityCalculation['before_max_stock_quantity'],
                     '最大発注点調整あり' => $quantityCalculation['max_stock_adjusted'],
-                    '単位調整後数量(バラ)' => $orderQty,
-                    '発注数量(ケース)' => $orderQtyCase,
+                    '参考数量(バラ)' => $suggestedQty,
+                    '参考数量(ケース)' => $suggestedQtyCase,
+                    '発注数量(ケース)' => 0,
                     'ケース入数' => $capacityCase,
-                    '単位調整説明' => $quantityCalculation['description']." → {$orderQtyCase}ケース",
+                    '単位調整説明' => $quantityCalculation['description']." → 参考{$suggestedQtyCase}ケース / 初期発注数0",
                 ], [
                     '到着日調整' => $arrivalInfo['shifted_days'],
                     '調整理由' => implode(', ', $arrivalInfo['shift_reasons']),
@@ -774,9 +899,52 @@ class SalesBasedOrderCandidateService
         }
 
         $count = count($insertData);
-        Log::info('[SalesBased] 外部発注候補を作成', ['count' => $count]);
+        Log::info('[SalesBased] 外部発注候補を作成', [
+            'count' => $count,
+            'skipped_existing' => $skippedExistingCount,
+        ]);
 
         return $count;
+    }
+
+    private function loadExistingOrderCandidateKeys(string $batchCode): array
+    {
+        $query = WmsOrderCandidate::query()
+            ->where('batch_code', $batchCode)
+            ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
+            ->whereIn('warehouse_id', $this->realWarehouseIds)
+            ->select('warehouse_id', 'item_id', 'contractor_id');
+
+        if ($this->targetContractorIds !== null) {
+            $query->whereIn('contractor_id', $this->targetContractorIds);
+        }
+
+        return $query
+            ->get()
+            ->mapWithKeys(fn ($candidate) => [
+                "{$candidate->warehouse_id}:{$candidate->item_id}:{$candidate->contractor_id}" => true,
+            ])
+            ->all();
+    }
+
+    private function loadExistingTransferCandidateKeys(string $batchCode): array
+    {
+        $query = WmsStockTransferCandidate::query()
+            ->where('batch_code', $batchCode)
+            ->whereIn('status', [CandidateStatus::PENDING->value, CandidateStatus::APPROVED->value])
+            ->whereIn('satellite_warehouse_id', $this->realWarehouseIds)
+            ->select('satellite_warehouse_id', 'hub_warehouse_id', 'item_id', 'contractor_id');
+
+        if ($this->targetContractorIds !== null) {
+            $query->whereIn('contractor_id', $this->targetContractorIds);
+        }
+
+        return $query
+            ->get()
+            ->mapWithKeys(fn ($candidate) => [
+                "{$candidate->satellite_warehouse_id}:{$candidate->hub_warehouse_id}:{$candidate->item_id}:{$candidate->contractor_id}" => true,
+            ])
+            ->all();
     }
 
     private function loadTransferCandidatesToMemory(string $batchCode): array
@@ -884,6 +1052,56 @@ class SalesBasedOrderCandidateService
             5 => $setting['fri'] ?? false,
             6 => $setting['sat'] ?? false,
             default => false,
+        };
+    }
+
+    private function normalizeSalesBasis(string $salesBasis): string
+    {
+        return in_array($salesBasis, ['today', 'yesterday', 'last_3d'], true) ? $salesBasis : 'last_3d';
+    }
+
+    private function normalizeOrderPointFilter(string $orderPointFilter): string
+    {
+        return in_array($orderPointFilter, ['ignore', 'below_or_equal'], true) ? $orderPointFilter : 'ignore';
+    }
+
+    private function normalizeAutoOrderFlagFilter(string $autoOrderFlagFilter): string
+    {
+        return in_array($autoOrderFlagFilter, ['ignore', 'on', 'off'], true) ? $autoOrderFlagFilter : 'ignore';
+    }
+
+    private function salesBasisColumn(): string
+    {
+        return match ($this->salesBasis) {
+            'today' => 'sales_today_qty',
+            'yesterday' => 'sales_yesterday_qty',
+            default => 'last_3d_qty',
+        };
+    }
+
+    private function salesBasisLabel(): string
+    {
+        return match ($this->salesBasis) {
+            'today' => '当日',
+            'yesterday' => '前日',
+            default => '3日間',
+        };
+    }
+
+    private function orderPointFilterLabel(): string
+    {
+        return match ($this->orderPointFilter) {
+            'below_or_equal' => '見込み在庫が発注点以下',
+            default => '考慮しない',
+        };
+    }
+
+    private function autoOrderFlagFilterLabel(): string
+    {
+        return match ($this->autoOrderFlagFilter) {
+            'on' => 'ONのもの',
+            'off' => 'OFFのもの',
+            default => '考慮しない',
         };
     }
 

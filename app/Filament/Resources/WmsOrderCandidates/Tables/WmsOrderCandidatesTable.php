@@ -303,22 +303,50 @@ class WmsOrderCandidatesTable
                         }
                     }),
 
+                TextColumn::make('sales_today')
+                    ->label('当日')
+                    ->state(fn ($record) => $record->salesSummary?->sales_today_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($record) => ($record->salesSummary?->sales_today_qty ?? 0) > 0 ? null : 'gray'),
+
+                TextColumn::make('sales_yesterday')
+                    ->label('前日')
+                    ->state(fn ($record) => $record->salesSummary?->sales_yesterday_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($record) => ($record->salesSummary?->sales_yesterday_qty ?? 0) > 0 ? null : 'gray'),
+
+                TextColumn::make('sales_2days_ago')
+                    ->label('前々日')
+                    ->state(fn ($record) => $record->salesSummary?->sales_2days_ago_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($record) => ($record->salesSummary?->sales_2days_ago_qty ?? 0) > 0 ? null : 'gray'),
+
                 TextColumn::make('sales_3d')
-                    ->label('3日')
+                    ->label('3日累計')
                     ->state(fn ($record) => $record->salesSummary?->last_3d_qty ?? 0)
                     ->numeric()
                     ->alignEnd()
                     ->color(fn ($record) => ($record->salesSummary?->last_3d_qty ?? 0) > 0 ? null : 'gray'),
 
+                TextColumn::make('sales_5d')
+                    ->label('5日累計')
+                    ->state(fn ($record) => $record->salesSummary?->last_5d_qty ?? 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($record) => ($record->salesSummary?->last_5d_qty ?? 0) > 0 ? null : 'gray'),
+
                 TextColumn::make('sales_7d')
-                    ->label('7日')
+                    ->label('7日累計')
                     ->state(fn ($record) => $record->salesSummary?->last_7d_qty ?? 0)
                     ->numeric()
                     ->alignEnd()
                     ->color(fn ($record) => ($record->salesSummary?->last_7d_qty ?? 0) > 0 ? null : 'gray'),
 
                 TextColumn::make('sales_30d')
-                    ->label('30日')
+                    ->label('30日累計')
                     ->state(fn ($record) => $record->salesSummary?->last_30d_qty ?? 0)
                     ->numeric()
                     ->alignEnd()

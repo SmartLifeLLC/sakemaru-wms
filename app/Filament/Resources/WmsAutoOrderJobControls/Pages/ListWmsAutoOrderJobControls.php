@@ -20,12 +20,17 @@ use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
+use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Alignment;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\HtmlString;
 
 class ListWmsAutoOrderJobControls extends ListRecords
 {
@@ -75,6 +80,22 @@ class ListWmsAutoOrderJobControls extends ListRecords
     public array $salesBasedOtherContractorsData = [];
 
     public array $selectedJxContractorIds = [];
+
+    public ?int $salesBasedPreviewCount = null;
+
+    public ?string $salesBasedPreviewError = null;
+
+    public ?string $salesBasedJobId = null;
+
+    public bool $isSalesBasedProcessing = false;
+
+    public int $salesBasedProgress = 0;
+
+    public string $salesBasedProgressMessage = '';
+
+    public array $salesBasedResults = [];
+
+    public ?string $salesBasedJobError = null;
 
     // 倉庫選択（仕入先別生成用）
     public array $selectedWarehouseIds = [];
@@ -346,7 +367,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
         }
 
         $baseDescription = $selectedWarehouse
-            ? "倉庫「{$selectedWarehouseName}」の発注候補を生成します。\n自動発注OFF・出荷実績あり・発注コードありで、見込み在庫が3日実績を下回る商品が対象です。"
+            ? "倉庫「{$selectedWarehouseName}」の発注候補を生成します。\n移動候補は作成せず、過去3日間で販売があった発注コードありの商品を候補表示します。発注数はすべて0で開始します。"
             : '倉庫が選択されていません。トップバーから倉庫を選択してください。';
 
         return Action::make('generateSalesBased')
@@ -356,16 +377,71 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->modalWidth('6xl')
             ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
             ->modalHeading("実績ベース発注候補生成（{$selectedWarehouseName}）")
-            ->modalDescription($baseDescription)
             ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
             ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('生成開始')->color('danger'))
             ->modalCancelActionLabel('発注せず閉じる')
             ->disabled(! $selectedWarehouse)
+            ->mountUsing(function ($schema): void {
+                $this->resetSalesBasedPreviewCount();
+                $this->resetSalesBasedJobProgress();
+                $schema?->fill();
+            })
             ->schema(array_filter([
+                Placeholder::make('sales_based_description')
+                    ->hiddenLabel()
+                    ->content(new HtmlString(
+                        '<div class="rounded-lg border border-slate-300 bg-slate-100 px-4 py-3 text-sm font-medium leading-6 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">'
+                        .nl2br(e($baseDescription))
+                        .'</div>'
+                    )),
+                Grid::make(3)
+                    ->schema([
+                        Select::make('sales_basis')
+                            ->label('販売実績')
+                            ->options([
+                                'today' => '当日',
+                                'yesterday' => '前日',
+                                'last_3d' => '3日間',
+                            ])
+                            ->default('last_3d')
+                            ->native(false)
+                            ->live()
+                            ->afterStateUpdated(fn () => $this->resetSalesBasedPreviewCount())
+                            ->required(),
+                        Select::make('order_point_filter')
+                            ->label('発注点')
+                            ->options([
+                                'ignore' => '考慮しない',
+                                'below_or_equal' => '下回った（含む）',
+                            ])
+                            ->default('ignore')
+                            ->native(false)
+                            ->live()
+                            ->afterStateUpdated(fn () => $this->resetSalesBasedPreviewCount())
+                            ->required(),
+                        Select::make('auto_order_flag_filter')
+                            ->label('自動発注フラグ')
+                            ->options([
+                                'ignore' => '考慮しない',
+                                'on' => 'ONのもの',
+                                'off' => 'OFFのもの',
+                            ])
+                            ->default('ignore')
+                            ->native(false)
+                            ->live()
+                            ->afterStateUpdated(fn () => $this->resetSalesBasedPreviewCount())
+                            ->required(),
+                    ]),
+                ViewField::make('sales_based_preview')
+                    ->view('filament.components.sales-based-preview-count')
+                    ->hiddenLabel(),
+                ViewField::make('sales_based_progress')
+                    ->view('filament.components.sales-based-generation-progress')
+                    ->hiddenLabel(),
                 $batchNotice
-                    ? \Filament\Forms\Components\Placeholder::make('batch_notice')
+                    ? Placeholder::make('batch_notice')
                         ->hiddenLabel()
-                        ->content(new \Illuminate\Support\HtmlString(
+                        ->content(new HtmlString(
                             '<div class="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300">'
                             .e($batchNotice)
                             .'</div>'
@@ -382,10 +458,23 @@ class ListWmsAutoOrderJobControls extends ListRecords
                         'selectedProperty' => 'selectedJxContractorIds',
                         'primaryLabel' => '現在選択中の仕入先',
                         'secondaryLabel' => 'その他の仕入先',
+                        'compactListHeight' => true,
                     ])
                     ->hiddenLabel(),
             ]))
-            ->action(function () use ($selectedWarehouseId, $selectedWarehouseName, $existingBatchCode) {
+            ->action(function (Action $action, array $data) use ($selectedWarehouseId, $selectedWarehouseName, $existingBatchCode) {
+                if ($activeJob = $this->findActiveSalesBasedQueueProgress($selectedWarehouseId)) {
+                    $this->trackSalesBasedJob($activeJob, '実績ベース発注候補生成が既に実行中です。完了までお待ちください。');
+
+                    Notification::make()
+                        ->title('実績ベース発注候補生成が実行中です')
+                        ->body('重複生成を避けるため、新しいジョブは投入せず既存ジョブの進捗を表示します。')
+                        ->warning()
+                        ->send();
+
+                    $action->halt();
+                }
+
                 $warehouseId = $selectedWarehouseId;
                 $warehouseName = $selectedWarehouseName;
                 $contractorIds = $this->selectedJxContractorIds;
@@ -397,14 +486,23 @@ class ListWmsAutoOrderJobControls extends ListRecords
                         ->danger()
                         ->send();
 
-                    return;
+                    $action->halt();
                 }
 
                 $queueProgress = WmsQueueProgress::createJob(
                     WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
                     auth()->id(),
-                    ['warehouse_id' => $warehouseId, 'contractor_ids' => $contractorIds, 'source' => 'sales_based']
+                    [
+                        'warehouse_id' => $warehouseId,
+                        'contractor_ids' => $contractorIds,
+                        'source' => 'sales_based',
+                        'sales_basis' => $data['sales_basis'] ?? 'last_3d',
+                        'order_point_filter' => $data['order_point_filter'] ?? 'ignore',
+                        'auto_order_flag_filter' => $data['auto_order_flag_filter'] ?? 'ignore',
+                    ]
                 );
+
+                $this->trackSalesBasedJob($queueProgress, 'ジョブを開始しています...');
 
                 ProcessSalesBasedOrderCandidateJob::dispatch(
                     jobId: $queueProgress->job_id,
@@ -413,6 +511,9 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     contractorIds: $contractorIds,
                     batchCode: $existingBatchCode,
                     originType: \App\Enums\AutoOrder\OriginType::MANUAL_SALES_BASED->value,
+                    salesBasis: $data['sales_basis'] ?? 'last_3d',
+                    orderPointFilter: $data['order_point_filter'] ?? 'ignore',
+                    autoOrderFlagFilter: $data['auto_order_flag_filter'] ?? 'ignore',
                 );
 
                 $contractorCount = count($contractorIds);
@@ -425,7 +526,317 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     ->title($message)
                     ->success()
                     ->send();
+
+                $action->halt();
             });
+    }
+
+    private function findActiveSalesBasedQueueProgress(?int $warehouseId): ?WmsQueueProgress
+    {
+        return WmsQueueProgress::query()
+            ->where('job_type', WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION)
+            ->whereIn('status', [QueueProgressStatus::PENDING, QueueProgressStatus::PROCESSING])
+            ->where('metadata->source', 'sales_based')
+            ->where('metadata->warehouse_id', $warehouseId)
+            ->latest()
+            ->first();
+    }
+
+    private function trackSalesBasedJob(WmsQueueProgress $queueProgress, string $message): void
+    {
+        $this->salesBasedJobId = $queueProgress->job_id;
+        $this->isSalesBasedProcessing = true;
+        $this->salesBasedProgress = $queueProgress->progress ?? 0;
+        $this->salesBasedProgressMessage = $queueProgress->message ?: $message;
+        $this->salesBasedResults = [];
+        $this->salesBasedJobError = null;
+    }
+
+    public function pollSalesBasedJobProgress(): void
+    {
+        if (! $this->salesBasedJobId) {
+            return;
+        }
+
+        $progress = WmsQueueProgress::findByJobId($this->salesBasedJobId);
+
+        if (! $progress) {
+            $this->salesBasedJobError = 'ジョブの進捗情報が見つかりません';
+            $this->isSalesBasedProcessing = false;
+
+            return;
+        }
+
+        $this->salesBasedProgress = $progress->progress;
+        $this->salesBasedProgressMessage = $progress->message ?? '処理中...';
+
+        if ($progress->isCompleted()) {
+            $this->isSalesBasedProcessing = false;
+            $this->salesBasedResults = $progress->result ?? [];
+            $this->pendingCount = WmsOrderCandidate::where('status', CandidateStatus::PENDING)->forCreatedBy(auth()->id())->count();
+            $this->resetTable();
+        } elseif ($progress->isFailed()) {
+            $this->isSalesBasedProcessing = false;
+            $this->salesBasedJobError = $progress->message ?? '処理中にエラーが発生しました';
+        }
+    }
+
+    public function resetSalesBasedJobProgress(): void
+    {
+        $this->salesBasedJobId = null;
+        $this->isSalesBasedProcessing = false;
+        $this->salesBasedProgress = 0;
+        $this->salesBasedProgressMessage = '';
+        $this->salesBasedResults = [];
+        $this->salesBasedJobError = null;
+    }
+
+    public function resetSalesBasedPreviewCount(): void
+    {
+        $this->salesBasedPreviewCount = null;
+        $this->salesBasedPreviewError = null;
+    }
+
+    public function calculateSalesBasedPreviewCount(): void
+    {
+        $this->resetSalesBasedPreviewCount();
+
+        $warehouseId = auth()->user()?->getSelectedWarehouseId();
+        if (! $warehouseId) {
+            $this->salesBasedPreviewError = '倉庫が選択されていません。';
+
+            return;
+        }
+
+        if (empty($this->selectedJxContractorIds)) {
+            $this->salesBasedPreviewError = '仕入先を1件以上選択してください。';
+
+            return;
+        }
+
+        $data = $this->getMountedSalesBasedActionData();
+        $salesBasis = $this->normalizeSalesBasedPreviewOption(
+            $data['sales_basis'] ?? 'last_3d',
+            ['today', 'yesterday', 'last_3d'],
+            'last_3d',
+        );
+        $orderPointFilter = $this->normalizeSalesBasedPreviewOption(
+            $data['order_point_filter'] ?? 'ignore',
+            ['ignore', 'below_or_equal'],
+            'ignore',
+        );
+        $autoOrderFlagFilter = $this->normalizeSalesBasedPreviewOption(
+            $data['auto_order_flag_filter'] ?? 'ignore',
+            ['ignore', 'on', 'off'],
+            'ignore',
+        );
+
+        $contractorIds = $this->expandContractorIds($this->selectedJxContractorIds);
+        if (empty($contractorIds)) {
+            $this->salesBasedPreviewError = '対象仕入先が見つかりません。';
+
+            return;
+        }
+
+        $salesColumn = match ($salesBasis) {
+            'today' => 's.sales_today_qty',
+            'yesterday' => 's.sales_yesterday_qty',
+            default => 's.last_3d_qty',
+        };
+        $generationWarehouseIds = $this->getSalesBasedGenerationWarehouseIds($warehouseId);
+        $internalContractorIds = WmsContractorSetting::query()
+            ->where('transmission_type', TransmissionType::INTERNAL->value)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        $pendingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse(
+            $warehouseId,
+            auth()->id(),
+            [\App\Enums\AutoOrder\JobProcessName::ORDER_CALC, \App\Enums\AutoOrder\JobProcessName::SALES_BASED_CALC]
+        );
+        $batchCode = $pendingJob?->batch_code;
+
+        $query = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->join('items', 'item_contractors.item_id', '=', 'items.id')
+            ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
+            ->join('stats_item_warehouse_sales_summaries as s', function ($join) {
+                $join->on('s.warehouse_id', '=', 'item_contractors.warehouse_id')
+                    ->on('s.item_id', '=', 'item_contractors.item_id');
+            })
+            ->whereIn('item_contractors.warehouse_id', $generationWarehouseIds)
+            ->whereNotIn('item_contractors.contractor_id', $internalContractorIds ?: [0])
+            ->whereIn('item_contractors.contractor_id', $contractorIds)
+            ->where($salesColumn, '>', 0)
+            ->where('items.end_of_sale_type', 'NORMAL')
+            ->where('items.is_ended', false)
+            ->where(fn ($query) => $query->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
+            ->where(fn ($query) => $query->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
+            ->where('contractors.is_auto_change_order', true)
+            ->whereExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('item_search_information as isi')
+                    ->whereColumn('isi.item_id', 'item_contractors.item_id')
+                    ->where('isi.is_used_for_ordering', true)
+                    ->where('isi.is_active', true)
+                    ->whereRaw("isi.search_string REGEXP '[1-9]'");
+            });
+
+        if ($batchCode) {
+            $query->whereNotExists(function ($query) use ($batchCode) {
+                $query->selectRaw('1')
+                    ->from('wms_order_candidates as existing_candidates')
+                    ->where('existing_candidates.batch_code', $batchCode)
+                    ->whereIn('existing_candidates.status', [
+                        CandidateStatus::PENDING->value,
+                        CandidateStatus::APPROVED->value,
+                    ])
+                    ->whereColumn('existing_candidates.warehouse_id', 'item_contractors.warehouse_id')
+                    ->whereColumn('existing_candidates.item_id', 'item_contractors.item_id')
+                    ->whereColumn('existing_candidates.contractor_id', 'item_contractors.contractor_id');
+            });
+        }
+
+        if ($autoOrderFlagFilter === 'on') {
+            $query->where('item_contractors.is_auto_order', true);
+        } elseif ($autoOrderFlagFilter === 'off') {
+            $query->where('item_contractors.is_auto_order', false);
+        }
+
+        if ($orderPointFilter === 'below_or_equal') {
+            $query->whereRaw(
+                "(
+                    COALESCE((
+                        SELECT SUM(dedup.stock_qty)
+                        FROM (
+                            SELECT DISTINCT warehouse_id, item_id, real_stock_id, available_for_wms AS stock_qty
+                            FROM wms_v_stock_available
+                            WHERE warehouse_id = item_contractors.warehouse_id
+                        ) dedup
+                        WHERE dedup.item_id = item_contractors.item_id
+                    ), 0)
+                    + COALESCE((
+                        SELECT SUM(expected_quantity - received_quantity)
+                        FROM wms_order_incoming_schedules ios
+                        WHERE ios.warehouse_id = item_contractors.warehouse_id
+                          AND ios.item_id = item_contractors.item_id
+                          AND ios.status IN ('PENDING', 'PARTIAL')
+                    ), 0)
+                ) <= COALESCE(item_contractors.safety_stock, 0)",
+            );
+        }
+
+        $this->salesBasedPreviewCount = (int) $query->count()
+            + $this->calculateSalesBasedInternalTransferPreviewCount(
+                warehouseIds: $generationWarehouseIds,
+                contractorIds: $contractorIds,
+                salesColumn: $salesColumn,
+                autoOrderFlagFilter: $autoOrderFlagFilter,
+                batchCode: $batchCode,
+            );
+    }
+
+    private function getSalesBasedGenerationWarehouseIds(int $warehouseId): array
+    {
+        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
+            ->pluck('warehouse_id')
+            ->toArray();
+
+        $satelliteWarehouseIds = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
+            ->where('wcs.transmission_type', TransmissionType::INTERNAL->value)
+            ->where('wcs.supply_warehouse_id', $warehouseId)
+            ->pluck('item_contractors.warehouse_id')
+            ->unique()
+            ->toArray();
+
+        return array_values(array_intersect(
+            $enabledWarehouseIds,
+            array_values(array_unique(array_merge([$warehouseId], $satelliteWarehouseIds))),
+        ));
+    }
+
+    private function calculateSalesBasedInternalTransferPreviewCount(
+        array $warehouseIds,
+        array $contractorIds,
+        string $salesColumn,
+        string $autoOrderFlagFilter,
+        ?string $batchCode,
+    ): int {
+        $query = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
+            ->join('items', 'item_contractors.item_id', '=', 'items.id')
+            ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
+            ->join('stats_item_warehouse_sales_summaries as s', function ($join) {
+                $join->on('s.warehouse_id', '=', 'item_contractors.warehouse_id')
+                    ->on('s.item_id', '=', 'item_contractors.item_id');
+            })
+            ->where('wcs.transmission_type', TransmissionType::INTERNAL->value)
+            ->whereIn('item_contractors.warehouse_id', $warehouseIds)
+            ->whereIn('item_contractors.contractor_id', $contractorIds)
+            ->where($salesColumn, '>', 0)
+            ->where('items.end_of_sale_type', 'NORMAL')
+            ->where('items.is_ended', false)
+            ->where(fn ($query) => $query->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
+            ->where(fn ($query) => $query->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
+            ->where('contractors.is_auto_change_order', true)
+            ->whereExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('item_search_information as isi')
+                    ->whereColumn('isi.item_id', 'item_contractors.item_id')
+                    ->where('isi.is_used_for_ordering', true)
+                    ->where('isi.is_active', true)
+                    ->whereRaw("isi.search_string REGEXP '[1-9]'");
+            });
+
+        if ($batchCode) {
+            $query->whereNotExists(function ($query) use ($batchCode) {
+                $query->selectRaw('1')
+                    ->from('wms_stock_transfer_candidates as existing_candidates')
+                    ->where('existing_candidates.batch_code', $batchCode)
+                    ->whereIn('existing_candidates.status', [
+                        CandidateStatus::PENDING->value,
+                        CandidateStatus::APPROVED->value,
+                    ])
+                    ->whereColumn('existing_candidates.satellite_warehouse_id', 'item_contractors.warehouse_id')
+                    ->whereColumn('existing_candidates.hub_warehouse_id', 'wcs.supply_warehouse_id')
+                    ->whereColumn('existing_candidates.item_id', 'item_contractors.item_id')
+                    ->whereColumn('existing_candidates.contractor_id', 'item_contractors.contractor_id');
+            });
+        }
+
+        if ($autoOrderFlagFilter === 'on') {
+            $query->where('item_contractors.is_auto_order', true);
+        } elseif ($autoOrderFlagFilter === 'off') {
+            $query->where('item_contractors.is_auto_order', false);
+        }
+
+        return (int) DB::connection('sakemaru')
+            ->query()
+            ->fromSub(
+                $query->selectRaw('item_contractors.warehouse_id, wcs.supply_warehouse_id, item_contractors.item_id, item_contractors.contractor_id')
+                    ->groupBy('item_contractors.warehouse_id', 'wcs.supply_warehouse_id', 'item_contractors.item_id', 'item_contractors.contractor_id'),
+                'transfer_candidates',
+            )
+            ->count();
+    }
+
+    private function getMountedSalesBasedActionData(): array
+    {
+        $mountedActionKey = array_key_last($this->mountedActions ?? []);
+
+        if ($mountedActionKey === null) {
+            return [];
+        }
+
+        return $this->mountedActions[$mountedActionKey]['data'] ?? [];
+    }
+
+    private function normalizeSalesBasedPreviewOption(string $value, array $allowedValues, string $default): string
+    {
+        return in_array($value, $allowedValues, true) ? $value : $default;
     }
 
     private function getOrderGenerationWizardAction(): Action
