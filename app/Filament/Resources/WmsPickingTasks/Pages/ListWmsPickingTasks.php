@@ -47,7 +47,16 @@ class ListWmsPickingTasks extends ListRecords
                 ->label('ピッキング前')
                 ->default(),
             'PICKING' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PICKING'))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where(function (Builder $query) {
+                    $query->where('status', 'PICKING')
+                        ->orWhere(function (Builder $query) {
+                            $query->whereIn('status', ['PENDING', 'PICKING_READY'])
+                                ->whereDoesntHave('pickingItemResults', function (Builder $query) {
+                                    $query->where('has_soft_shortage', true)
+                                        ->orWhere('shortage_qty', '>', 0);
+                                });
+                        });
+                }))
                 ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label('ピッキング中'),
