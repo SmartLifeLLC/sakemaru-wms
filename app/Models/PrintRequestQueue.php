@@ -19,6 +19,7 @@ class PrintRequestQueue extends Model
         'warehouse_id',
         'printer_driver_id',
         'status',
+        'requested_by',
         'error_message',
         'processed_at',
     ];

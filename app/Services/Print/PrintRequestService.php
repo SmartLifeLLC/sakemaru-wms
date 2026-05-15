@@ -4,6 +4,7 @@ namespace App\Services\Print;
 
 use App\Models\PrintRequestQueue;
 use App\Models\WmsPickingTask;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -18,13 +19,19 @@ class PrintRequestService
      * @param  int|null  $waveId  ウェーブID (Optional)
      * @return array ['success' => bool, 'message' => string, 'queue_id' => int|null]
      */
-    public function createPrintRequest(int $deliveryCourseId, string $shipmentDate, int $warehouseId, ?int $waveId = null, ?int $overridePrinterDriverId = null): array
-    {
+    public function createPrintRequest(
+        int $deliveryCourseId,
+        string $shipmentDate,
+        int $warehouseId,
+        ?int $waveId = null,
+        ?int $overridePrinterDriverId = null,
+        bool $useDefaultPrinter = false,
+    ): array {
         try {
             if ($overridePrinterDriverId !== null) {
                 // モーダルで明示的にプリンターが選択された場合
                 $printerDriverId = $overridePrinterDriverId;
-            } else {
+            } elseif ($useDefaultPrinter) {
                 // 配送コース別プリンター設定を取得
                 $printerSetting = DB::connection('sakemaru')
                     ->table('client_printer_course_settings')
@@ -35,6 +42,9 @@ class PrintRequestService
 
                 // プリンタードライバーIDを取得（未設定の場合はnull = PDF生成のみ）
                 $printerDriverId = $printerSetting?->printer_driver_id;
+            } else {
+                // モーダルで「なし（PDFのみ生成）」が明示的に選択された場合
+                $printerDriverId = null;
             }
             $hasPrinter = $printerDriverId !== null;
 
@@ -56,7 +66,8 @@ class PrintRequestService
                 ];
             }
 
-            [$earningIds, $stockTransferIds] = $this->collectPrintTargetIds($tasks->pluck('id')->all());
+            $taskIds = $tasks->pluck('id')->all();
+            [$earningIds, $stockTransferIds] = $this->collectPrintTargetIds($taskIds);
 
             // 売上も倉庫移動もない場合はエラー
             if (empty($earningIds) && empty($stockTransferIds)) {
@@ -90,8 +101,40 @@ class PrintRequestService
                 $warehouseId,
                 $printerDriverId,
                 $hasPrinter,
-                $deliveryCourseId
+                $deliveryCourseId,
+                $taskIds
             ) {
+                WmsPickingTask::whereIn('id', $taskIds)
+                    ->lockForUpdate()
+                    ->pluck('id');
+
+                $existingQueue = $this->findActivePrintRequestQueue(
+                    $earningIds,
+                    $stockTransferIds,
+                    $warehouseId
+                );
+
+                if ($existingQueue) {
+                    if ($existingQueue->status === PrintRequestQueue::STATUS_PENDING) {
+                        $existingQueue->update([
+                            'print_type' => $hasPrinter
+                                ? PrintRequestQueue::PRINT_TYPE_CLIENT_SLIP_PRINTER
+                                : PrintRequestQueue::PRINT_TYPE_CLIENT_SLIP,
+                            'printer_driver_id' => $printerDriverId,
+                        ]);
+                    }
+
+                    return [
+                        'success' => true,
+                        'message' => '既に印刷依頼が作成されています。',
+                        'queue_id' => $existingQueue->id,
+                        'earning_count' => count($earningIds),
+                        'stock_transfer_count' => count($stockTransferIds),
+                        'has_printer' => $hasPrinter,
+                        'already_queued' => true,
+                    ];
+                }
+
                 // print_request_queueにレコードを作成
                 // printer_driver_idがある場合はプリンター印刷、なければPDF生成のみ
                 $queue = PrintRequestQueue::create([
@@ -105,6 +148,7 @@ class PrintRequestService
                     'warehouse_id' => $warehouseId,
                     'printer_driver_id' => $printerDriverId,
                     'status' => PrintRequestQueue::STATUS_PENDING,
+                    'requested_by' => Auth::id(),
                 ]);
 
                 // 売上の picking_status を SHIPPED に更新
@@ -158,6 +202,43 @@ class PrintRequestService
                 'queue_id' => null,
             ];
         }
+    }
+
+    /**
+     * 同一対象の未処理キューを探す。
+     */
+    private function findActivePrintRequestQueue(array $earningIds, array $stockTransferIds, int $warehouseId): ?PrintRequestQueue
+    {
+        $activeQueues = PrintRequestQueue::query()
+            ->where('warehouse_id', $warehouseId)
+            ->where('group_by_delivery_course', true)
+            ->whereIn('status', [
+                PrintRequestQueue::STATUS_PENDING,
+                PrintRequestQueue::STATUS_PROCESSING,
+            ])
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($activeQueues as $queue) {
+            if (
+                $this->sameIdSet($queue->earning_ids ?? [], $earningIds)
+                && $this->sameIdSet($queue->stock_transfer_ids ?? [], $stockTransferIds)
+            ) {
+                return $queue;
+            }
+        }
+
+        return null;
+    }
+
+    private function sameIdSet(array $left, array $right): bool
+    {
+        $left = array_values(array_unique(array_map('intval', $left)));
+        $right = array_values(array_unique(array_map('intval', $right)));
+        sort($left);
+        sort($right);
+
+        return $left === $right;
     }
 
     /**
