@@ -64,7 +64,10 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://wms.sakemaru.test/admin/wms-order-confirmed)",
       "Bash(grep *)",
       "Bash(npm run *)",
-      "Bash(mysql *)"
+      "Bash(mysql *)",
+      "Bash(composer show *)",
+      "Bash(gh api *)",
+      "Bash(gh search *)"
     ]
   }
 }
