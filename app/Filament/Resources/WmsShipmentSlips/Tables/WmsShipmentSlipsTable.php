@@ -719,7 +719,7 @@ class WmsShipmentSlipsTable
             ->toolbarActions([
                 static::getExportAction(),
             ])
-            ->defaultSort('delivery_course_code', 'asc');
+            ->defaultSort('wave.created_at', 'desc');
     }
 
     protected static function additionalShortagesSection(WmsPickingTask $record): Section
