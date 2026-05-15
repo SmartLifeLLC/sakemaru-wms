@@ -177,6 +177,7 @@ class WmsShipmentSlipsTable
             ->recordActionsColumnLabel('操作')
             ->recordActions([
                 Action::make('addShortage')
+                    ->hidden()
                     ->extraAttributes(['class' => 'whitespace-nowrap'])
                     ->label('追加欠品')
                     ->icon('heroicon-o-exclamation-triangle')
@@ -249,7 +250,7 @@ class WmsShipmentSlipsTable
 
                         return $printCount === 0 ? '出荷確定(伝票印刷)' : '伝票再印刷';
                     })
-                    ->modalWidth('7xl')
+                    ->modalWidth('3xl')
                     ->modalDescription(function (WmsPickingTask $record) {
                         $approvalService = app(ShortageApprovalService::class);
                         $printability = $approvalService->checkPrintability(
@@ -302,17 +303,7 @@ class WmsShipmentSlipsTable
 
                                             return ['' => 'なし（PDFのみ生成）'] + $printers->toArray();
                                         })
-                                        ->default(function () use ($record) {
-                                            // デフォルトは配送コース設定のプリンター
-                                            $setting = DB::connection('sakemaru')
-                                                ->table('client_printer_course_settings')
-                                                ->where('warehouse_id', $record->warehouse_id)
-                                                ->where('delivery_course_id', $record->delivery_course_id)
-                                                ->where('is_active', true)
-                                                ->value('printer_driver_id');
-
-                                            return $setting ? (string) $setting : '';
-                                        })
+                                        ->default('')
                                         ->live()
                                         ->searchable()
                                         ->helperText(function (Get $get) {
@@ -347,6 +338,7 @@ class WmsShipmentSlipsTable
                         $selectedPrinterId = ! empty($data['printer_driver_id'])
                             ? (int) $data['printer_driver_id']
                             : null;
+                        $useDefaultPrinter = false;
 
                         // 印刷依頼を作成
                         $printService = app(PrintRequestService::class);
@@ -355,7 +347,8 @@ class WmsShipmentSlipsTable
                             $shipmentDate,
                             $record->warehouse_id,
                             $record->wave_id,
-                            $selectedPrinterId
+                            $selectedPrinterId,
+                            $useDefaultPrinter
                         );
 
                         if (! $result['success']) {
@@ -363,6 +356,16 @@ class WmsShipmentSlipsTable
                                 ->title('エラー')
                                 ->body($result['message'])
                                 ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        if ($result['already_queued'] ?? false) {
+                            Notification::make()
+                                ->title('印刷依頼は作成済みです')
+                                ->body('同じ配送コースの未処理印刷依頼が既にあるため、重複作成は行いませんでした。')
+                                ->warning()
                                 ->send();
 
                             return;
@@ -574,6 +577,7 @@ class WmsShipmentSlipsTable
                         $successCount = 0;
                         $forcePrintCount = 0;
                         $alreadyPrintedCount = 0;
+                        $alreadyQueuedCount = 0;
                         $errorCount = 0;
                         $totalEarnings = 0;
                         $totalTasks = 0;
@@ -608,6 +612,12 @@ class WmsShipmentSlipsTable
                                 );
 
                                 if ($result['success']) {
+                                    if ($result['already_queued'] ?? false) {
+                                        $alreadyQueuedCount++;
+
+                                        continue;
+                                    }
+
                                     // 同じ配送コース・納品日・Waveのタスクをすべて取得
                                     $query = WmsPickingTask::where('shipment_date', $record->shipment_date)
                                         ->where('delivery_course_id', $record->delivery_course_id);
@@ -654,12 +664,15 @@ class WmsShipmentSlipsTable
                             }
                         }
 
-                        $totalSkipped = $alreadyPrintedCount;
+                        $totalSkipped = $alreadyPrintedCount + $alreadyQueuedCount;
 
                         if ($successCount === 0 && $totalSkipped > 0) {
                             $reasons = [];
                             if ($alreadyPrintedCount > 0) {
                                 $reasons[] = "{$alreadyPrintedCount}件は出荷確定済み";
+                            }
+                            if ($alreadyQueuedCount > 0) {
+                                $reasons[] = "{$alreadyQueuedCount}件は印刷依頼作成済み";
                             }
 
                             Notification::make()
@@ -674,6 +687,9 @@ class WmsShipmentSlipsTable
                         $message = "出荷確定完了: {$successCount}件成功";
                         if ($alreadyPrintedCount > 0) {
                             $message .= "、{$alreadyPrintedCount}件スキップ（出荷確定済み）";
+                        }
+                        if ($alreadyQueuedCount > 0) {
+                            $message .= "、{$alreadyQueuedCount}件スキップ（印刷依頼作成済み）";
                         }
                         if ($forcePrintCount > 0) {
                             $message .= "、{$forcePrintCount}件強制出荷確定";
