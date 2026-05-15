@@ -138,6 +138,107 @@ class IncomingApiTest extends TestCase
     }
 
     /**
+     * Test GET /api/master/item-locations
+     */
+    public function test_can_search_item_locations()
+    {
+        $item = DB::connection('sakemaru')
+            ->table('real_stocks as rs')
+            ->join('items as i', 'i.id', '=', 'rs.item_id')
+            ->where('i.is_active', true)
+            ->select('rs.warehouse_id', 'i.code')
+            ->first();
+
+        if (! $item) {
+            $item = DB::connection('sakemaru')
+                ->table('item_incoming_default_locations as idl')
+                ->join('items as i', 'i.id', '=', 'idl.item_id')
+                ->where('i.is_active', true)
+                ->select('idl.warehouse_id', 'i.code')
+                ->first();
+        }
+
+        if (! $item) {
+            $this->markTestSkipped('No item location data found.');
+        }
+
+        $response = $this->withHeaders($this->headers)
+            ->getJson('/api/master/item-locations?warehouse_id='.$item->warehouse_id.'&search='.urlencode($item->code));
+
+        $response->assertStatus(200)
+            ->assertJson(['code' => 'SUCCESS'])
+            ->assertJsonStructure([
+                'result' => [
+                    'data' => [
+                        '*' => [
+                            'item' => [
+                                'id',
+                                'code',
+                                'name',
+                                'search_codes',
+                                'jan_codes',
+                                'item_quantity_codes',
+                            ],
+                            'warehouse',
+                            'stock' => [
+                                'status',
+                                'has_stock',
+                                'current_quantity',
+                                'reserved_quantity',
+                                'available_quantity',
+                            ],
+                            'locations' => [
+                                'suggested',
+                                'default',
+                                'stock',
+                            ],
+                        ],
+                    ],
+                ],
+            ]);
+    }
+
+    /**
+     * Test GET /api/master/item-locations can search internal JAN codes.
+     */
+    public function test_can_search_item_locations_by_item_quantity_code()
+    {
+        $itemCode = DB::connection('sakemaru')
+            ->table('item_quantity_information as iqi')
+            ->join('items as i', 'i.id', '=', 'iqi.item_id')
+            ->where('i.is_active', true)
+            ->where(function ($query) {
+                $query->whereNotNull('iqi.product_code')
+                    ->orWhereNotNull('iqi.own_code');
+            })
+            ->select('iqi.item_id', 'iqi.product_code', 'iqi.own_code')
+            ->first();
+
+        $warehouse = DB::connection('sakemaru')
+            ->table('warehouses')
+            ->select('id')
+            ->first();
+
+        if (! $itemCode || ! $warehouse) {
+            $this->markTestSkipped('No item quantity code or warehouse data found.');
+        }
+
+        $search = $itemCode->product_code ?: $itemCode->own_code;
+
+        $response = $this->withHeaders($this->headers)
+            ->getJson('/api/master/item-locations?warehouse_id='.$warehouse->id.'&search='.urlencode($search));
+
+        $response->assertStatus(200)
+            ->assertJson(['code' => 'SUCCESS']);
+
+        $matchedItemIds = collect($response->json('result.data'))
+            ->pluck('item.id')
+            ->all();
+
+        $this->assertContains($itemCode->item_id, $matchedItemIds);
+    }
+
+    /**
      * Test POST /api/incoming/work-items (start work)
      * Test PUT /api/incoming/work-items/{id} (update work)
      * Test POST /api/incoming/work-items/{id}/complete

@@ -27,6 +27,7 @@ Route::middleware('api.key')->group(function () {
 
         // Master data endpoints
         Route::get('/master/warehouses', [MasterDataController::class, 'warehouses']);
+        Route::get('/master/item-locations', [MasterDataController::class, 'itemLocations']);
 
         // Picking task endpoints
         Route::get('/picking/tasks', [PickingTaskController::class, 'index']);
