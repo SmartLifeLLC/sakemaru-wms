@@ -444,7 +444,7 @@ class WmsPickingTasksTable
                     ->icon('heroicon-o-play')
                     ->color('primary')
                     ->url(fn ($record) => WmsPickingTaskResource::getUrl('execute', ['record' => $record->id]))
-                    ->visible(fn ($record) => in_array($record->status, ['PICKING_READY', 'PICKING', 'SHORTAGE'])),
+                    ->visible(fn ($record) => in_array($record->status, ['PENDING', 'PICKING_READY', 'PICKING', 'SHORTAGE'])),
 
                 Action::make('printSecondaryList')
                     ->label('2次リスト')
