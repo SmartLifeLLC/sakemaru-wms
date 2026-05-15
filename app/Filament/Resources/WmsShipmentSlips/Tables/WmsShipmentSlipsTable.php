@@ -418,7 +418,12 @@ class WmsShipmentSlipsTable
                         }
 
                         $bodyParts = ['伝票処理を依頼しました。（売上'.$result['earning_count'].'件、タスク'.$tasksToUpdate->count().'件）'];
-                        if (! $hasPrinter) {
+                        if ($result['no_print_targets'] ?? false) {
+                            $title = '出荷確定';
+                            $notificationType = 'success';
+                            $bodyParts = ['印刷対象の売上・倉庫移動がないため、伝票キューを作らず出荷確定を完了しました。'];
+                        }
+                        if (! $hasPrinter && ! ($result['no_print_targets'] ?? false)) {
                             $bodyParts[] = '※プリンター未設定のためPDFのみ生成されます。';
                         }
                         if ($additionalShortageQueueCount > 0) {
@@ -692,6 +697,7 @@ class WmsShipmentSlipsTable
                         ->from('wms_picking_tasks')
                         ->groupBy('delivery_course_id', 'wave_id', 'shipment_date');
                 })
+                    ->whereExists(fn ($query) => static::printTargetExistsQuery($query))
                     ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting', 'lastPrintedByUser', 'lastPrintedPrinter']);
             })
             ->toolbarActions([
@@ -1000,6 +1006,42 @@ class WmsShipmentSlipsTable
             $key = $record->delivery_course_id.'-'.($record->wave_id ?? 'null').'-'.$record->shipment_date;
             $record->grouped_tasks = $groupedTasks->get($key, collect());
         }
+    }
+
+    protected static function printTargetExistsQuery($query)
+    {
+        return $query
+            ->select(DB::raw(1))
+            ->from('wms_picking_item_results as target_pir')
+            ->join('wms_picking_tasks as target_task', 'target_pir.picking_task_id', '=', 'target_task.id')
+            ->leftJoin('earnings as target_e', 'target_pir.earning_id', '=', 'target_e.id')
+            ->leftJoin('trades as target_et', 'target_e.trade_id', '=', 'target_et.id')
+            ->leftJoin('stock_transfers as target_st', 'target_pir.stock_transfer_id', '=', 'target_st.id')
+            ->leftJoin('trades as target_stt', 'target_st.trade_id', '=', 'target_stt.id')
+            ->leftJoin('trade_items as target_ti', 'target_pir.trade_item_id', '=', 'target_ti.id')
+            ->whereColumn('target_task.delivery_course_id', 'wms_picking_tasks.delivery_course_id')
+            ->whereColumn('target_task.shipment_date', 'wms_picking_tasks.shipment_date')
+            ->where(function ($query) {
+                $query->whereColumn('target_task.wave_id', 'wms_picking_tasks.wave_id')
+                    ->orWhere(function ($query) {
+                        $query->whereNull('target_task.wave_id')
+                            ->whereNull('wms_picking_tasks.wave_id');
+                    });
+            })
+            ->whereRaw('(target_pir.planned_qty - COALESCE(target_pir.shortage_qty, 0)) > 0')
+            ->where('target_ti.is_active', true)
+            ->where(function ($query) {
+                $query->where(function ($query) {
+                    $query->whereNotNull('target_pir.earning_id')
+                        ->where('target_e.is_active', true)
+                        ->where('target_et.is_active', true);
+                })
+                    ->orWhere(function ($query) {
+                        $query->whereNotNull('target_pir.stock_transfer_id')
+                            ->where('target_st.is_active', true)
+                            ->where('target_stt.is_active', true);
+                    });
+            });
     }
 
     /**

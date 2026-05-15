@@ -2,15 +2,24 @@
 
 namespace App\Filament\Resources\WmsPickingTasks;
 
+use App\Enums\EWMSLogOperationType;
+use App\Enums\EWMSLogTargetType;
 use App\Enums\PaginationOptions;
+use App\Enums\QuantityType;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingItemEdits;
 use App\Filament\Support\AdminResource;
 use App\Models\Sakemaru\Partner;
 use App\Models\Sakemaru\RealStock;
+use App\Models\WmsAdminOperationLog;
 use App\Models\WmsPickingItemResult;
+use App\Models\WmsPickingTask;
+use Filament\Actions\Action;
 use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
+use Filament\Tables\Columns\SelectColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\TextInputColumn;
+use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
@@ -40,6 +49,7 @@ class WmsPickingItemEditResource extends AdminResource
                 $query->with([
                     'pickingTask.wave',
                     'trade',
+                    'tradeItem',
                     'earning.buyer.partner',
                     'item',
                     'location',
@@ -133,6 +143,14 @@ class WmsPickingItemEditResource extends AdminResource
                     ->label('バラ')
                     ->state(fn ($record) => $record->ordered_qty_type === 'PIECE' ? $record->ordered_qty : '-')
                     ->alignment('center'),
+                TextColumn::make('latest_order_qty')
+                    ->label('最新受注')
+                    ->state(fn ($record) => static::formatLatestOrderQuantity($record))
+                    ->color(fn ($record) => static::hasLatestOrderQuantityChanged($record) ? 'warning' : 'gray')
+                    ->weight(fn ($record) => static::hasLatestOrderQuantityChanged($record) ? 'bold' : 'normal')
+                    ->tooltip(fn ($record) => static::hasLatestOrderQuantityChanged($record)
+                        ? '基幹の受注明細が変更されています。「受注反映」でWMS明細へ反映してください。'
+                        : 'WMS明細と基幹の受注明細は一致しています'),
 
                 TextInputColumn::make('planned_qty')
                     ->width('50px')
@@ -142,8 +160,8 @@ class WmsPickingItemEditResource extends AdminResource
                     ->step(1)
                     ->alignCenter()
                     ->disabled(fn ($record) => ! $record->pickingTask || ! in_array($record->pickingTask->status, [
-                        \App\Models\WmsPickingTask::STATUS_PENDING,
-                        \App\Models\WmsPickingTask::STATUS_PICKING_READY,
+                        WmsPickingTask::STATUS_PENDING,
+                        WmsPickingTask::STATUS_PICKING_READY,
                     ]))
                     ->extraCellAttributes([
                         'class' => 'p-0',
@@ -168,10 +186,10 @@ class WmsPickingItemEditResource extends AdminResource
 
                         $newPlannedQty = (int) $state;
 
-                        if ($newPlannedQty > $record->ordered_qty) {
+                        if (static::quantityAsPieces($newPlannedQty, $record->planned_qty_type, $record) > static::quantityAsPieces((int) $record->ordered_qty, $record->ordered_qty_type, $record)) {
                             Notification::make()
                                 ->title('エラー')
-                                ->body("引当数は受注数量（{$record->ordered_qty}）を超えることはできません")
+                                ->body('引当数は受注数量を超えることはできません')
                                 ->danger()
                                 ->send();
 
@@ -183,11 +201,65 @@ class WmsPickingItemEditResource extends AdminResource
                         if ($record->picked_qty > $newPlannedQty) {
                             $record->picked_qty = $newPlannedQty;
                         }
-                        $record->shortage_qty = max(0, $newPlannedQty - $record->picked_qty);
+                        $record->shortage_qty = static::calculateAllocationShortage($record);
                         $record->save();
 
                         Notification::make()
                             ->title('引当数を更新しました')
+                            ->success()
+                            ->send();
+                    }),
+                SelectColumn::make('planned_qty_type')
+                    ->label('引当区分')
+                    ->options(static::quantityTypeOptions())
+                    ->alignCenter()
+                    ->disabled(fn ($record) => ! $record->pickingTask || ! in_array($record->pickingTask->status, [
+                        WmsPickingTask::STATUS_PENDING,
+                        WmsPickingTask::STATUS_PICKING_READY,
+                    ]))
+                    ->afterStateUpdated(function ($record, $state) {
+                        if (! array_key_exists($state, static::quantityTypeOptions())) {
+                            Notification::make()
+                                ->title('エラー')
+                                ->body('有効な数量区分を選択してください')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $oldType = $record->getOriginal('planned_qty_type');
+                        if (static::quantityAsPieces((int) $record->planned_qty, $state, $record) > static::quantityAsPieces((int) $record->ordered_qty, $record->ordered_qty_type, $record)) {
+                            $record->planned_qty_type = $oldType;
+                            $record->save();
+
+                            Notification::make()
+                                ->title('エラー')
+                                ->body('引当数は受注数量を超えることはできません')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $record->planned_qty_type = $state;
+                        if ((int) $record->picked_qty === 0) {
+                            $record->picked_qty_type = $state;
+                        }
+                        $record->shortage_qty = static::calculateAllocationShortage($record);
+                        $record->save();
+
+                        static::logQuantityChange(
+                            $record,
+                            (int) $record->planned_qty,
+                            (int) $record->planned_qty,
+                            $oldType,
+                            $state,
+                            '引当区分を更新'
+                        );
+
+                        Notification::make()
+                            ->title('引当区分を更新しました')
                             ->success()
                             ->send();
                     }),
@@ -200,7 +272,7 @@ class WmsPickingItemEditResource extends AdminResource
                     ->step(1)
                     ->alignCenter()
                     ->disabled(fn ($record) => ! $record->pickingTask || ! in_array($record->pickingTask->status, [
-                        \App\Models\WmsPickingTask::STATUS_PICKING_READY,
+                        WmsPickingTask::STATUS_PICKING_READY,
                         'PICKING',
                         'COMPLETED',
                     ]))
@@ -247,12 +319,85 @@ class WmsPickingItemEditResource extends AdminResource
 
                 TextColumn::make('shortage_qty')
                     ->label('欠品数')
-                    ->state(fn ($record) => max(0, $record->ordered_qty - $record->planned_qty))
+                    ->state(fn ($record) => static::calculateAllocationShortage($record))
                     ->alignment('center')
-                    ->color(fn ($record) => ($record->ordered_qty - $record->planned_qty) > 0 ? 'danger' : 'success')
-                    ->weight(fn ($record) => ($record->ordered_qty - $record->planned_qty) > 0 ? 'bold' : 'normal')
+                    ->color(fn ($record) => static::calculateAllocationShortage($record) > 0 ? 'danger' : 'success')
+                    ->weight(fn ($record) => static::calculateAllocationShortage($record) > 0 ? 'bold' : 'normal')
                     ->formatStateUsing(fn ($state) => $state > 0 ? $state : '-'),
             ])
+            ->recordActions([
+                Action::make('sync_latest_order')
+                    ->label('受注反映')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color(fn ($record) => static::hasLatestOrderQuantityChanged($record) ? 'warning' : 'gray')
+                    ->requiresConfirmation()
+                    ->modalHeading('最新受注を反映')
+                    ->modalDescription(fn ($record) => '基幹の受注明細をWMS明細に反映します。最新受注: '.static::formatLatestOrderQuantity($record).' / 現在: '.static::formatQuantity((int) $record->ordered_qty, $record->ordered_qty_type))
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitActionLabel('受注を反映')
+                    ->modalCancelActionLabel('反映せず閉じる')
+                    ->disabled(fn ($record) => ! $record->pickingTask || ! in_array($record->pickingTask->status, [
+                        WmsPickingTask::STATUS_PENDING,
+                        WmsPickingTask::STATUS_PICKING_READY,
+                    ]))
+                    ->action(function (WmsPickingItemResult $record) {
+                        $latest = static::latestOrderQuantity($record);
+
+                        if ($latest === null) {
+                            Notification::make()
+                                ->title('受注明細が見つかりません')
+                                ->body('基幹側の受注明細が削除または参照不可のため反映できません')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $oldOrderedQty = (int) $record->ordered_qty;
+                        $oldOrderedType = $record->ordered_qty_type;
+                        $oldPlannedType = $record->planned_qty_type;
+                        $oldPickedType = $record->picked_qty_type;
+
+                        $record->ordered_qty = $latest['quantity'];
+                        $record->ordered_qty_type = $latest['quantity_type'];
+
+                        if ($oldPlannedType === $oldOrderedType) {
+                            $record->planned_qty_type = $latest['quantity_type'];
+                        }
+
+                        if ((int) $record->picked_qty === 0 && $oldPickedType === $oldOrderedType) {
+                            $record->picked_qty_type = $latest['quantity_type'];
+                        }
+
+                        if (static::quantityAsPieces((int) $record->planned_qty, $record->planned_qty_type, $record) > static::quantityAsPieces($latest['quantity'], $latest['quantity_type'], $record)) {
+                            $record->planned_qty = $latest['quantity'];
+                            $record->planned_qty_type = $latest['quantity_type'];
+                        }
+
+                        if ((int) $record->picked_qty > (int) $record->planned_qty) {
+                            $record->picked_qty = (int) $record->planned_qty;
+                        }
+
+                        $record->shortage_qty = static::calculateAllocationShortage($record);
+                        $record->save();
+
+                        static::logQuantityChange(
+                            $record,
+                            $oldOrderedQty,
+                            (int) $record->ordered_qty,
+                            $oldOrderedType,
+                            $record->ordered_qty_type,
+                            '最新受注をWMS明細へ反映'
+                        );
+
+                        Notification::make()
+                            ->title('最新受注を反映しました')
+                            ->body('引当数は必要に応じて手動で調整してください')
+                            ->success()
+                            ->send();
+                    }),
+            ], position: RecordActionsPosition::BeforeColumns)
             ->filters([
                 //                TernaryFilter::make('shortage')
                 //                    ->label('欠品のみ')
@@ -304,5 +449,109 @@ class WmsPickingItemEditResource extends AdminResource
         return [
             'index' => ListWmsPickingItemEdits::route('/'),
         ];
+    }
+
+    protected static function latestOrderQuantity(WmsPickingItemResult $record): ?array
+    {
+        $tradeItem = $record->tradeItem;
+
+        if (! $tradeItem || ($tradeItem->is_deleted ?? false)) {
+            return null;
+        }
+
+        if (! $tradeItem->quantity_type) {
+            return null;
+        }
+
+        return [
+            'quantity' => (int) $tradeItem->quantity,
+            'quantity_type' => (string) $tradeItem->quantity_type,
+        ];
+    }
+
+    protected static function hasLatestOrderQuantityChanged(WmsPickingItemResult $record): bool
+    {
+        $latest = static::latestOrderQuantity($record);
+
+        if ($latest === null) {
+            return true;
+        }
+
+        return (int) $record->ordered_qty !== $latest['quantity']
+            || (string) $record->ordered_qty_type !== $latest['quantity_type'];
+    }
+
+    protected static function formatLatestOrderQuantity(WmsPickingItemResult $record): string
+    {
+        $latest = static::latestOrderQuantity($record);
+
+        if ($latest === null) {
+            return '確認不可';
+        }
+
+        return static::formatQuantity($latest['quantity'], $latest['quantity_type']);
+    }
+
+    protected static function formatQuantity(int $quantity, ?string $quantityType): string
+    {
+        $label = QuantityType::tryFrom((string) $quantityType)?->name() ?? (string) $quantityType;
+
+        return "{$quantity} {$label}";
+    }
+
+    protected static function quantityTypeOptions(): array
+    {
+        return [
+            QuantityType::CASE->value => QuantityType::CASE->name(),
+            QuantityType::PIECE->value => QuantityType::PIECE->name(),
+        ];
+    }
+
+    protected static function calculateAllocationShortage(WmsPickingItemResult $record): int
+    {
+        $ordered = static::quantityAsPieces((int) $record->ordered_qty, $record->ordered_qty_type, $record);
+        $planned = static::quantityAsPieces((int) $record->planned_qty, $record->planned_qty_type, $record);
+
+        return max(0, $ordered - $planned);
+    }
+
+    protected static function quantityAsPieces(int $quantity, ?string $quantityType, WmsPickingItemResult $record): int
+    {
+        $type = QuantityType::tryFrom((string) $quantityType) ?? QuantityType::PIECE;
+        $capacity = $record->item?->capacityOfQuantityType($type);
+
+        return $quantity * max(1, (int) ($capacity ?? 1));
+    }
+
+    protected static function logQuantityChange(
+        WmsPickingItemResult $record,
+        int $qtyBefore,
+        int $qtyAfter,
+        ?string $typeBefore,
+        ?string $typeAfter,
+        string $note
+    ): void {
+        WmsAdminOperationLog::log(
+            EWMSLogOperationType::ADJUST_PICKING_QTY,
+            [
+                'target_type' => EWMSLogTargetType::PICKING_ITEM,
+                'target_id' => $record->id,
+                'picking_task_id' => $record->picking_task_id,
+                'picking_item_result_id' => $record->id,
+                'wave_id' => $record->pickingTask?->wave_id,
+                'earning_id' => $record->earning_id,
+                'qty_before' => $qtyBefore,
+                'qty_after' => $qtyAfter,
+                'qty_type' => $typeAfter,
+                'operation_details' => [
+                    'qty_type_before' => $typeBefore,
+                    'qty_type_after' => $typeAfter,
+                    'source_type' => $record->source_type,
+                    'stock_transfer_id' => $record->stock_transfer_id,
+                    'trade_item_id' => $record->trade_item_id,
+                ],
+                'operation_note' => $note,
+            ]
+        );
     }
 }

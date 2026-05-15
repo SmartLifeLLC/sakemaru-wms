@@ -73,8 +73,16 @@ class AllocationShortageDetector
                 ->first();
 
             $earningId = $earning?->id;
-            $shipmentDate = $earning?->delivered_date;  // earnings.delivered_dateから取得
-            $deliveryCourseId = $earning?->delivery_course_id;
+            $stockTransfer = null;
+            if (! $earning) {
+                $stockTransfer = DB::connection('sakemaru')
+                    ->table('stock_transfers')
+                    ->where('trade_id', $tradeId)
+                    ->first();
+            }
+
+            $shipmentDate = $earning?->delivered_date;
+            $deliveryCourseId = $earning?->delivery_course_id ?? $stockTransfer?->delivery_course_id;
 
             // 欠品レコード作成（受注単位ベース）
             $shortage = WmsShortage::create([

@@ -73,10 +73,10 @@ class WmsShortagesTable
                     })
                     ->alignment('center'),
 
-                TextColumn::make('shipment_date')
+                TextColumn::make('resolved_shipment_date')
                     ->label('出荷日')
                     ->date('Y-m-d')
-                    ->sortable()
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy('shipment_date', $direction))
                     ->alignment('center'),
 
                 TextColumn::make('trade.serial_id')
@@ -110,15 +110,23 @@ class WmsShortagesTable
                         : '-')
                     ->alignment('center'),
 
-                TextColumn::make('deliveryCourse.code')
+                TextColumn::make('resolved_delivery_course_code')
                     ->label('配送コード')
-                    ->searchable()
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(function (Builder $query) use ($search) {
+                        $query->whereHas('deliveryCourse', fn (Builder $query) => $query->where('code', 'like', "%{$search}%"))
+                            ->orWhereHas('sourcePickResult.pickingTask.deliveryCourse', fn (Builder $query) => $query->where('code', 'like', "%{$search}%"))
+                            ->orWhereHas('sourcePickResult.stockTransfer.deliveryCourse', fn (Builder $query) => $query->where('code', 'like', "%{$search}%"));
+                    }))
                     ->default('-')
                     ->alignment('center'),
 
-                TextColumn::make('deliveryCourse.name')
+                TextColumn::make('resolved_delivery_course_name')
                     ->label('配送コース')
-                    ->searchable()
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(function (Builder $query) use ($search) {
+                        $query->whereHas('deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"))
+                            ->orWhereHas('sourcePickResult.pickingTask.deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"))
+                            ->orWhereHas('sourcePickResult.stockTransfer.deliveryCourse', fn (Builder $query) => $query->where('name', 'like', "%{$search}%"));
+                    }))
                     ->default('-')
                     ->alignment('center'),
 
@@ -239,7 +247,13 @@ class WmsShortagesTable
                     ->query(function (Builder $query, array $data): Builder {
                         return $query->when(
                             $data['shipment_date'],
-                            fn (Builder $query, $date) => $query->where('shipment_date', $date),
+                            fn (Builder $query, $date) => $query->where(function (Builder $query) use ($date) {
+                                $query->whereDate('shipment_date', $date)
+                                    ->orWhere(function (Builder $query) use ($date) {
+                                        $query->whereNull('shipment_date')
+                                            ->whereHas('sourcePickResult.pickingTask', fn (Builder $query) => $query->whereDate('shipment_date', $date));
+                                    });
+                            }),
                         );
                     })
                     ->indicateUsing(function (array $data): ?string {
@@ -265,7 +279,17 @@ class WmsShortagesTable
                     ->searchable()
                     ->query(function ($query, $data) {
                         if (! empty($data['value'])) {
-                            $query->where('delivery_course_id', $data['value']);
+                            $query->where(function (Builder $query) use ($data) {
+                                $query->where('delivery_course_id', $data['value'])
+                                    ->orWhere(function (Builder $query) use ($data) {
+                                        $query->whereNull('delivery_course_id')
+                                            ->whereHas('sourcePickResult.pickingTask', fn (Builder $query) => $query->where('delivery_course_id', $data['value']));
+                                    })
+                                    ->orWhere(function (Builder $query) use ($data) {
+                                        $query->whereNull('delivery_course_id')
+                                            ->whereHas('sourcePickResult.stockTransfer', fn (Builder $query) => $query->where('delivery_course_id', $data['value']));
+                                    });
+                            });
                         }
                     }),
 

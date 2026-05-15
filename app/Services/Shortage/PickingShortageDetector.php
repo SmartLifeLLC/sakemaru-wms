@@ -85,8 +85,18 @@ class PickingShortageDetector
             }
 
             $earningId = $earning?->id;
-            $shipmentDate = $earning?->delivered_date;
-            $deliveryCourseId = $earning?->delivery_course_id;
+            $stockTransfer = null;
+            if (! $earning && $pickResult->stock_transfer_id) {
+                $stockTransfer = DB::connection('sakemaru')
+                    ->table('stock_transfers')
+                    ->where('id', $pickResult->stock_transfer_id)
+                    ->first();
+            }
+
+            $shipmentDate = $earning?->delivered_date ?? $task->shipment_date;
+            $deliveryCourseId = $earning?->delivery_course_id
+                ?? $stockTransfer?->delivery_course_id
+                ?? $task->delivery_course_id;
 
             $locationId = $this->resolveShortageLocationId(
                 $pickResult->location_id ? (int) $pickResult->location_id : null,
@@ -115,6 +125,8 @@ class PickingShortageDetector
                     'allocation_shortage_qty' => $allocationShortageQty,
                     'picking_shortage_qty' => $pickingShortageQty,
                     'location_id' => $locationId,
+                    'shipment_date' => $shipmentDate,
+                    'delivery_course_id' => $deliveryCourseId,
                     'source_pick_result_id' => $pickResult->id,
                 ]);
 
