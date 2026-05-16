@@ -26,6 +26,7 @@ use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -228,6 +229,16 @@ class WmsOrderConfirmedTable
                         CandidateStatus::EXECUTED->value => CandidateStatus::EXECUTED->label(),
                     ])
                     ->default(CandidateStatus::CONFIRMED->value),
+
+                TernaryFilter::make('zero_order_quantity')
+                    ->label('発注数0')
+                    ->placeholder('すべて')
+                    ->trueLabel('0のみ')
+                    ->falseLabel('0以外')
+                    ->queries(
+                        true: fn (Builder $query) => $query->where('order_quantity', '<=', 0),
+                        false: fn (Builder $query) => $query->where('order_quantity', '>', 0),
+                    ),
 
                 static::warehouseFilter(),
 

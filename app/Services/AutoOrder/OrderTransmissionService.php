@@ -788,6 +788,10 @@ class OrderTransmissionService
             return ['success' => true, 'transmitted' => [], 'errors' => [], 'message' => '送信対象の候補がありません'];
         }
 
+        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($candidates)) {
+            return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
+        }
+
         $files = $generator->generate($candidates);
         if (empty($files)) {
             return ['success' => true, 'transmitted' => [], 'errors' => []];
@@ -925,6 +929,10 @@ class OrderTransmissionService
             ];
         }
 
+        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($candidates)) {
+            return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
+        }
+
         return $this->generateAndTransmitForDocuments($documents, $candidates);
     }
 
@@ -977,6 +985,10 @@ class OrderTransmissionService
             ];
         }
 
+        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($candidates)) {
+            return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
+        }
+
         $result = $this->generateAndTransmitForDocuments($pendingDocuments, $candidates);
         $result['order_count'] = $candidates->count();
 
@@ -1018,6 +1030,40 @@ class OrderTransmissionService
         return array_values(array_unique($targetContractorIds));
     }
 
+    private function zeroQuantityJxTransmissionError(Collection $candidates): ?array
+    {
+        $resolver = app(OrderOutputQuantityResolver::class);
+
+        $zeroCandidates = $candidates
+            ->filter(function (WmsOrderCandidate $candidate) use ($resolver): bool {
+                if ((int) $candidate->order_quantity <= 0) {
+                    return true;
+                }
+
+                try {
+                    $outputQuantity = $resolver->resolve($candidate);
+                } catch (\Throwable) {
+                    return false;
+                }
+
+                return (int) ($outputQuantity['order_quantity'] ?? 0) <= 0;
+            })
+            ->values();
+
+        if ($zeroCandidates->isEmpty()) {
+            return null;
+        }
+
+        $examples = $zeroCandidates
+            ->take(5)
+            ->map(fn (WmsOrderCandidate $candidate): string => '['.($candidate->item?->code ?? $candidate->item_code ?? $candidate->item_id).']'.($candidate->item?->name ?? '商品名なし'))
+            ->implode('、');
+
+        return [
+            'error' => "発注数0のデータが {$zeroCandidates->count()}件 含まれているためJX送信できません。発注確定画面または確定承認待ち画面で発注数0に絞り込み、除外してください。対象例: {$examples}",
+        ];
+    }
+
     /**
      * 候補データからファイル生成→JX送信（JX送信ボタン用）
      */
@@ -1026,6 +1072,10 @@ class OrderTransmissionService
         $generator = $this->getOrderFileGenerator();
         if (! $generator) {
             return ['success' => false, 'transmitted' => [], 'errors' => [['document_id' => '-', 'error' => 'Generator未設定']]];
+        }
+
+        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($candidates)) {
+            return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
         }
 
         $files = $generator->generate($candidates);
@@ -1268,6 +1318,13 @@ class OrderTransmissionService
      */
     private function mergeAndTransmitDocuments(Collection $documents): array
     {
+        $linkedCandidates = WmsOrderCandidate::whereIn('wms_order_jx_document_id', $documents->pluck('id'))
+            ->with(['item'])
+            ->get();
+        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($linkedCandidates)) {
+            return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
+        }
+
         $allBDRecords = [];
         $bCount = 0;
         $dCount = 0;
@@ -1928,6 +1985,10 @@ class OrderTransmissionService
             return ['success' => false, 'error' => '再送信用の候補データが見つかりません'];
         }
 
+        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($candidates)) {
+            return ['success' => false, 'error' => $zeroQuantityError['error']];
+        }
+
         $generator = $this->getOrderFileGenerator();
         if (! $generator) {
             return ['success' => false, 'error' => 'Generator未設定'];
@@ -2379,6 +2440,13 @@ class OrderTransmissionService
      */
     private function transmitDocumentViaJx(WmsOrderJxDocument $document): array
     {
+        $linkedCandidates = WmsOrderCandidate::where('wms_order_jx_document_id', $document->id)
+            ->with(['item'])
+            ->get();
+        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($linkedCandidates)) {
+            return ['success' => false, 'error' => $zeroQuantityError['error']];
+        }
+
         $jxSetting = $this->resolveJxSetting($document);
 
         if (! $jxSetting) {
