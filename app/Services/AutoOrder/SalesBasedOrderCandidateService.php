@@ -699,7 +699,9 @@ class SalesBasedOrderCandidateService
             ->where('contractors.is_auto_change_order', true);
 
         if ($this->targetContractorIds !== null) {
-            $externalQuery->whereIn('contractor_id', $this->targetContractorIds);
+            $externalQuery
+                ->whereIn('item_contractors.contractor_id', $this->targetContractorIds)
+                ->whereIn('item_contractors.supplier_id', $this->targetContractorIds);
         }
 
         if ($this->autoOrderFlagFilter === 'on') {
