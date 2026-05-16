@@ -667,6 +667,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->whereIn('item_contractors.warehouse_id', $generationWarehouseIds)
             ->whereNotIn('item_contractors.contractor_id', $internalContractorIds ?: [0])
             ->whereIn('item_contractors.contractor_id', $contractorIds)
+            ->whereIn('item_contractors.supplier_id', $contractorIds)
             ->where($salesColumn, '>', 0)
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
