@@ -48,6 +48,12 @@ class OrderExecutionService
         }
 
         return DB::connection('sakemaru')->transaction(function () use ($candidate, $confirmedBy) {
+            if ($candidate->status === CandidateStatus::APPROVED && (int) $candidate->order_quantity <= 0) {
+                $candidate->delete();
+
+                return collect();
+            }
+
             // 1. 既存の入庫予定を削除（PENDING状態のもののみ）
             $deletedCount = WmsOrderIncomingSchedule::where('order_candidate_id', $candidate->id)
                 ->where('status', IncomingScheduleStatus::PENDING)
@@ -81,8 +87,19 @@ class OrderExecutionService
      */
     public function confirmBatch(string $batchCode, int $confirmedBy, ?int $warehouseId = null): Collection
     {
+        $zeroQuantityQuery = WmsOrderCandidate::where('batch_code', $batchCode)
+            ->where('status', CandidateStatus::APPROVED)
+            ->where('order_quantity', '<=', 0);
+
+        if ($warehouseId !== null) {
+            $zeroQuantityQuery->where('warehouse_id', $warehouseId);
+        }
+
+        $zeroQuantityQuery->delete();
+
         $query = WmsOrderCandidate::where('batch_code', $batchCode)
-            ->whereIn('status', [CandidateStatus::APPROVED, CandidateStatus::CONFIRMED]);
+            ->whereIn('status', [CandidateStatus::APPROVED, CandidateStatus::CONFIRMED])
+            ->where('order_quantity', '>', 0);
 
         if ($warehouseId !== null) {
             $query->where('warehouse_id', $warehouseId);

@@ -32,6 +32,7 @@ use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\HtmlString;
 
 class WmsOrderConfirmationWaitingTable
 {
@@ -417,6 +418,16 @@ class WmsOrderConfirmationWaitingTable
                         ),
                     ),
 
+                TernaryFilter::make('zero_order_quantity')
+                    ->label('発注数0')
+                    ->placeholder('すべて')
+                    ->trueLabel('0のみ')
+                    ->falseLabel('0以外')
+                    ->queries(
+                        true: fn (EloquentBuilder $query) => $query->where('order_quantity', '<=', 0),
+                        false: fn (EloquentBuilder $query) => $query->where('order_quantity', '>', 0),
+                    ),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options([
@@ -647,7 +658,33 @@ class WmsOrderConfirmationWaitingTable
                         ->color('success')
                         ->requiresConfirmation()
                         ->modalHeading('選択した発注候補を確定')
-                        ->modalDescription('選択した承認済み発注候補だけを確定し、入荷予定を作成します。選択していない候補は確定しません。')
+                        ->modalDescription(function (Collection $records): string {
+                            $approved = $records->filter(fn ($r) => $r->status === CandidateStatus::APPROVED);
+                            $zeroCount = $approved->filter(fn ($r) => (int) $r->order_quantity <= 0)->count();
+                            $confirmableCount = max(0, $approved->count() - $zeroCount);
+
+                            return "選択した承認済み発注候補だけを確定し、入荷予定を作成します。\n\n".
+                                "確定対象: {$confirmableCount}件\n".
+                                "発注数0のため除外: {$zeroCount}件";
+                        })
+                        ->modalContent(function (Collection $records): ?HtmlString {
+                            $approved = $records->filter(fn ($r) => $r->status === CandidateStatus::APPROVED);
+                            $zeroCount = $approved->filter(fn ($r) => (int) $r->order_quantity <= 0)->count();
+
+                            if ($zeroCount <= 0) {
+                                return null;
+                            }
+
+                            $confirmableCount = max(0, $approved->count() - $zeroCount);
+
+                            return new HtmlString(
+                                '<div class="mb-4 rounded-lg border-2 border-red-300 bg-red-50 p-5 text-center dark:border-red-700 dark:bg-red-950/30">'.
+                                '<div class="text-xl font-black leading-tight text-red-700 dark:text-red-300">確定対象: '.number_format($confirmableCount).'件</div>'.
+                                '<div class="mt-2 text-2xl font-black leading-tight text-red-700 dark:text-red-300">発注数0のため除外: '.number_format($zeroCount).'件</div>'.
+                                '<div class="mt-3 text-sm text-red-700 dark:text-red-300">確定時に削除になります。</div>'.
+                                '</div>'
+                            );
+                        })
                         ->modalSubmitActionLabel('確定実行')
                         ->modalCancelActionLabel('確定せず閉じる')
                         ->action(function (Collection $records) {
@@ -676,24 +713,38 @@ class WmsOrderConfirmationWaitingTable
                                 return;
                             }
 
+                            $excludedZeroCount = WmsOrderCandidate::whereIn('id', $approvedIds)
+                                ->where('status', CandidateStatus::APPROVED)
+                                ->where('order_quantity', '<=', 0)
+                                ->delete();
+
+                            $approvedIds = WmsOrderCandidate::whereIn('id', $approvedIds)
+                                ->where('status', CandidateStatus::APPROVED)
+                                ->where('order_quantity', '>', 0)
+                                ->pluck('id')
+                                ->map(fn ($id) => (int) $id)
+                                ->all();
+
                             $service = app(OrderExecutionService::class);
                             $confirmed = 0;
                             $failed = 0;
 
-                            WmsOrderCandidate::whereIn('id', $approvedIds)
-                                ->where('status', CandidateStatus::APPROVED)
-                                ->get()
-                                ->each(function (WmsOrderCandidate $candidate) use ($service, $user, &$confirmed, &$failed) {
-                                    try {
-                                        $service->confirmCandidate($candidate, (int) $user->id);
-                                        $confirmed++;
-                                    } catch (\Throwable $e) {
-                                        report($e);
-                                        $failed++;
-                                    }
-                                });
+                            if (! empty($approvedIds)) {
+                                WmsOrderCandidate::whereIn('id', $approvedIds)
+                                    ->where('status', CandidateStatus::APPROVED)
+                                    ->get()
+                                    ->each(function (WmsOrderCandidate $candidate) use ($service, $user, &$confirmed, &$failed) {
+                                        try {
+                                            $service->confirmCandidate($candidate, (int) $user->id);
+                                            $confirmed++;
+                                        } catch (\Throwable $e) {
+                                            report($e);
+                                            $failed++;
+                                        }
+                                    });
+                            }
 
-                            if ($confirmed === 0) {
+                            if ($confirmed === 0 && $excludedZeroCount === 0) {
                                 Notification::make()
                                     ->title('確定できた発注候補がありません')
                                     ->body($failed > 0 ? "失敗: {$failed}件" : null)
@@ -703,9 +754,22 @@ class WmsOrderConfirmationWaitingTable
                                 return;
                             }
 
+                            if ($confirmed === 0) {
+                                Notification::make()
+                                    ->title('発注数0の候補を除外しました')
+                                    ->body("除外: {$excludedZeroCount}件".($failed > 0 ? " / 失敗: {$failed}件" : ''))
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
                             Notification::make()
                                 ->title("{$confirmed}件の発注候補を確定しました")
-                                ->body($failed > 0 ? "失敗: {$failed}件" : null)
+                                ->body(
+                                    ($excludedZeroCount > 0 ? "発注数0のため除外: {$excludedZeroCount}件" : '')
+                                    .($failed > 0 ? ($excludedZeroCount > 0 ? "\n" : '')."失敗: {$failed}件" : '')
+                                )
                                 ->success()
                                 ->send();
                         })
