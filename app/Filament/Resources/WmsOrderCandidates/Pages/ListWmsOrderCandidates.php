@@ -651,6 +651,7 @@ class ListWmsOrderCandidates extends ListRecords
         if ($items->isNotEmpty()) {
             WmsOrderCandidate::preloadCalculationLogs($items);
             WmsOrderCandidate::preloadItemContractors($items);
+            WmsOrderConfirmationWaitingTable::preloadOrderingUnitQuantities($items);
 
             // 出荷実績サマリを一括プリロード（N+1対策）
             $warehouseItemPairs = $items->map(fn ($r) => ['warehouse_id' => $r->warehouse_id, 'item_id' => $r->item_id]);
