@@ -168,6 +168,63 @@ class ProxyShipmentPickingListService
             return '';
         }
 
+        $defaultLocation = DB::connection('sakemaru')
+            ->selectOne("
+                SELECT
+                    CONCAT_WS('-', l.code1, l.code2, l.code3) AS location_code
+                FROM item_incoming_default_locations idl
+                LEFT JOIN locations l ON l.id = idl.location_id
+                WHERE idl.warehouse_id = ?
+                  AND idl.item_id = ?
+                LIMIT 1
+            ", [$warehouseId, $itemId]);
+
+        if (! empty($defaultLocation?->location_code)) {
+            return $defaultLocation->location_code;
+        }
+
+        $storeItemLocationNumber = DB::connection('sakemaru')
+            ->table('ret_store_item_information as rsii')
+            ->join('ret_stores as rs', 'rs.id', '=', 'rsii.store_id')
+            ->where('rs.warehouse_id', $warehouseId)
+            ->where('rsii.item_id', $itemId)
+            ->whereNotNull('rsii.location_number')
+            ->where('rsii.location_number', '!=', '')
+            ->orderByDesc('rsii.last_receipt_date')
+            ->orderByDesc('rsii.updated_at')
+            ->value('rsii.location_number');
+
+        if (! empty($storeItemLocationNumber)) {
+            return trim((string) $storeItemLocationNumber);
+        }
+
+        $itemMainShelfNumber = DB::connection('sakemaru')
+            ->table('items')
+            ->where('id', $itemId)
+            ->whereNotNull('main_shelf_number')
+            ->where('main_shelf_number', '!=', '')
+            ->value('main_shelf_number');
+
+        if (! empty($itemMainShelfNumber)) {
+            return trim((string) $itemMainShelfNumber);
+        }
+
+        if ($warehouseId === 91) {
+            $originLocation = DB::connection('sakemaru')
+                ->table('wms_hana_origin_locations')
+                ->where('warehouse_id', $warehouseId)
+                ->where('item_id', $itemId)
+                ->whereNotNull('oracle_shelf_code')
+                ->where('oracle_shelf_code', '!=', '')
+                ->orderByDesc('last_purchase_date')
+                ->orderByDesc('oracle_updated_at')
+                ->value('oracle_shelf_code');
+
+            if (! empty($originLocation)) {
+                return trim((string) $originLocation);
+            }
+        }
+
         $availableLocation = DB::connection('sakemaru')
             ->selectOne("
                 SELECT
@@ -217,21 +274,6 @@ class ProxyShipmentPickingListService
             return $lotLocation->location_code;
         }
 
-        $defaultLocation = DB::connection('sakemaru')
-            ->selectOne("
-                SELECT
-                    CONCAT_WS('-', l.code1, l.code2, l.code3) AS location_code
-                FROM item_incoming_default_locations idl
-                LEFT JOIN locations l ON l.id = idl.location_id
-                WHERE idl.warehouse_id = ?
-                  AND idl.item_id = ?
-                LIMIT 1
-            ", [$warehouseId, $itemId]);
-
-        if (! empty($defaultLocation?->location_code)) {
-            return $defaultLocation->location_code;
-        }
-
         if ($shortageLocationId) {
             $shortageLocation = DB::connection('sakemaru')
                 ->selectOne("
@@ -246,38 +288,6 @@ class ProxyShipmentPickingListService
             if (! empty($shortageLocation?->location_code)) {
                 return $shortageLocation->location_code;
             }
-        }
-
-        if ($warehouseId === 91) {
-            $originLocation = DB::connection('sakemaru')
-                ->table('wms_hana_origin_locations')
-                ->where('warehouse_id', $warehouseId)
-                ->where('item_id', $itemId)
-                ->whereNotNull('oracle_shelf_code')
-                ->where('oracle_shelf_code', '!=', '')
-                ->orderByDesc('last_purchase_date')
-                ->orderByDesc('oracle_updated_at')
-                ->value('oracle_shelf_code');
-
-            if (! empty($originLocation)) {
-                return (string) $originLocation;
-            }
-        }
-
-        $fallbackLocation = DB::connection('sakemaru')
-            ->selectOne("
-                SELECT
-                    CONCAT_WS('-', l.code1, l.code2, l.code3) AS location_code
-                FROM locations l
-                WHERE l.warehouse_id = ?
-                  AND l.code1 = 'Z'
-                  AND l.code2 = '0'
-                  AND l.code3 = '0'
-                LIMIT 1
-            ", [$warehouseId]);
-
-        if (! empty($fallbackLocation?->location_code)) {
-            return $fallbackLocation->location_code;
         }
 
         return '';
