@@ -60,7 +60,7 @@ class WaveResource extends AdminResource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->with(['waveSetting.deliveryCourse.warehouse']);
+            ->with(['waveGroup', 'waveSetting.deliveryCourse.warehouse']);
     }
 
     public static function getRelations(): array

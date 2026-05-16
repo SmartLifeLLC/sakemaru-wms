@@ -1073,7 +1073,7 @@ class WmsShipmentSlipsTable
                             ->whereNull('wms_picking_tasks.wave_id');
                     });
             })
-            ->whereRaw('(target_pir.planned_qty - COALESCE(target_pir.shortage_qty, 0)) > 0')
+            ->where('target_pir.ordered_qty', '>', 0)
             ->where('target_ti.is_active', true)
             ->where(function ($query) {
                 $query->where(function ($query) {

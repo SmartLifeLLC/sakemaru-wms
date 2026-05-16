@@ -55,6 +55,8 @@ class WmsQueueProgress extends WmsModel
 
     public const JOB_TYPE_AUTO_SEND = 'auto_send';
 
+    public const JOB_TYPE_WAVE_GENERATION = 'wave_generation';
+
     /**
      * 新しい進捗レコードを作成
      */
