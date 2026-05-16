@@ -606,7 +606,7 @@ class ListWmsAutoOrderJobControls extends ListRecords
             'ignore',
         );
 
-        $contractorIds = $this->expandContractorIds($this->selectedJxContractorIds);
+        $contractorIds = array_values(array_unique(array_map('intval', $this->selectedJxContractorIds)));
         if (empty($contractorIds)) {
             $this->salesBasedPreviewError = '対象仕入先が見つかりません。';
 
@@ -642,7 +642,6 @@ class ListWmsAutoOrderJobControls extends ListRecords
             ->whereIn('item_contractors.warehouse_id', $generationWarehouseIds)
             ->whereNotIn('item_contractors.contractor_id', $internalContractorIds ?: [0])
             ->whereIn('item_contractors.contractor_id', $contractorIds)
-            ->whereIn('item_contractors.supplier_id', $contractorIds)
             ->where($salesColumn, '>', 0)
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)

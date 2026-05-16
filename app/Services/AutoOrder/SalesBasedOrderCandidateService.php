@@ -124,16 +124,9 @@ class SalesBasedOrderCandidateService
         $orderPointFilter = $this->normalizeOrderPointFilter($orderPointFilter);
         $autoOrderFlagFilter = $this->normalizeAutoOrderFlagFilter($autoOrderFlagFilter);
 
-        $expandedContractorIds = null;
+        $targetContractorIds = null;
         if ($contractorIds !== null && ! empty($contractorIds)) {
-            $expandedContractorIds = [];
-            foreach ($contractorIds as $cId) {
-                $expandedContractorIds = array_merge(
-                    $expandedContractorIds,
-                    WmsContractorSetting::getContractorIdsWithChildren($cId)
-                );
-            }
-            $expandedContractorIds = array_unique($expandedContractorIds);
+            $targetContractorIds = array_values(array_unique(array_map('intval', $contractorIds)));
         }
 
         $job = WmsAutoOrderJobControl::startJob(
@@ -151,7 +144,7 @@ class SalesBasedOrderCandidateService
             warehouseId: $warehouseId,
         );
 
-        $this->targetContractorIds = $expandedContractorIds;
+        $this->targetContractorIds = $targetContractorIds;
         $this->targetWarehouseId = $warehouseId;
         $this->originType = $originType ?? OriginType::MANUAL_SALES_BASED;
         $this->salesBasis = $salesBasis;
@@ -682,9 +675,7 @@ class SalesBasedOrderCandidateService
             ->where('contractors.is_auto_change_order', true);
 
         if ($this->targetContractorIds !== null) {
-            $externalQuery
-                ->whereIn('item_contractors.contractor_id', $this->targetContractorIds)
-                ->whereIn('item_contractors.supplier_id', $this->targetContractorIds);
+            $externalQuery->whereIn('item_contractors.contractor_id', $this->targetContractorIds);
         }
 
         if ($this->autoOrderFlagFilter === 'on') {
