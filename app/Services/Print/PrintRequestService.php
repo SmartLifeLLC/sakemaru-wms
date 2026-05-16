@@ -283,7 +283,7 @@ class PrintRequestService
             ->leftJoin('trade_items as ti', 'pir.trade_item_id', '=', 'ti.id')
             ->leftJoin('locations as l', 'pir.location_id', '=', 'l.id')
             ->whereIn('pir.picking_task_id', $taskIds)
-            ->whereRaw('(pir.planned_qty - COALESCE(pir.shortage_qty, 0)) > 0')
+            ->where('pir.ordered_qty', '>', 0)
             ->where(function ($query) {
                 $query->where(function ($query) {
                     $query->whereNotNull('pir.earning_id')

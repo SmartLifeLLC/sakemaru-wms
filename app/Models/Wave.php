@@ -13,6 +13,7 @@ class Wave extends Model
     protected $table = 'wms_waves';
 
     protected $fillable = [
+        'wave_group_id',
         'wms_wave_setting_id',
         'wave_no',
         'shipping_date',
@@ -27,6 +28,11 @@ class Wave extends Model
     public function waveSetting(): BelongsTo
     {
         return $this->belongsTo(WaveSetting::class, 'wms_wave_setting_id');
+    }
+
+    public function waveGroup(): BelongsTo
+    {
+        return $this->belongsTo(WaveGroup::class, 'wave_group_id');
     }
 
     public function pickingTasks(): HasMany

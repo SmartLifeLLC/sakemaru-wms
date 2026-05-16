@@ -13,6 +13,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
@@ -23,6 +24,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 
 class WavesTable
@@ -40,6 +42,12 @@ class WavesTable
                     ->label('波動番号')
                     ->searchable()
                     ->sortable(),
+
+                TextColumn::make('waveGroup.group_no')
+                    ->label('生成グループ')
+                    ->searchable()
+                    ->sortable()
+                    ->toggleable(),
 
                 TextColumn::make('waveSetting.deliveryCourse.warehouse.code')
                     ->label('倉庫コード')
@@ -153,6 +161,26 @@ class WavesTable
                     ]),
             ])
             ->recordActions([
+                Action::make('downloadSavedPickingList')
+                    ->label('保存リスト')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('success')
+                    ->visible(fn (Wave $record): bool => ! empty($record->waveGroup?->picking_lists))
+                    ->modalHeading(fn (Wave $record): string => "保存済みピッキングリスト: {$record->waveGroup?->group_no}")
+                    ->modalWidth('2xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitAction(fn (Action $action) => $action->label('ダウンロード')->color('danger'))
+                    ->modalCancelActionLabel('出力せず閉じる')
+                    ->schema(fn (Wave $record): array => [
+                        Select::make('list_type')
+                            ->label('リスト種別')
+                            ->options(static::savedPickingListOptions($record))
+                            ->required()
+                            ->default(array_key_first($record->waveGroup?->picking_lists ?? [])),
+                    ])
+                    ->action(fn (Wave $record, array $data) => static::downloadSavedPickingList($record, $data)),
+
                 Action::make('cancelWave')
                     ->label('取消')
                     ->icon('heroicon-o-x-circle')
@@ -911,5 +939,59 @@ HTML;
         <ul class="mt-2 list-disc space-y-1 pl-5">{$items}</ul>
     </div>
 HTML;
+    }
+
+    protected static function savedPickingListOptions(Wave $record): array
+    {
+        $labels = [
+            'primary' => '1次ピッキングリスト',
+            'primary_total' => '1次ピッキングリスト(一括)',
+            'shortage' => '欠品リスト',
+            'secondary' => '2次ピッキングリスト',
+            'secondary_v2' => '2次ピッキングリスト(V2)',
+            'tertiary' => '3次ピッキングリスト',
+        ];
+
+        return collect($record->waveGroup?->picking_lists ?? [])
+            ->keys()
+            ->mapWithKeys(fn (string $type): array => [$type => $labels[$type] ?? $type])
+            ->toArray();
+    }
+
+    protected static function downloadSavedPickingList(Wave $record, array $data)
+    {
+        $listType = $data['list_type'] ?? null;
+        $entry = $record->waveGroup?->picking_lists[$listType] ?? null;
+
+        if (! $entry || empty($entry['disk']) || empty($entry['path'])) {
+            Notification::make()
+                ->title('保存済みリストが見つかりません')
+                ->warning()
+                ->send();
+
+            return null;
+        }
+
+        $disk = (string) $entry['disk'];
+        $path = (string) $entry['path'];
+
+        if (! Storage::disk($disk)->exists($path)) {
+            Notification::make()
+                ->title('S3上のファイルが見つかりません')
+                ->body($path)
+                ->danger()
+                ->send();
+
+            return null;
+        }
+
+        $filename = (string) ($entry['filename'] ?? basename($path));
+        $mimeType = (string) ($entry['mime_type'] ?? 'application/pdf');
+
+        return response()->streamDownload(
+            fn () => print (Storage::disk($disk)->get($path)),
+            $filename,
+            ['Content-Type' => $mimeType]
+        );
     }
 }
