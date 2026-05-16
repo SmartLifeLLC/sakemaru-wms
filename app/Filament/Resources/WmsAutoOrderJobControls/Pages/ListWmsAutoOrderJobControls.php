@@ -353,18 +353,6 @@ class ListWmsAutoOrderJobControls extends ListRecords
         $selectedWarehouseName = $selectedWarehouse?->name ?? '未選択';
 
         $existingBatchCode = null;
-        $batchNotice = '';
-        if ($selectedWarehouseId) {
-            $pendingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse(
-                $selectedWarehouseId,
-                auth()->id(),
-                [\App\Enums\AutoOrder\JobProcessName::ORDER_CALC, \App\Enums\AutoOrder\JobProcessName::SALES_BASED_CALC]
-            );
-            if ($pendingJob) {
-                $existingBatchCode = $pendingJob->batch_code;
-                $batchNotice = "既存バッチ {$existingBatchCode} に候補が追加されます。";
-            }
-        }
 
         $baseDescription = $selectedWarehouse
             ? "倉庫「{$selectedWarehouseName}」の発注候補を生成します。\n移動候補は作成せず、過去3日間で販売があった発注コードありの商品を候補表示します。発注数はすべて0で開始します。"
@@ -438,15 +426,6 @@ class ListWmsAutoOrderJobControls extends ListRecords
                 ViewField::make('sales_based_progress')
                     ->view('filament.components.sales-based-generation-progress')
                     ->hiddenLabel(),
-                $batchNotice
-                    ? Placeholder::make('batch_notice')
-                        ->hiddenLabel()
-                        ->content(new HtmlString(
-                            '<div class="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300">'
-                            .e($batchNotice)
-                            .'</div>'
-                        ))
-                    : null,
                 ViewField::make('contractor_selector')
                     ->view('filament.components.contractor-selection')
                     ->viewData([
@@ -518,10 +497,6 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
                 $contractorCount = count($contractorIds);
                 $message = "倉庫「{$warehouseName}」の実績ベース発注候補生成を開始しました（仕入先{$contractorCount}件）";
-                if ($existingBatchCode) {
-                    $message .= "（既存バッチ{$existingBatchCode}に追加）";
-                }
-
                 Notification::make()
                     ->title($message)
                     ->success()
@@ -694,7 +669,8 @@ class ListWmsAutoOrderJobControls extends ListRecords
                     ])
                     ->whereColumn('existing_candidates.warehouse_id', 'item_contractors.warehouse_id')
                     ->whereColumn('existing_candidates.item_id', 'item_contractors.item_id')
-                    ->whereColumn('existing_candidates.contractor_id', 'item_contractors.contractor_id');
+                    ->whereColumn('existing_candidates.contractor_id', 'item_contractors.contractor_id')
+                    ->whereColumn('existing_candidates.supplier_id', 'item_contractors.supplier_id');
             });
         }
 

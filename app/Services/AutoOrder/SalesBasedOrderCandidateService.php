@@ -136,23 +136,6 @@ class SalesBasedOrderCandidateService
             $expandedContractorIds = array_unique($expandedContractorIds);
         }
 
-        // batch_code解決: 引数 > 既存PENDINGのbatch_code > 新規生成
-        if (! $batchCode && $warehouseId) {
-            $pendingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse(
-                $warehouseId,
-                $createdBy,
-                [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC]
-            );
-            $batchCode = $pendingJob?->batch_code;
-        }
-        if (! $batchCode) {
-            $pendingJob = WmsAutoOrderJobControl::findPendingSettlement(
-                $createdBy,
-                [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC]
-            );
-            $batchCode = $pendingJob?->batch_code;
-        }
-
         $job = WmsAutoOrderJobControl::startJob(
             processName: JobProcessName::SALES_BASED_CALC,
             scope: [
@@ -748,7 +731,7 @@ class SalesBasedOrderCandidateService
                 continue;
             }
 
-            $candidateKey = "{$ic->warehouse_id}:{$ic->item_id}:{$ic->contractor_id}";
+            $candidateKey = "{$ic->warehouse_id}:{$ic->item_id}:{$ic->contractor_id}:{$ic->supplier_id}";
             if (isset($seenCandidateKeys[$candidateKey])) {
                 $skippedExistingCount++;
 
@@ -915,7 +898,7 @@ class SalesBasedOrderCandidateService
             ->where('batch_code', $batchCode)
             ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::APPROVED])
             ->whereIn('warehouse_id', $this->realWarehouseIds)
-            ->select('warehouse_id', 'item_id', 'contractor_id');
+            ->select('warehouse_id', 'item_id', 'contractor_id', 'supplier_id');
 
         if ($this->targetContractorIds !== null) {
             $query->whereIn('contractor_id', $this->targetContractorIds);
@@ -924,7 +907,7 @@ class SalesBasedOrderCandidateService
         return $query
             ->get()
             ->mapWithKeys(fn ($candidate) => [
-                "{$candidate->warehouse_id}:{$candidate->item_id}:{$candidate->contractor_id}" => true,
+                "{$candidate->warehouse_id}:{$candidate->item_id}:{$candidate->contractor_id}:{$candidate->supplier_id}" => true,
             ])
             ->all();
     }
@@ -953,10 +936,7 @@ class SalesBasedOrderCandidateService
     {
         $candidates = DB::connection('sakemaru')
             ->table('wms_stock_transfer_candidates')
-            ->where(function ($query) use ($batchCode) {
-                $query->where('batch_code', $batchCode)
-                    ->orWhere('status', CandidateStatus::PENDING->value);
-            })
+            ->where('batch_code', $batchCode)
             ->select('satellite_warehouse_id', 'hub_warehouse_id', 'item_id', 'transfer_quantity')
             ->get();
 

@@ -41,6 +41,8 @@ class WmsOrderConfirmationWaitingTable
 
     private static array $itemContractorOrderSettingCache = [];
 
+    private static array $orderingUnitQuantityCache = [];
+
     protected static function getFilterModelTable(): string
     {
         return (new WmsOrderCandidate)->getTable();
@@ -844,6 +846,11 @@ class WmsOrderConfirmationWaitingTable
                 ->value('capacity_case') ?? 0);
         }
 
+        $key = static::orderingUnitQuantityCacheKey((int) $record->item_id, $orderingCode, $capacityCase);
+        if (array_key_exists($key, static::$orderingUnitQuantityCache)) {
+            return static::$orderingUnitQuantityCache[$key];
+        }
+
         $query = DB::connection('sakemaru')
             ->table('item_search_information as isi')
             ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
@@ -858,7 +865,7 @@ class WmsOrderConfirmationWaitingTable
                 ->value('iqi.quantity');
 
             if ($exact !== null) {
-                return (int) $exact;
+                return static::$orderingUnitQuantityCache[$key] = (int) $exact;
             }
         }
 
@@ -868,7 +875,108 @@ class WmsOrderConfirmationWaitingTable
             ->orderBy('iqi.quantity')
             ->value('iqi.quantity');
 
-        return $quantity !== null ? (int) $quantity : null;
+        return static::$orderingUnitQuantityCache[$key] = $quantity !== null ? (int) $quantity : null;
+    }
+
+    public static function preloadOrderingUnitQuantities(Collection $records): void
+    {
+        if ($records->isEmpty()) {
+            return;
+        }
+
+        $recordTargets = $records
+            ->map(function (WmsOrderCandidate $record): array {
+                $capacityCase = (int) ($record->item?->capacity_case ?? 0);
+
+                return [
+                    'item_id' => (int) $record->item_id,
+                    'ordering_code' => static::normalizeOrderingCode($record->ordering_code),
+                    'capacity_case' => $capacityCase,
+                ];
+            })
+            ->values();
+
+        $missingCapacityItemIds = $recordTargets
+            ->where('capacity_case', '<=', 0)
+            ->pluck('item_id')
+            ->unique()
+            ->values();
+
+        $capacityCases = $missingCapacityItemIds->isEmpty()
+            ? collect()
+            : DB::connection('sakemaru')
+                ->table('items')
+                ->whereIn('id', $missingCapacityItemIds->all())
+                ->pluck('capacity_case', 'id');
+
+        $targets = $recordTargets
+            ->map(function (array $target) use ($capacityCases): array {
+                $capacityCase = (int) ($target['capacity_case'] ?: ($capacityCases->get($target['item_id']) ?? 0));
+
+                return [
+                    'item_id' => $target['item_id'],
+                    'ordering_code' => $target['ordering_code'],
+                    'capacity_case' => $capacityCase,
+                    'key' => static::orderingUnitQuantityCacheKey($target['item_id'], $target['ordering_code'], $capacityCase),
+                ];
+            })
+            ->unique('key')
+            ->reject(fn (array $target): bool => array_key_exists($target['key'], static::$orderingUnitQuantityCache))
+            ->values();
+
+        if ($targets->isEmpty()) {
+            return;
+        }
+
+        $itemIds = $targets->pluck('item_id')->unique()->values()->all();
+
+        $quantityRows = DB::connection('sakemaru')
+            ->table('item_search_information as isi')
+            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
+            ->whereIn('isi.item_id', $itemIds)
+            ->where('isi.is_active', true)
+            ->where('iqi.quantity', '>', 1)
+            ->select([
+                'isi.item_id',
+                'isi.search_string',
+                'isi.is_used_for_ordering',
+                'iqi.quantity',
+            ])
+            ->get()
+            ->groupBy('item_id');
+
+        foreach ($targets as $target) {
+            $rows = ($quantityRows->get($target['item_id']) ?? collect())
+                ->filter(fn ($row): bool => (int) $row->quantity !== (int) $target['capacity_case'] || (int) $target['capacity_case'] <= 1);
+
+            $exact = null;
+            if ($target['ordering_code'] !== null) {
+                $exact = $rows->first(
+                    fn ($row): bool => static::normalizeOrderingCode((string) $row->search_string) === $target['ordering_code']
+                );
+            }
+
+            if ($exact !== null) {
+                static::$orderingUnitQuantityCache[$target['key']] = (int) $exact->quantity;
+
+                continue;
+            }
+
+            $fallback = $rows
+                ->filter(fn ($row): bool => preg_match('/[1-9]/', (string) $row->search_string) === 1)
+                ->sort(function ($a, $b): int {
+                    return ((int) $b->is_used_for_ordering <=> (int) $a->is_used_for_ordering)
+                        ?: ((int) $a->quantity <=> (int) $b->quantity);
+                })
+                ->first();
+
+            static::$orderingUnitQuantityCache[$target['key']] = $fallback !== null ? (int) $fallback->quantity : null;
+        }
+    }
+
+    private static function orderingUnitQuantityCacheKey(int $itemId, ?string $orderingCode, int $capacityCase): string
+    {
+        return "{$itemId}:".($orderingCode ?? '').":{$capacityCase}";
     }
 
     private static function normalizeOrderingCode(?string $code): ?string
