@@ -91,6 +91,14 @@ class WmsOrderConfirmedTable
                     ->color(fn (WmsOrderCandidate $record): string => $record->wms_order_jx_document_id ? 'success' : 'warning')
                     ->width('80px'),
 
+                TextColumn::make('order_data_file_generated')
+                    ->label('FAX/メール')
+                    ->state(fn (WmsOrderCandidate $record): string => (bool) $record->order_data_file_generated ? '生成済み' : '未生成')
+                    ->badge()
+                    ->color(fn (WmsOrderCandidate $record): string => (bool) $record->order_data_file_generated ? 'success' : 'warning')
+                    ->tooltip('FAX / MAIL / CSV 用の発注データファイル生成状況')
+                    ->width('90px'),
+
                 TextColumn::make('warehouse.code')
                     ->label('倉庫CD')
                     ->searchable()

@@ -15,6 +15,7 @@ use Filament\Tables\Table;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class ListWmsOrderConfirmed extends ListRecords
 {
@@ -41,6 +42,15 @@ class ListWmsOrderConfirmed extends ListRecords
                     'contractor',
                     'jxDocument',
                 ])
+                ->addSelect([
+                    'order_data_file_generated' => DB::connection('sakemaru')
+                        ->table('wms_order_data_files')
+                        ->selectRaw('1')
+                        ->whereColumn('wms_order_data_files.batch_code', (new WmsOrderCandidate)->getTable().'.batch_code')
+                        ->whereColumn('wms_order_data_files.warehouse_id', (new WmsOrderCandidate)->getTable().'.warehouse_id')
+                        ->whereColumn('wms_order_data_files.contractor_id', (new WmsOrderCandidate)->getTable().'.contractor_id')
+                        ->limit(1),
+                ])
                 ->orderBy((new WmsOrderCandidate)->getTable().'.modified_at', 'desc')
                 ->orderBy('batch_code', 'desc')
                 ->orderBy((new WmsOrderCandidate)->getTable().'.warehouse_id')
@@ -63,8 +73,9 @@ class ListWmsOrderConfirmed extends ListRecords
     public function getPresetViews(): array
     {
         $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
-        $warehouses = $this->getWarehousesForPresetViews();
-        $warehouseIds = $warehouses->pluck('id')->toArray();
+        $warehouseData = $this->getWarehouseDataForPresetViews();
+        $warehouseIds = $warehouseData['ids'];
+        $warehouses = $warehouseData['warehouses'];
 
         $hasSelectedWarehouse = $selectedWarehouseId && in_array($selectedWarehouseId, $warehouseIds);
         $selectedWarehouse = $hasSelectedWarehouse ? $warehouses->firstWhere('id', $selectedWarehouseId) : null;
@@ -104,23 +115,30 @@ class ListWmsOrderConfirmed extends ListRecords
     }
 
     /**
-     * プリセットビュー用の倉庫データを取得（キャッシュ付き）
+     * @return array{ids: array<int>, warehouses: Collection<int, Warehouse>}
      */
-    protected function getWarehousesForPresetViews(): Collection
+    protected function getWarehouseDataForPresetViews(): array
     {
         if ($this->cachedWarehouses !== null) {
-            return $this->cachedWarehouses;
+            return [
+                'ids' => $this->cachedWarehouses->pluck('id')->toArray(),
+                'warehouses' => $this->cachedWarehouses,
+            ];
         }
 
         $warehouseIds = WmsOrderCandidate::whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
+            ->forCreatedBy(auth()->id())
             ->distinct()
             ->pluck('warehouse_id')
             ->toArray();
 
         $this->cachedWarehouses = Warehouse::whereIn('id', $warehouseIds)
             ->orderBy('code')
-            ->get();
+            ->get(['id', 'name']);
 
-        return $this->cachedWarehouses;
+        return [
+            'ids' => $warehouseIds,
+            'warehouses' => $this->cachedWarehouses,
+        ];
     }
 }

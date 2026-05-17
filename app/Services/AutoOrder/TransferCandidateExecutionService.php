@@ -246,7 +246,8 @@ class TransferCandidateExecutionService
             ->where('status', '!=', IncomingScheduleStatus::CANCELLED->value)
             ->first();
 
-        $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
+        $expectedArrivalDate = $this->resolveIncomingExpectedArrivalDate($candidate);
+        $expirationDate = $this->calculateExpirationDate($candidate->item_id, $expectedArrivalDate);
 
         $orderDate = ClientSetting::systemDateYMD();
         $scheduleData = [
@@ -266,7 +267,7 @@ class TransferCandidateExecutionService
             'received_quantity' => 0,
             'quantity_type' => $candidate->quantity_type,
             'order_date' => $orderDate,
-            'expected_arrival_date' => $candidate->expected_arrival_date,
+            'expected_arrival_date' => $expectedArrivalDate->format('Y-m-d'),
             'expiration_date' => $expirationDate,
             'status' => IncomingScheduleStatus::PENDING,
         ];
@@ -291,10 +292,18 @@ class TransferCandidateExecutionService
             'source_warehouse_id' => $candidate->hub_warehouse_id,
             'item_id' => $candidate->item_id,
             'expected_quantity' => $candidate->transfer_quantity,
+            'expected_arrival_date' => $expectedArrivalDate->format('Y-m-d'),
             'expiration_date' => $expirationDate,
         ]);
 
         return $schedule;
+    }
+
+    private function resolveIncomingExpectedArrivalDate(WmsStockTransferCandidate $candidate): Carbon
+    {
+        return $candidate->expected_arrival_date
+            ?? $candidate->shipment_date
+            ?? Carbon::today();
     }
 
     /**

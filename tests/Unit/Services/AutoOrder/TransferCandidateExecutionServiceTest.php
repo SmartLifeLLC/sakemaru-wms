@@ -10,6 +10,7 @@ use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsStockTransferCandidate;
 use App\Services\AutoOrder\TransferCandidateExecutionService;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -218,6 +219,46 @@ class TransferCandidateExecutionServiceTest extends TestCase
 
         $this->assertSame(919207, $resolveMethod->invoke($this->service, $candidate));
         $this->assertArrayNotHasKey('resolved_delivery_course_id', $candidate->getDirty());
+    }
+
+    /**
+     * @test
+     * 入荷予定日が未設定の移動候補は出荷日を入荷予定日のフォールバックに使うこと
+     */
+    public function it_uses_shipment_date_when_expected_arrival_date_is_missing(): void
+    {
+        $candidate = new WmsStockTransferCandidate([
+            'expected_arrival_date' => null,
+            'shipment_date' => '2026-05-19',
+        ]);
+
+        $method = new \ReflectionMethod($this->service, 'resolveIncomingExpectedArrivalDate');
+        $method->setAccessible(true);
+
+        $this->assertSame('2026-05-19', $method->invoke($this->service, $candidate)->format('Y-m-d'));
+    }
+
+    /**
+     * @test
+     * 入荷予定日も出荷日も未設定の移動候補は今日を入荷予定日のフォールバックに使うこと
+     */
+    public function it_uses_today_when_transfer_candidate_dates_are_missing(): void
+    {
+        Carbon::setTestNow('2026-05-20 10:00:00');
+
+        try {
+            $candidate = new WmsStockTransferCandidate([
+                'expected_arrival_date' => null,
+                'shipment_date' => null,
+            ]);
+
+            $method = new \ReflectionMethod($this->service, 'resolveIncomingExpectedArrivalDate');
+            $method->setAccessible(true);
+
+            $this->assertSame('2026-05-20', $method->invoke($this->service, $candidate)->format('Y-m-d'));
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     /**
