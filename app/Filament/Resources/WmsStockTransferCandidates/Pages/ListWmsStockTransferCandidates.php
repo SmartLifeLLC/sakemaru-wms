@@ -842,7 +842,6 @@ class ListWmsStockTransferCandidates extends ListRecords
             ->where(fn ($query) => $query->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
             ->where(fn ($query) => $query->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
             ->where('contractors.is_auto_change_order', true)
-            ->whereRaw('(COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)) < sales.sales_qty')
             ->whereExists(function ($query) {
                 $query->selectRaw('1')
                     ->from('item_search_information as isi')

@@ -56,8 +56,8 @@
     selectedIds: $wire.$entangle(@js($selectedProperty)).live,
 
     init() {
-        if (!this.selectedIds || this.selectedIds.length === 0) {
-            this.selectedIds = @js($selectedIds);
+        if (!Array.isArray(this.selectedIds)) {
+            this.selectedIds = [];
         }
     },
 
