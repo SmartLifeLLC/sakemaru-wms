@@ -959,7 +959,7 @@ class WmsPickingTasksTable
                                     foreach ($task->pickingItemResults as $item) {
                                         $pickedQty = (int) ($item->picked_qty ?? 0);
 
-                                        if ($pickedQty === 0) {
+                                        if ($item->picked_at === null) {
                                             $pickedQty = (int) ($item->planned_qty ?? 0);
                                         }
 

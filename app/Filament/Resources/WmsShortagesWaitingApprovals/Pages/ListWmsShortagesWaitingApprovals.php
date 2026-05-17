@@ -16,6 +16,7 @@ use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class ListWmsShortagesWaitingApprovals extends ListRecords
 {
@@ -27,17 +28,16 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
 
     protected static string $resource = WmsShortagesWaitingApprovalResource::class;
 
+    protected ?Collection $cachedWarehouses = null;
+
     public function getPresetViews(): array
     {
         $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
         $systemDate = ClientSetting::systemDateYMD();
 
-        $warehouses = Warehouse::query()
-            ->where('is_active', true)
-            ->where('is_virtual', false)
-            ->orderBy('name')
-            ->get(['id', 'name']);
-        $warehouseIds = $warehouses->pluck('id')->all();
+        $warehouseData = $this->getWarehouseDataForPresetViews();
+        $warehouseIds = $warehouseData['ids'];
+        $warehouses = $warehouseData['warehouses'];
 
         $defaultFilterData = [
             'shipment_date' => ['shipment_date' => $systemDate],
@@ -76,6 +76,38 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
         }
 
         return $views;
+    }
+
+    /**
+     * @return array{ids: array<int>, warehouses: Collection<int, Warehouse>}
+     */
+    protected function getWarehouseDataForPresetViews(): array
+    {
+        if ($this->cachedWarehouses !== null) {
+            return [
+                'ids' => $this->cachedWarehouses->pluck('id')->toArray(),
+                'warehouses' => $this->cachedWarehouses,
+            ];
+        }
+
+        $warehouseIds = WmsShortage::query()
+            ->where('is_confirmed', false)
+            ->where('status', '!=', WmsShortage::STATUS_BEFORE)
+            ->distinct()
+            ->pluck('warehouse_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $this->cachedWarehouses = Warehouse::query()
+            ->whereIn('id', $warehouseIds)
+            ->orderBy('code')
+            ->get(['id', 'name']);
+
+        return [
+            'ids' => $warehouseIds,
+            'warehouses' => $this->cachedWarehouses,
+        ];
     }
 
     protected function getHeaderActions(): array

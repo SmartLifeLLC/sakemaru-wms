@@ -7,7 +7,7 @@
 @source '../../../../resources/views/components/**/*.blade.php';
 @source '../../../../vendor/archilex/filament-filter-sets/**/*.php';
 @source '../../../../vendor/archilex/filament-filter-sets/**/*.blade.php';
-@source inline("bg-green-50 bg-green-100 bg-green-900 bg-green-950 text-green-300 text-green-700 border-green-400 border-green-600 bg-amber-50 bg-amber-100 bg-amber-900 bg-amber-950 text-amber-300 text-amber-700 border-amber-300 border-amber-600 bg-red-50 bg-red-950 text-red-700 text-red-300 border-red-200 border-red-800 select-none cursor-col-resize pointer-events-none bg-white/90 bg-white/80 bg-gray-200 dark:bg-gray-600 dark:bg-green-900/20 dark:bg-amber-900/20 text-green-600 dark:text-green-400 text-red-600 dark:text-red-400 dark:text-amber-400 text-amber-600");
+@source inline("bg-green-50 bg-green-100 bg-green-900 bg-green-950 text-green-300 text-green-700 border-green-400 border-green-600 bg-amber-50 bg-amber-100 bg-amber-900 bg-amber-950 text-amber-300 text-amber-700 border-amber-300 border-amber-600 bg-red-50 bg-red-950 text-red-700 text-red-300 border-red-200 border-red-800 select-none cursor-col-resize pointer-events-none bg-white/90 bg-white/80 bg-gray-200 dark:bg-gray-600 dark:bg-green-900/20 dark:bg-amber-900/20 dark:bg-red-900/20 text-green-600 dark:text-green-400 text-red-600 dark:text-red-400 dark:text-amber-400 text-amber-600");
 
 /* モーダルスプリットビュー用のカスタムクラス */
 .modal-split-left {

@@ -106,6 +106,11 @@ class WmsOrderDocumentsTable
                     ->sortable()
                     ->toggleable(),
 
+                TextColumn::make('jobControl.createdByUser.name')
+                    ->label('作成者')
+                    ->sortable(false)
+                    ->toggleable(),
+
                 TextColumn::make('created_at')
                     ->label('作成日時')
                     ->dateTime('m/d H:i')

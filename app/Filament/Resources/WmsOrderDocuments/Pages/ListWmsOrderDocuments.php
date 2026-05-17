@@ -49,7 +49,7 @@ class ListWmsOrderDocuments extends ListRecords
     {
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
-                ->with(['warehouse', 'contractor'])
+                ->with(['warehouse', 'contractor', 'jobControl.createdByUser'])
                 ->orderBy('created_at', 'desc')
             );
     }
@@ -70,7 +70,10 @@ class ListWmsOrderDocuments extends ListRecords
 
         return [
             'default' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', TransmissionDocumentStatus::PENDING))
+                ->modifyQueryUsing(fn (Builder $query) => $query
+                    ->where('status', TransmissionDocumentStatus::PENDING)
+                    ->whereDate('order_date', today())
+                )
                 ->favorite()
                 ->label("送信前 ({$pendingCount})")
                 ->default(),
