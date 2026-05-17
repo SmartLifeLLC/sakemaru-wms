@@ -172,13 +172,13 @@ class WmsOrderConfirmationWaitingTable
                     ->width('60px'),
 
                 TextColumn::make('case_quantity')
-                    ->label('発注ケース')
+                    ->label('ケース')
                     ->numeric()
                     ->alignEnd()
                     ->width('75px'),
 
                 TextColumn::make('piece_quantity')
-                    ->label('発注バラ')
+                    ->label('バラ')
                     ->numeric()
                     ->alignEnd()
                     ->width('75px'),

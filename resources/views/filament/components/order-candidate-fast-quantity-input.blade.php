@@ -38,8 +38,8 @@
                     <th class="whitespace-nowrap px-2 py-1.5 text-right">発注点</th>
                     <th class="whitespace-nowrap px-2 py-1.5 text-right">自動発注数</th>
                     <th class="whitespace-nowrap px-2 py-1.5 text-right">不足分</th>
-                    <th class="whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-2 py-1.5 text-right text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100">発注ケース</th>
-                    <th class="whitespace-nowrap bg-amber-100 px-2 py-1.5 text-right text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">発注バラ</th>
+                    <th class="whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-2 py-1.5 text-right text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100">ケース</th>
+                    <th class="whitespace-nowrap bg-amber-100 px-2 py-1.5 text-right text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">バラ</th>
                     <th class="whitespace-nowrap bg-amber-100 px-2 py-1.5 text-right text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">総バラ数</th>
                 </tr>
             </thead>

@@ -695,7 +695,7 @@ class ListWmsStockTransferCandidates extends ListRecords
     {
         return Action::make('salesBasedTransferPreviewModal')
             ->label('物流発注候補表示')
-            ->modalWidth('full')
+            ->modalWidth('7xl')
             ->extraModalWindowAttributes(['class' => 'incoming-detail-modal sales-based-transfer-preview-modal'])
             ->modalHeading('物流発注候補リスト')
             ->modalSubmitAction(fn (Action $action) => $action->makeModalSubmitAction('submit')->label('候補生成')->color('danger'))

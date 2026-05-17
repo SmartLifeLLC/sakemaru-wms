@@ -103,7 +103,7 @@ class WmsOrderCandidatesTable
                     ->toggleable(),
 
                 TextColumn::make('case_quantity')
-                    ->label('発注ケース')
+                    ->label('ケース')
                     ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::CASE ? (int) $record->order_quantity : 0)
                     ->numeric()
                     ->alignEnd()
@@ -111,7 +111,7 @@ class WmsOrderCandidatesTable
                     ->weight(fn ($state) => (int) $state > 0 ? 'bold' : null),
 
                 TextColumn::make('piece_quantity')
-                    ->label('発注バラ')
+                    ->label('バラ')
                     ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::PIECE ? (int) $record->order_quantity : 0)
                     ->numeric()
                     ->alignEnd()
@@ -537,13 +537,13 @@ class WmsOrderCandidatesTable
 
                             $schema[] = Grid::make(3)->schema([
                                 TextInput::make('case_quantity')
-                                    ->label('発注ケース')
+                                    ->label('ケース')
                                     ->integer()
                                     ->minValue(0)
                                     ->disabled($capacityCase <= 1),
 
                                 TextInput::make('piece_quantity')
-                                    ->label('発注バラ')
+                                    ->label('バラ')
                                     ->integer()
                                     ->minValue(0),
 
