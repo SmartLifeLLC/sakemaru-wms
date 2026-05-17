@@ -112,8 +112,8 @@
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold">商品CD</th>
                         <th class="logistics-candidate-item-name px-2 py-1.5 text-left font-semibold" style="width: 500px !important; min-width: 500px !important; max-width: 500px !important;">商品名</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold">規格</th>
-                        <th class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100">発注ケース</th>
-                        <th class="logistics-candidate-order-qty whitespace-nowrap bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">発注バラ</th>
+                        <th class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100">ケース</th>
+                        <th class="logistics-candidate-order-qty whitespace-nowrap bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">バラ</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold">実績合計</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold">販売</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold">返品</th>

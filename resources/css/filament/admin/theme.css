@@ -1008,7 +1008,7 @@ html.fi {
 
 .sales-based-transfer-preview-modal {
     width: calc(100vw - 1.5rem) !important;
-    max-width: calc(100vw - 1.5rem) !important;
+    max-width: 100rem !important;
     margin-top: 3.25rem !important;
     max-height: calc(100vh - 4rem) !important;
     height: auto !important;
@@ -1039,15 +1039,35 @@ html.fi {
 }
 
 .sales-based-transfer-preview-modal .logistics-candidate-contractor-col {
-    width: 128px !important;
+    width: 208px !important;
 }
 
 .sales-based-transfer-preview-modal .logistics-candidate-code-col {
     width: 64px !important;
 }
 
+.sales-based-transfer-preview-modal .logistics-candidate-table th:nth-child(2),
+.sales-based-transfer-preview-modal .logistics-candidate-table td:nth-child(2) {
+    width: 208px !important;
+    min-width: 208px !important;
+    max-width: 208px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-table th:nth-child(3),
+.sales-based-transfer-preview-modal .logistics-candidate-table td:nth-child(3) {
+    width: 64px !important;
+    min-width: 64px !important;
+    max-width: 64px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+
 .sales-based-transfer-preview-modal .logistics-candidate-item-name-col {
-    width: 500px !important;
+    width: 420px !important;
 }
 
 .sales-based-transfer-preview-modal .logistics-candidate-packaging-col {
@@ -1063,9 +1083,9 @@ html.fi {
 }
 
 .sales-based-transfer-preview-modal .logistics-candidate-item-name {
-    width: 500px !important;
-    min-width: 500px !important;
-    max-width: 500px !important;
+    width: 420px !important;
+    min-width: 420px !important;
+    max-width: 420px !important;
     white-space: nowrap !important;
     overflow-wrap: normal !important;
     word-break: normal !important;
