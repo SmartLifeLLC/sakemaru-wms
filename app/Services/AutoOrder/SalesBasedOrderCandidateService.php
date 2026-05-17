@@ -555,11 +555,7 @@ class SalesBasedOrderCandidateService
             $incomingStock = $stock['incoming'] ?? 0;
             $projectedStock = $effectiveStock + $incomingStock;
 
-            if ($projectedStock >= $sales3dQty) {
-                continue;
-            }
-
-            $shortageQty = $sales3dQty - $projectedStock;
+            $shortageQty = max(0, $sales3dQty - $projectedStock);
             $orderQty = $shortageQty;
 
             $supplyWarehouseId = $this->internalSettings[$ic->contractor_id] ?? null;
