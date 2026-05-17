@@ -441,7 +441,7 @@ HTML;
         return new HtmlString($html);
     }
 
-    protected static function bulkCancelWaveModalContent($waves): HtmlString
+    public static function bulkCancelWaveModalContent($waves): HtmlString
     {
         $rows = $waves
             ->sortByDesc('id')
@@ -668,7 +668,7 @@ HTML;
         }
     }
 
-    protected static function cancelWaveInTransaction(Wave $wave): void
+    public static function cancelWaveInTransaction(Wave $wave): void
     {
         $blockers = static::getCancelWaveBlockers($wave, true);
         if (! empty($blockers)) {

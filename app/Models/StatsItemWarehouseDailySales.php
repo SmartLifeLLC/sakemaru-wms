@@ -30,6 +30,9 @@ class StatsItemWarehouseDailySales extends WmsModel
         'item_id',
         'business_date',
         'shipped_piece_qty',
+        'sales_piece_qty',
+        'transfer_piece_qty',
+        'return_piece_qty',
         'shipped_case_qty',
         'shipped_bottle_qty',
     ];
@@ -37,6 +40,9 @@ class StatsItemWarehouseDailySales extends WmsModel
     protected $casts = [
         'business_date' => 'date',
         'shipped_piece_qty' => 'integer',
+        'sales_piece_qty' => 'integer',
+        'transfer_piece_qty' => 'integer',
+        'return_piece_qty' => 'integer',
         'shipped_case_qty' => 'integer',
         'shipped_bottle_qty' => 'integer',
     ];

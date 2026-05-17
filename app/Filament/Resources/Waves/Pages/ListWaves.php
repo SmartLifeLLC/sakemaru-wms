@@ -69,21 +69,15 @@ class ListWaves extends ListRecords
             : [];
 
         return [
+            'today' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query): Builder => $query->where('shipping_date', ClientSetting::systemDateYMD()))
+                ->defaultFilters($defaultFilterData)
+                ->favorite()
+                ->label('当日'),
             'default' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query->whereNotIn('status', ['COMPLETED', 'CLOSED']))
                 ->defaultFilters($defaultFilterData)
                 ->favorite()
-                ->label('未出荷')
-                ->default(),
-            'completed' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query->where('status', 'COMPLETED'))
-                ->defaultFilters($defaultFilterData)
-                ->favorite()
-                ->label('出荷完了'),
-            'all' => PresetView::make()
-                ->defaultFilters($defaultFilterData)
-                ->favorite()
-                ->label('すべて'),
+                ->label('全て'),
         ];
     }
 
@@ -343,16 +337,6 @@ class ListWaves extends ListRecords
                     $this->generateManualWave($data);
                 }),
 
-            Action::make('waveGenerationProgress')
-                ->label('生成状況')
-                ->icon('heroicon-o-clock')
-                ->color('gray')
-                ->modalHeading('波動生成状況')
-                ->modalWidth('4xl')
-                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
-                ->modalSubmitAction(false)
-                ->modalCancelActionLabel('閉じる')
-                ->modalContent(fn (): HtmlString => $this->renderWaveGenerationProgress()),
         ];
     }
 
@@ -997,72 +981,6 @@ class ListWaves extends ListRecords
         }
 
         throw new \RuntimeException('波動生成グループ番号の採番に失敗しました');
-    }
-
-    private function renderWaveGenerationProgress(): HtmlString
-    {
-        $jobs = WmsQueueProgress::query()
-            ->where('job_type', WmsQueueProgress::JOB_TYPE_WAVE_GENERATION)
-            ->when(auth()->id(), fn ($query, int $userId) => $query->where('user_id', $userId))
-            ->orderByDesc('id')
-            ->limit(10)
-            ->get();
-
-        if ($jobs->isEmpty()) {
-            return new HtmlString('<div class="py-8 text-center text-sm text-slate-500 dark:text-gray-400">波動生成ジョブはまだありません。</div>');
-        }
-
-        $statusClasses = [
-            'pending' => 'bg-slate-100 text-slate-700 dark:bg-gray-700 dark:text-gray-200',
-            'processing' => 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-            'completed' => 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-            'failed' => 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-        ];
-
-        $statusLabels = [
-            'pending' => '待機中',
-            'processing' => '処理中',
-            'completed' => '完了',
-            'failed' => '失敗',
-        ];
-
-        $html = '<div class="space-y-3">';
-        foreach ($jobs as $job) {
-            $metadata = $job->metadata ?? [];
-            $result = $job->result ?? [];
-            $groupNo = e($metadata['group_no'] ?? '-');
-            $status = $job->status?->value ?? (string) $job->status;
-            $statusClass = $statusClasses[$status] ?? $statusClasses['pending'];
-            $statusLabel = $statusLabels[$status] ?? $status;
-            $progress = (int) $job->progress;
-            $message = e($job->message ?? '');
-            $waveCount = isset($result['wave_ids']) && is_array($result['wave_ids']) ? count($result['wave_ids']) : null;
-            $timing = $result['timings_ms']['total'] ?? null;
-            $createdAt = $job->created_at?->format('m/d H:i:s') ?? '-';
-
-            $html .= '<div class="rounded-lg border border-slate-200 p-3 dark:border-gray-700">';
-            $html .= '<div class="flex items-center justify-between gap-3">';
-            $html .= "<div class=\"font-mono text-xs text-slate-700 dark:text-gray-200\">{$groupNo}</div>";
-            $html .= "<span class=\"inline-flex rounded px-2 py-0.5 text-xs font-medium {$statusClass}\">{$statusLabel}</span>";
-            $html .= '</div>';
-            $html .= '<div class="mt-2 h-2 overflow-hidden rounded bg-slate-100 dark:bg-gray-800">';
-            $html .= "<div class=\"h-full bg-blue-500\" style=\"width: {$progress}%\"></div>";
-            $html .= '</div>';
-            $html .= "<div class=\"mt-2 text-xs text-slate-600 dark:text-gray-300\">{$message}</div>";
-            $html .= '<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-gray-400">';
-            $html .= "<span>開始: {$createdAt}</span>";
-            $html .= "<span>進捗: {$progress}%</span>";
-            if ($waveCount !== null) {
-                $html .= "<span>波動: {$waveCount}件</span>";
-            }
-            if ($timing !== null) {
-                $html .= '<span>所要: '.number_format(((int) $timing) / 1000, 1).'秒</span>';
-            }
-            $html .= '</div></div>';
-        }
-        $html .= '</div>';
-
-        return new HtmlString($html);
     }
 
     /**

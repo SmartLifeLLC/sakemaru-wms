@@ -68,6 +68,10 @@ class SalesBasedOrderCandidateService
 
     private string $autoOrderFlagFilter = 'ignore';
 
+    private ?string $salesStartDate = null;
+
+    private ?string $salesEndDate = null;
+
     private ?array $targetContractorIds = null;
 
     private ?int $targetWarehouseId = null;
@@ -84,6 +88,8 @@ class SalesBasedOrderCandidateService
         string $orderPointFilter = 'ignore',
         string $autoOrderFlagFilter = 'ignore',
         bool $transferOnly = false,
+        ?string $salesStartDate = null,
+        ?string $salesEndDate = null,
     ): WmsAutoOrderJobControl {
         $lockKey = $this->salesBasedGenerationLockKey($warehouseId);
 
@@ -102,6 +108,8 @@ class SalesBasedOrderCandidateService
                 orderPointFilter: $orderPointFilter,
                 autoOrderFlagFilter: $autoOrderFlagFilter,
                 transferOnly: $transferOnly,
+                salesStartDate: $salesStartDate,
+                salesEndDate: $salesEndDate,
             );
         } finally {
             DbMutex::release($lockKey, 'sakemaru');
@@ -118,6 +126,8 @@ class SalesBasedOrderCandidateService
         string $orderPointFilter = 'ignore',
         string $autoOrderFlagFilter = 'ignore',
         bool $transferOnly = false,
+        ?string $salesStartDate = null,
+        ?string $salesEndDate = null,
     ): WmsAutoOrderJobControl {
         if ($this->hasRunningSalesBasedJobForWarehouse($warehouseId)) {
             throw new \RuntimeException('同じ倉庫の実績ベース発注候補生成が実行中です。完了後に再実行してください。');
@@ -126,6 +136,7 @@ class SalesBasedOrderCandidateService
         $salesBasis = $this->normalizeSalesBasis($salesBasis);
         $orderPointFilter = $this->normalizeOrderPointFilter($orderPointFilter);
         $autoOrderFlagFilter = $this->normalizeAutoOrderFlagFilter($autoOrderFlagFilter);
+        [$salesStartDate, $salesEndDate] = $this->normalizeSalesDateRange($salesStartDate, $salesEndDate);
 
         $targetContractorIds = null;
         if ($contractorIds !== null && ! empty($contractorIds)) {
@@ -141,6 +152,8 @@ class SalesBasedOrderCandidateService
                 'order_point_filter' => $orderPointFilter,
                 'auto_order_flag_filter' => $autoOrderFlagFilter,
                 'transfer_only' => $transferOnly,
+                'sales_start_date' => $salesStartDate,
+                'sales_end_date' => $salesEndDate,
             ],
             batchCode: $batchCode,
             settlementStatus: SettlementStatus::PENDING,
@@ -154,6 +167,8 @@ class SalesBasedOrderCandidateService
         $this->salesBasis = $salesBasis;
         $this->orderPointFilter = $orderPointFilter;
         $this->autoOrderFlagFilter = $autoOrderFlagFilter;
+        $this->salesStartDate = $salesStartDate;
+        $this->salesEndDate = $salesEndDate;
 
         try {
             $batchCode = $job->batch_code;
@@ -164,6 +179,8 @@ class SalesBasedOrderCandidateService
                 'sales_basis' => $this->salesBasis,
                 'order_point_filter' => $this->orderPointFilter,
                 'auto_order_flag_filter' => $this->autoOrderFlagFilter,
+                'sales_start_date' => $this->salesStartDate,
+                'sales_end_date' => $this->salesEndDate,
             ]);
 
             $this->loadAllDataToMemory();
@@ -468,22 +485,13 @@ class SalesBasedOrderCandidateService
             }
         }
 
-        $salesSummaries = DB::connection('sakemaru')
-            ->table('stats_item_warehouse_sales_summaries')
-            ->whereIn('warehouse_id', $this->realWarehouseIds)
-            ->where($this->salesBasisColumn(), '>', 0)
-            ->select('warehouse_id', 'item_id', 'sales_today_qty', 'sales_yesterday_qty', 'last_3d_qty')
-            ->get();
+        $salesSummaries = $this->loadSalesSummaries();
 
         foreach ($salesSummaries as $s) {
             if (! isset($this->salesSummaries3d[$s->warehouse_id])) {
                 $this->salesSummaries3d[$s->warehouse_id] = [];
             }
-            $this->salesSummaries3d[$s->warehouse_id][$s->item_id] = (int) match ($this->salesBasis) {
-                'today' => $s->sales_today_qty,
-                'yesterday' => $s->sales_yesterday_qty,
-                default => $s->last_3d_qty,
-            };
+            $this->salesSummaries3d[$s->warehouse_id][$s->item_id] = (int) $s->sales_qty;
         }
 
         Log::info('[SalesBased] データロード完了');
@@ -634,8 +642,9 @@ class SalesBasedOrderCandidateService
                     '供給元倉庫名' => $supplyWarehouseInfo['name'] ?? null,
                 ], [
                     '計算タイプ' => '実績ベース',
-                    '計算式' => '3日実績 - (有効在庫 + 入荷予定)',
-                    '3日実績' => $sales3dQty,
+                    '計算式' => "{$this->salesBasisLabel()}実績 - (有効在庫 + 入荷予定)",
+                    '販売実績条件' => $this->salesBasisLabel(),
+                    '対象販売実績' => $sales3dQty,
                     '発注点' => $safetyStock,
                     '有効在庫' => $effectiveStock,
                     '入荷予定' => $incomingStock,
@@ -1037,6 +1046,47 @@ class SalesBasedOrderCandidateService
         return in_array($salesBasis, ['today', 'yesterday', 'last_3d'], true) ? $salesBasis : 'last_3d';
     }
 
+    private function normalizeSalesDateRange(?string $startDate, ?string $endDate): array
+    {
+        if (! $startDate || ! $endDate) {
+            return [null, null];
+        }
+
+        try {
+            $start = Carbon::parse($startDate)->toDateString();
+            $end = Carbon::parse($endDate)->toDateString();
+        } catch (\Throwable) {
+            return [null, null];
+        }
+
+        if ($start > $end) {
+            return [$end, $start];
+        }
+
+        return [$start, $end];
+    }
+
+    private function loadSalesSummaries(): \Illuminate\Support\Collection
+    {
+        if ($this->salesStartDate && $this->salesEndDate) {
+            return DB::connection('sakemaru')
+                ->table('stats_item_warehouse_daily_sales')
+                ->whereIn('warehouse_id', $this->realWarehouseIds)
+                ->whereBetween('business_date', [$this->salesStartDate, $this->salesEndDate])
+                ->selectRaw('warehouse_id, item_id, SUM(shipped_piece_qty) as sales_qty')
+                ->groupBy('warehouse_id', 'item_id')
+                ->havingRaw('SUM(shipped_piece_qty) > 0')
+                ->get();
+        }
+
+        return DB::connection('sakemaru')
+            ->table('stats_item_warehouse_sales_summaries')
+            ->whereIn('warehouse_id', $this->realWarehouseIds)
+            ->where($this->salesBasisColumn(), '>', 0)
+            ->selectRaw('warehouse_id, item_id, '.$this->salesBasisColumn().' as sales_qty')
+            ->get();
+    }
+
     private function normalizeOrderPointFilter(string $orderPointFilter): string
     {
         return in_array($orderPointFilter, ['ignore', 'below_or_equal'], true) ? $orderPointFilter : 'ignore';
@@ -1058,6 +1108,10 @@ class SalesBasedOrderCandidateService
 
     private function salesBasisLabel(): string
     {
+        if ($this->salesStartDate && $this->salesEndDate) {
+            return "{$this->salesStartDate}〜{$this->salesEndDate}";
+        }
+
         return match ($this->salesBasis) {
             'today' => '当日',
             'yesterday' => '前日',

@@ -990,6 +990,36 @@ html.fi {
     width: auto !important;
 }
 
+.sales-based-transfer-preview-modal {
+    width: calc(100vw - 1.5rem) !important;
+    max-width: calc(100vw - 1.5rem) !important;
+    margin-top: 3.25rem !important;
+    max-height: calc(100vh - 4rem) !important;
+    height: auto !important;
+}
+
+.sales-based-transfer-preview-modal .fi-modal-content {
+    padding: 0.75rem 1rem !important;
+    max-height: calc(100vh - 12rem) !important;
+    overflow: visible !important;
+}
+
+.sales-based-transfer-preview-modal .fi-modal-footer {
+    flex-shrink: 0 !important;
+}
+
+.sales-based-transfer-date-field label {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+}
+
+.smart-date-input-lg input {
+    min-height: 3rem !important;
+    font-size: 1.125rem !important;
+    line-height: 1.75rem !important;
+    font-weight: 700 !important;
+}
+
 /* 倉庫別発注確定ボタン: 無効時でも読める配色にする */
 .wms-order-confirm-action {
     font-weight: 700 !important;

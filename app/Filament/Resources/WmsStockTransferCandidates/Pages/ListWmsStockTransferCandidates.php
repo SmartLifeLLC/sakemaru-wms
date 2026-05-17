@@ -6,14 +6,13 @@ use App\Enums\AutoOrder\CalculationType;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OriginType;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
-use App\Enums\QueueProgressStatus;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsStockTransferCandidates\Tables\WmsStockTransferCandidatesTable;
 use App\Filament\Resources\WmsStockTransferCandidates\WmsStockTransferCandidateResource;
-use App\Jobs\ProcessSalesBasedOrderCandidateJob;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemCategory;
@@ -23,8 +22,8 @@ use App\Models\StatsItemWarehouseSalesSummary;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
-use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
+use App\Models\WmsWarehouseAutoOrderSetting;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
@@ -52,9 +51,17 @@ class ListWmsStockTransferCandidates extends ListRecords
 
     protected static string $resource = WmsStockTransferCandidateResource::class;
 
+    private const SALES_BASED_TRANSFER_HUB_WAREHOUSE_ID = 91;
+
     public array $transferOrderItems = [];
 
     public array $transferQuantityInputPayload = [];
+
+    public array $salesBasedTransferPreviewRows = [];
+
+    public array $salesBasedTransferPreviewConditions = [];
+
+    public ?string $salesBasedTransferPreviewError = null;
 
     public function searchItemsForCreate(string $search): array
     {
@@ -586,29 +593,33 @@ class ListWmsStockTransferCandidates extends ListRecords
         $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
         $selectedWarehouse = $selectedWarehouseId ? Warehouse::find($selectedWarehouseId) : null;
         $selectedWarehouseName = $selectedWarehouse?->name ?? '未選択';
-        $isHubWarehouse = $selectedWarehouseId
-            ? WmsContractorSetting::where('transmission_type', TransmissionType::INTERNAL)
-                ->where('supply_warehouse_id', $selectedWarehouseId)
-                ->exists()
-            : false;
+        $targetHubWarehouse = Warehouse::find(self::SALES_BASED_TRANSFER_HUB_WAREHOUSE_ID);
+        $targetHubWarehouseName = $targetHubWarehouse?->name ?? '華むすびの蔵センター';
 
         $baseDescription = match (true) {
-            ! $selectedWarehouse => '倉庫が選択されていません。トップバーからHUB倉庫を選択してください。',
-            ! $isHubWarehouse => "倉庫「{$selectedWarehouseName}」はHUB倉庫ではありません。HUB倉庫のみ実行できます。",
-            default => "HUB倉庫「{$selectedWarehouseName}」向けの実績ベース移動候補を生成します。対象はこのHUB倉庫から供給するサテライト倉庫です。発注候補は生成しません。",
+            ! $selectedWarehouse => '倉庫が選択されていません。トップバーから倉庫を選択してください。',
+            default => "倉庫「{$selectedWarehouseName}」の販売実績から、{$targetHubWarehouseName}への物流発注候補を生成します。",
         };
 
         return Action::make('generateSalesBasedTransfer')
-            ->label('実績ベース転換移動候補生成')
+            ->label('物流発注候補生成')
             ->icon('heroicon-o-chart-bar')
             ->color('info')
-            ->modalWidth('5xl')
-            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
-            ->modalHeading("実績ベース転換移動候補生成（{$selectedWarehouseName}）")
+            ->modalWidth('7xl')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal sales-based-transfer-generate-modal'])
+            ->modalHeading("物流発注候補生成（{$selectedWarehouseName}）")
             ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
-            ->modalSubmitAction(fn (Action $action) => $action->label('生成開始')->color('danger'))
-            ->modalCancelActionLabel('生成せず閉じる')
-            ->disabled(! $selectedWarehouse || ! $isHubWarehouse)
+            ->modalSubmitAction(fn (Action $action) => $action->label('候補表示')->color('danger'))
+            ->modalCancelActionLabel('表示せず閉じる')
+            ->disabled(! $selectedWarehouse)
+            ->mountUsing(function ($schema): void {
+                $this->resetSalesBasedTransferPreview();
+                $schema?->fill([
+                    'sales_start_date' => now()->subDays(2)->toDateString(),
+                    'sales_end_date' => now()->toDateString(),
+                    'auto_order_flag_filter' => 'ignore',
+                ]);
+            })
             ->schema([
                 \Filament\Forms\Components\Placeholder::make('description')
                     ->hiddenLabel()
@@ -618,136 +629,457 @@ class ListWmsStockTransferCandidates extends ListRecords
                         .'</div>'
                     )),
                 Grid::make(3)->schema([
-                    Select::make('sales_basis')
-                        ->label('販売実績')
-                        ->options([
-                            'today' => '当日',
-                            'yesterday' => '前日',
-                            'last_3d' => '3日間',
-                        ])
-                        ->default('last_3d')
-                        ->native(false)
-                        ->required(),
-                    Select::make('auto_order_flag_filter')
-                        ->label('自動発注フラグ')
-                        ->options([
-                            'ignore' => '考慮しない',
-                            'on' => 'ONのもの',
-                            'off' => 'OFFのもの',
-                        ])
-                        ->default('ignore')
-                        ->native(false)
-                        ->required(),
-                    \Filament\Forms\Components\Placeholder::make('target_notice')
+                    Placeholder::make('target_notice')
                         ->label('対象')
-                        ->content('HUB倉庫配下のINTERNAL移動候補のみ'),
+                        ->content($targetHubWarehouseName),
+                    Placeholder::make('auto_order_flag_notice')
+                        ->label('自動発注フラグ')
+                        ->content('考慮しない'),
+                    Placeholder::make('selected_hub_notice')
+                        ->label('選択中倉庫')
+                        ->content($selectedWarehouseName),
+                ]),
+                Grid::make(2)->schema([
+                    ViewField::make('sales_start_date')
+                        ->label('販売実績 開始日')
+                        ->view('filament.forms.components.smart-date-input')
+                        ->viewData(['size' => 'large'])
+                        ->extraAttributes(['class' => 'sales-based-transfer-date-field'])
+                        ->default(now()->subDays(2)->toDateString())
+                        ->live()
+                        ->afterStateUpdated(fn () => $this->resetSalesBasedTransferPreview())
+                        ->required(),
+                    ViewField::make('sales_end_date')
+                        ->label('販売実績 終了日')
+                        ->view('filament.forms.components.smart-date-input')
+                        ->viewData(['size' => 'large'])
+                        ->extraAttributes(['class' => 'sales-based-transfer-date-field'])
+                        ->default(now()->toDateString())
+                        ->live()
+                        ->afterStateUpdated(fn () => $this->resetSalesBasedTransferPreview())
+                        ->required(),
                 ]),
             ])
-            ->action(function (Action $action, array $data) use ($selectedWarehouseId, $selectedWarehouseName) {
-                if ($activeJob = $this->findActiveSalesBasedTransferQueueProgress($selectedWarehouseId)) {
+            ->action(function (Action $action) {
+                $this->calculateSalesBasedTransferPreview();
+
+                if (empty($this->salesBasedTransferPreviewRows)) {
                     Notification::make()
-                        ->title('実績ベース移動候補生成が実行中です')
-                        ->body('重複生成を避けるため、新しいジョブは投入しません。完了後に再実行してください。')
+                        ->title('表示できる候補がありません')
+                        ->body($this->salesBasedTransferPreviewError ?? '条件を変更して再度候補表示してください。')
                         ->warning()
                         ->send();
 
                     $action->halt();
                 }
 
-                $internalContractorIds = WmsContractorSetting::query()
-                    ->where('transmission_type', TransmissionType::INTERNAL)
-                    ->where('supply_warehouse_id', $selectedWarehouseId)
-                    ->pluck('contractor_id')
-                    ->map(fn ($id) => (int) $id)
-                    ->values()
-                    ->toArray();
-
-                if (empty($internalContractorIds)) {
-                    Notification::make()
-                        ->title('対象のINTERNAL仕入先がありません')
-                        ->danger()
-                        ->send();
-
-                    $action->halt();
-                }
-
-                $hasApprovedTransfers = WmsStockTransferCandidate::query()
-                    ->where('status', CandidateStatus::APPROVED)
-                    ->forCreatedBy(auth()->id())
-                    ->where('hub_warehouse_id', $selectedWarehouseId)
-                    ->whereIn('contractor_id', $internalContractorIds)
-                    ->exists();
-
-                if ($hasApprovedTransfers) {
-                    Notification::make()
-                        ->title('承認済みの移動候補があります')
-                        ->body('先に確定処理を行ってください')
-                        ->danger()
-                        ->send();
-
-                    $action->halt();
-                }
-
-                $deletedTransfers = WmsStockTransferCandidate::query()
-                    ->where('status', CandidateStatus::PENDING)
-                    ->forCreatedBy(auth()->id())
-                    ->where('hub_warehouse_id', $selectedWarehouseId)
-                    ->whereIn('contractor_id', $internalContractorIds)
-                    ->delete();
-
-                $existingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse($selectedWarehouseId, auth()->id());
-                $batchCode = $existingJob?->batch_code;
-
-                $queueProgress = WmsQueueProgress::createJob(
-                    WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
-                    auth()->id(),
-                    [
-                        'warehouse_id' => $selectedWarehouseId,
-                        'contractor_ids' => $internalContractorIds,
-                        'source' => 'sales_based_transfer',
-                        'transfer_only' => true,
-                        'sales_basis' => $data['sales_basis'] ?? 'last_3d',
-                        'auto_order_flag_filter' => $data['auto_order_flag_filter'] ?? 'ignore',
-                    ]
-                );
-
-                ProcessSalesBasedOrderCandidateJob::dispatch(
-                    jobId: $queueProgress->job_id,
-                    warehouseId: $selectedWarehouseId,
-                    createdBy: auth()->id(),
-                    contractorIds: $internalContractorIds,
-                    batchCode: $batchCode,
-                    originType: \App\Enums\AutoOrder\OriginType::MANUAL_SALES_BASED->value,
-                    salesBasis: $data['sales_basis'] ?? 'last_3d',
-                    orderPointFilter: 'ignore',
-                    autoOrderFlagFilter: $data['auto_order_flag_filter'] ?? 'ignore',
-                    transferOnly: true,
-                );
-
-                $message = "HUB倉庫「{$selectedWarehouseName}」の実績ベース移動候補生成を開始しました";
-                if ($deletedTransfers > 0) {
-                    $message .= "（既存PENDING移動候補 {$deletedTransfers}件 を削除）";
-                }
-                if ($batchCode) {
-                    $message .= "（既存バッチ{$batchCode}に追加）";
-                }
-
-                Notification::make()
-                    ->title($message)
-                    ->success()
-                    ->send();
+                $this->replaceMountedAction('salesBasedTransferPreviewModal');
             });
     }
 
-    private function findActiveSalesBasedTransferQueueProgress(?int $warehouseId): ?WmsQueueProgress
+    protected function salesBasedTransferPreviewModalAction(): Action
     {
-        return WmsQueueProgress::query()
-            ->where('job_type', WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION)
-            ->whereIn('status', [QueueProgressStatus::PENDING, QueueProgressStatus::PROCESSING])
-            ->where('metadata->source', 'sales_based_transfer')
-            ->where('metadata->warehouse_id', $warehouseId)
-            ->latest()
-            ->first();
+        return Action::make('salesBasedTransferPreviewModal')
+            ->label('物流発注候補表示')
+            ->modalWidth('full')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal sales-based-transfer-preview-modal'])
+            ->modalHeading('物流発注候補リスト')
+            ->modalSubmitAction(fn (Action $action) => $action->label('候補生成')->color('danger'))
+            ->modalCancelActionLabel('閉じる')
+            ->schema([
+                ViewField::make('sales_based_transfer_preview_edit')
+                    ->view('filament.components.sales-based-transfer-preview-edit')
+                    ->hiddenLabel(),
+            ])
+            ->action(function (): void {
+                $this->createSalesBasedTransferPreviewCandidates();
+            });
+    }
+
+    public function resetSalesBasedTransferPreview(): void
+    {
+        $this->salesBasedTransferPreviewRows = [];
+        $this->salesBasedTransferPreviewConditions = [];
+        $this->salesBasedTransferPreviewError = null;
+    }
+
+    public function calculateSalesBasedTransferPreview(): void
+    {
+        $this->resetSalesBasedTransferPreview();
+
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        if (! $selectedWarehouseId) {
+            $this->salesBasedTransferPreviewError = '倉庫が選択されていません。';
+
+            return;
+        }
+
+        $selectedWarehouse = Warehouse::find($selectedWarehouseId);
+        $targetHubWarehouse = Warehouse::find(self::SALES_BASED_TRANSFER_HUB_WAREHOUSE_ID);
+
+        $data = $this->getMountedSalesBasedTransferActionData();
+        $startDate = $data['sales_start_date'] ?? now()->subDays(2)->toDateString();
+        $endDate = $data['sales_end_date'] ?? now()->toDateString();
+
+        try {
+            $startDate = \Carbon\Carbon::parse($startDate)->toDateString();
+            $endDate = \Carbon\Carbon::parse($endDate)->toDateString();
+        } catch (\Throwable) {
+            $this->salesBasedTransferPreviewError = '販売実績の期間を正しく指定してください。';
+
+            return;
+        }
+
+        if ($startDate > $endDate) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
+        $days = max(1, \Carbon\Carbon::parse($startDate)->diffInDays(\Carbon\Carbon::parse($endDate)) + 1);
+        $this->salesBasedTransferPreviewConditions = [
+            'sales_start_date' => $startDate,
+            'sales_end_date' => $endDate,
+            'selected_warehouse_name' => $selectedWarehouse?->name ?? '未選択',
+            'target_warehouse_name' => $targetHubWarehouse?->name ?? '華むすびの蔵センター',
+            'auto_order_flag_filter' => '考慮しない',
+            'days' => $days,
+        ];
+
+        $warehouseIds = $this->getSalesBasedTransferGenerationWarehouseIds($selectedWarehouseId);
+
+        if (empty($warehouseIds)) {
+            $this->salesBasedTransferPreviewError = '対象倉庫がありません。';
+
+            return;
+        }
+
+        $pendingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse(
+            $selectedWarehouseId,
+            auth()->id(),
+            [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC]
+        );
+        $batchCode = $pendingJob?->batch_code;
+
+        $salesSubquery = DB::connection('sakemaru')
+            ->table('stats_item_warehouse_daily_sales')
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->selectRaw('
+                warehouse_id,
+                item_id,
+                SUM(shipped_piece_qty) as sales_qty,
+                SUM(sales_piece_qty) as sales_piece_qty,
+                SUM(return_piece_qty) as return_piece_qty,
+                SUM(transfer_piece_qty) as transfer_piece_qty
+            ')
+            ->groupBy('warehouse_id', 'item_id')
+            ->havingRaw('SUM(shipped_piece_qty) > 0');
+
+        $stockSubquery = DB::connection('sakemaru')
+            ->query()
+            ->fromSub(
+                DB::connection('sakemaru')
+                    ->table('wms_v_stock_available')
+                    ->whereIn('warehouse_id', $warehouseIds)
+                    ->selectRaw('DISTINCT warehouse_id, item_id, real_stock_id, available_for_wms as stock_qty'),
+                'dedup_stocks'
+            )
+            ->selectRaw('warehouse_id, item_id, SUM(stock_qty) as effective_stock')
+            ->groupBy('warehouse_id', 'item_id');
+
+        $incomingSubquery = DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('status', ['PENDING', 'PARTIAL'])
+            ->selectRaw('warehouse_id, item_id, SUM(expected_quantity - received_quantity) as incoming_qty')
+            ->groupBy('warehouse_id', 'item_id');
+
+        $query = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
+            ->join('items', 'item_contractors.item_id', '=', 'items.id')
+            ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
+            ->joinSub($salesSubquery, 'sales', function ($join) {
+                $join->on('sales.warehouse_id', '=', 'item_contractors.warehouse_id')
+                    ->on('sales.item_id', '=', 'item_contractors.item_id');
+            })
+            ->leftJoinSub($stockSubquery, 'stocks', function ($join) {
+                $join->on('stocks.warehouse_id', '=', 'item_contractors.warehouse_id')
+                    ->on('stocks.item_id', '=', 'item_contractors.item_id');
+            })
+            ->leftJoinSub($incomingSubquery, 'incoming', function ($join) {
+                $join->on('incoming.warehouse_id', '=', 'item_contractors.warehouse_id')
+                    ->on('incoming.item_id', '=', 'item_contractors.item_id');
+            })
+            ->where('wcs.transmission_type', TransmissionType::INTERNAL->value)
+            ->where('wcs.supply_warehouse_id', self::SALES_BASED_TRANSFER_HUB_WAREHOUSE_ID)
+            ->whereIn('item_contractors.warehouse_id', $warehouseIds)
+            ->where('items.end_of_sale_type', 'NORMAL')
+            ->where('items.is_ended', false)
+            ->where(fn ($query) => $query->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
+            ->where(fn ($query) => $query->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
+            ->where('contractors.is_auto_change_order', true)
+            ->whereRaw('(COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)) < sales.sales_qty')
+            ->whereExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('item_search_information as isi')
+                    ->whereColumn('isi.item_id', 'item_contractors.item_id')
+                    ->where('isi.is_used_for_ordering', true)
+                    ->where('isi.is_active', true)
+                    ->whereRaw("isi.search_string REGEXP '[1-9]'");
+            });
+
+        if ($batchCode) {
+            $query->whereNotExists(function ($query) use ($batchCode) {
+                $query->selectRaw('1')
+                    ->from('wms_stock_transfer_candidates as existing_candidates')
+                    ->where('existing_candidates.batch_code', $batchCode)
+                    ->where('existing_candidates.status', CandidateStatus::APPROVED->value)
+                    ->whereColumn('existing_candidates.satellite_warehouse_id', 'item_contractors.warehouse_id')
+                    ->whereColumn('existing_candidates.hub_warehouse_id', 'wcs.supply_warehouse_id')
+                    ->whereColumn('existing_candidates.item_id', 'item_contractors.item_id')
+                    ->whereColumn('existing_candidates.contractor_id', 'item_contractors.contractor_id');
+            });
+        }
+
+        $this->salesBasedTransferPreviewRows = $query
+            ->selectRaw('
+                item_contractors.warehouse_id as satellite_warehouse_id,
+                wcs.supply_warehouse_id as hub_warehouse_id,
+                item_contractors.item_id as item_id,
+                item_contractors.contractor_id as contractor_id,
+                items.code as item_code,
+                items.name as item_name,
+                items.packaging as item_packaging,
+                contractors.name as contractor_name,
+                sales.sales_qty as sales_qty,
+                sales.sales_piece_qty as sales_piece_qty,
+                sales.return_piece_qty as return_piece_qty,
+                sales.transfer_piece_qty as transfer_piece_qty,
+                COALESCE(stocks.effective_stock, 0) as effective_stock,
+                COALESCE(incoming.incoming_qty, 0) as incoming_qty,
+                (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)) as projected_stock,
+                GREATEST(sales.sales_qty - (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)), 0) as order_piece_qty,
+                COALESCE(item_contractors.purchase_unit, 1) as purchase_unit
+            ')
+            ->orderBy('items.code')
+            ->limit(200)
+            ->get()
+            ->map(fn ($row) => [
+                'satellite_warehouse_id' => (int) $row->satellite_warehouse_id,
+                'hub_warehouse_id' => (int) $row->hub_warehouse_id,
+                'item_id' => (int) $row->item_id,
+                'contractor_id' => (int) $row->contractor_id,
+                'item_code' => (string) $row->item_code,
+                'item_name' => (string) $row->item_name,
+                'item_packaging' => (string) ($row->item_packaging ?? ''),
+                'contractor_name' => (string) $row->contractor_name,
+                'sales_qty' => (int) $row->sales_qty,
+                'sales_piece_qty' => (int) $row->sales_piece_qty,
+                'return_piece_qty' => (int) $row->return_piece_qty,
+                'transfer_piece_qty' => (int) $row->transfer_piece_qty,
+                'daily_avg_qty' => round(((int) $row->sales_qty) / $days, 2),
+                'effective_stock' => (int) $row->effective_stock,
+                'incoming_qty' => (int) $row->incoming_qty,
+                'projected_stock' => (int) $row->projected_stock,
+                'purchase_unit' => max(1, (int) $row->purchase_unit),
+                'order_piece_qty' => (int) $row->order_piece_qty,
+                'input_order_piece_qty' => null,
+            ])
+            ->toArray();
+
+        if (empty($this->salesBasedTransferPreviewRows)) {
+            $this->salesBasedTransferPreviewError = '現在の条件に該当する候補がありません。';
+        }
+    }
+
+    public function updateSalesBasedTransferPreviewRows(array $rows): void
+    {
+        $this->salesBasedTransferPreviewRows = collect($rows)
+            ->map(function (array $row): array {
+                $inputQuantity = $row['input_order_piece_qty'] ?? null;
+                $row['input_order_piece_qty'] = ($inputQuantity === null || $inputQuantity === '')
+                    ? null
+                    : max(0, (int) $inputQuantity);
+
+                return $row;
+            })
+            ->values()
+            ->toArray();
+    }
+
+    public function createSalesBasedTransferPreviewCandidates(): void
+    {
+        if (empty($this->salesBasedTransferPreviewRows)) {
+            Notification::make()
+                ->title('生成対象の候補がありません')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        if (! $selectedWarehouseId) {
+            Notification::make()
+                ->title('倉庫が選択されていません')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $job = WmsAutoOrderJobControl::findPendingSettlementForWarehouse(
+            $selectedWarehouseId,
+            auth()->id(),
+            [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC]
+        );
+
+        if (! $job) {
+            $job = WmsAutoOrderJobControl::startJob(
+                processName: JobProcessName::SALES_BASED_CALC,
+                createdBy: auth()->id(),
+                warehouseId: $selectedWarehouseId,
+                batchCode: WmsAutoOrderJobControl::generateBatchCode($selectedWarehouseId),
+            );
+            $job->markAsSuccess(0);
+        }
+
+        $batchCode = $job->batch_code;
+        $created = 0;
+        $skipped = 0;
+        $now = now();
+
+        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, &$created, &$skipped): void {
+            foreach ($this->salesBasedTransferPreviewRows as $row) {
+                $itemId = (int) ($row['item_id'] ?? 0);
+                $satelliteWarehouseId = (int) ($row['satellite_warehouse_id'] ?? 0);
+                $hubWarehouseId = (int) ($row['hub_warehouse_id'] ?? self::SALES_BASED_TRANSFER_HUB_WAREHOUSE_ID);
+                $contractorId = (int) ($row['contractor_id'] ?? 0);
+
+                if ($itemId < 1 || $satelliteWarehouseId < 1 || $hubWarehouseId < 1 || $contractorId < 1) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $exists = WmsStockTransferCandidate::query()
+                    ->where('satellite_warehouse_id', $satelliteWarehouseId)
+                    ->where('hub_warehouse_id', $hubWarehouseId)
+                    ->where('item_id', $itemId)
+                    ->where('contractor_id', $contractorId)
+                    ->where('status', CandidateStatus::PENDING)
+                    ->forCreatedBy(auth()->id())
+                    ->exists();
+
+                if ($exists) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $quantity = max(0, (int) ($row['input_order_piece_qty'] ?? 0));
+                $searchCode = DB::connection('sakemaru')
+                    ->table('item_search_information')
+                    ->where('item_id', $itemId)
+                    ->where('is_used_for_ordering', true)
+                    ->where('is_active', true)
+                    ->orderBy('id')
+                    ->value('search_string');
+
+                WmsStockTransferCandidate::create([
+                    'batch_code' => $batchCode,
+                    'satellite_warehouse_id' => $satelliteWarehouseId,
+                    'hub_warehouse_id' => $hubWarehouseId,
+                    'item_id' => $itemId,
+                    'item_code' => $row['item_code'] ?? null,
+                    'search_code' => $searchCode,
+                    'ordering_code' => $searchCode ? str_pad((string) $searchCode, 13, '0', STR_PAD_LEFT) : null,
+                    'contractor_id' => $contractorId,
+                    'suggested_quantity' => $quantity,
+                    'transfer_quantity' => $quantity,
+                    'current_effective_stock' => (int) ($row['effective_stock'] ?? 0),
+                    'incoming_quantity' => (int) ($row['incoming_qty'] ?? 0),
+                    'calculated_available' => (int) ($row['projected_stock'] ?? 0),
+                    'shortage_qty' => max(0, (int) ($row['order_piece_qty'] ?? 0)),
+                    'purchase_unit' => max(1, (int) ($row['purchase_unit'] ?? 1)),
+                    'quantity_type' => QuantityType::PIECE,
+                    'status' => CandidateStatus::PENDING,
+                    'lot_status' => LotStatus::RAW,
+                    'origin_type' => OriginType::MANUAL_SALES_BASED,
+                    'is_manually_modified' => true,
+                    'modified_by' => auth()->id(),
+                    'modified_at' => $now,
+                ]);
+
+                WmsOrderCalculationLog::create([
+                    'batch_code' => $batchCode,
+                    'warehouse_id' => $satelliteWarehouseId,
+                    'item_id' => $itemId,
+                    'calculation_type' => CalculationType::INTERNAL,
+                    'contractor_id' => $contractorId,
+                    'source_warehouse_id' => $hubWarehouseId,
+                    'current_effective_stock' => (int) ($row['effective_stock'] ?? 0),
+                    'incoming_quantity' => (int) ($row['incoming_qty'] ?? 0),
+                    'safety_stock_setting' => 0,
+                    'lead_time_days' => 1,
+                    'calculated_shortage_qty' => max(0, (int) ($row['order_piece_qty'] ?? 0)),
+                    'calculated_order_quantity' => $quantity,
+                    'calculation_details' => [
+                        'source' => 'sales_based_transfer_preview',
+                        'sales_start_date' => $this->salesBasedTransferPreviewConditions['sales_start_date'] ?? null,
+                        'sales_end_date' => $this->salesBasedTransferPreviewConditions['sales_end_date'] ?? null,
+                        'sales_qty' => (int) ($row['sales_qty'] ?? 0),
+                        'sales_piece_qty' => (int) ($row['sales_piece_qty'] ?? 0),
+                        'return_piece_qty' => (int) ($row['return_piece_qty'] ?? 0),
+                        'transfer_piece_qty' => (int) ($row['transfer_piece_qty'] ?? 0),
+                        'input_blank_as_zero' => true,
+                        'created_by' => auth()->id(),
+                    ],
+                ]);
+
+                $created++;
+            }
+        });
+
+        Notification::make()
+            ->title("物流発注候補を {$created}件 生成しました")
+            ->body($skipped > 0 ? "既存候補など {$skipped}件 はスキップしました。" : null)
+            ->success()
+            ->send();
+
+        $this->resetSalesBasedTransferPreview();
+        $this->dispatch('$refresh');
+    }
+
+    private function getSalesBasedTransferGenerationWarehouseIds(int $warehouseId): array
+    {
+        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
+            ->pluck('warehouse_id')
+            ->toArray();
+
+        $satelliteWarehouseIds = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
+            ->where('wcs.transmission_type', TransmissionType::INTERNAL->value)
+            ->where('wcs.supply_warehouse_id', $warehouseId)
+            ->pluck('item_contractors.warehouse_id')
+            ->unique()
+            ->toArray();
+
+        return array_values(array_intersect(
+            $enabledWarehouseIds,
+            array_values(array_unique(array_merge([$warehouseId], $satelliteWarehouseIds))),
+        ));
+    }
+
+    private function getMountedSalesBasedTransferActionData(): array
+    {
+        $mountedActionKey = array_key_last($this->mountedActions ?? []);
+
+        if ($mountedActionKey === null) {
+            return [];
+        }
+
+        return $this->mountedActions[$mountedActionKey]['data'] ?? [];
     }
 
     private function createTransferOrderCandidates(array $data, array $items, int &$created, array &$errors): void

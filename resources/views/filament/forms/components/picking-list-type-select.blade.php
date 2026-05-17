@@ -2,6 +2,7 @@
     <div
         x-data="{
             state: $wire.entangle('{{ $getStatePath() }}').live,
+            enabledTypes: @js($enabledTypes ?? null),
             options: [
                 { value: 'primary', label: '1次（波動集約）', icon: 'fa-layer-group', desc: '商品別の総数量一覧', color: 'blue' },
                 { value: 'primary_total', label: '1次リスト(一括)', icon: 'fa-calculator', desc: '波動をまたいだ商品別合計', color: 'blue' },
@@ -10,10 +11,14 @@
                 { value: 'secondary_v2', label: '2次リスト2', icon: 'fa-user-hard-hat', desc: '1F→2F→YX順', color: 'blue' },
                 { value: 'tertiary', label: '3次（得意先別）', icon: 'fa-store', desc: '配送者別、得意先別', color: 'blue' },
             ],
+            get visibleOptions() {
+                if (!Array.isArray(this.enabledTypes) || this.enabledTypes.length === 0) return this.options;
+                return this.options.filter(opt => this.enabledTypes.includes(opt.value));
+            },
         }"
         class="grid grid-cols-6 gap-3"
     >
-        <template x-for="opt in options" :key="opt.value">
+        <template x-for="opt in visibleOptions" :key="opt.value">
             <button
                 type="button"
                 @click="state = opt.value"

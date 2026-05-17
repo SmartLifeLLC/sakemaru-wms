@@ -32,6 +32,8 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
         public string $orderPointFilter = 'ignore',
         public string $autoOrderFlagFilter = 'ignore',
         public bool $transferOnly = false,
+        public ?string $salesStartDate = null,
+        public ?string $salesEndDate = null,
     ) {}
 
     public function handle(): void
@@ -71,6 +73,8 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
                 orderPointFilter: $orderPointFilter,
                 autoOrderFlagFilter: $autoOrderFlagFilter,
                 transferOnly: $this->transferOnly,
+                salesStartDate: $this->salesStartDate,
+                salesEndDate: $this->salesEndDate,
             );
 
             $results = [

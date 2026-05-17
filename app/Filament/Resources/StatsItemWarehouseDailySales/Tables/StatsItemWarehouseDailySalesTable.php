@@ -55,7 +55,28 @@ class StatsItemWarehouseDailySalesTable
                     ->searchable(),
 
                 TextColumn::make('shipped_piece_qty')
-                    ->label('バラ数')
+                    ->label('合計バラ数')
+                    ->numeric()
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('100px'),
+
+                TextColumn::make('sales_piece_qty')
+                    ->label('販売バラ数')
+                    ->numeric()
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('100px'),
+
+                TextColumn::make('transfer_piece_qty')
+                    ->label('移動バラ数')
+                    ->numeric()
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('100px'),
+
+                TextColumn::make('return_piece_qty')
+                    ->label('返品バラ数')
                     ->numeric()
                     ->sortable()
                     ->alignEnd()

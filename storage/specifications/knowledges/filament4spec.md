@@ -554,6 +554,13 @@ SelectFilter::make('batch_code')
     ->searchable(),
 ```
 
+### AdvancedTables PresetView の default 表示注意
+
+AdvancedTables の PresetView では、複数タブを表示する画面で `PresetView::make()->default()` を安易に使わない。
+`default()` を使うと、画面上で `Default` と `全て` の両方が表示されたり、表示中ラベルが `['Default']` になることがある。
+
+この表示が必要な画面では `default()` に頼らず、`Default` タブ（キー/ラベル）を明示的に定義し、表示中ラベルとして `['Default']` を利用する前提で実装する。
+
 ---
 
 ## 参考リンク
@@ -585,6 +592,8 @@ SelectFilter::make('batch_code')
   - `getPresetViews()`の重複クエリ問題と解決方法
   - インメモリキャッシュとLaravelキャッシュの使い分け
   - フィルタ内でのLivewireコンポーネント参照方法
+- 2026-05-17: AdvancedTables PresetView の default 表示注意を追加
+  - `default()` を安易に使わず、必要な場合は `['Default']` 表示前提で扱う
 - 2026-01-29: デザイン仕様を追加
   - メガメニューの実装仕様
   - AdminPanelProvider設定

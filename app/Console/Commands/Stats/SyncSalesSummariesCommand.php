@@ -100,6 +100,9 @@ class SyncSalesSummariesCommand extends Command
                 'warehouse_id' => (int) $row->warehouse_id,
                 'item_id' => (int) $row->item_id,
                 'shipped_piece_qty' => (int) $row->shipped_piece_qty,
+                'sales_piece_qty' => (int) $row->sales_piece_qty,
+                'transfer_piece_qty' => (int) $row->transfer_piece_qty,
+                'return_piece_qty' => (int) $row->return_piece_qty,
                 'shipped_case_qty' => (int) $row->shipped_case_qty,
                 'shipped_bottle_qty' => (int) $row->shipped_bottle_qty,
                 'created_at' => $now,
@@ -113,7 +116,7 @@ class SyncSalesSummariesCommand extends Command
                 ->upsert(
                     $chunk,
                     ['business_date', 'warehouse_id', 'item_id'],
-                    ['shipped_piece_qty', 'shipped_case_qty', 'shipped_bottle_qty', 'updated_at']
+                    ['shipped_piece_qty', 'sales_piece_qty', 'transfer_piece_qty', 'return_piece_qty', 'shipped_case_qty', 'shipped_bottle_qty', 'updated_at']
                 );
         }
 
@@ -129,12 +132,14 @@ class SyncSalesSummariesCommand extends Command
             ->where('e.is_active', true)
             ->where('ti.is_active', true)
             ->whereNotNull('ti.item_id')
-            ->where('ti.quantity', '>', 0)
             ->selectRaw('
                 e.delivered_date as business_date,
                 e.warehouse_id,
                 ti.item_id,
-                SUM(COALESCE(CAST(ti.total_piece_quantity AS UNSIGNED), 0)) as shipped_piece_qty,
+                SUM(COALESCE(CAST(ti.total_piece_quantity AS SIGNED), 0)) as shipped_piece_qty,
+                SUM(GREATEST(COALESCE(CAST(ti.total_piece_quantity AS SIGNED), 0), 0)) as sales_piece_qty,
+                0 as transfer_piece_qty,
+                SUM(GREATEST(-COALESCE(CAST(ti.total_piece_quantity AS SIGNED), 0), 0)) as return_piece_qty,
                 SUM(CASE WHEN ti.quantity_type = "CASE" THEN ti.quantity ELSE 0 END) as shipped_case_qty,
                 SUM(CASE WHEN ti.quantity_type = "PIECE" THEN ti.quantity ELSE 0 END) as shipped_bottle_qty
             ')
@@ -149,12 +154,14 @@ class SyncSalesSummariesCommand extends Command
             ->where('t.is_active', true)
             ->where('ti.is_active', true)
             ->whereNotNull('ti.item_id')
-            ->where('ti.quantity', '>', 0)
             ->selectRaw('
                 r.shipped_date as business_date,
                 r.warehouse_id,
                 ti.item_id,
-                SUM(COALESCE(CAST(ti.total_piece_quantity AS UNSIGNED), 0)) as shipped_piece_qty,
+                SUM(COALESCE(CAST(ti.total_piece_quantity AS SIGNED), 0)) as shipped_piece_qty,
+                SUM(GREATEST(COALESCE(CAST(ti.total_piece_quantity AS SIGNED), 0), 0)) as sales_piece_qty,
+                0 as transfer_piece_qty,
+                SUM(GREATEST(-COALESCE(CAST(ti.total_piece_quantity AS SIGNED), 0), 0)) as return_piece_qty,
                 SUM(CASE WHEN ti.quantity_type = "CASE" THEN ti.quantity ELSE 0 END) as shipped_case_qty,
                 SUM(CASE WHEN ti.quantity_type = "PIECE" THEN ti.quantity ELSE 0 END) as shipped_bottle_qty
             ')
@@ -172,12 +179,14 @@ class SyncSalesSummariesCommand extends Command
             ->where('t.is_active', true)
             ->where('ti.is_active', true)
             ->whereNotNull('ti.item_id')
-            ->where('ti.quantity', '>', 0)
             ->selectRaw('
                 COALESCE(st.picking_date, st.delivered_date) as business_date,
                 st.from_warehouse_id as warehouse_id,
                 ti.item_id,
-                SUM(COALESCE(CAST(ti.total_piece_quantity AS UNSIGNED), 0)) as shipped_piece_qty,
+                SUM(COALESCE(CAST(ti.total_piece_quantity AS SIGNED), 0)) as shipped_piece_qty,
+                0 as sales_piece_qty,
+                SUM(GREATEST(COALESCE(CAST(ti.total_piece_quantity AS SIGNED), 0), 0)) as transfer_piece_qty,
+                SUM(GREATEST(-COALESCE(CAST(ti.total_piece_quantity AS SIGNED), 0), 0)) as return_piece_qty,
                 SUM(CASE WHEN ti.quantity_type = "CASE" THEN ti.quantity ELSE 0 END) as shipped_case_qty,
                 SUM(CASE WHEN ti.quantity_type = "PIECE" THEN ti.quantity ELSE 0 END) as shipped_bottle_qty
             ')
@@ -197,6 +206,9 @@ class SyncSalesSummariesCommand extends Command
                 warehouse_id,
                 item_id,
                 SUM(shipped_piece_qty) as shipped_piece_qty,
+                SUM(sales_piece_qty) as sales_piece_qty,
+                SUM(transfer_piece_qty) as transfer_piece_qty,
+                SUM(return_piece_qty) as return_piece_qty,
                 SUM(shipped_case_qty) as shipped_case_qty,
                 SUM(shipped_bottle_qty) as shipped_bottle_qty
             ')

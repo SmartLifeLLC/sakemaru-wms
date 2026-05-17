@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
@@ -38,6 +39,11 @@ class WaveGroup extends WmsModel
     public function waves(): HasMany
     {
         return $this->hasMany(Wave::class, 'wave_group_id');
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class, 'warehouse_id');
     }
 
     public function creator(): BelongsTo
