@@ -6,6 +6,7 @@ use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
@@ -292,7 +293,8 @@ class WmsShortagesTable
                     ->label('出荷日')
                     ->form([
                         \Filament\Forms\Components\DatePicker::make('shipment_date')
-                            ->label('出荷日'),
+                            ->label('出荷日')
+                            ->default(fn () => ClientSetting::systemDateYMD()),
                     ])
                     ->query(function (Builder $query, array $data): Builder {
                         return $query->when(
@@ -312,7 +314,8 @@ class WmsShortagesTable
                         }
 
                         return '出荷日: '.$data['shipment_date'];
-                    }),
+                    })
+                    ->default(fn () => ['shipment_date' => ClientSetting::systemDateYMD()]),
 
                 SelectFilter::make('status')
                     ->label('ステータス')
