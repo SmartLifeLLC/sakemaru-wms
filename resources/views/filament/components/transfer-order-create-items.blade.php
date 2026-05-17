@@ -74,6 +74,100 @@
         }
     },
 
+    openDatePicker(refName, field) {
+        const picker = this.$refs[refName];
+        if (!picker) return;
+
+        picker.value = this.filters[field] || '';
+
+        if (typeof picker.showPicker === 'function') {
+            picker.showPicker();
+            return;
+        }
+
+        picker.click();
+    },
+
+    syncDateFromPicker(field, event) {
+        this.filters[field] = event.target.value || '';
+    },
+
+    cleanDateInput(field) {
+        let value = String(this.filters[field] || '');
+        value = value.replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0));
+        value = value.replace(/[^0-9\-\/]/g, '');
+        this.filters[field] = value;
+    },
+
+    formatDateFilter(field) {
+        this.cleanDateInput(field);
+
+        const input = String(this.filters[field] || '').trim();
+        if (!input) {
+            this.filters[field] = '';
+            return;
+        }
+
+        const fullDateMatch = input.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+        if (fullDateMatch) {
+            this.applyDateFilter(
+                field,
+                parseInt(fullDateMatch[1], 10),
+                parseInt(fullDateMatch[2], 10),
+                parseInt(fullDateMatch[3], 10),
+            );
+            return;
+        }
+
+        const digits = input.replace(/\D/g, '');
+        const now = new Date();
+        let year = now.getFullYear();
+        let month = now.getMonth() + 1;
+        let day = now.getDate();
+
+        if (digits.length === 1 || digits.length === 2) {
+            day = parseInt(digits, 10);
+        } else if (digits.length === 3) {
+            month = parseInt(digits.substring(0, 1), 10);
+            day = parseInt(digits.substring(1, 3), 10);
+        } else if (digits.length === 4) {
+            month = parseInt(digits.substring(0, 2), 10);
+            day = parseInt(digits.substring(2, 4), 10);
+        } else if (digits.length === 6) {
+            year = 2000 + parseInt(digits.substring(0, 2), 10);
+            month = parseInt(digits.substring(2, 4), 10);
+            day = parseInt(digits.substring(4, 6), 10);
+        } else if (digits.length === 8) {
+            year = parseInt(digits.substring(0, 4), 10);
+            month = parseInt(digits.substring(4, 6), 10);
+            day = parseInt(digits.substring(6, 8), 10);
+        } else {
+            this.filters[field] = '';
+            return;
+        }
+
+        this.applyDateFilter(field, year, month, day);
+    },
+
+    applyDateFilter(field, year, month, day) {
+        const parsed = new Date(year, month - 1, day);
+
+        if (
+            parsed.getFullYear() !== year ||
+            parsed.getMonth() !== month - 1 ||
+            parsed.getDate() !== day
+        ) {
+            this.filters[field] = '';
+            return;
+        }
+
+        this.filters[field] = [
+            parsed.getFullYear(),
+            String(parsed.getMonth() + 1).padStart(2, '0'),
+            String(parsed.getDate()).padStart(2, '0'),
+        ].join('-');
+    },
+
     updatePinnedItems() {
         this.results.forEach(item => {
             const key = String(item.id);
@@ -219,13 +313,65 @@
             </div>
             <div>
                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">最終出荷日(から)</label>
-                <input type="date" x-model="filters.lastShippedFrom"
-                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                <div class="relative">
+                    <input
+                        type="text"
+                        inputmode="numeric"
+                        x-model="filters.lastShippedFrom"
+                        @focus="$event.target.select()"
+                        @input="cleanDateInput('lastShippedFrom')"
+                        @blur="formatDateFilter('lastShippedFrom')"
+                        @keyup.enter="formatDateFilter('lastShippedFrom')"
+                        placeholder="YYYY-MM-DD"
+                        class="w-full rounded border border-gray-300 bg-white py-1 pl-2 pr-8 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                    />
+                    <button
+                        type="button"
+                        @click="openDatePicker('lastShippedFromPicker', 'lastShippedFrom')"
+                        class="absolute inset-y-0 right-0 flex w-7 items-center justify-center text-gray-400 hover:text-primary-600 focus:outline-none"
+                        aria-label="カレンダーを開く"
+                    >
+                        <x-filament::icon icon="heroicon-m-calendar" class="h-4 w-4" />
+                    </button>
+                    <input
+                        type="date"
+                        x-ref="lastShippedFromPicker"
+                        @change="syncDateFromPicker('lastShippedFrom', $event)"
+                        class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0"
+                        tabindex="-1"
+                    />
+                </div>
             </div>
             <div>
                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">最終出荷日(まで)</label>
-                <input type="date" x-model="filters.lastShippedTo"
-                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                <div class="relative">
+                    <input
+                        type="text"
+                        inputmode="numeric"
+                        x-model="filters.lastShippedTo"
+                        @focus="$event.target.select()"
+                        @input="cleanDateInput('lastShippedTo')"
+                        @blur="formatDateFilter('lastShippedTo')"
+                        @keyup.enter="formatDateFilter('lastShippedTo')"
+                        placeholder="YYYY-MM-DD"
+                        class="w-full rounded border border-gray-300 bg-white py-1 pl-2 pr-8 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                    />
+                    <button
+                        type="button"
+                        @click="openDatePicker('lastShippedToPicker', 'lastShippedTo')"
+                        class="absolute inset-y-0 right-0 flex w-7 items-center justify-center text-gray-400 hover:text-primary-600 focus:outline-none"
+                        aria-label="カレンダーを開く"
+                    >
+                        <x-filament::icon icon="heroicon-m-calendar" class="h-4 w-4" />
+                    </button>
+                    <input
+                        type="date"
+                        x-ref="lastShippedToPicker"
+                        @change="syncDateFromPicker('lastShippedTo', $event)"
+                        class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0"
+                        tabindex="-1"
+                    />
+                </div>
             </div>
             <div class="flex items-end gap-1">
                 <button type="button" @click="search(1)"
@@ -260,38 +406,38 @@
             </div>
         </div>
 
-        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-auto" style="max-height: 320px">
-            <table class="w-full min-w-[1120px] text-sm table-fixed">
+        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-auto" style="max-height: 230px">
+            <table class="w-full min-w-[1180px] text-sm table-fixed">
                 <colgroup>
                     <col style="width: 70px" />
-                    <col />
+                    <col style="width: 360px" />
                     <col style="width: 60px" />
+                    <col style="width: 70px" />
                     <col style="width: 150px" />
                     <col style="width: 55px" />
                     <col style="width: 75px" />
                     <col style="width: 65px" />
                     <col style="width: 40px" />
-                    <col style="width: 40px" />
-                    <col style="width: 40px" />
-                    <col style="width: 70px" />
+                    <col style="width: 42px" />
+                    <col style="width: 42px" />
+                    <col style="width: 42px" />
+                    <col style="width: 48px" />
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-white/10">
                     <tr class="divide-x divide-gray-200 dark:divide-white/10">
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品CD</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品名</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">規格</th>
+                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ総数</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">発注先</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">発注点</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">自動発注数</th>
                         <th class="px-1.5 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">最終出荷</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">当日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">前日</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">前々日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">3日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">5日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">30日</th>
-                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ総数</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -304,25 +450,10 @@
                             class="divide-x divide-gray-200 dark:divide-white/10 border-t border-gray-200 dark:border-white/10">
                             <td class="px-1.5 py-0.5"><span class="text-xs font-mono text-gray-900 dark:text-white" x-text="item.code"></span></td>
                             <td class="px-1.5 py-0.5">
-                                <span class="text-xs text-gray-700 dark:text-gray-300 truncate block" x-text="item.name"></span>
+                                <span class="block text-xs text-gray-700 dark:text-gray-300" x-text="item.name"></span>
                                 <span x-show="String(item.contractor_code) !== '9012'" class="text-[10px] font-bold text-red-600 dark:text-red-400">本部発注対象ではありません</span>
                             </td>
                             <td class="px-1.5 py-0.5"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.packaging || '-'"></span></td>
-                            <td class="px-1.5 py-0.5">
-                                <span class="text-xs whitespace-normal break-words"
-                                    :class="String(item.contractor_code) !== '9012' ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-500 dark:text-gray-400'"
-                                    x-text="item.contractor_name || '-'"></span>
-                            </td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.safety_stock || 0"></span></td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.auto_order_quantity || 0"></span></td>
-                            <td class="px-1.5 py-0.5 text-center"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.last_shipped_at || '-'"></span></td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.sales_today_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_today_qty || 0"></span></td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.sales_yesterday_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_yesterday_qty || 0"></span></td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.sales_2days_ago_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_2days_ago_qty || 0"></span></td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_3d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_3d_qty || 0"></span></td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_5d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_5d_qty || 0"></span></td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_7d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_7d_qty || 0"></span></td>
-                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_30d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_30d_qty || 0"></span></td>
                             <td class="px-0.5 py-0.5">
                                 <input type="number"
                                     :value="getQty(item.id).qty"
@@ -333,11 +464,24 @@
                                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                                 />
                             </td>
+                            <td class="px-1.5 py-0.5">
+                                <span class="text-xs whitespace-normal break-words"
+                                    :class="String(item.contractor_code) !== '9012' ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-500 dark:text-gray-400'"
+                                    x-text="item.contractor_name || '-'"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.safety_stock || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono text-gray-700 dark:text-gray-300" x-text="item.auto_order_quantity || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-center"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.last_shipped_at || '-'"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.sales_yesterday_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_yesterday_qty || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_3d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_3d_qty || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_5d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_5d_qty || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_7d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_7d_qty || 0"></span></td>
+                            <td class="px-1.5 py-0.5 text-right"><span class="text-xs font-mono" :class="item.last_30d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_30d_qty || 0"></span></td>
                         </tr>
                     </template>
                     <template x-if="results.length === 0">
                         <tr>
-                            <td colspan="11" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                            <td colspan="13" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
                                 検索結果がありません
                             </td>
                         </tr>

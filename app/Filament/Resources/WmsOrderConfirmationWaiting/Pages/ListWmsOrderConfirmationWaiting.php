@@ -67,7 +67,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             '発注確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded '.$orderBadgeClasses.'">'.$orderCount.'</span>'.
             '</button>'.
             '<button wire:click="setConfirmationTab(\'transfer\')" class="px-4 py-1 text-base font-semibold transition-all whitespace-nowrap '.$transferClasses.'">'.
-            '移動確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded '.$transferBadgeClasses.'">'.$transferCount.'</span>'.
+            '物流発注(転換）確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded '.$transferBadgeClasses.'">'.$transferCount.'</span>'.
             '</button>'.
             '</nav>'
         );
@@ -127,9 +127,13 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         $zeroQuantityOrderCount = $this->getZeroQuantityOrderApprovedCount($selectedWarehouseId);
         $confirmableOrderCount = max(0, $orderApprovedCount - $zeroQuantityOrderCount);
         $transferApprovedCount = $this->getTransferApprovedCount($selectedWarehouseId);
+        $zeroQuantityTransferCount = $this->getZeroQuantityTransferApprovedCount($selectedWarehouseId);
+        $confirmableTransferCount = max(0, $transferApprovedCount - $zeroQuantityTransferCount);
         $totalApprovedCount = $orderApprovedCount + $transferApprovedCount;
         $globalZeroQuantityOrderCount = $this->getZeroQuantityOrderApprovedCount();
         $globalConfirmableOrderCount = max(0, $globalOrderApprovedCount - $globalZeroQuantityOrderCount);
+        $globalZeroQuantityTransferCount = $this->getZeroQuantityTransferApprovedCount();
+        $globalConfirmableTransferCount = max(0, $globalTransferApprovedCount - $globalZeroQuantityTransferCount);
 
         // アクティブな発注確定ジョブがあるかチェック
         $activeJob = WmsQueueProgress::getActiveJobForUser(
@@ -140,27 +144,30 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         return [
             Action::make('confirmAll')
                 ->label($selectedWarehouseId
-                    ? "{$selectedWarehouseName}の発注・移動確定"
+                    ? "{$selectedWarehouseName}の全発注内容確定"
                     : '倉庫別の発注・移動確定')
                 ->icon('heroicon-o-check-circle')
                 ->color('success')
                 ->extraAttributes(['class' => 'wms-order-confirm-action'])
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                 ->modalHeading("発注・移動確定（{$selectedWarehouseName}）")
-                ->modalDescription(function () use ($selectedWarehouseId, $selectedWarehouseName, $confirmableOrderCount, $zeroQuantityOrderCount, $transferApprovedCount) {
+                ->modalDescription(function () use ($selectedWarehouseId, $selectedWarehouseName, $confirmableOrderCount, $zeroQuantityOrderCount, $confirmableTransferCount, $zeroQuantityTransferCount) {
                     if (! $selectedWarehouseId) {
                         return 'トップバーから倉庫を選択してください。';
                     }
 
                     $details = [];
-                    if ($transferApprovedCount > 0) {
-                        $details[] = "移動候補: {$transferApprovedCount}件 → 移動伝票生成";
+                    if ($confirmableTransferCount > 0) {
+                        $details[] = "物流発注(転換）候補: {$confirmableTransferCount}件 → 移動伝票生成";
                     }
                     if ($confirmableOrderCount > 0) {
                         $details[] = "発注候補: {$confirmableOrderCount}件 → 入荷予定作成";
                     }
                     if ($zeroQuantityOrderCount > 0) {
-                        $details[] = "発注数0の候補: {$zeroQuantityOrderCount}件 → 確定せず除外";
+                        $details[] = "発注数0の発注候補: {$zeroQuantityOrderCount}件 → 確定時に削除";
+                    }
+                    if ($zeroQuantityTransferCount > 0) {
+                        $details[] = "発注数0の物流発注(転換）候補: {$zeroQuantityTransferCount}件 → 確定時に削除";
                     }
 
                     return "倉庫「{$selectedWarehouseName}」の承認済み候補のみ確定します。\n\n".
@@ -169,7 +176,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                         "JXファイル生成・送信は別途JX送信画面から実行してください。\n".
                         '処理はバックグラウンドで実行されます。';
                 })
-                ->modalContent(fn () => $this->zeroQuantityConfirmationModalContent($confirmableOrderCount, $zeroQuantityOrderCount))
+                ->modalContent(fn () => $this->zeroQuantityConfirmationModalContent($confirmableOrderCount, $zeroQuantityOrderCount, $confirmableTransferCount, $zeroQuantityTransferCount))
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('確定実行')->color('danger'))
                 ->modalCancelActionLabel('確定せず閉じる')
@@ -219,16 +226,19 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                     ->color('success')
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalHeading('発注・移動確定（全倉庫）')
-                    ->modalDescription(function () use ($globalConfirmableOrderCount, $globalZeroQuantityOrderCount, $globalTransferApprovedCount) {
+                    ->modalDescription(function () use ($globalConfirmableOrderCount, $globalZeroQuantityOrderCount, $globalConfirmableTransferCount, $globalZeroQuantityTransferCount) {
                         $details = [];
-                        if ($globalTransferApprovedCount > 0) {
-                            $details[] = "移動候補: {$globalTransferApprovedCount}件 → 移動伝票生成";
+                        if ($globalConfirmableTransferCount > 0) {
+                            $details[] = "物流発注(転換）候補: {$globalConfirmableTransferCount}件 → 移動伝票生成";
                         }
                         if ($globalConfirmableOrderCount > 0) {
                             $details[] = "発注候補: {$globalConfirmableOrderCount}件 → 入荷予定作成";
                         }
                         if ($globalZeroQuantityOrderCount > 0) {
-                            $details[] = "発注数0の候補: {$globalZeroQuantityOrderCount}件 → 確定せず除外";
+                            $details[] = "発注数0の発注候補: {$globalZeroQuantityOrderCount}件 → 確定時に削除";
+                        }
+                        if ($globalZeroQuantityTransferCount > 0) {
+                            $details[] = "発注数0の物流発注(転換）候補: {$globalZeroQuantityTransferCount}件 → 確定時に削除";
                         }
 
                         return "全倉庫の承認済み候補をまとめて確定します。\n\n".
@@ -237,7 +247,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                             "JXファイル生成・送信は別途JX送信画面から実行してください。\n".
                             '処理はバックグラウンドで実行されます。';
                     })
-                    ->modalContent(fn () => $this->zeroQuantityConfirmationModalContent($globalConfirmableOrderCount, $globalZeroQuantityOrderCount))
+                    ->modalContent(fn () => $this->zeroQuantityConfirmationModalContent($globalConfirmableOrderCount, $globalZeroQuantityOrderCount, $globalConfirmableTransferCount, $globalZeroQuantityTransferCount))
                     ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('確定実行')->color('danger'))
                     ->modalCancelActionLabel('確定せず閉じる')
@@ -274,16 +284,27 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
         ];
     }
 
-    private function zeroQuantityConfirmationModalContent(int $confirmableCount, int $zeroQuantityCount): ?HtmlString
-    {
-        if ($zeroQuantityCount <= 0) {
+    private function zeroQuantityConfirmationModalContent(
+        int $confirmableOrderCount,
+        int $zeroQuantityOrderCount,
+        int $confirmableTransferCount = 0,
+        int $zeroQuantityTransferCount = 0
+    ): ?HtmlString {
+        if ($zeroQuantityOrderCount <= 0 && $zeroQuantityTransferCount <= 0) {
             return null;
+        }
+
+        $lines = [];
+        if ($confirmableOrderCount > 0 || $zeroQuantityOrderCount > 0) {
+            $lines[] = '<div class="text-xl font-black leading-tight text-red-700 dark:text-red-300">発注候補 確定対象: '.number_format($confirmableOrderCount).'件 / 発注数0のため削除: '.number_format($zeroQuantityOrderCount).'件</div>';
+        }
+        if ($confirmableTransferCount > 0 || $zeroQuantityTransferCount > 0) {
+            $lines[] = '<div class="mt-2 text-xl font-black leading-tight text-red-700 dark:text-red-300">物流発注(転換）候補 確定対象: '.number_format($confirmableTransferCount).'件 / 発注数0のため削除: '.number_format($zeroQuantityTransferCount).'件</div>';
         }
 
         return new HtmlString(
             '<div class="mb-4 rounded-lg border-2 border-red-300 bg-red-50 p-5 text-center dark:border-red-700 dark:bg-red-950/30">'.
-            '<div class="text-xl font-black leading-tight text-red-700 dark:text-red-300">確定対象: '.number_format($confirmableCount).'件</div>'.
-            '<div class="mt-2 text-2xl font-black leading-tight text-red-700 dark:text-red-300">発注数0のため除外: '.number_format($zeroQuantityCount).'件</div>'.
+            implode('', $lines).
             '<div class="mt-3 text-sm text-red-700 dark:text-red-300">確定時に削除になります。</div>'.
             '</div>'
         );
@@ -415,6 +436,18 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
         if ($warehouseId !== null) {
             $query->where('warehouse_id', $warehouseId);
+        }
+
+        return $query->count();
+    }
+
+    private function getZeroQuantityTransferApprovedCount(?int $warehouseId = null): int
+    {
+        $query = WmsStockTransferCandidate::where('status', CandidateStatus::APPROVED)
+            ->where('transfer_quantity', '<=', 0);
+
+        if ($warehouseId !== null) {
+            $query->where('satellite_warehouse_id', $warehouseId);
         }
 
         return $query->count();

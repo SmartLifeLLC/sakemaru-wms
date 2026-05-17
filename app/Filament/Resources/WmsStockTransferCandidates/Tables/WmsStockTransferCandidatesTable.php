@@ -125,6 +125,14 @@ class WmsStockTransferCandidatesTable
                     ->toggleable()
                     ->width('100px'),
 
+                TextColumn::make('transfer_quantity')
+                    ->label('発注バラ数')
+                    ->numeric()
+                    ->alignEnd()
+                    ->color('danger')
+                    ->weight('bold')
+                    ->width('70px'),
+
                 TextColumn::make('item.capacity_case')
                     ->label('入数')
                     ->numeric()
@@ -134,7 +142,7 @@ class WmsStockTransferCandidatesTable
 
                 // 在庫関連カラム（直接カラムから取得、なければ計算ログにフォールバック）
                 TextColumn::make('current_effective_stock')
-                    ->label('現在庫')
+                    ->label('理論在庫')
                     ->state(function ($record) {
                         if ($record->current_effective_stock !== null) {
                             return $record->current_effective_stock;
@@ -157,7 +165,7 @@ class WmsStockTransferCandidatesTable
                     ->width('70px'),
 
                 TextColumn::make('incoming_quantity')
-                    ->label('入荷予定数')
+                    ->label('入荷予定')
                     ->state(function ($record) {
                         if ($record->incoming_quantity !== null) {
                             return $record->incoming_quantity;
@@ -170,6 +178,14 @@ class WmsStockTransferCandidatesTable
                     ->alignEnd()
                     ->toggleable()
                     ->width('55px'),
+
+                TextColumn::make('expected_arrival_date')
+                    ->label('入荷予定日')
+                    ->date('m/d')
+                    ->sortable()
+                    ->alignCenter()
+                    ->toggleable()
+                    ->width('70px'),
 
                 TextColumn::make('calculated_available')
                     ->label('見込在庫')
@@ -222,12 +238,6 @@ class WmsStockTransferCandidatesTable
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->width('60px'),
-
-                TextColumn::make('transfer_quantity')
-                    ->label('発注数')
-                    ->numeric()
-                    ->alignEnd()
-                    ->width('70px'),
 
                 TextColumn::make('sales_today')
                     ->label('当日')
@@ -284,14 +294,6 @@ class WmsStockTransferCandidatesTable
                     ->alignEnd()
                     ->width('45px')
                     ->color(fn ($record) => ($record->salesSummary?->last_30d_qty ?? 0) > 0 ? null : 'gray'),
-
-                TextColumn::make('expected_arrival_date')
-                    ->label('入荷予定')
-                    ->date('m/d')
-                    ->sortable()
-                    ->alignCenter()
-                    ->toggleable()
-                    ->width('70px'),
 
                 TextColumn::make('batch_code')
                     ->label('実行CD')

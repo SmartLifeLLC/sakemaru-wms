@@ -72,7 +72,8 @@ class WmsOrderCandidatesTable
                     ->label('発注CD')
                     ->searchable()
                     ->sortable()
-                    ->alignCenter(),
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('ordering_unit_quantity')
                     ->label('発注CD入数')
@@ -80,7 +81,7 @@ class WmsOrderCandidatesTable
                     ->alignCenter()
                     ->badge()
                     ->color(fn ($state) => is_numeric($state) ? 'warning' : 'gray')
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('warehouse.name')
                     ->label('倉庫')
@@ -101,6 +102,36 @@ class WmsOrderCandidatesTable
                     ->alignCenter()
                     ->toggleable(),
 
+                TextColumn::make('piece_quantity')
+                    ->label('発注バラ')
+                    ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::PIECE ? (int) $record->order_quantity : 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color('danger')
+                    ->weight('bold'),
+
+                TextColumn::make('total_pieces')
+                    ->label('総バラ')
+                    ->state(function ($record) {
+                        $capacityCase = $record->item?->capacity_case ?? 1;
+                        $caseQty = $record->quantity_type === QuantityType::CASE ? $record->order_quantity : 0;
+                        $pieceQty = $record->quantity_type === QuantityType::PIECE ? $record->order_quantity : 0;
+
+                        return $caseQty * $capacityCase + $pieceQty;
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->summarize(
+                        Summarizer::make()
+                            ->label('合計')
+                            ->numeric(thousandsSeparator: ',')
+                            ->using(function (Builder $query) {
+                                return (int) $query->sum(
+                                    DB::raw('CASE WHEN quantity_type = \'CASE\' THEN COALESCE(order_quantity, 0) * COALESCE((SELECT capacity_case FROM items WHERE items.id = wms_order_candidates.item_id), 1) ELSE COALESCE(order_quantity, 0) END')
+                                );
+                            })
+                    ),
+
                 TextColumn::make('contractor.name')
                     ->label('発注先')
                     ->state(fn ($record) => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-')
@@ -113,31 +144,32 @@ class WmsOrderCandidatesTable
                     ->state(fn ($record) => $record->supplier ? "[{$record->supplier->partner_code}]{$record->supplier->partner_name}" : '-')
                     ->toggleable(),
 
-                TextColumn::make('current_stock')
-                    ->label('現在庫')
+                TextColumn::make('current_effective_stock')
+                    ->label('理論在庫')
                     ->state(fn ($record) => $record->current_stock ?? '-')
                     ->numeric()
                     ->alignEnd()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(),
+
+                TextColumn::make('effective_incoming_quantity')
+                    ->label('入荷予定')
+                    ->state(fn ($record) => $record->effective_incoming_quantity ?? '-')
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable(),
+
+                TextColumn::make('calculated_available')
+                    ->label('見込在庫')
+                    ->state(fn ($record) => $record->calculated_available ?? '-')
+                    ->numeric()
+                    ->alignEnd()
+                    ->toggleable(),
 
                 TextColumn::make('satellite_demand_qty')
                     ->label('移動依頼')
                     ->numeric()
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true),
-
-                TextColumn::make('incoming_quantity_override')
-                    ->label('入荷数')
-                    ->state(fn ($record) => $record->incoming_quantity_override ?? $record->original_incoming_quantity ?? '-')
-                    ->numeric()
-                    ->alignEnd()
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                TextColumn::make('calculated_available')
-                    ->label('見込在庫')
-                    ->state(fn ($record) => $record->calculated_available ?? '-')
-                    ->numeric()
-                    ->alignEnd(),
 
                 TextColumn::make('safety_stock')
                     ->label('発注点')
@@ -179,18 +211,12 @@ class WmsOrderCandidatesTable
                     ->state(fn ($record) => $record->shortage_qty ?? '-')
                     ->numeric()
                     ->alignEnd()
-                    ->color(fn ($record) => ($record->shortage_qty ?? 0) > 0 ? 'danger' : null),
+                    ->color(fn ($record) => ($record->shortage_qty ?? 0) > 0 ? 'danger' : null)
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('case_quantity')
                     ->label('発注ケース')
                     ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::CASE ? (int) $record->order_quantity : 0)
-                    ->numeric()
-                    ->alignEnd()
-                    ->color(fn ($state) => (int) $state > 0 ? null : 'gray'),
-
-                TextColumn::make('piece_quantity')
-                    ->label('発注バラ')
-                    ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::PIECE ? (int) $record->order_quantity : 0)
                     ->numeric()
                     ->alignEnd()
                     ->color(fn ($state) => (int) $state > 0 ? null : 'gray'),
@@ -265,53 +291,8 @@ class WmsOrderCandidatesTable
                     ->alignEnd()
                     ->toggleable(isToggledHiddenByDefault: true),
 
-                TextColumn::make('purchase_total')
-                    ->label('仕入合計')
-                    ->state(function ($record) {
-                        if ($record->purchase_unit_price === null || ! $record->order_quantity) {
-                            return '-';
-                        }
-                        $total = (float) $record->purchase_unit_price * $record->order_quantity;
-
-                        return number_format($total);
-                    })
-                    ->alignEnd()
-                    ->toggleable()
-
-                    ->summarize(
-                        Summarizer::make()
-                            ->label('合計')
-                            ->numeric(thousandsSeparator: ',', decimalPlaces: 0)
-                            ->using(function (Builder $query) {
-                                return (float) $query->sum(
-                                    DB::raw('COALESCE(purchase_unit_price, 0) * COALESCE(order_quantity, 0)')
-                                );
-                            })
-                    ),
-                TextColumn::make('total_pieces')
-                    ->label('総バラ')
-                    ->state(function ($record) {
-                        $capacityCase = $record->item?->capacity_case ?? 1;
-                        $caseQty = $record->quantity_type === QuantityType::CASE ? $record->order_quantity : 0;
-                        $pieceQty = $record->quantity_type === QuantityType::PIECE ? $record->order_quantity : 0;
-
-                        return $caseQty * $capacityCase + $pieceQty;
-                    })
-                    ->numeric()
-                    ->alignEnd()
-                    ->summarize(
-                        Summarizer::make()
-                            ->label('合計')
-                            ->numeric(thousandsSeparator: ',')
-                            ->using(function (Builder $query) {
-                                return (int) $query->sum(
-                                    DB::raw('CASE WHEN quantity_type = \'CASE\' THEN COALESCE(order_quantity, 0) * COALESCE((SELECT capacity_case FROM items WHERE items.id = wms_order_candidates.item_id), 1) ELSE COALESCE(order_quantity, 0) END')
-                                );
-                            })
-                    ),
-
                 TextColumn::make('expected_arrival_date')
-                    ->label('入荷予定')
+                    ->label('入荷予定日')
                     ->date('m/d')
                     ->sortable()
                     ->alignCenter(),

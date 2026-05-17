@@ -156,7 +156,7 @@
 
             <div @class([
                 'overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600',
-                'h-[9rem]' => $compactListHeight,
+                'h-[7.5rem]' => $compactListHeight,
                 'h-[28rem]' => ! $compactListHeight,
             ])>
                 <template x-if="filteredPrimaryContractors.length === 0">
@@ -221,7 +221,7 @@
 
             <div @class([
                 'min-w-[24rem] overflow-x-auto overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600',
-                'h-[9rem]' => $compactListHeight,
+                'h-[7.5rem]' => $compactListHeight,
                 'h-[28rem]' => ! $compactListHeight,
             ])>
                 <template x-if="filteredSecondaryContractors.length === 0">

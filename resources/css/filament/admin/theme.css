@@ -548,6 +548,22 @@ html.fi {
     min-width: 140px !important;
 }
 
+.fi-page-content:has(.transfer-candidates-table) {
+    gap: 0.25rem !important;
+    row-gap: 0.25rem !important;
+}
+
+.fi-page-content:has(.transfer-candidates-table) .advanced-tables-fav-bar-container,
+.fi-page-content:has(.transfer-candidates-table) .advanced-tables-fav-bar-container > div,
+.fi-page-content:has(.transfer-candidates-table) .advanced-tables-fav-bar-nav,
+.fi-page-content:has(.transfer-candidates-table) .advanced-tables-fav-bar-list {
+    margin-bottom: 0 !important;
+}
+
+.fi-page-content:has(.transfer-candidates-table) .fi-ta {
+    margin-top: 0 !important;
+}
+
 /* トップメニュー（トップバー）の高さを半分に */
 .fi-topbar {
     height: 2.5rem !important;
@@ -1006,6 +1022,67 @@ html.fi {
 
 .sales-based-transfer-preview-modal .fi-modal-footer {
     flex-shrink: 0 !important;
+}
+
+.sales-based-transfer-preview-modal .fi-modal-footer .fi-modal-footer-actions {
+    flex-direction: row-reverse !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-table {
+    table-layout: fixed !important;
+    width: 1280px !important;
+    min-width: 100% !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-delete-col {
+    width: 28px !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-contractor-col {
+    width: 128px !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-code-col {
+    width: 64px !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-item-name-col {
+    width: 500px !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-packaging-col {
+    width: 68px !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-order-qty-col {
+    width: 44px !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-number-col {
+    width: 56px !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-item-name {
+    width: 500px !important;
+    min-width: 500px !important;
+    max-width: 500px !important;
+    white-space: nowrap !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-order-qty {
+    width: 44px !important;
+    min-width: 44px !important;
+    max-width: 44px !important;
+}
+
+.sales-based-transfer-preview-modal .logistics-candidate-order-qty input {
+    width: 40px !important;
+    min-width: 40px !important;
+    max-width: 40px !important;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
 }
 
 .sales-based-transfer-date-field label {

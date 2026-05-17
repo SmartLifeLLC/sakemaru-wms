@@ -214,8 +214,8 @@ enum EMenu: string
 
             self::WMS_AUTO_ORDER_EXECUTION_LOG => '自動発注実行ログ',
             self::WMS_STOCK_TRANSFER_CANDIDATES => '物流発注(転換）',
-            self::WMS_ORDER_CANDIDATES => '発注候補一覧',
-            self::WMS_ORDER_CONFIRMATION_WAITING => '発注・移動確定待ち',
+            self::WMS_ORDER_CANDIDATES => '外部発注',
+            self::WMS_ORDER_CONFIRMATION_WAITING => '発注確定待ち',
             self::WMS_ORDER_CONFIRMED => '発注確定済み',
             self::WMS_STOCK_TRANSFER_CONFIRMED => '移動確定済み',
             self::WMS_ORDER_DATA_FILES => '発注データファイル',

@@ -18,17 +18,15 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
-use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\HtmlString;
 
 class WmsTransferConfirmationWaitingTable
 {
@@ -138,21 +136,11 @@ class WmsTransferConfirmationWaitingTable
                     ->alignEnd()
                     ->width('60px'),
 
-                TextInputColumn::make('transfer_quantity')
+                TextColumn::make('transfer_quantity')
                     ->label('移動数')
-                    ->type('number')
-                    ->rules(['required', 'integer', 'min:0'])
+                    ->numeric()
                     ->alignEnd()
-                    ->width('70px')
-                    ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
-                    ->disabled(fn ($record) => ! $record->status->isEditable())
-                    ->afterStateUpdated(function ($record, $state) {
-                        $record->update([
-                            'is_manually_modified' => true,
-                            'modified_by' => auth()->id(),
-                            'modified_at' => now(),
-                        ]);
-                    }),
+                    ->width('70px'),
 
                 TextColumn::make('expected_arrival_date')
                     ->label('移動出荷日')
@@ -266,7 +254,6 @@ class WmsTransferConfirmationWaitingTable
                     ->modalCancelActionLabel('変更せず閉じる')
                     ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
                     ->fillForm(fn ($record) => [
-                        'transfer_quantity' => $record->transfer_quantity,
                         'expected_arrival_date' => $record->expected_arrival_date,
                     ])
                     ->schema(function (?WmsStockTransferCandidate $record): array {
@@ -346,17 +333,9 @@ class WmsTransferConfirmationWaitingTable
                         ];
 
                         if ($isEditable) {
-                            $schema[] = Grid::make(2)->schema([
-                                TextInput::make('transfer_quantity')
-                                    ->label('移動数')
-                                    ->numeric()
-                                    ->required()
-                                    ->minValue(0),
-
-                                DatePicker::make('expected_arrival_date')
-                                    ->label('移動出荷日')
-                                    ->required(),
-                            ]);
+                            $schema[] = DatePicker::make('expected_arrival_date')
+                                ->label('移動出荷日')
+                                ->required();
                         }
 
                         return $schema;
@@ -377,11 +356,6 @@ class WmsTransferConfirmationWaitingTable
                             'modified_by' => auth()->id(),
                             'modified_at' => now(),
                         ];
-
-                        if ($data['transfer_quantity'] != $record->transfer_quantity) {
-                            $updateData['transfer_quantity'] = $data['transfer_quantity'];
-                            $updated = true;
-                        }
 
                         $newArrivalDate = $data['expected_arrival_date'] instanceof \Carbon\Carbon
                             ? $data['expected_arrival_date']->format('Y-m-d')
@@ -428,13 +402,39 @@ class WmsTransferConfirmationWaitingTable
                 static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('bulkConfirmSelectedTransfers')
-                        ->label('選択を移動確定')
+                        ->label('選択を物流発注(転換）確定')
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->visible(fn (): bool => auth()->user()?->email === 'admin@sakemaru.ai')
                         ->requiresConfirmation()
-                        ->modalHeading('選択した移動候補を確定')
-                        ->modalDescription('選択した承認済み移動候補を、作成者に関係なく確定します。')
+                        ->modalHeading('選択した物流発注(転換）候補を確定')
+                        ->modalDescription(function (Collection $records): string {
+                            $approved = $records->filter(fn ($r) => $r->status === CandidateStatus::APPROVED);
+                            $zeroCount = $approved->filter(fn ($r) => (int) $r->transfer_quantity <= 0)->count();
+                            $confirmableCount = max(0, $approved->count() - $zeroCount);
+
+                            return "選択した承認済み物流発注(転換）候補を、作成者に関係なく確定します。\n\n".
+                                "確定対象: {$confirmableCount}件\n".
+                                "発注数0のため削除: {$zeroCount}件";
+                        })
+                        ->modalContent(function (Collection $records): ?HtmlString {
+                            $approved = $records->filter(fn ($r) => $r->status === CandidateStatus::APPROVED);
+                            $zeroCount = $approved->filter(fn ($r) => (int) $r->transfer_quantity <= 0)->count();
+
+                            if ($zeroCount <= 0) {
+                                return null;
+                            }
+
+                            $confirmableCount = max(0, $approved->count() - $zeroCount);
+
+                            return new HtmlString(
+                                '<div class="mb-4 rounded-lg border-2 border-red-300 bg-red-50 p-5 text-center dark:border-red-700 dark:bg-red-950/30">'.
+                                '<div class="text-xl font-black leading-tight text-red-700 dark:text-red-300">確定対象: '.number_format($confirmableCount).'件</div>'.
+                                '<div class="mt-2 text-2xl font-black leading-tight text-red-700 dark:text-red-300">発注数0のため削除: '.number_format($zeroCount).'件</div>'.
+                                '<div class="mt-3 text-sm text-red-700 dark:text-red-300">確定時に削除になります。</div>'.
+                                '</div>'
+                            );
+                        })
                         ->modalSubmitActionLabel('確定実行')
                         ->modalCancelActionLabel('確定せず閉じる')
                         ->action(function (Collection $records) {
@@ -450,14 +450,29 @@ class WmsTransferConfirmationWaitingTable
                             }
 
                             $approvedIds = $records
-                                ->filter(fn ($r) => $r->status === CandidateStatus::APPROVED)
+                                ->filter(fn ($r) => $r->status === CandidateStatus::APPROVED && (int) $r->transfer_quantity > 0)
                                 ->pluck('id')
                                 ->map(fn ($id) => (int) $id)
                                 ->all();
 
+                            $zeroQuantityIds = $records
+                                ->filter(fn ($r) => $r->status === CandidateStatus::APPROVED && (int) $r->transfer_quantity <= 0)
+                                ->pluck('id')
+                                ->map(fn ($id) => (int) $id)
+                                ->all();
+
+                            $deletedZeroCount = 0;
+                            if (! empty($zeroQuantityIds)) {
+                                $deletedZeroCount = WmsStockTransferCandidate::whereIn('id', $zeroQuantityIds)
+                                    ->where('status', CandidateStatus::APPROVED)
+                                    ->where('transfer_quantity', '<=', 0)
+                                    ->delete();
+                            }
+
                             if (empty($approvedIds)) {
                                 Notification::make()
-                                    ->title('承認済みのレコードがありません')
+                                    ->title($deletedZeroCount > 0 ? '発注数0の物流発注(転換）候補を削除しました' : '承認済みのレコードがありません')
+                                    ->body($deletedZeroCount > 0 ? "削除: {$deletedZeroCount}件" : null)
                                     ->warning()
                                     ->send();
 
@@ -470,7 +485,7 @@ class WmsTransferConfirmationWaitingTable
 
                             if ($executed === 0) {
                                 Notification::make()
-                                    ->title('確定できた移動候補がありません')
+                                    ->title('確定できた物流発注(転換）候補がありません')
                                     ->warning()
                                     ->send();
 
@@ -478,7 +493,8 @@ class WmsTransferConfirmationWaitingTable
                             }
 
                             Notification::make()
-                                ->title("{$executed}件の移動候補を確定しました")
+                                ->title("{$executed}件の物流発注(転換）候補を確定しました")
+                                ->body($deletedZeroCount > 0 ? "発注数0のため削除: {$deletedZeroCount}件" : null)
                                 ->success()
                                 ->send();
                         })
@@ -490,7 +506,7 @@ class WmsTransferConfirmationWaitingTable
                         ->color('danger')
                         ->requiresConfirmation()
                         ->modalHeading('一括承認取消')
-                        ->modalDescription('選択した移動候補の承認を取り消します。')
+                        ->modalDescription('選択した物流発注(転換）候補の承認を取り消します。')
                         ->action(function (Collection $records) {
                             // APPROVED状態のIDのみ抽出
                             $approvedIds = $records
