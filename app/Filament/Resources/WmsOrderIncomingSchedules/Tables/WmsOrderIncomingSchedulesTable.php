@@ -23,6 +23,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
@@ -747,12 +748,14 @@ class WmsOrderIncomingSchedulesTable
                         ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('一括更新')->color('danger'))
                         ->modalCancelActionLabel('更新せず閉じる')
                         ->schema([
-                            DatePicker::make('actual_arrival_date')
+                            ViewField::make('actual_arrival_date')
                                 ->label('入荷日')
+                                ->view('filament.forms.components.smart-date-input')
                                 ->helperText('空欄の場合は更新しません'),
 
-                            DatePicker::make('expiration_date')
+                            ViewField::make('expiration_date')
                                 ->label('賞味期限')
+                                ->view('filament.forms.components.smart-date-input')
                                 ->helperText('空欄の場合は更新しません'),
                         ])
                         ->action(function (Collection $records, array $data) {

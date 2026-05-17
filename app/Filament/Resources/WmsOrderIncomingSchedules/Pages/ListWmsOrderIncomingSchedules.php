@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\WmsOrderIncomingSchedules\Pages;
 
+use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasStockSubqueries;
@@ -11,6 +12,7 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\StatsItemWarehouseSalesSummary;
+use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\OrderExecutionService;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -684,18 +686,25 @@ class ListWmsOrderIncomingSchedules extends ListRecords
             return $this->presetViewWarehouseData;
         }
 
-        $cacheKey = 'incoming_schedules_warehouses_'.auth()->id();
+        $cacheKey = 'incoming_schedules_pending_warehouses_all';
         $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
+            $orderCandidateWarehouseIds = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
+                ->distinct()
+                ->pluck('warehouse_id')
+                ->toArray();
+
             $warehouseIds = WmsOrderIncomingSchedule::whereIn('status', [
                 IncomingScheduleStatus::PENDING,
                 IncomingScheduleStatus::PARTIAL,
             ])
+                ->whereNotNull('warehouse_id')
+                ->whereIn('warehouse_id', $orderCandidateWarehouseIds ?: [0])
                 ->distinct()
                 ->pluck('warehouse_id')
                 ->toArray();
 
             $warehouses = Warehouse::whereIn('id', $warehouseIds)
-                ->orderBy('code')
+                ->orderBy('name')
                 ->get(['id', 'name']);
 
             return [
@@ -722,33 +731,30 @@ class ListWmsOrderIncomingSchedules extends ListRecords
         $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
         $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
 
-        // プリセットビュー構築
+        // 「全て」タブは常に表示（キー'default'でAdvancedTablesのDefaultビューを上書き）
+        $views = [
+            'default' => PresetView::make()
+                ->favorite()
+                ->label('全て')
+                ->default(! $hasDefaultWarehouse),
+        ];
+
+        // デフォルト倉庫タブ（設定されている場合は先頭に配置してデフォルト選択）
         if ($defaultWarehouse) {
-            $views = [
-                'default' => PresetView::make()
-                    ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
-                    ->favorite()
-                    ->label($defaultWarehouse->name)
-                    ->default(),
-                'all' => PresetView::make()
-                    ->favorite()
-                    ->label('全て'),
-            ];
-        } else {
-            $views = [
-                'default' => PresetView::make()
-                    ->favorite()
-                    ->label('全て')
-                    ->default(),
-            ];
+            $views["default_{$defaultWarehouse->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
+                ->favorite()
+                ->label($defaultWarehouse->name)
+                ->default();
         }
 
-        // 倉庫別タブを追加
+        // 他の倉庫タブ（デフォルト倉庫は除外）
         foreach ($warehouses as $warehouse) {
-            if ($defaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
+            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
                 continue;
             }
-            $views["wh_{$warehouse->id}"] = PresetView::make()
+
+            $views["default_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
                 ->favorite()
                 ->label($warehouse->name);
