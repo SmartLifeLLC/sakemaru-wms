@@ -10,8 +10,10 @@ use App\Enums\AutoOrder\OriginType;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
+use App\Filament\Resources\WmsOrderCandidates\Tables\WmsOrderCandidatesTable;
 use App\Filament\Resources\WmsOrderCandidates\WmsOrderCandidateResource;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
+use App\Models\Concerns\OptimisticLockException;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemCategory;
@@ -48,6 +50,8 @@ class ListWmsOrderCandidates extends ListRecords
     protected static string $resource = WmsOrderCandidateResource::class;
 
     public array $orderCandidateItems = [];
+
+    public array $fastQuantityInputPayload = [];
 
     private function getOrderingCodeForItem(int $itemId): ?string
     {
@@ -415,9 +419,8 @@ class ListWmsOrderCandidates extends ListRecords
                         $orderQuantity = (int) ($itemData['order_quantity'] ?? 0);
                         $itemCode = $itemData['item_code'] ?? null;
                         $searchCode = $itemData['search_code'] ?? null;
-                        $orderingCode = filled($itemData['ordering_code'] ?? null)
-                            ? $itemData['ordering_code']
-                            : $this->getOrderingCodeForItem($itemId);
+                        $orderingCode = $this->getOrderingCodeForItem($itemId)
+                            ?? (filled($itemData['ordering_code'] ?? null) ? $itemData['ordering_code'] : null);
 
                         if ($orderQuantity <= 0) {
                             $errors[] = "[{$itemCode}]: 数量が不正です";
@@ -551,6 +554,130 @@ class ListWmsOrderCandidates extends ListRecords
                     $this->redirect(static::getResource()::getUrl('index'));
                 }),
 
+            Action::make('fastQuantityInput')
+                ->label('発注数量編集')
+                ->icon('heroicon-o-pencil-square')
+                ->color('primary')
+                ->modalHeading('発注数量編集')
+                ->modalWidth('7xl')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('一括保存')->color('danger'))
+                ->modalCancelActionLabel('保存せず閉じる')
+                ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
+                ->schema(function (): array {
+                    $records = $this->getFastQuantityInputRecords();
+
+                    if ($records->isEmpty()) {
+                        return [
+                            Placeholder::make('empty')
+                                ->label('')
+                                ->content('現在の条件に該当する発注候補がありません。'),
+                        ];
+                    }
+
+                    $rows = $this->buildFastQuantityInputRows($records);
+                    $this->fastQuantityInputPayload = collect($rows)
+                        ->map(fn (array $row): array => [
+                            'id' => $row['id'],
+                            'case_quantity' => $row['case_quantity'],
+                            'piece_quantity' => $row['piece_quantity'],
+                        ])
+                        ->values()
+                        ->toArray();
+
+                    return [
+                        ViewField::make('fast_quantity_input')
+                            ->view('filament.components.order-candidate-fast-quantity-input')
+                            ->viewData(['rows' => $rows])
+                            ->hiddenLabel(),
+                    ];
+                })
+                ->action(function () {
+                    $payload = collect($this->fastQuantityInputPayload)
+                        ->filter(fn ($row) => isset($row['id']))
+                        ->keyBy(fn ($row) => (int) $row['id']);
+
+                    if ($payload->isEmpty()) {
+                        Notification::make()
+                            ->title('更新対象がありません')
+                            ->warning()
+                            ->send();
+
+                        return;
+                    }
+
+                    $records = WmsOrderCandidate::query()
+                        ->with(['item.current_price'])
+                        ->whereIn('id', $payload->keys()->all())
+                        ->get();
+
+                    $updated = 0;
+                    $merged = 0;
+                    $skipped = 0;
+                    $errors = [];
+                    $userId = auth()->id();
+
+                    foreach ($records as $record) {
+                        if ($record->status !== CandidateStatus::PENDING) {
+                            $skipped++;
+
+                            continue;
+                        }
+
+                        $row = $payload->get((int) $record->id, []);
+                        $caseQty = max(0, (int) ($row['case_quantity'] ?? 0));
+                        $pieceQty = max(0, (int) ($row['piece_quantity'] ?? 0));
+
+                        if ($caseQty > 0 && $pieceQty > 0) {
+                            $errors[] = "[{$record->item_code}] ケースとバラはどちらか一方だけ入力してください。";
+
+                            continue;
+                        }
+
+                        $targetType = $caseQty > 0 ? QuantityType::CASE : QuantityType::PIECE;
+                        $newQuantity = $caseQty > 0 ? $caseQty : $pieceQty;
+
+                        if ($caseQty === 0 && $pieceQty === 0) {
+                            $targetType = $record->quantity_type;
+                        }
+
+                        try {
+                            $result = WmsOrderCandidatesTable::applyQuantityChange($record, $targetType, $newQuantity, $userId);
+
+                            match ($result) {
+                                'updated' => $updated++,
+                                'merged' => $merged++,
+                                default => $skipped++,
+                            };
+                        } catch (OptimisticLockException $e) {
+                            $errors[] = "[{$record->item_code}] {$e->getMessage()}";
+                        } catch (\Throwable $e) {
+                            $errors[] = "[{$record->item_code}] 更新できませんでした: {$e->getMessage()}";
+                        }
+                    }
+
+                    if ($updated > 0 || $merged > 0) {
+                        Notification::make()
+                            ->title("発注数量を保存しました: 更新 {$updated}件 / 統合 {$merged}件")
+                            ->body($skipped > 0 ? "変更なし・対象外 {$skipped}件" : null)
+                            ->success()
+                            ->send();
+                    } elseif (empty($errors)) {
+                        Notification::make()
+                            ->title('変更はありません')
+                            ->warning()
+                            ->send();
+                    }
+
+                    if (! empty($errors)) {
+                        Notification::make()
+                            ->title(count($errors).'件で更新できませんでした')
+                            ->body(implode("\n", array_slice($errors, 0, 5)))
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
             ActionGroup::make([
                 Action::make('approveAll')
                     ->label('全て承認')
@@ -637,6 +764,42 @@ class ListWmsOrderCandidates extends ListRecords
                     ->orderBy('warehouse_id')
                     ->orderBy('item_id')
             ));
+    }
+
+    private function getFastQuantityInputRecords()
+    {
+        return $this->getFilteredSortedTableQuery()
+            ->with(['item.current_price', 'supplier'])
+            ->get();
+    }
+
+    private function buildFastQuantityInputRows($records): array
+    {
+        return $records
+            ->map(function (WmsOrderCandidate $record): array {
+                $capacityCase = (int) ($record->item?->capacity_case ?? 1);
+                $isEditable = $record->status === CandidateStatus::PENDING;
+                $supplierName = $record->supplier ? "[{$record->supplier->partner_code}]{$record->supplier->partner_name}" : '-';
+
+                return [
+                    'id' => $record->id,
+                    'item_code' => $record->item_code ?? '-',
+                    'item_name' => $record->item?->name ?? '-',
+                    'packaging' => $record->item?->packaging ?? '-',
+                    'supplier_name' => $supplierName,
+                    'calculated_available' => (int) ($record->calculated_available ?? 0),
+                    'safety_stock' => (int) ($record->ic_safety_stock ?? $record->safety_stock ?? 0),
+                    'auto_order_quantity' => (int) ($record->ic_auto_order_quantity ?? 0),
+                    'shortage_qty' => (int) ($record->shortage_qty ?? 0),
+                    'case_quantity' => $record->quantity_type === QuantityType::CASE ? (int) $record->order_quantity : 0,
+                    'piece_quantity' => $record->quantity_type === QuantityType::PIECE ? (int) $record->order_quantity : 0,
+                    'capacity_case' => $capacityCase,
+                    'case_disabled' => ! $isEditable || $capacityCase <= 1,
+                    'piece_disabled' => ! $isEditable,
+                ];
+            })
+            ->values()
+            ->toArray();
     }
 
     /**

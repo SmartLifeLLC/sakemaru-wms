@@ -67,7 +67,11 @@
       "Bash(mysql *)",
       "Bash(composer show *)",
       "Bash(gh api *)",
-      "Bash(gh search *)"
+      "Bash(gh search *)",
+      "Bash(php-fpm8.4 -i)",
+      "Bash(php-fpm -i)",
+      "Bash(valet restart *)",
+      "Bash(brew services *)"
     ]
   }
 }

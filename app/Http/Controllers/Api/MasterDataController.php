@@ -215,6 +215,7 @@ class MasterDataController extends ApiController
      *                                     @OA\Property(property="display_name", type="string", example="A-1-01 常温棚A"),
      *                                     @OA\Property(property="name", type="string", nullable=true),
      *                                     @OA\Property(property="source", type="string", example="stock_lot"),
+     *                                     @OA\Property(property="is_no_location", type="boolean", example=false),
      *                                     @OA\Property(property="temperature_type", type="string", nullable=true),
      *                                     @OA\Property(property="is_restricted_area", type="boolean", example=false),
      *                                     @OA\Property(property="available_quantity_flags", type="integer", nullable=true, example=3),
@@ -646,6 +647,7 @@ class MasterDataController extends ApiController
 
             if ($location) {
                 $location->source = 'warehouse_default';
+                $location->is_no_location = true;
 
                 return $location;
             }
@@ -657,6 +659,7 @@ class MasterDataController extends ApiController
     private function formatLocation(object $location, string $source, array $extra = []): array
     {
         $code = Location::formatCode($location->code1, $location->code2, $location->code3, '-');
+        $isNoLocation = (bool) ($location->is_no_location ?? false);
 
         return array_merge([
             'id' => (int) $location->id,
@@ -666,9 +669,12 @@ class MasterDataController extends ApiController
             'code2' => $location->code2,
             'code3' => $location->code3,
             'code' => $code,
-            'display_name' => $location->name ? "{$code} {$location->name}" : $code,
+            'display_name' => $isNoLocation
+                ? 'フリーロケ'
+                : ($location->name ? "{$code} {$location->name}" : $code),
             'name' => $location->name,
             'source' => $source,
+            'is_no_location' => $isNoLocation,
             'temperature_type' => $location->temperature_type,
             'is_restricted_area' => (bool) $location->is_restricted_area,
             'available_quantity_flags' => $location->available_quantity_flags !== null

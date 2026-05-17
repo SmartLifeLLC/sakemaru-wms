@@ -31,6 +31,7 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
         public string $salesBasis = 'last_3d',
         public string $orderPointFilter = 'ignore',
         public string $autoOrderFlagFilter = 'ignore',
+        public bool $transferOnly = false,
     ) {}
 
     public function handle(): void
@@ -52,11 +53,11 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
             $orderPointFilter = $this->orderPointFilter ?? 'ignore';
             $autoOrderFlagFilter = $this->autoOrderFlagFilter ?? 'ignore';
 
-            $progress->markAsProcessing(100, '実績ベース発注候補を生成中...');
+            $progress->markAsProcessing(100, $this->transferOnly ? '実績ベース移動候補を生成中...' : '実績ベース発注候補を生成中...');
 
             $progress->update([
                 'progress' => 10,
-                'message' => '実績ベース発注候補を計算中...',
+                'message' => $this->transferOnly ? '実績ベース移動候補を計算中...' : '実績ベース発注候補を計算中...',
             ]);
 
             $service = app(SalesBasedOrderCandidateService::class);
@@ -69,6 +70,7 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
                 salesBasis: $salesBasis,
                 orderPointFilter: $orderPointFilter,
                 autoOrderFlagFilter: $autoOrderFlagFilter,
+                transferOnly: $this->transferOnly,
             );
 
             $results = [
@@ -97,7 +99,7 @@ class ProcessSalesBasedOrderCandidateJob implements ShouldQueue
                 ])
                 ->toArray();
 
-            $progress->markAsCompleted($results, '実績ベース発注候補の生成が完了しました');
+            $progress->markAsCompleted($results, $this->transferOnly ? '実績ベース移動候補の生成が完了しました' : '実績ベース発注候補の生成が完了しました');
 
             Log::info('[SalesBasedJob] completed', [
                 'job_id' => $this->jobId,

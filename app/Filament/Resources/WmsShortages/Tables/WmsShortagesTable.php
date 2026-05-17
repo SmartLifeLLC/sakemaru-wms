@@ -21,6 +21,7 @@ use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -313,6 +314,13 @@ class WmsShortagesTable
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(WmsShortage::STATUS_LABELS),
+
+                TernaryFilter::make('is_confirmed')
+                    ->label('承認')
+                    ->trueLabel('承認済み')
+                    ->falseLabel('未承認')
+                    ->placeholder('すべて')
+                    ->default(false),
 
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
