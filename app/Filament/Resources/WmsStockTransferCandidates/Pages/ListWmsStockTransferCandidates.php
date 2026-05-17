@@ -436,7 +436,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ->modalHeading('発注数量編集')
                 ->modalWidth('full')
                 ->extraModalWindowAttributes(['class' => 'incoming-detail-modal sales-based-transfer-preview-modal'])
-                ->modalSubmitAction(fn (Action $action) => $action->makeModalSubmitAction('submit')->label('一括保存')->color('danger'))
+                ->modalSubmitActionLabel('一括保存')
                 ->modalCancelActionLabel('保存せず閉じる')
                 ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
                 ->schema(function (): array {
@@ -974,8 +974,9 @@ class ListWmsStockTransferCandidates extends ListRecords
         $skipped = 0;
         $blankSkipped = 0;
         $now = now();
+        $expectedArrivalDate = $now->copy()->addDay()->toDateString();
 
-        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $userId, &$created, &$updated, &$skipped, &$blankSkipped): void {
+        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $expectedArrivalDate, $userId, &$created, &$updated, &$skipped, &$blankSkipped): void {
             foreach ($this->salesBasedTransferPreviewRows as $row) {
                 $itemId = (int) ($row['item_id'] ?? 0);
                 $satelliteWarehouseId = (int) ($row['satellite_warehouse_id'] ?? 0);
@@ -1030,6 +1031,8 @@ class ListWmsStockTransferCandidates extends ListRecords
                     'shortage_qty' => max(0, (int) ($row['order_piece_qty'] ?? 0)),
                     'purchase_unit' => max(1, (int) ($row['purchase_unit'] ?? 1)),
                     'quantity_type' => QuantityType::PIECE,
+                    'expected_arrival_date' => $expectedArrivalDate,
+                    'original_arrival_date' => $expectedArrivalDate,
                     'status' => CandidateStatus::PENDING,
                     'lot_status' => LotStatus::RAW,
                     'origin_type' => OriginType::MANUAL_SALES_BASED,
@@ -1068,6 +1071,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                         'return_piece_qty' => (int) ($row['return_piece_qty'] ?? 0),
                         'transfer_piece_qty' => (int) ($row['transfer_piece_qty'] ?? 0),
                         'input_blank_as_zero' => false,
+                        'expected_arrival_date' => $expectedArrivalDate,
                         'created_by' => $userId,
                     ],
                 ]);
