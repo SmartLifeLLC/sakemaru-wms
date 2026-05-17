@@ -110,20 +110,29 @@ class ListWmsOrderDocuments extends ListRecords
                 $count = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
                     ->count();
 
-                return "送信待ちのJXデータ {$count} 件を送信せずに「送信取消」にします。この操作は元に戻せません。";
+                return "送信待ちのJXデータ {$count} 件を送信せずに「送信取消」にし、紐づく発注候補をJX生成前に戻します。";
             })
             ->modalSubmitActionLabel('全件送信取消を実行')
             ->modalCancelActionLabel('取消せず閉じる')
             ->requiresConfirmation()
             ->action(function () {
-                $count = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
-                    ->update([
-                        'status' => TransmissionDocumentStatus::CANCELLED,
-                    ]);
+                $service = app(OrderTransmissionService::class);
+                $cancelled = 0;
+                $restored = 0;
+
+                WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
+                    ->pluck('id')
+                    ->each(function (int $documentId) use ($service, &$cancelled, &$restored): void {
+                        $result = $service->cancelPendingJxDocumentAndRestoreCandidates($documentId);
+                        if ($result['success'] ?? false) {
+                            $cancelled++;
+                            $restored += (int) ($result['restored_count'] ?? 0);
+                        }
+                    });
 
                 Notification::make()
-                    ->title("送信取消完了（{$count}件）")
-                    ->body('送信待ちのJXデータを全件送信取消にしました')
+                    ->title("送信取消完了（{$cancelled}件）")
+                    ->body("発注候補 {$restored}件をJX生成前に戻しました。")
                     ->success()
                     ->send();
             });

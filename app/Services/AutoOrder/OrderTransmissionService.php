@@ -2171,6 +2171,38 @@ class OrderTransmissionService
     }
 
     /**
+     * 送信前JXドキュメントを生成取消し、発注候補をJX生成前に戻す。
+     */
+    public function cancelPendingJxDocumentAndRestoreCandidates(int $documentId): array
+    {
+        $document = WmsOrderJxDocument::find($documentId);
+
+        if (! $document) {
+            return ['success' => false, 'error' => 'ドキュメントが見つかりません'];
+        }
+
+        if ($document->status !== TransmissionDocumentStatus::PENDING) {
+            return ['success' => false, 'error' => '送信待ちのJXデータのみ生成取消できます'];
+        }
+
+        return DB::transaction(function () use ($document): array {
+            $restoredCount = WmsOrderCandidate::where('wms_order_jx_document_id', $document->id)
+                ->update(['wms_order_jx_document_id' => null]);
+
+            $document->update([
+                'status' => TransmissionDocumentStatus::CANCELLED,
+                'error_message' => '送信前に生成取消されました',
+            ]);
+
+            return [
+                'success' => true,
+                'document_id' => $document->id,
+                'restored_count' => $restoredCount,
+            ];
+        });
+    }
+
+    /**
      * 指定した送信先に集約される元仕入先IDを取得する。
      */
     private function getCorrectionResendSourceContractorIds(int $contractorId): array

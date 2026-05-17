@@ -256,7 +256,9 @@ class WmsOrderConfirmedTable
 
                 static::confirmedDateFilter(),
 
-                static::fileGenerationFilter(),
+                static::jxFileGenerationFilter(),
+
+                static::faxFileGenerationFilter(),
 
                 Filter::make('executed_at_range')
                     ->label('実行時刻')
@@ -622,10 +624,31 @@ class WmsOrderConfirmedTable
         return null;
     }
 
-    private static function fileGenerationFilter(): SelectFilter
+    private static function jxFileGenerationFilter(): SelectFilter
     {
-        return SelectFilter::make('file_generation_status')
-            ->label('ファイル生成')
+        return SelectFilter::make('jx_file_generation_status')
+            ->label('JX生成')
+            ->options([
+                'not_generated' => '未生成',
+                'generated' => '生成済み',
+                'all' => 'すべて',
+            ])
+            ->query(function (Builder $query, array $data): Builder {
+                $value = $data['value'] ?? null;
+                $table = (new WmsOrderCandidate)->getTable();
+
+                return match ($value) {
+                    'not_generated' => $query->whereNull("{$table}.wms_order_jx_document_id"),
+                    'generated' => $query->whereNotNull("{$table}.wms_order_jx_document_id"),
+                    default => $query,
+                };
+            });
+    }
+
+    private static function faxFileGenerationFilter(): SelectFilter
+    {
+        return SelectFilter::make('fax_file_generation_status')
+            ->label('FAX生成')
             ->options([
                 'not_generated' => '未生成',
                 'generated' => '生成済み',
@@ -643,12 +666,8 @@ class WmsOrderConfirmedTable
                     ->whereColumn('wms_order_data_files.contractor_id', "{$table}.contractor_id");
 
                 return match ($value) {
-                    'not_generated' => $query
-                        ->whereNull("{$table}.wms_order_jx_document_id")
-                        ->whereNotExists($dataFileExists),
-                    'generated' => $query->where(fn (Builder $q) => $q
-                        ->whereNotNull("{$table}.wms_order_jx_document_id")
-                        ->orWhereExists($dataFileExists)),
+                    'not_generated' => $query->whereNotExists($dataFileExists),
+                    'generated' => $query->whereExists($dataFileExists),
                     default => $query,
                 };
             });

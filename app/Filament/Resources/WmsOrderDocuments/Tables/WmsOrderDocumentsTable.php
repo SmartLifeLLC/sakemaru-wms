@@ -211,6 +211,37 @@ class WmsOrderDocumentsTable
                             ->send();
                     }),
 
+                Action::make('cancelPendingAndRestore')
+                    ->label('生成取消')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('warning')
+                    ->visible(fn ($record) => $record->status === TransmissionDocumentStatus::PENDING)
+                    ->requiresConfirmation()
+                    ->modalHeading('送信前JXデータを生成取消')
+                    ->modalDescription('このJXデータを送信取消にし、紐づく発注候補をJX生成前に戻します。送信済みデータには実行できません。')
+                    ->modalSubmitActionLabel('生成取消する')
+                    ->modalCancelActionLabel('取消せず閉じる')
+                    ->action(function (WmsOrderJxDocument $record) {
+                        $result = app(OrderTransmissionService::class)
+                            ->cancelPendingJxDocumentAndRestoreCandidates($record->id);
+
+                        if ($result['success'] ?? false) {
+                            Notification::make()
+                                ->title('JX生成を取消しました')
+                                ->body('発注候補 '.($result['restored_count'] ?? 0).'件をJX生成前に戻しました。')
+                                ->success()
+                                ->send();
+
+                            return;
+                        }
+
+                        Notification::make()
+                            ->title('JX生成取消に失敗しました')
+                            ->body($result['error'] ?? '生成取消できませんでした')
+                            ->danger()
+                            ->send();
+                    }),
+
                 Action::make('delete')
                     ->label('削除')
                     ->icon('heroicon-o-trash')
@@ -267,6 +298,53 @@ class WmsOrderDocumentsTable
                                 Notification::make()
                                     ->title('送信エラー')
                                     ->body($errorMessages)
+                                    ->danger()
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
+
+                    BulkAction::make('bulkCancelPendingAndRestore')
+                        ->label('選択JX生成取消')
+                        ->icon('heroicon-o-arrow-uturn-left')
+                        ->color('warning')
+                        ->requiresConfirmation()
+                        ->modalHeading('選択した送信前JXデータを生成取消')
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件のうち、送信待ちのJXデータを送信取消にし、発注候補をJX生成前に戻します。送信済みデータは対象外です。")
+                        ->modalSubmitActionLabel('生成取消する')
+                        ->modalCancelActionLabel('取消せず閉じる')
+                        ->action(function (Collection $records) {
+                            $service = app(OrderTransmissionService::class);
+                            $cancelled = 0;
+                            $restored = 0;
+                            $errors = [];
+
+                            foreach ($records as $record) {
+                                if ($record->status !== TransmissionDocumentStatus::PENDING) {
+                                    continue;
+                                }
+
+                                $result = $service->cancelPendingJxDocumentAndRestoreCandidates($record->id);
+                                if ($result['success'] ?? false) {
+                                    $cancelled++;
+                                    $restored += (int) ($result['restored_count'] ?? 0);
+                                } else {
+                                    $errors[] = "ID {$record->id}: ".($result['error'] ?? '生成取消できませんでした');
+                                }
+                            }
+
+                            if ($cancelled > 0) {
+                                Notification::make()
+                                    ->title("JX生成を取消しました（{$cancelled}件）")
+                                    ->body("発注候補 {$restored}件をJX生成前に戻しました。")
+                                    ->success()
+                                    ->send();
+                            }
+
+                            if (! empty($errors)) {
+                                Notification::make()
+                                    ->title(count($errors).'件でエラーが発生しました')
+                                    ->body(implode("\n", array_slice($errors, 0, 5)))
                                     ->danger()
                                     ->send();
                             }
