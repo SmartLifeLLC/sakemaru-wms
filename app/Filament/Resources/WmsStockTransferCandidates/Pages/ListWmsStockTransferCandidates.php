@@ -972,9 +972,10 @@ class ListWmsStockTransferCandidates extends ListRecords
         $created = 0;
         $updated = 0;
         $skipped = 0;
+        $blankSkipped = 0;
         $now = now();
 
-        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $userId, &$created, &$updated, &$skipped): void {
+        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $userId, &$created, &$updated, &$skipped, &$blankSkipped): void {
             foreach ($this->salesBasedTransferPreviewRows as $row) {
                 $itemId = (int) ($row['item_id'] ?? 0);
                 $satelliteWarehouseId = (int) ($row['satellite_warehouse_id'] ?? 0);
@@ -987,7 +988,14 @@ class ListWmsStockTransferCandidates extends ListRecords
                     continue;
                 }
 
-                $quantity = max(0, (int) ($row['input_order_piece_qty'] ?? 0));
+                $inputQuantity = $row['input_order_piece_qty'] ?? null;
+                if ($inputQuantity === null || $inputQuantity === '') {
+                    $blankSkipped++;
+
+                    continue;
+                }
+
+                $quantity = max(0, (int) $inputQuantity);
                 $existingCandidate = WmsStockTransferCandidate::query()
                     ->where('satellite_warehouse_id', $satelliteWarehouseId)
                     ->where('hub_warehouse_id', $hubWarehouseId)
@@ -1059,7 +1067,7 @@ class ListWmsStockTransferCandidates extends ListRecords
                         'sales_piece_qty' => (int) ($row['sales_piece_qty'] ?? 0),
                         'return_piece_qty' => (int) ($row['return_piece_qty'] ?? 0),
                         'transfer_piece_qty' => (int) ($row['transfer_piece_qty'] ?? 0),
-                        'input_blank_as_zero' => true,
+                        'input_blank_as_zero' => false,
                         'created_by' => $userId,
                     ],
                 ]);
@@ -1073,7 +1081,10 @@ class ListWmsStockTransferCandidates extends ListRecords
 
         Notification::make()
             ->title($title)
-            ->body($skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null)
+            ->body(collect([
+                $blankSkipped > 0 ? "未入力の候補 {$blankSkipped}件 は生成しませんでした。" : null,
+                $skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null,
+            ])->filter()->implode("\n") ?: null)
             ->success()
             ->send();
 
