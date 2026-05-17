@@ -156,7 +156,6 @@ class ListWmsAutoOrderJobControls extends ListRecords
 
             ActionGroup::make([
                 //                $this->getOrderGenerationWizardAction(),
-                $this->getGenerateByWarehouseAction(),
                 $this->getGenerateTransferCandidatesAction(),
                 $this->getForceGenerateByContractorAction(),
             ])

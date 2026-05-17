@@ -5,9 +5,9 @@ namespace App\Filament\Resources\WmsAutoOrderJobControls;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsAutoOrderJobControls\Pages\ListWmsAutoOrderJobControls;
 use App\Filament\Resources\WmsAutoOrderJobControls\Tables\WmsAutoOrderJobControlsTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsAutoOrderJobControl;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -26,6 +26,11 @@ class WmsAutoOrderJobControlResource extends AdminResource
     public static function getNavigationLabel(): string
     {
         return EMenu::WMS_AUTO_ORDER_JOBS->label();
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
     }
 
     public static function getModelLabel(): string

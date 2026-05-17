@@ -111,6 +111,82 @@
         }
     },
 
+    cleanDateInput(value) {
+        return String(value || '')
+            .replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
+            .replace(/[^0-9\-\/]/g, '');
+    },
+
+    formatSmartDate(field) {
+        const original = this.filters[field] || '';
+        const input = this.cleanDateInput(original).trim();
+        this.filters[field] = input;
+
+        if (!input) {
+            return;
+        }
+
+        const fullDateMatch = input.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+        if (fullDateMatch) {
+            this.applySmartDate(field, parseInt(fullDateMatch[1], 10), parseInt(fullDateMatch[2], 10), parseInt(fullDateMatch[3], 10), original);
+            return;
+        }
+
+        const digits = input.replace(/\D/g, '');
+        const now = new Date();
+        let year = now.getFullYear();
+        let month = now.getMonth() + 1;
+        let day = now.getDate();
+
+        if (digits.length === 1 || digits.length === 2) {
+            day = parseInt(digits, 10);
+        } else if (digits.length === 3) {
+            month = parseInt(digits.substring(0, 1), 10);
+            day = parseInt(digits.substring(1, 3), 10);
+        } else if (digits.length === 4) {
+            month = parseInt(digits.substring(0, 2), 10);
+            day = parseInt(digits.substring(2, 4), 10);
+        } else if (digits.length === 6) {
+            year = 2000 + parseInt(digits.substring(0, 2), 10);
+            month = parseInt(digits.substring(2, 4), 10);
+            day = parseInt(digits.substring(4, 6), 10);
+        } else if (digits.length === 8) {
+            year = parseInt(digits.substring(0, 4), 10);
+            month = parseInt(digits.substring(4, 6), 10);
+            day = parseInt(digits.substring(6, 8), 10);
+        } else {
+            this.filters[field] = '';
+            return;
+        }
+
+        this.applySmartDate(field, year, month, day, original);
+    },
+
+    applySmartDate(field, year, month, day, fallback = '') {
+        const parsed = new Date(year, month - 1, day);
+        if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) {
+            this.filters[field] = fallback;
+            return;
+        }
+
+        this.filters[field] = [
+            parsed.getFullYear(),
+            String(parsed.getMonth() + 1).padStart(2, '0'),
+            String(parsed.getDate()).padStart(2, '0'),
+        ].join('-');
+    },
+
+    openNativeDatePicker(refName, field) {
+        const picker = this.$refs[refName];
+        if (!picker) return;
+        picker.value = this.filters[field] || '';
+        if (typeof picker.showPicker === 'function') {
+            picker.showPicker();
+            return;
+        }
+        picker.click();
+    },
+
     onQtyChange() {
         this.syncToWire();
     },
@@ -233,13 +309,39 @@
             </div>
             <div>
                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">最終出荷日(から)</label>
-                <input type="date" x-model="filters.lastShippedFrom"
-                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                <div class="relative">
+                    <input type="text" inputmode="numeric" x-model="filters.lastShippedFrom"
+                        @focus="$event.target.select()"
+                        @input="filters.lastShippedFrom = cleanDateInput(filters.lastShippedFrom)"
+                        @blur="formatSmartDate('lastShippedFrom')"
+                        @keyup.enter.prevent="formatSmartDate('lastShippedFrom'); search(1)"
+                        placeholder="YYYY-MM-DD"
+                        class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 pr-8 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                    <button type="button" tabindex="-1" @click="openNativeDatePicker('lastShippedFromPicker', 'lastShippedFrom')"
+                        class="absolute inset-y-0 right-1 flex items-center px-1 text-gray-400 hover:text-primary-600">
+                        <x-filament::icon icon="heroicon-m-calendar" class="h-4 w-4" />
+                    </button>
+                    <input type="date" x-ref="lastShippedFromPicker" @change="filters.lastShippedFrom = $event.target.value"
+                        class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0" tabindex="-1" aria-hidden="true" />
+                </div>
             </div>
             <div>
                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">最終出荷日(まで)</label>
-                <input type="date" x-model="filters.lastShippedTo"
-                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                <div class="relative">
+                    <input type="text" inputmode="numeric" x-model="filters.lastShippedTo"
+                        @focus="$event.target.select()"
+                        @input="filters.lastShippedTo = cleanDateInput(filters.lastShippedTo)"
+                        @blur="formatSmartDate('lastShippedTo')"
+                        @keyup.enter.prevent="formatSmartDate('lastShippedTo'); search(1)"
+                        placeholder="YYYY-MM-DD"
+                        class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 pr-8 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                    <button type="button" tabindex="-1" @click="openNativeDatePicker('lastShippedToPicker', 'lastShippedTo')"
+                        class="absolute inset-y-0 right-1 flex items-center px-1 text-gray-400 hover:text-primary-600">
+                        <x-filament::icon icon="heroicon-m-calendar" class="h-4 w-4" />
+                    </button>
+                    <input type="date" x-ref="lastShippedToPicker" @change="filters.lastShippedTo = $event.target.value"
+                        class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0" tabindex="-1" aria-hidden="true" />
+                </div>
             </div>
             <div class="flex items-end gap-1">
                 <button type="button" @click="search(1)"

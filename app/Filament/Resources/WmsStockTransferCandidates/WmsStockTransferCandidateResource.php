@@ -30,12 +30,12 @@ class WmsStockTransferCandidateResource extends AdminResource
 
     public static function getModelLabel(): string
     {
-        return '移動候補';
+        return '物流発注（転換）';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '移動候補';
+        return '物流発注（転換）';
     }
 
     public static function getNavigationSort(): ?int

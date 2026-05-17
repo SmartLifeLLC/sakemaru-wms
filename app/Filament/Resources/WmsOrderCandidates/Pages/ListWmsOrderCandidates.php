@@ -8,6 +8,7 @@ use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\AutoOrder\OriginType;
 use App\Enums\AutoOrder\SettlementStatus;
+use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderCandidates\Tables\WmsOrderCandidatesTable;
@@ -21,13 +22,14 @@ use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\StatsItemWarehouseSalesSummary;
 use App\Models\WmsAutoOrderJobControl;
+use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderCandidate;
+use App\Models\WmsWarehouseAutoOrderSetting;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
-use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\ViewField;
@@ -52,6 +54,20 @@ class ListWmsOrderCandidates extends ListRecords
     public array $orderCandidateItems = [];
 
     public array $fastQuantityInputPayload = [];
+
+    public array $externalOrderContractorsData = [];
+
+    public array $externalOrderJxContractorsData = [];
+
+    public array $externalOrderOtherContractorsData = [];
+
+    public array $selectedExternalOrderContractorIds = [];
+
+    public array $salesBasedExternalOrderPreviewRows = [];
+
+    public array $salesBasedExternalOrderPreviewConditions = [];
+
+    public ?string $salesBasedExternalOrderPreviewError = null;
 
     private function getOrderingCodeForItem(int $itemId): ?string
     {
@@ -312,6 +328,13 @@ class ListWmsOrderCandidates extends ListRecords
                 ->success()
                 ->send();
         }
+
+        $this->initializeExternalOrderContractors();
+        $this->selectedExternalOrderContractorIds = collect($this->externalOrderJxContractorsData)
+            ->merge($this->externalOrderOtherContractorsData)
+            ->pluck('id')
+            ->values()
+            ->toArray();
     }
 
     protected function getHeaderActions(): array
@@ -359,9 +382,12 @@ class ListWmsOrderCandidates extends ListRecords
                                 return new HtmlString("<span class='font-bold text-blue-600'>[{$incoming->code}]{$incoming->name}</span>");
                             }),
 
-                        DatePicker::make('expected_arrival_date')
+                        ViewField::make('expected_arrival_date')
                             ->label('入荷予定日')
-                            ->default(now()->addDay())
+                            ->view('filament.forms.components.smart-date-input')
+                            ->viewData(['size' => 'large'])
+                            ->default(now()->addDay()->toDateString())
+                            ->live()
                             ->required(),
                     ]),
 
@@ -553,6 +579,8 @@ class ListWmsOrderCandidates extends ListRecords
 
                     $this->redirect(static::getResource()::getUrl('index'));
                 }),
+
+            $this->getSalesBasedExternalOrderGenerateAction(),
 
             Action::make('fastQuantityInput')
                 ->label('発注数量編集')
@@ -746,6 +774,640 @@ class ListWmsOrderCandidates extends ListRecords
                 ->color('gray')
                 ->button(),
         ];
+    }
+
+    private function getSalesBasedExternalOrderGenerateAction(): Action
+    {
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        $selectedWarehouse = $selectedWarehouseId ? Warehouse::find($selectedWarehouseId) : null;
+        $selectedWarehouseName = $selectedWarehouse?->name ?? '未選択';
+
+        return Action::make('generateSalesBasedExternalOrder')
+            ->label('外部発注候補生成')
+            ->icon('heroicon-o-chart-bar')
+            ->color('info')
+            ->modalWidth('7xl')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal sales-based-transfer-generate-modal'])
+            ->modalHeading("外部発注候補生成（{$selectedWarehouseName}）")
+            ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
+            ->modalSubmitAction(fn (Action $action) => $action->makeModalSubmitAction('submit')->label('候補表示')->color('danger'))
+            ->modalCancelActionLabel('表示せず閉じる')
+            ->disabled(! $selectedWarehouse)
+            ->mountUsing(function ($schema): void {
+                $this->resetSalesBasedExternalOrderPreview();
+                $this->initializeExternalOrderContractors();
+                if (empty($this->selectedExternalOrderContractorIds)) {
+                    $this->selectedExternalOrderContractorIds = collect($this->externalOrderJxContractorsData)
+                        ->merge($this->externalOrderOtherContractorsData)
+                        ->pluck('id')
+                        ->values()
+                        ->toArray();
+                }
+                $schema?->fill([
+                    'sales_start_date' => now()->subDays(2)->toDateString(),
+                    'sales_end_date' => now()->toDateString(),
+                    'auto_order_flag_filter' => 'ignore',
+                ]);
+            })
+            ->schema([
+                Placeholder::make('fixed_conditions')
+                    ->hiddenLabel()
+                    ->content(new HtmlString(
+                        '<div class="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900 sm:grid-cols-3">'
+                        .'<div><span class="text-xs font-semibold text-slate-500 dark:text-slate-400">対象</span><div class="mt-1 font-bold text-slate-900 dark:text-slate-100">外部発注</div></div>'
+                        .'<div><span class="text-xs font-semibold text-slate-500 dark:text-slate-400">自動発注フラグ</span><div class="mt-1 font-bold text-slate-900 dark:text-slate-100">考慮しない</div></div>'
+                        .'<div><span class="text-xs font-semibold text-slate-500 dark:text-slate-400">選択中倉庫</span><div class="mt-1 font-bold text-slate-900 dark:text-slate-100">'.e($selectedWarehouseName).'</div></div>'
+                        .'</div>'
+                    )),
+                Grid::make(2)->schema([
+                    ViewField::make('sales_start_date')
+                        ->label('販売実績 開始日')
+                        ->view('filament.forms.components.smart-date-input')
+                        ->viewData(['size' => 'large'])
+                        ->extraAttributes(['class' => 'sales-based-transfer-date-field'])
+                        ->default(now()->subDays(2)->toDateString())
+                        ->live()
+                        ->afterStateUpdated(fn () => $this->resetSalesBasedExternalOrderPreview())
+                        ->required(),
+                    ViewField::make('sales_end_date')
+                        ->label('販売実績 終了日')
+                        ->view('filament.forms.components.smart-date-input')
+                        ->viewData(['size' => 'large'])
+                        ->extraAttributes(['class' => 'sales-based-transfer-date-field'])
+                        ->default(now()->toDateString())
+                        ->live()
+                        ->afterStateUpdated(fn () => $this->resetSalesBasedExternalOrderPreview())
+                        ->required(),
+                ]),
+                ViewField::make('contractor_selector')
+                    ->view('filament.components.contractor-selection')
+                    ->viewData([
+                        'grouped' => true,
+                        'primaryContractorsProperty' => 'externalOrderJxContractorsData',
+                        'primaryFallbackMethod' => 'getExternalOrderJxContractorsForSalesBasedGeneration',
+                        'secondaryContractorsProperty' => 'externalOrderOtherContractorsData',
+                        'secondaryFallbackMethod' => 'getExternalOrderOtherContractorsForSalesBasedGeneration',
+                        'selectedProperty' => 'selectedExternalOrderContractorIds',
+                        'primaryLabel' => 'JX仕入先',
+                        'secondaryLabel' => 'JX外仕入先',
+                        'compactListHeight' => true,
+                    ])
+                    ->hiddenLabel(),
+            ])
+            ->action(function (Action $action) {
+                $this->calculateSalesBasedExternalOrderPreview();
+
+                if (empty($this->salesBasedExternalOrderPreviewRows)) {
+                    Notification::make()
+                        ->title('表示できる候補がありません')
+                        ->body($this->salesBasedExternalOrderPreviewError ?? '条件を変更して再度候補表示してください。')
+                        ->warning()
+                        ->send();
+
+                    $action->halt();
+                }
+
+                $this->replaceMountedAction('salesBasedExternalOrderPreviewModal');
+            });
+    }
+
+    protected function salesBasedExternalOrderPreviewModalAction(): Action
+    {
+        return Action::make('salesBasedExternalOrderPreviewModal')
+            ->label('外部発注候補表示')
+            ->modalWidth('full')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal sales-based-transfer-preview-modal'])
+            ->modalHeading('外部発注候補リスト')
+            ->modalSubmitAction(fn (Action $action) => $action->makeModalSubmitAction('submit')->label('候補生成')->color('danger'))
+            ->modalCancelActionLabel('閉じる')
+            ->schema([
+                ViewField::make('sales_based_external_order_preview_edit')
+                    ->view('filament.components.sales-based-external-order-preview-edit')
+                    ->hiddenLabel(),
+            ])
+            ->action(function (): void {
+                $this->createSalesBasedExternalOrderPreviewCandidates();
+            });
+    }
+
+    public function resetSalesBasedExternalOrderPreview(): void
+    {
+        $this->salesBasedExternalOrderPreviewRows = [];
+        $this->salesBasedExternalOrderPreviewConditions = [];
+        $this->salesBasedExternalOrderPreviewError = null;
+    }
+
+    public function calculateSalesBasedExternalOrderPreview(): void
+    {
+        $this->resetSalesBasedExternalOrderPreview();
+
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        if (! $selectedWarehouseId) {
+            $this->salesBasedExternalOrderPreviewError = '倉庫が選択されていません。';
+
+            return;
+        }
+
+        $contractorIds = array_values(array_unique(array_map('intval', $this->selectedExternalOrderContractorIds)));
+        if (empty($contractorIds)) {
+            $this->salesBasedExternalOrderPreviewError = '仕入先を1件以上選択してください。';
+
+            return;
+        }
+
+        $selectedWarehouse = Warehouse::find($selectedWarehouseId);
+        $data = $this->getMountedSalesBasedExternalOrderActionData();
+        $startDate = $data['sales_start_date'] ?? now()->subDays(2)->toDateString();
+        $endDate = $data['sales_end_date'] ?? now()->toDateString();
+
+        try {
+            $startDate = \Carbon\Carbon::parse($startDate)->toDateString();
+            $endDate = \Carbon\Carbon::parse($endDate)->toDateString();
+        } catch (\Throwable) {
+            $this->salesBasedExternalOrderPreviewError = '販売実績の期間を正しく指定してください。';
+
+            return;
+        }
+
+        if ($startDate > $endDate) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+
+        $days = max(1, \Carbon\Carbon::parse($startDate)->diffInDays(\Carbon\Carbon::parse($endDate)) + 1);
+        $warehouseIds = $this->getSalesBasedExternalOrderGenerationWarehouseIds($selectedWarehouseId);
+        if (empty($warehouseIds)) {
+            $this->salesBasedExternalOrderPreviewError = '対象倉庫がありません。';
+
+            return;
+        }
+
+        $this->salesBasedExternalOrderPreviewConditions = [
+            'sales_start_date' => $startDate,
+            'sales_end_date' => $endDate,
+            'selected_warehouse_name' => $selectedWarehouse?->name ?? '未選択',
+            'target_warehouse_name' => '外部発注',
+            'auto_order_flag_filter' => '考慮しない',
+            'days' => $days,
+            'contractor_count' => count($contractorIds),
+        ];
+
+        $pendingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse(
+            $selectedWarehouseId,
+            auth()->id(),
+            [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC]
+        );
+        $batchCode = $pendingJob?->batch_code;
+
+        $internalContractorIds = WmsContractorSetting::query()
+            ->where('transmission_type', TransmissionType::INTERNAL->value)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        $salesSubquery = DB::connection('sakemaru')
+            ->table('stats_item_warehouse_daily_sales')
+            ->whereBetween('business_date', [$startDate, $endDate])
+            ->selectRaw('
+                warehouse_id,
+                item_id,
+                SUM(shipped_piece_qty) as sales_qty,
+                SUM(sales_piece_qty) as sales_piece_qty,
+                SUM(return_piece_qty) as return_piece_qty,
+                SUM(transfer_piece_qty) as transfer_piece_qty
+            ')
+            ->groupBy('warehouse_id', 'item_id')
+            ->havingRaw('SUM(shipped_piece_qty) > 0');
+
+        $stockSubquery = DB::connection('sakemaru')
+            ->query()
+            ->fromSub(
+                DB::connection('sakemaru')
+                    ->table('wms_v_stock_available')
+                    ->whereIn('warehouse_id', $warehouseIds)
+                    ->selectRaw('DISTINCT warehouse_id, item_id, real_stock_id, available_for_wms as stock_qty'),
+                'dedup_stocks'
+            )
+            ->selectRaw('warehouse_id, item_id, SUM(stock_qty) as effective_stock')
+            ->groupBy('warehouse_id', 'item_id');
+
+        $incomingSubquery = DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->whereIn('warehouse_id', $warehouseIds)
+            ->whereIn('status', ['PENDING', 'PARTIAL'])
+            ->selectRaw('warehouse_id, item_id, SUM(expected_quantity - received_quantity) as incoming_qty')
+            ->groupBy('warehouse_id', 'item_id');
+
+        $query = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->join('items', 'item_contractors.item_id', '=', 'items.id')
+            ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
+            ->leftJoin('suppliers', 'suppliers.id', '=', 'item_contractors.supplier_id')
+            ->leftJoin('partners as supplier_partners', 'supplier_partners.id', '=', 'suppliers.partner_id')
+            ->joinSub($salesSubquery, 'sales', function ($join) {
+                $join->on('sales.warehouse_id', '=', 'item_contractors.warehouse_id')
+                    ->on('sales.item_id', '=', 'item_contractors.item_id');
+            })
+            ->leftJoinSub($stockSubquery, 'stocks', function ($join) {
+                $join->on('stocks.warehouse_id', '=', 'item_contractors.warehouse_id')
+                    ->on('stocks.item_id', '=', 'item_contractors.item_id');
+            })
+            ->leftJoinSub($incomingSubquery, 'incoming', function ($join) {
+                $join->on('incoming.warehouse_id', '=', 'item_contractors.warehouse_id')
+                    ->on('incoming.item_id', '=', 'item_contractors.item_id');
+            })
+            ->whereIn('item_contractors.warehouse_id', $warehouseIds)
+            ->whereNotIn('item_contractors.contractor_id', $internalContractorIds ?: [0])
+            ->whereIn('item_contractors.contractor_id', $contractorIds)
+            ->where('items.end_of_sale_type', 'NORMAL')
+            ->where('items.is_ended', false)
+            ->where(fn ($query) => $query->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
+            ->where(fn ($query) => $query->whereNull('items.end_of_sale_date')->orWhere('items.end_of_sale_date', '>', now()->toDateString()))
+            ->where('contractors.is_auto_change_order', true)
+            ->whereExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('item_search_information as isi')
+                    ->whereColumn('isi.item_id', 'item_contractors.item_id')
+                    ->where('isi.is_used_for_ordering', true)
+                    ->where('isi.is_active', true)
+                    ->whereRaw("isi.search_string REGEXP '[1-9]'");
+            });
+
+        if ($batchCode) {
+            $query->whereNotExists(function ($query) use ($batchCode) {
+                $query->selectRaw('1')
+                    ->from('wms_order_candidates as existing_candidates')
+                    ->where('existing_candidates.batch_code', $batchCode)
+                    ->where('existing_candidates.status', CandidateStatus::APPROVED->value)
+                    ->whereColumn('existing_candidates.warehouse_id', 'item_contractors.warehouse_id')
+                    ->whereColumn('existing_candidates.item_id', 'item_contractors.item_id')
+                    ->whereColumn('existing_candidates.contractor_id', 'item_contractors.contractor_id')
+                    ->whereColumn('existing_candidates.supplier_id', 'item_contractors.supplier_id');
+            });
+        }
+
+        $this->salesBasedExternalOrderPreviewRows = $query
+            ->selectRaw('
+                item_contractors.warehouse_id as warehouse_id,
+                item_contractors.item_id as item_id,
+                item_contractors.contractor_id as contractor_id,
+                item_contractors.supplier_id as supplier_id,
+                items.code as item_code,
+                items.name as item_name,
+                items.packaging as item_packaging,
+                items.capacity_case as capacity_case,
+                contractors.name as contractor_name,
+                supplier_partners.name as supplier_name,
+                sales.sales_qty as sales_qty,
+                sales.sales_piece_qty as sales_piece_qty,
+                sales.return_piece_qty as return_piece_qty,
+                sales.transfer_piece_qty as transfer_piece_qty,
+                COALESCE(stocks.effective_stock, 0) as effective_stock,
+                COALESCE(incoming.incoming_qty, 0) as incoming_qty,
+                (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)) as projected_stock,
+                GREATEST(sales.sales_qty - (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)), 0) as shortage_qty,
+                COALESCE(item_contractors.purchase_unit, 1) as purchase_unit
+            ')
+            ->orderBy('items.code')
+            ->limit(200)
+            ->get()
+            ->map(fn ($row) => [
+                'warehouse_id' => (int) $row->warehouse_id,
+                'item_id' => (int) $row->item_id,
+                'contractor_id' => (int) $row->contractor_id,
+                'supplier_id' => (int) ($row->supplier_id ?? 0),
+                'item_code' => (string) $row->item_code,
+                'item_name' => (string) $row->item_name,
+                'item_packaging' => (string) ($row->item_packaging ?? ''),
+                'capacity_case' => max(1, (int) ($row->capacity_case ?? 1)),
+                'contractor_name' => (string) $row->contractor_name,
+                'supplier_name' => (string) ($row->supplier_name ?? '-'),
+                'sales_qty' => (int) $row->sales_qty,
+                'sales_piece_qty' => (int) $row->sales_piece_qty,
+                'return_piece_qty' => (int) $row->return_piece_qty,
+                'transfer_piece_qty' => (int) $row->transfer_piece_qty,
+                'daily_avg_qty' => round(((int) $row->sales_qty) / $days, 2),
+                'effective_stock' => (int) $row->effective_stock,
+                'incoming_qty' => (int) $row->incoming_qty,
+                'projected_stock' => (int) $row->projected_stock,
+                'purchase_unit' => max(1, (int) $row->purchase_unit),
+                'order_piece_qty' => (int) $row->shortage_qty,
+                'input_order_case_qty' => null,
+                'input_order_piece_qty' => null,
+            ])
+            ->toArray();
+
+        if (empty($this->salesBasedExternalOrderPreviewRows)) {
+            $this->salesBasedExternalOrderPreviewError = '現在の条件に該当する候補がありません。';
+        }
+    }
+
+    public function updateSalesBasedExternalOrderPreviewRows(array $rows): void
+    {
+        $this->salesBasedExternalOrderPreviewRows = collect($rows)
+            ->map(function (array $row): array {
+                $inputCaseQuantity = $row['input_order_case_qty'] ?? null;
+                $inputPieceQuantity = $row['input_order_piece_qty'] ?? null;
+                $row['input_order_case_qty'] = ($inputCaseQuantity === null || $inputCaseQuantity === '')
+                    ? null
+                    : max(0, (int) $inputCaseQuantity);
+                $row['input_order_piece_qty'] = ($inputPieceQuantity === null || $inputPieceQuantity === '')
+                    ? null
+                    : max(0, (int) $inputPieceQuantity);
+
+                return $row;
+            })
+            ->values()
+            ->toArray();
+    }
+
+    public function createSalesBasedExternalOrderPreviewCandidates(): void
+    {
+        $userId = auth()->id();
+        if (! $userId) {
+            Notification::make()
+                ->title('ログインユーザーを取得できませんでした')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        if (empty($this->salesBasedExternalOrderPreviewRows)) {
+            Notification::make()
+                ->title('生成対象の候補がありません')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        if (! $selectedWarehouseId) {
+            Notification::make()
+                ->title('倉庫が選択されていません')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $job = WmsAutoOrderJobControl::findPendingSettlementForWarehouse(
+            $selectedWarehouseId,
+            $userId,
+            [JobProcessName::ORDER_CALC, JobProcessName::SALES_BASED_CALC]
+        );
+
+        if (! $job) {
+            $job = WmsAutoOrderJobControl::startJob(
+                processName: JobProcessName::SALES_BASED_CALC,
+                createdBy: $userId,
+                warehouseId: $selectedWarehouseId,
+                batchCode: WmsAutoOrderJobControl::generateBatchCode($selectedWarehouseId),
+            );
+            $job->markAsSuccess(0);
+        }
+
+        $batchCode = $job->batch_code;
+        $created = 0;
+        $updated = 0;
+        $skipped = 0;
+        $now = now();
+
+        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $userId, &$created, &$updated, &$skipped): void {
+            foreach ($this->salesBasedExternalOrderPreviewRows as $row) {
+                $warehouseId = (int) ($row['warehouse_id'] ?? 0);
+                $itemId = (int) ($row['item_id'] ?? 0);
+                $contractorId = (int) ($row['contractor_id'] ?? 0);
+                $supplierId = (int) ($row['supplier_id'] ?? 0);
+
+                if ($warehouseId < 1 || $itemId < 1 || $contractorId < 1 || $supplierId < 1) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $caseQuantity = max(0, (int) ($row['input_order_case_qty'] ?? 0));
+                $pieceQuantity = max(0, (int) ($row['input_order_piece_qty'] ?? 0));
+                if ($caseQuantity > 0 && $pieceQuantity > 0) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $quantityType = $caseQuantity > 0 ? QuantityType::CASE : QuantityType::PIECE;
+                $quantity = $caseQuantity > 0 ? $caseQuantity : $pieceQuantity;
+                $existingCandidate = WmsOrderCandidate::query()
+                    ->where('warehouse_id', $warehouseId)
+                    ->where('item_id', $itemId)
+                    ->where('contractor_id', $contractorId)
+                    ->where('supplier_id', $supplierId)
+                    ->where('status', CandidateStatus::PENDING)
+                    ->forCreatedBy($userId)
+                    ->first();
+
+                $searchCode = DB::connection('sakemaru')
+                    ->table('item_search_information')
+                    ->where('item_id', $itemId)
+                    ->where('is_used_for_ordering', true)
+                    ->where('is_active', true)
+                    ->orderBy('id')
+                    ->value('search_string');
+
+                if (! $searchCode) {
+                    $skipped++;
+
+                    continue;
+                }
+
+                $item = Item::with('current_price')->find($itemId);
+                $expectedArrivalDate = $now->copy()->addDay()->toDateString();
+
+                $candidateData = [
+                    'batch_code' => $batchCode,
+                    'warehouse_id' => $warehouseId,
+                    'item_id' => $itemId,
+                    'item_code' => $row['item_code'] ?? null,
+                    'search_code' => $searchCode,
+                    'ordering_code' => str_pad((string) $searchCode, 13, '0', STR_PAD_LEFT),
+                    'contractor_id' => $contractorId,
+                    'supplier_id' => $supplierId,
+                    'purchase_unit_price' => $quantityType === QuantityType::CASE
+                        ? $item?->current_price?->purchase_case_price
+                        : $item?->current_price?->purchase_unit_price,
+                    'self_shortage_qty' => (int) ($row['sales_qty'] ?? 0),
+                    'satellite_demand_qty' => 0,
+                    'suggested_quantity' => max(0, (int) ($row['order_piece_qty'] ?? 0)),
+                    'order_quantity' => $quantity,
+                    'current_effective_stock' => (int) ($row['effective_stock'] ?? 0),
+                    'incoming_quantity' => (int) ($row['incoming_qty'] ?? 0),
+                    'safety_stock' => 0,
+                    'calculated_shortage_qty' => max(0, (int) ($row['order_piece_qty'] ?? 0)),
+                    'purchase_unit' => max(1, (int) ($row['purchase_unit'] ?? 1)),
+                    'quantity_type' => $quantityType,
+                    'expected_arrival_date' => $expectedArrivalDate,
+                    'original_arrival_date' => $expectedArrivalDate,
+                    'status' => CandidateStatus::PENDING,
+                    'lot_status' => LotStatus::RAW,
+                    'origin_type' => OriginType::MANUAL_SALES_BASED,
+                    'is_manually_modified' => true,
+                    'modified_by' => $userId,
+                    'modified_at' => $now,
+                ];
+
+                if ($existingCandidate) {
+                    $existingCandidate->update($candidateData);
+                    $updated++;
+                } else {
+                    WmsOrderCandidate::create($candidateData);
+                    $created++;
+                }
+
+                WmsOrderCalculationLog::create([
+                    'batch_code' => $batchCode,
+                    'warehouse_id' => $warehouseId,
+                    'item_id' => $itemId,
+                    'calculation_type' => CalculationType::EXTERNAL,
+                    'contractor_id' => $contractorId,
+                    'source_warehouse_id' => null,
+                    'current_effective_stock' => (int) ($row['effective_stock'] ?? 0),
+                    'incoming_quantity' => (int) ($row['incoming_qty'] ?? 0),
+                    'safety_stock_setting' => 0,
+                    'lead_time_days' => 1,
+                    'calculated_shortage_qty' => max(0, (int) ($row['order_piece_qty'] ?? 0)),
+                    'calculated_order_quantity' => $quantity,
+                    'calculation_details' => [
+                        'source' => 'sales_based_external_order_preview',
+                        'sales_start_date' => $this->salesBasedExternalOrderPreviewConditions['sales_start_date'] ?? null,
+                        'sales_end_date' => $this->salesBasedExternalOrderPreviewConditions['sales_end_date'] ?? null,
+                        'sales_qty' => (int) ($row['sales_qty'] ?? 0),
+                        'sales_piece_qty' => (int) ($row['sales_piece_qty'] ?? 0),
+                        'return_piece_qty' => (int) ($row['return_piece_qty'] ?? 0),
+                        'transfer_piece_qty' => (int) ($row['transfer_piece_qty'] ?? 0),
+                        'input_case_qty' => $caseQuantity,
+                        'input_piece_qty' => $pieceQuantity,
+                        'input_blank_as_zero' => true,
+                        'created_by' => $userId,
+                    ],
+                ]);
+            }
+        });
+
+        $title = $updated > 0
+            ? "外部発注候補を {$created}件 生成、{$updated}件 更新しました"
+            : "外部発注候補を {$created}件 生成しました";
+
+        Notification::make()
+            ->title($title)
+            ->body($skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null)
+            ->success()
+            ->send();
+
+        $this->resetSalesBasedExternalOrderPreview();
+        $this->dispatch('$refresh');
+    }
+
+    public function getExternalOrderContractorsForSalesBasedGeneration(): array
+    {
+        $internalContractorIds = WmsContractorSetting::query()
+            ->where('transmission_type', TransmissionType::INTERNAL->value)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        return WmsContractorSetting::query()
+            ->when(! empty($internalContractorIds), fn ($query) => $query->whereNotIn('contractor_id', $internalContractorIds))
+            ->whereHas('contractor', fn ($query) => $query->where('is_auto_change_order', true))
+            ->with(['contractor:id,code,name', 'transmissionContractor:id,code,name'])
+            ->get()
+            ->map(fn ($setting) => [
+                'id' => $setting->contractor_id,
+                'code' => (string) $setting->contractor->code,
+                'name' => $setting->contractor->name,
+                'transmission_type' => $setting->transmission_type?->value ?? 'UNKNOWN',
+                'transmission_type_label' => $setting->transmission_type
+                    ? $setting->transmission_type->label()
+                    : '未設定',
+                'transmission_parent_code' => $setting->transmissionContractor?->code,
+                'transmission_parent_name' => $setting->transmissionContractor?->name,
+                'generation_time' => $setting->auto_order_generation_time,
+            ])
+            ->sortBy('code')
+            ->values()
+            ->toArray();
+    }
+
+    public function getExternalOrderJxContractorsForSalesBasedGeneration(): array
+    {
+        $jxContractorIds = WmsContractorSetting::query()
+            ->where('transmission_type', TransmissionType::JX_FINET->value)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        if (empty($jxContractorIds)) {
+            return [];
+        }
+
+        $aggregatedContractorIds = WmsContractorSetting::query()
+            ->whereIn('transmission_contractor_id', $jxContractorIds)
+            ->pluck('contractor_id')
+            ->toArray();
+
+        $targetContractorIds = array_values(array_unique(array_merge($jxContractorIds, $aggregatedContractorIds)));
+
+        return collect($this->getExternalOrderContractorsForSalesBasedGeneration())
+            ->whereIn('id', $targetContractorIds)
+            ->values()
+            ->toArray();
+    }
+
+    public function getExternalOrderOtherContractorsForSalesBasedGeneration(): array
+    {
+        $jxContractorIds = collect($this->externalOrderJxContractorsData ?: $this->getExternalOrderJxContractorsForSalesBasedGeneration())
+            ->pluck('id')
+            ->values()
+            ->toArray();
+
+        return collect($this->getExternalOrderContractorsForSalesBasedGeneration())
+            ->when(! empty($jxContractorIds), fn ($contractors) => $contractors->whereNotIn('id', $jxContractorIds))
+            ->values()
+            ->toArray();
+    }
+
+    private function initializeExternalOrderContractors(): void
+    {
+        $this->externalOrderContractorsData = $this->getExternalOrderContractorsForSalesBasedGeneration();
+        $this->externalOrderJxContractorsData = $this->getExternalOrderJxContractorsForSalesBasedGeneration();
+        $this->externalOrderOtherContractorsData = $this->getExternalOrderOtherContractorsForSalesBasedGeneration();
+    }
+
+    private function getSalesBasedExternalOrderGenerationWarehouseIds(int $warehouseId): array
+    {
+        $enabledWarehouseIds = WmsWarehouseAutoOrderSetting::enabled()
+            ->pluck('warehouse_id')
+            ->toArray();
+
+        $satelliteWarehouseIds = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
+            ->where('wcs.transmission_type', TransmissionType::INTERNAL->value)
+            ->where('wcs.supply_warehouse_id', $warehouseId)
+            ->pluck('item_contractors.warehouse_id')
+            ->unique()
+            ->toArray();
+
+        return array_values(array_intersect(
+            $enabledWarehouseIds,
+            array_values(array_unique(array_merge([$warehouseId], $satelliteWarehouseIds))),
+        ));
+    }
+
+    private function getMountedSalesBasedExternalOrderActionData(): array
+    {
+        $mountedActionKey = array_key_last($this->mountedActions ?? []);
+
+        if ($mountedActionKey === null) {
+            return [];
+        }
+
+        return $this->mountedActions[$mountedActionKey]['data'] ?? [];
     }
 
     public function table(Table $table): Table

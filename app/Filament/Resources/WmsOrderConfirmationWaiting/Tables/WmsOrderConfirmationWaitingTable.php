@@ -18,13 +18,10 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
-use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\Summarizers\Summarizer;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
@@ -174,112 +171,17 @@ class WmsOrderConfirmationWaitingTable
                     ->alignEnd()
                     ->width('60px'),
 
-                TextInputColumn::make('case_quantity')
+                TextColumn::make('case_quantity')
                     ->label('発注ケース')
-                    ->type('number')
-                    ->rules(['required', 'integer', 'min:0'])
+                    ->numeric()
                     ->alignEnd()
-                    ->width('75px')
-                    ->extraInputAttributes(['style' => 'width: 60px; text-align: right;'])
-                    ->disabled(fn ($record) => ! $record->status->isEditable()
-                        || ($record->item?->capacity_case ?? 1) <= 1)
-                    ->afterStateUpdated(function ($record, $state) {
-                        if (! $record->status->isEditable()) {
-                            return;
-                        }
-                        $newQuantity = (int) $state;
+                    ->width('75px'),
 
-                        if ($newQuantity === 0 && $record->quantity_type !== QuantityType::CASE) {
-                            return;
-                        }
-
-                        // 現在PIECEの行をCASEに変更する場合、既存CASE行があれば統合
-                        if ($newQuantity > 0 && $record->quantity_type !== QuantityType::CASE) {
-                            $existingCaseRow = WmsOrderCandidate::where('batch_code', $record->batch_code)
-                                ->where('item_id', $record->item_id)
-                                ->where('warehouse_id', $record->warehouse_id)
-                                ->where('contractor_id', $record->contractor_id)
-                                ->where('quantity_type', QuantityType::CASE)
-                                ->where('id', '!=', $record->id)
-                                ->first();
-
-                            if ($existingCaseRow) {
-                                $existingCaseRow->update([
-                                    'order_quantity' => $existingCaseRow->order_quantity + $newQuantity,
-                                    'is_manually_modified' => true,
-                                    'modified_by' => auth()->id(),
-                                    'modified_at' => now(),
-                                ]);
-                                $record->delete();
-                                Notification::make()->title('既存のケース行に統合しました')->success()->send();
-
-                                return;
-                            }
-                        }
-
-                        $casePrice = $record->item?->current_price?->purchase_case_price;
-                        $record->update([
-                            'order_quantity' => $newQuantity,
-                            'quantity_type' => QuantityType::CASE->value,
-                            'purchase_unit_price' => $casePrice,
-                            'is_manually_modified' => true,
-                            'modified_by' => auth()->id(),
-                            'modified_at' => now(),
-                        ]);
-                    }),
-
-                TextInputColumn::make('piece_quantity')
+                TextColumn::make('piece_quantity')
                     ->label('発注バラ')
-                    ->type('number')
-                    ->rules(['required', 'integer', 'min:0'])
+                    ->numeric()
                     ->alignEnd()
-                    ->width('75px')
-                    ->extraInputAttributes(['style' => 'width: 60px; text-align: right;'])
-                    ->disabled(fn ($record) => ! $record->status->isEditable())
-                    ->afterStateUpdated(function ($record, $state) {
-                        if (! $record->status->isEditable()) {
-                            return;
-                        }
-                        $newQuantity = (int) $state;
-
-                        if ($newQuantity === 0 && $record->quantity_type !== QuantityType::PIECE) {
-                            return;
-                        }
-
-                        // 現在CASEの行をPIECEに変更する場合、既存PIECE行があれば統合
-                        if ($newQuantity > 0 && $record->quantity_type !== QuantityType::PIECE) {
-                            $existingPieceRow = WmsOrderCandidate::where('batch_code', $record->batch_code)
-                                ->where('item_id', $record->item_id)
-                                ->where('warehouse_id', $record->warehouse_id)
-                                ->where('contractor_id', $record->contractor_id)
-                                ->where('quantity_type', QuantityType::PIECE)
-                                ->where('id', '!=', $record->id)
-                                ->first();
-
-                            if ($existingPieceRow) {
-                                $existingPieceRow->update([
-                                    'order_quantity' => $existingPieceRow->order_quantity + $newQuantity,
-                                    'is_manually_modified' => true,
-                                    'modified_by' => auth()->id(),
-                                    'modified_at' => now(),
-                                ]);
-                                $record->delete();
-                                Notification::make()->title('既存のバラ行に統合しました')->success()->send();
-
-                                return;
-                            }
-                        }
-
-                        $piecePrice = $record->item?->current_price?->purchase_unit_price;
-                        $record->update([
-                            'order_quantity' => $newQuantity,
-                            'quantity_type' => QuantityType::PIECE->value,
-                            'purchase_unit_price' => $piecePrice,
-                            'is_manually_modified' => true,
-                            'modified_by' => auth()->id(),
-                            'modified_at' => now(),
-                        ]);
-                    }),
+                    ->width('75px'),
 
                 TextColumn::make('item.capacity_case')
                     ->label('入数')
@@ -466,8 +368,6 @@ class WmsOrderConfirmationWaitingTable
                     ->modalCancelActionLabel('変更せず閉じる')
                     ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
                     ->fillForm(fn ($record) => [
-                        'case_quantity' => $record->case_quantity,
-                        'piece_quantity' => $record->piece_quantity,
                         'expected_arrival_date' => $record->expected_arrival_date,
                     ])
                     ->schema(function (?WmsOrderCandidate $record): array {
@@ -482,7 +382,6 @@ class WmsOrderConfirmationWaitingTable
 
                         $details = $log?->calculation_details ?? [];
                         $item = $record->item;
-                        $capacityCase = $item?->capacity_case ?? 1;
                         $capacityText = '-';
                         if ($item) {
                             $parts = [];
@@ -553,24 +452,9 @@ class WmsOrderConfirmationWaitingTable
                         ];
 
                         if ($isEditable) {
-                            $schema[] = Grid::make(3)->schema([
-                                TextInput::make('case_quantity')
-                                    ->label('発注ケース')
-                                    ->numeric()
-                                    ->required()
-                                    ->minValue(0)
-                                    ->disabled($capacityCase <= 1),
-
-                                TextInput::make('piece_quantity')
-                                    ->label('発注バラ')
-                                    ->numeric()
-                                    ->required()
-                                    ->minValue(0),
-
-                                DatePicker::make('expected_arrival_date')
-                                    ->label('入荷予定日')
-                                    ->required(),
-                            ]);
+                            $schema[] = DatePicker::make('expected_arrival_date')
+                                ->label('入荷予定日')
+                                ->required();
                         }
 
                         return $schema;
@@ -591,22 +475,6 @@ class WmsOrderConfirmationWaitingTable
                             'modified_at' => now(),
                         ];
                         $updated = false;
-
-                        $caseQty = (int) ($data['case_quantity'] ?? 0);
-                        $pieceQty = (int) ($data['piece_quantity'] ?? 0);
-                        $currentPrice = $record->item?->current_price;
-
-                        if ($caseQty > 0) {
-                            $updateData['order_quantity'] = $caseQty;
-                            $updateData['quantity_type'] = QuantityType::CASE->value;
-                            $updateData['purchase_unit_price'] = $currentPrice?->purchase_case_price;
-                            $updated = true;
-                        } elseif ($pieceQty > 0) {
-                            $updateData['order_quantity'] = $pieceQty;
-                            $updateData['quantity_type'] = QuantityType::PIECE->value;
-                            $updateData['purchase_unit_price'] = $currentPrice?->purchase_unit_price;
-                            $updated = true;
-                        }
 
                         $newArrivalDate = $data['expected_arrival_date'] instanceof \Carbon\Carbon
                             ? $data['expected_arrival_date']->format('Y-m-d')
