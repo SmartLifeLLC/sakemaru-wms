@@ -11,6 +11,8 @@ use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
 use App\Services\Shortage\ProxyShipmentService;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -24,6 +26,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class WmsShortagesTable
 {
@@ -1035,6 +1038,85 @@ class WmsShortagesTable
                             ]),
                     ]),
             ], position: RecordActionsPosition::BeforeColumns)
+            ->bulkActions([
+                BulkActionGroup::make([
+                    BulkAction::make('bulkConfirmShortage')
+                        ->label('一括欠品確定')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('danger')
+                        ->requiresConfirmation()
+                        ->modalHeading('欠品を一括確定しますか？')
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件を欠品確定にします。既存の横持ち出荷指示がある場合は削除されます。承認済みの行はスキップします。")
+                        ->modalSubmitActionLabel('一括欠品確定')
+                        ->modalCancelActionLabel('確定せず閉じる')
+                        ->action(function (Collection $records): void {
+                            $confirmed = 0;
+                            $skipped = 0;
+                            $deletedAllocations = 0;
+                            $service = app(ProxyShipmentService::class);
+
+                            foreach ($records as $record) {
+                                if ($record->is_confirmed) {
+                                    $skipped++;
+
+                                    continue;
+                                }
+
+                                try {
+                                    $deletedForRecord = \DB::connection('sakemaru')->transaction(function () use ($record, $service): int {
+                                        $deletedForRecord = 0;
+
+                                        foreach ($record->allocations()->get() as $allocation) {
+                                            $service->deleteProxyShipment($allocation);
+                                            $deletedForRecord++;
+                                        }
+
+                                        $record->status = WmsShortage::STATUS_SHORTAGE;
+                                        $record->save();
+
+                                        return $deletedForRecord;
+                                    });
+
+                                    $deletedAllocations += $deletedForRecord;
+                                    $confirmed++;
+                                } catch (\Exception $e) {
+                                    $skipped++;
+
+                                    Notification::make()
+                                        ->title('エラー')
+                                        ->body("欠品ID {$record->id} の処理に失敗: {$e->getMessage()}")
+                                        ->danger()
+                                        ->send();
+                                }
+                            }
+
+                            if ($confirmed > 0) {
+                                $message = "{$confirmed}件を欠品確定しました";
+                                if ($deletedAllocations > 0) {
+                                    $message .= "（横持ち出荷指示{$deletedAllocations}件削除）";
+                                }
+                                if ($skipped > 0) {
+                                    $message .= "（{$skipped}件スキップ）";
+                                }
+
+                                Notification::make()
+                                    ->title('一括欠品確定しました')
+                                    ->body($message)
+                                    ->success()
+                                    ->send();
+
+                                return;
+                            }
+
+                            Notification::make()
+                                ->title('欠品確定対象なし')
+                                ->body('選択されたレコードは承認済み、または処理できませんでした。')
+                                ->warning()
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                ]),
+            ])
             ->selectCurrentPageOnly()
             ->toolbarActions([
                 static::getExportAction(),

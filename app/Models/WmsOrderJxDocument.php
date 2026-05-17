@@ -9,6 +9,7 @@ use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * JX発注ドキュメント
@@ -78,6 +79,11 @@ class WmsOrderJxDocument extends WmsModel
     public function transmissionLogs(): HasMany
     {
         return $this->hasMany(WmsOrderTransmissionLog::class);
+    }
+
+    public function jobControl(): HasOne
+    {
+        return $this->hasOne(WmsAutoOrderJobControl::class, 'batch_code', 'batch_code');
     }
 
     public function scopeForBatch(Builder $query, string $batchCode): Builder

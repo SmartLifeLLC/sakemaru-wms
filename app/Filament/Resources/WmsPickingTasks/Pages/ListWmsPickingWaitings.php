@@ -411,6 +411,7 @@ class ListWmsPickingWaitings extends ListRecords
                 'trade',
                 'earning.buyer.partner',
                 'earning.buyer.current_detail.salesman',
+                'stockTransfer.to_warehouse',
             ])
             ->orderBy('picking_task_id')
             ->orderBy('walking_order')
@@ -420,7 +421,9 @@ class ListWmsPickingWaitings extends ListRecords
             'id' => $item->id,
             'picking_task_id' => $item->picking_task_id,
             'sales_man' => $item->earning?->buyer?->current_detail?->salesman?->name ?? '-',
-            'partner_name' => $item->earning?->buyer?->partner?->name ?? '-',
+            'partner_name' => $item->earning?->buyer?->partner?->name
+                ?? $item->stockTransfer?->to_warehouse?->name
+                ?? '-',
             'serial_id' => $item->trade?->serial_id ?? '-',
             'location_display' => $item->location
                 ? trim(($item->location->code1 ?? '').($item->location->code2 ?? '').($item->location->code3 ?? ''))
@@ -542,4 +545,5 @@ class ListWmsPickingWaitings extends ListRecords
                 ->send();
         }
     }
+
 }
