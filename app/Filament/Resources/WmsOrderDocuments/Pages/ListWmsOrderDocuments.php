@@ -70,10 +70,7 @@ class ListWmsOrderDocuments extends ListRecords
 
         return [
             'default' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query
-                    ->where('status', TransmissionDocumentStatus::PENDING)
-                    ->whereDate('order_date', today())
-                )
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', TransmissionDocumentStatus::PENDING))
                 ->favorite()
                 ->label("送信前 ({$pendingCount})")
                 ->default(),
