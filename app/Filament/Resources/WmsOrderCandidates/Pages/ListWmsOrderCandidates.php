@@ -998,16 +998,16 @@ class ListWmsOrderCandidates extends ListRecords
 
         $salesSubquery = DB::connection('sakemaru')
             ->table('stats_item_warehouse_daily_sales')
+            ->whereIn('warehouse_id', $warehouseIds)
             ->whereBetween('business_date', [$startDate, $endDate])
             ->selectRaw('
-                warehouse_id,
                 item_id,
                 SUM(shipped_piece_qty) as sales_qty,
                 SUM(sales_piece_qty) as sales_piece_qty,
                 SUM(return_piece_qty) as return_piece_qty,
                 SUM(transfer_piece_qty) as transfer_piece_qty
             ')
-            ->groupBy('warehouse_id', 'item_id')
+            ->groupBy('item_id')
             ->havingRaw('SUM(shipped_piece_qty) > 0');
 
         $stockSubquery = DB::connection('sakemaru')
@@ -1015,42 +1015,51 @@ class ListWmsOrderCandidates extends ListRecords
             ->fromSub(
                 DB::connection('sakemaru')
                     ->table('wms_v_stock_available')
-                    ->whereIn('warehouse_id', $warehouseIds)
+                    ->where('warehouse_id', $selectedWarehouseId)
                     ->selectRaw('DISTINCT warehouse_id, item_id, real_stock_id, available_for_wms as stock_qty'),
                 'dedup_stocks'
             )
-            ->selectRaw('warehouse_id, item_id, SUM(stock_qty) as effective_stock')
-            ->groupBy('warehouse_id', 'item_id');
+            ->selectRaw('item_id, SUM(stock_qty) as effective_stock')
+            ->groupBy('item_id');
 
         $incomingSubquery = DB::connection('sakemaru')
             ->table('wms_order_incoming_schedules')
-            ->whereIn('warehouse_id', $warehouseIds)
+            ->where('warehouse_id', $selectedWarehouseId)
             ->whereIn('status', ['PENDING', 'PARTIAL'])
-            ->selectRaw('warehouse_id, item_id, SUM(expected_quantity - received_quantity) as incoming_qty')
-            ->groupBy('warehouse_id', 'item_id');
+            ->selectRaw('item_id, SUM(expected_quantity - received_quantity) as incoming_qty')
+            ->groupBy('item_id');
+
+        $targetItemContractorsSubquery = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->where('warehouse_id', $selectedWarehouseId)
+            ->whereNotIn('contractor_id', $internalContractorIds ?: [0])
+            ->whereIn('contractor_id', $contractorIds)
+            ->selectRaw('
+                warehouse_id,
+                item_id,
+                contractor_id,
+                MIN(supplier_id) as supplier_id,
+                MAX(COALESCE(purchase_unit, 1)) as purchase_unit
+            ')
+            ->groupBy('warehouse_id', 'item_id', 'contractor_id');
 
         $query = DB::connection('sakemaru')
-            ->table('item_contractors')
+            ->query()
+            ->fromSub($targetItemContractorsSubquery, 'item_contractors')
             ->join('items', 'item_contractors.item_id', '=', 'items.id')
             ->leftJoin('item_categories as item_category2', 'item_category2.id', '=', 'items.item_category2_id')
             ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
             ->leftJoin('suppliers', 'suppliers.id', '=', 'item_contractors.supplier_id')
             ->leftJoin('partners as supplier_partners', 'supplier_partners.id', '=', 'suppliers.partner_id')
             ->joinSub($salesSubquery, 'sales', function ($join) {
-                $join->on('sales.warehouse_id', '=', 'item_contractors.warehouse_id')
-                    ->on('sales.item_id', '=', 'item_contractors.item_id');
+                $join->on('sales.item_id', '=', 'item_contractors.item_id');
             })
             ->leftJoinSub($stockSubquery, 'stocks', function ($join) {
-                $join->on('stocks.warehouse_id', '=', 'item_contractors.warehouse_id')
-                    ->on('stocks.item_id', '=', 'item_contractors.item_id');
+                $join->on('stocks.item_id', '=', 'item_contractors.item_id');
             })
             ->leftJoinSub($incomingSubquery, 'incoming', function ($join) {
-                $join->on('incoming.warehouse_id', '=', 'item_contractors.warehouse_id')
-                    ->on('incoming.item_id', '=', 'item_contractors.item_id');
+                $join->on('incoming.item_id', '=', 'item_contractors.item_id');
             })
-            ->whereIn('item_contractors.warehouse_id', $warehouseIds)
-            ->whereNotIn('item_contractors.contractor_id', $internalContractorIds ?: [0])
-            ->whereIn('item_contractors.contractor_id', $contractorIds)
             ->where('items.end_of_sale_type', 'NORMAL')
             ->where('items.is_ended', false)
             ->where(fn ($query) => $query->whereNull('items.start_of_sale_date')->orWhere('items.start_of_sale_date', '<=', now()->toDateString()))
