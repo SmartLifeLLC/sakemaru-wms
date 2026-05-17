@@ -36,7 +36,6 @@ use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\Summarizers\Summarizer;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -182,126 +181,19 @@ class WmsOrderCandidatesTable
                     ->alignEnd()
                     ->color(fn ($record) => ($record->shortage_qty ?? 0) > 0 ? 'danger' : null),
 
-                TextInputColumn::make('case_quantity')
+                TextColumn::make('case_quantity')
                     ->label('発注ケース')
-                    ->type('number')
-                    ->rules(['required', 'integer', 'min:0'])
+                    ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::CASE ? (int) $record->order_quantity : 0)
+                    ->numeric()
                     ->alignEnd()
-                    ->extraInputAttributes(['style' => 'width: 60px; text-align: right;'])
-                    ->disabled(fn ($record) => $record->status !== CandidateStatus::PENDING
-                        || ($record->item?->capacity_case ?? 1) <= 1)
-                    ->afterStateUpdated(function ($record, $state) {
-                        if ($record->status !== CandidateStatus::PENDING) {
-                            return;
-                        }
-                        try {
-                            $newQuantity = (int) $state;
+                    ->color(fn ($state) => (int) $state > 0 ? null : 'gray'),
 
-                            if ($newQuantity === 0 && $record->quantity_type !== QuantityType::CASE) {
-                                return;
-                            }
-
-                            // 現在PIECEの行をCASEに変更する場合、既存CASE行があれば統合
-                            if ($newQuantity > 0 && $record->quantity_type !== QuantityType::CASE) {
-                                $existingCaseRow = WmsOrderCandidate::where('batch_code', $record->batch_code)
-                                    ->where('item_id', $record->item_id)
-                                    ->where('warehouse_id', $record->warehouse_id)
-                                    ->where('contractor_id', $record->contractor_id)
-                                    ->where('quantity_type', QuantityType::CASE)
-                                    ->where('id', '!=', $record->id)
-                                    ->first();
-
-                                if ($existingCaseRow) {
-                                    $existingCaseRow->update([
-                                        'order_quantity' => $existingCaseRow->order_quantity + $newQuantity,
-                                        'is_manually_modified' => true,
-                                        'modified_by' => auth()->id(),
-                                        'modified_at' => now(),
-                                    ]);
-                                    $record->delete();
-                                    Notification::make()->title('既存のケース行に統合しました')->success()->send();
-
-                                    return;
-                                }
-                            }
-
-                            $oldQuantity = $record->order_quantity;
-                            $casePrice = $record->item?->current_price?->purchase_case_price;
-                            $record->updateWithLock([
-                                'order_quantity' => $newQuantity,
-                                'quantity_type' => QuantityType::CASE->value,
-                                'purchase_unit_price' => $casePrice,
-                                'is_manually_modified' => true,
-                                'modified_by' => auth()->id(),
-                                'modified_at' => now(),
-                            ]);
-                            if ($oldQuantity !== $newQuantity) {
-                                app(OrderAuditService::class)->logQuantityChange($record, $oldQuantity, $newQuantity);
-                            }
-                        } catch (OptimisticLockException $e) {
-                            Notification::make()->title('更新エラー')->body($e->getMessage())->danger()->send();
-                        }
-                    }),
-
-                TextInputColumn::make('piece_quantity')
+                TextColumn::make('piece_quantity')
                     ->label('発注バラ')
-                    ->type('number')
-                    ->rules(['required', 'integer', 'min:0'])
+                    ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::PIECE ? (int) $record->order_quantity : 0)
+                    ->numeric()
                     ->alignEnd()
-                    ->extraInputAttributes(['style' => 'width: 60px; text-align: right;'])
-                    ->disabled(fn ($record) => $record->status !== CandidateStatus::PENDING)
-                    ->afterStateUpdated(function ($record, $state) {
-                        if ($record->status !== CandidateStatus::PENDING) {
-                            return;
-                        }
-                        try {
-                            $newQuantity = (int) $state;
-
-                            if ($newQuantity === 0 && $record->quantity_type !== QuantityType::PIECE) {
-                                return;
-                            }
-
-                            // 現在CASEの行をPIECEに変更する場合、既存PIECE行があれば統合
-                            if ($newQuantity > 0 && $record->quantity_type !== QuantityType::PIECE) {
-                                $existingPieceRow = WmsOrderCandidate::where('batch_code', $record->batch_code)
-                                    ->where('item_id', $record->item_id)
-                                    ->where('warehouse_id', $record->warehouse_id)
-                                    ->where('contractor_id', $record->contractor_id)
-                                    ->where('quantity_type', QuantityType::PIECE)
-                                    ->where('id', '!=', $record->id)
-                                    ->first();
-
-                                if ($existingPieceRow) {
-                                    $existingPieceRow->update([
-                                        'order_quantity' => $existingPieceRow->order_quantity + $newQuantity,
-                                        'is_manually_modified' => true,
-                                        'modified_by' => auth()->id(),
-                                        'modified_at' => now(),
-                                    ]);
-                                    $record->delete();
-                                    Notification::make()->title('既存のバラ行に統合しました')->success()->send();
-
-                                    return;
-                                }
-                            }
-
-                            $oldQuantity = $record->order_quantity;
-                            $piecePrice = $record->item?->current_price?->purchase_unit_price;
-                            $record->updateWithLock([
-                                'order_quantity' => $newQuantity,
-                                'quantity_type' => QuantityType::PIECE->value,
-                                'purchase_unit_price' => $piecePrice,
-                                'is_manually_modified' => true,
-                                'modified_by' => auth()->id(),
-                                'modified_at' => now(),
-                            ]);
-                            if ($oldQuantity !== $newQuantity) {
-                                app(OrderAuditService::class)->logQuantityChange($record, $oldQuantity, $newQuantity);
-                            }
-                        } catch (OptimisticLockException $e) {
-                            Notification::make()->title('更新エラー')->body($e->getMessage())->danger()->send();
-                        }
-                    }),
+                    ->color(fn ($state) => (int) $state > 0 ? null : 'gray'),
 
                 TextColumn::make('sales_today')
                     ->label('当日')
@@ -564,7 +456,7 @@ class WmsOrderCandidatesTable
                             'min_stock' => $itemContractor?->min_stock ?? 0,
                             'auto_order_quantity' => $itemContractor?->auto_order_quantity ?? 0,
                             'is_auto_order' => (bool) ($itemContractor?->is_auto_order ?? false),
-                            'ordering_code' => $record->search_code ?? $record->ordering_code,
+                            'ordering_code' => static::resolveOrderingCodeForForm($record),
                         ];
                     })
                     ->schema(function (?WmsOrderCandidate $record): array {
@@ -808,7 +700,10 @@ class WmsOrderCandidatesTable
                             $updated = true;
                         }
 
-                        if (isset($data['ordering_code']) && $data['ordering_code'] !== ($record->search_code ?? $record->ordering_code)) {
+                        if (
+                            isset($data['ordering_code'])
+                            && static::normalizeOrderingCode($data['ordering_code']) !== static::normalizeOrderingCode($record->ordering_code)
+                        ) {
                             $newSearchCode = $data['ordering_code'];
                             $updateData['search_code'] = $newSearchCode;
                             $updateData['ordering_code'] = str_pad($newSearchCode, 13, '0', STR_PAD_LEFT);
@@ -1066,6 +961,64 @@ class WmsOrderCandidatesTable
             ->defaultSort('batch_code', 'desc');
     }
 
+    public static function applyQuantityChange(WmsOrderCandidate $record, QuantityType $targetType, int $newQuantity, ?int $userId): string
+    {
+        if ($record->status !== CandidateStatus::PENDING) {
+            return 'skipped';
+        }
+
+        if ($newQuantity === 0 && $record->quantity_type !== $targetType) {
+            return 'skipped';
+        }
+
+        if ($newQuantity > 0 && $record->quantity_type !== $targetType) {
+            $existingRow = WmsOrderCandidate::where('batch_code', $record->batch_code)
+                ->where('item_id', $record->item_id)
+                ->where('warehouse_id', $record->warehouse_id)
+                ->where('contractor_id', $record->contractor_id)
+                ->where('quantity_type', $targetType)
+                ->where('id', '!=', $record->id)
+                ->first();
+
+            if ($existingRow) {
+                $existingRow->update([
+                    'order_quantity' => $existingRow->order_quantity + $newQuantity,
+                    'is_manually_modified' => true,
+                    'modified_by' => $userId,
+                    'modified_at' => now(),
+                ]);
+                $record->delete();
+
+                return 'merged';
+            }
+        }
+
+        $oldQuantity = (int) $record->order_quantity;
+        $oldQuantityType = $record->quantity_type;
+        $price = $targetType === QuantityType::CASE
+            ? $record->item?->current_price?->purchase_case_price
+            : $record->item?->current_price?->purchase_unit_price;
+
+        $record->updateWithLock([
+            'order_quantity' => $newQuantity,
+            'quantity_type' => $targetType->value,
+            'purchase_unit_price' => $price,
+            'is_manually_modified' => true,
+            'modified_by' => $userId,
+            'modified_at' => now(),
+        ]);
+
+        if ($oldQuantity !== $newQuantity) {
+            app(OrderAuditService::class)->logQuantityChange($record, $oldQuantity, $newQuantity);
+        }
+
+        if ($oldQuantity === $newQuantity && $oldQuantityType === $targetType) {
+            return 'skipped';
+        }
+
+        return 'updated';
+    }
+
     private static function resolveItemContractor(WmsOrderCandidate $record): ?ItemContractor
     {
         return ItemContractor::query()
@@ -1073,6 +1026,35 @@ class WmsOrderCandidatesTable
             ->where('warehouse_id', $record->warehouse_id)
             ->where('contractor_id', $record->contractor_id)
             ->first();
+    }
+
+    private static function resolveOrderingCodeForForm(WmsOrderCandidate $record): ?string
+    {
+        $orderingCode = static::normalizeOrderingCode($record->ordering_code);
+
+        if ($orderingCode !== null) {
+            $searchString = DB::connection('sakemaru')
+                ->table('item_search_information')
+                ->where('item_id', $record->item_id)
+                ->where('is_active', true)
+                ->whereRaw('LPAD(search_string, 13, "0") = ?', [$orderingCode])
+                ->value('search_string');
+
+            return $searchString ?: $record->ordering_code;
+        }
+
+        return $record->search_code;
+    }
+
+    private static function normalizeOrderingCode(?string $code): ?string
+    {
+        $code = trim((string) $code);
+
+        if ($code === '' || preg_match('/^0+$/', $code) === 1) {
+            return null;
+        }
+
+        return str_pad($code, 13, '0', STR_PAD_LEFT);
     }
 
     private static function candidateCreatorFilter(): SelectFilter

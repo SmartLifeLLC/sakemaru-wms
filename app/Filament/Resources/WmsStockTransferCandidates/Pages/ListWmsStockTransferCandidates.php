@@ -9,8 +9,11 @@ use App\Enums\AutoOrder\LotStatus;
 use App\Enums\AutoOrder\SettlementStatus;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
+use App\Enums\QueueProgressStatus;
 use App\Filament\Concerns\HasWmsUserViews;
+use App\Filament\Resources\WmsStockTransferCandidates\Tables\WmsStockTransferCandidatesTable;
 use App\Filament\Resources\WmsStockTransferCandidates\WmsStockTransferCandidateResource;
+use App\Jobs\ProcessSalesBasedOrderCandidateJob;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemCategory;
@@ -20,12 +23,14 @@ use App\Models\StatsItemWarehouseSalesSummary;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCalculationLog;
+use App\Models\WmsQueueProgress;
 use App\Models\WmsStockTransferCandidate;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
@@ -48,6 +53,8 @@ class ListWmsStockTransferCandidates extends ListRecords
     protected static string $resource = WmsStockTransferCandidateResource::class;
 
     public array $transferOrderItems = [];
+
+    public array $transferQuantityInputPayload = [];
 
     public function searchItemsForCreate(string $search): array
     {
@@ -261,19 +268,32 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ->modalCancelActionLabel('変更せず閉じる')
                 ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
                 ->schema([
-                    Grid::make(2)->schema([
+                    Grid::make(12)->schema([
+                        Placeholder::make('satellite_warehouse_label')
+                            ->hiddenLabel()
+                            ->content('依頼倉庫 :')
+                            ->extraAttributes(['class' => 'flex h-full items-center justify-end text-sm font-semibold text-gray-700 dark:text-gray-300'])
+                            ->columnSpan(1),
+
                         Select::make('satellite_warehouse_id')
-                            ->label('依頼倉庫')
+                            ->hiddenLabel()
                             ->options(fn () => Warehouse::query()
                                 ->orderBy('code')
                                 ->get()
                                 ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"]))
                             ->default(fn () => auth()->user()?->getSelectedWarehouseId())
                             ->searchable()
-                            ->required(),
+                            ->required()
+                            ->columnSpan(5),
+
+                        Placeholder::make('hub_warehouse_label')
+                            ->hiddenLabel()
+                            ->content('移動元倉庫 :')
+                            ->extraAttributes(['class' => 'flex h-full items-center justify-end text-sm font-semibold text-gray-700 dark:text-gray-300'])
+                            ->columnSpan(1),
 
                         Select::make('hub_warehouse_id')
-                            ->label('移動元倉庫')
+                            ->hiddenLabel()
                             ->options(fn () => Warehouse::query()
                                 ->orderBy('code')
                                 ->get()
@@ -283,22 +303,35 @@ class ListWmsStockTransferCandidates extends ListRecords
                                 ->orderBy('supply_warehouse_id')
                                 ->value('supply_warehouse_id'))
                             ->searchable()
-                            ->required(),
-                    ]),
+                            ->required()
+                            ->columnSpan(5),
 
-                    Grid::make(2)->schema([
+                        Placeholder::make('expected_arrival_date_label')
+                            ->hiddenLabel()
+                            ->content('入荷予定日 :')
+                            ->extraAttributes(['class' => 'flex h-full items-center justify-end text-sm font-semibold text-gray-700 dark:text-gray-300'])
+                            ->columnSpan(1),
+
                         DatePicker::make('expected_arrival_date')
-                            ->label('入荷予定日')
+                            ->hiddenLabel()
                             ->default(now()->addDay())
-                            ->required(),
+                            ->required()
+                            ->columnSpan(5),
+
+                        Placeholder::make('delivery_course_label')
+                            ->hiddenLabel()
+                            ->content('配送コース :')
+                            ->extraAttributes(['class' => 'flex h-full items-center justify-end text-sm font-semibold text-gray-700 dark:text-gray-300'])
+                            ->columnSpan(1),
 
                         Select::make('delivery_course_id')
-                            ->label('配送コース')
+                            ->hiddenLabel()
                             ->options(fn () => DeliveryCourse::query()
                                 ->orderBy('code')
                                 ->get()
                                 ->mapWithKeys(fn ($c) => [$c->id => "[{$c->code}]{$c->name}"]))
-                            ->searchable(),
+                            ->searchable()
+                            ->columnSpan(5),
                     ]),
 
                     ViewField::make('items_table')
@@ -373,6 +406,118 @@ class ListWmsStockTransferCandidates extends ListRecords
                     }
                 }),
 
+            $this->getSalesBasedTransferGenerateAction(),
+
+            Action::make('transferQuantityInput')
+                ->label('発注数量編集')
+                ->icon('heroicon-o-pencil-square')
+                ->color('primary')
+                ->modalHeading('発注数量編集')
+                ->modalWidth('7xl')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalSubmitAction(fn (Action $action) => $action->label('一括保存')->color('danger'))
+                ->modalCancelActionLabel('保存せず閉じる')
+                ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
+                ->schema(function (): array {
+                    $records = $this->getTransferQuantityInputRecords();
+
+                    if ($records->isEmpty()) {
+                        return [
+                            \Filament\Forms\Components\Placeholder::make('empty')
+                                ->label('')
+                                ->content('現在の条件に該当する移動候補がありません。'),
+                        ];
+                    }
+
+                    $rows = $this->buildTransferQuantityInputRows($records);
+                    $this->transferQuantityInputPayload = collect($rows)
+                        ->map(fn (array $row): array => [
+                            'id' => $row['id'],
+                            'transfer_quantity' => $row['transfer_quantity'],
+                        ])
+                        ->values()
+                        ->toArray();
+
+                    return [
+                        ViewField::make('transfer_quantity_input')
+                            ->view('filament.components.stock-transfer-candidate-quantity-input')
+                            ->viewData(['rows' => $rows])
+                            ->hiddenLabel(),
+                    ];
+                })
+                ->action(function () {
+                    $payload = collect($this->transferQuantityInputPayload)
+                        ->filter(fn ($row) => isset($row['id']))
+                        ->keyBy(fn ($row) => (int) $row['id']);
+
+                    if ($payload->isEmpty()) {
+                        Notification::make()
+                            ->title('更新対象がありません')
+                            ->warning()
+                            ->send();
+
+                        return;
+                    }
+
+                    $records = WmsStockTransferCandidate::query()
+                        ->whereIn('id', $payload->keys()->all())
+                        ->get();
+
+                    $updated = 0;
+                    $recalculated = 0;
+                    $skipped = 0;
+                    $errors = [];
+                    $userId = auth()->id();
+
+                    foreach ($records as $record) {
+                        if ($record->status !== CandidateStatus::PENDING) {
+                            $skipped++;
+
+                            continue;
+                        }
+
+                        $row = $payload->get((int) $record->id, []);
+                        $newQuantity = max(0, (int) ($row['transfer_quantity'] ?? 0));
+                        $oldQuantity = (int) $record->transfer_quantity;
+
+                        try {
+                            $updatedOrder = WmsStockTransferCandidatesTable::applyTransferQuantityChange($record, $newQuantity, $userId);
+
+                            if ($oldQuantity === $newQuantity) {
+                                $skipped++;
+                            } else {
+                                $updated++;
+                                if ($updatedOrder) {
+                                    $recalculated++;
+                                }
+                            }
+                        } catch (\Throwable $e) {
+                            $errors[] = "[{$record->item_code}] 更新できませんでした: {$e->getMessage()}";
+                        }
+                    }
+
+                    if ($updated > 0) {
+                        Notification::make()
+                            ->title("発注数量を保存しました: 更新 {$updated}件")
+                            ->body($recalculated > 0 ? "関連発注候補の再計算 {$recalculated}件" : ($skipped > 0 ? "変更なし・対象外 {$skipped}件" : null))
+                            ->success()
+                            ->send();
+                    } elseif (empty($errors)) {
+                        Notification::make()
+                            ->title('変更はありません')
+                            ->warning()
+                            ->send();
+                    }
+
+                    if (! empty($errors)) {
+                        Notification::make()
+                            ->title(count($errors).'件で更新できませんでした')
+                            ->body(implode("\n", array_slice($errors, 0, 5)))
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
             ActionGroup::make([
                 Action::make('approveAll')
                     ->label('全て承認')
@@ -434,6 +579,175 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ->color('gray')
                 ->button(),
         ];
+    }
+
+    private function getSalesBasedTransferGenerateAction(): Action
+    {
+        $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        $selectedWarehouse = $selectedWarehouseId ? Warehouse::find($selectedWarehouseId) : null;
+        $selectedWarehouseName = $selectedWarehouse?->name ?? '未選択';
+        $isHubWarehouse = $selectedWarehouseId
+            ? WmsContractorSetting::where('transmission_type', TransmissionType::INTERNAL)
+                ->where('supply_warehouse_id', $selectedWarehouseId)
+                ->exists()
+            : false;
+
+        $baseDescription = match (true) {
+            ! $selectedWarehouse => '倉庫が選択されていません。トップバーからHUB倉庫を選択してください。',
+            ! $isHubWarehouse => "倉庫「{$selectedWarehouseName}」はHUB倉庫ではありません。HUB倉庫のみ実行できます。",
+            default => "HUB倉庫「{$selectedWarehouseName}」向けの実績ベース移動候補を生成します。対象はこのHUB倉庫から供給するサテライト倉庫です。発注候補は生成しません。",
+        };
+
+        return Action::make('generateSalesBasedTransfer')
+            ->label('実績ベース転換移動候補生成')
+            ->icon('heroicon-o-chart-bar')
+            ->color('info')
+            ->modalWidth('5xl')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+            ->modalHeading("実績ベース転換移動候補生成（{$selectedWarehouseName}）")
+            ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
+            ->modalSubmitAction(fn (Action $action) => $action->label('生成開始')->color('danger'))
+            ->modalCancelActionLabel('生成せず閉じる')
+            ->disabled(! $selectedWarehouse || ! $isHubWarehouse)
+            ->schema([
+                \Filament\Forms\Components\Placeholder::make('description')
+                    ->hiddenLabel()
+                    ->content(new \Illuminate\Support\HtmlString(
+                        '<div class="rounded-lg border border-slate-300 bg-slate-100 px-4 py-3 text-sm font-medium leading-6 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">'
+                        .nl2br(e($baseDescription))
+                        .'</div>'
+                    )),
+                Grid::make(3)->schema([
+                    Select::make('sales_basis')
+                        ->label('販売実績')
+                        ->options([
+                            'today' => '当日',
+                            'yesterday' => '前日',
+                            'last_3d' => '3日間',
+                        ])
+                        ->default('last_3d')
+                        ->native(false)
+                        ->required(),
+                    Select::make('auto_order_flag_filter')
+                        ->label('自動発注フラグ')
+                        ->options([
+                            'ignore' => '考慮しない',
+                            'on' => 'ONのもの',
+                            'off' => 'OFFのもの',
+                        ])
+                        ->default('ignore')
+                        ->native(false)
+                        ->required(),
+                    \Filament\Forms\Components\Placeholder::make('target_notice')
+                        ->label('対象')
+                        ->content('HUB倉庫配下のINTERNAL移動候補のみ'),
+                ]),
+            ])
+            ->action(function (Action $action, array $data) use ($selectedWarehouseId, $selectedWarehouseName) {
+                if ($activeJob = $this->findActiveSalesBasedTransferQueueProgress($selectedWarehouseId)) {
+                    Notification::make()
+                        ->title('実績ベース移動候補生成が実行中です')
+                        ->body('重複生成を避けるため、新しいジョブは投入しません。完了後に再実行してください。')
+                        ->warning()
+                        ->send();
+
+                    $action->halt();
+                }
+
+                $internalContractorIds = WmsContractorSetting::query()
+                    ->where('transmission_type', TransmissionType::INTERNAL)
+                    ->where('supply_warehouse_id', $selectedWarehouseId)
+                    ->pluck('contractor_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->values()
+                    ->toArray();
+
+                if (empty($internalContractorIds)) {
+                    Notification::make()
+                        ->title('対象のINTERNAL仕入先がありません')
+                        ->danger()
+                        ->send();
+
+                    $action->halt();
+                }
+
+                $hasApprovedTransfers = WmsStockTransferCandidate::query()
+                    ->where('status', CandidateStatus::APPROVED)
+                    ->forCreatedBy(auth()->id())
+                    ->where('hub_warehouse_id', $selectedWarehouseId)
+                    ->whereIn('contractor_id', $internalContractorIds)
+                    ->exists();
+
+                if ($hasApprovedTransfers) {
+                    Notification::make()
+                        ->title('承認済みの移動候補があります')
+                        ->body('先に確定処理を行ってください')
+                        ->danger()
+                        ->send();
+
+                    $action->halt();
+                }
+
+                $deletedTransfers = WmsStockTransferCandidate::query()
+                    ->where('status', CandidateStatus::PENDING)
+                    ->forCreatedBy(auth()->id())
+                    ->where('hub_warehouse_id', $selectedWarehouseId)
+                    ->whereIn('contractor_id', $internalContractorIds)
+                    ->delete();
+
+                $existingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse($selectedWarehouseId, auth()->id());
+                $batchCode = $existingJob?->batch_code;
+
+                $queueProgress = WmsQueueProgress::createJob(
+                    WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION,
+                    auth()->id(),
+                    [
+                        'warehouse_id' => $selectedWarehouseId,
+                        'contractor_ids' => $internalContractorIds,
+                        'source' => 'sales_based_transfer',
+                        'transfer_only' => true,
+                        'sales_basis' => $data['sales_basis'] ?? 'last_3d',
+                        'auto_order_flag_filter' => $data['auto_order_flag_filter'] ?? 'ignore',
+                    ]
+                );
+
+                ProcessSalesBasedOrderCandidateJob::dispatch(
+                    jobId: $queueProgress->job_id,
+                    warehouseId: $selectedWarehouseId,
+                    createdBy: auth()->id(),
+                    contractorIds: $internalContractorIds,
+                    batchCode: $batchCode,
+                    originType: \App\Enums\AutoOrder\OriginType::MANUAL_SALES_BASED->value,
+                    salesBasis: $data['sales_basis'] ?? 'last_3d',
+                    orderPointFilter: 'ignore',
+                    autoOrderFlagFilter: $data['auto_order_flag_filter'] ?? 'ignore',
+                    transferOnly: true,
+                );
+
+                $message = "HUB倉庫「{$selectedWarehouseName}」の実績ベース移動候補生成を開始しました";
+                if ($deletedTransfers > 0) {
+                    $message .= "（既存PENDING移動候補 {$deletedTransfers}件 を削除）";
+                }
+                if ($batchCode) {
+                    $message .= "（既存バッチ{$batchCode}に追加）";
+                }
+
+                Notification::make()
+                    ->title($message)
+                    ->success()
+                    ->send();
+            });
+    }
+
+    private function findActiveSalesBasedTransferQueueProgress(?int $warehouseId): ?WmsQueueProgress
+    {
+        return WmsQueueProgress::query()
+            ->where('job_type', WmsQueueProgress::JOB_TYPE_ORDER_CANDIDATE_GENERATION)
+            ->whereIn('status', [QueueProgressStatus::PENDING, QueueProgressStatus::PROCESSING])
+            ->where('metadata->source', 'sales_based_transfer')
+            ->where('metadata->warehouse_id', $warehouseId)
+            ->latest()
+            ->first();
     }
 
     private function createTransferOrderCandidates(array $data, array $items, int &$created, array &$errors): void
@@ -573,6 +887,42 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ->orderBy('satellite_warehouse_id')
                 ->orderBy('item_id')
             );
+    }
+
+    private function getTransferQuantityInputRecords()
+    {
+        $records = $this->getFilteredSortedTableQuery()
+            ->with(['item', 'contractor'])
+            ->get();
+
+        WmsStockTransferCandidate::preloadCalculationLogs($records);
+
+        return $records;
+    }
+
+    private function buildTransferQuantityInputRows($records): array
+    {
+        return $records
+            ->map(function (WmsStockTransferCandidate $record): array {
+                $log = $record->calculationLog;
+                $details = $log?->calculation_details ?? [];
+
+                return [
+                    'id' => $record->id,
+                    'item_code' => $record->item_code ?? '-',
+                    'item_name' => $record->item?->name ?? '-',
+                    'packaging' => $record->item?->packaging ?? '-',
+                    'contractor_name' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+                    'calculated_available' => (int) ($record->calculated_available ?? ($details['利用可能在庫'] ?? 0)),
+                    'safety_stock' => (int) ($record->safety_stock ?? $log?->safety_stock_setting ?? 0),
+                    'auto_order_quantity' => (int) ($details['旧自動発注数'] ?? 0),
+                    'shortage_qty' => (int) ($details['不足数'] ?? $record->suggested_quantity ?? 0),
+                    'transfer_quantity' => (int) ($record->transfer_quantity ?? 0),
+                    'disabled' => $record->status !== CandidateStatus::PENDING,
+                ];
+            })
+            ->values()
+            ->toArray();
     }
 
     /**

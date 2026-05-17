@@ -32,7 +32,6 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -224,57 +223,11 @@ class WmsStockTransferCandidatesTable
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->width('60px'),
 
-                TextInputColumn::make('transfer_quantity')
+                TextColumn::make('transfer_quantity')
                     ->label('発注数')
-                    ->type('number')
-                    ->rules(['required', 'integer', 'min:0'])
+                    ->numeric()
                     ->alignEnd()
-                    ->width('70px')
-                    ->extraInputAttributes(['style' => 'width: 65px; text-align: right;'])
-                    // 承認前（PENDING）のみ編集可能
-                    ->disabled(fn ($record) => $record->status !== CandidateStatus::PENDING)
-                    ->afterStateUpdated(function ($record, $state) {
-                        // 承認後の編集は許可しない
-                        if ($record->status !== CandidateStatus::PENDING) {
-                            Notification::make()
-                                ->title('承認後は発注数を変更できません')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
-                        $oldQuantity = $record->transfer_quantity;
-                        $newQuantity = (int) $state;
-
-                        $record->update([
-                            'transfer_quantity' => $newQuantity,
-                            'is_manually_modified' => true,
-                            'modified_by' => auth()->id(),
-                            'modified_at' => now(),
-                        ]);
-
-                        // 移動数量が変更された場合、関連発注候補を再計算
-                        if ($oldQuantity !== $newQuantity) {
-                            $recalcService = app(TransferOrderRecalculationService::class);
-                            $updatedOrder = $recalcService->recalculateOrderForTransfer($record, $oldQuantity, $newQuantity);
-
-                            if ($updatedOrder) {
-                                Notification::make()
-                                    ->title('発注数を更新しました')
-                                    ->body("関連発注候補の発注数も {$updatedOrder->order_quantity} に再計算されました。")
-                                    ->success()
-                                    ->send();
-
-                                return;
-                            }
-                        }
-
-                        Notification::make()
-                            ->title('発注数を更新しました')
-                            ->success()
-                            ->send();
-                    }),
+                    ->width('70px'),
 
                 TextColumn::make('sales_today')
                     ->label('当日')
@@ -942,6 +895,29 @@ class WmsStockTransferCandidatesTable
                 ]),
             ])
             ->defaultSort('batch_code', 'desc');
+    }
+
+    public static function applyTransferQuantityChange(WmsStockTransferCandidate $record, int $newQuantity, ?int $userId): ?\App\Models\WmsOrderCandidate
+    {
+        if ($record->status !== CandidateStatus::PENDING) {
+            return null;
+        }
+
+        $oldQuantity = (int) $record->transfer_quantity;
+
+        $record->update([
+            'transfer_quantity' => $newQuantity,
+            'is_manually_modified' => true,
+            'modified_by' => $userId,
+            'modified_at' => now(),
+        ]);
+
+        if ($oldQuantity === $newQuantity) {
+            return null;
+        }
+
+        return app(TransferOrderRecalculationService::class)
+            ->recalculateOrderForTransfer($record, $oldQuantity, $newQuantity);
     }
 
     private static function resolveItemContractor(WmsStockTransferCandidate $record): ?ItemContractor

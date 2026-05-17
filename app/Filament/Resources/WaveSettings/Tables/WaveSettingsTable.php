@@ -7,6 +7,7 @@ use App\Filament\Concerns\HasExportAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\DB;
@@ -50,6 +51,11 @@ class WaveSettingsTable
                 TextColumn::make('picking_deadline_time')
                     ->label('Deadline Time')
                     ->time('H:i')
+                    ->sortable(),
+
+                IconColumn::make('is_wave_generation_enabled')
+                    ->label('波動生成')
+                    ->boolean()
                     ->sortable(),
 
                 TextColumn::make('created_at')

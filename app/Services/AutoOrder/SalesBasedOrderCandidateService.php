@@ -83,6 +83,7 @@ class SalesBasedOrderCandidateService
         string $salesBasis = 'last_3d',
         string $orderPointFilter = 'ignore',
         string $autoOrderFlagFilter = 'ignore',
+        bool $transferOnly = false,
     ): WmsAutoOrderJobControl {
         $lockKey = $this->salesBasedGenerationLockKey($warehouseId);
 
@@ -100,6 +101,7 @@ class SalesBasedOrderCandidateService
                 salesBasis: $salesBasis,
                 orderPointFilter: $orderPointFilter,
                 autoOrderFlagFilter: $autoOrderFlagFilter,
+                transferOnly: $transferOnly,
             );
         } finally {
             DbMutex::release($lockKey, 'sakemaru');
@@ -115,6 +117,7 @@ class SalesBasedOrderCandidateService
         string $salesBasis = 'last_3d',
         string $orderPointFilter = 'ignore',
         string $autoOrderFlagFilter = 'ignore',
+        bool $transferOnly = false,
     ): WmsAutoOrderJobControl {
         if ($this->hasRunningSalesBasedJobForWarehouse($warehouseId)) {
             throw new \RuntimeException('同じ倉庫の実績ベース発注候補生成が実行中です。完了後に再実行してください。');
@@ -137,6 +140,7 @@ class SalesBasedOrderCandidateService
                 'sales_basis' => $salesBasis,
                 'order_point_filter' => $orderPointFilter,
                 'auto_order_flag_filter' => $autoOrderFlagFilter,
+                'transfer_only' => $transferOnly,
             ],
             batchCode: $batchCode,
             settlementStatus: SettlementStatus::PENDING,
@@ -168,10 +172,10 @@ class SalesBasedOrderCandidateService
             $transferCount = $this->createInternalTransferCandidatesBulk($batchCode, $now);
             $job->updateProgress(2, 4);
 
-            $transferCandidates = $this->loadTransferCandidatesToMemory($batchCode);
+            $transferCandidates = $transferOnly ? [] : $this->loadTransferCandidatesToMemory($batchCode);
             $job->updateProgress(3, 4);
 
-            $orderCount = $this->createExternalOrderCandidatesBulk($batchCode, $now, $transferCandidates);
+            $orderCount = $transferOnly ? 0 : $this->createExternalOrderCandidatesBulk($batchCode, $now, $transferCandidates);
 
             $this->insertCalculationLogs();
             $job->updateProgress(4, 4);

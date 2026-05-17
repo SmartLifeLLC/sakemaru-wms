@@ -2,7 +2,23 @@
     :component="$getFieldWrapperView()"
     :field="$field"
 >
-    <div x-data="{
+    @php
+        $inlineLabel = $inlineLabel ?? false;
+        $inlineLabelText = $inlineLabelText ?? null;
+        $compact = $compact ?? false;
+    @endphp
+
+    <div @class([
+        'flex items-center gap-2' => $inlineLabel,
+    ])>
+        @if ($inlineLabel)
+            <div class="flex w-16 shrink-0 items-center justify-end gap-1 text-sm font-medium text-slate-700 dark:text-gray-200">
+                <span>{{ $inlineLabelText }}</span>
+                <span class="text-slate-400 dark:text-gray-500">:</span>
+            </div>
+        @endif
+
+        <div x-data="{
         state: $wire.entangle('{{ $getStatePath() }}').live,
         open: false,
         search: '',
@@ -32,13 +48,20 @@
         },
     }"
     x-init="$watch('open', v => { if (v) $nextTick(() => $refs.searchInput.focus()) })"
-    class="relative"
-    >
+        @class([
+            'relative',
+            'min-w-0 flex-1' => $inlineLabel,
+        ])
+        >
         {{-- 選択表示ボタン --}}
         <button
             type="button"
             @click="open = !open"
-            class="w-full flex items-center justify-between gap-2 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-slate-800 dark:text-gray-200 hover:border-blue-400 dark:hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+            @class([
+                'w-full flex items-center justify-between gap-2 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 text-sm text-slate-800 dark:text-gray-200 hover:border-blue-400 dark:hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors',
+                'py-1.5' => $compact,
+                'py-2' => ! $compact,
+            ])
         >
             <span x-text="selectedLabel || '倉庫を選択...'" :class="!selectedLabel && 'text-slate-400 dark:text-gray-500'"></span>
             <i class="fa fa-chevron-down text-xs text-slate-400 dark:text-gray-500 transition-transform" :class="open && 'rotate-180'"></i>
@@ -98,5 +121,6 @@
                 <span x-text="filtered.length"></span> / <span x-text="warehouses.length"></span> 件
             </div>
         </div>
+    </div>
     </div>
 </x-dynamic-component>

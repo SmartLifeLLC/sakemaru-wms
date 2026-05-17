@@ -53,6 +53,8 @@ Accept: application/json
 
 `locations.stock` は指定倉庫内で在庫ロットがあるロケのみを返す。
 
+倉庫デフォルトロケを推奨ロケとして返す場合は、商品ロケが未確定であることを示すため `is_no_location: true` を返す。この場合も `id` と `code` は実在ロケーションの値を保持し、Android 側の大表示は `display_name` または `is_no_location` を使って「フリーロケ」と表示する。
+
 ## レスポンス
 
 ```json
@@ -123,6 +125,7 @@ Accept: application/json
             "display_name": "A-1-01 常温棚A",
             "name": "常温棚A",
             "source": "item_default",
+            "is_no_location": false,
             "temperature_type": "NORMAL",
             "is_restricted_area": false,
             "available_quantity_flags": 3
@@ -138,6 +141,7 @@ Accept: application/json
             "display_name": "A-1-01 常温棚A",
             "name": "常温棚A",
             "source": "item_default",
+            "is_no_location": false,
             "temperature_type": "NORMAL",
             "is_restricted_area": false,
             "available_quantity_flags": 3
@@ -154,6 +158,7 @@ Accept: application/json
               "display_name": "B-2-03 冷蔵棚B",
               "name": "冷蔵棚B",
               "source": "stock_lot",
+              "is_no_location": false,
               "temperature_type": "REFRIGERATED",
               "is_restricted_area": false,
               "available_quantity_flags": 3,

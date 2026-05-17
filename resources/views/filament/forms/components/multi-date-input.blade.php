@@ -2,7 +2,23 @@
     :component="$getFieldWrapperView()"
     :field="$field"
 >
-    <div x-data="{
+    @php
+        $inlineLabel = $inlineLabel ?? false;
+        $inlineLabelText = $inlineLabelText ?? null;
+        $compact = $compact ?? false;
+    @endphp
+
+    <div @class([
+        'flex items-center gap-2' => $inlineLabel,
+    ])>
+        @if ($inlineLabel)
+            <div class="flex w-16 shrink-0 items-center justify-end gap-1 text-sm font-medium text-slate-700 dark:text-gray-200">
+                <span>{{ $inlineLabelText }}</span>
+                <span class="text-slate-400 dark:text-gray-500">:</span>
+            </div>
+        @endif
+
+        <div x-data="{
         state: $wire.entangle('{{ $getStatePath() }}').live,
         open: false,
         year: null,
@@ -110,12 +126,20 @@
         },
     }"
     x-init="init()"
-    class="relative space-y-2"
-    >
+        @class([
+            'relative',
+            'space-y-2' => ! $compact,
+            'min-w-0 flex-1' => $inlineLabel,
+        ])
+        >
         <button
             type="button"
             @click="open = !open"
-            class="w-full flex items-center justify-between gap-2 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-slate-800 dark:text-gray-200 hover:border-blue-400 dark:hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+            @class([
+                'w-full flex items-center justify-between gap-2 rounded-lg border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 text-sm text-slate-800 dark:text-gray-200 hover:border-blue-400 dark:hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors',
+                'py-1.5' => $compact,
+                'py-2' => ! $compact,
+            ])
         >
             <div class="flex items-center gap-2 min-w-0">
                 <i class="fa fa-calendar text-slate-400 dark:text-gray-500 text-xs"></i>
@@ -127,7 +151,10 @@
             </span>
         </button>
 
-        <div x-show="state.length" class="flex flex-wrap gap-1.5">
+        <div x-show="state.length" @class([
+            'flex flex-wrap gap-1.5',
+            'hidden' => $compact,
+        ])>
             <template x-for="value in state" :key="value">
                 <button
                     type="button"
@@ -201,5 +228,6 @@
                 <span class="text-xs text-slate-400 dark:text-gray-500" x-text="state.length + '日選択中'"></span>
             </div>
         </div>
+    </div>
     </div>
 </x-dynamic-component>

@@ -6,10 +6,15 @@
          x-data="{
         state: $wire.entangle('{{ $getStatePath() }}').live,
         options: @js($options),
+        initialSelectedIds: @js($initialSelectedIds ?? []),
         search: '',
 
         init() {
             if (!Array.isArray(this.state)) this.state = [];
+            const hasCurrentOptionSelection = this.state.some(v => this.options.some(o => String(o.id) === String(v)));
+            if (!hasCurrentOptionSelection && Array.isArray(this.initialSelectedIds) && this.initialSelectedIds.length > 0) {
+                this.state = [...this.initialSelectedIds];
+            }
         },
 
         get filtered() {
@@ -23,12 +28,12 @@
         },
 
         isChecked(id) {
-            return this.state.includes(id);
+            return this.state.some(v => String(v) === String(id));
         },
 
         toggle(id) {
             if (this.isChecked(id)) {
-                this.state = this.state.filter(v => v !== id);
+                this.state = this.state.filter(v => String(v) !== String(id));
             } else {
                 this.state = [...this.state, id];
             }
@@ -41,11 +46,11 @@
         toggleAll() {
             const ids = this.filtered.map(o => o.id);
             if (this.allSelected) {
-                this.state = this.state.filter(v => !ids.includes(v));
+                this.state = this.state.filter(v => !ids.some(id => String(id) === String(v)));
             } else {
-                const current = new Set(this.state);
-                ids.forEach(id => current.add(id));
-                this.state = [...current];
+                const current = new Map(this.state.map(v => [String(v), v]));
+                ids.forEach(id => current.set(String(id), id));
+                this.state = [...current.values()];
             }
         },
 
@@ -80,7 +85,8 @@
         </div>
 
         {{-- チェックボックスグリッド --}}
-        <div class="max-h-64 overflow-y-auto rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2">
+        <div class="overflow-y-auto rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2"
+             style="max-height: {{ $listMaxHeight ?? '16rem' }};">
             <div class="grid grid-cols-2 gap-1.5">
                 <template x-for="o in filtered" :key="o.id">
                     <label

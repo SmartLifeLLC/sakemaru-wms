@@ -23,10 +23,10 @@ use App\Services\WarehouseResolver;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Components\ToggleButtons;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
@@ -36,6 +36,7 @@ use Filament\Support\Enums\Alignment;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\HtmlString;
 
 /**
@@ -151,7 +152,7 @@ class ListWaves extends ListRecords
                 ->color('info')
                 ->modalHeading('ピッキングリスト出力')
                 ->modalDescription('出荷日・倉庫を選択し、対象リストを出力します')
-                ->modalWidth('6xl')
+                ->modalWidth('7xl')
                 ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn (Action $action) => $action->label('PDF出力')->color('danger'))
@@ -328,16 +329,16 @@ class ListWaves extends ListRecords
                 ->icon('heroicon-o-plus-circle')
                 ->color('primary')
                 ->modalHeading('出荷波動生成')
-                ->modalDescription('対象伝票を選択して波動を生成します。同じ時間帯に既存の波動がある場合でも、新規波動として生成されます。')
-                ->modalWidth('6xl')
-                ->extraModalWindowAttributes(['class' => 'wave-modal'])
+                ->modalWidth('7xl')
+                ->extraModalWindowAttributes(['class' => 'wave-modal wave-generate-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn (Action $action) => $action->label('波動を生成')->color('danger'))
                 ->modalCancelActionLabel('生成せず閉じる')
                 ->schema($this->getWaveSelectionSchema(
                     includeTargetDocumentTypeFilter: true,
                     includePastDefault: false,
-                    allowMultipleShippingDates: true
+                    allowMultipleShippingDates: true,
+                    showIncludePastToggle: false
                 ))
                 ->action(function (array $data): void {
                     $this->generateManualWave($data);
@@ -373,6 +374,10 @@ class ListWaves extends ListRecords
 
     private function normalizeTargetDocumentTypes(mixed $targetDocumentTypes): array
     {
+        if (is_string($targetDocumentTypes) && in_array($targetDocumentTypes, ['shipment', 'transfer'], true)) {
+            return [$targetDocumentTypes];
+        }
+
         if (! is_array($targetDocumentTypes)) {
             return ['shipment', 'transfer'];
         }
@@ -388,6 +393,33 @@ class ListWaves extends ListRecords
     private function includesTransferDocuments(array $targetDocumentTypes): bool
     {
         return in_array('transfer', $targetDocumentTypes, true);
+    }
+
+    /**
+     * @param  array<int|string>  $courseIds
+     * @return array<int>
+     */
+    private function getWaveGenerationDisabledCourseIds(array $courseIds): array
+    {
+        $courseIds = collect($courseIds)
+            ->map(fn ($courseId): int => (int) $courseId)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($courseIds === [] || ! Schema::connection('sakemaru')->hasColumn('wms_wave_settings', 'is_wave_generation_enabled')) {
+            return [];
+        }
+
+        return DB::connection('sakemaru')
+            ->table('wms_wave_settings')
+            ->whereIn('delivery_course_id', $courseIds)
+            ->where('is_wave_generation_enabled', false)
+            ->pluck('delivery_course_id')
+            ->map(fn ($courseId): int => (int) $courseId)
+            ->values()
+            ->all();
     }
 
     private function normalizeShippingDates(mixed $shippingDates): array
@@ -479,19 +511,29 @@ class ListWaves extends ListRecords
     protected function getWaveSelectionSchema(
         bool $includeTargetDocumentTypeFilter = false,
         bool $includePastDefault = true,
-        bool $allowMultipleShippingDates = false
+        bool $allowMultipleShippingDates = false,
+        bool $showIncludePastToggle = true
     ): array {
         return [
-            Toggle::make('include_past')
-                ->label('過去の未出荷も含む')
-                ->default($includePastDefault)
-                ->live(),
+            ...($showIncludePastToggle ? [
+                Toggle::make('include_past')
+                    ->label('過去の未出荷も含む')
+                    ->default($includePastDefault)
+                    ->live(),
+            ] : [
+                Hidden::make('include_past')
+                    ->default(false),
+            ]),
 
             Grid::make(2)->schema([
                 ViewField::make('warehouse_id')
                     ->label('倉庫')
+                    ->hiddenLabel(! $showIncludePastToggle)
                     ->view('filament.forms.components.warehouse-select')
                     ->viewData([
+                        'inlineLabel' => ! $showIncludePastToggle,
+                        'inlineLabelText' => '倉庫',
+                        'compact' => ! $showIncludePastToggle,
                         'warehouses' => Warehouse::query()
                             ->where('is_virtual', false)
                             ->orderBy('code')
@@ -512,22 +554,32 @@ class ListWaves extends ListRecords
                 ...($allowMultipleShippingDates ? [
                     ViewField::make('shipping_dates')
                         ->label(fn (Get $get) => new HtmlString(
-                            '出荷日（複数選択可） '
-                            .($get('include_past')
+                            '出荷日（複数選択可）'
+                            .($showIncludePastToggle
+                                ? ' '.($get('include_past')
                                 ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">選択最終日以前も含む</span>'
                                 : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-gray-700 dark:text-gray-300">選択日のみ</span>')
+                                : '')
                         ))
+                        ->hiddenLabel(! $showIncludePastToggle)
                         ->view('filament.forms.components.multi-date-input')
+                        ->viewData([
+                            'inlineLabel' => ! $showIncludePastToggle,
+                            'inlineLabelText' => '出荷日',
+                            'compact' => ! $showIncludePastToggle,
+                        ])
                         ->default(fn () => [ClientSetting::systemDate()->format('Y-m-d')])
                         ->required()
                         ->live(),
                 ] : [
                     ViewField::make('shipping_date')
                         ->label(fn (Get $get) => new HtmlString(
-                            '出荷日 '
-                            .($get('include_past')
+                            '出荷日'
+                            .($showIncludePastToggle
+                                ? ' '.($get('include_past')
                                 ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">過去日も含む</span>'
                                 : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-gray-700 dark:text-gray-300">当日分のみ</span>')
+                                : '')
                         ))
                         ->view('filament.forms.components.date-input')
                         ->default(fn () => ClientSetting::systemDate()->format('Y-m-d'))
@@ -536,29 +588,25 @@ class ListWaves extends ListRecords
                 ]),
             ]),
 
-            ViewField::make('generation_type')
-                ->label('生成単位')
-                ->view('filament.forms.components.wave-generation-type-tabs')
-                ->default('delivery_course')
-                ->required()
-                ->live(),
+            Grid::make(2)->schema([
+                ...($includeTargetDocumentTypeFilter ? [
+                    ViewField::make('target_document_types')
+                        ->label('対象伝票区分')
+                        ->view('filament.forms.components.wave-target-document-type-tabs')
+                        ->default('shipment')
+                        ->required()
+                        ->live(),
+                ] : []),
 
-            ...($includeTargetDocumentTypeFilter ? [
-                ToggleButtons::make('target_document_types')
-                    ->label('対象伝票区分')
-                    ->options([
-                        'shipment' => '出荷',
-                        'transfer' => '物流（移動伝票）',
-                    ])
-                    ->multiple()
-                    ->default(['shipment', 'transfer'])
-                    ->inline()
-                    ->columns(2)
+                ViewField::make('generation_type')
+                    ->label('生成単位')
+                    ->view('filament.forms.components.wave-generation-type-tabs')
+                    ->default('delivery_course')
                     ->required()
-                    ->helperText('出荷のみ・移動のみ・両方で配送コース候補と生成対象を絞り込みます。')
                     ->live()
-                    ->visible(fn (Get $get) => ($get('generation_type') ?? 'delivery_course') === 'delivery_course'),
-            ] : []),
+                    ->visible(fn (Get $get): bool => ! $includeTargetDocumentTypeFilter
+                        || $this->includesShipmentDocuments($this->normalizeTargetDocumentTypes($get('target_document_types')))),
+            ]),
 
             Grid::make(2)->schema([
                 ViewField::make('delivery_course_ids')
@@ -625,35 +673,49 @@ class ListWaves extends ListRecords
                         }
 
                         $allCourseIds = $earningCounts->keys()->merge($stockTransferCounts->keys())->unique();
+                        $waveGenerationDisabledCourseIds = $this->getWaveGenerationDisabledCourseIds($allCourseIds->all());
 
                         $options = [];
                         foreach ($allCourseIds as $courseId) {
                             $earningData = $earningCounts->get($courseId);
                             $stockTransferData = $stockTransferCounts->get($courseId);
                             $name = $earningData->course_name ?? $stockTransferData->course_name ?? '不明';
+                            $isInitialSelectionEnabled = ! in_array((int) $courseId, $waveGenerationDisabledCourseIds, true);
                             $counts = [];
                             if ($this->includesShipmentDocuments($targetDocumentTypes)) {
-                                $counts[] = '出荷'.($earningData->count ?? 0).'件';
+                                $counts[] = '営業出荷'.($earningData->count ?? 0).'件';
                             }
                             if ($this->includesTransferDocuments($targetDocumentTypes)) {
-                                $counts[] = '移動'.($stockTransferData->count ?? 0).'件';
+                                $counts[] = '物流'.($stockTransferData->count ?? 0).'件';
                             }
                             $options[] = [
-                                'id' => $courseId,
-                                'label' => $name.'（'.implode(' / ', $counts).'）',
+                                'id' => (int) $courseId,
+                                'label' => $name.'（'.implode(' / ', $counts).'）'.($isInitialSelectionEnabled ? '' : ' / 初期非選択'),
+                                'initial_selected' => $isInitialSelectionEnabled,
                             ];
                         }
 
-                        usort($options, fn ($a, $b) => strcmp($a['label'], $b['label']));
+                        usort($options, fn ($a, $b) => [$a['initial_selected'] ? 0 : 1, $a['label']] <=> [$b['initial_selected'] ? 0 : 1, $b['label']]);
 
                         return [
                             'options' => $options,
+                            'initialSelectedIds' => collect($options)
+                                ->where('initial_selected', true)
+                                ->pluck('id')
+                                ->values()
+                                ->all(),
                             'searchPlaceholder' => 'コース検索...',
+                            'listMaxHeight' => 'calc(100dvh - 430px)',
                         ];
                     })
                     ->required()
                     ->live()
-                    ->visible(fn (Get $get) => $get('warehouse_id') && ! empty($this->getShippingDatesFromForm($get, $allowMultipleShippingDates)) && ($get('generation_type') ?? 'delivery_course') === 'delivery_course'),
+                    ->visible(fn (Get $get) => $get('warehouse_id')
+                        && ! empty($this->getShippingDatesFromForm($get, $allowMultipleShippingDates))
+                        && (
+                            ($get('generation_type') ?? 'delivery_course') === 'delivery_course'
+                            || $this->includesTransferDocuments($this->normalizeTargetDocumentTypes($get('target_document_types')))
+                        )),
 
                 ViewField::make('buyer_ids')
                     ->label('得意先')
@@ -700,7 +762,10 @@ class ListWaves extends ListRecords
                     })
                     ->required()
                     ->live()
-                    ->visible(fn (Get $get) => $get('warehouse_id') && ! empty($this->getShippingDatesFromForm($get, $allowMultipleShippingDates)) && $get('generation_type') === 'buyer'),
+                    ->visible(fn (Get $get) => $get('warehouse_id')
+                        && ! empty($this->getShippingDatesFromForm($get, $allowMultipleShippingDates))
+                        && $get('generation_type') === 'buyer'
+                        && ! $this->includesTransferDocuments($this->normalizeTargetDocumentTypes($get('target_document_types')))),
 
                 Placeholder::make('earnings_preview')
                     ->label('対象伝票')
@@ -804,7 +869,7 @@ class ListWaves extends ListRecords
                         $html .= '<tr>';
                         $html .= '<th class="px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-gray-400">配送コース</th>';
                         $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">売上伝票</th>';
-                        $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">移動伝票</th>';
+                        $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">物流</th>';
                         $html .= '<th class="px-3 py-2 text-right text-xs font-medium text-slate-600 dark:text-gray-400">合計</th>';
                         $html .= '</tr></thead>';
                         $html .= '<tbody class="divide-y divide-slate-200 dark:divide-gray-700">';
@@ -824,23 +889,17 @@ class ListWaves extends ListRecords
                         $html .= '<span class="text-sm font-bold text-slate-700 dark:text-gray-200">合計</span>';
                         $html .= '<div class="flex items-center gap-4">';
                         $html .= '<span class="text-xs text-slate-500 dark:text-gray-400">売上: <span class="font-bold text-slate-700 dark:text-gray-200">'.$totalEarningCount.'件</span></span>';
-                        $html .= '<span class="text-xs text-purple-500 dark:text-purple-400">移動: <span class="font-bold">'.$totalStockTransferCount.'件</span></span>';
+                        $html .= '<span class="text-xs text-purple-500 dark:text-purple-400">物流: <span class="font-bold">'.$totalStockTransferCount.'件</span></span>';
                         $html .= '<span class="text-lg font-bold text-blue-600 dark:text-blue-400">'.$totalCount.'件</span>';
                         $html .= '</div>';
                         $html .= '</div>';
-
-                        if ($totalCount > 100) {
-                            $html .= '<div class="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-400 text-xs">';
-                            $html .= '<i class="fa fa-exclamation-triangle"></i>';
-                            $html .= '<span><span class="font-bold">注意:</span> 伝票数が多いため、生成に時間がかかる場合があります。</span>';
-                            $html .= '</div>';
-                        }
 
                         $html .= '</div>';
 
                         return new HtmlString($html);
                     })
-                    ->visible(fn (Get $get) => ($get('generation_type') ?? 'delivery_course') === 'delivery_course'),
+                    ->visible(fn (Get $get) => ($get('generation_type') ?? 'delivery_course') === 'delivery_course'
+                        || $this->includesTransferDocuments($this->normalizeTargetDocumentTypes($get('target_document_types')))),
 
                 Placeholder::make('buyer_earnings_preview')
                     ->label('対象伝票')
@@ -915,7 +974,8 @@ class ListWaves extends ListRecords
 
                         return new HtmlString($html);
                     })
-                    ->visible(fn (Get $get) => $get('generation_type') === 'buyer'),
+                    ->visible(fn (Get $get) => $get('generation_type') === 'buyer'
+                        && ! $this->includesTransferDocuments($this->normalizeTargetDocumentTypes($get('target_document_types')))),
             ]),
         ];
     }
@@ -937,6 +997,10 @@ class ListWaves extends ListRecords
             $userId = auth()->id() ?? 1;
             $managementShippingDate = $this->latestShippingDate($shippingDates);
             $targetDocumentTypes = $this->normalizeTargetDocumentTypes($data['target_document_types'] ?? null);
+            if (! $this->includesShipmentDocuments($targetDocumentTypes)) {
+                $data['generation_type'] = 'delivery_course';
+                $data['buyer_ids'] = [];
+            }
 
             $waveGroup = $this->createWaveGroupForManualGeneration(
                 $data,

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WaveSettings\Schemas;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TimePicker;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\DB;
@@ -81,6 +82,11 @@ class WaveSettingForm
                             ->label('Picking Deadline Time')
                             ->seconds(false)
                             ->nullable(),
+
+                        Toggle::make('is_wave_generation_enabled')
+                            ->label('手動波動生成の初期選択対象')
+                            ->helperText('OFFにすると、出荷波動生成モーダルで初期非選択になり、候補の末尾に表示されます。')
+                            ->default(true),
 
                         Select::make('creator_id')
                             ->label('Creator')

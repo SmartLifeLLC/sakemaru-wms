@@ -18,6 +18,7 @@ class WaveSetting extends Model
         'delivery_course_id',
         'picking_start_time',
         'picking_deadline_time',
+        'is_wave_generation_enabled',
         'creator_id',
         'last_updater_id',
     ];
@@ -25,6 +26,7 @@ class WaveSetting extends Model
     protected $casts = [
         'picking_start_time' => 'datetime:H:i:s',
         'picking_deadline_time' => 'datetime:H:i:s',
+        'is_wave_generation_enabled' => 'boolean',
     ];
 
     public function waves(): HasMany

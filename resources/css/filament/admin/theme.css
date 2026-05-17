@@ -841,6 +841,26 @@ html.fi {
     width: auto !important;
 }
 
+.wave-generate-modal {
+    display: flex !important;
+    flex-direction: column !important;
+    margin-top: 1.25rem !important;
+    margin-bottom: 0.75rem !important;
+    max-height: calc(100dvh - 4.5rem) !important;
+}
+
+.wave-generate-modal .fi-modal-header,
+.wave-generate-modal .fi-modal-footer {
+    flex-shrink: 0 !important;
+}
+
+.wave-generate-modal .fi-modal-content {
+    flex: 1 1 auto !important;
+    overflow-y: auto !important;
+    padding-top: 1rem !important;
+    padding-bottom: 1rem !important;
+}
+
 /* ピッカー割り当てモーダル - ヘッダー紺色 */
 .picker-assign-modal .fi-modal-header {
     background-color: #1e293b !important;
