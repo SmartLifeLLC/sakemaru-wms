@@ -23,7 +23,6 @@ use App\Services\AutoOrder\OrderCandidateToTransferCandidateService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
-use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
@@ -547,8 +546,9 @@ class WmsOrderCandidatesTable
                                     ->integer()
                                     ->minValue(0),
 
-                                DatePicker::make('expected_arrival_date')
+                                ViewField::make('expected_arrival_date')
                                     ->label('入荷予定日')
+                                    ->view('filament.forms.components.smart-date-input')
                                     ->required(),
                             ]);
 
@@ -869,8 +869,9 @@ class WmsOrderCandidatesTable
                                     'totalCount' => $records->count(),
                                     'pendingCount' => $records->where('status', CandidateStatus::PENDING)->count(),
                                 ]),
-                            DatePicker::make('expected_arrival_date')
+                            ViewField::make('expected_arrival_date')
                                 ->label('入荷予定日')
+                                ->view('filament.forms.components.smart-date-input')
                                 ->required(),
                         ])
                         ->action(function (Collection $records, array $data) {

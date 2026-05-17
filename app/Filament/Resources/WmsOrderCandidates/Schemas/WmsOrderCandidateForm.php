@@ -5,10 +5,10 @@ namespace App\Filament\Resources\WmsOrderCandidates\Schemas;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\QuantityType;
-use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ViewField;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -75,8 +75,9 @@ class WmsOrderCandidateForm
                             ->label('元入荷予定日')
                             ->date(),
 
-                        DatePicker::make('expected_arrival_date')
+                        ViewField::make('expected_arrival_date')
                             ->label('入荷予定日')
+                            ->view('filament.forms.components.smart-date-input')
                             ->required(),
                     ]),
 
