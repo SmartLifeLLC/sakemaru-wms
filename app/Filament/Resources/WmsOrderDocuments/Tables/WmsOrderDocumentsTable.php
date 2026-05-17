@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\PaginationOptions;
+use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
 use Filament\Actions\Action;
@@ -56,6 +57,29 @@ class WmsOrderDocumentsTable
             'status' => TransmissionDocumentStatus::PENDING,
             'error_message' => null,
         ]);
+    }
+
+    private static function resolveXmlMessageId(WmsOrderJxDocument $record): ?string
+    {
+        if (! empty($record->jx_message_id)) {
+            return $record->jx_message_id;
+        }
+
+        if (! $record->wms_order_jx_setting_id || ! $record->updated_at) {
+            return null;
+        }
+
+        return WmsJxTransmissionLog::query()
+            ->where('jx_setting_id', $record->wms_order_jx_setting_id)
+            ->where('direction', WmsJxTransmissionLog::DIRECTION_SEND)
+            ->where('operation_type', WmsJxTransmissionLog::OPERATION_PUT)
+            ->where('status', WmsJxTransmissionLog::STATUS_FAILURE)
+            ->whereBetween('created_at', [
+                $record->updated_at->copy()->subMinutes(5),
+                $record->updated_at->copy()->addMinutes(5),
+            ])
+            ->latest('created_at')
+            ->value('message_id');
     }
 
     public static function configure(Table $table): Table
@@ -188,9 +212,17 @@ class WmsOrderDocumentsTable
                     ->label('XML')
                     ->icon('heroicon-o-code-bracket')
                     ->color('warning')
-                    ->visible(fn ($record) => ! empty($record->jx_message_id))
+                    ->visible(fn (WmsOrderJxDocument $record) => ! empty($record->jx_message_id)
+                        || $record->status === TransmissionDocumentStatus::ERROR)
                     ->action(function (WmsOrderJxDocument $record) {
-                        $xmlPath = self::findXmlFileByMessageId($record->jx_message_id);
+                        $messageId = self::resolveXmlMessageId($record);
+                        if (! $messageId) {
+                            Notification::make()->title('送信XMLのメッセージIDが見つかりません')->danger()->send();
+
+                            return;
+                        }
+
+                        $xmlPath = self::findXmlFileByMessageId($messageId);
 
                         if (! $xmlPath) {
                             Notification::make()->title('送信XMLが見つかりません')->danger()->send();
