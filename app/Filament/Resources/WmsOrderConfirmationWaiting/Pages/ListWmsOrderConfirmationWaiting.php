@@ -67,7 +67,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             '発注確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded '.$orderBadgeClasses.'">'.$orderCount.'</span>'.
             '</button>'.
             '<button wire:click="setConfirmationTab(\'transfer\')" class="px-4 py-1 text-base font-semibold transition-all whitespace-nowrap '.$transferClasses.'">'.
-            '物流発注(転換）確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded '.$transferBadgeClasses.'">'.$transferCount.'</span>'.
+            '物流発注(店間）確定待ち<span class="ml-1.5 px-1.5 py-0.5 text-xs font-bold rounded '.$transferBadgeClasses.'">'.$transferCount.'</span>'.
             '</button>'.
             '</nav>'
         );
@@ -158,7 +158,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
 
                     $details = [];
                     if ($confirmableTransferCount > 0) {
-                        $details[] = "物流発注(転換）候補: {$confirmableTransferCount}件 → 移動伝票生成";
+                        $details[] = "物流発注(店間）候補: {$confirmableTransferCount}件 → 移動伝票生成";
                     }
                     if ($confirmableOrderCount > 0) {
                         $details[] = "発注候補: {$confirmableOrderCount}件 → 入荷予定作成";
@@ -167,7 +167,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                         $details[] = "発注数0の発注候補: {$zeroQuantityOrderCount}件 → 確定時に削除";
                     }
                     if ($zeroQuantityTransferCount > 0) {
-                        $details[] = "発注数0の物流発注(転換）候補: {$zeroQuantityTransferCount}件 → 確定時に削除";
+                        $details[] = "発注数0の物流発注(店間）候補: {$zeroQuantityTransferCount}件 → 確定時に削除";
                     }
 
                     return "倉庫「{$selectedWarehouseName}」の承認済み候補のみ確定します。\n\n".
@@ -229,7 +229,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                     ->modalDescription(function () use ($globalConfirmableOrderCount, $globalZeroQuantityOrderCount, $globalConfirmableTransferCount, $globalZeroQuantityTransferCount) {
                         $details = [];
                         if ($globalConfirmableTransferCount > 0) {
-                            $details[] = "物流発注(転換）候補: {$globalConfirmableTransferCount}件 → 移動伝票生成";
+                            $details[] = "物流発注(店間）候補: {$globalConfirmableTransferCount}件 → 移動伝票生成";
                         }
                         if ($globalConfirmableOrderCount > 0) {
                             $details[] = "発注候補: {$globalConfirmableOrderCount}件 → 入荷予定作成";
@@ -238,7 +238,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
                             $details[] = "発注数0の発注候補: {$globalZeroQuantityOrderCount}件 → 確定時に削除";
                         }
                         if ($globalZeroQuantityTransferCount > 0) {
-                            $details[] = "発注数0の物流発注(転換）候補: {$globalZeroQuantityTransferCount}件 → 確定時に削除";
+                            $details[] = "発注数0の物流発注(店間）候補: {$globalZeroQuantityTransferCount}件 → 確定時に削除";
                         }
 
                         return "全倉庫の承認済み候補をまとめて確定します。\n\n".
@@ -299,7 +299,7 @@ class ListWmsOrderConfirmationWaiting extends ListRecords
             $lines[] = '<div class="text-xl font-black leading-tight text-red-700 dark:text-red-300">発注候補 確定対象: '.number_format($confirmableOrderCount).'件 / 発注数0のため削除: '.number_format($zeroQuantityOrderCount).'件</div>';
         }
         if ($confirmableTransferCount > 0 || $zeroQuantityTransferCount > 0) {
-            $lines[] = '<div class="mt-2 text-xl font-black leading-tight text-red-700 dark:text-red-300">物流発注(転換）候補 確定対象: '.number_format($confirmableTransferCount).'件 / 発注数0のため削除: '.number_format($zeroQuantityTransferCount).'件</div>';
+            $lines[] = '<div class="mt-2 text-xl font-black leading-tight text-red-700 dark:text-red-300">物流発注(店間）候補 確定対象: '.number_format($confirmableTransferCount).'件 / 発注数0のため削除: '.number_format($zeroQuantityTransferCount).'件</div>';
         }
 
         return new HtmlString(

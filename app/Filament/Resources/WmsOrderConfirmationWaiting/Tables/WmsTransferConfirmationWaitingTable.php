@@ -402,18 +402,18 @@ class WmsTransferConfirmationWaitingTable
                 static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('bulkConfirmSelectedTransfers')
-                        ->label('選択を物流発注(転換）確定')
+                        ->label('選択を物流発注(店間）確定')
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->visible(fn (): bool => auth()->user()?->email === 'admin@sakemaru.ai')
                         ->requiresConfirmation()
-                        ->modalHeading('選択した物流発注(転換）候補を確定')
+                        ->modalHeading('選択した物流発注(店間）候補を確定')
                         ->modalDescription(function (Collection $records): string {
                             $approved = $records->filter(fn ($r) => $r->status === CandidateStatus::APPROVED);
                             $zeroCount = $approved->filter(fn ($r) => (int) $r->transfer_quantity <= 0)->count();
                             $confirmableCount = max(0, $approved->count() - $zeroCount);
 
-                            return "選択した承認済み物流発注(転換）候補を、作成者に関係なく確定します。\n\n".
+                            return "選択した承認済み物流発注(店間）候補を、作成者に関係なく確定します。\n\n".
                                 "確定対象: {$confirmableCount}件\n".
                                 "発注数0のため削除: {$zeroCount}件";
                         })
@@ -471,7 +471,7 @@ class WmsTransferConfirmationWaitingTable
 
                             if (empty($approvedIds)) {
                                 Notification::make()
-                                    ->title($deletedZeroCount > 0 ? '発注数0の物流発注(転換）候補を削除しました' : '承認済みのレコードがありません')
+                                    ->title($deletedZeroCount > 0 ? '発注数0の物流発注(店間）候補を削除しました' : '承認済みのレコードがありません')
                                     ->body($deletedZeroCount > 0 ? "削除: {$deletedZeroCount}件" : null)
                                     ->warning()
                                     ->send();
@@ -485,7 +485,7 @@ class WmsTransferConfirmationWaitingTable
 
                             if ($executed === 0) {
                                 Notification::make()
-                                    ->title('確定できた物流発注(転換）候補がありません')
+                                    ->title('確定できた物流発注(店間）候補がありません')
                                     ->warning()
                                     ->send();
 
@@ -493,7 +493,7 @@ class WmsTransferConfirmationWaitingTable
                             }
 
                             Notification::make()
-                                ->title("{$executed}件の物流発注(転換）候補を確定しました")
+                                ->title("{$executed}件の物流発注(店間）候補を確定しました")
                                 ->body($deletedZeroCount > 0 ? "発注数0のため削除: {$deletedZeroCount}件" : null)
                                 ->success()
                                 ->send();
@@ -506,7 +506,7 @@ class WmsTransferConfirmationWaitingTable
                         ->color('danger')
                         ->requiresConfirmation()
                         ->modalHeading('一括承認取消')
-                        ->modalDescription('選択した物流発注(転換）候補の承認を取り消します。')
+                        ->modalDescription('選択した物流発注(店間）候補の承認を取り消します。')
                         ->action(function (Collection $records) {
                             // APPROVED状態のIDのみ抽出
                             $approvedIds = $records
