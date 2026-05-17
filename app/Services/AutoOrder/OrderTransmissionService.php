@@ -11,6 +11,7 @@ use App\Enums\AutoOrder\TransmissionDocumentType;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\User as SakemaruUser;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
@@ -151,6 +152,7 @@ class OrderTransmissionService
                 'total_items' => $candidates->count(),
                 'total_quantity' => $totalQuantity,
                 'jx_request_data' => $this->buildJxRequestData($candidates, $quantityResolver),
+                ...$this->createdByAttributes(),
             ]);
         });
     }
@@ -231,6 +233,7 @@ class OrderTransmissionService
             'status' => TransmissionDocumentStatus::TRANSMITTED,
             'transmitted_at' => now(),
             'transmitted_by' => auth()->id(),
+            ...$this->transmittedByAttributes(),
             'jx_response_data' => [
                 'document_no' => $mockDocumentNo,
                 'status' => 'ACCEPTED',
@@ -264,6 +267,7 @@ class OrderTransmissionService
             'status' => TransmissionDocumentStatus::TRANSMITTED,
             'transmitted_at' => now(),
             'transmitted_by' => auth()->id(),
+            ...$this->transmittedByAttributes(),
         ]);
 
         $this->logTransmission(
@@ -853,6 +857,8 @@ class OrderTransmissionService
                 'jx_message_id' => $result->messageId,
                 'transmitted_at' => $now,
                 'transmitted_by' => auth()->id(),
+                ...$this->transmittedByAttributes(),
+                ...$this->createdByAttributes(),
                 'jx_response_data' => [
                     'message_id' => $result->messageId,
                     'timestamp' => $now->toIso8601String(),
@@ -1131,6 +1137,7 @@ class OrderTransmissionService
                 'order_count' => $candidates->count(),
                 'transmitted_at' => $now,
                 'transmitted_by' => auth()->id(),
+                ...$this->transmittedByAttributes(),
                 'jx_message_id' => $result->messageId,
                 'jx_response_data' => [
                     'message_id' => $result->messageId,
@@ -1442,6 +1449,7 @@ class OrderTransmissionService
                 'status' => TransmissionDocumentStatus::TRANSMITTED,
                 'transmitted_at' => $now,
                 'transmitted_by' => auth()->id(),
+                ...$this->transmittedByAttributes(),
                 'jx_message_id' => $result->messageId,
                 'jx_response_data' => [
                     'message_id' => $result->messageId,
@@ -1861,6 +1869,62 @@ class OrderTransmissionService
     }
 
     /**
+     * JXファイル生成者を伝票に固定保存する。
+     *
+     * Web操作はログインユーザー、バッチ/キュー実行は自動実行ユーザーとして残す。
+     */
+    private function createdByAttributes(): array
+    {
+        $authUser = auth()->user();
+        if ($authUser) {
+            return [
+                'created_by' => (int) $authUser->getAuthIdentifier(),
+                'created_by_name' => $authUser->name,
+            ];
+        }
+
+        $userId = SakemaruUser::resolveAutomatorId();
+        if ($userId > 0) {
+            return [
+                'created_by' => $userId,
+                'created_by_name' => SakemaruUser::withoutGlobalScopes()->whereKey($userId)->value('name') ?? 'システム',
+            ];
+        }
+
+        return [
+            'created_by' => null,
+            'created_by_name' => 'システム',
+        ];
+    }
+
+    /**
+     * JX送信者を伝票に固定保存する。
+     */
+    private function transmittedByAttributes(): array
+    {
+        $authUser = auth()->user();
+        if ($authUser) {
+            return [
+                'transmitted_by' => (int) $authUser->getAuthIdentifier(),
+                'transmitted_by_name' => $authUser->name,
+            ];
+        }
+
+        $userId = SakemaruUser::resolveAutomatorId();
+        if ($userId > 0) {
+            return [
+                'transmitted_by' => $userId,
+                'transmitted_by_name' => SakemaruUser::withoutGlobalScopes()->whereKey($userId)->value('name') ?? 'システム',
+            ];
+        }
+
+        return [
+            'transmitted_by' => null,
+            'transmitted_by_name' => 'システム',
+        ];
+    }
+
+    /**
      * ドキュメントのダウンロードURLを取得
      */
     public function getDownloadUrl(WmsOrderJxDocument $document): ?string
@@ -2041,6 +2105,8 @@ class OrderTransmissionService
             'jx_message_id' => $result->messageId,
             'transmitted_at' => $now,
             'transmitted_by' => auth()->id(),
+            ...$this->transmittedByAttributes(),
+            ...$this->createdByAttributes(),
             'jx_response_data' => [
                 'message_id' => $result->messageId,
                 'timestamp' => $now->toIso8601String(),
@@ -2324,6 +2390,7 @@ class OrderTransmissionService
             'record_count' => $file['record_count'],
             'order_count' => $file['order_count'],
             'encoding' => $file['encoding'],
+            ...$this->createdByAttributes(),
         ]);
     }
 
@@ -2485,6 +2552,7 @@ class OrderTransmissionService
                 'status' => TransmissionDocumentStatus::TRANSMITTED,
                 'transmitted_at' => now(),
                 'transmitted_by' => auth()->id(),
+                ...$this->transmittedByAttributes(),
                 'jx_message_id' => $result->messageId,
                 'jx_response_data' => [
                     'message_id' => $result->messageId,

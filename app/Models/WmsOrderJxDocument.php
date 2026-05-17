@@ -43,6 +43,9 @@ class WmsOrderJxDocument extends WmsModel
         'transmitted_at',
         'confirmed_at',
         'transmitted_by',
+        'transmitted_by_name',
+        'created_by',
+        'created_by_name',
     ];
 
     protected $casts = [
@@ -54,6 +57,8 @@ class WmsOrderJxDocument extends WmsModel
         'jx_response_data' => 'array',
         'transmitted_at' => 'datetime',
         'confirmed_at' => 'datetime',
+        'transmitted_by' => 'integer',
+        'created_by' => 'integer',
     ];
 
     public function warehouse(): BelongsTo
@@ -71,6 +76,16 @@ class WmsOrderJxDocument extends WmsModel
         return $this->belongsTo(WmsOrderJxSetting::class, 'wms_order_jx_setting_id');
     }
 
+    public function createdByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function transmittedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'transmitted_by');
+    }
+
     public function orderCandidates(): HasMany
     {
         return $this->hasMany(WmsOrderCandidate::class);
@@ -84,6 +99,19 @@ class WmsOrderJxDocument extends WmsModel
     public function jobControl(): HasOne
     {
         return $this->hasOne(WmsAutoOrderJobControl::class, 'batch_code', 'batch_code');
+    }
+
+    public function getCreatedByDisplayNameAttribute(): ?string
+    {
+        return $this->created_by_name
+            ?? $this->createdByUser?->name
+            ?? $this->jobControl?->createdByUser?->name;
+    }
+
+    public function getTransmittedByDisplayNameAttribute(): ?string
+    {
+        return $this->transmitted_by_name
+            ?? $this->transmittedByUser?->name;
     }
 
     public function scopeForBatch(Builder $query, string $batchCode): Builder

@@ -106,7 +106,12 @@ class WmsOrderDocumentsTable
                     ->sortable()
                     ->toggleable(),
 
-                TextColumn::make('jobControl.createdByUser.name')
+                TextColumn::make('transmitted_by_display_name')
+                    ->label('送信者')
+                    ->sortable(false)
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('created_by_display_name')
                     ->label('作成者')
                     ->sortable(false)
                     ->toggleable(),
