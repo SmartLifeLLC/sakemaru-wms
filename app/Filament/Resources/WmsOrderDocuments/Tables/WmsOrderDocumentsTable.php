@@ -38,6 +38,26 @@ class WmsOrderDocumentsTable
         return null;
     }
 
+    private static function canRestoreToPending(WmsOrderJxDocument $record): bool
+    {
+        if (! in_array($record->status, [
+            TransmissionDocumentStatus::CANCELLED,
+            TransmissionDocumentStatus::ERROR,
+        ], true)) {
+            return false;
+        }
+
+        return $record->orderCandidates()->exists();
+    }
+
+    private static function restoreToPending(WmsOrderJxDocument $record): void
+    {
+        $record->update([
+            'status' => TransmissionDocumentStatus::PENDING,
+            'error_message' => null,
+        ]);
+    }
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -242,6 +262,26 @@ class WmsOrderDocumentsTable
                             ->send();
                     }),
 
+                Action::make('restorePending')
+                    ->label('送信待ちへ')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->visible(fn (WmsOrderJxDocument $record) => self::canRestoreToPending($record))
+                    ->requiresConfirmation()
+                    ->modalHeading('JXデータを送信待ちに戻す')
+                    ->modalDescription('候補との紐づきが残っている送信取消または送信エラーのJXデータを「送信待ち」に戻します。エラー内容はクリアされます。')
+                    ->modalSubmitActionLabel('送信待ちに戻す')
+                    ->modalCancelActionLabel('戻さず閉じる')
+                    ->action(function (WmsOrderJxDocument $record) {
+                        self::restoreToPending($record);
+
+                        Notification::make()
+                            ->title('送信待ちに戻しました')
+                            ->body('対象行を選択して「選択JX送信」から送信してください')
+                            ->success()
+                            ->send();
+                    }),
+
                 Action::make('delete')
                     ->label('削除')
                     ->icon('heroicon-o-trash')
@@ -356,19 +396,24 @@ class WmsOrderDocumentsTable
                         ->icon('heroicon-o-arrow-path')
                         ->color('warning')
                         ->requiresConfirmation()
-                        ->modalHeading('送信取消を送信待ちに戻す')
-                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件を「送信待ち」に戻します。戻した後、対象行を選択して「選択JX送信」から送信できます。")
+                        ->modalHeading('送信取消・送信エラーを送信待ちに戻す')
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件のうち、候補との紐づきが残っている送信取消または送信エラーのJXデータを「送信待ち」に戻します。戻した後、対象行を選択して「選択JX送信」から送信できます。")
                         ->modalSubmitActionLabel('送信待ちに戻す')
                         ->modalCancelActionLabel('戻さず閉じる')
                         ->action(function (Collection $records) {
-                            $count = $records
-                                ->filter(fn ($r) => $r->status === TransmissionDocumentStatus::CANCELLED)
-                                ->each(fn ($r) => $r->update(['status' => TransmissionDocumentStatus::PENDING]))
-                                ->count();
+                            $restorable = $records
+                                ->filter(fn (WmsOrderJxDocument $record) => self::canRestoreToPending($record));
+
+                            $restorable->each(fn (WmsOrderJxDocument $record) => self::restoreToPending($record));
+
+                            $count = $restorable->count();
+                            $skipped = $records->count() - $count;
 
                             Notification::make()
                                 ->title("送信待ちに戻しました（{$count}件）")
-                                ->body('対象行を選択して「選択JX送信」から送信してください')
+                                ->body($skipped > 0
+                                    ? "候補紐づきがない、または対象ステータスではない {$skipped}件 はスキップしました。"
+                                    : '対象行を選択して「選択JX送信」から送信してください')
                                 ->success()
                                 ->send();
                         })

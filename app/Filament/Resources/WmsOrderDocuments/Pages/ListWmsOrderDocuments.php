@@ -50,7 +50,6 @@ class ListWmsOrderDocuments extends ListRecords
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with(['warehouse', 'contractor', 'createdByUser', 'transmittedByUser', 'jobControl.createdByUser'])
-                ->orderBy('created_at', 'desc')
             );
     }
 
