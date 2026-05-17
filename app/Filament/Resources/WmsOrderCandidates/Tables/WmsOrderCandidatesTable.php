@@ -102,6 +102,14 @@ class WmsOrderCandidatesTable
                     ->alignCenter()
                     ->toggleable(),
 
+                TextColumn::make('case_quantity')
+                    ->label('発注ケース')
+                    ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::CASE ? (int) $record->order_quantity : 0)
+                    ->numeric()
+                    ->alignEnd()
+                    ->color(fn ($state) => (int) $state > 0 ? 'danger' : 'gray')
+                    ->weight(fn ($state) => (int) $state > 0 ? 'bold' : null),
+
                 TextColumn::make('piece_quantity')
                     ->label('発注バラ')
                     ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::PIECE ? (int) $record->order_quantity : 0)
@@ -121,10 +129,13 @@ class WmsOrderCandidatesTable
                     })
                     ->numeric()
                     ->alignEnd()
+                    ->weight('bold')
+                    ->extraAttributes(['class' => '!text-[1.5em] !font-bold !text-black dark:!text-white'])
                     ->summarize(
                         Summarizer::make()
                             ->label('合計')
                             ->numeric(thousandsSeparator: ',')
+                            ->extraAttributes(['class' => '!font-bold !text-black dark:!text-white'])
                             ->using(function (Builder $query) {
                                 return (int) $query->sum(
                                     DB::raw('CASE WHEN quantity_type = \'CASE\' THEN COALESCE(order_quantity, 0) * COALESCE((SELECT capacity_case FROM items WHERE items.id = wms_order_candidates.item_id), 1) ELSE COALESCE(order_quantity, 0) END')
@@ -213,13 +224,6 @@ class WmsOrderCandidatesTable
                     ->alignEnd()
                     ->color(fn ($record) => ($record->shortage_qty ?? 0) > 0 ? 'danger' : null)
                     ->toggleable(isToggledHiddenByDefault: true),
-
-                TextColumn::make('case_quantity')
-                    ->label('発注ケース')
-                    ->state(fn (WmsOrderCandidate $record) => $record->quantity_type === QuantityType::CASE ? (int) $record->order_quantity : 0)
-                    ->numeric()
-                    ->alignEnd()
-                    ->color(fn ($state) => (int) $state > 0 ? null : 'gray'),
 
                 TextColumn::make('sales_today')
                     ->label('当日')

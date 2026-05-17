@@ -1170,9 +1170,10 @@ class ListWmsOrderCandidates extends ListRecords
         $created = 0;
         $updated = 0;
         $skipped = 0;
+        $blankSkipped = 0;
         $now = now();
 
-        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $userId, &$created, &$updated, &$skipped): void {
+        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $userId, &$created, &$updated, &$skipped, &$blankSkipped): void {
             foreach ($this->salesBasedExternalOrderPreviewRows as $row) {
                 $warehouseId = (int) ($row['warehouse_id'] ?? 0);
                 $itemId = (int) ($row['item_id'] ?? 0);
@@ -1185,16 +1186,25 @@ class ListWmsOrderCandidates extends ListRecords
                     continue;
                 }
 
-                $caseQuantity = max(0, (int) ($row['input_order_case_qty'] ?? 0));
-                $pieceQuantity = max(0, (int) ($row['input_order_piece_qty'] ?? 0));
+                $inputCaseQuantity = $row['input_order_case_qty'] ?? null;
+                $inputPieceQuantity = $row['input_order_piece_qty'] ?? null;
+                if (($inputCaseQuantity === null || $inputCaseQuantity === '') && ($inputPieceQuantity === null || $inputPieceQuantity === '')) {
+                    $blankSkipped++;
+
+                    continue;
+                }
+
+                $caseQuantity = max(0, (int) $inputCaseQuantity);
+                $pieceQuantity = max(0, (int) $inputPieceQuantity);
                 if ($caseQuantity > 0 && $pieceQuantity > 0) {
                     $skipped++;
 
                     continue;
                 }
 
-                $quantityType = $caseQuantity > 0 ? QuantityType::CASE : QuantityType::PIECE;
-                $quantity = $caseQuantity > 0 ? $caseQuantity : $pieceQuantity;
+                $usesCaseQuantity = ! ($inputCaseQuantity === null || $inputCaseQuantity === '');
+                $quantityType = $usesCaseQuantity ? QuantityType::CASE : QuantityType::PIECE;
+                $quantity = $usesCaseQuantity ? $caseQuantity : $pieceQuantity;
                 $existingCandidate = WmsOrderCandidate::query()
                     ->where('warehouse_id', $warehouseId)
                     ->where('item_id', $itemId)
@@ -1284,7 +1294,7 @@ class ListWmsOrderCandidates extends ListRecords
                         'transfer_piece_qty' => (int) ($row['transfer_piece_qty'] ?? 0),
                         'input_case_qty' => $caseQuantity,
                         'input_piece_qty' => $pieceQuantity,
-                        'input_blank_as_zero' => true,
+                        'input_blank_as_zero' => false,
                         'created_by' => $userId,
                     ],
                 ]);
@@ -1297,7 +1307,10 @@ class ListWmsOrderCandidates extends ListRecords
 
         Notification::make()
             ->title($title)
-            ->body($skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null)
+            ->body(collect([
+                $blankSkipped > 0 ? "未入力の候補 {$blankSkipped}件 は生成しませんでした。" : null,
+                $skipped > 0 ? "不正な候補など {$skipped}件 はスキップしました。" : null,
+            ])->filter()->implode("\n") ?: null)
             ->success()
             ->send();
 
