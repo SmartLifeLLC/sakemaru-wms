@@ -921,51 +921,7 @@ class OrderTransmissionService
             ];
         }
 
-        // 紐付く候補データから毎回ファイル生成→送信
-        $candidates = WmsOrderCandidate::whereIn('wms_order_jx_document_id', $documents->pluck('id'))
-            ->with(['item', 'contractor', 'warehouse'])
-            ->get();
-
-        if ($candidates->isEmpty()) {
-            return [
-                'success' => true,
-                'transmitted' => [],
-                'errors' => [],
-                'message' => '送信対象の候補データがありません',
-            ];
-        }
-
-        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($candidates)) {
-            return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
-        }
-
-        return $this->generateAndTransmitForDocuments($documents, $candidates);
-    }
-
-    public function transmitPendingOrGenerateForContractor(int $contractorId): array
-    {
-        $generator = $this->getOrderFileGenerator();
-        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
-        $contractorId = (int) ($mapping[$contractorId] ?? $contractorId);
-
-        $targetContractorIds = $this->expandTransmissionContractorIds([$contractorId]);
-        $hasConfirmedCandidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
-            ->whereIn('contractor_id', $targetContractorIds)
-            ->exists();
-
-        if ($hasConfirmedCandidates) {
-            return $this->generateAndTransmitForContractor($contractorId);
-        }
-
-        $hasPendingDocuments = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
-            ->whereIn('contractor_id', $targetContractorIds)
-            ->exists();
-
-        if ($hasPendingDocuments) {
-            return $this->transmitPendingDocumentsForContractor([$contractorId]);
-        }
-
-        return $this->generateAndTransmitForContractor($contractorId);
+        return $this->transmitExistingPendingDocuments($documents);
     }
 
     public function transmitSelectedDocuments(Collection $documents): array
@@ -982,23 +938,68 @@ class OrderTransmissionService
             ];
         }
 
-        $candidates = $this->candidatesForDocumentCsvRows($pendingDocuments);
-        if ($candidates->isEmpty()) {
-            return [
-                'success' => false,
-                'transmitted' => [],
-                'errors' => [['error' => '選択データのCSVに一致する確定済み候補がありません']],
+        return $this->transmitExistingPendingDocuments($pendingDocuments);
+    }
+
+    private function transmitExistingPendingDocuments(Collection $documents): array
+    {
+        $transmitted = [];
+        $errors = [];
+        $orderCount = 0;
+
+        foreach ($documents as $document) {
+            $result = $this->transmitDocumentViaJx($document);
+
+            if ($result['success'] ?? false) {
+                $transmitted[] = [
+                    'document_id' => $document->id,
+                    'contractor_id' => $document->contractor_id,
+                    'message_id' => $result['message_id'] ?? null,
+                ];
+                $orderCount += (int) ($document->order_count ?? 0);
+
+                continue;
+            }
+
+            $errors[] = [
+                'document_id' => $document->id,
+                'error' => $result['error'] ?? '送信失敗',
             ];
         }
 
-        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($candidates)) {
-            return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
+        return [
+            'success' => empty($errors),
+            'transmitted' => $transmitted,
+            'errors' => $errors,
+            'order_count' => $orderCount,
+        ];
+    }
+
+    public function transmitPendingOrGenerateForContractor(int $contractorId): array
+    {
+        $generator = $this->getOrderFileGenerator();
+        $mapping = $generator?->getTransmissionContractorMapping() ?? [];
+        $contractorId = (int) ($mapping[$contractorId] ?? $contractorId);
+
+        $targetContractorIds = $this->expandTransmissionContractorIds([$contractorId]);
+
+        $hasPendingDocuments = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
+            ->whereIn('contractor_id', $targetContractorIds)
+            ->exists();
+
+        if ($hasPendingDocuments) {
+            return $this->transmitPendingDocumentsForContractor([$contractorId]);
         }
 
-        $result = $this->generateAndTransmitForDocuments($pendingDocuments, $candidates);
-        $result['order_count'] = $candidates->count();
+        $hasConfirmedCandidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
+            ->whereIn('contractor_id', $targetContractorIds)
+            ->exists();
 
-        return $result;
+        if ($hasConfirmedCandidates) {
+            return $this->generateAndTransmitForContractor($contractorId);
+        }
+
+        return $this->generateAndTransmitForContractor($contractorId);
     }
 
     public function candidatesForDocumentCsvRows(Collection $documents): Collection
@@ -1172,6 +1173,14 @@ class OrderTransmissionService
         $documents->each(fn ($d) => $d->update([
             'status' => TransmissionDocumentStatus::ERROR,
             'error_message' => $result->error,
+            'jx_message_id' => $result->messageId,
+            'jx_response_data' => [
+                'message_id' => $result->messageId,
+                'timestamp' => now()->toIso8601String(),
+                'regenerated' => true,
+                'merged_document_ids' => $documentIds,
+                'error' => $result->error,
+            ],
         ]));
 
         Log::error('JX transmission failed (regenerated)', [
@@ -1479,6 +1488,13 @@ class OrderTransmissionService
         $documents->each(fn ($d) => $d->update([
             'status' => TransmissionDocumentStatus::ERROR,
             'error_message' => $result->error,
+            'jx_message_id' => $result->messageId,
+            'jx_response_data' => [
+                'message_id' => $result->messageId,
+                'timestamp' => now()->toIso8601String(),
+                'merged_document_ids' => $documentIds,
+                'error' => $result->error,
+            ],
         ]));
 
         Log::error('Merged JX transmission failed', [
@@ -2597,11 +2613,22 @@ class OrderTransmissionService
                 'message_id' => $result->messageId,
             ]);
 
+            $linkedCandidates->each(fn (WmsOrderCandidate $candidate) => $candidate->update([
+                'status' => CandidateStatus::EXECUTED,
+                'transmitted_at' => now(),
+            ]));
+
             return ['success' => true, 'message_id' => $result->messageId];
         } else {
             $document->update([
                 'status' => TransmissionDocumentStatus::ERROR,
                 'error_message' => $result->error,
+                'jx_message_id' => $result->messageId,
+                'jx_response_data' => [
+                    'message_id' => $result->messageId,
+                    'timestamp' => now()->toIso8601String(),
+                    'error' => $result->error,
+                ],
             ]);
 
             Log::error('JX transmission failed', [
