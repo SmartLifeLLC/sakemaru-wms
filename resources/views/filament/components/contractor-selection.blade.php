@@ -6,6 +6,7 @@
     $notice = $notice ?? null;
     $grouped = (bool) ($grouped ?? false);
     $compactListHeight = (bool) ($compactListHeight ?? false);
+    $externalOrderLayout = ($layout ?? null) === 'externalOrderGeneration';
     $data = $lw->{$dataProperty} ?? [];
 
     // contractorsData が空の場合、直接取得を試みる
@@ -47,7 +48,185 @@
     }
 @endphp
 
-@if ($grouped)
+@if ($grouped && $externalOrderLayout)
+<div x-data="{
+    searchQuery: '',
+    primaryContractors: @js($primaryData),
+    secondaryContractors: @js($secondaryData),
+    selectedIds: @js($selectedIds),
+
+    get allContractors() {
+        return [...this.primaryContractors, ...this.secondaryContractors];
+    },
+
+    get filteredPrimaryContractors() {
+        return this.filterContractors(this.primaryContractors);
+    },
+
+    get filteredSecondaryContractors() {
+        return this.filterContractors(this.secondaryContractors);
+    },
+
+    get selectedCount() {
+        return this.selectedIds.length;
+    },
+
+    get totalCount() {
+        return this.allContractors.length;
+    },
+
+    filterContractors(contractors) {
+        if (!this.searchQuery) return contractors;
+        const q = this.searchQuery.normalize('NFKC').toLowerCase();
+        return contractors.filter(c =>
+            String(c.code).normalize('NFKC').toLowerCase().includes(q) ||
+            c.name.normalize('NFKC').toLowerCase().includes(q)
+        );
+    },
+
+    isSelected(id) {
+        return this.selectedIds.includes(id);
+    },
+
+    toggle(id) {
+        const idx = this.selectedIds.indexOf(id);
+        if (idx > -1) {
+            this.selectedIds.splice(idx, 1);
+        } else {
+            this.selectedIds.push(id);
+        }
+    },
+
+    isGroupAllSelected(contractors) {
+        return contractors.length > 0 && contractors.every(c => this.selectedIds.includes(c.id));
+    },
+
+    selectGroup(contractors) {
+        const ids = contractors.map(c => c.id);
+        this.selectedIds = [...new Set([...this.selectedIds, ...ids])];
+    },
+
+    deselectGroup(contractors) {
+        const ids = contractors.map(c => c.id);
+        this.selectedIds = this.selectedIds.filter(id => !ids.includes(id));
+    },
+}" x-effect="$wire.set(@js($selectedProperty), selectedIds)" class="flex flex-col gap-3 overflow-hidden">
+    <div class="flex items-center gap-4 rounded-md border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+        <div class="flex shrink-0 items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-bold text-amber-600 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            <x-heroicon-m-check-circle class="h-4 w-4" />
+            <span x-text="`${selectedCount}/${totalCount}件 選択中`"></span>
+        </div>
+        <div class="relative flex-1">
+            <input type="text"
+                   x-model="searchQuery"
+                   placeholder="仕入先CD・名前で検索..."
+                   class="w-full rounded-md border border-gray-300 bg-gray-50 py-2 pl-9 pr-3 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                <x-heroicon-m-magnifying-glass class="h-4 w-4 text-gray-400" />
+            </div>
+        </div>
+    </div>
+
+    <div class="grid h-[24rem] min-h-0 grid-cols-2 gap-3">
+        <div class="flex min-w-0 flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <div class="border-b border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="truncate text-sm font-bold text-gray-800 dark:text-gray-100">{{ $primaryLabel }}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400" x-text="`${filteredPrimaryContractors.length}件`"></div>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-1">
+                        <button type="button"
+                                @click="selectGroup(filteredPrimaryContractors)"
+                                class="rounded border border-gray-300 bg-gray-100 px-2 py-1 text-xs text-gray-700 transition hover:bg-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                            全選択
+                        </button>
+                        <button type="button"
+                                @click="deselectGroup(filteredPrimaryContractors)"
+                                class="rounded border border-gray-300 bg-gray-100 px-2 py-1 text-xs text-gray-700 transition hover:bg-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                            解除
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="min-h-0 flex-1 overflow-y-auto bg-amber-50/30 dark:bg-slate-900">
+                <template x-if="filteredPrimaryContractors.length === 0">
+                    <div class="p-4 text-center text-sm text-gray-500 dark:text-gray-400">該当する仕入先がありません</div>
+                </template>
+                <div class="grid grid-cols-1">
+                    <template x-for="(contractor, index) in filteredPrimaryContractors" :key="`primary-${contractor.id}`">
+                        <label class="flex cursor-pointer items-center gap-2 border-b border-gray-100 px-3 py-2 text-sm transition hover:bg-amber-100/50 dark:border-gray-800 dark:hover:bg-slate-800"
+                               :class="index % 2 === 0 ? 'bg-amber-50/50 dark:bg-slate-900' : 'bg-white dark:bg-slate-950'">
+                            <input type="checkbox"
+                                   :checked="isSelected(contractor.id)"
+                                   @change="toggle(contractor.id)"
+                                   class="h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600 shadow-sm focus:ring-blue-500 dark:border-gray-500 dark:bg-gray-700">
+                            <span class="shrink-0 font-mono text-gray-500 dark:text-gray-400" x-text="contractor.code"></span>
+                            <span class="min-w-0 flex-1 truncate text-gray-900 dark:text-gray-100" x-text="contractor.name"></span>
+                            <span x-show="contractor.transmission_type === 'JX_FINET'"
+                                  class="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-600 dark:bg-green-900/30 dark:text-green-300">
+                                JX
+                            </span>
+                            <span x-show="contractor.transmission_parent_code"
+                                  class="shrink-0 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-600 dark:bg-orange-900/30 dark:text-orange-300">
+                                集約元
+                            </span>
+                        </label>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex min-w-0 flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <div class="border-b border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+                <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="truncate text-sm font-bold text-gray-800 dark:text-gray-100">{{ $secondaryLabel }}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400" x-text="`${filteredSecondaryContractors.length}件`"></div>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-1">
+                        <button type="button"
+                                @click="selectGroup(filteredSecondaryContractors)"
+                                class="rounded border border-gray-300 bg-gray-100 px-2 py-1 text-xs text-gray-700 transition hover:bg-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                            全選択
+                        </button>
+                        <button type="button"
+                                @click="deselectGroup(filteredSecondaryContractors)"
+                                class="rounded border border-gray-300 bg-gray-100 px-2 py-1 text-xs text-gray-700 transition hover:bg-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                            解除
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="min-h-0 flex-1 overflow-y-auto bg-amber-50/30 dark:bg-slate-900">
+                <template x-if="filteredSecondaryContractors.length === 0">
+                    <div class="p-4 text-center text-sm text-gray-500 dark:text-gray-400">該当する仕入先がありません</div>
+                </template>
+                <div class="grid grid-cols-1">
+                    <template x-for="(contractor, index) in filteredSecondaryContractors" :key="`secondary-${contractor.id}`">
+                        <label class="flex cursor-pointer items-center gap-2 border-b border-gray-100 px-3 py-2 text-sm transition hover:bg-amber-100/50 dark:border-gray-800 dark:hover:bg-slate-800"
+                               :class="index % 2 === 0 ? 'bg-amber-50/50 dark:bg-slate-900' : 'bg-white dark:bg-slate-950'">
+                            <input type="checkbox"
+                                   :checked="isSelected(contractor.id)"
+                                   @change="toggle(contractor.id)"
+                                   class="h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600 shadow-sm focus:ring-blue-500 dark:border-gray-500 dark:bg-gray-700">
+                            <span class="shrink-0 font-mono text-gray-500 dark:text-gray-400" x-text="contractor.code"></span>
+                            <span class="min-w-0 flex-1 truncate text-gray-900 dark:text-gray-100" x-text="contractor.name"></span>
+                            <span x-show="contractor.generation_time"
+                                  class="shrink-0 font-mono text-xs text-gray-400 dark:text-gray-500"
+                                  x-text="contractor.generation_time"></span>
+                        </label>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="selectedCount === 0" class="text-sm text-danger-600 dark:text-danger-400">
+        ※ 最低1つの仕入先を選択してください
+    </div>
+</div>
+@elseif ($grouped)
 <div x-data="{
     searchQuery: '',
     primaryContractors: @js($primaryData),

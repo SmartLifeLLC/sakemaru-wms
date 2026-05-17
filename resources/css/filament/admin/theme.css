@@ -1110,6 +1110,10 @@ html.fi {
     font-weight: 700 !important;
 }
 
+.external-order-generation-date-field input {
+    font-weight: 600 !important;
+}
+
 .smart-date-input-lg input {
     min-height: 3rem !important;
     font-size: 1.125rem !important;

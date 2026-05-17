@@ -63,6 +63,10 @@ class ListWmsOrderCandidates extends ListRecords
 
     public array $selectedExternalOrderContractorIds = [];
 
+    public array $externalOrderCategory2Data = [];
+
+    public array $selectedExternalOrderCategory2Ids = [];
+
     public array $salesBasedExternalOrderPreviewRows = [];
 
     public array $salesBasedExternalOrderPreviewConditions = [];
@@ -796,9 +800,16 @@ class ListWmsOrderCandidates extends ListRecords
             ->mountUsing(function ($schema): void {
                 $this->resetSalesBasedExternalOrderPreview();
                 $this->initializeExternalOrderContractors();
+                $this->initializeExternalOrderCategory2();
                 if (empty($this->selectedExternalOrderContractorIds)) {
                     $this->selectedExternalOrderContractorIds = collect($this->externalOrderJxContractorsData)
                         ->merge($this->externalOrderOtherContractorsData)
+                        ->pluck('id')
+                        ->values()
+                        ->toArray();
+                }
+                if (empty($this->selectedExternalOrderCategory2Ids)) {
+                    $this->selectedExternalOrderCategory2Ids = collect($this->externalOrderCategory2Data)
                         ->pluck('id')
                         ->values()
                         ->toArray();
@@ -810,49 +821,58 @@ class ListWmsOrderCandidates extends ListRecords
                 ]);
             })
             ->schema([
-                Placeholder::make('fixed_conditions')
-                    ->hiddenLabel()
-                    ->content(new HtmlString(
-                        '<div class="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900 sm:grid-cols-3">'
-                        .'<div><span class="text-xs font-semibold text-slate-500 dark:text-slate-400">対象</span><div class="mt-1 font-bold text-slate-900 dark:text-slate-100">外部発注</div></div>'
-                        .'<div><span class="text-xs font-semibold text-slate-500 dark:text-slate-400">自動発注フラグ</span><div class="mt-1 font-bold text-slate-900 dark:text-slate-100">考慮しない</div></div>'
-                        .'<div><span class="text-xs font-semibold text-slate-500 dark:text-slate-400">選択中倉庫</span><div class="mt-1 font-bold text-slate-900 dark:text-slate-100">'.e($selectedWarehouseName).'</div></div>'
-                        .'</div>'
-                    )),
-                Grid::make(2)->schema([
-                    ViewField::make('sales_start_date')
-                        ->label('販売実績 開始日')
-                        ->view('filament.forms.components.smart-date-input')
-                        ->viewData(['size' => 'large'])
-                        ->extraAttributes(['class' => 'sales-based-transfer-date-field'])
-                        ->default(now()->subDays(2)->toDateString())
-                        ->live()
-                        ->afterStateUpdated(fn () => $this->resetSalesBasedExternalOrderPreview())
-                        ->required(),
-                    ViewField::make('sales_end_date')
-                        ->label('販売実績 終了日')
-                        ->view('filament.forms.components.smart-date-input')
-                        ->viewData(['size' => 'large'])
-                        ->extraAttributes(['class' => 'sales-based-transfer-date-field'])
-                        ->default(now()->toDateString())
-                        ->live()
-                        ->afterStateUpdated(fn () => $this->resetSalesBasedExternalOrderPreview())
-                        ->required(),
-                ]),
-                ViewField::make('contractor_selector')
-                    ->view('filament.components.contractor-selection')
-                    ->viewData([
-                        'grouped' => true,
-                        'primaryContractorsProperty' => 'externalOrderJxContractorsData',
-                        'primaryFallbackMethod' => 'getExternalOrderJxContractorsForSalesBasedGeneration',
-                        'secondaryContractorsProperty' => 'externalOrderOtherContractorsData',
-                        'secondaryFallbackMethod' => 'getExternalOrderOtherContractorsForSalesBasedGeneration',
-                        'selectedProperty' => 'selectedExternalOrderContractorIds',
-                        'primaryLabel' => 'JX仕入先',
-                        'secondaryLabel' => 'JX外仕入先',
-                        'compactListHeight' => true,
+                Grid::make(3)->schema([
+                    Grid::make(2)->schema([
+                        Grid::make(2)->schema([
+                            ViewField::make('sales_start_date')
+                                ->label('販売実績 開始日')
+                                ->view('filament.forms.components.smart-date-input')
+                                ->extraAttributes(['class' => 'external-order-generation-date-field'])
+                                ->default(now()->subDays(2)->toDateString())
+                                ->live()
+                                ->afterStateUpdated(fn () => $this->resetSalesBasedExternalOrderPreview())
+                                ->required(),
+                            ViewField::make('sales_end_date')
+                                ->label('販売実績 終了日')
+                                ->view('filament.forms.components.smart-date-input')
+                                ->extraAttributes(['class' => 'external-order-generation-date-field'])
+                                ->default(now()->toDateString())
+                                ->live()
+                                ->afterStateUpdated(fn () => $this->resetSalesBasedExternalOrderPreview())
+                                ->required(),
+                        ])
+                            ->columnSpanFull(),
+                        ViewField::make('category2_selector')
+                            ->view('filament.components.category-selection')
+                            ->viewData([
+                                'categoriesProperty' => 'externalOrderCategory2Data',
+                                'fallbackMethod' => 'getExternalOrderCategory2ForSalesBasedGeneration',
+                                'selectedProperty' => 'selectedExternalOrderCategory2Ids',
+                                'label' => '中分類',
+                                'compactListHeight' => true,
+                                'layout' => 'externalOrderGeneration',
+                            ])
+                            ->hiddenLabel()
+                            ->columnSpanFull(),
                     ])
-                    ->hiddenLabel(),
+                        ->columnSpan(1),
+                    ViewField::make('contractor_selector')
+                        ->view('filament.components.contractor-selection')
+                        ->viewData([
+                            'grouped' => true,
+                            'primaryContractorsProperty' => 'externalOrderJxContractorsData',
+                            'primaryFallbackMethod' => 'getExternalOrderJxContractorsForSalesBasedGeneration',
+                            'secondaryContractorsProperty' => 'externalOrderOtherContractorsData',
+                            'secondaryFallbackMethod' => 'getExternalOrderOtherContractorsForSalesBasedGeneration',
+                            'selectedProperty' => 'selectedExternalOrderContractorIds',
+                            'primaryLabel' => 'EOS仕入先',
+                            'secondaryLabel' => 'FAX仕入先',
+                            'compactListHeight' => true,
+                            'layout' => 'externalOrderGeneration',
+                        ])
+                        ->hiddenLabel()
+                        ->columnSpan(2),
+                ])->extraAttributes(['class' => 'external-order-generation-layout']),
             ])
             ->action(function (Action $action) {
                 $this->calculateSalesBasedExternalOrderPreview();
@@ -909,8 +929,19 @@ class ListWmsOrderCandidates extends ListRecords
         }
 
         $contractorIds = array_values(array_unique(array_map('intval', $this->selectedExternalOrderContractorIds)));
+        $category2Ids = array_values(array_unique(array_map('intval', $this->selectedExternalOrderCategory2Ids)));
+        $allCategory2Ids = collect($this->externalOrderCategory2Data ?: $this->getExternalOrderCategory2ForSalesBasedGeneration())
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->toArray();
         if (empty($contractorIds)) {
             $this->salesBasedExternalOrderPreviewError = '仕入先を1件以上選択してください。';
+
+            return;
+        }
+        if (empty($category2Ids)) {
+            $this->salesBasedExternalOrderPreviewError = '中分類を1件以上選択してください。';
 
             return;
         }
@@ -949,6 +980,8 @@ class ListWmsOrderCandidates extends ListRecords
             'auto_order_flag_filter' => '考慮しない',
             'days' => $days,
             'contractor_count' => count($contractorIds),
+            'category2_count' => count($category2Ids),
+            'category2_total_count' => count($allCategory2Ids),
         ];
 
         $pendingJob = WmsAutoOrderJobControl::findPendingSettlementForWarehouse(
@@ -999,6 +1032,7 @@ class ListWmsOrderCandidates extends ListRecords
         $query = DB::connection('sakemaru')
             ->table('item_contractors')
             ->join('items', 'item_contractors.item_id', '=', 'items.id')
+            ->leftJoin('item_categories as item_category2', 'item_category2.id', '=', 'items.item_category2_id')
             ->join('contractors', 'item_contractors.contractor_id', '=', 'contractors.id')
             ->leftJoin('suppliers', 'suppliers.id', '=', 'item_contractors.supplier_id')
             ->leftJoin('partners as supplier_partners', 'supplier_partners.id', '=', 'suppliers.partner_id')
@@ -1031,6 +1065,10 @@ class ListWmsOrderCandidates extends ListRecords
                     ->whereRaw("isi.search_string REGEXP '[1-9]'");
             });
 
+        if (count($category2Ids) < count($allCategory2Ids)) {
+            $query->whereIn('items.item_category2_id', $category2Ids);
+        }
+
         if ($batchCode) {
             $query->whereNotExists(function ($query) use ($batchCode) {
                 $query->selectRaw('1')
@@ -1050,6 +1088,7 @@ class ListWmsOrderCandidates extends ListRecords
                 item_contractors.item_id as item_id,
                 item_contractors.contractor_id as contractor_id,
                 item_contractors.supplier_id as supplier_id,
+                item_category2.code as item_category2_code,
                 items.code as item_code,
                 items.name as item_name,
                 items.packaging as item_packaging,
@@ -1074,6 +1113,7 @@ class ListWmsOrderCandidates extends ListRecords
                 'item_id' => (int) $row->item_id,
                 'contractor_id' => (int) $row->contractor_id,
                 'supplier_id' => (int) ($row->supplier_id ?? 0),
+                'item_category2_code' => (string) ($row->item_category2_code ?? ''),
                 'item_code' => (string) $row->item_code,
                 'item_name' => (string) $row->item_name,
                 'item_packaging' => (string) ($row->item_packaging ?? ''),
@@ -1389,6 +1429,33 @@ class ListWmsOrderCandidates extends ListRecords
         $this->externalOrderContractorsData = $this->getExternalOrderContractorsForSalesBasedGeneration();
         $this->externalOrderJxContractorsData = $this->getExternalOrderJxContractorsForSalesBasedGeneration();
         $this->externalOrderOtherContractorsData = $this->getExternalOrderOtherContractorsForSalesBasedGeneration();
+    }
+
+    public function getExternalOrderCategory2ForSalesBasedGeneration(): array
+    {
+        return ItemCategory::query()
+            ->where('is_active', true)
+            ->whereExists(function ($query): void {
+                $query->selectRaw('1')
+                    ->from('items')
+                    ->whereColumn('items.item_category2_id', 'item_categories.id')
+                    ->where('items.end_of_sale_type', 'NORMAL')
+                    ->where('items.is_ended', false);
+            })
+            ->orderBy('code')
+            ->get(['id', 'code', 'name'])
+            ->map(fn (ItemCategory $category) => [
+                'id' => (int) $category->id,
+                'code' => (string) $category->code,
+                'name' => (string) $category->name,
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    private function initializeExternalOrderCategory2(): void
+    {
+        $this->externalOrderCategory2Data = $this->getExternalOrderCategory2ForSalesBasedGeneration();
     }
 
     private function getSalesBasedExternalOrderGenerationWarehouseIds(int $warehouseId): array

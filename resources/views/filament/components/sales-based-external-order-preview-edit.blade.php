@@ -68,6 +68,10 @@
                 <span class="font-mono font-semibold" x-text="formatNumber(conditionValue('contractor_count')) + '件'"></span>
             </span>
             <span>
+                中分類:
+                <span class="font-mono font-semibold" x-text="formatNumber(conditionValue('category2_count')) + '件'"></span>
+            </span>
+            <span>
                 自動発注フラグ:
                 <span class="font-semibold" x-text="conditionValue('auto_order_flag_filter')"></span>
             </span>
@@ -91,8 +95,9 @@
                 <colgroup>
                     <col class="logistics-candidate-delete-col" style="width: 28px !important;">
                     <col class="logistics-candidate-contractor-col" style="width: 128px !important;">
+                    <col class="logistics-candidate-code-col" style="width: 52px !important;">
                     <col class="logistics-candidate-code-col" style="width: 64px !important;">
-                    <col class="logistics-candidate-item-name-col" style="width: 500px !important;">
+                    <col class="logistics-candidate-item-name-col" style="width: 448px !important;">
                     <col class="logistics-candidate-packaging-col" style="width: 68px !important;">
                     <col class="logistics-candidate-order-qty-col" style="width: 44px !important;">
                     <col class="logistics-candidate-order-qty-col" style="width: 44px !important;">
@@ -109,8 +114,9 @@
                     <tr>
                         <th class="w-7 whitespace-nowrap px-1 py-1.5 text-center font-semibold"></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold">仕入先</th>
+                        <th class="whitespace-nowrap px-1 py-1.5 text-left font-semibold">分類CD</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold">商品CD</th>
-                        <th class="logistics-candidate-item-name px-2 py-1.5 text-left font-semibold" style="width: 500px !important; min-width: 500px !important; max-width: 500px !important;">商品名</th>
+                        <th class="logistics-candidate-item-name px-2 py-1.5 text-left font-semibold" style="width: 448px !important; min-width: 448px !important; max-width: 448px !important;">商品名</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold">規格</th>
                         <th class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100">ケース</th>
                         <th class="logistics-candidate-order-qty whitespace-nowrap bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">バラ</th>
@@ -143,8 +149,9 @@
                                 </button>
                             </td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-700 dark:text-slate-200" x-text="row.supplier_name || row.contractor_name || '-'"></td>
+                            <td class="whitespace-nowrap px-1 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="row.item_category2_code || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="row.item_code"></td>
-                            <td class="logistics-candidate-item-name px-2 py-1.5 font-medium text-slate-900 dark:text-white" style="width: 500px !important; min-width: 500px !important; max-width: 500px !important;" x-text="row.item_name"></td>
+                            <td class="logistics-candidate-item-name px-2 py-1.5 font-medium text-slate-900 dark:text-white" style="width: 448px !important; min-width: 448px !important; max-width: 448px !important;" x-text="row.item_name"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="row.item_packaging || '-'"></td>
                             <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-right dark:border-slate-600 dark:bg-amber-950/30">
                                 <input
