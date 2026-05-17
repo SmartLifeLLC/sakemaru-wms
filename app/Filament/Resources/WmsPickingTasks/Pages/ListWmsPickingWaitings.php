@@ -2,13 +2,18 @@
 
 namespace App\Filament\Resources\WmsPickingTasks\Pages;
 
+use App\Enums\EWMSLogOperationType;
+use App\Enums\EWMSLogTargetType;
+use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsPickingTasks\Tables\WmsPickingTasksTable;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingWaitingResource;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsAdminOperationLog;
 use App\Models\WmsPicker;
 use App\Models\WmsPickingAssignmentStrategy;
+use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Services\Picking\AssignPickersToTasksService;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -24,6 +29,7 @@ use Filament\Support\Enums\Alignment;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 
 class ListWmsPickingWaitings extends ListRecords
@@ -48,6 +54,24 @@ class ListWmsPickingWaitings extends ListRecords
                 ->icon('heroicon-o-squares-2x2')
                 ->color('gray')
                 ->url('/admin/wms-picking-waitings-v2'),
+
+            Action::make('bulkSoftShortageMaintenance')
+                ->label('統合引当欠品処理')
+                ->icon('heroicon-o-wrench-screwdriver')
+                ->color('warning')
+                ->modalHeading('統合引当欠品処理')
+                ->modalWidth('7xl')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('確定')->color('danger'))
+                ->modalCancelActionLabel('変更せず閉じる')
+                ->schema([
+                    ViewField::make('bulk_shortage_data')
+                        ->hiddenLabel()
+                        ->view('filament.forms.components.bulk-soft-shortage-table')
+                        ->viewData(fn () => $this->getBulkShortageItems()),
+                ])
+                ->action(fn (array $data) => $this->saveBulkShortageChanges($data)),
 
             Action::make('assignPickers')
                 ->label('ピッカー割り当て')
@@ -360,5 +384,162 @@ class ListWmsPickingWaitings extends ListRecords
     public function table(Table $table): Table
     {
         return WmsPickingTasksTable::configure($table, isWaitingView: true);
+    }
+
+    private function getBulkShortageItems(): array
+    {
+        $warehouseId = auth()->user()?->getSelectedWarehouseId();
+        $systemDate = ClientSetting::systemDateYMD();
+
+        $items = WmsPickingItemResult::query()
+            ->whereHas('pickingTask', function ($q) use ($warehouseId, $systemDate) {
+                $q->whereIn('status', [
+                    WmsPickingTask::STATUS_PENDING,
+                    WmsPickingTask::STATUS_PICKING_READY,
+                ])
+                    ->where('shipment_date', $systemDate);
+
+                if ($warehouseId) {
+                    $q->where('warehouse_id', $warehouseId);
+                }
+            })
+            ->where('has_soft_shortage', true)
+            ->with([
+                'pickingTask.deliveryCourse',
+                'item',
+                'location',
+                'trade',
+                'earning.buyer.partner',
+                'earning.buyer.current_detail.salesman',
+            ])
+            ->orderBy('picking_task_id')
+            ->orderBy('walking_order')
+            ->get();
+
+        $mapped = $items->map(fn ($item) => [
+            'id' => $item->id,
+            'picking_task_id' => $item->picking_task_id,
+            'sales_man' => $item->earning?->buyer?->current_detail?->salesman?->name ?? '-',
+            'partner_name' => $item->earning?->buyer?->partner?->name ?? '-',
+            'serial_id' => $item->trade?->serial_id ?? '-',
+            'location_display' => $item->location
+                ? trim(($item->location->code1 ?? '').($item->location->code2 ?? '').($item->location->code3 ?? ''))
+                : '-',
+            'item_code' => $item->item?->code ?? '-',
+            'item_name' => $item->item?->name ?? '-',
+            'capacity_case' => (int) ($item->item?->capacity_case ?? 1),
+            'ordered_qty' => (int) $item->ordered_qty,
+            'ordered_qty_type' => $item->ordered_qty_type,
+            'ordered_qty_type_label' => QuantityType::tryFrom($item->ordered_qty_type)?->name() ?? $item->ordered_qty_type,
+            'planned_qty' => (int) $item->planned_qty,
+            'planned_qty_type' => $item->planned_qty_type,
+            'planned_qty_type_label' => QuantityType::tryFrom($item->planned_qty_type)?->name() ?? $item->planned_qty_type,
+        ])->sortBy('sales_man')->values()->toArray();
+
+        return [
+            'items' => $mapped,
+            'task_count' => $items->pluck('picking_task_id')->unique()->count(),
+        ];
+    }
+
+    private function saveBulkShortageChanges(array $data): void
+    {
+        $changesJson = $data['bulk_shortage_data'] ?? '{}';
+        $changes = is_string($changesJson) ? json_decode($changesJson, true) : [];
+
+        if (empty($changes) || ! is_array($changes)) {
+            Notification::make()
+                ->title('変更なし')
+                ->body('変更された明細はありません')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $updatedCount = 0;
+        $errors = [];
+
+        DB::connection('sakemaru')->transaction(function () use ($changes, &$updatedCount, &$errors) {
+            foreach ($changes as $itemId => $change) {
+                $record = WmsPickingItemResult::with(['item', 'pickingTask'])->find($itemId);
+                if (! $record) {
+                    continue;
+                }
+
+                if (! in_array($record->pickingTask?->status, [
+                    WmsPickingTask::STATUS_PENDING,
+                    WmsPickingTask::STATUS_PICKING_READY,
+                ])) {
+                    $errors[] = "ID {$itemId}: タスクのステータスが変更されています";
+
+                    continue;
+                }
+
+                $newPlannedQty = (int) ($change['planned_qty'] ?? $record->planned_qty);
+
+                $capacityCase = max(1, (int) ($record->item?->capacity_case ?? 1));
+                $plannedPieces = $record->planned_qty_type === 'CASE'
+                    ? $newPlannedQty * $capacityCase
+                    : $newPlannedQty;
+                $orderedPieces = $record->ordered_qty_type === 'CASE'
+                    ? (int) $record->ordered_qty * $capacityCase
+                    : (int) $record->ordered_qty;
+
+                if ($plannedPieces > $orderedPieces) {
+                    $errors[] = "ID {$itemId}: 引当数が受注数を超えています";
+
+                    continue;
+                }
+
+                $oldPlannedQty = (int) $record->planned_qty;
+                if ($oldPlannedQty === $newPlannedQty) {
+                    continue;
+                }
+
+                $record->planned_qty = $newPlannedQty;
+
+                if ((int) $record->picked_qty > $newPlannedQty) {
+                    $record->picked_qty = $newPlannedQty;
+                }
+
+                $record->shortage_qty = max(0, $orderedPieces - $plannedPieces);
+                $record->save();
+
+                WmsAdminOperationLog::log(
+                    EWMSLogOperationType::ADJUST_PICKING_QTY,
+                    [
+                        'target_type' => EWMSLogTargetType::PICKING_ITEM,
+                        'target_id' => $record->id,
+                        'picking_task_id' => $record->picking_task_id,
+                        'picking_item_result_id' => $record->id,
+                        'wave_id' => $record->pickingTask?->wave_id,
+                        'earning_id' => $record->earning_id,
+                        'qty_before' => $oldPlannedQty,
+                        'qty_after' => $newPlannedQty,
+                        'qty_type' => $record->planned_qty_type,
+                        'operation_note' => '統合引当欠品処理による一括変更',
+                    ]
+                );
+
+                $updatedCount++;
+            }
+        });
+
+        if (! empty($errors)) {
+            Notification::make()
+                ->title('一部エラーが発生しました')
+                ->body(implode("\n", $errors))
+                ->danger()
+                ->send();
+        }
+
+        if ($updatedCount > 0) {
+            Notification::make()
+                ->title('引当数を一括更新しました')
+                ->body("{$updatedCount}件の引当数を変更しました")
+                ->success()
+                ->send();
+        }
     }
 }

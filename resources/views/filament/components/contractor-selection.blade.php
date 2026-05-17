@@ -53,7 +53,13 @@
     searchQuery: '',
     primaryContractors: @js($primaryData),
     secondaryContractors: @js($secondaryData),
-    selectedIds: @js($selectedIds),
+    selectedIds: $wire.$entangle(@js($selectedProperty)).live,
+
+    init() {
+        if (!this.selectedIds || this.selectedIds.length === 0) {
+            this.selectedIds = @js($selectedIds);
+        }
+    },
 
     get allContractors() {
         return [...this.primaryContractors, ...this.secondaryContractors];
@@ -85,32 +91,32 @@
     },
 
     isSelected(id) {
-        return this.selectedIds.includes(id);
+        return this.selectedIds.map(Number).includes(Number(id));
     },
 
     toggle(id) {
-        const idx = this.selectedIds.indexOf(id);
-        if (idx > -1) {
-            this.selectedIds.splice(idx, 1);
+        const normalizedId = Number(id);
+        if (this.isSelected(normalizedId)) {
+            this.selectedIds = this.selectedIds.filter(selectedId => Number(selectedId) !== normalizedId);
         } else {
-            this.selectedIds.push(id);
+            this.selectedIds = [...this.selectedIds, normalizedId];
         }
     },
 
     isGroupAllSelected(contractors) {
-        return contractors.length > 0 && contractors.every(c => this.selectedIds.includes(c.id));
+        return contractors.length > 0 && contractors.every(c => this.isSelected(c.id));
     },
 
     selectGroup(contractors) {
-        const ids = contractors.map(c => c.id);
+        const ids = contractors.map(c => Number(c.id));
         this.selectedIds = [...new Set([...this.selectedIds, ...ids])];
     },
 
     deselectGroup(contractors) {
-        const ids = contractors.map(c => c.id);
-        this.selectedIds = this.selectedIds.filter(id => !ids.includes(id));
+        const ids = contractors.map(c => Number(c.id));
+        this.selectedIds = this.selectedIds.filter(id => !ids.includes(Number(id)));
     },
-}" x-effect="$wire.set(@js($selectedProperty), selectedIds)" class="flex flex-col gap-3 overflow-hidden">
+}" class="flex flex-col gap-3 overflow-hidden">
     <div class="flex items-center gap-4 rounded-md border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900">
         <div class="flex shrink-0 items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-bold text-amber-600 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
             <x-heroicon-m-check-circle class="h-4 w-4" />

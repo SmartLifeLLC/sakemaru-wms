@@ -356,23 +356,13 @@ class TransferCandidateExecutionService
     {
         $candidates = WmsStockTransferCandidate::whereIn('id', $candidateIds)
             ->where('status', CandidateStatus::APPROVED)
+            ->with(['hubWarehouse', 'satelliteWarehouse', 'item'])
             ->get();
 
-        $results = collect();
+        $result = $this->executeGroupedCandidates($candidates, $executedBy);
 
-        foreach ($candidates as $candidate) {
-            try {
-                $result = $this->executeCandidate($candidate, $executedBy);
-                $results->push($result);
-            } catch (\Exception $e) {
-                Log::error('Failed to execute transfer candidate', [
-                    'candidate_id' => $candidate->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        return $results;
+        return collect($result['executed_candidate_ids'])
+            ->map(fn (int $candidateId): array => ['candidate_id' => $candidateId]);
     }
 
     /**
@@ -402,12 +392,23 @@ class TransferCandidateExecutionService
             return [
                 'queue_count' => 0,
                 'candidate_count' => 0,
+                'executed_candidate_ids' => [],
                 'errors' => [],
             ];
         }
 
+        return $this->executeGroupedCandidates($candidates, $executedBy);
+    }
+
+    /**
+     * @param  Collection<int, WmsStockTransferCandidate>  $candidates
+     * @return array{queue_count: int, candidate_count: int, executed_candidate_ids: array<int>, errors: array}
+     */
+    private function executeGroupedCandidates(Collection $candidates, int $executedBy): array
+    {
         $queueCount = 0;
         $candidateCount = 0;
+        $executedCandidateIds = [];
         $errors = [];
 
         $candidates = $candidates->filter(function (WmsStockTransferCandidate $candidate) use (&$errors) {
@@ -436,16 +437,18 @@ class TransferCandidateExecutionService
             }
         });
 
-        // hub_warehouse + satellite_warehouse + resolved delivery_course_id でグループ化
+        // 移動伝票は移動元・移動先・配送コース・入荷日が同じ候補だけを1queueにまとめる
         $grouped = $candidates->groupBy(function (WmsStockTransferCandidate $candidate) {
-            return "{$candidate->hub_warehouse_id}_{$candidate->satellite_warehouse_id}_{$this->resolvedDeliveryCourseId($candidate)}";
+            $arrivalDate = $this->resolveTransferGroupArrivalDate($candidate)->format('Y-m-d');
+
+            return "{$candidate->hub_warehouse_id}_{$candidate->satellite_warehouse_id}_{$this->resolvedDeliveryCourseId($candidate)}_{$arrivalDate}";
         });
 
         // 各グループを個別のトランザクション（セーブポイント）で処理
         // これにより、1グループ失敗しても他グループには影響しない
         foreach ($grouped as $groupKey => $groupCandidates) {
             try {
-                DB::connection('sakemaru')->transaction(function () use ($groupKey, $groupCandidates, $executedBy, &$queueCount, &$candidateCount) {
+                DB::connection('sakemaru')->transaction(function () use ($groupKey, $groupCandidates, $executedBy, &$queueCount, &$candidateCount, &$executedCandidateIds) {
                     // 1. 入荷予定を先に作成（失敗時はキューが作られないようにするため）
                     foreach ($groupCandidates as $candidate) {
                         $this->createIncomingSchedule($candidate);
@@ -463,6 +466,7 @@ class TransferCandidateExecutionService
                             'modified_at' => now(),
                         ]);
                         $candidateCount++;
+                        $executedCandidateIds[] = (int) $candidate->id;
                     }
 
                     $queueCount++;
@@ -489,6 +493,7 @@ class TransferCandidateExecutionService
         return [
             'queue_count' => $queueCount,
             'candidate_count' => $candidateCount,
+            'executed_candidate_ids' => $executedCandidateIds,
             'errors' => $errors,
         ];
     }
@@ -531,17 +536,16 @@ class TransferCandidateExecutionService
             $candidateIds[] = $candidate->id;
         }
 
-        // request_idは複数候補IDを連結（ユニーク制約対応）
+        sort($candidateIds);
+
+        // request_idは同時確定された同一グループの候補IDを連結（ユニーク制約対応）
         $requestId = 'transfer-create-group-'.implode('-', $candidateIds);
         if (strlen($requestId) > 100) {
             // 長すぎる場合はハッシュ化
             $requestId = 'transfer-create-group-'.md5(implode('-', $candidateIds));
         }
 
-        // 処理日は最初の候補のshipment_dateを優先
-        $processDate = $firstCandidate->shipment_date?->format('Y-m-d')
-            ?? $firstCandidate->expected_arrival_date?->format('Y-m-d')
-            ?? now()->format('Y-m-d');
+        $processDate = $this->resolveTransferGroupArrivalDate($firstCandidate)->format('Y-m-d');
 
         // バッチコードを収集
         $batchCodes = $candidates->pluck('batch_code')->unique()->implode(',');
@@ -563,6 +567,7 @@ class TransferCandidateExecutionService
             (int) $firstCandidate->satellite_warehouse_id,
             $deliveryCourseId,
         );
+        $this->assertGroupedCandidatesUseSameArrivalDate($candidates, $processDate);
 
         $queueData = [
             'client_id' => config('app.client_id'),
@@ -609,6 +614,7 @@ class TransferCandidateExecutionService
             'from_warehouse' => $hubWarehouse->code,
             'to_warehouse' => $satelliteWarehouse->code,
             'delivery_course_id' => $deliveryCourseId,
+            'arrival_date' => $processDate,
             'item_count' => count($items),
         ]);
 
@@ -656,6 +662,13 @@ class TransferCandidateExecutionService
         $this->resolvedDeliveryCourseIds[(int) $candidate->id] = $deliveryCourseId;
     }
 
+    private function resolveTransferGroupArrivalDate(WmsStockTransferCandidate $candidate): Carbon
+    {
+        return $candidate->expected_arrival_date
+            ?? $candidate->shipment_date
+            ?? Carbon::today();
+    }
+
     /**
      * @param  Collection<int, WmsStockTransferCandidate>  $candidates
      */
@@ -673,6 +686,23 @@ class TransferCandidateExecutionService
 
             throw new \RuntimeException(
                 "Delivery course mismatch in stock transfer group: from_warehouse_id={$fromWarehouseId}, to_warehouse_id={$toWarehouseId}, candidate_id={$candidate->id}"
+            );
+        }
+    }
+
+    /**
+     * @param  Collection<int, WmsStockTransferCandidate>  $candidates
+     */
+    private function assertGroupedCandidatesUseSameArrivalDate(Collection $candidates, string $arrivalDate): void
+    {
+        foreach ($candidates as $candidate) {
+            $candidateArrivalDate = $this->resolveTransferGroupArrivalDate($candidate)->format('Y-m-d');
+            if ($candidateArrivalDate === $arrivalDate) {
+                continue;
+            }
+
+            throw new \RuntimeException(
+                "Arrival date mismatch in stock transfer group: expected_arrival_date={$arrivalDate}, candidate_id={$candidate->id}, candidate_expected_arrival_date={$candidateArrivalDate}"
             );
         }
     }
