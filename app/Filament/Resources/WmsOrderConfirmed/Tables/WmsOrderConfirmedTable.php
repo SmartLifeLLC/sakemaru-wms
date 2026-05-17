@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsOrderConfirmed\Tables;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
 use App\Enums\PaginationOptions;
+use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
@@ -23,6 +24,7 @@ use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Alignment;
+use Filament\Tables\Columns\Summarizers\Summarizer;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -195,6 +197,38 @@ class WmsOrderConfirmedTable
                     ->numeric()
                     ->alignEnd()
                     ->width('70px'),
+
+                TextColumn::make('quantity_type')
+                    ->label('発注単位')
+                    ->state(fn (WmsOrderCandidate $record): string => $record->quantity_type?->name() ?? '-')
+                    ->alignCenter()
+                    ->badge()
+                    ->color(fn (string $state): string => $state === 'ケース' ? 'info' : 'gray')
+                    ->width('75px'),
+
+                TextColumn::make('total_pieces')
+                    ->label('総バラ数')
+                    ->state(function (WmsOrderCandidate $record): int {
+                        $capacityCase = max(1, (int) ($record->item?->capacity_case ?? 1));
+                        $orderQuantity = (int) ($record->order_quantity ?? 0);
+
+                        return $record->quantity_type === QuantityType::CASE
+                            ? $orderQuantity * $capacityCase
+                            : $orderQuantity;
+                    })
+                    ->numeric()
+                    ->alignEnd()
+                    ->weight('bold')
+                    ->width('75px')
+                    ->summarize(
+                        Summarizer::make()
+                            ->label('')
+                            ->using(function (\Illuminate\Database\Query\Builder $query) {
+                                return (int) $query->sum(
+                                    \Illuminate\Support\Facades\DB::raw('CASE WHEN quantity_type = \'CASE\' THEN COALESCE(order_quantity, 0) * COALESCE((SELECT capacity_case FROM items WHERE items.id = wms_order_candidates.item_id), 1) ELSE COALESCE(order_quantity, 0) END')
+                                );
+                            })
+                    ),
 
                 TextColumn::make('expected_arrival_date')
                     ->label('入荷予定')
