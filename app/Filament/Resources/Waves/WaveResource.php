@@ -4,10 +4,9 @@ namespace App\Filament\Resources\Waves;
 
 use App\Enums\EMenu;
 use App\Filament\Resources\Waves\Pages\ListWaves;
-use App\Filament\Resources\Waves\Pages\ViewWaveGroup;
 use App\Filament\Resources\Waves\Schemas\WaveForm;
-use App\Filament\Resources\Waves\Tables\WaveGroupsTable;
-use App\Models\WaveGroup;
+use App\Filament\Resources\Waves\Tables\WavesTable;
+use App\Models\Wave;
 use BackedEnum;
 use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
@@ -17,7 +16,7 @@ use Illuminate\Database\Eloquent\Builder;
 
 class WaveResource extends AdminResource
 {
-    protected static ?string $model = WaveGroup::class;
+    protected static ?string $model = Wave::class;
 
     protected static bool $shouldRegisterNavigation = true;
 
@@ -40,12 +39,12 @@ class WaveResource extends AdminResource
 
     public static function getModelLabel(): string
     {
-        return '波動生成グループ';
+        return '波動';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return '波動生成グループ';
+        return '波動管理';
     }
 
     public static function form(Schema $schema): Schema
@@ -55,14 +54,13 @@ class WaveResource extends AdminResource
 
     public static function table(Table $table): Table
     {
-        return WaveGroupsTable::configure($table);
+        return WavesTable::configure($table);
     }
 
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->with(['warehouse', 'creator'])
-            ->withCount('waves');
+            ->with(['waveGroup', 'waveSetting.deliveryCourse.warehouse']);
     }
 
     public static function getRelations(): array
@@ -76,7 +74,6 @@ class WaveResource extends AdminResource
     {
         return [
             'index' => ListWaves::route('/'),
-            'view' => ViewWaveGroup::route('/{record}'),
         ];
     }
 }
