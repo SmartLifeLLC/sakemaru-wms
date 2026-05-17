@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>酒丸 在庫管理 現状整理</title>
+    <style>
+        :root {
+            --bg: #f6f8fb;
+            --panel: #ffffff;
+            --ink: #172033;
+            --muted: #5d687a;
+            --line: #dbe2ea;
+            --navy: #1e293b;
+            --blue: #2563eb;
+            --amber: #b45309;
+            --red: #dc2626;
+            --green: #15803d;
+            --slate: #475569;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            line-height: 1.7;
+        }
+
+        header {
+            background: var(--navy);
+            color: #fff;
+            padding: 28px 36px;
+        }
+
+        header h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+            letter-spacing: 0;
+        }
+
+        header p {
+            margin: 0;
+            color: #cbd5e1;
+            font-size: 14px;
+        }
+
+        main {
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 28px 24px 56px;
+        }
+
+        section {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            margin: 0 0 18px;
+            padding: 22px;
+        }
+
+        h2 {
+            margin: 0 0 14px;
+            font-size: 20px;
+            color: #0f172a;
+        }
+
+        h3 {
+            margin: 22px 0 8px;
+            font-size: 16px;
+            color: #1f2937;
+        }
+
+        p { margin: 0 0 12px; }
+
+        ul, ol { margin: 8px 0 0 22px; padding: 0; }
+
+        li { margin: 4px 0; }
+
+        code {
+            background: #eef2f7;
+            border: 1px solid #d8e0ea;
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.92em;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 14px;
+        }
+
+        th, td {
+            border: 1px solid var(--line);
+            padding: 8px 10px;
+            vertical-align: top;
+        }
+
+        th {
+            background: #f1f5f9;
+            text-align: left;
+            color: #334155;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .card {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 14px;
+            background: #fbfdff;
+        }
+
+        .metric {
+            color: #0f172a;
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .label {
+            color: var(--muted);
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .note {
+            border-left: 4px solid var(--blue);
+            background: #eff6ff;
+            padding: 12px 14px;
+            border-radius: 6px;
+        }
+
+        .warn {
+            border-left-color: var(--amber);
+            background: #fffbeb;
+        }
+
+        .danger {
+            border-left-color: var(--red);
+            background: #fef2f2;
+        }
+
+        .ok {
+            border-left-color: var(--green);
+            background: #f0fdf4;
+        }
+
+        .badge {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #e2e8f0;
+            color: #334155;
+        }
+
+        .badge.red { background: #fee2e2; color: #991b1b; }
+        .badge.amber { background: #fef3c7; color: #92400e; }
+        .badge.green { background: #dcfce7; color: #166534; }
+        .badge.blue { background: #dbeafe; color: #1d4ed8; }
+
+        .flow {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .step {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            padding: 12px;
+            min-height: 108px;
+        }
+
+        .step strong {
+            display: block;
+            margin-bottom: 6px;
+            color: #0f172a;
+        }
+
+        .small { font-size: 13px; color: var(--muted); }
+        .nowrap { white-space: nowrap; }
+
+        @media (max-width: 900px) {
+            .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .flow { grid-template-columns: 1fr; }
+            header { padding: 22px 20px; }
+            main { padding: 20px 14px 42px; }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>酒丸 在庫管理 現状整理</h1>
+    <p>作成日: 2026-05-17 / 元資料: 2026-05-09 在庫整合性調査、2026-05-10 ローカル補正結果、現行 WMS 在庫同期実装</p>
+</header>
+
+<main>
+    <section>
+        <h2>結論</h2>
+        <div class="note danger">
+            現在の在庫問題は、単純な波動取消やピッキングリストの問題ではない。<code>real_stocks</code> と <code>real_stock_lots</code> の二重管理に対して、更新責務が一元化されていないことが根本原因である。
+        </div>
+        <p>
+            現時点の業務在庫の正は <code>real_stocks</code> と置く必要がある。一方、WMS の波動引当とピッキングは <code>real_stock_lots</code> とロケーションを見ている。このため、親在庫には数量があるのに、WMS が引当できるロットが存在せず欠品になる。
+        </p>
+        <p>
+            短期対応は <code>real_stocks</code> を再集計・上書きせず、波動生成対象に限って不足する引当可能ロットを補完すること。恒久対応は、売上・仕入・小売・倉庫移動・出荷確定・取消の全経路をロット同期サービスへ寄せ、在庫台帳を導入して差分理由を追跡可能にすることである。
+        </p>
+    </section>
+
+    <section>
+        <h2>主要数値</h2>
+        <div class="grid">
+            <div class="card">
+                <div class="metric">6,212</div>
+                <div class="label">親現在庫と有効ロット現在庫の合計不一致</div>
+            </div>
+            <div class="card">
+                <div class="metric">567</div>
+                <div class="label">親で引当可能だが WMS ピック可能ロットなし</div>
+            </div>
+            <div class="card">
+                <div class="metric">457</div>
+                <div class="label">倉庫91で親 available &gt; 0 かつピック可能ロットなし</div>
+            </div>
+            <div class="card">
+                <div class="metric">179</div>
+                <div class="label">Z-0-0 上の ACTIVE ロット。調査時点では引当不可</div>
+            </div>
+        </div>
+        <table>
+            <thead>
+            <tr>
+                <th>分類</th>
+                <th>件数</th>
+                <th>意味</th>
+                <th>対応方針</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <td>A. 親 current &gt; 0 / 有効ロットなし</td>
+                <td class="nowrap">422</td>
+                <td>在庫ありに見えるが WMS は引当できない</td>
+                <td>波動対象に限定して補完ロット作成</td>
+            </tr>
+            <tr>
+                <td>B. 親 current &lt;= 0 / ロット current &gt; 0</td>
+                <td class="nowrap">292</td>
+                <td>ロットだけ残っている逆方向の不整合</td>
+                <td>自動補正せず原因伝票を追う</td>
+            </tr>
+            <tr>
+                <td>C. 親 &gt; ロット</td>
+                <td class="nowrap">263</td>
+                <td>ロットが部分的に不足</td>
+                <td>対象業務とロケーションを確認して段階補正</td>
+            </tr>
+            <tr>
+                <td>D. ロット &gt; 親</td>
+                <td class="nowrap">5,426</td>
+                <td>ロット側が親在庫より多い</td>
+                <td><code>real_stocks</code> をロット合計へ即時上書きしない</td>
+            </tr>
+            <tr>
+                <td>予約数のみ不一致</td>
+                <td class="nowrap">33</td>
+                <td>current は合うが reserved がずれている</td>
+                <td>未完了波動・売上ロット引当・キューを確認</td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>在庫モデルの現在地</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>テーブル</th>
+                <th>現在の役割</th>
+                <th>問題点</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <td><code>real_stocks</code></td>
+                <td>倉庫・商品・在庫区分単位の親在庫。現時点の業務在庫の正。</td>
+                <td>外部同期、倉庫移動、POS、小売、セット品処理などで直接更新される経路が残っている。</td>
+            </tr>
+            <tr>
+                <td><code>real_stock_lots</code></td>
+                <td>ロケーション、期限、仕入由来を持つ WMS 引当の実体。</td>
+                <td>親在庫と同期されない経路が多く、WMS ではロット不足として欠品になる。</td>
+            </tr>
+            <tr>
+                <td><code>wms_reservations</code></td>
+                <td>WMS 波動内の作業予約。</td>
+                <td>基幹側の <code>real_stock_lot_earnings</code> とは別管理。AI Core 出荷確定処理との契約がずれている。</td>
+            </tr>
+            <tr>
+                <td><code>real_stock_lot_earnings</code></td>
+                <td>AI Core 側の売上ロット引当。</td>
+                <td>WMS 波動引当では作成されないため、AI Core の <code>deliver(earningId)</code> 前提と合わない。</td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="flow">
+            <div class="step">
+                <strong>外部同期</strong>
+                <span class="small"><code>PostRealStocks</code> が親在庫を上書き。ロットは作らない。</span>
+            </div>
+            <div class="step">
+                <strong>WMS 波動</strong>
+                <span class="small">ロットとロケーションを見て <code>wms_reservations</code> を作る。</span>
+            </div>
+            <div class="step">
+                <strong>ピッキング</strong>
+                <span class="small">WMS 作業結果を作る。親在庫・ロット数量はまだ動かさない。</span>
+            </div>
+            <div class="step">
+                <strong>出荷確定</strong>
+                <span class="small">AI Core キュー処理が在庫減算する前提。ただし契約差分あり。</span>
+            </div>
+            <div class="step">
+                <strong>取消・移動・小売</strong>
+                <span class="small">親だけ更新する経路が残り、差分を継続生成する。</span>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>業務イベント別の動き</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>イベント</th>
+                <th><code>real_stocks</code></th>
+                <th><code>real_stock_lots</code></th>
+                <th>判定</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <td>通常売上の引当・出荷</td>
+                <td>AI Core の <code>LotAllocationService</code> 経由なら親も更新</td>
+                <td>同サービス経由ならロットも更新</td>
+                <td><span class="badge green">正常経路あり</span></td>
+            </tr>
+            <tr>
+                <td>WMS 波動生成</td>
+                <td>更新しない</td>
+                <td>数量更新しない。候補検索だけ実施</td>
+                <td><span class="badge blue">作業予約のみ</span></td>
+            </tr>
+            <tr>
+                <td>WMS 出荷完了キュー</td>
+                <td>AI Core 側で減算される想定</td>
+                <td><code>real_stock_lot_earnings</code> がない売上では減らない可能性</td>
+                <td><span class="badge red">契約不一致</span></td>
+            </tr>
+            <tr>
+                <td>倉庫移動</td>
+                <td>直接増減する経路あり</td>
+                <td>ロット移動・移動先作成がない経路あり</td>
+                <td><span class="badge red">不整合生成</span></td>
+            </tr>
+            <tr>
+                <td>小売 / POS 取込</td>
+                <td>Trade 側で直接減算</td>
+                <td>Trade 側では参照・更新なし</td>
+                <td><span class="badge red">不整合生成</span></td>
+            </tr>
+            <tr>
+                <td>欠品確定 / 横持ち</td>
+                <td>出荷確定・キュー側の責務に依存</td>
+                <td>横持ち分をどのロットから消費するかの契約が必要</td>
+                <td><span class="badge amber">要整理</span></td>
+            </tr>
+            <tr>
+                <td>売上取消</td>
+                <td>親だけ復元する経路あり</td>
+                <td><code>undeliver()</code> 未呼出の経路あり</td>
+                <td><span class="badge red">不整合生成</span></td>
+            </tr>
+            <tr>
+                <td>自社セット / セット分解</td>
+                <td>構成品親在庫を直接操作する経路あり</td>
+                <td>構成品ロット更新が不足</td>
+                <td><span class="badge amber">設計不足</span></td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>WMS 波動で欠品になる直接原因</h2>
+        <p>
+            典型例は商品CD <code>156643</code>。倉庫91の <code>real_stocks.available_quantity</code> は 24 だったが、有効な <code>real_stock_lots</code> が存在せず、波動では欠品になった。
+        </p>
+        <div class="note warn">
+            WMS の引当候補は <code>real_stock_lots</code> と <code>locations.available_quantity_flags</code> で決まる。親在庫があっても、ACTIVE ロットがなく、かつ引当可能ロケーションに置かれていなければ、WMS は在庫なしと扱う。
+        </div>
+        <h3>Z-0-0 の扱い</h3>
+        <p>
+            調査時点の倉庫91デフォルトロケーション <code>Z-0-0</code> は <code>available_quantity_flags = 8</code> で、CASE/PIECE/CARTON のどれにも一致しなかった。そのため、ここにあるロットは引当対象外だった。
+        </p>
+        <p>
+            2026-05-10 のローカル補正では、ローカルDB上で <code>Z-0-0</code> の <code>floor_id</code> と <code>available_quantity_flags</code> を変更して引当可能化し、安全対象のロットを作成した。ただしこれはローカル結果であり、本番適用時は本番の flags と運用意図を確認する必要がある。
+        </p>
+    </section>
+
+    <section>
+        <h2>現在の在庫同期機能</h2>
+        <p>
+            <code>/admin/wave-settings</code> の「在庫同期」は <code>Warehouse91StockLotSyncService</code> を呼び出す。対象は倉庫91限定で、<code>real_stocks</code> を正として ACTIVE ロット合計を同期する設計になっている。
+        </p>
+        <table>
+            <thead>
+            <tr>
+                <th>項目</th>
+                <th>現在の実装</th>
+                <th>注意点</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <td>対象倉庫</td>
+                <td>倉庫コード 91 固定</td>
+                <td>他倉庫には効かない</td>
+            </tr>
+            <tr>
+                <td>同期基準</td>
+                <td><code>real_stocks.current_quantity / reserved_quantity</code> を正にする</td>
+                <td>ロットを正として親を再集計する処理ではない</td>
+            </tr>
+            <tr>
+                <td>処理内容</td>
+                <td>既存 ACTIVE ロット更新、または ACTIVE ロット新規作成</td>
+                <td>数量差分を1ロットへ寄せる動きになり得る</td>
+            </tr>
+            <tr>
+                <td>棚番</td>
+                <td><code>wms_hana_origin_locations</code> の origin 棚番を基準にする</td>
+                <td>origin が曖昧な商品は画面選択。候補なしは Z00 同期</td>
+            </tr>
+            <tr>
+                <td>実行ガード</td>
+                <td>ピッキング中の earning / task / item_result があると停止</td>
+                <td>稼働中の在庫を壊さないための最低限のガード</td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="note warn">
+            この同期機能は「現時点の出荷を進めるための補正」に近い。外部同期、倉庫移動、POS、小売、セット品処理が親だけを更新し続ける限り、差分は再発する。
+        </div>
+    </section>
+
+    <section>
+        <h2>推奨設計</h2>
+        <h3>短期: real_stocks 正のまま、波動対象だけ補完</h3>
+        <ul>
+            <li>波動生成前、対象の <code>warehouse_id</code> / <code>item_id</code> だけを確認する。</li>
+            <li><code>parent_available - pickable_lot_available &gt; 0</code> の場合だけ不足ロットを補完する。</li>
+            <li><code>real_stocks</code> は更新しない。</li>
+            <li>補完先は引当可能ロケーションに限定する。引当不可の Z-0-0 へ作らない。</li>
+            <li>補完ログを残し、波動ID・商品・倉庫・数量・ロケーション・理由を追えるようにする。</li>
+        </ul>
+        <h3>中期: 出荷確定キューの契約統一</h3>
+        <ul>
+            <li>WMS キューが渡す <code>earning_ids</code> だけに依存せず、明細・数量・横持ち・欠品確定結果を読める形にする。</li>
+            <li>AI Core 側は WMS 予約または明細数量に基づいて、親とロットを同じ数量だけ減らす。</li>
+            <li>自社セット構成品もキュー経由で減算できるようにする。</li>
+        </ul>
+        <h3>恒久: 在庫台帳とロット基準への移行</h3>
+        <ul>
+            <li>在庫増減は台帳へ append し、現在庫は台帳またはロットから再現できるようにする。</li>
+            <li><code>real_stock_lots</code> を実在庫の正、<code>real_stocks</code> を集計キャッシュへ段階移行する。</li>
+            <li>外部在庫同期は親上書きではなく、差分調整ロットと台帳イベントで表現する。</li>
+            <li>倉庫移動は出庫元ロットを減らし、入庫先に同属性ロットを作る。</li>
+            <li>POS / 小売取込は FEFO/FIFO でロット消費する。</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>優先順位</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>優先</th>
+                <th>対応</th>
+                <th>目的</th>
+                <th>リスク</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <td>P0</td>
+                <td>波動生成前の不足ロット補完を対象限定で実装</td>
+                <td>親在庫ありなのに WMS 欠品になる問題を止血</td>
+                <td>補完ロットの増殖。冪等キーとログが必要</td>
+            </tr>
+            <tr>
+                <td>P0</td>
+                <td>出荷確定キューの処理契約確認と自社セット対応</td>
+                <td>出荷済みなのに在庫が減らない問題を防ぐ</td>
+                <td>AI Core との境界変更が必要</td>
+            </tr>
+            <tr>
+                <td>P1</td>
+                <td>在庫監査コマンド / レポート追加</td>
+                <td>差分の再発を検知し、原因経路を特定する</td>
+                <td>SELECT 中心なら低い</td>
+            </tr>
+            <tr>
+                <td>P1</td>
+                <td>倉庫移動のロット移動対応</td>
+                <td>移動先で WMS 引当不能になる問題を減らす</td>
+                <td>既存移動データとの互換性確認が必要</td>
+            </tr>
+            <tr>
+                <td>P2</td>
+                <td>POS / 小売 / セット品 / 取消のロット同期化</td>
+                <td>差分生成経路を順次閉じる</td>
+                <td>業務範囲が広く段階導入が必要</td>
+            </tr>
+            <tr>
+                <td>P2</td>
+                <td>在庫台帳導入</td>
+                <td>数量差分の理由を追える状態にする</td>
+                <td>移行設計と過去データ扱いが必要</td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>参照元</h2>
+        <ul>
+            <li><code>storage/reports/20260509-wms-wave-stock-allocation-investigation.md</code></li>
+            <li><code>storage/specifications/20260509/wms-wave-generation-and-stock-allocation-fix.md</code></li>
+            <li><code>storage/reports/20260510-local-stock-lot-patch/result.md</code></li>
+            <li><code>app/Filament/Resources/WaveSettings/Pages/ListWaveSettings.php</code></li>
+            <li><code>app/Services/Warehouse91StockLotSyncService.php</code></li>
+        </ul>
+    </section>
+</main>
+</body>
+</html>
