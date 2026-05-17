@@ -56,6 +56,10 @@ class ListWmsStockTransferCandidates extends ListRecords
 
     public array $transferQuantityInputPayload = [];
 
+    public array $salesBasedTransferCategory2Data = [];
+
+    public array $selectedSalesBasedTransferCategory2Ids = [];
+
     public array $salesBasedTransferPreviewRows = [];
 
     public array $salesBasedTransferPreviewConditions = [];
@@ -607,13 +611,6 @@ class ListWmsStockTransferCandidates extends ListRecords
         $selectedWarehouseId = auth()->user()?->getSelectedWarehouseId();
         $selectedWarehouse = $selectedWarehouseId ? Warehouse::find($selectedWarehouseId) : null;
         $selectedWarehouseName = $selectedWarehouse?->name ?? '未選択';
-        $targetHubWarehouse = Warehouse::find(self::SALES_BASED_TRANSFER_HUB_WAREHOUSE_ID);
-        $targetHubWarehouseName = $targetHubWarehouse?->name ?? '華むすびの蔵センター';
-
-        $baseDescription = match (true) {
-            ! $selectedWarehouse => '倉庫が選択されていません。トップバーから倉庫を選択してください。',
-            default => "倉庫「{$selectedWarehouseName}」の販売実績から、{$targetHubWarehouseName}への物流発注候補を生成します。",
-        };
 
         return Action::make('generateSalesBasedTransfer')
             ->label('物流発注候補生成')
@@ -628,6 +625,13 @@ class ListWmsStockTransferCandidates extends ListRecords
             ->disabled(! $selectedWarehouse)
             ->mountUsing(function ($schema): void {
                 $this->resetSalesBasedTransferPreview();
+                $this->initializeSalesBasedTransferCategory2();
+                if (empty($this->selectedSalesBasedTransferCategory2Ids)) {
+                    $this->selectedSalesBasedTransferCategory2Ids = collect($this->salesBasedTransferCategory2Data)
+                        ->pluck('id')
+                        ->values()
+                        ->toArray();
+                }
                 $schema?->fill([
                     'sales_start_date' => now()->subDays(2)->toDateString(),
                     'sales_end_date' => now()->toDateString(),
@@ -635,24 +639,6 @@ class ListWmsStockTransferCandidates extends ListRecords
                 ]);
             })
             ->schema([
-                \Filament\Forms\Components\Placeholder::make('description')
-                    ->hiddenLabel()
-                    ->content(new \Illuminate\Support\HtmlString(
-                        '<div class="rounded-lg border border-slate-300 bg-slate-100 px-4 py-3 text-sm font-medium leading-6 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">'
-                        .nl2br(e($baseDescription))
-                        .'</div>'
-                    )),
-                Grid::make(3)->schema([
-                    Placeholder::make('target_notice')
-                        ->label('対象')
-                        ->content($targetHubWarehouseName),
-                    Placeholder::make('auto_order_flag_notice')
-                        ->label('自動発注フラグ')
-                        ->content('考慮しない'),
-                    Placeholder::make('selected_hub_notice')
-                        ->label('選択中倉庫')
-                        ->content($selectedWarehouseName),
-                ]),
                 Grid::make(2)->schema([
                     ViewField::make('sales_start_date')
                         ->label('販売実績 開始日')
@@ -673,6 +659,17 @@ class ListWmsStockTransferCandidates extends ListRecords
                         ->afterStateUpdated(fn () => $this->resetSalesBasedTransferPreview())
                         ->required(),
                 ]),
+                ViewField::make('category2_selector')
+                    ->view('filament.components.category-selection')
+                    ->viewData([
+                        'categoriesProperty' => 'salesBasedTransferCategory2Data',
+                        'fallbackMethod' => 'getSalesBasedTransferCategory2ForGeneration',
+                        'selectedProperty' => 'selectedSalesBasedTransferCategory2Ids',
+                        'label' => '中分類',
+                        'compactListHeight' => true,
+                        'twoColumns' => true,
+                    ])
+                    ->hiddenLabel(),
             ])
             ->action(function (Action $action) {
                 $this->calculateSalesBasedTransferPreview();
@@ -730,6 +727,18 @@ class ListWmsStockTransferCandidates extends ListRecords
 
         $selectedWarehouse = Warehouse::find($selectedWarehouseId);
         $targetHubWarehouse = Warehouse::find(self::SALES_BASED_TRANSFER_HUB_WAREHOUSE_ID);
+        $category2Ids = array_values(array_unique(array_map('intval', $this->selectedSalesBasedTransferCategory2Ids)));
+        $allCategory2Ids = collect($this->salesBasedTransferCategory2Data ?: $this->getSalesBasedTransferCategory2ForGeneration())
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->toArray();
+
+        if (empty($category2Ids)) {
+            $this->salesBasedTransferPreviewError = '中分類を1件以上選択してください。';
+
+            return;
+        }
 
         $data = $this->getMountedSalesBasedTransferActionData();
         $startDate = $data['sales_start_date'] ?? now()->subDays(2)->toDateString();
@@ -756,6 +765,8 @@ class ListWmsStockTransferCandidates extends ListRecords
             'target_warehouse_name' => $targetHubWarehouse?->name ?? '華むすびの蔵センター',
             'auto_order_flag_filter' => '考慮しない',
             'days' => $days,
+            'category2_count' => count($category2Ids),
+            'category2_total_count' => count($allCategory2Ids),
         ];
 
         $warehouseIds = $this->getSalesBasedTransferGenerationWarehouseIds($selectedWarehouseId);
@@ -840,6 +851,10 @@ class ListWmsStockTransferCandidates extends ListRecords
                     ->where('isi.is_active', true)
                     ->whereRaw("isi.search_string REGEXP '[1-9]'");
             });
+
+        if (count($category2Ids) < count($allCategory2Ids)) {
+            $query->whereIn('items.item_category2_id', $category2Ids);
+        }
 
         if ($batchCode) {
             $query->whereNotExists(function ($query) use ($batchCode) {
@@ -1325,6 +1340,33 @@ class ListWmsStockTransferCandidates extends ListRecords
             })
             ->values()
             ->toArray();
+    }
+
+    public function getSalesBasedTransferCategory2ForGeneration(): array
+    {
+        return ItemCategory::query()
+            ->where('is_active', true)
+            ->whereExists(function ($query): void {
+                $query->selectRaw('1')
+                    ->from('items')
+                    ->whereColumn('items.item_category2_id', 'item_categories.id')
+                    ->where('items.end_of_sale_type', 'NORMAL')
+                    ->where('items.is_ended', false);
+            })
+            ->orderBy('code')
+            ->get(['id', 'code', 'name'])
+            ->map(fn (ItemCategory $category) => [
+                'id' => (int) $category->id,
+                'code' => (string) $category->code,
+                'name' => (string) $category->name,
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    private function initializeSalesBasedTransferCategory2(): void
+    {
+        $this->salesBasedTransferCategory2Data = $this->getSalesBasedTransferCategory2ForGeneration();
     }
 
     /**

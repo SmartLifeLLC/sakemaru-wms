@@ -63,6 +63,10 @@
                 <span class="font-semibold" x-text="conditionValue('auto_order_flag_filter')"></span>
             </span>
             <span>
+                中分類:
+                <span class="font-mono font-semibold" x-text="`${conditionValue('category2_count')}/${conditionValue('category2_total_count')}`"></span>
+            </span>
+            <span>
                 件数:
                 <span class="font-mono font-semibold" x-text="formatNumber(rows.length) + '件'"></span>
             </span>

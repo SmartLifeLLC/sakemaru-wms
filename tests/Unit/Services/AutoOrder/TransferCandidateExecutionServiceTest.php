@@ -263,6 +263,43 @@ class TransferCandidateExecutionServiceTest extends TestCase
 
     /**
      * @test
+     * グループ化用の入荷日はexpected_arrival_dateを優先すること
+     */
+    public function it_uses_expected_arrival_date_for_transfer_grouping(): void
+    {
+        $candidate = new WmsStockTransferCandidate([
+            'expected_arrival_date' => '2026-05-21',
+            'shipment_date' => '2026-05-20',
+        ]);
+
+        $method = new \ReflectionMethod($this->service, 'resolveTransferGroupArrivalDate');
+        $method->setAccessible(true);
+
+        $this->assertSame('2026-05-21', $method->invoke($this->service, $candidate)->format('Y-m-d'));
+    }
+
+    /**
+     * @test
+     * 同一移動伝票グループに入荷日違いが混ざる場合は検知すること
+     */
+    public function it_rejects_mixed_arrival_dates_in_transfer_group(): void
+    {
+        $candidates = collect([
+            new WmsStockTransferCandidate(['expected_arrival_date' => '2026-05-21']),
+            new WmsStockTransferCandidate(['expected_arrival_date' => '2026-05-22']),
+        ]);
+
+        $method = new \ReflectionMethod($this->service, 'assertGroupedCandidatesUseSameArrivalDate');
+        $method->setAccessible(true);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Arrival date mismatch in stock transfer group');
+
+        $method->invoke($this->service, $candidates, '2026-05-21');
+    }
+
+    /**
+     * @test
      * stock_transfer_queueテーブルにaction_typeカラムが存在すること
      * 注意: action_typeカラムはsakemaru-ai-core側で追加される
      */
