@@ -1136,11 +1136,19 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     public function getTransmissionContractorMapping(): array
     {
         $mapping = [];
+
+        WmsContractorSetting::query()
+            ->whereNotNull('transmission_contractor_id')
+            ->get(['contractor_id', 'transmission_contractor_id'])
+            ->each(function (WmsContractorSetting $setting) use (&$mapping): void {
+                $mapping[(int) $setting->contractor_id] = (int) $setting->transmission_contractor_id;
+            });
+
         foreach (self::TRANSMISSION_MAPPING as $fromCode => $toCode) {
             $fromId = $this->getContractorIdByCode($fromCode);
             $toId = $this->getContractorIdByCode($toCode);
             if ($fromId && $toId) {
-                $mapping[$fromId] = $toId;
+                $mapping[$fromId] ??= $toId;
             }
         }
 
