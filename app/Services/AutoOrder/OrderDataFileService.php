@@ -13,6 +13,7 @@ use App\Models\WmsOrderIncomingSchedule;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * 発注データファイルサービス（共通CSVダウンロード用）
@@ -177,9 +178,9 @@ class OrderDataFileService
         $contractorCode = $contractor?->code ?? $contractorId;
         if ($splitByWarehouse) {
             $warehouseCode = $warehouse?->code ?? $warehouseId;
-            $filename = "{$batchCode}_{$warehouseCode}_{$contractorCode}.csv";
+            $filename = "{$batchCode}_{$warehouseCode}_{$contractorCode}_".now()->format('YmdHisv').'_'.Str::random(6).'.csv';
         } else {
-            $filename = "{$batchCode}_{$contractorCode}.csv";
+            $filename = "{$batchCode}_{$contractorCode}_".now()->format('YmdHisv').'_'.Str::random(6).'.csv';
         }
         $filePath = "order-data-files/{$date}/{$filename}";
 
@@ -194,6 +195,7 @@ class OrderDataFileService
             'created_by_name' => $this->resolveCreatedByName($batchCode),
             'warehouse_id' => $warehouseId,
             'contractor_id' => $contractorId,
+            'candidate_ids' => $candidates->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
             'order_date' => ClientSetting::systemDateYMD(),
             'expected_arrival_date' => $expectedArrivalDate,
             'file_path' => $filePath,
@@ -354,7 +356,7 @@ class OrderDataFileService
 
         $unit = EVolumeUnit::tryFrom($item->volume_unit);
 
-        return $unit ? $item->volume . $unit->name() : '';
+        return $unit ? $item->volume.$unit->name() : '';
     }
 
     /**

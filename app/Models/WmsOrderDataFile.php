@@ -22,6 +22,7 @@ class WmsOrderDataFile extends WmsModel
         'created_by_name',
         'warehouse_id',
         'contractor_id',
+        'candidate_ids',
         'order_date',
         'expected_arrival_date',
         'file_path',
@@ -49,6 +50,7 @@ class WmsOrderDataFile extends WmsModel
         'mail_sent_at' => 'datetime',
         'is_mail_order' => 'boolean',
         'status' => OrderDataFileStatus::class,
+        'candidate_ids' => 'array',
     ];
 
     // Relationships
@@ -100,8 +102,8 @@ class WmsOrderDataFile extends WmsModel
             $q->whereIn('batch_code', WmsAutoOrderJobControl::query()
                 ->where('created_by', $userId)
                 ->select('batch_code'))
-            ->orWhereNotIn('batch_code', WmsAutoOrderJobControl::query()
-                ->select('batch_code'));
+                ->orWhereNotIn('batch_code', WmsAutoOrderJobControl::query()
+                    ->select('batch_code'));
         });
     }
 
@@ -147,5 +149,4 @@ class WmsOrderDataFile extends WmsModel
 
         $this->update($data);
     }
-
 }

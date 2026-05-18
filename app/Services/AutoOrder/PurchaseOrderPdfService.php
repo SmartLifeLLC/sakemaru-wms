@@ -93,14 +93,7 @@ class PurchaseOrderPdfService
      */
     public function generateFromDataFile(WmsOrderDataFile $dataFile, ?string $communicationNotes = null): string
     {
-        // CONFIRMED状態の発注候補を取得
-        $candidates = WmsOrderCandidate::where('batch_code', $dataFile->batch_code)
-            ->where('warehouse_id', $dataFile->warehouse_id)
-            ->where('contractor_id', $dataFile->contractor_id)
-            ->where('status', CandidateStatus::CONFIRMED)
-            ->with(['warehouse', 'item', 'contractor'])
-            ->orderBy('expected_arrival_date')
-            ->get();
+        $candidates = $this->resolveCandidatesForDataFile($dataFile);
 
         if ($candidates->isEmpty()) {
             throw new \RuntimeException('生成対象の発注候補がありません');
@@ -131,13 +124,7 @@ class PurchaseOrderPdfService
         $this->initPdf();
 
         foreach ($dataFiles as $dataFile) {
-            $candidates = WmsOrderCandidate::where('batch_code', $dataFile->batch_code)
-                ->where('warehouse_id', $dataFile->warehouse_id)
-                ->where('contractor_id', $dataFile->contractor_id)
-                ->where('status', CandidateStatus::CONFIRMED)
-                ->with(['warehouse', 'item', 'contractor'])
-                ->orderBy('expected_arrival_date')
-                ->get();
+            $candidates = $this->resolveCandidatesForDataFile($dataFile);
 
             if ($candidates->isEmpty()) {
                 continue;
@@ -181,7 +168,7 @@ class PurchaseOrderPdfService
         $date = now()->format('Y-m-d');
         $warehouseCode = $dataFile->warehouse?->code ?? $dataFile->warehouse_id;
         $contractorCode = $dataFile->contractor?->code ?? $dataFile->contractor_id;
-        $filename = "{$dataFile->batch_code}_{$warehouseCode}_{$contractorCode}.pdf";
+        $filename = "{$dataFile->batch_code}_{$warehouseCode}_{$contractorCode}_df{$dataFile->id}.pdf";
         $filePath = "order-data-files/{$date}/{$filename}";
 
         Storage::disk('s3')->put($filePath, $pdfBinary);
@@ -190,6 +177,151 @@ class PurchaseOrderPdfService
         $dataFile->update(['fax_file_path' => $filePath]);
 
         return $filePath;
+    }
+
+    private function resolveCandidatesForDataFile(WmsOrderDataFile $dataFile): Collection
+    {
+        $query = WmsOrderCandidate::query()
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->with(['warehouse', 'item', 'contractor'])
+            ->orderBy('expected_arrival_date');
+
+        $candidateIds = collect($dataFile->candidate_ids ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->values()
+            ->all();
+
+        if (! empty($candidateIds)) {
+            return $query
+                ->whereIn('id', $candidateIds)
+                ->get()
+                ->sortBy(fn (WmsOrderCandidate $candidate) => array_search($candidate->id, $candidateIds, true))
+                ->values();
+        }
+
+        $candidatesFromCsv = $this->resolveCandidatesFromCsv($dataFile);
+        if ($candidatesFromCsv->isNotEmpty()) {
+            return $candidatesFromCsv;
+        }
+
+        return $query
+            ->where('batch_code', $dataFile->batch_code)
+            ->where('warehouse_id', $dataFile->warehouse_id)
+            ->where('contractor_id', $dataFile->contractor_id)
+            ->get();
+    }
+
+    private function resolveCandidatesFromCsv(WmsOrderDataFile $dataFile): Collection
+    {
+        if (! $dataFile->file_path) {
+            return collect();
+        }
+
+        try {
+            $csvContent = Storage::disk('s3')->get($dataFile->file_path);
+        } catch (\Throwable) {
+            return collect();
+        }
+
+        if (! is_string($csvContent) || $csvContent === '') {
+            return collect();
+        }
+
+        $rows = $this->parseCsvRows($csvContent);
+        if (empty($rows)) {
+            return collect();
+        }
+
+        $candidatePool = WmsOrderCandidate::where('batch_code', $dataFile->batch_code)
+            ->where('warehouse_id', $dataFile->warehouse_id)
+            ->where('contractor_id', $dataFile->contractor_id)
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->with(['warehouse', 'item', 'contractor'])
+            ->get();
+
+        if ($candidatePool->isEmpty()) {
+            return collect();
+        }
+
+        $quantityResolver = app(OrderOutputQuantityResolver::class);
+        $matched = collect();
+        $usedCandidateIds = [];
+
+        foreach ($rows as $row) {
+            $itemCode = trim((string) ($row['商品コード'] ?? ''));
+            $arrivalDate = trim((string) ($row['入荷予定日'] ?? ''));
+            $orderQuantity = trim((string) ($row['発注数量'] ?? ''));
+
+            $candidate = $candidatePool->first(function (WmsOrderCandidate $candidate) use ($itemCode, $arrivalDate, $orderQuantity, $quantityResolver, $usedCandidateIds): bool {
+                if (in_array($candidate->id, $usedCandidateIds, true)) {
+                    return false;
+                }
+
+                if ($itemCode !== '' && (string) $candidate->item?->code !== $itemCode) {
+                    return false;
+                }
+
+                if ($arrivalDate !== '' && $candidate->expected_arrival_date?->format('Y-m-d') !== $arrivalDate) {
+                    return false;
+                }
+
+                if ($orderQuantity !== '') {
+                    $resolved = $quantityResolver->resolve($candidate);
+                    if ((string) ($resolved['order_quantity'] ?? '') !== $orderQuantity) {
+                        return false;
+                    }
+                }
+
+                return true;
+            });
+
+            if ($candidate) {
+                $matched->push($candidate);
+                $usedCandidateIds[] = $candidate->id;
+            }
+        }
+
+        return $matched->values();
+    }
+
+    /**
+     * @return array<int, array<string, string>>
+     */
+    private function parseCsvRows(string $csvContent): array
+    {
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, $csvContent);
+        rewind($stream);
+
+        $headers = fgetcsv($stream);
+        if ($headers === false) {
+            fclose($stream);
+
+            return [];
+        }
+
+        $headers = array_map(
+            fn ($header) => preg_replace('/^\xEF\xBB\xBF/', '', (string) $header),
+            $headers
+        );
+
+        $rows = [];
+        while (($values = fgetcsv($stream)) !== false) {
+            if ($values === [null] || $values === false) {
+                continue;
+            }
+
+            $row = [];
+            foreach ($headers as $index => $header) {
+                $row[$header] = (string) ($values[$index] ?? '');
+            }
+            $rows[] = $row;
+        }
+
+        fclose($stream);
+
+        return $rows;
     }
 
     /**
@@ -681,7 +813,7 @@ class PurchaseOrderPdfService
             return '';
         }
 
-        return $item->volume . $unit->name();
+        return $item->volume.$unit->name();
     }
 
     /**

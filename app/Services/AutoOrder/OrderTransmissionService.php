@@ -1842,7 +1842,7 @@ class OrderTransmissionService
         $date = now()->format('Y-m-d');
         $contractorCode = $file['contractor_code'] ?? $file['contractor_id'];
         $warehouseCode = $candidates->first()?->warehouse?->code ?? 'UNKNOWN';
-        $csvFilename = "{$batchCode}_{$warehouseCode}_{$contractorCode}.csv";
+        $csvFilename = "{$batchCode}_{$warehouseCode}_{$contractorCode}_".now()->format('YmdHisv').'_'.Str::random(6).'.csv';
         $csvPath = "jx-orders/{$date}/{$csvFilename}";
 
         Storage::disk('s3')->put($csvPath, $csvContent);
@@ -1855,6 +1855,7 @@ class OrderTransmissionService
             'created_by_name' => $createdByName,
             'warehouse_id' => $firstCandidate?->warehouse_id,
             'contractor_id' => $file['contractor_id'],
+            'candidate_ids' => $candidates->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
             'order_date' => ClientSetting::systemDateYMD(),
             'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
             'file_path' => $csvPath,
