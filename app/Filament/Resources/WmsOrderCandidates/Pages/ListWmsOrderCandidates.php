@@ -973,6 +973,7 @@ class ListWmsOrderCandidates extends ListRecords
         }
 
         $this->salesBasedExternalOrderPreviewConditions = [
+            'expected_arrival_date' => now()->addDay()->toDateString(),
             'sales_start_date' => $startDate,
             'sales_end_date' => $endDate,
             'selected_warehouse_name' => $selectedWarehouse?->name ?? '未選択',
@@ -1167,6 +1168,15 @@ class ListWmsOrderCandidates extends ListRecords
             ->toArray();
     }
 
+    public function updateSalesBasedExternalOrderPreviewExpectedArrivalDate(?string $date): void
+    {
+        try {
+            $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] = \Carbon\Carbon::parse($date)->toDateString();
+        } catch (\Throwable) {
+            $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] = now()->addDay()->toDateString();
+        }
+    }
+
     public function createSalesBasedExternalOrderPreviewCandidates(): void
     {
         $userId = auth()->id();
@@ -1220,8 +1230,20 @@ class ListWmsOrderCandidates extends ListRecords
         $skipped = 0;
         $blankSkipped = 0;
         $now = now();
+        try {
+            $expectedArrivalDate = \Carbon\Carbon::parse(
+                $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] ?? $now->copy()->addDay()->toDateString()
+            )->toDateString();
+        } catch (\Throwable) {
+            Notification::make()
+                ->title('入荷予定日を正しく指定してください')
+                ->danger()
+                ->send();
 
-        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $userId, &$created, &$updated, &$skipped, &$blankSkipped): void {
+            return;
+        }
+
+        DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $userId, $expectedArrivalDate, &$created, &$updated, &$skipped, &$blankSkipped): void {
             foreach ($this->salesBasedExternalOrderPreviewRows as $row) {
                 $warehouseId = (int) ($row['warehouse_id'] ?? 0);
                 $itemId = (int) ($row['item_id'] ?? 0);
@@ -1277,7 +1299,6 @@ class ListWmsOrderCandidates extends ListRecords
                 }
 
                 $item = Item::with('current_price')->find($itemId);
-                $expectedArrivalDate = $now->copy()->addDay()->toDateString();
 
                 $candidateData = [
                     'batch_code' => $batchCode,
@@ -1334,6 +1355,7 @@ class ListWmsOrderCandidates extends ListRecords
                     'calculated_order_quantity' => $quantity,
                     'calculation_details' => [
                         'source' => 'sales_based_external_order_preview',
+                        'expected_arrival_date' => $expectedArrivalDate,
                         'sales_start_date' => $this->salesBasedExternalOrderPreviewConditions['sales_start_date'] ?? null,
                         'sales_end_date' => $this->salesBasedExternalOrderPreviewConditions['sales_end_date'] ?? null,
                         'sales_qty' => (int) ($row['sales_qty'] ?? 0),
