@@ -1985,6 +1985,11 @@ class ListWaves extends ListRecords
                     'floor_name' => $first['floor_name'],
                 ],
                 'items' => $items,
+                'summary' => [
+                    'case_qty' => array_sum(array_column($items, 'case_qty')),
+                    'piece_qty' => array_sum(array_column($items, 'piece_qty')),
+                    'total_pieces' => array_sum(array_column($items, 'total_pieces')),
+                ],
             ];
         }
 
@@ -2060,6 +2065,11 @@ class ListWaves extends ListRecords
                     'slip_count' => $slipCount,
                 ]),
                 'items' => $items,
+                'summary' => [
+                    'case_qty' => array_sum(array_column($items, 'case_qty')),
+                    'piece_qty' => array_sum(array_column($items, 'piece_qty')),
+                    'total_pieces' => array_sum(array_column($items, 'total_pieces')),
+                ],
             ];
         }
 
