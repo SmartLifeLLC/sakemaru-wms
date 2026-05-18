@@ -78,6 +78,8 @@ class SalesBasedOrderCandidateService
 
     private OriginType $originType = OriginType::MANUAL_SALES_BASED;
 
+    private bool $transferOnly = false;
+
     public function calculate(
         ?int $warehouseId,
         int $createdBy,
@@ -169,6 +171,7 @@ class SalesBasedOrderCandidateService
         $this->autoOrderFlagFilter = $autoOrderFlagFilter;
         $this->salesStartDate = $salesStartDate;
         $this->salesEndDate = $salesEndDate;
+        $this->transferOnly = $transferOnly;
 
         try {
             $batchCode = $job->batch_code;
@@ -186,10 +189,10 @@ class SalesBasedOrderCandidateService
             $this->loadAllDataToMemory();
             $job->updateProgress(1, 4);
 
-            $transferCount = $this->createInternalTransferCandidatesBulk($batchCode, $now);
+            $transferCount = $transferOnly ? $this->createInternalTransferCandidatesBulk($batchCode, $now) : 0;
             $job->updateProgress(2, 4);
 
-            $transferCandidates = $transferOnly ? [] : $this->loadTransferCandidatesToMemory($batchCode);
+            $transferCandidates = [];
             $job->updateProgress(3, 4);
 
             $orderCount = $transferOnly ? 0 : $this->createExternalOrderCandidatesBulk($batchCode, $now, $transferCandidates);
@@ -241,7 +244,7 @@ class SalesBasedOrderCandidateService
             ->pluck('warehouse_id')
             ->toArray();
 
-        if ($this->targetWarehouseId !== null) {
+        if ($this->targetWarehouseId !== null && $this->transferOnly) {
             $satelliteWarehouseIds = DB::connection('sakemaru')
                 ->table('item_contractors')
                 ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
