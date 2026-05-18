@@ -1229,6 +1229,7 @@ class PickingListPdfService
 
             $this->renderCourseGroupedHeader($data['header']);
             $this->renderCourseGroupedTable($data['items'] ?? [], $data['header']);
+            $this->renderCourseGroupedSummaryRow($data['summary'] ?? [], $data['header']);
             $this->renderCourseGroupedFooter();
         }
 
@@ -1472,6 +1473,63 @@ class PickingListPdfService
         $this->pdf->Cell($contentWidth - 4, 6, '摘要：', 0, 0, 'L');
 
         $this->currentY = $y + $boxH;
+    }
+
+    private function renderCourseGroupedSummaryRow(array $summary, array $header): void
+    {
+        if ($summary === []) {
+            return;
+        }
+
+        $widths = array_values(self::COURSE_GROUPED_COL_WIDTHS);
+        $tableWidth = array_sum($widths);
+        $margin = self::COURSE_GROUPED_MARGIN;
+        $rowH = 8;
+
+        if ($this->currentY + $rowH > self::PRIMARY_PAGE_HEIGHT - self::MARGIN_BOTTOM - 11) {
+            $this->pdf->AddPage();
+            $this->currentY = self::COURSE_GROUPED_MARGIN;
+            $this->renderCourseGroupedHeader($header);
+            $this->renderCourseGroupedTableHeader();
+        }
+
+        $x = $margin;
+        $y = $this->currentY;
+
+        $this->pdf->SetLineWidth(self::LINE_WIDTH);
+        $this->pdf->SetFillColor(245, 245, 245);
+        $this->pdf->Rect($margin, $y, $tableWidth, $rowH, 'F');
+
+        foreach ($widths as $w) {
+            $this->pdf->Line($x, $y, $x, $y + $rowH);
+            $x += $w;
+        }
+        $this->pdf->Line($x, $y, $x, $y + $rowH);
+        $this->pdf->Line($margin, $y, $margin + $tableWidth, $y);
+        $this->pdf->Line($margin, $y + $rowH, $margin + $tableWidth, $y + $rowH);
+
+        $values = [
+            '',
+            '',
+            '',
+            '合計',
+            '',
+            (string) ($summary['case_qty'] ?? 0),
+            (string) ($summary['piece_qty'] ?? 0),
+            (string) ($summary['total_pieces'] ?? 0),
+            '',
+        ];
+        $aligns = ['C', 'C', 'C', 'R', 'C', 'C', 'C', 'C', 'C'];
+
+        $this->pdf->SetFont('kozgopromedium', 'B', 11);
+        $colX = $margin;
+        foreach ($values as $i => $value) {
+            $this->pdf->SetXY($colX, $y);
+            $this->pdf->Cell($widths[$i], $rowH, $value, 0, 0, $aligns[$i]);
+            $colX += $widths[$i];
+        }
+
+        $this->currentY = $y + $rowH;
     }
 
     /**

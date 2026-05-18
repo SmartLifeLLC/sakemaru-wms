@@ -211,8 +211,9 @@ class WaveGroupGenerationService
         $earningsByKey = $earnings->groupBy(
             fn ($earning): string => Carbon::parse($earning->delivered_date)->format('Y-m-d').'|'.$earning->delivery_course_id
         );
+        $generationShippingDate = Carbon::parse($data['shipping_date'] ?? $this->latestShippingDate($shippingDates))->format('Y-m-d');
         $stockTransfersByKey = $stockTransfers->groupBy(
-            fn ($stockTransfer): string => Carbon::parse($stockTransfer->picking_date ?? $stockTransfer->delivered_date)->format('Y-m-d').'|'.$stockTransfer->delivery_course_id
+            fn ($stockTransfer): string => $generationShippingDate.'|'.$stockTransfer->delivery_course_id
         );
 
         $keys = $earningsByKey->keys()
@@ -332,8 +333,12 @@ class WaveGroupGenerationService
 
         $tradeItems = DB::connection('sakemaru')
             ->table('trade_items')
-            ->whereIn('trade_id', $tradeIds)
-            ->where('is_active', true)
+            ->join('trades as ti_trade', 'trade_items.trade_id', '=', 'ti_trade.id')
+            ->whereIn('trade_items.trade_id', $tradeIds)
+            ->where('trade_items.is_active', true)
+            ->orderBy('ti_trade.serial_id')
+            ->orderBy('trade_items.id')
+            ->select('trade_items.*')
             ->get();
 
         $tradeIdToEarningId = $earnings->pluck('id', 'trade_id')->toArray();
@@ -554,8 +559,12 @@ class WaveGroupGenerationService
         $tradeIdToStockTransferId = $stockTransfers->pluck('id', 'trade_id')->toArray();
         $tradeItems = DB::connection('sakemaru')
             ->table('trade_items')
-            ->whereIn('trade_id', $tradeIds)
-            ->where('is_active', true)
+            ->join('trades as ti_trade', 'trade_items.trade_id', '=', 'ti_trade.id')
+            ->whereIn('trade_items.trade_id', $tradeIds)
+            ->where('trade_items.is_active', true)
+            ->orderBy('ti_trade.serial_id')
+            ->orderBy('trade_items.id')
+            ->select('trade_items.*')
             ->get();
 
         $allocationService = new StockAllocationService;
