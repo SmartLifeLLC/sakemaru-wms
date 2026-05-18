@@ -46,70 +46,116 @@ class ProxyShipmentService
             ]);
         }
 
-        return DB::connection('sakemaru')->transaction(function () use (
-            $shortage,
-            $fromWarehouseId,
-            $assignQty,
-            $assignQtyType,
-            $createdBy
-        ) {
-            // 1. 倉庫単価と容器単価を取得
-            $quantityType = QuantityType::tryFrom($assignQtyType);
-            if (! $quantityType) {
-                throw new \Exception("Invalid quantity type: {$assignQtyType}");
-            }
+        $lockName = sprintf('wms_shortage_allocation:%s:%s', $shortage->id, $fromWarehouseId);
+        $lockAcquired = DB::connection('sakemaru')
+            ->selectOne('SELECT GET_LOCK(?, 10) AS acquired', [$lockName])?->acquired;
 
-            $prices = GetWarehousePriceForAllocation::execute(
-                itemId: $shortage->item_id,
-                sourceWarehouseId: $shortage->warehouse_id,  // 元倉庫ID（欠品発生倉庫）
-                quantityType: $quantityType
-            );
+        if ((int) $lockAcquired !== 1) {
+            throw new \RuntimeException("Could not acquire proxy shipment creation lock for shortage ID {$shortage->id}");
+        }
 
-            // 2. 販売単価を取得（trade_itemsから）
-            $tradeItem = DB::connection('sakemaru')
-                ->table('trade_items')
-                ->where('id', $shortage->trade_item_id)
-                ->first();
+        try {
+            return DB::connection('sakemaru')->transaction(function () use (
+                $shortage,
+                $fromWarehouseId,
+                $assignQty,
+                $assignQtyType,
+                $createdBy
+            ) {
+                // 1. 倉庫単価と容器単価を取得
+                $quantityType = QuantityType::tryFrom($assignQtyType);
+                if (! $quantityType) {
+                    throw new \Exception("Invalid quantity type: {$assignQtyType}");
+                }
 
-            $salePrice = $tradeItem?->price;
+                $prices = GetWarehousePriceForAllocation::execute(
+                    itemId: $shortage->item_id,
+                    sourceWarehouseId: $shortage->warehouse_id,  // 元倉庫ID（欠品発生倉庫）
+                    quantityType: $quantityType
+                );
 
-            // 3. 横持ち出荷指示レコード作成（受注単位ベース）
-            $allocation = WmsShortageAllocation::create([
-                'shortage_id' => $shortage->id,
-                'shipment_date' => $shortage->shipment_date,  // 親のshipment_dateを引き継ぐ
-                'delivery_course_id' => $shortage->delivery_course_id,  // 親のdelivery_course_idを引き継ぐ
-                'target_warehouse_id' => $fromWarehouseId,  // 出荷元倉庫（横持ち出荷倉庫）
-                'source_warehouse_id' => $shortage->warehouse_id,  // 元倉庫ID（欠品発生倉庫）
-                'assign_qty' => $assignQty,
-                'assign_qty_type' => $assignQtyType,
-                'purchase_price' => $prices['purchase_price'],
-                'tax_exempt_price' => $prices['tax_exempt_price'],
-                'price' => $salePrice,
-                'status' => WmsShortageAllocation::STATUS_PENDING,
-                'is_confirmed' => false,
-                'created_by' => $createdBy,
-            ]);
+                // 2. 販売単価を取得（trade_itemsから）
+                $tradeItem = DB::connection('sakemaru')
+                    ->table('trade_items')
+                    ->where('id', $shortage->trade_item_id)
+                    ->first();
 
-            // 4. 欠品ステータスを REALLOCATING に更新し、更新者を記録
-            $shortage->update([
-                'status' => WmsShortage::STATUS_REALLOCATING,
-                'updater_id' => $createdBy,
-            ]);
+                $salePrice = $tradeItem?->price;
 
-            Log::info('Proxy shipment created', [
-                'allocation_id' => $allocation->id,
-                'shortage_id' => $shortage->id,
-                'target_warehouse_id' => $fromWarehouseId,
-                'source_warehouse_id' => $shortage->warehouse_id,
-                'assign_qty' => $assignQty,
-                'assign_qty_type' => $assignQtyType,
-                'purchase_price' => $prices['purchase_price'],
-                'tax_exempt_price' => $prices['tax_exempt_price'],
-                'price' => $salePrice,
-            ]);
+                $existingAllocation = WmsShortageAllocation::where('shortage_id', $shortage->id)
+                    ->where('target_warehouse_id', $fromWarehouseId)
+                    ->whereIn('status', [
+                        WmsShortageAllocation::STATUS_PENDING,
+                        WmsShortageAllocation::STATUS_RESERVED,
+                    ])
+                    ->lockForUpdate()
+                    ->first();
 
-            return $allocation;
-        });
+                if ($existingAllocation) {
+                    $existingAllocation->update([
+                        'assign_qty' => $assignQty,
+                        'assign_qty_type' => $assignQtyType,
+                        'purchase_price' => $prices['purchase_price'],
+                        'tax_exempt_price' => $prices['tax_exempt_price'],
+                        'price' => $salePrice,
+                    ]);
+
+                    $shortage->update([
+                        'status' => WmsShortage::STATUS_REALLOCATING,
+                        'updater_id' => $createdBy,
+                    ]);
+
+                    Log::info('Existing proxy shipment updated during creation', [
+                        'allocation_id' => $existingAllocation->id,
+                        'shortage_id' => $shortage->id,
+                        'target_warehouse_id' => $fromWarehouseId,
+                        'assign_qty' => $assignQty,
+                        'assign_qty_type' => $assignQtyType,
+                    ]);
+
+                    return $existingAllocation;
+                }
+
+                // 3. 横持ち出荷指示レコード作成（受注単位ベース）
+                $allocation = WmsShortageAllocation::create([
+                    'shortage_id' => $shortage->id,
+                    'shipment_date' => $shortage->shipment_date,  // 親のshipment_dateを引き継ぐ
+                    'delivery_course_id' => $shortage->delivery_course_id,  // 親のdelivery_course_idを引き継ぐ
+                    'target_warehouse_id' => $fromWarehouseId,  // 出荷元倉庫（横持ち出荷倉庫）
+                    'source_warehouse_id' => $shortage->warehouse_id,  // 元倉庫ID（欠品発生倉庫）
+                    'assign_qty' => $assignQty,
+                    'assign_qty_type' => $assignQtyType,
+                    'purchase_price' => $prices['purchase_price'],
+                    'tax_exempt_price' => $prices['tax_exempt_price'],
+                    'price' => $salePrice,
+                    'status' => WmsShortageAllocation::STATUS_PENDING,
+                    'is_confirmed' => false,
+                    'created_by' => $createdBy,
+                ]);
+
+                // 4. 欠品ステータスを REALLOCATING に更新し、更新者を記録
+                $shortage->update([
+                    'status' => WmsShortage::STATUS_REALLOCATING,
+                    'updater_id' => $createdBy,
+                ]);
+
+                Log::info('Proxy shipment created', [
+                    'allocation_id' => $allocation->id,
+                    'shortage_id' => $shortage->id,
+                    'target_warehouse_id' => $fromWarehouseId,
+                    'source_warehouse_id' => $shortage->warehouse_id,
+                    'assign_qty' => $assignQty,
+                    'assign_qty_type' => $assignQtyType,
+                    'purchase_price' => $prices['purchase_price'],
+                    'tax_exempt_price' => $prices['tax_exempt_price'],
+                    'price' => $salePrice,
+                ]);
+
+                return $allocation;
+            });
+        } finally {
+            DB::connection('sakemaru')->selectOne('SELECT RELEASE_LOCK(?) AS released', [$lockName]);
+        }
     }
 
     /**
