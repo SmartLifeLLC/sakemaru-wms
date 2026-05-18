@@ -1072,8 +1072,9 @@ class ListWaves extends ListRecords
         $earningsByShippingDateAndDeliveryCourse = $earnings->groupBy(
             fn ($earning): string => \Carbon\Carbon::parse($earning->delivered_date)->format('Y-m-d').'|'.$earning->delivery_course_id
         );
+        $generationShippingDate = \Carbon\Carbon::parse($data['shipping_date'] ?? $this->latestShippingDate($shippingDates))->format('Y-m-d');
         $stockTransfersByShippingDateAndDeliveryCourse = $stockTransfers->groupBy(
-            fn ($stockTransfer): string => \Carbon\Carbon::parse($stockTransfer->picking_date ?? $stockTransfer->delivered_date)->format('Y-m-d').'|'.$stockTransfer->delivery_course_id
+            fn ($stockTransfer): string => $generationShippingDate.'|'.$stockTransfer->delivery_course_id
         );
 
         $shippingDateAndDeliveryCourseKeys = $earningsByShippingDateAndDeliveryCourse->keys()
@@ -1484,6 +1485,7 @@ class ListWaves extends ListRecords
         $tradeItems = DB::connection('sakemaru')
             ->table('trade_items as ti')
             ->join('items as i', 'ti.item_id', '=', 'i.id')
+            ->join('trades as ti_trade', 'ti.trade_id', '=', 'ti_trade.id')
             ->leftJoin('srh_searchable_items as ssi', 'ssi.item_id', '=', 'i.id')
             ->whereIn('ti.trade_id', array_keys($sourcesByTradeId))
             ->where('ti.is_active', true)
@@ -1499,6 +1501,8 @@ class ListWaves extends ListRecords
                 'i.packaging',
                 'ssi.jancode as jan_code',
             ])
+            ->orderBy('ti_trade.serial_id')
+            ->orderBy('ti.id')
             ->get();
 
         $rows = collect();
