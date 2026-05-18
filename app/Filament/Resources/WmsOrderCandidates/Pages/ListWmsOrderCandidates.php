@@ -1115,7 +1115,6 @@ class ListWmsOrderCandidates extends ListRecords
                 COALESCE(item_contractors.purchase_unit, 1) as purchase_unit
             ')
             ->orderBy('items.code')
-            ->limit(200)
             ->get()
             ->map(fn ($row) => [
                 'warehouse_id' => (int) $row->warehouse_id,
