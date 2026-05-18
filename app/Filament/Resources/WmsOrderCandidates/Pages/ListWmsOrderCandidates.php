@@ -1473,18 +1473,9 @@ class ListWmsOrderCandidates extends ListRecords
             ->pluck('warehouse_id')
             ->toArray();
 
-        $satelliteWarehouseIds = DB::connection('sakemaru')
-            ->table('item_contractors')
-            ->join('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'item_contractors.contractor_id')
-            ->where('wcs.transmission_type', TransmissionType::INTERNAL->value)
-            ->where('wcs.supply_warehouse_id', $warehouseId)
-            ->pluck('item_contractors.warehouse_id')
-            ->unique()
-            ->toArray();
-
         return array_values(array_intersect(
             $enabledWarehouseIds,
-            array_values(array_unique(array_merge([$warehouseId], $satelliteWarehouseIds))),
+            [$warehouseId],
         ));
     }
 
