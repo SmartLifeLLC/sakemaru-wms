@@ -1243,6 +1243,11 @@ class PickingListService
                     'slip_count' => count($bucket['_source_ids']),
                 ]),
                 'items' => $items,
+                'summary' => [
+                    'case_qty' => array_sum(array_column($items, 'case_qty')),
+                    'piece_qty' => array_sum(array_column($items, 'piece_qty')),
+                    'total_pieces' => array_sum(array_column($items, 'total_pieces')),
+                ],
             ];
         }
 
