@@ -759,6 +759,7 @@ class ListWmsStockTransferCandidates extends ListRecords
 
         $days = max(1, \Carbon\Carbon::parse($startDate)->diffInDays(\Carbon\Carbon::parse($endDate)) + 1);
         $this->salesBasedTransferPreviewConditions = [
+            'expected_arrival_date' => now()->addDay()->toDateString(),
             'sales_start_date' => $startDate,
             'sales_end_date' => $endDate,
             'selected_warehouse_name' => $selectedWarehouse?->name ?? '未選択',
@@ -934,6 +935,15 @@ class ListWmsStockTransferCandidates extends ListRecords
             ->toArray();
     }
 
+    public function updateSalesBasedTransferPreviewExpectedArrivalDate(?string $date): void
+    {
+        try {
+            $this->salesBasedTransferPreviewConditions['expected_arrival_date'] = \Carbon\Carbon::parse($date)->toDateString();
+        } catch (\Throwable) {
+            $this->salesBasedTransferPreviewConditions['expected_arrival_date'] = now()->addDay()->toDateString();
+        }
+    }
+
     public function createSalesBasedTransferPreviewCandidates(): void
     {
         $userId = auth()->id();
@@ -988,7 +998,18 @@ class ListWmsStockTransferCandidates extends ListRecords
         $skipped = 0;
         $blankSkipped = 0;
         $now = now();
-        $expectedArrivalDate = $now->copy()->addDay()->toDateString();
+        try {
+            $expectedArrivalDate = \Carbon\Carbon::parse(
+                $this->salesBasedTransferPreviewConditions['expected_arrival_date'] ?? $now->copy()->addDay()->toDateString()
+            )->toDateString();
+        } catch (\Throwable) {
+            Notification::make()
+                ->title('入荷予定日を正しく指定してください')
+                ->danger()
+                ->send();
+
+            return;
+        }
 
         DB::connection('sakemaru')->transaction(function () use ($batchCode, $now, $expectedArrivalDate, $userId, &$created, &$updated, &$skipped, &$blankSkipped): void {
             foreach ($this->salesBasedTransferPreviewRows as $row) {

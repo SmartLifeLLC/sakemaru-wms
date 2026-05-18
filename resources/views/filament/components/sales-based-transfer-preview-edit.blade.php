@@ -8,11 +8,137 @@
     x-data="{
         rows: @js($rows),
         conditions: @js($conditions),
+        expectedArrivalDate: @js($conditions['expected_arrival_date'] ?? now()->addDay()->toDateString()),
+        expectedArrivalDisplayValue: '',
+        expectedArrivalPreviousValue: '',
         formatNumber(value) {
             return new Intl.NumberFormat('ja-JP').format(Number(value || 0));
         },
         conditionValue(key) {
             return this.conditions[key] || '-';
+        },
+        hoveredItemName: null,
+        itemNameTooltipX: 0,
+        itemNameTooltipY: 0,
+        updateItemNameTooltipPosition(event) {
+            const padding = 16;
+            this.itemNameTooltipX = Math.min(event.clientX + 14, window.innerWidth - 620 - padding);
+            this.itemNameTooltipY = Math.min(event.clientY + 14, window.innerHeight - 160 - padding);
+        },
+        showItemNameTooltip(event, name) {
+            this.hoveredItemName = name || null;
+            this.updateItemNameTooltipPosition(event);
+        },
+        syncExpectedArrivalDate() {
+            this.conditions.expected_arrival_date = this.expectedArrivalDate;
+            $wire.updateSalesBasedTransferPreviewExpectedArrivalDate(this.expectedArrivalDate);
+        },
+        initExpectedArrivalDate() {
+            this.expectedArrivalDisplayValue = this.expectedArrivalDate || '';
+            this.expectedArrivalPreviousValue = this.expectedArrivalDate || '';
+        },
+        cleanExpectedArrivalDate() {
+            if (!this.expectedArrivalDisplayValue) return;
+
+            let value = this.expectedArrivalDisplayValue;
+            value = value.replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0));
+            value = value.replace(/[^0-9\-\/]/g, '');
+            this.expectedArrivalDisplayValue = value;
+        },
+        formatExpectedArrivalDate() {
+            this.cleanExpectedArrivalDate();
+
+            const input = (this.expectedArrivalDisplayValue || '').trim();
+            if (!input) {
+                this.setExpectedArrivalDate(null);
+                return;
+            }
+
+            const fullDateMatch = input.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+            if (fullDateMatch) {
+                this.applyExpectedArrivalDate(
+                    parseInt(fullDateMatch[1], 10),
+                    parseInt(fullDateMatch[2], 10),
+                    parseInt(fullDateMatch[3], 10),
+                );
+                return;
+            }
+
+            const digits = input.replace(/\D/g, '');
+            if (digits.length === 0) return;
+
+            const now = new Date();
+            let year = now.getFullYear();
+            let month = now.getMonth() + 1;
+            let day = now.getDate();
+
+            if (digits.length === 1 || digits.length === 2) {
+                day = parseInt(digits, 10);
+            } else if (digits.length === 3) {
+                month = parseInt(digits.substring(0, 1), 10);
+                day = parseInt(digits.substring(1, 3), 10);
+            } else if (digits.length === 4) {
+                month = parseInt(digits.substring(0, 2), 10);
+                day = parseInt(digits.substring(2, 4), 10);
+            } else if (digits.length === 6) {
+                year = 2000 + parseInt(digits.substring(0, 2), 10);
+                month = parseInt(digits.substring(2, 4), 10);
+                day = parseInt(digits.substring(4, 6), 10);
+            } else if (digits.length === 8) {
+                year = parseInt(digits.substring(0, 4), 10);
+                month = parseInt(digits.substring(4, 6), 10);
+                day = parseInt(digits.substring(6, 8), 10);
+            } else {
+                this.restoreExpectedArrivalDate();
+                return;
+            }
+
+            this.applyExpectedArrivalDate(year, month, day);
+        },
+        applyExpectedArrivalDate(year, month, day) {
+            const parsed = new Date(year, month - 1, day);
+
+            if (
+                parsed.getFullYear() !== year ||
+                parsed.getMonth() !== month - 1 ||
+                parsed.getDate() !== day
+            ) {
+                this.restoreExpectedArrivalDate();
+                return;
+            }
+
+            const formatted = [
+                parsed.getFullYear(),
+                String(parsed.getMonth() + 1).padStart(2, '0'),
+                String(parsed.getDate()).padStart(2, '0'),
+            ].join('-');
+
+            this.setExpectedArrivalDate(formatted);
+        },
+        setExpectedArrivalDate(value) {
+            this.expectedArrivalDate = value || '';
+            this.expectedArrivalDisplayValue = value || '';
+            this.expectedArrivalPreviousValue = value || '';
+            this.syncExpectedArrivalDate();
+        },
+        restoreExpectedArrivalDate() {
+            this.expectedArrivalDisplayValue = this.expectedArrivalPreviousValue || '';
+        },
+        syncExpectedArrivalDateFromPicker(event) {
+            this.setExpectedArrivalDate(event.target.value || null);
+        },
+        openExpectedArrivalDatePicker() {
+            const picker = this.$refs.expectedArrivalDatePicker;
+            if (!picker) return;
+
+            picker.value = this.expectedArrivalDate || '';
+
+            if (typeof picker.showPicker === 'function') {
+                picker.showPicker();
+                return;
+            }
+
+            picker.click();
         },
         sync() {
             $wire.updateSalesBasedTransferPreviewRows(this.rows);
@@ -39,11 +165,54 @@
             });
         },
     }"
-    x-init="sync()"
+    x-init="initExpectedArrivalDate(); sync()"
     class="space-y-3"
 >
+    <div
+        x-cloak
+        x-show="hoveredItemName"
+        x-transition.opacity.duration.100ms
+        class="pointer-events-none fixed z-[9999] max-w-[620px] whitespace-normal rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold leading-6 text-slate-900 shadow-xl ring-1 ring-black/5 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+        x-bind:style="`left: ${Math.max(16, itemNameTooltipX)}px; top: ${Math.max(16, itemNameTooltipY)}px;`"
+        x-text="hoveredItemName"
+    ></div>
+
     <div class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label class="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <span class="whitespace-nowrap">入荷予定日:</span>
+                <span class="relative block w-56">
+                    <input
+                        type="text"
+                        inputmode="numeric"
+                        x-model="expectedArrivalDisplayValue"
+                        x-on:focus="$event.target.select()"
+                        x-on:input="cleanExpectedArrivalDate()"
+                        x-on:blur="formatExpectedArrivalDate()"
+                        x-on:keyup.enter.prevent="formatExpectedArrivalDate()"
+                        placeholder="YYYY-MM-DD または 数字"
+                        class="w-full rounded-md border-2 border-blue-400 bg-white py-1.5 pl-3 pr-9 text-base font-semibold text-slate-900 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-blue-700 dark:bg-slate-950 dark:text-white dark:focus:border-blue-500 dark:focus:ring-blue-900"
+                    >
+                    <button
+                        type="button"
+                        x-on:click="openExpectedArrivalDatePicker()"
+                        class="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-slate-400 transition hover:text-blue-600 focus:outline-none dark:text-slate-500 dark:hover:text-blue-400"
+                        tabindex="-1"
+                        aria-label="カレンダーを開く"
+                    >
+                        <x-filament::icon icon="heroicon-m-calendar" class="h-5 w-5" />
+                    </button>
+                    <input
+                        type="date"
+                        x-ref="expectedArrivalDatePicker"
+                        x-bind:value="expectedArrivalDate || ''"
+                        x-on:change="syncExpectedArrivalDateFromPicker($event)"
+                        class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0"
+                        tabindex="-1"
+                        aria-hidden="true"
+                    >
+                </span>
+            </label>
             <span>
                 選択期間:
                 <span class="font-mono font-semibold" x-text="conditionValue('sales_start_date')"></span>
@@ -81,7 +250,7 @@
     </div>
 
     <div x-show="rows.length > 0">
-        <div class="max-h-[65vh] overflow-auto rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div class="max-h-[58vh] overflow-auto rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <table class="logistics-candidate-table min-w-full divide-y divide-slate-200 text-xs dark:divide-slate-700">
                 <colgroup>
                     <col class="logistics-candidate-delete-col" style="width: 28px !important;">
@@ -137,7 +306,18 @@
                             </td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-700 dark:text-slate-200" x-text="row.contractor_name"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="row.item_code"></td>
-                            <td class="logistics-candidate-item-name px-2 py-1.5 font-medium text-slate-900 dark:text-white" style="width: 500px !important; min-width: 500px !important; max-width: 500px !important;" x-text="row.item_name"></td>
+                            <td
+                                class="logistics-candidate-item-name px-2 py-1.5 font-medium text-slate-900 dark:text-white"
+                                style="width: 500px !important; min-width: 500px !important; max-width: 500px !important;"
+                            >
+                                <span
+                                    class="block cursor-help truncate"
+                                    x-text="row.item_name"
+                                    x-on:mouseenter="showItemNameTooltip($event, row.item_name)"
+                                    x-on:mousemove="updateItemNameTooltipPosition($event)"
+                                    x-on:mouseleave="hoveredItemName = null"
+                                ></span>
+                            </td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="row.item_packaging || '-'"></td>
                             <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-right dark:border-slate-600 dark:bg-amber-950/30">
                                 <input
