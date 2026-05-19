@@ -113,6 +113,9 @@ class WmsIncomingCompletedTable
                     ->state(function ($record) {
                         $qty = $record->expected_quantity ?? 0;
                         $capacity = $record->item?->capacity_case;
+                        if ($record->quantity_type === QuantityType::CASE) {
+                            return $qty;
+                        }
                         if (! $capacity || $capacity <= 1) {
                             return 0;
                         }
@@ -127,6 +130,9 @@ class WmsIncomingCompletedTable
                     ->label('バラ')
                     ->state(function ($record) {
                         $qty = $record->expected_quantity ?? 0;
+                        if ($record->quantity_type === QuantityType::CASE) {
+                            return 0;
+                        }
                         $capacity = $record->item?->capacity_case;
                         if (! $capacity || $capacity <= 1) {
                             return $qty;
@@ -528,6 +534,7 @@ class WmsIncomingCompletedTable
                                     'confirmedByPickerName' => $record->confirmedByPicker?->name ?? '-',
                                     'locationText' => $locationText,
                                     'expectedQuantity' => $record->expected_quantity ?? 0,
+                                    'quantityType' => $record->quantity_type?->value,
                                     'receivedQuantity' => $record->received_quantity ?? 0,
                                     'remainingQuantity' => $record->remaining_quantity ?? 0,
                                     'status' => $record->status->label(),
