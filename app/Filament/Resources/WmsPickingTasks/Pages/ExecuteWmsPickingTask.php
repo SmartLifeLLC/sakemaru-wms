@@ -2,7 +2,12 @@
 
 namespace App\Filament\Resources\WmsPickingTasks\Pages;
 
+use App\Enums\EWMSLogOperationType;
+use App\Enums\EWMSLogTargetType;
+use App\Enums\QuantityType;
 use App\Filament\Resources\WmsPickingTasks\WmsPickingTaskResource;
+use App\Models\WmsAdminOperationLog;
+use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
 use App\Services\QuantityUpdate\QuantityUpdateQueueService;
@@ -67,8 +72,10 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 'ordered_qty' => (int) $item->ordered_qty,
                 'ordered_qty_type_display' => $item->ordered_qty_type_display,
                 'planned_qty' => (int) $item->planned_qty,
+                'planned_qty_type' => $item->planned_qty_type,
                 'planned_qty_type_display' => $item->planned_qty_type_display,
                 'picked_qty' => (int) $item->picked_qty,
+                'picked_qty_type' => $item->picked_qty_type,
                 'picked_qty_type_display' => $item->picked_qty_type_display,
                 'shortage_qty' => (int) $item->shortage_qty,
                 'status' => $item->status,
@@ -129,6 +136,45 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     ->send();
 
                 return;
+            }
+
+            if ($field === 'planned_qty' && $this->canAdjustPlannedQuantity()) {
+                $newPlannedQty = max(0, (int) $value);
+
+                if ($this->quantityAsPieces($newPlannedQty, $item->planned_qty_type, $item) > $this->quantityAsPieces((int) $item->ordered_qty, $item->ordered_qty_type, $item)) {
+                    Notification::make()
+                        ->title('エラー')
+                        ->body('引当数は受注数量を超えることはできません')
+                        ->danger()
+                        ->send();
+
+                    return;
+                }
+
+                $oldPlannedQty = (int) $item->planned_qty;
+                if ($oldPlannedQty === $newPlannedQty) {
+                    return;
+                }
+
+                $shortageQty = max(0, $newPlannedQty - (int) $item->picked_qty);
+
+                $item->update([
+                    'planned_qty' => $newPlannedQty,
+                    'shortage_qty' => $shortageQty,
+                    'status' => $shortageQty > 0 ? 'SHORTAGE' : 'COMPLETED',
+                    'updated_at' => now(),
+                ]);
+
+                $freshItem = $item->fresh(['item', 'pickingTask']);
+                $this->syncShortageAfterPickingCorrection($freshItem);
+                $this->logQuantityChange(
+                    $freshItem,
+                    $oldPlannedQty,
+                    $newPlannedQty,
+                    $item->planned_qty_type,
+                    $item->planned_qty_type,
+                    'ピッキング実行画面で引当数を更新'
+                );
             }
 
             // ピック数量更新（picked_qtyのみ受け付ける）
@@ -405,13 +451,25 @@ class ExecuteWmsPickingTask extends Page implements HasForms
 
                 $pickedQty = (int) ($input['picked_qty'] ?? 0);
                 $pickedQty = max($pickedQty, 0);
+
+                $plannedQty = (int) $item->planned_qty;
+                if ($this->canAdjustPlannedQuantity()) {
+                    $plannedQty = max(0, (int) ($input['planned_qty'] ?? $item->planned_qty));
+
+                    if ($this->quantityAsPieces($plannedQty, $item->planned_qty_type, $item) > $this->quantityAsPieces((int) $item->ordered_qty, $item->ordered_qty_type, $item)) {
+                        throw new \RuntimeException("ID {$item->id}: 引当数は受注数量を超えることはできません");
+                    }
+                }
+
                 if (! $this->allowsOverPickedQuantity()) {
-                    $maxQty = max((int) $item->ordered_qty, (int) $item->planned_qty);
+                    $maxQty = max((int) $item->ordered_qty, $plannedQty);
                     $pickedQty = min($pickedQty, $maxQty);
                 }
-                $shortageQty = max(0, (int) $item->planned_qty - $pickedQty);
+                $shortageQty = max(0, $plannedQty - $pickedQty);
+                $oldPlannedQty = (int) $item->planned_qty;
 
                 $item->update([
+                    'planned_qty' => $plannedQty,
                     'picked_qty' => $pickedQty,
                     'shortage_qty' => $shortageQty,
                     'status' => $shortageQty > 0 ? 'SHORTAGE' : 'COMPLETED',
@@ -420,6 +478,18 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                 ]);
 
                 $this->syncShortageAfterPickingCorrection($item->fresh());
+
+                $freshItem = $item->fresh(['pickingTask']);
+                if ($oldPlannedQty !== $plannedQty) {
+                    $this->logQuantityChange(
+                        $freshItem,
+                        $oldPlannedQty,
+                        $plannedQty,
+                        $item->planned_qty_type,
+                        $item->planned_qty_type,
+                        'ピッキング完了時に引当数を更新'
+                    );
+                }
             });
     }
 
@@ -480,9 +550,58 @@ class ExecuteWmsPickingTask extends Page implements HasForms
         return false;
     }
 
+    protected function canAdjustPlannedQuantity(): bool
+    {
+        return false;
+    }
+
     public function canOverPick(): bool
     {
         return $this->allowsOverPickedQuantity();
+    }
+
+    public function canAdjustPlannedQty(): bool
+    {
+        return $this->canAdjustPlannedQuantity();
+    }
+
+    private function quantityAsPieces(int $quantity, ?string $quantityType, WmsPickingItemResult $item): int
+    {
+        $type = QuantityType::tryFrom((string) $quantityType) ?? QuantityType::PIECE;
+        $capacity = $item->item?->capacityOfQuantityType($type);
+
+        return $quantity * max(1, (int) ($capacity ?? 1));
+    }
+
+    private function logQuantityChange(
+        WmsPickingItemResult $item,
+        int $qtyBefore,
+        int $qtyAfter,
+        ?string $typeBefore,
+        ?string $typeAfter,
+        string $note
+    ): void {
+        WmsAdminOperationLog::log(
+            EWMSLogOperationType::ADJUST_PICKING_QTY,
+            [
+                'target_type' => EWMSLogTargetType::PICKING_ITEM,
+                'target_id' => $item->id,
+                'picking_task_id' => $item->picking_task_id,
+                'picking_item_result_id' => $item->id,
+                'wave_id' => $item->pickingTask?->wave_id,
+                'earning_id' => $item->earning_id,
+                'qty_before' => $qtyBefore,
+                'qty_after' => $qtyAfter,
+                'qty_type' => $typeAfter,
+                'operation_details' => [
+                    'qty_type_before' => $typeBefore,
+                    'qty_type_after' => $typeAfter,
+                    'source_type' => $item->source_type,
+                    'stock_transfer_id' => $item->stock_transfer_id,
+                ],
+                'operation_note' => $note,
+            ]
+        );
     }
 
     protected function getBackUrl(): string
