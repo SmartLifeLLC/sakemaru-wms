@@ -554,6 +554,7 @@ class WmsOrderIncomingSchedulesTable
                                     'confirmedByName' => $record->confirmedByUser?->name ?? '-',
                                     'locationText' => $locationText,
                                     'expectedQuantity' => $record->expected_quantity ?? 0,
+                                    'quantityType' => $record->quantity_type?->value,
                                     'receivedQuantity' => $record->received_quantity ?? 0,
                                     'remainingQuantity' => $record->remaining_quantity ?? 0,
                                     'status' => $record->status->label(),
@@ -591,17 +592,20 @@ class WmsOrderIncomingSchedulesTable
                             $capacity = $item?->capacity_case;
                             $expectedQty = $record->expected_quantity ?? 0;
                             $remaining = $record->remaining_quantity;
-                            if ($capacity && $capacity > 1) {
+                            if ($record->quantity_type === QuantityType::CASE) {
+                                $totalPieces = ($capacity && $capacity > 0) ? $expectedQty * $capacity : $expectedQty;
+                                $helperText = "残{$remaining}ケース ｜ {$expectedQty}ケース x {$capacity}(入数) ＝ {$totalPieces}バラ";
+                            } elseif ($capacity && $capacity > 1) {
                                 $caseCount = (int) ($expectedQty / $capacity);
                                 $looseCount = $expectedQty % $capacity;
-                                $helperText = "残{$remaining} ｜ {$caseCount}CS x {$capacity}(入数)＋{$looseCount} ＝ {$expectedQty}";
+                                $helperText = "残{$remaining}バラ ｜ {$caseCount}ケース x {$capacity}(入数)＋{$looseCount}バラ ＝ {$expectedQty}バラ";
                             } else {
-                                $helperText = "残{$remaining} ｜ 総バラ {$expectedQty}";
+                                $helperText = "残{$remaining}バラ ｜ 総バラ {$expectedQty}";
                             }
 
                             $schema[] = Grid::make(4)->schema([
                                 TextInput::make('received_quantity')
-                                    ->label('入荷数量（総バラ）')
+                                    ->label($record->quantity_type === QuantityType::CASE ? '入荷数量（ケース）' : '入荷数量（バラ）')
                                     ->numeric()
                                     ->required()
                                     ->default($record->remaining_quantity)

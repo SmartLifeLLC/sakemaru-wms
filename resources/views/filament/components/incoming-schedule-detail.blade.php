@@ -90,8 +90,20 @@
             {{-- 数量カード --}}
             @php
                 $capacityCase = $capacityCase ?? 0;
-                $orderCases = ($capacityCase > 1) ? (int)($expectedQuantity / $capacityCase) : 0;
-                $orderLoose = ($capacityCase > 1) ? $expectedQuantity % $capacityCase : $expectedQuantity;
+                $quantityType = $quantityType ?? null;
+                $orderCases = 0;
+                $orderLoose = 0;
+                $totalPieces = $expectedQuantity;
+
+                if ($quantityType === 'CASE') {
+                    $orderCases = $expectedQuantity;
+                    $totalPieces = $capacityCase > 0 ? $expectedQuantity * $capacityCase : $expectedQuantity;
+                } elseif ($capacityCase > 1) {
+                    $orderCases = (int) ($expectedQuantity / $capacityCase);
+                    $orderLoose = $expectedQuantity % $capacityCase;
+                } else {
+                    $orderLoose = $expectedQuantity;
+                }
             @endphp
             <div class="grid grid-cols-4 gap-2">
                 <div class="text-center bg-gray-50 dark:bg-white/5 rounded-lg py-2 px-1">
@@ -104,7 +116,7 @@
                 </div>
                 <div class="text-center bg-gray-50 dark:bg-white/5 rounded-lg py-2 px-1">
                     <div class="text-xs text-gray-500 dark:text-gray-400">総バラ数</div>
-                    <div class="text-lg font-bold text-gray-900 dark:text-white">{{ number_format($expectedQuantity) }}</div>
+                    <div class="text-lg font-bold text-gray-900 dark:text-white">{{ number_format($totalPieces) }}</div>
                 </div>
                 <div class="text-center rounded-lg py-2 px-1 {{ $receivedQuantity > 0 ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-gray-50 dark:bg-white/5' }}">
                     <div class="text-xs {{ $receivedQuantity > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400' }}">総入荷済</div>
