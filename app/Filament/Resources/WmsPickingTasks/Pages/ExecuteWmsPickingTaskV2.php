@@ -15,6 +15,11 @@ class ExecuteWmsPickingTaskV2 extends ExecuteWmsPickingTask
         return true;
     }
 
+    protected function canAdjustPlannedQuantity(): bool
+    {
+        return true;
+    }
+
     protected function getBackUrl(): string
     {
         return WmsPickingWaitingV2Resource::getUrl('index');

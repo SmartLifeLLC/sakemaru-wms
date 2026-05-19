@@ -179,8 +179,10 @@
                     <tbody x-ref="tbody" class="divide-y divide-gray-200 dark:divide-gray-700">
                         @foreach($items as $item)
                         <tr x-data="{
+                            plannedQty: {{ (int) $item['planned_qty'] }},
                             pickedQty: {{ (int) $item['picked_qty'] }},
-                            get pickShortage() { return Math.max(0, {{ (int) $item['planned_qty'] }} - (parseInt(this.pickedQty) || 0)); }
+                            get allocationShortage() { return Math.max(0, {{ (int) $item['ordered_qty'] }} - (parseInt(this.plannedQty) || 0)); },
+                            get pickShortage() { return Math.max(0, (parseInt(this.plannedQty) || 0) - (parseInt(this.pickedQty) || 0)); }
                         }" class="hover:!bg-gray-100 dark:hover:!bg-gray-700"
                             data-clientcode="{{ $item['client_code'] }}"
                             data-clientname="{{ $item['client_name'] }}"
@@ -218,14 +220,29 @@
                             <td class="px-3 py-2 whitespace-nowrap text-xs text-center text-gray-900 dark:text-gray-100">
                                 {{ $item['ordered_qty'] }}
                             </td>
-                            <td class="px-3 py-2 whitespace-nowrap text-xs text-center text-gray-900 dark:text-gray-100">
-                                {{ $item['planned_qty'] }}
+                            <td class="px-3 py-2 whitespace-nowrap text-xs text-center">
+                                @if($this->canAdjustPlannedQty())
+                                    <input
+                                        type="number"
+                                        wire:model="items.{{ $loop->index }}.planned_qty"
+                                        wire:change="updateItem({{ (int) $item['id'] }}, 'planned_qty', $event.target.value)"
+                                        x-on:input="let v = parseInt($event.target.value.replace(/[^0-9]/g, '')) || 0; $event.target.value = v; plannedQty = v"
+                                        min="0"
+                                        step="1"
+                                        inputmode="numeric"
+                                        pattern="[0-9]*"
+                                        data-planned-qty
+                                        class="w-16 text-center text-xs border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 border focus:border-primary-500 focus:ring-primary-500"
+                                    >
+                                @else
+                                    <span class="text-gray-900 dark:text-gray-100">{{ $item['planned_qty'] }}</span>
+                                @endif
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap text-xs text-center">
                                 <input
                                     type="number"
                                     wire:model="items.{{ $loop->index }}.picked_qty"
-                                    x-on:input="let v = parseInt($event.target.value.replace(/[^0-9]/g, '')) || 0; @unless($this->canOverPick()) v = Math.min(v, {{ (int) $item['planned_qty'] }}); @endunless $event.target.value = v; pickedQty = v"
+                                    x-on:input="let v = parseInt($event.target.value.replace(/[^0-9]/g, '')) || 0; @unless($this->canOverPick()) v = Math.min(v, parseInt(plannedQty) || 0); @endunless $event.target.value = v; pickedQty = v"
                                     min="0"
                                     @unless($this->canOverPick())
                                     max="{{ (int) $item['planned_qty'] }}"
@@ -233,16 +250,13 @@
                                     step="1"
                                     inputmode="numeric"
                                     pattern="[0-9]*"
+                                    data-picked-qty
                                     class="w-16 text-center text-xs border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 border focus:border-primary-500 focus:ring-primary-500"
                                 >
                             </td>
-                            @php
-                                $allocationShortage = max(0, $item['ordered_qty'] - $item['planned_qty']);
-                            @endphp
                             <td class="px-3 py-2 whitespace-nowrap text-xs text-center">
-                                <span class="@if($allocationShortage > 0) font-semibold text-orange-600 dark:text-orange-400 @else text-gray-400 dark:text-gray-500 @endif">
-                                    {{ $allocationShortage > 0 ? $allocationShortage : '-' }}
-                                </span>
+                                <span :class="allocationShortage > 0 ? 'font-semibold text-orange-600 dark:text-orange-400' : 'text-gray-400 dark:text-gray-500'"
+                                      x-text="allocationShortage > 0 ? allocationShortage : '-'"></span>
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap text-xs text-center">
                                 <span :class="pickShortage > 0 ? 'font-semibold text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'"
@@ -286,7 +300,7 @@
             Livewire.hook('commit', ({ component, commit, respond, succeed, fail }) => {
                 succeed(({ snapshot, effect }) => {
                     setTimeout(() => {
-                        const inputs = document.querySelectorAll('input[type="number"]:not([readonly])');
+                        const inputs = document.querySelectorAll('input[data-picked-qty]:not([readonly])');
                         if (inputs.length > 0 && !document.activeElement.matches('input[type="number"]')) {
                             inputs[0].focus();
                         }
@@ -296,16 +310,16 @@
         }
 
         function focusFirstInput() {
-            const firstInput = document.querySelector('input[type="number"]:not([readonly])');
+            const firstInput = document.querySelector('input[data-picked-qty]:not([readonly])') || document.querySelector('input[type="number"]:not([readonly])');
             if (firstInput) {
                 firstInput.focus();
             }
         }
 
         document.addEventListener('keydown', function(event) {
-            if (event.key === 'Enter' && event.target.matches('input[type="number"]:not([readonly])')) {
+            if (event.key === 'Enter' && event.target.matches('input[data-picked-qty]:not([readonly])')) {
                 event.preventDefault();
-                const inputs = Array.from(document.querySelectorAll('input[type="number"]:not([readonly])'));
+                const inputs = Array.from(document.querySelectorAll('input[data-picked-qty]:not([readonly])'));
                 const currentIndex = inputs.indexOf(event.target);
 
                 if (currentIndex > -1 && currentIndex < inputs.length - 1) {
