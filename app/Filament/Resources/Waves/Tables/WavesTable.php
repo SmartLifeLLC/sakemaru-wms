@@ -684,6 +684,23 @@ HTML;
         $taskIds = $tasks->pluck('id')->all();
         $earningIds = [];
         $stockTransferIds = [];
+        $reservations = DB::connection('sakemaru')
+            ->table('wms_reservations')
+            ->where('wave_id', $wave->id)
+            ->lockForUpdate()
+            ->get(['id', 'source_type', 'source_id']);
+
+        $reservationIds = $reservations->pluck('id')->all();
+        $earningIds = $reservations
+            ->where('source_type', 'EARNING')
+            ->pluck('source_id')
+            ->filter()
+            ->all();
+        $stockTransferIds = $reservations
+            ->where('source_type', 'STOCK_TRANSFER')
+            ->pluck('source_id')
+            ->filter()
+            ->all();
         $shortageIds = DB::connection('sakemaru')
             ->table('wms_shortages')
             ->where('wave_id', $wave->id)
@@ -691,20 +708,28 @@ HTML;
             ->all();
 
         if (! empty($taskIds)) {
-            $earningIds = DB::connection('sakemaru')
-                ->table('wms_picking_item_results')
-                ->whereIn('picking_task_id', $taskIds)
-                ->whereNotNull('earning_id')
-                ->distinct()
-                ->pluck('earning_id')
+            $earningIds = collect($earningIds)
+                ->merge(DB::connection('sakemaru')
+                    ->table('wms_picking_item_results')
+                    ->whereIn('picking_task_id', $taskIds)
+                    ->whereNotNull('earning_id')
+                    ->distinct()
+                    ->pluck('earning_id'))
+                ->filter()
+                ->unique()
+                ->values()
                 ->all();
 
-            $stockTransferIds = DB::connection('sakemaru')
-                ->table('wms_picking_item_results')
-                ->whereIn('picking_task_id', $taskIds)
-                ->whereNotNull('stock_transfer_id')
-                ->distinct()
-                ->pluck('stock_transfer_id')
+            $stockTransferIds = collect($stockTransferIds)
+                ->merge(DB::connection('sakemaru')
+                    ->table('wms_picking_item_results')
+                    ->whereIn('picking_task_id', $taskIds)
+                    ->whereNotNull('stock_transfer_id')
+                    ->distinct()
+                    ->pluck('stock_transfer_id'))
+                ->filter()
+                ->unique()
+                ->values()
                 ->all();
 
             DB::connection('sakemaru')
@@ -725,10 +750,12 @@ HTML;
                 ->delete();
         }
 
-        DB::connection('sakemaru')
-            ->table('wms_reservations')
-            ->where('wave_id', $wave->id)
-            ->delete();
+        if (! empty($reservationIds)) {
+            DB::connection('sakemaru')
+                ->table('wms_reservations')
+                ->whereIn('id', $reservationIds)
+                ->delete();
+        }
 
         if (! empty($taskIds)) {
             DB::connection('sakemaru')
@@ -879,7 +906,11 @@ HTML;
                 ->table('stock_transfer_queue')
                 ->where(function ($query) use ($stockTransferIds, $stockTransferRequestIds) {
                     if (! empty($stockTransferIds)) {
-                        $query->whereIn('stock_transfer_id', $stockTransferIds);
+                        $query->where(function ($stockTransferQuery) use ($stockTransferIds) {
+                            $stockTransferQuery
+                                ->whereIn('stock_transfer_id', $stockTransferIds)
+                                ->where('action_type', '!=', 'CREATE');
+                        });
                     }
 
                     if (! empty($stockTransferRequestIds)) {
