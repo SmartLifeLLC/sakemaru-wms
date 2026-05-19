@@ -60,6 +60,7 @@ class WmsPickingItemEditV2Resource extends AdminResource
                     ->whereIn('pt.status', [
                         WmsPickingTask::STATUS_PENDING,
                         WmsPickingTask::STATUS_PICKING_READY,
+                        WmsPickingTask::STATUS_PICKING,
                     ])
                     ->when($warehouseId, fn (Builder $q) => $q->where('pt.warehouse_id', $warehouseId))
                     ->when($deliveryCourseId, fn (Builder $q) => $q->where('pt.delivery_course_id', $deliveryCourseId))
