@@ -18,7 +18,7 @@
                 <div class="min-w-0">
                     <div class="truncate text-xs text-slate-300">
                         @if ($waveGroup)
-                            最新WaveGroup: {{ $waveGroup->group_no }} / 生成 {{ $waveGroup->created_at?->format('Y/m/d H:i') }} / 対象 {{ number_format($allCount) }}件
+                            選択WaveGroup: {{ $waveGroup->group_no }} / 生成 {{ $waveGroup->created_at?->format('Y/m/d H:i') }} / 対象 {{ number_format($allCount) }}件
                         @else
                             対象WaveGroupなし
                         @endif
@@ -44,7 +44,7 @@
                         <select wire:model="waveGroupId" required class="{{ $filterSelectClass }}">
                             <option value="">指定してください</option>
                             @foreach ($this->waveGroupOptions() as $option)
-                                <option value="{{ $option->id }}">{{ $option->group_no }} / {{ $option->created_at?->format('H:i') }}</option>
+                                <option value="{{ $option->id }}">{{ $option->group_no }} / {{ $option->created_at?->format('m/d H:i') }}</option>
                             @endforeach
                         </select>
                     </label>

@@ -13,6 +13,8 @@ class WmsPickingTaskResource extends AdminResource
 {
     protected static ?string $model = WmsPickingTask::class;
 
+    protected static bool $shouldRegisterNavigation = false;
+
     public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
     {
         return parent::getEloquentQuery()

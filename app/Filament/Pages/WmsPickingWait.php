@@ -17,8 +17,8 @@ use App\Models\WmsPickingAssignmentStrategy;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
-use App\Services\Shortage\PickingShortageDetector;
 use App\Services\Picking\AssignPickersToTasksService;
+use App\Services\Shortage\PickingShortageDetector;
 use BackedEnum;
 use Carbon\Carbon;
 use Filament\Actions\Action;
@@ -246,24 +246,36 @@ class WmsPickingWait extends AdminPage
 
     public function waveGroupOptions(): Collection
     {
-        $query = WaveGroup::query()
-            ->whereDate('created_at', $this->waveGeneratedDate ?: ClientSetting::systemDateYMD())
-            ->whereNull('cancelled_at')
-            ->orderByDesc('created_at')
-            ->orderByDesc('id');
-
-        if ($this->warehouseId !== '') {
-            $query->where('warehouse_id', (int) $this->warehouseId);
-        }
-
-        return $query->limit(50)->get(['id', 'group_no', 'created_at']);
+        return $this->waveGroupCandidateQuery()
+            ->limit(50)
+            ->get(['id', 'group_no', 'created_at']);
     }
 
     public function latestWaveGroupForFilters(): ?WaveGroup
     {
+        return $this->waveGroupCandidateQuery()->first();
+    }
+
+    private function waveGroupCandidateQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        $date = $this->selectedWaveGeneratedDate();
+        $carryoverFrom = Carbon::parse($date)->subDays(7)->toDateString();
+
         $query = WaveGroup::query()
-            ->whereDate('created_at', $this->waveGeneratedDate ?: ClientSetting::systemDateYMD())
             ->whereNull('cancelled_at')
+            ->where(function ($query) use ($date, $carryoverFrom): void {
+                $query
+                    ->whereDate('created_at', $date)
+                    ->orWhere(function ($carryoverQuery) use ($date, $carryoverFrom): void {
+                        $carryoverQuery
+                            ->whereDate('created_at', '<', $date)
+                            ->whereDate('created_at', '>=', $carryoverFrom)
+                            ->whereHas('waves.pickingTasks', function ($taskQuery): void {
+                                $taskQuery->whereIn('status', $this->unfinishedPickingTaskStatuses());
+                            });
+                    });
+            })
+            ->orderByRaw('CASE WHEN DATE(created_at) = ? THEN 0 ELSE 1 END', [$date])
             ->orderByDesc('created_at')
             ->orderByDesc('id');
 
@@ -271,7 +283,29 @@ class WmsPickingWait extends AdminPage
             $query->where('warehouse_id', (int) $this->warehouseId);
         }
 
-        return $query->first();
+        return $query;
+    }
+
+    private function selectedWaveGeneratedDate(): string
+    {
+        try {
+            return Carbon::parse($this->waveGeneratedDate ?: ClientSetting::systemDateYMD())->toDateString();
+        } catch (\Throwable) {
+            return ClientSetting::systemDateYMD();
+        }
+    }
+
+    /**
+     * 前日以前の未完了作業をWaveGroup候補に残すための状態。
+     */
+    private function unfinishedPickingTaskStatuses(): array
+    {
+        return [
+            WmsPickingTask::STATUS_PENDING,
+            WmsPickingTask::STATUS_PICKING_READY,
+            WmsPickingTask::STATUS_PICKING,
+            WmsPickingTask::STATUS_SHORTAGE,
+        ];
     }
 
     public function latestWaveGroup(): ?WaveGroup
