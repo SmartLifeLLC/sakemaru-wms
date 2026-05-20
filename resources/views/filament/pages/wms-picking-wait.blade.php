@@ -44,7 +44,7 @@
                         <select wire:model="waveGroupId" required class="{{ $filterSelectClass }}">
                             <option value="">指定してください</option>
                             @foreach ($this->waveGroupOptions() as $option)
-                                <option value="{{ $option->id }}">{{ $option->group_no }} / {{ $option->created_at?->format('m/d H:i') }}</option>
+                                <option value="{{ $option->id }}">{{ $option->group_no }} / 出荷 {{ $option->shipping_date?->format('m/d') }} / 生成 {{ $option->created_at?->format('m/d H:i') }}</option>
                             @endforeach
                         </select>
                     </label>
