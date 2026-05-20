@@ -280,6 +280,21 @@ class TransferCandidateExecutionServiceTest extends TestCase
 
     /**
      * @test
+     * 賞味期限計算で入荷予定日のCarbonインスタンスを変更しないこと
+     */
+    public function it_does_not_mutate_expected_arrival_date_when_calculating_expiration_date(): void
+    {
+        $baseDate = Carbon::parse('2026-05-20');
+
+        $method = new \ReflectionMethod($this->service, 'calculateExpirationDateFromDays');
+        $method->setAccessible(true);
+
+        $this->assertSame('2026-11-16', $method->invoke($this->service, $baseDate, 180));
+        $this->assertSame('2026-05-20', $baseDate->format('Y-m-d'));
+    }
+
+    /**
+     * @test
      * 同一移動伝票グループに入荷日違いが混ざる場合は検知すること
      */
     public function it_rejects_mixed_arrival_dates_in_transfer_group(): void
