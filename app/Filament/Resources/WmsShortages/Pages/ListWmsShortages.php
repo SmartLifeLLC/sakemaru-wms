@@ -42,6 +42,7 @@ class ListWmsShortages extends ListRecords
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->when($selectedWarehouseId, fn (Builder $query) => $query->where('warehouse_id', $selectedWarehouseId))
+                ->where('shortage_qty', '>', 0)
                 ->with([
                     'warehouse:id,code,name,latitude,longitude',
                     'wave:id,created_at',

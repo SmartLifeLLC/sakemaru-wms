@@ -22,6 +22,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\RecordCheckboxPosition;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
@@ -40,6 +41,8 @@ class WmsShortagesTable
             ->extraAttributes(['class' => 'sticky-actions-left'])
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions([100, 500])
+            ->recordCheckboxPosition(RecordCheckboxPosition::BeforeCells)
+            ->checkIfRecordIsSelectableUsing(fn (WmsShortage $record): bool => ! $record->is_confirmed && (int) $record->shortage_qty > 0)
             ->columns([
                 TextColumn::make('is_confirmed')
                     ->label('承認')
@@ -1041,7 +1044,8 @@ class WmsShortagesTable
                             ]),
                     ]),
             ], position: RecordActionsPosition::BeforeColumns)
-            ->bulkActions([
+            ->selectCurrentPageOnly()
+            ->toolbarActions([
                 BulkActionGroup::make([
                     BulkAction::make('bulkConfirmShortage')
                         ->label('一括欠品確定')
@@ -1119,9 +1123,6 @@ class WmsShortagesTable
                         })
                         ->deselectRecordsAfterCompletion(),
                 ]),
-            ])
-            ->selectCurrentPageOnly()
-            ->toolbarActions([
                 static::getExportAction(),
             ])
             ->defaultSort('created_at', 'desc');
