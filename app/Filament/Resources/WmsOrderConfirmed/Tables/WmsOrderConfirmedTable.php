@@ -3,7 +3,9 @@
 namespace App\Filament\Resources\WmsOrderConfirmed\Tables;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
@@ -11,6 +13,8 @@ use App\Filament\Concerns\HasModifierDisplay;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Models\WmsOrderCandidate;
+use App\Models\WmsOrderIncomingSchedule;
+use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderCancellationService;
 use App\Services\AutoOrder\OrderDataFileService;
 use App\Services\AutoOrder\OrderTransmissionService;
@@ -20,6 +24,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
@@ -32,6 +37,7 @@ use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class WmsOrderConfirmedTable
 {
@@ -434,6 +440,119 @@ class WmsOrderConfirmedTable
             ->toolbarActions([
                 static::getExportAction(),
                 BulkActionGroup::make([
+                    BulkAction::make('bulkUpdateArrivalDate')
+                        ->label('入荷予定日変更')
+                        ->icon('heroicon-o-pencil-square')
+                        ->color('warning')
+                        ->modalHeading('入荷予定日を一括変更')
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件のうち、未入荷の確定済み発注のみ変更します。生成済みファイルがある場合は、変更後に再生成してください。")
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('変更を適用')->color('danger'))
+                        ->modalCancelActionLabel('変更せず閉じる')
+                        ->schema([
+                            ViewField::make('expected_arrival_date')
+                                ->label('入荷予定日')
+                                ->view('filament.forms.components.smart-date-input')
+                                ->required(),
+                        ])
+                        ->action(function (Collection $records, array $data) {
+                            if (empty($data['expected_arrival_date'])) {
+                                Notification::make()
+                                    ->title('入荷予定日を指定してください')
+                                    ->warning()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $arrivalDate = $data['expected_arrival_date'] instanceof \Carbon\Carbon
+                                ? $data['expected_arrival_date']->format('Y-m-d')
+                                : \Carbon\Carbon::parse($data['expected_arrival_date'])->format('Y-m-d');
+
+                            $updatedCandidates = 0;
+                            $updatedSchedules = 0;
+                            $skipped = 0;
+                            $errors = [];
+
+                            foreach ($records as $candidate) {
+                                if (! $candidate instanceof WmsOrderCandidate) {
+                                    $skipped++;
+
+                                    continue;
+                                }
+
+                                if (
+                                    $candidate->status !== CandidateStatus::CONFIRMED
+                                    || static::hasReceivedIncomingSchedule($candidate)
+                                ) {
+                                    $skipped++;
+
+                                    continue;
+                                }
+
+                                try {
+                                    DB::connection('sakemaru')->transaction(function () use ($candidate, $arrivalDate, &$updatedCandidates, &$updatedSchedules) {
+                                        $expirationDate = static::calculateExpirationDate($candidate, $arrivalDate);
+                                        $jxDocumentId = $candidate->wms_order_jx_document_id;
+
+                                        $candidate->update([
+                                            'expected_arrival_date' => $arrivalDate,
+                                            'wms_order_jx_document_id' => null,
+                                            'is_manually_modified' => true,
+                                            'modified_by' => auth()->id(),
+                                            'modified_at' => now(),
+                                            'updated_at' => now(),
+                                        ]);
+
+                                        $scheduleUpdate = [
+                                            'expected_arrival_date' => $arrivalDate,
+                                            'updated_at' => now(),
+                                        ];
+
+                                        if ($expirationDate !== null) {
+                                            $scheduleUpdate['expiration_date'] = $expirationDate;
+                                        }
+
+                                        $scheduleCount = WmsOrderIncomingSchedule::where('order_candidate_id', $candidate->id)
+                                            ->where('status', IncomingScheduleStatus::PENDING->value)
+                                            ->update($scheduleUpdate);
+
+                                        $updatedCandidates++;
+                                        $updatedSchedules += $scheduleCount;
+
+                                        if ($jxDocumentId !== null) {
+                                            static::cancelPendingJxDocument((int) $jxDocumentId);
+                                        }
+                                    });
+                                } catch (\Throwable $e) {
+                                    $errors[] = "[{$candidate->item?->code}] {$e->getMessage()}";
+                                }
+                            }
+
+                            if ($updatedCandidates > 0) {
+                                Notification::make()
+                                    ->title("{$updatedCandidates}件の入荷予定日を更新しました")
+                                    ->body("関連する入荷予定 {$updatedSchedules}件も更新しました。".($skipped > 0 ? " スキップ {$skipped}件。" : ''))
+                                    ->success()
+                                    ->send();
+                            } elseif ($skipped > 0 && empty($errors)) {
+                                Notification::make()
+                                    ->title('変更対象がありません')
+                                    ->body('未入荷の確定済み発注を選択してください。')
+                                    ->warning()
+                                    ->send();
+                            }
+
+                            if (! empty($errors)) {
+                                Notification::make()
+                                    ->title(count($errors).'件でエラーが発生しました')
+                                    ->body(implode("\n", array_slice($errors, 0, 5)))
+                                    ->danger()
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
+
                     BulkAction::make('bulkGenerateOrderDataFiles')
                         ->label('FAX / MAIL / CSV データ生成')
                         ->icon('heroicon-o-document-plus')
@@ -612,6 +731,46 @@ class WmsOrderConfirmedTable
                 ]),
             ])
             ->defaultSort((new WmsOrderCandidate)->getTable().'.modified_at', 'desc');
+    }
+
+    private static function hasReceivedIncomingSchedule(WmsOrderCandidate $candidate): bool
+    {
+        return WmsOrderIncomingSchedule::query()
+            ->where('order_candidate_id', $candidate->id)
+            ->where('status', '!=', IncomingScheduleStatus::PENDING->value)
+            ->exists();
+    }
+
+    private static function cancelPendingJxDocument(int $documentId): void
+    {
+        $document = WmsOrderJxDocument::query()
+            ->whereKey($documentId)
+            ->where('status', TransmissionDocumentStatus::PENDING->value)
+            ->first();
+
+        if (! $document) {
+            return;
+        }
+
+        WmsOrderCandidate::query()
+            ->where('wms_order_jx_document_id', $documentId)
+            ->update(['wms_order_jx_document_id' => null]);
+
+        $document->update([
+            'status' => TransmissionDocumentStatus::CANCELLED,
+            'error_message' => '入荷予定日変更により再生成が必要になりました',
+        ]);
+    }
+
+    private static function calculateExpirationDate(WmsOrderCandidate $candidate, string $arrivalDate): ?string
+    {
+        $days = (int) ($candidate->item?->default_expiration_days ?? 0);
+
+        if ($days <= 0) {
+            return null;
+        }
+
+        return \Carbon\Carbon::parse($arrivalDate)->addDays($days)->format('Y-m-d');
     }
 
     private static function confirmedDetailLeftViewData(WmsOrderCandidate $record): array
