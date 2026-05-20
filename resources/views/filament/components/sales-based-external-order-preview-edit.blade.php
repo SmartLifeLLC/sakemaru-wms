@@ -169,6 +169,31 @@
                 (enabledInputs[currentIndex + 1] || enabledInputs[currentIndex])?.select();
             });
         },
+        focusAdjacentInput(event, direction) {
+            this.$nextTick(() => {
+                const inputs = Array.from(this.$root.querySelectorAll('[data-order-quantity-input]'));
+                const currentIndex = inputs.indexOf(event.target);
+                if (currentIndex < 0) return;
+
+                const columnCount = 2;
+                const step = direction === 'up'
+                    ? -columnCount
+                    : direction === 'down'
+                        ? columnCount
+                        : direction === 'left'
+                            ? -1
+                            : 1;
+
+                let nextIndex = currentIndex + step;
+                while (nextIndex >= 0 && nextIndex < inputs.length && inputs[nextIndex].disabled) {
+                    nextIndex += step > 0 ? 1 : -1;
+                }
+
+                const nextInput = inputs[nextIndex] || event.target;
+                nextInput.focus();
+                nextInput.select();
+            });
+        },
     }"
     x-init="initExpectedArrivalDate(); sync()"
     class="space-y-3"
@@ -345,8 +370,10 @@
                                     x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); sync()"
                                     x-on:blur="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
                                     x-on:change="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty')"
-                                    x-on:keydown.arrow-up.prevent
-                                    x-on:keydown.arrow-down.prevent
+                                    x-on:keydown.arrow-up.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusAdjacentInput($event, 'up')"
+                                    x-on:keydown.arrow-down.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusAdjacentInput($event, 'down')"
+                                    x-on:keydown.arrow-left.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusAdjacentInput($event, 'left')"
+                                    x-on:keydown.arrow-right.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusAdjacentInput($event, 'right')"
                                     x-on:keydown.enter.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusNextInput($event)"
                                     x-on:keydown.tab.prevent="commitQuantity(row, 'input_order_case_qty', 'input_order_piece_qty'); focusNextInput($event)"
                                     data-order-quantity-input
@@ -365,8 +392,10 @@
                                     x-on:input.debounce.150ms="cleanQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); sync()"
                                     x-on:blur="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
                                     x-on:change="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty')"
-                                    x-on:keydown.arrow-up.prevent
-                                    x-on:keydown.arrow-down.prevent
+                                    x-on:keydown.arrow-up.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusAdjacentInput($event, 'up')"
+                                    x-on:keydown.arrow-down.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusAdjacentInput($event, 'down')"
+                                    x-on:keydown.arrow-left.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusAdjacentInput($event, 'left')"
+                                    x-on:keydown.arrow-right.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusAdjacentInput($event, 'right')"
                                     x-on:keydown.enter.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusNextInput($event)"
                                     x-on:keydown.tab.prevent="commitQuantity(row, 'input_order_piece_qty', 'input_order_case_qty'); focusNextInput($event)"
                                     data-order-quantity-input

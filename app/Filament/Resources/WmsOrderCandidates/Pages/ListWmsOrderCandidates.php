@@ -899,7 +899,12 @@ class ListWmsOrderCandidates extends ListRecords
             ->extraModalWindowAttributes(['class' => 'incoming-detail-modal sales-based-transfer-preview-modal'])
             ->modalHeading('外部発注候補リスト')
             ->modalSubmitAction(fn (Action $action) => $action->makeModalSubmitAction('submit')->label('候補生成')->color('danger'))
-            ->modalCancelActionLabel('閉じる')
+            ->modalCancelAction(fn (Action $action) => $action
+                ->label('閉じる')
+                ->alpineClickHandler("if (confirm('外部発注候補リストを閉じますか？入力中の内容は破棄されます。')) close()"))
+            ->closeModalByClickingAway(false)
+            ->closeModalByEscaping(false)
+            ->modalCloseButton(false)
             ->schema([
                 ViewField::make('sales_based_external_order_preview_edit')
                     ->view('filament.components.sales-based-external-order-preview-edit')
