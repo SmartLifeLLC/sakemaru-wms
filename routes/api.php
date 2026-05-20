@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\Api\PickingTaskController;
 use App\Http\Controllers\Api\ProxyShipmentController;
+use App\Http\Controllers\Api\StockDisposalController;
 use Illuminate\Support\Facades\Route;
 
 // Internal admin helper routes
@@ -28,6 +29,10 @@ Route::middleware('api.key')->group(function () {
         // Master data endpoints
         Route::get('/master/warehouses', [MasterDataController::class, 'warehouses']);
         Route::get('/master/item-locations', [MasterDataController::class, 'itemLocations']);
+
+        // Stock adjustment (在庫調節) endpoints
+        Route::get('/stock-disposals/items/search', [StockDisposalController::class, 'searchItems']);
+        Route::post('/stock-disposals', [StockDisposalController::class, 'store']);
 
         // Picking task endpoints
         Route::get('/picking/tasks', [PickingTaskController::class, 'index']);
