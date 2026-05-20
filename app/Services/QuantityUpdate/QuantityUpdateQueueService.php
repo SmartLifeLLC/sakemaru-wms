@@ -72,7 +72,7 @@ class QuantityUpdateQueueService
         }
 
         // 必要なデータをロード
-        $shortage->load(['trade', 'wave']);
+        $shortage->load(['trade', 'wave', 'sourcePickResult']);
 
         // client_idを取得
         $clientId = $shortage->trade?->client_id;
@@ -100,6 +100,7 @@ class QuantityUpdateQueueService
             updateQty: $this->calculateFinalQuantity($shortage, $allocatedQty),
             clientId: $clientId,
             shipmentDate: $shipmentDate,
+            tradeCategory: $this->tradeCategoryForShortage($shortage),
             context: 'shortage approval',
             extraLogContext: ['allocated_qty' => $allocatedQty],
         );
@@ -119,7 +120,7 @@ class QuantityUpdateQueueService
             return null;
         }
 
-        $shortage->loadMissing(['trade', 'wave', 'allocations']);
+        $shortage->loadMissing(['trade', 'wave', 'allocations', 'sourcePickResult']);
 
         $clientId = $shortage->trade?->client_id;
         if (! $clientId) {
@@ -140,9 +141,18 @@ class QuantityUpdateQueueService
             updateQty: $this->calculateFinalQuantity($shortage, $pickedAllocationQty),
             clientId: $clientId,
             shipmentDate: $shortage->wave?->shipping_date,
+            tradeCategory: $this->tradeCategoryForShortage($shortage),
             context: 'allocation sync',
             extraLogContext: ['picked_allocation_qty' => $pickedAllocationQty],
         );
+    }
+
+    private function tradeCategoryForShortage(WmsShortage $shortage): string
+    {
+        return match ($shortage->sourcePickResult?->source_type) {
+            WmsPickingItemResult::SOURCE_TYPE_STOCK_TRANSFER => QuantityUpdateQueue::TRADE_CATEGORY_STOCK_TRANSFER,
+            default => QuantityUpdateQueue::TRADE_CATEGORY_EARNING,
+        };
     }
 
     private function calculateFinalQuantity(WmsShortage $shortage, int $proxyQty): int
@@ -159,6 +169,7 @@ class QuantityUpdateQueueService
         int $updateQty,
         int $clientId,
         mixed $shipmentDate,
+        string $tradeCategory,
         string $context,
         array $extraLogContext = [],
     ): QuantityUpdateQueue {
@@ -168,7 +179,7 @@ class QuantityUpdateQueueService
             if ($existing->status === QuantityUpdateQueue::STATUS_BEFORE) {
                 $existing->update([
                     'client_id' => $clientId,
-                    'trade_category' => QuantityUpdateQueue::TRADE_CATEGORY_EARNING,
+                    'trade_category' => $tradeCategory,
                     'trade_id' => $shortage->trade_id,
                     'trade_item_id' => $shortage->trade_item_id,
                     'update_qty' => $updateQty,
@@ -202,7 +213,7 @@ class QuantityUpdateQueueService
         // quantity_update_queueレコードを作成
         $queue = QuantityUpdateQueue::create([
             'client_id' => $clientId,
-            'trade_category' => QuantityUpdateQueue::TRADE_CATEGORY_EARNING,
+            'trade_category' => $tradeCategory,
             'trade_id' => $shortage->trade_id,
             'trade_item_id' => $shortage->trade_item_id,
             'update_qty' => $updateQty,

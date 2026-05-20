@@ -183,6 +183,7 @@ class ShortageApprovalService
         // チェック2: 該当ピッキング明細に紐づく欠品が全てis_synced=trueであるか
         $shortages = WmsShortage::query()
             ->whereIn('source_pick_result_id', $itemResultsById->keys())
+            ->where('shortage_qty', '>', 0)
             ->where('is_synced', false)
             ->get();
 

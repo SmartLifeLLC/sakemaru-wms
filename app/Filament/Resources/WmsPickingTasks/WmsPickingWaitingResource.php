@@ -3,9 +3,10 @@
 namespace App\Filament\Resources\WmsPickingTasks;
 
 use App\Enums\EMenu;
+use App\Filament\Pages\WmsPickingWait;
 use App\Filament\Resources\WmsPickingTasks\Pages\ListWmsPickingWaitings;
-use App\Models\WmsPickingTask;
 use App\Filament\Support\AdminResource;
+use App\Models\WmsPickingTask;
 use Illuminate\Database\Eloquent\Builder;
 
 class WmsPickingWaitingResource extends AdminResource
@@ -23,6 +24,11 @@ class WmsPickingWaitingResource extends AdminResource
     public static function getNavigationGroup(): ?string
     {
         return EMenu::WMS_PICKING_WAITINGS->category()->label();
+    }
+
+    public static function getNavigationUrl(): string
+    {
+        return WmsPickingWait::getUrl();
     }
 
     public static function getNavigationSort(): ?int

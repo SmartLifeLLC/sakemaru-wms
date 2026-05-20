@@ -789,6 +789,20 @@ html.fi {
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1) !important;
 }
 
+.sticky-actions-left .fi-ta-selection-cell {
+    position: sticky !important;
+    left: 0 !important;
+    z-index: 12 !important;
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+.sticky-actions-left .fi-ta-table:has(.fi-ta-selection-cell) .fi-ta-actions-cell,
+.sticky-actions-left .fi-ta-table:has(.fi-ta-selection-cell) .fi-ta-actions-header-cell {
+    position: sticky !important;
+    left: 3rem !important;
+    z-index: 11 !important;
+}
+
 /* ヘッダーのアクション列: 左+上の両方固定 */
 .sticky-actions-left .fi-ta-header-cell:first-child {
     position: sticky !important;

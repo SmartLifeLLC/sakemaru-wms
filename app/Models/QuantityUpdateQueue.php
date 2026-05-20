@@ -46,6 +46,8 @@ class QuantityUpdateQueue extends Model
 
     public const TRADE_CATEGORY_PURCHASE = 'PURCHASE';
 
+    public const TRADE_CATEGORY_STOCK_TRANSFER = 'STOCK_TRANSFER';
+
     // Relationships
     public function client(): BelongsTo
     {
