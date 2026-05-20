@@ -248,7 +248,7 @@ class WmsPickingWait extends AdminPage
     {
         return $this->waveGroupCandidateQuery()
             ->limit(50)
-            ->get(['id', 'group_no', 'created_at']);
+            ->get(['id', 'group_no', 'created_at', 'shipping_date']);
     }
 
     public function latestWaveGroupForFilters(): ?WaveGroup
@@ -263,19 +263,20 @@ class WmsPickingWait extends AdminPage
 
         $query = WaveGroup::query()
             ->whereNull('cancelled_at')
+            ->whereHas('waves.pickingTasks', function ($taskQuery): void {
+                $taskQuery->whereIn('status', $this->unfinishedPickingTaskStatuses());
+            })
             ->where(function ($query) use ($date, $carryoverFrom): void {
                 $query
-                    ->whereDate('created_at', $date)
+                    ->whereDate('shipping_date', $date)
                     ->orWhere(function ($carryoverQuery) use ($date, $carryoverFrom): void {
                         $carryoverQuery
-                            ->whereDate('created_at', '<', $date)
-                            ->whereDate('created_at', '>=', $carryoverFrom)
-                            ->whereHas('waves.pickingTasks', function ($taskQuery): void {
-                                $taskQuery->whereIn('status', $this->unfinishedPickingTaskStatuses());
-                            });
+                            ->whereDate('shipping_date', '<', $date)
+                            ->whereDate('shipping_date', '>=', $carryoverFrom);
                     });
             })
-            ->orderByRaw('CASE WHEN DATE(created_at) = ? THEN 0 ELSE 1 END', [$date])
+            ->orderByRaw('CASE WHEN DATE(shipping_date) = ? THEN 0 ELSE 1 END', [$date])
+            ->orderByDesc('shipping_date')
             ->orderByDesc('created_at')
             ->orderByDesc('id');
 
@@ -651,7 +652,7 @@ class WmsPickingWait extends AdminPage
                         $updatedPickedCount++;
                     }
 
-                    $record->shortage_qty = max(0, $orderedPieces - $pickedPieces);
+                    $record->shortage_qty = max(0, $orderedPieces - $plannedPieces);
                     $record->save();
                     $this->syncShortageFromPickResult($record);
                 }
@@ -1472,7 +1473,7 @@ class WmsPickingWait extends AdminPage
             ];
         }
 
-        $quantity = max(0, (int) $qty);
+        $quantity = (int) $qty;
         $capacity = max(1, (int) ($capacityCase ?: 1));
         $type = QuantityType::tryFrom((string) $qtyType) ?? QuantityType::PIECE;
 
