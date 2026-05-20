@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Enums\AvailableQuantityFlag;
 use App\Support\DbMutex;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -13,7 +12,7 @@ use Illuminate\Support\Facades\Log;
  * Implements specification: 02_picking_3.md
  * - FEFO (First Expiry, First Out) for expiration-managed items
  * - FIFO (First In, First Out) for non-expiration items
- * - Bitmask filtering for location quantity types
+ * - Location quantity type restriction is ignored for allocation, except UNKNOWN locations
  * - Optimistic locking with lock_version
  * - Batch processing (50 rows/batch, max 2 pages)
  */
@@ -24,6 +23,8 @@ class StockAllocationService
     protected const MAX_PAGES = 2;
 
     protected const LOCK_TIMEOUT = 1; // seconds
+
+    protected const ALLOCATABLE_LOCATION_FLAGS = 1 | 2 | 4; // CASE | PIECE | CARTON
 
     /**
      * Allocate stock for a specific item in a wave
@@ -135,14 +136,6 @@ class StockAllocationService
 
         $usesExpiration = $item->uses_expiration_date ?? false;
 
-        // Get quantity flag for bitmask filtering
-        $quantityFlag = match (strtoupper($quantityType)) {
-            'CASE' => AvailableQuantityFlag::CASE,
-            'PIECE' => AvailableQuantityFlag::PIECE,
-            'CARTON' => AvailableQuantityFlag::CARTON,
-            default => AvailableQuantityFlag::PIECE,
-        };
-
         // Process in batches (max 2 pages)
         for ($page = 0; $page < self::MAX_PAGES && $totalAllocated < $needQty; $page++) {
             $offset = $page * self::BATCH_SIZE;
@@ -152,7 +145,6 @@ class StockAllocationService
                 $warehouseId,
                 $itemId,
                 $usesExpiration,
-                $quantityFlag,
                 self::BATCH_SIZE,
                 $offset,
                 $buyerId,
@@ -292,7 +284,6 @@ class StockAllocationService
         int $warehouseId,
         int $itemId,
         bool $usesExpiration,
-        AvailableQuantityFlag $quantityFlag,
         int $limit,
         int $offset,
         ?int $buyerId = null,
@@ -325,7 +316,7 @@ class StockAllocationService
             ->join('locations as l', 'l.id', '=', 'rsl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
-            ->whereRaw("(l.available_quantity_flags & {$quantityFlag->value}) != 0")
+            ->whereRaw('(l.available_quantity_flags & '.self::ALLOCATABLE_LOCATION_FLAGS.') != 0')
             ->whereRaw("{$availableExpr} > 0");
 
         // Apply buyer restriction filter if buyerId is provided

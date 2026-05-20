@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Waves\Pages;
 
-use App\Enums\AvailableQuantityFlag;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\Waves\WaveResource;
@@ -52,6 +51,8 @@ class ListWaves extends ListRecords
     }
 
     protected static string $resource = WaveResource::class;
+
+    private const ALLOCATABLE_LOCATION_FLAGS = 1 | 2 | 4; // CASE | PIECE | CARTON
 
     public function getTitle(): string|Htmlable
     {
@@ -1662,12 +1663,6 @@ class ListWaves extends ListRecords
         int $sourceLineId,
         ?int $buyerId
     ): \Illuminate\Support\Collection {
-        $flag = match (strtoupper($quantityType)) {
-            'CASE' => AvailableQuantityFlag::CASE,
-            'CARTON' => AvailableQuantityFlag::CARTON,
-            default => AvailableQuantityFlag::PIECE,
-        };
-
         $query = DB::connection('sakemaru')
             ->table('real_stock_lot_earnings as rsle')
             ->join('real_stock_lots as rsl', function ($join) {
@@ -1682,7 +1677,7 @@ class ListWaves extends ListRecords
             ->where('rsle.earning_id', $sourceId)
             ->where('rsle.trade_item_id', $sourceLineId)
             ->where('rsle.status', 'RESERVED')
-            ->whereRaw("(l.available_quantity_flags & {$flag->value}) != 0");
+            ->whereRaw('(l.available_quantity_flags & '.self::ALLOCATABLE_LOCATION_FLAGS.') != 0');
 
         if ($buyerId !== null) {
             $query->where(function ($q) use ($buyerId) {
@@ -1723,12 +1718,6 @@ class ListWaves extends ListRecords
 
     private function getProvisionalStockLots(int $warehouseId, int $itemId, string $quantityType, ?int $buyerId): \Illuminate\Support\Collection
     {
-        $flag = match (strtoupper($quantityType)) {
-            'CASE' => AvailableQuantityFlag::CASE,
-            'CARTON' => AvailableQuantityFlag::CARTON,
-            default => AvailableQuantityFlag::PIECE,
-        };
-
         $query = DB::connection('sakemaru')
             ->table('real_stocks as rs')
             ->join('real_stock_lots as rsl', function ($join) {
@@ -1740,7 +1729,7 @@ class ListWaves extends ListRecords
             ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
-            ->whereRaw("(l.available_quantity_flags & {$flag->value}) != 0");
+            ->whereRaw('(l.available_quantity_flags & '.self::ALLOCATABLE_LOCATION_FLAGS.') != 0');
 
         if ($buyerId !== null) {
             $query->where(function ($q) use ($buyerId) {
