@@ -697,7 +697,13 @@ class WmsOrderConfirmedTable
                     ->from('wms_order_data_files')
                     ->whereColumn('wms_order_data_files.batch_code', "{$table}.batch_code")
                     ->whereColumn('wms_order_data_files.warehouse_id', "{$table}.warehouse_id")
-                    ->whereColumn('wms_order_data_files.contractor_id', "{$table}.contractor_id");
+                    ->whereColumn('wms_order_data_files.contractor_id', "{$table}.contractor_id")
+                    ->whereColumn('wms_order_data_files.expected_arrival_date', "{$table}.expected_arrival_date")
+                    ->where(function ($query) use ($table) {
+                        $query
+                            ->whereRaw("JSON_CONTAINS(wms_order_data_files.candidate_ids, JSON_ARRAY({$table}.id))")
+                            ->orWhereNull('wms_order_data_files.candidate_ids');
+                    });
 
                 return match ($value) {
                     'not_generated' => $query->whereNotExists($dataFileExists),

@@ -54,10 +54,8 @@ class OrderDataFileService
             ];
         }
 
-        // グルーピング: 納品先別 or 発注先のみ
-        $grouped = $shouldSplitByWarehouse
-            ? $candidates->groupBy(fn ($candidate) => "{$candidate->warehouse_id}_{$candidate->contractor_id}")
-            : $candidates->groupBy(fn ($candidate) => (string) $candidate->contractor_id);
+        // グルーピング: FAX/MAIL/CSVのヘッダー日付が混在しないよう、入荷予定日単位でも分割する
+        $grouped = $this->groupCandidatesForDataFiles($candidates, $shouldSplitByWarehouse);
 
         $results = [];
         $errors = [];
@@ -71,6 +69,7 @@ class OrderDataFileService
                     'batch_code' => $batchCode,
                     'warehouse_id' => $shouldSplitByWarehouse ? $groupCandidates->first()->warehouse_id : null,
                     'contractor_id' => $groupCandidates->first()->contractor_id,
+                    'expected_arrival_date' => $groupCandidates->first()->expected_arrival_date?->format('Y-m-d'),
                     'order_count' => $groupCandidates->count(),
                     'split_by_warehouse' => $shouldSplitByWarehouse,
                     'requested_warehouse_id' => $warehouseId,
@@ -123,9 +122,7 @@ class OrderDataFileService
         $errors = [];
 
         foreach ($candidates->groupBy('batch_code') as $batchCode => $batchCandidates) {
-            $grouped = $splitByWarehouse
-                ? $batchCandidates->groupBy(fn ($candidate) => "{$candidate->warehouse_id}_{$candidate->contractor_id}")
-                : $batchCandidates->groupBy(fn ($candidate) => (string) $candidate->contractor_id);
+            $grouped = $this->groupCandidatesForDataFiles($batchCandidates, $splitByWarehouse);
 
             foreach ($grouped as $groupKey => $groupCandidates) {
                 try {
@@ -165,8 +162,8 @@ class OrderDataFileService
         $warehouseId = $splitByWarehouse ? $firstCandidate->warehouse_id : null;
         $warehouse = $splitByWarehouse ? $firstCandidate->warehouse : null;
 
-        // 入荷予定日（グループ内で最も早い日付）
-        $expectedArrivalDate = $candidates->min('expected_arrival_date');
+        // 入荷予定日（グループ化済みのため同一日付）
+        $expectedArrivalDate = $firstCandidate->expected_arrival_date;
 
         $quantityResolver = app(OrderOutputQuantityResolver::class);
 
@@ -229,12 +226,28 @@ class OrderDataFileService
             'warehouse_name' => $splitByWarehouse ? $warehouse?->name : '全倉庫',
             'contractor_id' => $contractorId,
             'contractor_name' => $contractor?->name,
+            'expected_arrival_date' => $expectedArrivalDate?->format('Y-m-d'),
             'file_path' => $filePath,
             'fax_file_path' => $dataFile->fax_file_path,
             'fax_error' => $faxError,
             'order_count' => $candidates->count(),
             'total_quantity' => $totalQuantity,
         ];
+    }
+
+    private function groupCandidatesForDataFiles(Collection $candidates, bool $splitByWarehouse): Collection
+    {
+        return $candidates->groupBy(fn (WmsOrderCandidate $candidate): string => $this->dataFileGroupKey($candidate, $splitByWarehouse));
+    }
+
+    private function dataFileGroupKey(WmsOrderCandidate $candidate, bool $splitByWarehouse): string
+    {
+        $supplierId = $candidate->supplier_id ?? 'no-supplier';
+        $arrivalDate = $candidate->expected_arrival_date?->format('Y-m-d') ?? 'no-date';
+
+        return $splitByWarehouse
+            ? "{$candidate->warehouse_id}_{$candidate->contractor_id}_{$supplierId}_{$arrivalDate}"
+            : "{$candidate->contractor_id}_{$supplierId}_{$arrivalDate}";
     }
 
     private function resolveCreatedByName(string $batchCode): ?string

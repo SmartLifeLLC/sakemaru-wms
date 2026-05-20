@@ -6,6 +6,7 @@ use App\Enums\QuantityType;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\OrderAuditService;
 use App\Services\AutoOrder\OrderExecutionService;
+use Carbon\Carbon;
 use Tests\TestCase;
 
 class OrderExecutionServiceTest extends TestCase
@@ -71,5 +72,17 @@ class OrderExecutionServiceTest extends TestCase
 
         $this->assertSame(4, $quantity);
         $this->assertSame(QuantityType::CASE, $quantityType);
+    }
+
+    public function test_expiration_calculation_does_not_mutate_expected_arrival_date(): void
+    {
+        $service = new OrderExecutionService($this->createMock(OrderAuditService::class));
+        $baseDate = Carbon::parse('2026-05-20');
+
+        $method = new \ReflectionMethod($service, 'calculateExpirationDateFromDays');
+        $method->setAccessible(true);
+
+        $this->assertSame('2026-11-16', $method->invoke($service, $baseDate, 180));
+        $this->assertSame('2026-05-20', $baseDate->format('Y-m-d'));
     }
 }

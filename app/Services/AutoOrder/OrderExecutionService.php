@@ -416,8 +416,13 @@ class OrderExecutionService
             return null;
         }
 
-        $base = $baseDate instanceof Carbon ? $baseDate : Carbon::parse($baseDate);
+        return $this->calculateExpirationDateFromDays($baseDate, (int) $item->default_expiration_days);
+    }
 
-        return $base->addDays($item->default_expiration_days)->format('Y-m-d');
+    private function calculateExpirationDateFromDays(string|Carbon $baseDate, int $days): string
+    {
+        $base = $baseDate instanceof Carbon ? $baseDate->copy() : Carbon::parse($baseDate);
+
+        return $base->addDays($days)->format('Y-m-d');
     }
 }
