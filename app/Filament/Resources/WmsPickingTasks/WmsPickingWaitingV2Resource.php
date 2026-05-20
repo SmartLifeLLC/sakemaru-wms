@@ -15,6 +15,8 @@ class WmsPickingWaitingV2Resource extends AdminResource
 
     protected static string $permissionResource = 'wms-picking-waiting';
 
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-squares-2x2';
 
     protected static ?string $navigationLabel = 'ピッキング調整 v2';

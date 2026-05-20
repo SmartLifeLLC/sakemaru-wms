@@ -45,6 +45,7 @@ abstract class AdminResource extends Resource
     {
         static::syncPermissionResource();
 
-        return static::shouldRegisterSakemaruNavigation();
+        return parent::shouldRegisterNavigation()
+            && static::shouldRegisterSakemaruNavigation();
     }
 }
