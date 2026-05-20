@@ -2,17 +2,16 @@
 
 namespace App\Filament\Resources\WmsOrderIncomingSchedules\Pages;
 
-use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasStockSubqueries;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderIncomingSchedules\WmsOrderIncomingScheduleResource;
+use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\StatsItemWarehouseSalesSummary;
-use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\OrderExecutionService;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -678,86 +677,68 @@ class ListWmsOrderIncomingSchedules extends ListRecords
             );
     }
 
-    protected ?array $presetViewWarehouseData = null;
+    protected ?array $presetViewContractorData = null;
 
-    protected function getWarehouseDataForPresetViews(): array
+    protected function getContractorDataForPresetViews(): array
     {
-        if ($this->presetViewWarehouseData !== null) {
-            return $this->presetViewWarehouseData;
+        if ($this->presetViewContractorData !== null) {
+            return $this->presetViewContractorData;
         }
 
-        $cacheKey = 'incoming_schedules_pending_warehouses_all';
-        $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
-            $orderCandidateWarehouseIds = WmsOrderCandidate::where('status', CandidateStatus::PENDING)
-                ->distinct()
-                ->pluck('warehouse_id')
-                ->toArray();
+        $warehouseId = auth()->user()?->getSelectedWarehouseId();
+        $cacheKey = 'incoming_schedules_pending_contractors_'.($warehouseId ?: 'none');
+        $this->presetViewContractorData = cache()->remember($cacheKey, 30, function () use ($warehouseId) {
+            if (! $warehouseId) {
+                return [
+                    'ids' => [],
+                    'contractors' => collect(),
+                ];
+            }
 
-            $warehouseIds = WmsOrderIncomingSchedule::whereIn('status', [
+            $contractorIds = WmsOrderIncomingSchedule::whereIn('status', [
                 IncomingScheduleStatus::PENDING,
                 IncomingScheduleStatus::PARTIAL,
             ])
-                ->whereNotNull('warehouse_id')
-                ->whereIn('warehouse_id', $orderCandidateWarehouseIds ?: [0])
+                ->where('warehouse_id', $warehouseId)
+                ->whereNotNull('contractor_id')
                 ->distinct()
-                ->pluck('warehouse_id')
+                ->pluck('contractor_id')
                 ->toArray();
 
-            $warehouses = Warehouse::whereIn('id', $warehouseIds)
-                ->orderBy('name')
-                ->get(['id', 'name']);
+            $contractors = Contractor::whereIn('id', $contractorIds)
+                ->orderBy('code')
+                ->get(['id', 'code', 'name']);
 
             return [
-                'ids' => $warehouseIds,
-                'warehouses' => $warehouses,
+                'ids' => $contractorIds,
+                'contractors' => $contractors,
             ];
         });
 
-        return $this->presetViewWarehouseData;
+        return $this->presetViewContractorData;
     }
 
     public function getPresetViews(): array
     {
-        // ユーザーの選択中倉庫を取得
-        $userDefaultWarehouseId = auth()->user()?->getSelectedWarehouseId();
+        $contractorData = $this->getContractorDataForPresetViews();
+        $contractors = $contractorData['contractors'];
 
-        // 入荷予定（PENDING/PARTIAL）に存在する倉庫を取得（プロパティキャッシュ）
-        $warehouseData = $this->getWarehouseDataForPresetViews();
-
-        $warehouseIds = $warehouseData['ids'];
-        $warehouses = $warehouseData['warehouses'];
-
-        // 選択中倉庫が入荷予定に存在するかチェック
-        $hasDefaultWarehouse = $userDefaultWarehouseId && in_array($userDefaultWarehouseId, $warehouseIds);
-        $defaultWarehouse = $hasDefaultWarehouse ? $warehouses->firstWhere('id', $userDefaultWarehouseId) : null;
-
-        // 「全て」タブは常に表示（キー'default'でAdvancedTablesのDefaultビューを上書き）
         $views = [
             'default' => PresetView::make()
                 ->favorite()
                 ->label('全て')
-                ->default(! $hasDefaultWarehouse),
+                ->default(),
         ];
 
-        // デフォルト倉庫タブ（設定されている場合は先頭に配置してデフォルト選択）
-        if ($defaultWarehouse) {
-            $views["default_{$defaultWarehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $userDefaultWarehouseId))
-                ->favorite()
-                ->label($defaultWarehouse->name)
-                ->default();
-        }
+        foreach ($contractors as $contractor) {
+            $label = filled($contractor->code)
+                ? "[{$contractor->code}]{$contractor->name}"
+                : $contractor->name;
 
-        // 他の倉庫タブ（デフォルト倉庫は除外）
-        foreach ($warehouses as $warehouse) {
-            if ($hasDefaultWarehouse && $warehouse->id === $userDefaultWarehouseId) {
-                continue;
-            }
-
-            $views["default_{$warehouse->id}"] = PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('warehouse_id', $warehouse->id))
+            $views["contractor_{$contractor->id}"] = PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('contractor_id', $contractor->id))
                 ->favorite()
-                ->label($warehouse->name);
+                ->label($label);
         }
 
         return $views;

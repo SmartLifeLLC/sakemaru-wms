@@ -696,7 +696,12 @@ class ListWmsStockTransferCandidates extends ListRecords
             ->extraModalWindowAttributes(['class' => 'incoming-detail-modal sales-based-transfer-preview-modal'])
             ->modalHeading('物流発注候補リスト')
             ->modalSubmitAction(fn (Action $action) => $action->makeModalSubmitAction('submit')->label('候補生成')->color('danger'))
-            ->modalCancelActionLabel('閉じる')
+            ->modalCancelAction(fn (Action $action) => $action
+                ->label('閉じる')
+                ->alpineClickHandler("if (confirm('物流発注候補リストを閉じますか？入力中の内容は破棄されます。')) close()"))
+            ->closeModalByClickingAway(false)
+            ->closeModalByEscaping(false)
+            ->modalCloseButton(false)
             ->schema([
                 ViewField::make('sales_based_transfer_preview_edit')
                     ->view('filament.components.sales-based-transfer-preview-edit')

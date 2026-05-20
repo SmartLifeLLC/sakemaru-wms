@@ -12,6 +12,7 @@ use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\ItemDefaultLocation;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\RealStock;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingConfirmationService;
@@ -438,7 +439,13 @@ class WmsOrderIncomingSchedulesTable
                         'RECEIVED' => '受信',
                     ]),
 
-                static::warehouseFilter(),
+                static::warehouseFilter()
+                    ->default(fn () => auth()->user()?->getSelectedWarehouseId())
+                    ->getOptionLabelUsing(function ($value): ?string {
+                        $warehouse = Warehouse::query()->find($value);
+
+                        return $warehouse ? "[{$warehouse->code}]{$warehouse->name}" : null;
+                    }),
 
                 static::contractorFilter(),
             ])

@@ -21,6 +21,20 @@
     searched: false,
     categories2: [],
     categories3: [],
+    hoveredItemName: null,
+    itemNameTooltipX: 0,
+    itemNameTooltipY: 0,
+
+    updateItemNameTooltipPosition(event) {
+        const padding = 16;
+        this.itemNameTooltipX = Math.min(event.clientX + 14, window.innerWidth - 620 - padding);
+        this.itemNameTooltipY = Math.min(event.clientY + 14, window.innerHeight - 160 - padding);
+    },
+
+    showItemNameTooltip(event, name) {
+        this.hoveredItemName = name || null;
+        this.updateItemNameTooltipPosition(event);
+    },
 
     async search(page = 1) {
         const warehouseId = $wire.get('mountedActions.0.data.satellite_warehouse_id');
@@ -248,6 +262,14 @@
         return this.quantities[key];
     }
 }" x-init="$wire.set('transferOrderItems', [])" class="space-y-3">
+    <div
+        x-cloak
+        x-show="hoveredItemName"
+        x-transition.opacity.duration.100ms
+        class="pointer-events-none fixed z-[9999] max-w-[620px] whitespace-normal rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold leading-6 text-slate-900 shadow-xl ring-1 ring-black/5 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+        x-bind:style="`left: ${Math.max(16, itemNameTooltipX)}px; top: ${Math.max(16, itemNameTooltipY)}px;`"
+        x-text="hoveredItemName"
+    ></div>
 
     {{-- 検索フィルタ --}}
     <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-2">
@@ -450,7 +472,13 @@
                             class="divide-x divide-gray-200 dark:divide-white/10 border-t border-gray-200 dark:border-white/10">
                             <td class="px-1.5 py-0.5"><span class="text-xs font-mono text-gray-900 dark:text-white" x-text="item.code"></span></td>
                             <td class="px-1.5 py-0.5">
-                                <span class="block text-xs text-gray-700 dark:text-gray-300" x-text="item.name"></span>
+                                <span
+                                    class="block cursor-help truncate text-xs text-gray-700 dark:text-gray-300"
+                                    x-text="item.name"
+                                    x-on:mouseenter="showItemNameTooltip($event, item.name)"
+                                    x-on:mousemove="updateItemNameTooltipPosition($event)"
+                                    x-on:mouseleave="hoveredItemName = null"
+                                ></span>
                                 <span x-show="String(item.contractor_code) !== '9012'" class="text-[10px] font-bold text-red-600 dark:text-red-400">本部発注対象ではありません</span>
                             </td>
                             <td class="px-1.5 py-0.5"><span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.packaging || '-'"></span></td>
