@@ -203,7 +203,8 @@
                                     $orderedBreakdown = $this->quantityBreakdown($row->ordered_qty, $row->ordered_qty_type, $row->capacity_case);
                                     $plannedBreakdown = $this->quantityBreakdown($row->planned_qty, $row->planned_qty_type, $row->capacity_case);
                                     $pickedBreakdown = $this->quantityBreakdown($row->picked_qty, $row->picked_qty_type ?? $row->planned_qty_type, $row->capacity_case);
-                                    $shortageBreakdown = $this->quantityBreakdown($row->shortage_qty, \App\Enums\QuantityType::PIECE->value, $row->capacity_case, false);
+                                    $shortagePieces = $this->rowShortagePieces($row);
+                                    $shortageBreakdown = $this->quantityBreakdown($shortagePieces, \App\Enums\QuantityType::PIECE->value, $row->capacity_case, false);
                                     $isCompletedRow = $row->task_status === \App\Models\WmsPickingTask::STATUS_COMPLETED;
                                 @endphp
                                 @if ($this->secondaryV2Ordering && $currentSecondaryV2Group !== $previousSecondaryV2Group)
@@ -270,10 +271,10 @@
                                         @endif
                                     </td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right">
-                                        <div class="grid min-w-[108px] grid-cols-3 gap-1 text-[11px] font-semibold {{ (int) $row->shortage_qty > 0 ? 'text-red-600' : 'text-slate-500' }}">
+                                        <div class="grid min-w-[108px] grid-cols-3 gap-1 text-[11px] font-semibold {{ $shortagePieces > 0 ? 'text-red-600' : 'text-slate-500' }}">
                                             <span>ケース</span><span>バラ</span><span>総</span>
                                         </div>
-                                        <div class="grid min-w-[108px] grid-cols-3 gap-1 text-base font-bold {{ (int) $row->shortage_qty > 0 ? 'text-red-700' : 'text-slate-500' }}">
+                                        <div class="grid min-w-[108px] grid-cols-3 gap-1 text-base font-bold {{ $shortagePieces > 0 ? 'text-red-700' : 'text-slate-500' }}">
                                             <span>{{ number_format($shortageBreakdown['case']) }}</span><span>{{ number_format($shortageBreakdown['piece']) }}</span><span>{{ number_format($shortageBreakdown['total']) }}</span>
                                         </div>
                                     </td>
