@@ -187,6 +187,10 @@ z00_locations AS (
         l.name AS location_name
     FROM locations l
     WHERE CONCAT(COALESCE(l.code1, ''), COALESCE(l.code2, ''), COALESCE(l.code3, '')) = 'Z00'
+      AND l.floor_id IS NOT NULL
+      AND l.available_quantity_flags IS NOT NULL
+      AND l.available_quantity_flags <> 8
+      AND l.available_quantity_flags > 0
 )
 SELECT
     rs.id AS real_stock_id,
@@ -239,6 +243,10 @@ LEFT JOIN locations lr_loc ON lr_loc.id = lr.location_id
 LEFT JOIN origin_target ot ON ot.item_id = rs.item_id
 LEFT JOIN locations target_loc
   ON target_loc.warehouse_id = rs.warehouse_id
+ AND target_loc.floor_id IS NOT NULL
+ AND target_loc.available_quantity_flags IS NOT NULL
+ AND target_loc.available_quantity_flags <> 8
+ AND target_loc.available_quantity_flags > 0
  AND ot.target_shelf COLLATE utf8mb4_unicode_ci <> 'Z00'
  AND (
       target_loc.name COLLATE utf8mb4_unicode_ci = ot.target_shelf COLLATE utf8mb4_unicode_ci
@@ -414,6 +422,10 @@ SQL;
         $locations = collect(DB::connection(self::CONNECTION)->table('locations as l')
             ->join('warehouses as w', 'w.id', '=', 'l.warehouse_id')
             ->where('w.code', self::WAREHOUSE_CODE)
+            ->whereNotNull('l.floor_id')
+            ->whereNotNull('l.available_quantity_flags')
+            ->where('l.available_quantity_flags', '!=', 8)
+            ->where('l.available_quantity_flags', '>', 0)
             ->where(function ($query) use ($shelfCodes): void {
                 $query
                     ->whereIn('l.name', $shelfCodes)
