@@ -2,14 +2,12 @@
 
 namespace App\Filament\Resources\WmsShortagesWaitingApprovals\Tables;
 
-use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
-use App\Services\QuantityUpdate\QuantityUpdateQueueService;
 use App\Services\Shortage\ProxyShipmentService;
 use App\Services\Shortage\ShortageApprovalService;
 use Filament\Actions\Action;
@@ -741,32 +739,17 @@ class WmsShortagesWaitingApprovalsTable
                     ->modalDescription('この欠品の横持ち出荷指示を承認します。')
                     ->action(function (WmsShortage $record) {
                         try {
-                            $record->is_confirmed = true;
-                            $record->confirmed_by = auth()->id();
-                            $record->confirmed_at = now();
-                            $record->confirmed_user_id = auth()->id();
-                            $record->save();
-
-                            // 関連する代理出荷も承認
-                            $confirmedAllocationsCount = ConfirmShortageAllocations::execute(
-                                wmsShortageId: $record->id,
-                                confirmedUserId: auth()->id() ?? 0
+                            $approvalService = app(ShortageApprovalService::class);
+                            $result = $approvalService->approveShortage(
+                                shortage: $record,
+                                confirmedUserId: auth()->id() ?? 0,
                             );
 
-                            // quantity_update_queueにレコードを作成
-                            $queueService = app(QuantityUpdateQueueService::class);
-                            $queue = $queueService->createQueueForShortageApproval($record);
-
-                            // ピッキングタスクのステータスを更新
-                            $approvalService = app(ShortageApprovalService::class);
-                            $approvalService->markPickingResultReadyForShipment($record);
-                            $approvalService->updatePickingTaskStatusAfterApproval($record);
-
                             $message = '欠品対応を承認しました。';
-                            if ($confirmedAllocationsCount > 0) {
-                                $message .= "代理出荷{$confirmedAllocationsCount}件を承認しました。";
+                            if ($result['allocations_confirmed'] > 0) {
+                                $message .= "代理出荷{$result['allocations_confirmed']}件を承認しました。";
                             }
-                            if ($queue) {
+                            if ($result['queue']) {
                                 $message .= '在庫更新キューを作成しました。';
                             }
 
@@ -830,7 +813,6 @@ class WmsShortagesWaitingApprovalsTable
                             $queueCreated = 0;
                             $totalAllocationsConfirmed = 0;
 
-                            $queueService = app(QuantityUpdateQueueService::class);
                             $approvalService = app(ShortageApprovalService::class);
 
                             foreach ($records as $shortage) {
@@ -842,29 +824,22 @@ class WmsShortagesWaitingApprovalsTable
                                 }
 
                                 try {
-                                    $shortage->is_confirmed = true;
-                                    $shortage->confirmed_by = auth()->id();
-                                    $shortage->confirmed_at = now();
-                                    $shortage->confirmed_user_id = auth()->id();
-                                    $shortage->save();
-                                    $count++;
-
-                                    // 関連する代理出荷も承認
-                                    $confirmedAllocationsCount = ConfirmShortageAllocations::execute(
-                                        wmsShortageId: $shortage->id,
-                                        confirmedUserId: auth()->id() ?? 0
+                                    $result = $approvalService->approveShortage(
+                                        shortage: $shortage,
+                                        confirmedUserId: auth()->id() ?? 0,
                                     );
-                                    $totalAllocationsConfirmed += $confirmedAllocationsCount;
 
-                                    // quantity_update_queueにレコードを作成
-                                    $queue = $queueService->createQueueForShortageApproval($shortage);
-                                    if ($queue) {
-                                        $queueCreated++;
+                                    if (! $result['confirmed']) {
+                                        $skipped++;
+
+                                        continue;
                                     }
 
-                                    // ピッキングタスクのステータスを更新
-                                    $approvalService->markPickingResultReadyForShipment($shortage);
-                                    $approvalService->updatePickingTaskStatusAfterApproval($shortage);
+                                    $count++;
+                                    $totalAllocationsConfirmed += $result['allocations_confirmed'];
+                                    if ($result['queue']) {
+                                        $queueCreated++;
+                                    }
                                 } catch (\Exception $e) {
                                     Notification::make()
                                         ->title('エラー')

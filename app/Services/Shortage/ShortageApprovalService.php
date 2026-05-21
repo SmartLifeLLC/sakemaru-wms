@@ -2,14 +2,69 @@
 
 namespace App\Services\Shortage;
 
+use App\Actions\Wms\ConfirmShortageAllocations;
+use App\Models\QuantityUpdateQueue;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
+use App\Services\QuantityUpdate\QuantityUpdateQueueService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ShortageApprovalService
 {
+    /**
+     * 欠品承認と基幹側数量更新キュー作成を同一トランザクションで実行する。
+     *
+     * @return array{confirmed: bool, allocations_confirmed: int, queue: QuantityUpdateQueue|null}
+     */
+    public function approveShortage(
+        WmsShortage $shortage,
+        int $confirmedUserId,
+        bool $markPickingResultReadyForShipment = true,
+    ): array {
+        return DB::connection('sakemaru')->transaction(function () use ($shortage, $confirmedUserId, $markPickingResultReadyForShipment): array {
+            $lockedShortage = WmsShortage::query()
+                ->whereKey($shortage->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedShortage->is_confirmed) {
+                return [
+                    'confirmed' => false,
+                    'allocations_confirmed' => 0,
+                    'queue' => null,
+                ];
+            }
+
+            $lockedShortage->is_confirmed = true;
+            $lockedShortage->confirmed_by = $confirmedUserId;
+            $lockedShortage->confirmed_at = now();
+            $lockedShortage->confirmed_user_id = $confirmedUserId;
+            $lockedShortage->save();
+
+            $confirmedAllocationsCount = ConfirmShortageAllocations::execute(
+                wmsShortageId: $lockedShortage->id,
+                confirmedUserId: $confirmedUserId
+            );
+
+            $queue = app(QuantityUpdateQueueService::class)
+                ->createQueueForShortageApproval($lockedShortage);
+
+            if ($markPickingResultReadyForShipment) {
+                $this->markPickingResultReadyForShipment($lockedShortage);
+            }
+
+            $this->updatePickingTaskStatusAfterApproval($lockedShortage);
+
+            return [
+                'confirmed' => true,
+                'allocations_confirmed' => $confirmedAllocationsCount,
+                'queue' => $queue,
+            ];
+        }, 5);
+    }
+
     public function markPickingResultReadyForShipment(WmsShortage $shortage): void
     {
         $pickResult = WmsPickingItemResult::where('id', $shortage->source_pick_result_id)->first();

@@ -2,13 +2,11 @@
 
 namespace App\Filament\Resources\WmsShortagesWaitingApprovals\Pages;
 
-use App\Actions\Wms\ConfirmShortageAllocations;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsShortagesWaitingApprovals\WmsShortagesWaitingApprovalResource;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
-use App\Services\QuantityUpdate\QuantityUpdateQueueService;
 use App\Services\Shortage\ShortageApprovalService;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
@@ -139,30 +137,25 @@ class ListWmsShortagesWaitingApprovals extends ListRecords
                     $totalAllocationsConfirmed = 0;
                     $queueCreated = 0;
 
-                    $queueService = app(QuantityUpdateQueueService::class);
                     $approvalService = app(ShortageApprovalService::class);
 
                     foreach ($shortages as $shortage) {
                         try {
-                            $shortage->is_confirmed = true;
-                            $shortage->confirmed_by = auth()->id();
-                            $shortage->confirmed_at = now();
-                            $shortage->confirmed_user_id = auth()->id();
-                            $shortage->save();
-                            $count++;
-
-                            $confirmedAllocationsCount = ConfirmShortageAllocations::execute(
-                                wmsShortageId: $shortage->id,
-                                confirmedUserId: auth()->id() ?? 0
+                            $result = $approvalService->approveShortage(
+                                shortage: $shortage,
+                                confirmedUserId: auth()->id() ?? 0,
+                                markPickingResultReadyForShipment: false,
                             );
-                            $totalAllocationsConfirmed += $confirmedAllocationsCount;
 
-                            $queue = $queueService->createQueueForShortageApproval($shortage);
-                            if ($queue) {
-                                $queueCreated++;
+                            if (! $result['confirmed']) {
+                                continue;
                             }
 
-                            $approvalService->updatePickingTaskStatusAfterApproval($shortage);
+                            $count++;
+                            $totalAllocationsConfirmed += $result['allocations_confirmed'];
+                            if ($result['queue']) {
+                                $queueCreated++;
+                            }
                         } catch (\Exception $e) {
                             Notification::make()
                                 ->title('エラー')
