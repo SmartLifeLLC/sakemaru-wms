@@ -13,6 +13,7 @@ use App\Models\Sakemaru\ItemDefaultLocation;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingConfirmationService;
@@ -74,6 +75,17 @@ class WmsOrderIncomingSchedulesTable
                     ->alignCenter()
                     ->width('60px'),
 
+                TextColumn::make('candidate_creator_name')
+                    ->label('担当者')
+                    ->placeholder('システム')
+                    ->width('100px'),
+
+                TextColumn::make('created_at')
+                    ->label('作成日')
+                    ->dateTime('m/d H:i')
+                    ->sortable()
+                    ->width('95px'),
+
                 TextColumn::make('order_date')
                     ->label('発注日')
                     ->date('m/d')
@@ -87,6 +99,17 @@ class WmsOrderIncomingSchedulesTable
                     ->sortable()
                     ->alignCenter()
                     ->width('70px'),
+
+                TextColumn::make('contractor.code')
+                    ->label('発注先CD')
+                    ->searchable()
+                    ->alignCenter()
+                    ->width('70px'),
+
+                TextColumn::make('contractor.name')
+                    ->label('発注先')
+                    ->searchable()
+                    ->width('120px'),
 
                 TextColumn::make('item_code')
                     ->label('商品CD')
@@ -265,19 +288,6 @@ class WmsOrderIncomingSchedulesTable
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->width('120px'),
 
-                TextColumn::make('contractor.code')
-                    ->label('発注先CD')
-                    ->searchable()
-                    ->alignCenter()
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->width('50px'),
-
-                TextColumn::make('contractor.name')
-                    ->label('発注先名')
-                    ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->width('100px'),
-
                 TextColumn::make('remaining')
                     ->label('残数')
                     ->state(fn ($record) => $record->remaining_quantity)
@@ -357,12 +367,6 @@ class WmsOrderIncomingSchedulesTable
                     ->label('備考')
                     ->limit(30)
                     ->placeholder('-')
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                TextColumn::make('created_at')
-                    ->label('作成日時')
-                    ->dateTime('m/d H:i')
-                    ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('confirmed_at')
@@ -448,6 +452,54 @@ class WmsOrderIncomingSchedulesTable
                     }),
 
                 static::contractorFilter(),
+
+                Filter::make('candidate_creator_name')
+                    ->label('担当者')
+                    ->form([
+                        TextInput::make('candidate_creator_name')
+                            ->label('担当者')
+                            ->placeholder('担当者名を入力'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query->when(
+                        filled($data['candidate_creator_name'] ?? null),
+                        fn (Builder $q) => static::applyCandidateCreatorNameFilter(
+                            $q,
+                            (string) $data['candidate_creator_name']
+                        ),
+                    ))
+                    ->indicateUsing(function (array $data): ?string {
+                        if (! filled($data['candidate_creator_name'] ?? null)) {
+                            return null;
+                        }
+
+                        return '担当者: '.$data['candidate_creator_name'];
+                    }),
+
+                Filter::make('created_at')
+                    ->label('作成日')
+                    ->form([
+                        DatePicker::make('created_from')
+                            ->label('作成日 From'),
+                        DatePicker::make('created_until')
+                            ->label('作成日 To'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['created_from'], fn (Builder $q, $date) => $q->whereDate('created_at', '>=', $date))
+                        ->when($data['created_until'], fn (Builder $q, $date) => $q->whereDate('created_at', '<=', $date))
+                    )
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+
+                        if ($data['created_from']) {
+                            $indicators[] = '作成日 From: '.\Carbon\Carbon::parse($data['created_from'])->format('Y年m月d日');
+                        }
+
+                        if ($data['created_until']) {
+                            $indicators[] = '作成日 To: '.\Carbon\Carbon::parse($data['created_until'])->format('Y年m月d日');
+                        }
+
+                        return $indicators;
+                    }),
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([
@@ -900,5 +952,28 @@ class WmsOrderIncomingSchedulesTable
                 ]),
             ])
             ->defaultSort('id', 'desc');
+    }
+
+    private static function applyCandidateCreatorNameFilter(Builder $query, string $search): void
+    {
+        $search = mb_convert_kana($search, 'as');
+
+        $query->where(function (Builder $query) use ($search) {
+            $query
+                ->whereHas('orderCandidate', fn (Builder $candidateQuery) => $candidateQuery
+                    ->whereIn('batch_code', static::candidateCreatorBatchCodeQuery($search)))
+                ->orWhereHas('transferCandidate', fn (Builder $candidateQuery) => $candidateQuery
+                    ->whereIn('batch_code', static::candidateCreatorBatchCodeQuery($search)));
+        });
+    }
+
+    private static function candidateCreatorBatchCodeQuery(string $search): Builder
+    {
+        return WmsAutoOrderJobControl::query()
+            ->whereNotNull('created_by')
+            ->whereHas('createdByUser', fn (Builder $userQuery) => $userQuery
+                ->where('code', 'like', "%{$search}%")
+                ->orWhere('name', 'like', "%{$search}%"))
+            ->select('batch_code');
     }
 }
