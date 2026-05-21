@@ -501,6 +501,8 @@ SQL;
 
             if ($row['target_lot_location_id'] && isset($row['location_option_details'][$row['target_lot_location_id']])) {
                 $row = $this->applyTargetLocationDetail($row, $row['location_option_details'][$row['target_lot_location_id']]);
+            } elseif ($preferredLocationDetail = $this->singlePreferredLocationDetail($row['location_option_details'])) {
+                $row = $this->applyTargetLocationDetail($row, $preferredLocationDetail);
             } elseif ($row['location_option_details'] !== []) {
                 $row['target_location_id'] = null;
                 $row['target_floor_id'] = null;
@@ -512,6 +514,15 @@ SQL;
 
             return $row;
         }, $rows);
+    }
+
+    private function singlePreferredLocationDetail(array $locationDetails): ?array
+    {
+        $preferred = collect($locationDetails)
+            ->filter(fn (array $detail): bool => ! in_array($detail['location_code'], ['Q00000', 'Z00', 'YX0000'], true))
+            ->values();
+
+        return $preferred->count() === 1 ? $preferred->first() : null;
     }
 
     private function applyLocationOverrides(array $rows, array $locationOverrides): array
