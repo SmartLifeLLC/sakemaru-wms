@@ -54,56 +54,15 @@ class QuantityUpdateQueueService
         ]);
     }
 
-    /**
-     * 欠品承認時にquantity_update_queueレコードを作成
-     *
-     * @param  WmsShortage  $shortage  承認された欠品レコード
-     * @return QuantityUpdateQueue|null 作成されたレコード（スキップ時はnull）
-     */
     public function createQueueForShortageApproval(WmsShortage $shortage): ?QuantityUpdateQueue
     {
-        // source_pick_result_idが必須
-        if (! $shortage->source_pick_result_id) {
-            Log::warning('Cannot create quantity_update_queue: source_pick_result_id is null', [
-                'shortage_id' => $shortage->id,
-            ]);
+        Log::info('Skipped quantity_update_queue creation for shortage approval', [
+            'shortage_id' => $shortage->id,
+            'trade_id' => $shortage->trade_id,
+            'trade_item_id' => $shortage->trade_item_id,
+        ]);
 
-            return null;
-        }
-
-        // 必要なデータをロード
-        $shortage->load(['trade', 'wave', 'sourcePickResult']);
-
-        // client_idを取得
-        $clientId = $shortage->trade?->client_id;
-        if (! $clientId) {
-            Log::warning('Cannot create quantity_update_queue: client_id not found', [
-                'shortage_id' => $shortage->id,
-                'trade_id' => $shortage->trade_id,
-            ]);
-
-            return null;
-        }
-
-        // shipment_dateを取得
-        $shipmentDate = $shortage->wave?->shipping_date;
-
-        // request_idとしてsource_pick_result_idを使用
-        $requestId = (string) $shortage->source_pick_result_id;
-
-        // 欠品承認時は、横持ち割当数を出荷予定数量として反映する。
-        $allocatedQty = (int) $shortage->allocations()->sum('assign_qty');
-
-        return $this->createOrUpdateQueue(
-            shortage: $shortage,
-            requestId: $requestId,
-            updateQty: $this->calculateFinalQuantity($shortage, $allocatedQty),
-            clientId: $clientId,
-            shipmentDate: $shipmentDate,
-            tradeCategory: $this->tradeCategoryForShortage($shortage),
-            context: 'shortage approval',
-            extraLogContext: ['allocated_qty' => $allocatedQty],
-        );
+        return null;
     }
 
     /**

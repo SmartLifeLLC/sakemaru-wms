@@ -556,7 +556,7 @@ class WmsPickingWait extends AdminPage
         $this->saveAdjustmentChanges();
     }
 
-    public function saveAdjustmentChanges(): void
+    public function saveAdjustmentChanges(bool $confirmPicking = false): void
     {
         $rows = $this->adjustmentRows();
 
@@ -573,7 +573,7 @@ class WmsPickingWait extends AdminPage
         $errors = [];
 
         try {
-            DB::connection('sakemaru')->transaction(function () use ($rows, &$updatedPickingCount, &$updatedPickedCount, &$queuedOrderCount, &$pendingQueueIds, &$errors): void {
+            DB::connection('sakemaru')->transaction(function () use ($rows, $confirmPicking, &$updatedPickingCount, &$updatedPickedCount, &$queuedOrderCount, &$pendingQueueIds, &$errors): void {
                 foreach ($rows as $row) {
                     $record = WmsPickingItemResult::with(['item', 'pickingTask', 'trade'])
                         ->lockForUpdate()
@@ -616,6 +616,14 @@ class WmsPickingWait extends AdminPage
                     $plannedPieces = $this->quantityAsPieces($newPlannedQty, $newPlannedType, $record);
                     $orderedPieces = $this->quantityAsPieces($newOrderedQty, $newOrderedType, $record);
                     $pickedPieces = $this->quantityAsPieces($newPickedQty, $newPlannedType, $record);
+                    $pickedQtyChanged = (int) ($record->picked_qty ?? 0) !== $newPickedQty
+                        || $record->picked_qty_type !== $newPlannedType;
+                    $shouldConfirmPicking = $confirmPicking
+                        || $pickedQtyChanged
+                        || in_array($record->status, [
+                            WmsPickingItemResult::STATUS_COMPLETED,
+                            WmsPickingItemResult::STATUS_SHORTAGE,
+                        ], true);
 
                     if ($plannedPieces > $orderedPieces) {
                         $errors[] = "ID {$record->id}: 引当数が受注数を超えています";
@@ -645,14 +653,27 @@ class WmsPickingWait extends AdminPage
                         $updatedPickingCount++;
                     }
 
-                    if ((int) ($record->picked_qty ?? 0) !== $newPickedQty || $record->picked_qty_type !== $newPlannedType) {
+                    if ($pickedQtyChanged || $confirmPicking) {
                         $record->picked_qty = $newPickedQty;
                         $record->picked_qty_type = $newPlannedType;
-                        $record->picked_at = $newPickedQty > 0 ? ($record->picked_at ?? now()) : null;
-                        $updatedPickedCount++;
+                        $record->picked_at = ($newPickedQty > 0 || $confirmPicking)
+                            ? ($record->picked_at ?? now())
+                            : null;
+                        if ($pickedQtyChanged) {
+                            $updatedPickedCount++;
+                        }
                     }
 
-                    $record->shortage_qty = max(0, $orderedPieces - $plannedPieces);
+                    $record->shortage_qty = $shouldConfirmPicking
+                        ? max(0, $orderedPieces - $pickedPieces)
+                        : max(0, $orderedPieces - $plannedPieces);
+
+                    if ($shouldConfirmPicking) {
+                        $record->status = $record->shortage_qty > 0
+                            ? WmsPickingItemResult::STATUS_SHORTAGE
+                            : WmsPickingItemResult::STATUS_COMPLETED;
+                    }
+
                     $record->save();
                     $this->syncShortageFromPickResult($record);
                 }
@@ -1360,6 +1381,7 @@ class WmsPickingWait extends AdminPage
                 'pir.picked_qty_type',
                 'pir.shortage_qty',
                 'pir.has_soft_shortage',
+                'pir.has_shortage',
                 'pir.walking_order',
                 'pt.status as task_status',
                 'pt.shipment_date',
@@ -1413,13 +1435,13 @@ class WmsPickingWait extends AdminPage
         $this->applyTextFilter($query, $this->itemSearch, ['i.code', 'i.name']);
 
         if ($tab === 'shortage') {
-            $query->where('pir.has_soft_shortage', true);
+            $query->where('pir.has_shortage', true);
         } elseif ($this->shortage === 'with') {
-            $query->where('pir.has_soft_shortage', true);
+            $query->where('pir.has_shortage', true);
         } elseif ($this->shortage === 'without') {
             $query->where(function (Builder $q): void {
-                $q->where('pir.has_soft_shortage', false)
-                    ->orWhereNull('pir.has_soft_shortage');
+                $q->where('pir.has_shortage', false)
+                    ->orWhereNull('pir.has_shortage');
             });
         }
 

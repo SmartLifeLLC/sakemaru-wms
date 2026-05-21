@@ -223,6 +223,8 @@
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1">
                                         @if ($row->has_soft_shortage)
                                             <span class="rounded bg-red-100 px-2 py-0.5 font-bold text-red-700">引当欠品</span>
+                                        @elseif ($row->has_shortage || (int) $row->shortage_qty > 0)
+                                            <span class="rounded bg-orange-100 px-2 py-0.5 font-bold text-orange-700">ピッキング欠品</span>
                                         @else
                                             <span class="text-slate-400">-</span>
                                         @endif
@@ -437,6 +439,9 @@
                     </button>
                     <button type="button" wire:click="saveAdjustmentChanges" @disabled($quantityQueueWaiting) class="rounded-md bg-amber-600 px-4 py-1.5 text-sm font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50">
                         修正する
+                    </button>
+                    <button type="button" wire:click="saveAdjustmentChanges(true)" @disabled($quantityQueueWaiting) class="rounded-md bg-green-700 px-4 py-1.5 text-sm font-bold text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-50">
+                        ピッキングする
                     </button>
                 </div>
 
