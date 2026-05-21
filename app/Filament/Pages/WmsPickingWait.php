@@ -1381,7 +1381,14 @@ class WmsPickingWait extends AdminPage
                 'pir.picked_qty_type',
                 'pir.shortage_qty',
                 'pir.has_soft_shortage',
-                'pir.has_shortage',
+                DB::raw("
+                    CASE
+                        WHEN pir.status IN ('".WmsPickingItemResult::STATUS_COMPLETED."', '".WmsPickingItemResult::STATUS_SHORTAGE."')
+                            AND COALESCE(pir.shortage_qty, 0) > 0
+                        THEN 1
+                        ELSE 0
+                    END as has_picking_shortage
+                "),
                 'pir.walking_order',
                 'pt.status as task_status',
                 'pt.shipment_date',
@@ -1435,17 +1442,50 @@ class WmsPickingWait extends AdminPage
         $this->applyTextFilter($query, $this->itemSearch, ['i.code', 'i.name']);
 
         if ($tab === 'shortage') {
-            $query->where('pir.has_shortage', true);
+            $this->applyOperationalShortageFilter($query, true);
         } elseif ($this->shortage === 'with') {
-            $query->where('pir.has_shortage', true);
+            $this->applyOperationalShortageFilter($query, true);
         } elseif ($this->shortage === 'without') {
-            $query->where(function (Builder $q): void {
-                $q->where('pir.has_shortage', false)
-                    ->orWhereNull('pir.has_shortage');
-            });
+            $this->applyOperationalShortageFilter($query, false);
         }
 
         return $query;
+    }
+
+    private function applyOperationalShortageFilter(Builder $query, bool $withShortage): void
+    {
+        if (! $withShortage) {
+            $query->where(function (Builder $q): void {
+                $q->where(function (Builder $softShortageQuery): void {
+                    $softShortageQuery
+                        ->where('pir.has_soft_shortage', false)
+                        ->orWhereNull('pir.has_soft_shortage');
+                })
+                    ->where(function (Builder $pickingShortageQuery): void {
+                        $pickingShortageQuery
+                            ->whereNotIn('pir.status', [
+                                WmsPickingItemResult::STATUS_COMPLETED,
+                                WmsPickingItemResult::STATUS_SHORTAGE,
+                            ])
+                            ->orWhere('pir.shortage_qty', '<=', 0)
+                            ->orWhereNull('pir.shortage_qty');
+                    });
+            });
+
+            return;
+        }
+
+        $query->where(function (Builder $q): void {
+            $q->where('pir.has_soft_shortage', true)
+                ->orWhere(function (Builder $subQuery): void {
+                    $subQuery
+                        ->whereIn('pir.status', [
+                            WmsPickingItemResult::STATUS_COMPLETED,
+                            WmsPickingItemResult::STATUS_SHORTAGE,
+                        ])
+                        ->where('pir.shortage_qty', '>', 0);
+                });
+        });
     }
 
     private function applyTextFilter(Builder $query, string $value, array $columns): void

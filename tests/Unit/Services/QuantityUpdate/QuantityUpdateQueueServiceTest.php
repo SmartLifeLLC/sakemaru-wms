@@ -8,7 +8,7 @@ use Tests\TestCase;
 
 class QuantityUpdateQueueServiceTest extends TestCase
 {
-    public function test_shortage_approval_does_not_create_quantity_update_queue(): void
+    public function test_shortage_approval_without_source_pick_result_does_not_create_quantity_update_queue(): void
     {
         $shortage = new WmsShortage([
             'trade_id' => 16430,
@@ -18,7 +18,6 @@ class QuantityUpdateQueueServiceTest extends TestCase
             'picked_qty' => 0,
             'shortage_qty' => 4,
             'qty_type_at_order' => 'PIECE',
-            'source_pick_result_id' => 20798,
         ]);
         $shortage->id = 1323;
 
