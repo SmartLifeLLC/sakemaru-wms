@@ -102,13 +102,11 @@ class WmsOrderIncomingSchedulesTable
 
                 TextColumn::make('contractor.code')
                     ->label('発注先CD')
-                    ->searchable()
                     ->alignCenter()
                     ->width('70px'),
 
                 TextColumn::make('contractor.name')
                     ->label('発注先')
-                    ->searchable()
                     ->width('120px'),
 
                 TextColumn::make('item_code')
