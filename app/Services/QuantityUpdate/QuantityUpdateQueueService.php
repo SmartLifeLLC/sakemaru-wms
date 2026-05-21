@@ -56,13 +56,38 @@ class QuantityUpdateQueueService
 
     public function createQueueForShortageApproval(WmsShortage $shortage): ?QuantityUpdateQueue
     {
-        Log::info('Skipped quantity_update_queue creation for shortage approval', [
-            'shortage_id' => $shortage->id,
-            'trade_id' => $shortage->trade_id,
-            'trade_item_id' => $shortage->trade_item_id,
-        ]);
+        if (! $shortage->source_pick_result_id) {
+            Log::warning('Cannot create quantity_update_queue: source_pick_result_id is null', [
+                'shortage_id' => $shortage->id,
+            ]);
 
-        return null;
+            return null;
+        }
+
+        $shortage->loadMissing(['trade', 'wave', 'sourcePickResult']);
+
+        $clientId = $shortage->trade?->client_id;
+        if (! $clientId) {
+            Log::warning('Cannot create quantity_update_queue: client_id not found', [
+                'shortage_id' => $shortage->id,
+                'trade_id' => $shortage->trade_id,
+            ]);
+
+            return null;
+        }
+
+        $allocatedQty = (int) $shortage->allocations()->sum('assign_qty');
+
+        return $this->createOrUpdateQueue(
+            shortage: $shortage,
+            requestId: (string) $shortage->source_pick_result_id,
+            updateQty: $this->calculateFinalQuantity($shortage, $allocatedQty),
+            clientId: $clientId,
+            shipmentDate: $shortage->wave?->shipping_date,
+            tradeCategory: $this->tradeCategoryForShortage($shortage),
+            context: 'shortage approval',
+            extraLogContext: ['allocated_qty' => $allocatedQty],
+        );
     }
 
     /**

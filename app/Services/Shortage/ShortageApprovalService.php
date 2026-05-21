@@ -7,15 +7,14 @@ use App\Models\QuantityUpdateQueue;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
+use App\Services\QuantityUpdate\QuantityUpdateQueueService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ShortageApprovalService
 {
     /**
-     * 欠品承認を実行する。
-     *
-     * 欠品は伝票の受注数量変更ではないため、基幹側数量更新キューは作成しない。
+     * 欠品承認と基幹側数量更新キュー作成を同一トランザクションで実行する。
      *
      * @return array{confirmed: bool, allocations_confirmed: int, queue: QuantityUpdateQueue|null}
      */
@@ -42,14 +41,15 @@ class ShortageApprovalService
             $lockedShortage->confirmed_by = $confirmedUserId;
             $lockedShortage->confirmed_at = now();
             $lockedShortage->confirmed_user_id = $confirmedUserId;
-            $lockedShortage->is_synced = true;
-            $lockedShortage->is_synced_at = now();
             $lockedShortage->save();
 
             $confirmedAllocationsCount = ConfirmShortageAllocations::execute(
                 wmsShortageId: $lockedShortage->id,
                 confirmedUserId: $confirmedUserId
             );
+
+            $queue = app(QuantityUpdateQueueService::class)
+                ->createQueueForShortageApproval($lockedShortage);
 
             if ($markPickingResultReadyForShipment) {
                 $this->markPickingResultReadyForShipment($lockedShortage);
@@ -60,7 +60,7 @@ class ShortageApprovalService
             return [
                 'confirmed' => true,
                 'allocations_confirmed' => $confirmedAllocationsCount,
-                'queue' => null,
+                'queue' => $queue,
             ];
         }, 5);
     }

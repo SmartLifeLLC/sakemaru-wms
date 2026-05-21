@@ -223,7 +223,7 @@
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1">
                                         @if ($row->has_soft_shortage)
                                             <span class="rounded bg-red-100 px-2 py-0.5 font-bold text-red-700">引当欠品</span>
-                                        @elseif ($row->has_shortage || (int) $row->shortage_qty > 0)
+                                        @elseif ((bool) ($row->has_picking_shortage ?? false))
                                             <span class="rounded bg-orange-100 px-2 py-0.5 font-bold text-orange-700">ピッキング欠品</span>
                                         @else
                                             <span class="text-slate-400">-</span>
