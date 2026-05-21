@@ -1556,6 +1556,46 @@ class WmsPickingWait extends AdminPage
         ];
     }
 
+    public function rowShortagePieces(object $row): int
+    {
+        $orderedPieces = $this->quantityAsPiecesFromValues(
+            $row->ordered_qty ?? 0,
+            $row->ordered_qty_type ?? QuantityType::PIECE->value,
+            $row->capacity_case ?? 1,
+            $row->capacity_carton ?? 1,
+        );
+
+        $usesPickedQty = (bool) ($row->has_picking_shortage ?? false);
+        $basisQty = $usesPickedQty
+            ? ($row->picked_qty ?? 0)
+            : ($row->planned_qty ?? 0);
+        $basisType = $usesPickedQty
+            ? ($row->picked_qty_type ?? $row->planned_qty_type ?? $row->ordered_qty_type ?? QuantityType::PIECE->value)
+            : ($row->planned_qty_type ?? $row->ordered_qty_type ?? QuantityType::PIECE->value);
+
+        $basisPieces = $this->quantityAsPiecesFromValues(
+            $basisQty,
+            $basisType,
+            $row->capacity_case ?? 1,
+            $row->capacity_carton ?? 1,
+        );
+
+        return max(0, $orderedPieces - $basisPieces);
+    }
+
+    private function quantityAsPiecesFromValues(mixed $qty, ?string $qtyType, mixed $capacityCase, mixed $capacityCarton): int
+    {
+        $quantity = max(0, (int) $qty);
+        $capacityCase = max(1, (int) ($capacityCase ?: 1));
+        $capacityCarton = max(1, (int) ($capacityCarton ?: 1));
+
+        return match ($qtyType) {
+            QuantityType::CASE->value => $quantity * $capacityCase,
+            QuantityType::CARTON->value => $quantity * $capacityCarton,
+            default => $quantity,
+        };
+    }
+
     public function formatPickingStatus(?string $status): string
     {
         return match ($status) {
