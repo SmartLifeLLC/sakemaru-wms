@@ -16,6 +16,8 @@ class ListWaveSettings extends ListRecords
 {
     protected static string $resource = WaveSettingResource::class;
 
+    private ?array $warehouse91StockLotSyncPreview = null;
+
     protected function getHeaderActions(): array
     {
         return [
@@ -30,7 +32,7 @@ class ListWaveSettings extends ListRecords
                 ->modalSubmitAction(fn (Action $action) => $action->label('在庫同期を実行')->color('danger'))
                 ->modalCancelActionLabel('同期せず閉じる')
                 ->modalFooterActionsAlignment(Alignment::End)
-                ->schema(fn () => collect(app(Warehouse91StockLotSyncService::class)->preview()['selectable_location_rows'])
+                ->schema(fn () => collect($this->getWarehouse91StockLotSyncPreview()['selectable_location_rows'])
                     ->filter(fn (array $row): bool => $row['location_options'] !== [])
                     ->map(fn (array $row): Select => Select::make("location_override_{$row['real_stock_id']}")
                         ->label("{$row['item_code']} {$row['item_name']}")
@@ -43,7 +45,7 @@ class ListWaveSettings extends ListRecords
                     )
                     ->all())
                 ->modalContent(fn () => view('filament.resources.wave-settings.stock-lot-sync-preview', [
-                    'preview' => app(Warehouse91StockLotSyncService::class)->preview(),
+                    'preview' => $this->getWarehouse91StockLotSyncPreview(),
                 ]))
                 ->action(function (array $data): void {
                     try {
@@ -71,5 +73,11 @@ class ListWaveSettings extends ListRecords
                 }),
             CreateAction::make(),
         ];
+    }
+
+    private function getWarehouse91StockLotSyncPreview(): array
+    {
+        return $this->warehouse91StockLotSyncPreview
+            ??= app(Warehouse91StockLotSyncService::class)->preview();
     }
 }
