@@ -8,6 +8,7 @@ use App\Enums\AutoOrder\EOrderFileGenerator;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\EWMSClient;
 use App\Models\Sakemaru\Contractor;
+use App\Models\User;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
@@ -43,6 +44,31 @@ class OrderTransmissionServiceTest extends TestCase
     {
         $service = app(OrderTransmissionService::class);
         $this->assertInstanceOf(OrderTransmissionService::class, $service);
+    }
+
+    /**
+     * @test
+     * 発注データファイルの作成者名にログインユーザー名を使用すること
+     */
+    public function it_uses_authenticated_user_name_for_order_data_file_creator(): void
+    {
+        $this->actingAs((new User)->forceFill([
+            'id' => 123,
+            'name' => 'JX生成担当者',
+        ]));
+
+        $method = new \ReflectionMethod(OrderTransmissionService::class, 'resolveOrderDataFileCreatedByName');
+        $method->setAccessible(true);
+
+        $this->assertSame('JX生成担当者', $method->invoke($this->service, 'J20260520182144448', collect()));
+
+        $method = new \ReflectionMethod(OrderTransmissionService::class, 'resolveOrderDataFileCreatedBy');
+        $method->setAccessible(true);
+
+        $this->assertSame([
+            'id' => 123,
+            'name' => 'JX生成担当者',
+        ], $method->invoke($this->service, 'J20260520182144448', collect()));
     }
 
     /**

@@ -1848,11 +1848,12 @@ class OrderTransmissionService
         Storage::disk('s3')->put($csvPath, $csvContent);
 
         $firstCandidate = $candidates->first();
-        $createdByName = $this->resolveOrderDataFileCreatedByName($batchCode);
+        $createdBy = $this->resolveOrderDataFileCreatedBy($batchCode, $candidates);
 
         WmsOrderDataFile::create([
             'batch_code' => $batchCode,
-            'created_by_name' => $createdByName,
+            'created_by' => $createdBy['id'],
+            'created_by_name' => $createdBy['name'],
             'warehouse_id' => $firstCandidate?->warehouse_id,
             'contractor_id' => $file['contractor_id'],
             'candidate_ids' => $candidates->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
@@ -1873,16 +1874,67 @@ class OrderTransmissionService
         return $csvPath;
     }
 
-    private function resolveOrderDataFileCreatedByName(string $batchCode): ?string
+    /**
+     * @return array{id: int|null, name: string}
+     */
+    private function resolveOrderDataFileCreatedBy(string $batchCode, ?Collection $candidates = null): array
     {
-        return WmsAutoOrderJobControl::query()
+        $authUser = auth()->user();
+        if ($authUser && filled($authUser->name)) {
+            return [
+                'id' => (int) $authUser->getAuthIdentifier(),
+                'name' => $authUser->name,
+            ];
+        }
+
+        $candidateBatchCodes = $candidates?->pluck('batch_code')->filter()->unique()->values();
+        if ($candidateBatchCodes?->isNotEmpty()) {
+            $candidateCreatedBy = WmsAutoOrderJobControl::query()
+                ->whereIn('batch_code', $candidateBatchCodes)
+                ->whereNotNull('created_by')
+                ->with('createdByUser:id,name')
+                ->latest('id')
+                ->first();
+
+            if ($candidateCreatedBy?->createdByUser && filled($candidateCreatedBy->createdByUser->name)) {
+                return [
+                    'id' => (int) $candidateCreatedBy->created_by,
+                    'name' => $candidateCreatedBy->createdByUser->name,
+                ];
+            }
+        }
+
+        $batchCreatedBy = WmsAutoOrderJobControl::query()
             ->where('batch_code', $batchCode)
             ->whereNotNull('created_by')
             ->with('createdByUser:id,name')
             ->latest('id')
-            ->first()
-            ?->createdByUser
-            ?->name;
+            ->first();
+
+        if ($batchCreatedBy?->createdByUser && filled($batchCreatedBy->createdByUser->name)) {
+            return [
+                'id' => (int) $batchCreatedBy->created_by,
+                'name' => $batchCreatedBy->createdByUser->name,
+            ];
+        }
+
+        $automatorId = SakemaruUser::resolveAutomatorId();
+        if ($automatorId > 0) {
+            return [
+                'id' => $automatorId,
+                'name' => SakemaruUser::withoutGlobalScopes()->whereKey($automatorId)->value('name') ?? 'システム',
+            ];
+        }
+
+        return [
+            'id' => null,
+            'name' => 'システム',
+        ];
+    }
+
+    private function resolveOrderDataFileCreatedByName(string $batchCode, ?Collection $candidates = null): string
+    {
+        return $this->resolveOrderDataFileCreatedBy($batchCode, $candidates)['name'];
     }
 
     /**
