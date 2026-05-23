@@ -19,6 +19,7 @@ class WmsOrderDataFile extends WmsModel
 
     protected $fillable = [
         'batch_code',
+        'created_by',
         'created_by_name',
         'warehouse_id',
         'contractor_id',
@@ -65,6 +66,11 @@ class WmsOrderDataFile extends WmsModel
         return $this->belongsTo(Contractor::class);
     }
 
+    public function createdByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
     public function csvDownloadedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'csv_downloaded_by');
@@ -99,9 +105,10 @@ class WmsOrderDataFile extends WmsModel
         }
 
         return $query->where(function (Builder $q) use ($userId) {
-            $q->whereIn('batch_code', WmsAutoOrderJobControl::query()
-                ->where('created_by', $userId)
-                ->select('batch_code'))
+            $q->where('created_by', $userId)
+                ->orWhereIn('batch_code', WmsAutoOrderJobControl::query()
+                    ->where('created_by', $userId)
+                    ->select('batch_code'))
                 ->orWhereNotIn('batch_code', WmsAutoOrderJobControl::query()
                     ->select('batch_code'));
         });

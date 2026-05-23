@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\EVolumeUnit;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\User as SakemaruUser;
 use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
@@ -187,9 +188,12 @@ class OrderDataFileService
         $totalQuantity = $quantityResolver->sumOutputOrderQuantity($candidates);
 
         // DBに記録
+        $createdBy = $this->resolveCreatedBy($batchCode, $candidates);
+
         $dataFile = WmsOrderDataFile::create([
             'batch_code' => $batchCode,
-            'created_by_name' => $this->resolveCreatedByName($batchCode),
+            'created_by' => $createdBy['id'],
+            'created_by_name' => $createdBy['name'],
             'warehouse_id' => $warehouseId,
             'contractor_id' => $contractorId,
             'candidate_ids' => $candidates->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
@@ -250,16 +254,67 @@ class OrderDataFileService
             : "{$candidate->contractor_id}_{$supplierId}_{$arrivalDate}";
     }
 
-    private function resolveCreatedByName(string $batchCode): ?string
+    /**
+     * @return array{id: int|null, name: string}
+     */
+    private function resolveCreatedBy(string $batchCode, ?Collection $candidates = null): array
     {
-        return WmsAutoOrderJobControl::query()
+        $authUser = auth()->user();
+        if ($authUser && filled($authUser->name)) {
+            return [
+                'id' => (int) $authUser->getAuthIdentifier(),
+                'name' => $authUser->name,
+            ];
+        }
+
+        $candidateBatchCodes = $candidates?->pluck('batch_code')->filter()->unique()->values();
+        if ($candidateBatchCodes?->isNotEmpty()) {
+            $candidateCreatedBy = WmsAutoOrderJobControl::query()
+                ->whereIn('batch_code', $candidateBatchCodes)
+                ->whereNotNull('created_by')
+                ->with('createdByUser:id,name')
+                ->latest('id')
+                ->first();
+
+            if ($candidateCreatedBy?->createdByUser && filled($candidateCreatedBy->createdByUser->name)) {
+                return [
+                    'id' => (int) $candidateCreatedBy->created_by,
+                    'name' => $candidateCreatedBy->createdByUser->name,
+                ];
+            }
+        }
+
+        $batchCreatedBy = WmsAutoOrderJobControl::query()
             ->where('batch_code', $batchCode)
             ->whereNotNull('created_by')
             ->with('createdByUser:id,name')
             ->latest('id')
-            ->first()
-            ?->createdByUser
-            ?->name;
+            ->first();
+
+        if ($batchCreatedBy?->createdByUser && filled($batchCreatedBy->createdByUser->name)) {
+            return [
+                'id' => (int) $batchCreatedBy->created_by,
+                'name' => $batchCreatedBy->createdByUser->name,
+            ];
+        }
+
+        $automatorId = SakemaruUser::resolveAutomatorId();
+        if ($automatorId > 0) {
+            return [
+                'id' => $automatorId,
+                'name' => SakemaruUser::withoutGlobalScopes()->whereKey($automatorId)->value('name') ?? 'システム',
+            ];
+        }
+
+        return [
+            'id' => null,
+            'name' => 'システム',
+        ];
+    }
+
+    private function resolveCreatedByName(string $batchCode, ?Collection $candidates = null): string
+    {
+        return $this->resolveCreatedBy($batchCode, $candidates)['name'];
     }
 
     /**

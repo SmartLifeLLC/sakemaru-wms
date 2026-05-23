@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Services\AutoOrder;
 
+use App\Models\User;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\OrderDataFileService;
 use Tests\TestCase;
@@ -58,6 +59,28 @@ class OrderDataFileServiceTest extends TestCase
         $this->assertCount(2, $groups);
         $this->assertSame([1], $groups->get('10_100_200_2026-05-20')->pluck('id')->all());
         $this->assertSame([2], $groups->get('10_100_201_2026-05-20')->pluck('id')->all());
+    }
+
+    public function test_created_by_name_uses_authenticated_user_name(): void
+    {
+        $this->actingAs((new User)->forceFill([
+            'id' => 123,
+            'name' => '発注担当者',
+        ]));
+
+        $service = new OrderDataFileService;
+        $method = new \ReflectionMethod($service, 'resolveCreatedByName');
+        $method->setAccessible(true);
+
+        $this->assertSame('発注担当者', $method->invoke($service, 'J20260520182144448', collect()));
+
+        $method = new \ReflectionMethod($service, 'resolveCreatedBy');
+        $method->setAccessible(true);
+
+        $this->assertSame([
+            'id' => 123,
+            'name' => '発注担当者',
+        ], $method->invoke($service, 'J20260520182144448', collect()));
     }
 
     private function candidate(int $id, int $warehouseId, int $contractorId, int $supplierId, string $expectedArrivalDate): WmsOrderCandidate
