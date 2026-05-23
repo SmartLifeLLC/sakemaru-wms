@@ -26,6 +26,7 @@ class StockDisposalController extends ApiController
         'ENTERTAINMENT_CONDOLENCE',
         'LOST',
         'OTHER',
+        'INVENTORY',
     ];
 
     private const QUANTITY_TYPES = [
