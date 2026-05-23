@@ -113,6 +113,13 @@ Schedule::command('wms:incoming-receive-scheduled')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
 
+// quantity_update_queue の一時的なSAVEPOINT失敗を再投入
+Schedule::command('wms:retry-transient-quantity-update-failures --limit=20 --min-age-seconds=10 --cooldown-minutes=60')
+    ->everyMinute()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/quantity-update-retry.log'));
+
 // 倉庫別商品別の出荷実績サマリ更新（09:30以降30分ごと・過去4日分）
 // ※ --dry-run は確認用のため、スケジュールでは実更新を行う
 Schedule::command('wms:sync-sales-summaries --days=4')

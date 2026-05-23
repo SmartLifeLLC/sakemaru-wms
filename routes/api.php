@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\IncomingController;
+use App\Http\Controllers\Api\InventoryCountController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\Api\PickingTaskController;
@@ -59,5 +60,13 @@ Route::middleware('api.key')->group(function () {
         Route::post('/proxy-shipments/{id}/start', [ProxyShipmentController::class, 'start']);
         Route::post('/proxy-shipments/{id}/update', [ProxyShipmentController::class, 'update']);
         Route::post('/proxy-shipments/{id}/complete', [ProxyShipmentController::class, 'complete']);
+
+        // Inventory count (棚卸し) endpoints
+        Route::get('/wms/inventory-counts', [InventoryCountController::class, 'index']);
+        Route::get('/wms/inventory-counts/{id}', [InventoryCountController::class, 'show']);
+        Route::get('/wms/inventory-counts/{id}/items', [InventoryCountController::class, 'items']);
+        Route::post('/wms/inventory-counts/{id}/scan', [InventoryCountController::class, 'scan']);
+        Route::post('/wms/inventory-count-items/{itemId}/count', [InventoryCountController::class, 'count']);
+        Route::get('/wms/inventory-count-items/{itemId}/logs', [InventoryCountController::class, 'logs']);
     });
 });
