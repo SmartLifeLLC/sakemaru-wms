@@ -12,12 +12,15 @@ class SyncSalesSummariesCommand extends Command
 {
     private const WINDOWS = [3, 5, 7, 14, 30];
 
+    private const LIVE_DATA_START_DATE = '2026-05-06';
+
     protected $signature = 'wms:sync-sales-summaries
         {--warehouse-id= : 特定倉庫のみ集計}
         {--from= : 売上・小売・倉庫移動から日次実績を再集計する開始日(Y-m-d)}
         {--to= : 売上・小売・倉庫移動から日次実績を再集計する終了日(Y-m-d)。未指定ならシステム日付}
         {--days=3 : --from未指定時に再集計する日数}
         {--summary-only : 日次実績更新をスキップ}
+        {--purge-before-sync : 日次実績更新前に、集計元に存在しない2026-05-06以降の日次行を削除}
         {--dry-run : 実際の書き込みなしに集計結果を表示}';
 
     protected $description = '売上・小売・倉庫移動を基に倉庫別商品別の出荷実績日次・サマリを更新';
@@ -27,10 +30,17 @@ class SyncSalesSummariesCommand extends Command
         $warehouseId = $this->option('warehouse-id') ? (int) $this->option('warehouse-id') : null;
         $dryRun = (bool) $this->option('dry-run');
         $summaryOnly = (bool) $this->option('summary-only');
+        $purgeBeforeSync = (bool) $this->option('purge-before-sync');
 
         [$from, $to] = $this->resolveDateRange();
         if ($from->greaterThan($to)) {
             $this->error('--from は --to 以前の日付を指定してください。');
+
+            return self::FAILURE;
+        }
+
+        if ($summaryOnly && $purgeBeforeSync) {
+            $this->error('--summary-only と --purge-before-sync は同時に指定できません。');
 
             return self::FAILURE;
         }
@@ -43,6 +53,11 @@ class SyncSalesSummariesCommand extends Command
 
         $dailyCount = 0;
         if (! $summaryOnly) {
+            if ($purgeBeforeSync) {
+                $purgedCount = $this->purgeStaleDailySales($from, $to, $warehouseId, $dryRun);
+                $this->info("stale日次実績削除候補: {$purgedCount} 件");
+            }
+
             $dailyCount = $this->syncDailySales($from, $to, $warehouseId, $dryRun);
             $this->info("日次実績: {$dailyCount} 件（倉庫×商品×日）");
         }
@@ -121,6 +136,45 @@ class SyncSalesSummariesCommand extends Command
         }
 
         return count($rows);
+    }
+
+    private function purgeStaleDailySales(
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+        ?int $warehouseId,
+        bool $dryRun
+    ): int {
+        $liveStart = CarbonImmutable::parse(self::LIVE_DATA_START_DATE)->startOfDay();
+        $purgeFrom = $from->lessThan($liveStart) ? $liveStart : $from;
+
+        if ($purgeFrom->greaterThan($to)) {
+            return 0;
+        }
+
+        $source = $this->dailySalesQuery($purgeFrom, $to, $warehouseId);
+        $query = DB::connection('sakemaru')
+            ->table('stats_item_warehouse_daily_sales as d')
+            ->leftJoinSub($source, 'src', function ($join): void {
+                $join
+                    ->on('src.business_date', '=', 'd.business_date')
+                    ->on('src.warehouse_id', '=', 'd.warehouse_id')
+                    ->on('src.item_id', '=', 'd.item_id');
+            })
+            ->whereBetween('d.business_date', [$purgeFrom->toDateString(), $to->toDateString()])
+            ->whereNull('src.item_id');
+
+        if ($warehouseId) {
+            $query->where('d.warehouse_id', $warehouseId);
+        }
+
+        $count = (clone $query)->count();
+        if ($dryRun || $count === 0) {
+            return $count;
+        }
+
+        $query->delete();
+
+        return $count;
     }
 
     private function dailySalesQuery(CarbonImmutable $from, CarbonImmutable $to, ?int $warehouseId)
