@@ -472,11 +472,11 @@ class PurchaseOrderPdfService
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
-        // 発注担当（発注元倉庫）
-        $orderingWarehouseName = $this->warehouse?->name ?? '';
-        if ($orderingWarehouseName) {
+        // 発注担当（作成者名）
+        $creatorName = $this->dataFile->created_by_name ?? '';
+        if ($creatorName) {
             $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-            $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '発注担当: '.$orderingWarehouseName, 0, 1, 'L');
+            $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '発注担当: '.$creatorName, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 

@@ -1,6 +1,7 @@
 <div
     x-data="{
         rows: @js($rows),
+        _syncTimer: null,
         formatNumber(value) {
             return new Intl.NumberFormat('ja-JP').format(Number(value || 0));
         },
@@ -8,14 +9,22 @@
             return Number(row.case_quantity || 0) * Number(row.capacity_case || 1) + Number(row.piece_quantity || 0);
         },
         sync() {
-            $wire.set('fastQuantityInputPayload', this.rows.map((row) => ({
-                id: row.id,
-                case_quantity: Number(row.case_quantity || 0),
-                piece_quantity: Number(row.piece_quantity || 0),
-            })), false);
+            clearTimeout(this._syncTimer);
+            this._syncTimer = setTimeout(() => {
+                $wire.set('fastQuantityInputPayload', this.rows.map((row) => ({
+                    id: row.id,
+                    case_quantity: Number(row.case_quantity || 0),
+                    piece_quantity: Number(row.piece_quantity || 0),
+                })), false);
+            }, 500);
         },
-        normalize(row, key) {
-            row[key] = Math.max(0, Number(row[key] || 0));
+        updateFromInput(row, key, el) {
+            row[key] = Math.max(0, Math.floor(Number(el.value || 0)));
+            this.sync();
+        },
+        commitInput(row, key, el) {
+            row[key] = Math.max(0, Math.floor(Number(el.value || 0)));
+            el.value = row[key];
             this.sync();
         },
     }"
@@ -58,9 +67,10 @@
                             <input
                                 type="number"
                                 min="0"
-                                x-model.number="row.case_quantity"
+                                x-init="$el.value = row.case_quantity"
                                 x-bind:disabled="row.case_disabled"
-                                x-on:input.debounce.150ms="normalize(row, 'case_quantity')"
+                                x-on:input.debounce.150ms="updateFromInput(row, 'case_quantity', $el)"
+                                x-on:blur="commitInput(row, 'case_quantity', $el)"
                                 class="w-20 rounded-md border-2 border-amber-300 bg-white px-2 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900 dark:disabled:border-gray-700 dark:disabled:bg-gray-800"
                             >
                         </td>
@@ -68,9 +78,10 @@
                             <input
                                 type="number"
                                 min="0"
-                                x-model.number="row.piece_quantity"
+                                x-init="$el.value = row.piece_quantity"
                                 x-bind:disabled="row.piece_disabled"
-                                x-on:input.debounce.150ms="normalize(row, 'piece_quantity')"
+                                x-on:input.debounce.150ms="updateFromInput(row, 'piece_quantity', $el)"
+                                x-on:blur="commitInput(row, 'piece_quantity', $el)"
                                 class="w-20 rounded-md border-2 border-amber-300 bg-white px-2 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900 dark:disabled:border-gray-700 dark:disabled:bg-gray-800"
                             >
                         </td>

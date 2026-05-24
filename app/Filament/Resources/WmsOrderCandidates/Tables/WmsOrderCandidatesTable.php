@@ -168,6 +168,11 @@ class WmsOrderCandidatesTable
                     ->alignEnd()
                     ->toggleable(),
 
+                TextColumn::make('default_location')
+                    ->label('棚番')
+                    ->placeholder('-')
+                    ->toggleable(),
+
                 TextColumn::make('calculated_available')
                     ->label('見込在庫')
                     ->state(fn ($record) => $record->calculated_available ?? '-')
