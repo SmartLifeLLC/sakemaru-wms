@@ -26,6 +26,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 
@@ -321,6 +322,11 @@ class WaveGroupsTable
                 return null;
             }
 
+            $printerPath = static::copyPickingListForPrinterQueue($path, $record, $listType);
+            if (! $printerPath) {
+                return null;
+            }
+
             DB::connection('sakemaru')
                 ->table('document_picking_print_outputs')
                 ->insert([
@@ -328,7 +334,7 @@ class WaveGroupsTable
                     'log_pdf_export_id' => null,
                     'creator_id' => auth()->id(),
                     'printer_driver_id' => $printerDriverId,
-                    'file_path' => $path,
+                    'file_path' => $printerPath,
                     'file_type' => 'S3',
                     'status' => 'STANDBY',
                     'created_at' => now(),
@@ -349,6 +355,46 @@ class WaveGroupsTable
             $filename,
             ['Content-Type' => $mimeType]
         );
+    }
+
+    private static function copyPickingListForPrinterQueue(string $path, WaveGroup $record, string $listType): ?string
+    {
+        $safeListType = preg_replace('/[^A-Za-z0-9_-]/', '_', $listType) ?: 'list';
+        $printerPath = sprintf(
+            'data/pdf/%s/wms_pick_%d_%s_%s.pdf',
+            now()->format('Ymd'),
+            $record->id,
+            $safeListType,
+            now()->format('YmdHis')
+        );
+
+        try {
+            if (! Storage::disk('s3')->copy($path, $printerPath)) {
+                Notification::make()
+                    ->title('プリンター出力用PDFの準備に失敗しました')
+                    ->danger()
+                    ->send();
+
+                return null;
+            }
+        } catch (\Throwable $e) {
+            Log::error('Failed to copy WMS picking list for printer output', [
+                'wave_group_id' => $record->id,
+                'source_path' => $path,
+                'printer_path' => $printerPath,
+                'error' => $e->getMessage(),
+            ]);
+
+            Notification::make()
+                ->title('プリンター出力用PDFの準備に失敗しました')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+
+            return null;
+        }
+
+        return $printerPath;
     }
 
     public static function printerSelectionSchema(?int $warehouseId = null): array
