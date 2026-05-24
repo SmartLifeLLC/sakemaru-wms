@@ -75,6 +75,15 @@ class WmsInventoryCount extends WmsModel
         return $query->where('status', $status);
     }
 
+    public function scopeActive($query)
+    {
+        return $query->whereIn('status', [
+            self::STATUS_DRAFT,
+            self::STATUS_COUNTING,
+            self::STATUS_CHECKED,
+        ]);
+    }
+
     public function getStatusLabelAttribute(): string
     {
         return match ($this->status) {

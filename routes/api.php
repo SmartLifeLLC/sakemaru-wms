@@ -66,6 +66,7 @@ Route::middleware('api.key')->group(function () {
         Route::get('/wms/inventory-counts/{id}', [InventoryCountController::class, 'show']);
         Route::get('/wms/inventory-counts/{id}/items', [InventoryCountController::class, 'items']);
         Route::post('/wms/inventory-counts/{id}/scan', [InventoryCountController::class, 'scan']);
+        Route::post('/wms/inventory-counts/{id}/counts/bulk', [InventoryCountController::class, 'bulkCount']);
         Route::post('/wms/inventory-count-items/{itemId}/count', [InventoryCountController::class, 'count']);
         Route::get('/wms/inventory-count-items/{itemId}/logs', [InventoryCountController::class, 'logs']);
     });

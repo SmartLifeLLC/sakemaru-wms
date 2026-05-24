@@ -368,8 +368,28 @@ class WaveGroupsTable
             now()->format('YmdHis')
         );
 
+        $stream = null;
+
         try {
-            if (! Storage::disk('s3')->copy($path, $printerPath)) {
+            $disk = Storage::disk('s3');
+            $stream = $disk->readStream($path);
+
+            if ($stream === false) {
+                Log::error('Failed to read WMS picking list for printer output', [
+                    'wave_group_id' => $record->id,
+                    'source_path' => $path,
+                    'printer_path' => $printerPath,
+                ]);
+
+                Notification::make()
+                    ->title('プリンター出力用PDFの準備に失敗しました')
+                    ->danger()
+                    ->send();
+
+                return null;
+            }
+
+            if (! $disk->put($printerPath, $stream)) {
                 Notification::make()
                     ->title('プリンター出力用PDFの準備に失敗しました')
                     ->danger()
@@ -392,6 +412,10 @@ class WaveGroupsTable
                 ->send();
 
             return null;
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
         }
 
         return $printerPath;

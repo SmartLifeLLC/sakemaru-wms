@@ -13,21 +13,40 @@ class InventoryCountService
 {
     public function create(array $data): WmsInventoryCount
     {
-        $warehouse = Warehouse::findOrFail($data['warehouse_id']);
+        return DB::connection('sakemaru')->transaction(function () use ($data) {
+            $warehouse = Warehouse::findOrFail($data['warehouse_id']);
 
-        $count = WmsInventoryCount::create([
-            'count_no' => WmsInventoryCount::generateCountNo($data['count_date']),
-            'client_id' => $warehouse->client_id,
-            'warehouse_id' => $warehouse->id,
-            'warehouse_code' => $warehouse->code ?? '',
-            'warehouse_name' => $warehouse->name ?? '',
-            'count_date' => $data['count_date'],
-            'status' => WmsInventoryCount::STATUS_DRAFT,
-            'memo' => $data['memo'] ?? null,
-            'created_by' => auth()->id(),
-        ]);
+            $activeCounts = WmsInventoryCount::query()
+                ->where('warehouse_id', $warehouse->id)
+                ->active()
+                ->lockForUpdate()
+                ->get();
 
-        return $count;
+            if ($activeCounts->isNotEmpty() && empty($data['force_close_existing'])) {
+                throw new \RuntimeException('この倉庫には処理中の棚卸しがあります。既存棚卸しを強制終了する確認が必要です。');
+            }
+
+            if ($activeCounts->isNotEmpty()) {
+                WmsInventoryCount::query()
+                    ->whereKey($activeCounts->pluck('id'))
+                    ->update([
+                        'status' => WmsInventoryCount::STATUS_CANCELLED,
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            return WmsInventoryCount::create([
+                'count_no' => WmsInventoryCount::generateCountNo($data['count_date']),
+                'client_id' => $warehouse->client_id,
+                'warehouse_id' => $warehouse->id,
+                'warehouse_code' => $warehouse->code ?? '',
+                'warehouse_name' => $warehouse->name ?? '',
+                'count_date' => $data['count_date'],
+                'status' => WmsInventoryCount::STATUS_DRAFT,
+                'memo' => $data['memo'] ?? null,
+                'created_by' => auth()->id(),
+            ]);
+        });
     }
 
     public function takeSnapshot(WmsInventoryCount $inventoryCount): int
@@ -129,9 +148,12 @@ class InventoryCountService
         }
 
         // Save old quantity for the log
-        $oldQuantity = $round === 1
-            ? $countItem->first_count_quantity
-            : $countItem->second_count_quantity;
+        $oldQuantity = match ($round) {
+            1 => $countItem->first_count_quantity,
+            2 => $countItem->second_count_quantity,
+            3 => $countItem->final_count_quantity,
+            default => null,
+        };
 
         // Update the appropriate count quantity based on round
         $updateData = [
@@ -139,10 +161,20 @@ class InventoryCountService
             'last_counted_at' => now(),
         ];
 
-        if ($round === 1) {
-            $updateData['first_count_quantity'] = $quantity;
-        } else {
-            $updateData['second_count_quantity'] = $quantity;
+        match ($round) {
+            1 => $updateData['first_count_quantity'] = $quantity,
+            2 => $updateData['second_count_quantity'] = $quantity,
+            3 => $updateData['final_count_quantity'] = $quantity,
+            default => throw new \InvalidArgumentException('count round must be 1, 2, or 3'),
+        };
+
+        $countedQty = $round === 3
+            ? $quantity
+            : ($updateData['second_count_quantity'] ?? $countItem->second_count_quantity ?? $updateData['first_count_quantity'] ?? $countItem->first_count_quantity);
+
+        if ($countedQty !== null) {
+            $updateData['difference_quantity'] = (float) $countedQty - (float) $countItem->system_quantity;
+            $updateData['difference_amount'] = (float) $updateData['difference_quantity'] * (float) $countItem->cost_price;
         }
 
         $countItem->update($updateData);
@@ -165,14 +197,11 @@ class InventoryCountService
     public function calculateDifferences(WmsInventoryCount $inventoryCount): void
     {
         $inventoryCount->items()
-            ->whereNotNull('first_count_quantity')
+            ->whereNotNull('final_count_quantity')
             ->chunkById(500, function ($items) {
                 foreach ($items as $item) {
-                    $finalQty = $item->final_count_quantity
-                        ?? $item->second_count_quantity
-                        ?? $item->first_count_quantity;
+                    $finalQty = $item->final_count_quantity;
 
-                    $item->final_count_quantity = $finalQty;
                     $item->difference_quantity = (float) $finalQty - (float) $item->system_quantity;
                     $item->difference_amount = (float) $item->difference_quantity * (float) $item->cost_price;
                     $item->save();
@@ -180,9 +209,8 @@ class InventoryCountService
             });
 
         $inventoryCount->items()
-            ->whereNull('first_count_quantity')
+            ->whereNull('final_count_quantity')
             ->update([
-                'final_count_quantity' => null,
                 'difference_quantity' => null,
                 'difference_amount' => null,
             ]);
@@ -193,6 +221,14 @@ class InventoryCountService
     public function confirm(WmsInventoryCount $inventoryCount, int $userId): void
     {
         DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $userId) {
+            $missingFinalCount = $inventoryCount->items()
+                ->whereNull('final_count_quantity')
+                ->count();
+
+            if ($missingFinalCount > 0) {
+                throw new \RuntimeException("最終数量が未入力の明細が {$missingFinalCount} 件あります。");
+            }
+
             $inventoryCount->update([
                 'status' => WmsInventoryCount::STATUS_CONFIRMED,
                 'confirmed_at' => now(),
