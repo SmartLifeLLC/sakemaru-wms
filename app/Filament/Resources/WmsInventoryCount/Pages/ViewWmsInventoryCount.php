@@ -15,7 +15,7 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
-use Illuminate\Support\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class ViewWmsInventoryCount extends Page implements HasForms
 {
@@ -43,6 +43,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public string $sortDirection = 'asc';
 
+    public int $itemPage = 1;
+
+    public int $itemPerPage = 200;
+
+    public int $activeCountRound = 1;
+
     public bool $editModalOpen = false;
 
     public ?int $editItemId = null;
@@ -57,6 +63,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
     {
         $record->load(['createdByUser', 'confirmedByUser']);
         $this->record = $record;
+        $this->activeCountRound = $this->currentProgressRound();
     }
 
     public function getTitle(): string|Htmlable
@@ -126,6 +133,8 @@ class ViewWmsInventoryCount extends Page implements HasForms
             $this->sortColumn = $column;
             $this->sortDirection = 'asc';
         }
+
+        $this->itemPage = 1;
     }
 
     public function sortIndicator(string $column): string
@@ -161,13 +170,53 @@ class ViewWmsInventoryCount extends Page implements HasForms
             ->toArray();
     }
 
-    public function rows(): Collection
+    public function rows(): LengthAwarePaginator
     {
         $query = WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
             ->with(['latestLog.picker', 'latestLog.user']);
         $this->applySort($query);
 
-        return $query->get();
+        return $query->paginate($this->itemPerPage, ['*'], 'inventory_items_page', $this->itemPage);
+    }
+
+    public function goToItemPage(int $page): void
+    {
+        $lastPage = max(1, (int) ceil($this->record->items()->count() / $this->itemPerPage));
+        $this->itemPage = min(max(1, $page), $lastPage);
+    }
+
+    public function previousItemPage(): void
+    {
+        $this->goToItemPage($this->itemPage - 1);
+    }
+
+    public function nextItemPage(): void
+    {
+        $this->goToItemPage($this->itemPage + 1);
+    }
+
+    public function setActiveCountRound(int $round): void
+    {
+        if ($round !== $this->currentProgressRound()) {
+            return;
+        }
+
+        $this->activeCountRound = $round;
+    }
+
+    public function activeRoundLabel(): string
+    {
+        return $this->activeCountRound === 3 ? '最終' : "{$this->activeCountRound}回目";
+    }
+
+    public function roundLabel(int $round): string
+    {
+        return $round === 3 ? '最終' : "{$round}回目";
+    }
+
+    public function isRoundConfirmed(int $round): bool
+    {
+        return $this->record->{$this->roundConfirmedAtColumn($round)} !== null;
     }
 
     public function totalCount(): int
@@ -209,7 +258,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
     {
         match ($tab) {
             'diff' => $query->whereNotNull('difference_quantity')->where('difference_quantity', '!=', 0),
-            'uncounted' => $query->whereNull('first_count_quantity'),
+            'uncounted' => $query->whereNull($this->roundColumn($this->activeCountRound)),
             default => null,
         };
     }
@@ -291,6 +340,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
     public function saveEditModal(): void
     {
         if (! in_array($this->record->status, [
+            WmsInventoryCount::STATUS_DRAFT,
             WmsInventoryCount::STATUS_COUNTING,
             WmsInventoryCount::STATUS_CHECKED,
         ])) {
@@ -307,13 +357,24 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return;
         }
 
-        $first = $this->editFirstCountQty !== '' ? (int) $this->editFirstCountQty : null;
-        $second = $this->editSecondCountQty !== '' ? (int) $this->editSecondCountQty : null;
-        $final = $this->editFinalCountQty !== '' ? (int) $this->editFinalCountQty : null;
+        $first = $this->activeCountRound === 1
+            ? ($this->editFirstCountQty !== '' ? (int) $this->editFirstCountQty : null)
+            : $item->first_count_quantity;
+        $second = $this->activeCountRound === 2
+            ? ($this->editSecondCountQty !== '' ? (int) $this->editSecondCountQty : null)
+            : $item->second_count_quantity;
+        $final = $this->activeCountRound === 3
+            ? ($this->editFinalCountQty !== '' ? (int) $this->editFinalCountQty : null)
+            : $item->final_count_quantity;
 
         $oldFirst = $item->first_count_quantity;
         $oldSecond = $item->second_count_quantity;
         $oldFinal = $item->final_count_quantity;
+
+        if ($this->record->status === WmsInventoryCount::STATUS_DRAFT) {
+            (new InventoryCountService)->startCounting($this->record);
+            $this->record->refresh();
+        }
 
         $item->first_count_quantity = $first;
         $item->second_count_quantity = $second;
@@ -352,6 +413,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
     public function saveInlineChanges(array $changes): void
     {
         if (! in_array($this->record->status, [
+            WmsInventoryCount::STATUS_DRAFT,
             WmsInventoryCount::STATUS_COUNTING,
             WmsInventoryCount::STATUS_CHECKED,
         ])) {
@@ -361,6 +423,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
         }
 
         $count = 0;
+        if ($this->record->status === WmsInventoryCount::STATUS_DRAFT) {
+            (new InventoryCountService)->startCounting($this->record);
+            $this->record->refresh();
+        }
+
         foreach ($changes as $itemId => $data) {
             $item = WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
                 ->where('id', (int) $itemId)
@@ -370,9 +437,15 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 continue;
             }
 
-            $first = isset($data['first']) && $data['first'] !== null ? (int) $data['first'] : null;
-            $second = isset($data['second']) && $data['second'] !== null ? (int) $data['second'] : null;
-            $final = isset($data['final']) && $data['final'] !== null ? (int) $data['final'] : null;
+            $first = $this->activeCountRound === 1
+                ? (isset($data['first']) && $data['first'] !== null ? (int) $data['first'] : null)
+                : $item->first_count_quantity;
+            $second = $this->activeCountRound === 2
+                ? (isset($data['second']) && $data['second'] !== null ? (int) $data['second'] : null)
+                : $item->second_count_quantity;
+            $final = $this->activeCountRound === 3
+                ? (isset($data['final']) && $data['final'] !== null ? (int) $data['final'] : null)
+                : $item->final_count_quantity;
 
             $oldFirst = $item->first_count_quantity;
             $oldSecond = $item->second_count_quantity;
@@ -384,7 +457,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
             $item->last_counted_at = now();
             $item->input_count = ($item->input_count ?? 0) + 1;
 
-            $countedQty = $final ?? $second ?? $first;
+            $countedQty = match ($this->activeCountRound) {
+                1 => $first,
+                2 => $second,
+                3 => $final,
+            };
             if ($countedQty !== null) {
                 $item->difference_quantity = $countedQty - (int) $item->system_quantity;
                 $item->difference_amount = $item->difference_quantity * (float) $item->cost_price;
@@ -405,6 +482,94 @@ class ViewWmsInventoryCount extends Page implements HasForms
         Notification::make()->success()->title("{$count}件のカウント数を保存しました")->send();
     }
 
+    public function calculateActiveRoundDifferences(): void
+    {
+        if (! in_array($this->record->status, [
+            WmsInventoryCount::STATUS_DRAFT,
+            WmsInventoryCount::STATUS_COUNTING,
+            WmsInventoryCount::STATUS_CHECKED,
+        ], true)) {
+            Notification::make()->danger()->title('このステータスでは差異計算できません')->send();
+
+            return;
+        }
+
+        if ($this->record->status === WmsInventoryCount::STATUS_DRAFT) {
+            (new InventoryCountService)->startCounting($this->record);
+            $this->record->refresh();
+        }
+
+        $this->calculateRoundDifferences($this->activeCountRound);
+
+        $this->listTab = 'diff';
+        $this->itemPage = 1;
+
+        Notification::make()->success()->title($this->activeRoundLabel().'の差異計算が完了しました')->send();
+    }
+
+    public function confirmRound(int $round): void
+    {
+        if (! in_array($round, [1, 2, 3], true)) {
+            return;
+        }
+
+        if (! in_array($this->record->status, [
+            WmsInventoryCount::STATUS_DRAFT,
+            WmsInventoryCount::STATUS_COUNTING,
+            WmsInventoryCount::STATUS_CHECKED,
+        ], true)) {
+            Notification::make()->danger()->title('このステータスでは確定できません')->send();
+
+            return;
+        }
+
+        if ($round > $this->currentProgressRound()) {
+            Notification::make()->danger()->title('現在進行中より先の回数は確定できません')->send();
+
+            return;
+        }
+
+        if ($this->record->status === WmsInventoryCount::STATUS_DRAFT) {
+            (new InventoryCountService)->startCounting($this->record);
+            $this->record->refresh();
+        }
+
+        $this->calculateRoundDifferences($round);
+
+        $updates = [
+            $this->roundConfirmedAtColumn($round) => now(),
+            $this->roundConfirmedByColumn($round) => auth()->id(),
+        ];
+
+        if ($round < 3) {
+            $updates['current_count_round'] = max($this->currentProgressRound(), $round + 1);
+            $updates['status'] = WmsInventoryCount::STATUS_COUNTING;
+            $this->record->update($updates);
+            $this->record->refresh();
+            $this->activeCountRound = $this->currentProgressRound();
+            $this->listTab = 'all';
+            $this->itemPage = 1;
+            Notification::make()
+                ->success()
+                ->title($this->roundLabel($round).'を確定しました')
+                ->body($this->activeRoundLabel().'の入力に進みます')
+                ->send();
+
+            return;
+        }
+
+        $updates['current_count_round'] = 3;
+        $updates['status'] = WmsInventoryCount::STATUS_CHECKED;
+        $this->record->update($updates);
+        $this->record->refresh();
+        Notification::make()->success()->title('最終を確定しました')->body('差異確認済に変更しました')->send();
+    }
+
+    public function confirmActiveRound(): void
+    {
+        $this->confirmRound($this->activeCountRound);
+    }
+
     private function writeWebCountLogs(WmsInventoryCountItem $item, array $rounds): void
     {
         foreach ($rounds as $round => [$old, $new]) {
@@ -423,6 +588,65 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 'created_at' => now(),
             ]);
         }
+    }
+
+    private function currentProgressRound(): int
+    {
+        $round = (int) ($this->record->current_count_round ?: 1);
+
+        return min(max($round, 1), 3);
+    }
+
+    private function calculateRoundDifferences(int $round): void
+    {
+        $roundColumn = $this->roundColumn($round);
+
+        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+            ->chunkById(500, function ($items) use ($roundColumn) {
+                foreach ($items as $item) {
+                    $countedQty = $item->{$roundColumn};
+
+                    if ($countedQty === null) {
+                        $item->difference_quantity = null;
+                        $item->difference_amount = null;
+                    } else {
+                        $item->difference_quantity = (int) $countedQty - (int) $item->system_quantity;
+                        $item->difference_amount = (float) $item->difference_quantity * (float) $item->cost_price;
+                    }
+
+                    $item->save();
+                }
+            });
+    }
+
+    private function roundColumn(int $round): string
+    {
+        return match ($round) {
+            1 => 'first_count_quantity',
+            2 => 'second_count_quantity',
+            3 => 'final_count_quantity',
+            default => 'first_count_quantity',
+        };
+    }
+
+    private function roundConfirmedAtColumn(int $round): string
+    {
+        return match ($round) {
+            1 => 'first_count_confirmed_at',
+            2 => 'second_count_confirmed_at',
+            3 => 'final_count_confirmed_at',
+            default => 'first_count_confirmed_at',
+        };
+    }
+
+    private function roundConfirmedByColumn(int $round): string
+    {
+        return match ($round) {
+            1 => 'first_count_confirmed_by',
+            2 => 'second_count_confirmed_by',
+            3 => 'final_count_confirmed_by',
+            default => 'first_count_confirmed_by',
+        };
     }
 
     // ========================================
@@ -470,9 +694,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->icon('heroicon-o-calculator')
                 ->color('warning')
                 ->visible(fn () => $record->status === WmsInventoryCount::STATUS_COUNTING)
-                ->requiresConfirmation()
-                ->modalHeading('差異計算')
-                ->modalDescription('実棚数量と理論在庫の差異を計算します。ステータスが「確認済」に変更されます。')
                 ->action(function () use ($record) {
                     (new InventoryCountService)->calculateDifferences($record);
                     Notification::make()->success()->title('差異計算が完了しました')->send();
