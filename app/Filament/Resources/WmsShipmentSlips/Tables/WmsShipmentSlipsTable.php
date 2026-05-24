@@ -335,19 +335,17 @@ class WmsShipmentSlipsTable
                                             return ['' => 'なし（PDFのみ生成）'] + $printers->toArray();
                                         })
                                         ->default('')
-                                        ->extraAlpineAttributes(function () use ($record) {
-                                            $storageKey = "wms-shipment-slips.printer.{$record->warehouse_id}.{$record->delivery_course_id}";
-
+                                        ->extraAlpineAttributes(function () {
                                             return [
                                                 'x-init' => "
-                                                    const savedPrinterId = localStorage.getItem('{$storageKey}')
+                                                    const savedPrinterId = localStorage.getItem('wms-shipment-slips.printer')
                                                     if ((state === null || state === undefined || state === '') && savedPrinterId !== null) {
                                                         state = savedPrinterId
                                                     }
                                                 ",
                                                 'x-effect' => "
                                                     if (state !== null && state !== undefined) {
-                                                        localStorage.setItem('{$storageKey}', state)
+                                                        localStorage.setItem('wms-shipment-slips.printer', state)
                                                     }
                                                 ",
                                             ];

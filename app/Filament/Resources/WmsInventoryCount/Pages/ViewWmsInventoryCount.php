@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsInventoryCount\Pages;
 use App\Filament\Resources\WmsInventoryCountResource;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
+use App\Models\WmsInventoryCountItemLog;
 use App\Services\InventoryCount\InventoryCountService;
 use App\Services\InventoryCount\InventoryDiffListPdfService;
 use App\Services\InventoryCount\InventoryInstructionPdfService;
@@ -41,10 +42,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
     public string $sortColumn = '';
 
     public string $sortDirection = 'asc';
-
-    public int $perPage = 100;
-
-    public int $page = 1;
 
     public bool $editModalOpen = false;
 
@@ -96,7 +93,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function search(): void
     {
-        $this->page = 1;
     }
 
     public function setListTab(string $tab): void
@@ -105,7 +101,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return;
         }
         $this->listTab = $tab;
-        $this->page = 1;
     }
 
     public function clearFilters(): void
@@ -116,11 +111,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $this->locationFilter = '';
         $this->itemNameFilter = '';
         $this->search();
-    }
-
-    public function loadMore(): void
-    {
-        $this->page++;
     }
 
     public function sortBy(string $column): void
@@ -136,7 +126,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
             $this->sortColumn = $column;
             $this->sortDirection = 'asc';
         }
-        $this->page = 1;
     }
 
     public function sortIndicator(string $column): string
@@ -162,12 +151,23 @@ class ViewWmsInventoryCount extends Page implements HasForms
             ->toArray();
     }
 
+    public function locationOptions(): array
+    {
+        return WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+            ->whereNotNull('location_no')
+            ->distinct()
+            ->orderBy('location_no')
+            ->pluck('location_no')
+            ->toArray();
+    }
+
     public function rows(): Collection
     {
-        $query = $this->filteredQuery();
+        $query = WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+            ->with(['latestLog.picker', 'latestLog.user']);
         $this->applySort($query);
 
-        return $query->limit($this->page * $this->perPage)->get();
+        return $query->get();
     }
 
     public function totalCount(): int
@@ -219,7 +219,15 @@ class ViewWmsInventoryCount extends Page implements HasForms
         if ($this->sortColumn !== '') {
             $query->orderBy($this->sortColumn, $this->sortDirection);
         } else {
-            $query->orderBy('floor_name')
+            $query->orderByRaw("
+                CASE
+                    WHEN floor_name = '1F' THEN 1
+                    WHEN floor_name = '2F' THEN 2
+                    WHEN floor_name LIKE 'YX%' THEN 3
+                    ELSE 4
+                END
+            ")
+                ->orderBy('floor_name')
                 ->orderBy('location_code1')
                 ->orderBy('location_code2')
                 ->orderBy('location_code3');
@@ -303,6 +311,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $second = $this->editSecondCountQty !== '' ? (int) $this->editSecondCountQty : null;
         $final = $this->editFinalCountQty !== '' ? (int) $this->editFinalCountQty : null;
 
+        $oldFirst = $item->first_count_quantity;
+        $oldSecond = $item->second_count_quantity;
+        $oldFinal = $item->final_count_quantity;
+
         $item->first_count_quantity = $first;
         $item->second_count_quantity = $second;
         $item->final_count_quantity = $final;
@@ -323,6 +335,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
         }
 
         $item->save();
+        $this->writeWebCountLogs($item, [
+            1 => [$oldFirst, $first],
+            2 => [$oldSecond, $second],
+            3 => [$oldFinal, $final],
+        ]);
 
         Notification::make()->success()->title('カウント数を保存しました')->send();
         $this->closeEditModal();
@@ -357,6 +374,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
             $second = isset($data['second']) && $data['second'] !== null ? (int) $data['second'] : null;
             $final = isset($data['final']) && $data['final'] !== null ? (int) $data['final'] : null;
 
+            $oldFirst = $item->first_count_quantity;
+            $oldSecond = $item->second_count_quantity;
+            $oldFinal = $item->final_count_quantity;
+
             $item->first_count_quantity = $first;
             $item->second_count_quantity = $second;
             $item->final_count_quantity = $final;
@@ -373,10 +394,35 @@ class ViewWmsInventoryCount extends Page implements HasForms
             }
 
             $item->save();
+            $this->writeWebCountLogs($item, [
+                1 => [$oldFirst, $first],
+                2 => [$oldSecond, $second],
+                3 => [$oldFinal, $final],
+            ]);
             $count++;
         }
 
         Notification::make()->success()->title("{$count}件のカウント数を保存しました")->send();
+    }
+
+    private function writeWebCountLogs(WmsInventoryCountItem $item, array $rounds): void
+    {
+        foreach ($rounds as $round => [$old, $new]) {
+            if ((string) $old === (string) $new) {
+                continue;
+            }
+
+            WmsInventoryCountItemLog::create([
+                'inventory_count_item_id' => $item->id,
+                'device_id' => 'WEB',
+                'user_id' => auth()->id(),
+                'count_round' => $round,
+                'old_quantity' => $old,
+                'new_quantity' => $new ?? 0,
+                'request_uuid' => (string) \Illuminate\Support\Str::uuid(),
+                'created_at' => now(),
+            ]);
+        }
     }
 
     // ========================================
@@ -459,8 +505,18 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->modalHeading('棚卸し確定')
                 ->modalDescription('棚卸しを確定します。差異分の在庫調整が実行されます。この操作は取り消せません。')
                 ->action(function () use ($record) {
-                    (new InventoryCountService)->confirm($record, auth()->id());
-                    Notification::make()->success()->title('棚卸しを確定しました')->send();
+                    try {
+                        (new InventoryCountService)->confirm($record, auth()->id());
+                        Notification::make()->success()->title('棚卸しを確定しました')->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->danger()
+                            ->title('棚卸しを確定できません')
+                            ->body($e->getMessage())
+                            ->send();
+
+                        return null;
+                    }
 
                     return redirect()->route('filament.admin.resources.wms-inventory-counts.view', $record);
                 }),

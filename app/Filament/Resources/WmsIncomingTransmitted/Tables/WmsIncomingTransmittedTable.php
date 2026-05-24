@@ -10,8 +10,8 @@ use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Actions\Action;
-use Filament\Support\Enums\Alignment;
 use Filament\Forms\Components\DatePicker;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -49,11 +49,13 @@ class WmsIncomingTransmittedTable
                         OrderSource::AUTO => '発注',
                         OrderSource::MANUAL => '手動',
                         OrderSource::TRANSFER => '移動',
+                        OrderSource::RECEIVED => '受信',
                     })
                     ->color(fn (OrderSource $state): string => match ($state) {
                         OrderSource::AUTO => 'info',
                         OrderSource::MANUAL => 'gray',
                         OrderSource::TRANSFER => 'warning',
+                        OrderSource::RECEIVED => 'success',
                     })
                     ->width('60px'),
 
@@ -179,6 +181,7 @@ class WmsIncomingTransmittedTable
                         'AUTO' => '発注',
                         'MANUAL' => '手動',
                         'TRANSFER' => '移動',
+                        'RECEIVED' => '受信',
                     ]),
 
                 SelectFilter::make('warehouse_id')

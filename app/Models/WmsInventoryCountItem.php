@@ -60,6 +60,11 @@ class WmsInventoryCountItem extends WmsModel
         return $this->hasMany(WmsInventoryCountItemLog::class, 'inventory_count_item_id');
     }
 
+    public function latestLog()
+    {
+        return $this->hasOne(WmsInventoryCountItemLog::class, 'inventory_count_item_id')->latestOfMany();
+    }
+
     public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class, 'item_id');

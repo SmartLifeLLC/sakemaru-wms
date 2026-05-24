@@ -6,7 +6,8 @@
         $allCount = $this->countForTab('all');
         $diffCount = $this->countForTab('diff');
         $uncountedCount = $this->countForTab('uncounted');
-        $hasMore = $rows->count() < $totalCount;
+        $floorOptions = $this->floorOptions();
+        $locationOptions = $this->locationOptions();
         $isEditable = in_array($record->status, [
             \App\Models\WmsInventoryCount::STATUS_COUNTING,
             \App\Models\WmsInventoryCount::STATUS_CHECKED,
@@ -25,7 +26,40 @@
 
     <div x-data="{
         filtersOpen: true,
+        locationPickerOpen: false,
+        activeTab: 'all',
+        filters: { floor: '', area: '', itemCode: '', itemName: '', locationText: '' },
+        selectedLocations: [],
         changes: {},
+        normalize(value) {
+            return String(value ?? '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).toLowerCase();
+        },
+        includes(value, keyword) {
+            keyword = this.normalize(keyword).trim();
+            return keyword === '' || this.normalize(value).includes(keyword);
+        },
+        rowVisible(row) {
+            if (this.activeTab === 'diff' && !(row.diff !== null && row.diff !== 0)) return false;
+            if (this.activeTab === 'uncounted' && row.first !== '') return false;
+            if (this.filters.floor !== '' && row.floor !== this.filters.floor) return false;
+            if (!this.includes(row.area, this.filters.area)) return false;
+            if (!this.includes(row.itemCode, this.filters.itemCode)) return false;
+            if (!this.includes(row.itemName, this.filters.itemName)) return false;
+            if (!this.includes(row.location, this.filters.locationText)) return false;
+            if (this.selectedLocations.length && !this.selectedLocations.includes(row.location)) return false;
+            return true;
+        },
+        toggleLocation(location) {
+            if (this.selectedLocations.includes(location)) {
+                this.selectedLocations = this.selectedLocations.filter(v => v !== location);
+            } else {
+                this.selectedLocations = [...this.selectedLocations, location];
+            }
+        },
+        clearFilters() {
+            this.filters = { floor: '', area: '', itemCode: '', itemName: '', locationText: '' };
+            this.selectedLocations = [];
+        },
         setChange(id, field, value, origFirst, origSecond, origFinal, first, second, final_) {
             let changed = (first !== origFirst || second !== origSecond || final_ !== origFinal);
             if (changed) {
@@ -68,44 +102,59 @@
                 </button>
             </div>
 
-            {{-- Filter form --}}
-            <form wire:submit.prevent="search" x-show="filtersOpen" x-collapse x-cloak class="bg-slate-100 p-2">
+            {{-- Filter form: JS only. Server communication happens only on save. --}}
+            <div x-show="filtersOpen" x-collapse x-cloak class="bg-slate-100 p-2">
                 <div class="grid grid-cols-2 items-end gap-2 md:grid-cols-6 xl:grid-cols-12">
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">フロア</span>
-                        <select wire:model="floorFilter" class="{{ $filterSelectClass }}">
+                        <select x-model="filters.floor" class="{{ $filterSelectClass }}">
                             <option value="">すべて</option>
-                            @foreach ($this->floorOptions() as $floor)
+                            @foreach ($floorOptions as $floor)
                                 <option value="{{ $floor }}">{{ $floor }}</option>
                             @endforeach
                         </select>
                     </label>
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">エリア</span>
-                        <input type="text" wire:model.defer="areaFilter" placeholder="エリア検索" class="{{ $filterInputClass }}">
+                        <input type="text" x-model="filters.area" placeholder="エリア検索" class="{{ $filterInputClass }}">
                     </label>
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">商品CD</span>
-                        <input type="text" wire:model.defer="itemCodeFilter" placeholder="商品CD検索" class="{{ $filterInputClass }}">
+                        <input type="text" x-model="filters.itemCode" placeholder="商品CD検索" class="{{ $filterInputClass }}">
                     </label>
-                    <label class="space-y-1 md:col-span-2">
+                    <div class="relative space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">ロケーション</span>
-                        <input type="text" wire:model.defer="locationFilter" placeholder="ロケーション検索" class="{{ $filterInputClass }}">
-                    </label>
+                        <button type="button" @click="locationPickerOpen = ! locationPickerOpen" class="{{ $filterInputClass }} flex items-center justify-between text-left">
+                            <span x-text="selectedLocations.length ? selectedLocations.length + '件選択' : 'ロケーション選択'"></span>
+                            <x-filament::icon icon="heroicon-m-chevron-down" class="h-4 w-4" />
+                        </button>
+                        <div x-show="locationPickerOpen" x-cloak @click.outside="locationPickerOpen = false" class="absolute z-30 mt-1 w-[32rem] max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                            <input type="text" x-model="filters.locationText" placeholder="ロケーション検索..." class="{{ $filterInputClass }} mb-2">
+                            <div class="grid max-h-64 grid-cols-2 gap-1 overflow-auto rounded-md border border-slate-200 p-1">
+                                @foreach ($locationOptions as $location)
+                                    <label x-show="includes(@js($location), filters.locationText)" class="flex min-w-0 items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50" :class="selectedLocations.includes(@js($location)) ? 'border-sky-500 bg-sky-50 text-sky-800' : ''">
+                                        <input type="checkbox" class="rounded border-slate-300" :checked="selectedLocations.includes(@js($location))" @change="toggleLocation(@js($location))">
+                                        <span class="truncate font-mono">{{ $location }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                            <div class="mt-2 flex items-center justify-between text-xs">
+                                <button type="button" class="text-slate-600 hover:text-slate-900" @click="selectedLocations = []">選択解除</button>
+                                <button type="button" class="rounded bg-slate-800 px-3 py-1 font-bold text-white" @click="locationPickerOpen = false">閉じる</button>
+                            </div>
+                        </div>
+                    </div>
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">商品名</span>
-                        <input type="text" wire:model.defer="itemNameFilter" placeholder="商品名検索" class="{{ $filterInputClass }}">
+                        <input type="text" x-model="filters.itemName" placeholder="商品名検索" class="{{ $filterInputClass }}">
                     </label>
                     <div class="flex items-end justify-end gap-2 md:col-span-2">
-                        <button type="button" wire:click="clearFilters" class="h-8 rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                        <button type="button" @click="clearFilters()" class="h-8 rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                             クリア
-                        </button>
-                        <button type="submit" class="h-8 rounded-md bg-slate-800 px-4 text-xs font-bold text-white hover:bg-slate-700">
-                            検索
                         </button>
                     </div>
                 </div>
-            </form>
+            </div>
         </div>
 
         {{-- Tab bar + table --}}
@@ -113,41 +162,38 @@
             <div class="flex flex-wrap items-end justify-between gap-2 border-b border-slate-200 bg-green-700 px-3 pt-2 text-white">
                 <div class="flex items-end gap-1">
                     <button type="button"
-                        wire:click="setListTab('all')"
-                        class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $this->listTab === 'all' ? 'border-slate-200 border-b-white bg-white text-green-800 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white' }}">
-                        @if ($this->listTab === 'all')
-                            <span class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-green-600"></span>
-                        @endif
+                        @click="activeTab = 'all'"
+                        class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
+                        :class="activeTab === 'all' ? 'border-slate-200 border-b-white bg-white text-green-800 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
+                        <span x-show="activeTab === 'all'" class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-green-600"></span>
                         <span>全件</span>
-                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums {{ $this->listTab === 'all' ? 'bg-green-100 text-green-800' : 'bg-white/15 text-white ring-1 ring-white/25' }}">
+                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums" :class="activeTab === 'all' ? 'bg-green-100 text-green-800' : 'bg-white/15 text-white ring-1 ring-white/25'">
                             {{ number_format($allCount) }}
                         </span>
                     </button>
                     <button type="button"
-                        wire:click="setListTab('diff')"
-                        class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $this->listTab === 'diff' ? 'border-slate-200 border-b-white bg-white text-red-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white' }}">
-                        @if ($this->listTab === 'diff')
-                            <span class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-red-600"></span>
-                        @endif
+                        @click="activeTab = 'diff'"
+                        class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
+                        :class="activeTab === 'diff' ? 'border-slate-200 border-b-white bg-white text-red-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
+                        <span x-show="activeTab === 'diff'" class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-red-600"></span>
                         <span>差異あり</span>
-                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums {{ $this->listTab === 'diff' ? 'bg-red-100 text-red-700' : 'bg-white/15 text-white ring-1 ring-white/25' }}">
+                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums" :class="activeTab === 'diff' ? 'bg-red-100 text-red-700' : 'bg-white/15 text-white ring-1 ring-white/25'">
                             {{ number_format($diffCount) }}
                         </span>
                     </button>
                     <button type="button"
-                        wire:click="setListTab('uncounted')"
-                        class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition {{ $this->listTab === 'uncounted' ? 'border-slate-200 border-b-white bg-white text-amber-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white' }}">
-                        @if ($this->listTab === 'uncounted')
-                            <span class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-amber-500"></span>
-                        @endif
+                        @click="activeTab = 'uncounted'"
+                        class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
+                        :class="activeTab === 'uncounted' ? 'border-slate-200 border-b-white bg-white text-amber-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
+                        <span x-show="activeTab === 'uncounted'" class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-amber-500"></span>
                         <span>未カウント</span>
-                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums {{ $this->listTab === 'uncounted' ? 'bg-amber-100 text-amber-700' : 'bg-white/15 text-white ring-1 ring-white/25' }}">
+                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums" :class="activeTab === 'uncounted' ? 'bg-amber-100 text-amber-700' : 'bg-white/15 text-white ring-1 ring-white/25'">
                             {{ number_format($uncountedCount) }}
                         </span>
                     </button>
                 </div>
                 <div class="flex items-center gap-3 pb-2">
-                    <div class="rounded-full bg-green-900/40 px-3 py-1 text-sm font-black text-white tabular-nums">{{ number_format($rows->count()) }} / {{ number_format($totalCount) }}件</div>
+                    <div class="rounded-full bg-green-900/40 px-3 py-1 text-sm font-black text-white tabular-nums">全{{ number_format($rows->count()) }}件</div>
                     @if ($isEditable)
                         <button type="button" @click="save()" x-show="changeCount > 0" x-cloak
                             class="inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-red-700">
@@ -198,6 +244,8 @@
                                 <th class="border border-slate-300 px-2 py-2 text-right">1回目</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">2回目</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">最終</th>
+                                <th class="border border-slate-300 px-2 py-2 text-center">回数</th>
+                                <th class="border border-slate-300 px-2 py-2 text-left">入力者</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">
                                     <button type="button" wire:click="sortBy('difference_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
                                         <span>差異数量</span>
@@ -216,6 +264,11 @@
                                 @endphp
                                 <tr wire:key="ic-row-{{ $row->id }}"
                                     x-data="{
+                                        floor: @js($row->floor_name ?: ''),
+                                        area: @js($row->location_code1 ?: ''),
+                                        location: @js($row->location_no ?: ''),
+                                        itemCode: @js($row->item_code ?: ''),
+                                        itemName: @js($row->item_name ?: ''),
                                         first: @js($initFirst), second: @js($initSecond), final_: @js($initFinal),
                                         origFirst: @js($initFirst), origSecond: @js($initSecond), origFinal: @js($initFinal),
                                         system: {{ (int) $row->system_quantity }}, cost: {{ (float) $row->cost_price }},
@@ -227,6 +280,7 @@
                                         clean(v) { return v.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[^0-9]/g,''); },
                                         notify() { $dispatch('count-update',{id:{{ $row->id }},origFirst:this.origFirst,origSecond:this.origSecond,origFinal:this.origFinal,first:this.first,second:this.second,final:this.final_}); }
                                     }"
+                                    x-show="rowVisible($data)"
                                     :class="changed ? 'bg-amber-50' : ($el.rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50')"
                                     class="hover:bg-sky-50">
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1">{{ $row->floor_name ?: '-' }}</td>
@@ -257,6 +311,10 @@
                                                 @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-center font-bold tabular-nums">
+                                            <span x-text="final_ !== '' ? '最終' : (second !== '' ? '2回目' : (first !== '' ? '1回目' : '-'))"></span>
+                                        </td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->latestLog?->actor_name ?? '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
                                             :class="{ 'text-green-700': diff > 0, 'text-red-700': diff < 0 }"
                                             x-text="diff !== null ? new Intl.NumberFormat().format(diff) : '-'"></td>
@@ -267,6 +325,8 @@
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums">{{ $initFirst !== '' ? number_format((int) $initFirst) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums">{{ $initSecond !== '' ? number_format((int) $initSecond) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums">{{ $initFinal !== '' ? number_format((int) $initFinal) : '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-center font-bold tabular-nums">{{ $initFinal !== '' ? '最終' : ($initSecond !== '' ? '2回目' : ($initFirst !== '' ? '1回目' : '-')) }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->latestLog?->actor_name ?? '-' }}</td>
                                         @php
                                             $diffQty = $row->difference_quantity;
                                         @endphp
@@ -278,13 +338,6 @@
                         </tbody>
                     </table>
 
-                    @if ($hasMore)
-                        <div class="flex justify-center border-t border-slate-200 p-3">
-                            <button type="button" wire:click="loadMore" class="rounded-md border border-slate-300 px-4 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                                さらに表示
-                            </button>
-                        </div>
-                    @endif
                 @endif
             </div>
         </div>
