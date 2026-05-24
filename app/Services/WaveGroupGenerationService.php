@@ -35,9 +35,14 @@ class WaveGroupGenerationService
         $data['generation_type'] = $waveGroup->generation_type;
         $data['target_document_types'] = $waveGroup->target_document_types ?? ['shipment', 'transfer'];
 
-        $progress?->markAsProcessing(100, '波動生成を開始しています');
+        $progress?->markAsProcessing(100, '在庫同期を開始しています');
 
         $phaseStartedAt = microtime(true);
+        $stockSyncResult = app(Warehouse91StockLotSyncService::class)->sync([], false);
+        $timings['stock_sync'] = $this->elapsedMilliseconds($phaseStartedAt);
+
+        $phaseStartedAt = microtime(true);
+        $progress?->updateProgress(10, '在庫同期が完了しました。波動生成を開始しています');
         $generationResult = $this->createWavesFromCourses($data, $waveGroup, $userId);
         $timings['wave_generation'] = $this->elapsedMilliseconds($phaseStartedAt);
 
@@ -53,6 +58,7 @@ class WaveGroupGenerationService
 
         $result = [
             ...$generationResult,
+            'stock_sync' => $stockSyncResult,
             'picking_lists' => $pickingLists,
             'timings_ms' => $timings,
             'started_at' => now()->toDateTimeString(),

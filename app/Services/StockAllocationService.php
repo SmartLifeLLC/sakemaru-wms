@@ -254,7 +254,7 @@ class StockAllocationService
 
         $elapsed = round((microtime(true) - $startTime) * 1000, 2);
 
-        Log::info('Stock allocation completed', [
+        Log::debug('Stock allocation completed', [
             'warehouse_id' => $warehouseId,
             'item_id' => $itemId,
             'wave_id' => $waveId,
