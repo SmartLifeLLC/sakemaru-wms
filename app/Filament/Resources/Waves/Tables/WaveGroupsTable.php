@@ -6,14 +6,17 @@ use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Resources\Waves\WaveResource;
 use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\ClientPrinterDriver;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Wave;
 use App\Models\WaveGroup;
 use App\Models\WmsQueueProgress;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -171,7 +174,7 @@ class WaveGroupsTable
                     ->modalWidth('6xl')
                     ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
                     ->modalFooterActionsAlignment(Alignment::End)
-                    ->modalSubmitAction(fn (Action $action) => $action->label('PDF出力')->color('danger'))
+                    ->modalSubmitAction(fn (Action $action) => $action->label('出力')->color('danger'))
                     ->modalCancelActionLabel('出力せず閉じる')
                     ->schema(fn (WaveGroup $record): array => [
                         ViewField::make('list_type')
@@ -183,6 +186,8 @@ class WaveGroupsTable
                             ->required()
                             ->default(array_key_first($record->picking_lists ?? []))
                             ->live(),
+
+                        ...static::printerSelectionSchema($record->warehouse_id),
 
                         Placeholder::make('wave_preview')
                             ->label('対象波動')
@@ -273,12 +278,100 @@ class WaveGroupsTable
 
         $filename = (string) ($entry['filename'] ?? basename($path));
         $mimeType = (string) ($entry['mime_type'] ?? 'application/pdf');
+        $printerDriverId = ! empty($data['printer_driver_id']) ? (int) $data['printer_driver_id'] : null;
+
+        if ($printerDriverId) {
+            if ($disk !== 's3') {
+                Notification::make()
+                    ->title('プリンター出力できません')
+                    ->body('S3上の保存済みPDFのみプリンター出力できます。')
+                    ->danger()
+                    ->send();
+
+                return null;
+            }
+
+            $printer = ClientPrinterDriver::query()
+                ->where('id', $printerDriverId)
+                ->where('is_active', true)
+                ->first();
+
+            if (! $printer) {
+                Notification::make()
+                    ->title('プリンターが見つかりません')
+                    ->danger()
+                    ->send();
+
+                return null;
+            }
+
+            DB::connection('sakemaru')
+                ->table('document_picking_print_outputs')
+                ->insert([
+                    'client_id' => $printer->client_id,
+                    'log_pdf_export_id' => null,
+                    'creator_id' => auth()->id(),
+                    'printer_driver_id' => $printerDriverId,
+                    'file_path' => $path,
+                    'file_type' => 'S3',
+                    'status' => 'STANDBY',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            Notification::make()
+                ->title('プリンター出力を依頼しました')
+                ->body($filename)
+                ->success()
+                ->send();
+
+            return null;
+        }
 
         return response()->streamDownload(
             fn () => print (Storage::disk($disk)->get($path)),
             $filename,
             ['Content-Type' => $mimeType]
         );
+    }
+
+    public static function printerSelectionSchema(?int $warehouseId = null): array
+    {
+        return [
+            Select::make('printer_warehouse_id')
+                ->label('プリンタ倉庫')
+                ->options(
+                    Warehouse::query()
+                        ->where('is_active', true)
+                        ->pluck('name', 'id')
+                )
+                ->default($warehouseId)
+                ->searchable()
+                ->live()
+                ->afterStateUpdated(fn ($set) => $set('printer_driver_id', null)),
+            Select::make('printer_driver_id')
+                ->label('プリンター')
+                ->options(function (Get $get) {
+                    $selectedWarehouseId = $get('printer_warehouse_id');
+                    if (! $selectedWarehouseId) {
+                        return [];
+                    }
+
+                    $printers = ClientPrinterDriver::query()
+                        ->where('warehouse_id', $selectedWarehouseId)
+                        ->where('is_active', true)
+                        ->get()
+                        ->mapWithKeys(fn ($printer) => [
+                            $printer->id => filled($printer->user_name) ? $printer->user_name : $printer->display_name,
+                        ]);
+
+                    return ['' => '選択なし（PDFのみ出力）'] + $printers->toArray();
+                })
+                ->default('')
+                ->live()
+                ->searchable()
+                ->helperText('プリンターを選択するとクライアントプリントへ送信します。未選択の場合はPDFをダウンロードします。'),
+        ];
     }
 
     public static function wavePreviewHtml(WaveGroup $record): HtmlString

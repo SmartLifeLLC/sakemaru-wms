@@ -55,7 +55,7 @@ class ViewWaveGroup extends ViewRecord
                 ->modalWidth('6xl')
                 ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
-                ->modalSubmitAction(fn (Action $action) => $action->label('PDF出力')->color('danger'))
+                ->modalSubmitAction(fn (Action $action) => $action->label('出力')->color('danger'))
                 ->modalCancelActionLabel('出力せず閉じる')
                 ->schema(fn (): array => [
                     ViewField::make('list_type')
@@ -67,6 +67,8 @@ class ViewWaveGroup extends ViewRecord
                         ->required()
                         ->default(array_key_first($this->record->picking_lists ?? []))
                         ->live(),
+
+                    ...WaveGroupsTable::printerSelectionSchema($this->record->warehouse_id),
 
                     Placeholder::make('wave_preview')
                         ->label('対象波動')
