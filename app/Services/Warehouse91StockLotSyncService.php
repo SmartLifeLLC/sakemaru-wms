@@ -28,7 +28,7 @@ class Warehouse91StockLotSyncService
         ];
     }
 
-    public function sync(array $locationOverrides = []): array
+    public function sync(array $locationOverrides = [], bool $includeAfterRemaining = true): array
     {
         $pickingChecks = $this->assertNoPickingInProgress();
         $rows = collect($this->loadPlan($locationOverrides));
@@ -39,10 +39,16 @@ class Warehouse91StockLotSyncService
             throw new RuntimeException("棚番選択が必要な商品があります。item_code={$itemCodes}");
         }
 
-        DB::connection(self::CONNECTION)->transaction(function () use ($rows) {
+        $z00Location = $this->z00LocationDetail();
+
+        DB::connection(self::CONNECTION)->transaction(function () use ($rows, $z00Location) {
             $now = now();
 
             foreach ($rows as $row) {
+                if (blank($row['target_location_id'])) {
+                    $row = $this->applyTargetLocationDetail($row, $z00Location);
+                }
+
                 if ($row['action'] === 'update_lot') {
                     $values = [
                         'current_quantity' => DB::raw('current_quantity + '.(int) $row['current_delta']),
@@ -73,10 +79,6 @@ class Warehouse91StockLotSyncService
                     throw new RuntimeException("未対応の同期操作です: {$row['action']}");
                 }
 
-                if (blank($row['target_location_id']) || blank($row['target_floor_id'])) {
-                    throw new RuntimeException("新規ロット作成先の棚番がありません。item_code={$row['item_code']}");
-                }
-
                 DB::connection(self::CONNECTION)
                     ->table('real_stock_lots')
                     ->insert([
@@ -101,13 +103,13 @@ class Warehouse91StockLotSyncService
             }
         });
 
-        $remaining = collect($this->loadPlan());
+        $remaining = $includeAfterRemaining ? collect($this->loadPlan()) : collect();
 
         return [
             'warehouse_code' => self::WAREHOUSE_CODE,
             'picking_checks' => $pickingChecks,
             'before' => $this->summarize($rows),
-            'after_remaining' => $this->summarize($remaining),
+            'after_remaining' => $includeAfterRemaining ? $this->summarize($remaining) : null,
         ];
     }
 
@@ -184,13 +186,16 @@ z00_locations AS (
         l.id AS location_id,
         l.floor_id,
         CONCAT(COALESCE(l.code1, ''), COALESCE(l.code2, ''), COALESCE(l.code3, '')) AS location_code,
-        l.name AS location_name
+        l.name AS location_name,
+        ROW_NUMBER() OVER (
+            PARTITION BY l.warehouse_id
+            ORDER BY
+                CASE WHEN l.floor_id IS NOT NULL THEN 0 ELSE 1 END,
+                CASE WHEN COALESCE(l.available_quantity_flags, 0) > 0 AND l.available_quantity_flags <> 8 THEN 0 ELSE 1 END,
+                l.id
+        ) AS rn
     FROM locations l
     WHERE CONCAT(COALESCE(l.code1, ''), COALESCE(l.code2, ''), COALESCE(l.code3, '')) = 'Z00'
-      AND l.floor_id IS NOT NULL
-      AND l.available_quantity_flags IS NOT NULL
-      AND l.available_quantity_flags <> 8
-      AND l.available_quantity_flags > 0
 )
 SELECT
     rs.id AS real_stock_id,
@@ -252,7 +257,7 @@ LEFT JOIN locations target_loc
       target_loc.name COLLATE utf8mb4_unicode_ci = ot.target_shelf COLLATE utf8mb4_unicode_ci
       OR CONCAT(COALESCE(target_loc.code1, ''), COALESCE(target_loc.code2, ''), COALESCE(target_loc.code3, '')) COLLATE utf8mb4_unicode_ci = ot.target_shelf COLLATE utf8mb4_unicode_ci
  )
-LEFT JOIN z00_locations zl ON zl.warehouse_id = rs.warehouse_id
+LEFT JOIN z00_locations zl ON zl.warehouse_id = rs.warehouse_id AND zl.rn = 1
 WHERE w.code = ?
   AND (
     rs.current_quantity <> COALESCE(la.lot_current_quantity, 0)
@@ -501,7 +506,7 @@ SQL;
 
             if ($row['target_lot_location_id'] && isset($row['location_option_details'][$row['target_lot_location_id']])) {
                 $row = $this->applyTargetLocationDetail($row, $row['location_option_details'][$row['target_lot_location_id']]);
-            } elseif ($preferredLocationDetail = $this->singlePreferredLocationDetail($row['location_option_details'])) {
+            } elseif ($preferredLocationDetail = $this->automaticPreferredLocationDetail($row['location_option_details'])) {
                 $row = $this->applyTargetLocationDetail($row, $preferredLocationDetail);
             } elseif ($row['location_option_details'] !== []) {
                 $row['target_location_id'] = null;
@@ -516,13 +521,13 @@ SQL;
         }, $rows);
     }
 
-    private function singlePreferredLocationDetail(array $locationDetails): ?array
+    private function automaticPreferredLocationDetail(array $locationDetails): ?array
     {
         $preferred = collect($locationDetails)
             ->filter(fn (array $detail): bool => ! in_array($detail['location_code'], ['Q00000', 'Z00', 'YX0000'], true))
             ->values();
 
-        return $preferred->count() === 1 ? $preferred->first() : null;
+        return $preferred->first() ?? collect($locationDetails)->first();
     }
 
     private function applyLocationOverrides(array $rows, array $locationOverrides): array
@@ -569,6 +574,36 @@ SQL;
         $row['location_selection_required'] = false;
 
         return $row;
+    }
+
+    private function z00LocationDetail(): array
+    {
+        $location = DB::connection(self::CONNECTION)
+            ->table('locations as l')
+            ->join('warehouses as w', 'w.id', '=', 'l.warehouse_id')
+            ->where('w.code', self::WAREHOUSE_CODE)
+            ->whereRaw("CONCAT(COALESCE(l.code1, ''), COALESCE(l.code2, ''), COALESCE(l.code3, '')) = 'Z00'")
+            ->orderByRaw('CASE WHEN l.floor_id IS NOT NULL THEN 0 ELSE 1 END')
+            ->orderByRaw('CASE WHEN COALESCE(l.available_quantity_flags, 0) > 0 AND l.available_quantity_flags <> 8 THEN 0 ELSE 1 END')
+            ->orderBy('l.id')
+            ->first([
+                'l.id',
+                'l.floor_id',
+                'l.name',
+                DB::raw("CONCAT(COALESCE(l.code1, ''), COALESCE(l.code2, ''), COALESCE(l.code3, '')) AS location_code"),
+            ]);
+
+        if (! $location || blank($location->id)) {
+            throw new RuntimeException('91倉庫のZ00ロケーションが見つかりません。');
+        }
+
+        return [
+            'location_id' => (int) $location->id,
+            'floor_id' => $location->floor_id === null ? null : (int) $location->floor_id,
+            'location_code' => (string) $location->location_code,
+            'location_label' => (string) ($location->name ?: $location->location_code),
+            'location_display' => 'Z00',
+        ];
     }
 
     private function splitShelfCodes(string $shelves): array
