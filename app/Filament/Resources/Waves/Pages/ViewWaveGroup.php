@@ -55,7 +55,13 @@ class ViewWaveGroup extends ViewRecord
                 ->modalWidth('6xl')
                 ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
-                ->modalSubmitAction(fn (Action $action) => $action->label('出力')->color('danger'))
+                ->modalSubmitAction(fn (Action $action) => $action->label('PDF出力')->color('gray'))
+                ->extraModalFooterActions(fn (Action $action): array => [
+                    $action->makeModalSubmitAction('printerOutput', arguments: ['output' => 'printer'])
+                        ->label('プリンター出力')
+                        ->icon(Heroicon::OutlinedPrinter)
+                        ->color('info'),
+                ])
                 ->modalCancelActionLabel('出力せず閉じる')
                 ->schema(fn (): array => [
                     ViewField::make('list_type')
@@ -74,7 +80,7 @@ class ViewWaveGroup extends ViewRecord
                         ->label('対象波動')
                         ->content(fn (): \Illuminate\Support\HtmlString => WaveGroupsTable::wavePreviewHtml($this->record)),
                 ])
-                ->action(fn (array $data) => WaveGroupsTable::downloadSavedPickingList($this->record, $data)),
+                ->action(fn (array $data, array $arguments) => WaveGroupsTable::downloadSavedPickingList($this->record, $data, $arguments)),
 
             Action::make('waveGenerationProgress')
                 ->label('生成状況')

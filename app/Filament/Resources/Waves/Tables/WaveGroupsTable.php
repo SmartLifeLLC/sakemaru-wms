@@ -174,7 +174,13 @@ class WaveGroupsTable
                     ->modalWidth('6xl')
                     ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
                     ->modalFooterActionsAlignment(Alignment::End)
-                    ->modalSubmitAction(fn (Action $action) => $action->label('出力')->color('danger'))
+                    ->modalSubmitAction(fn (Action $action) => $action->label('PDF出力')->color('gray'))
+                    ->extraModalFooterActions(fn (Action $action): array => [
+                        $action->makeModalSubmitAction('printerOutput', arguments: ['output' => 'printer'])
+                            ->label('プリンター出力')
+                            ->icon(Heroicon::OutlinedPrinter)
+                            ->color('info'),
+                    ])
                     ->modalCancelActionLabel('出力せず閉じる')
                     ->schema(fn (WaveGroup $record): array => [
                         ViewField::make('list_type')
@@ -193,7 +199,7 @@ class WaveGroupsTable
                             ->label('対象波動')
                             ->content(fn (WaveGroup $record): HtmlString => static::wavePreviewHtml($record)),
                     ])
-                    ->action(fn (WaveGroup $record, array $data) => static::downloadSavedPickingList($record, $data)),
+                    ->action(fn (WaveGroup $record, array $data, array $arguments) => static::downloadSavedPickingList($record, $data, $arguments)),
 
                 Action::make('cancelWaveGroup')
                     ->label('取消')
@@ -249,7 +255,7 @@ class WaveGroupsTable
             ->toArray();
     }
 
-    public static function downloadSavedPickingList(WaveGroup $record, array $data)
+    public static function downloadSavedPickingList(WaveGroup $record, array $data, array $arguments = [])
     {
         $listType = $data['list_type'] ?? null;
         $entry = $record->picking_lists[$listType] ?? null;
@@ -279,8 +285,18 @@ class WaveGroupsTable
         $filename = (string) ($entry['filename'] ?? basename($path));
         $mimeType = (string) ($entry['mime_type'] ?? 'application/pdf');
         $printerDriverId = ! empty($data['printer_driver_id']) ? (int) $data['printer_driver_id'] : null;
+        $shouldPrint = ($arguments['output'] ?? 'pdf') === 'printer';
 
-        if ($printerDriverId) {
+        if ($shouldPrint) {
+            if (! $printerDriverId) {
+                Notification::make()
+                    ->title('プリンターを選択してください')
+                    ->danger()
+                    ->send();
+
+                return null;
+            }
+
             if ($disk !== 's3') {
                 Notification::make()
                     ->title('プリンター出力できません')
@@ -370,7 +386,7 @@ class WaveGroupsTable
                 ->default('')
                 ->live()
                 ->searchable()
-                ->helperText('プリンターを選択するとクライアントプリントへ送信します。未選択の場合はPDFをダウンロードします。'),
+                ->helperText('PDF出力はダウンロード、プリンター出力は選択したプリンターに送信します。'),
         ];
     }
 
