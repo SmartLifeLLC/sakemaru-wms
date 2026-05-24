@@ -28,21 +28,32 @@ class WmsInventoryCount extends WmsModel
         'warehouse_name',
         'count_date',
         'status',
+        'current_count_round',
         'lock_mode',
         'snapshot_taken_at',
         'started_at',
         'confirmed_at',
         'confirmed_by',
+        'first_count_confirmed_at',
+        'first_count_confirmed_by',
+        'second_count_confirmed_at',
+        'second_count_confirmed_by',
+        'final_count_confirmed_at',
+        'final_count_confirmed_by',
         'memo',
         'created_by',
     ];
 
     protected $casts = [
         'count_date' => 'date',
+        'current_count_round' => 'integer',
         'lock_mode' => 'boolean',
         'snapshot_taken_at' => 'datetime',
         'started_at' => 'datetime',
         'confirmed_at' => 'datetime',
+        'first_count_confirmed_at' => 'datetime',
+        'second_count_confirmed_at' => 'datetime',
+        'final_count_confirmed_at' => 'datetime',
     ];
 
     public function items(): HasMany

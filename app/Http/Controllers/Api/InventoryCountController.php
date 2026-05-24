@@ -21,11 +21,14 @@ class InventoryCountController extends ApiController
     /**
      * GET /api/wms/inventory-counts
      *
-     * List inventory counts with status=counting
+     * List active inventory count instructions for Handy.
      */
     public function index(Request $request): JsonResponse
     {
-        $counts = WmsInventoryCount::where('status', WmsInventoryCount::STATUS_COUNTING)
+        $counts = WmsInventoryCount::whereIn('status', [
+            WmsInventoryCount::STATUS_DRAFT,
+            WmsInventoryCount::STATUS_COUNTING,
+        ])
             ->orderBy('count_date', 'desc')
             ->orderBy('id', 'desc')
             ->get();
@@ -101,6 +104,12 @@ class InventoryCountController extends ApiController
         if (! $count) {
             return $this->notFound('棚卸データが見つかりません');
         }
+
+        if (! $this->isHandyCountable($count)) {
+            return $this->error('この棚卸はHandyでカウントできる状態ではありません', 422, 'INVALID_STATUS');
+        }
+
+        $this->startDraftForHandy($count);
 
         $query = WmsInventoryCountItem::where('inventory_count_id', $count->id);
 
@@ -224,9 +233,11 @@ class InventoryCountController extends ApiController
 
         // Verify parent inventory count is in counting status
         $inventoryCount = WmsInventoryCount::find($countItem->inventory_count_id);
-        if (! $inventoryCount || $inventoryCount->status !== WmsInventoryCount::STATUS_COUNTING) {
+        if (! $inventoryCount || ! $this->isHandyCountable($inventoryCount)) {
             return $this->error('この棚卸はカウント中ではありません', 422, 'INVALID_STATUS');
         }
+
+        $this->startDraftForHandy($inventoryCount);
 
         $validator = Validator::make($request->all(), [
             'quantity' => ['nullable', 'numeric', 'min:0'],
@@ -270,9 +281,11 @@ class InventoryCountController extends ApiController
             return $this->notFound('棚卸データが見つかりません');
         }
 
-        if ($count->status !== WmsInventoryCount::STATUS_COUNTING) {
+        if (! $this->isHandyCountable($count)) {
             return $this->error('この棚卸はカウント中ではありません', 422, 'INVALID_STATUS');
         }
+
+        $this->startDraftForHandy($count);
 
         $validator = Validator::make($request->all(), [
             'count_round' => ['required', 'integer', 'in:1,2,3'],
@@ -477,6 +490,10 @@ class InventoryCountController extends ApiController
 
     private function currentRound(WmsInventoryCount $count): int
     {
+        if ((int) ($count->current_count_round ?? 0) > 0) {
+            return min(max((int) $count->current_count_round, 1), 3);
+        }
+
         if ($count->items()->whereNotNull('final_count_quantity')->exists()) {
             return 3;
         }
@@ -486,5 +503,25 @@ class InventoryCountController extends ApiController
         }
 
         return 1;
+    }
+
+    private function isHandyCountable(WmsInventoryCount $count): bool
+    {
+        return in_array($count->status, [
+            WmsInventoryCount::STATUS_DRAFT,
+            WmsInventoryCount::STATUS_COUNTING,
+        ], true);
+    }
+
+    private function startDraftForHandy(WmsInventoryCount $count): void
+    {
+        if ($count->status !== WmsInventoryCount::STATUS_DRAFT) {
+            return;
+        }
+
+        $count->forceFill([
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'started_at' => now(),
+        ])->save();
     }
 }

@@ -6,15 +6,19 @@
         $allCount = $this->countForTab('all');
         $diffCount = $this->countForTab('diff');
         $uncountedCount = $this->countForTab('uncounted');
+        $pageFirst = $rows->firstItem() ?? 0;
+        $pageLast = $rows->lastItem() ?? 0;
+        $activeRound = $this->activeCountRound;
         $floorOptions = $this->floorOptions();
         $locationOptions = $this->locationOptions();
         $isEditable = in_array($record->status, [
+            \App\Models\WmsInventoryCount::STATUS_DRAFT,
             \App\Models\WmsInventoryCount::STATUS_COUNTING,
             \App\Models\WmsInventoryCount::STATUS_CHECKED,
         ]);
         $filterInputClass = 'h-8 w-full rounded-md border border-slate-300 bg-slate-50 px-2 text-xs text-slate-900 shadow-inner outline-none transition placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500';
         $filterSelectClass = 'h-8 w-full rounded-md border border-slate-300 bg-slate-50 px-2 text-xs text-slate-900 shadow-inner outline-none transition focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500';
-        $countInputClass = 'w-20 h-7 rounded border border-slate-300 bg-white px-1 text-right text-xs tabular-nums font-bold outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500';
+        $countInputClass = 'w-20 h-7 rounded border border-slate-300 bg-white px-1 text-right text-xs tabular-nums font-bold outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed';
         $statusColors = [
             'draft' => 'bg-slate-200 text-slate-700',
             'counting' => 'bg-sky-100 text-sky-700',
@@ -27,7 +31,8 @@
     <div x-data="{
         filtersOpen: true,
         locationPickerOpen: false,
-        activeTab: 'all',
+        activeTab: @entangle('listTab'),
+        activeRound: @entangle('activeCountRound'),
         filters: { floor: '', area: '', itemCode: '', itemName: '', locationText: '' },
         selectedLocations: [],
         changes: {},
@@ -40,7 +45,9 @@
         },
         rowVisible(row) {
             if (this.activeTab === 'diff' && !(row.diff !== null && row.diff !== 0)) return false;
-            if (this.activeTab === 'uncounted' && row.first !== '') return false;
+            if (this.activeTab === 'uncounted' && this.activeRound === 1 && row.first !== '') return false;
+            if (this.activeTab === 'uncounted' && this.activeRound === 2 && row.second !== '') return false;
+            if (this.activeTab === 'uncounted' && this.activeRound === 3 && row.final_ !== '') return false;
             if (this.filters.floor !== '' && row.floor !== this.filters.floor) return false;
             if (!this.includes(row.area, this.filters.area)) return false;
             if (!this.includes(row.itemCode, this.filters.itemCode)) return false;
@@ -91,6 +98,7 @@
                         全{{ number_format($allCount) }}件
                         / 差異{{ number_format($diffCount) }}件
                         / 未カウント{{ number_format($uncountedCount) }}件
+                        / 表示{{ number_format($pageFirst) }}-{{ number_format($pageLast) }}件
                     </span>
                 </div>
                 <button type="button"
@@ -193,28 +201,96 @@
                     </button>
                 </div>
                 <div class="flex items-center gap-3 pb-2">
-                    <div class="rounded-full bg-green-900/40 px-3 py-1 text-sm font-black text-white tabular-nums">全{{ number_format($rows->count()) }}件</div>
+                    <div class="flex items-center gap-1 rounded-md bg-green-900/30 p-1 text-xs font-bold">
+                        <span class="px-2 text-white/80">入力中</span>
+                        @foreach ([1 => '1回目', 2 => '2回目', 3 => '最終'] as $round => $label)
+                            <button type="button"
+                                wire:click="setActiveCountRound({{ $round }})"
+                                x-bind:disabled="changeCount > 0"
+                                class="h-7 rounded px-2 disabled:cursor-not-allowed disabled:opacity-50 {{ $activeRound === $round ? 'bg-white text-green-800' : 'text-white hover:bg-green-800' }}">
+                                {{ $label }}
+                            </button>
+                        @endforeach
+                    </div>
+                    <div class="rounded-full bg-green-900/40 px-3 py-1 text-sm font-black text-white tabular-nums">
+                        {{ number_format($pageFirst) }}-{{ number_format($pageLast) }} / {{ number_format($rows->total()) }}件
+                    </div>
+                    <div class="flex items-center gap-1 text-xs font-bold">
+                        <button type="button"
+                            wire:click="previousItemPage"
+                            x-bind:disabled="changeCount > 0"
+                            @disabled($rows->onFirstPage())
+                            class="h-8 rounded-md border border-green-300 px-2 text-white disabled:cursor-not-allowed disabled:opacity-40 hover:bg-green-800">
+                            前へ
+                        </button>
+                        <span class="px-2 tabular-nums">{{ $rows->currentPage() }} / {{ $rows->lastPage() }}</span>
+                        <button type="button"
+                            wire:click="nextItemPage"
+                            x-bind:disabled="changeCount > 0"
+                            @disabled(! $rows->hasMorePages())
+                            class="h-8 rounded-md border border-green-300 px-2 text-white disabled:cursor-not-allowed disabled:opacity-40 hover:bg-green-800">
+                            次へ
+                        </button>
+                    </div>
                     @if ($isEditable)
                         <button type="button" @click="save()" x-show="changeCount > 0" x-cloak
                             class="inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-red-700">
                             <x-filament::icon icon="heroicon-m-arrow-up-tray" class="h-4 w-4" />
-                            <span>保存</span>
+                            <span>反映</span>
                             <span class="rounded-full bg-white/20 px-2 py-0.5 text-xs font-black" x-text="changeCount + '件'"></span>
                         </button>
                     @endif
                     {{ $this->getAction('downloadInstructionPdf') }}
-                    {{ $this->getAction('startCounting') }}
-                    {{ $this->getAction('calculateDifferences') }}
-                    {{ $this->getAction('downloadDiffListPdf') }}
-                    {{ $this->getAction('confirm') }}
-                    {{ $this->getAction('cancel') }}
+                    @if ($record->status === \App\Models\WmsInventoryCount::STATUS_DRAFT)
+                        {{ $this->getAction('startCounting') }}
+                    @endif
+                    @if (in_array($record->status, [
+                        \App\Models\WmsInventoryCount::STATUS_DRAFT,
+                        \App\Models\WmsInventoryCount::STATUS_COUNTING,
+                        \App\Models\WmsInventoryCount::STATUS_CHECKED,
+                    ], true))
+                        <button type="button"
+                            wire:click="calculateActiveRoundDifferences"
+                            @click="activeTab = 'diff'"
+                            x-bind:disabled="changeCount > 0"
+                            class="inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
+                            <x-filament::icon icon="heroicon-m-calculator" class="h-4 w-4" />
+                            <span>{{ $this->activeRoundLabel() }}差異計算</span>
+                        </button>
+                        <div class="flex items-center gap-1 rounded-md bg-green-900/30 p-1">
+                            @foreach ([1 => '1回目', 2 => '2回目', 3 => '最終'] as $round => $label)
+                                @php
+                                    $roundConfirmed = $this->isRoundConfirmed($round);
+                                    $roundAvailable = $round <= $activeRound;
+                                @endphp
+                                <button type="button"
+                                    wire:click="confirmRound({{ $round }})"
+                                    x-bind:disabled="changeCount > 0 || {{ ($roundConfirmed || ! $roundAvailable) ? 'true' : 'false' }}"
+                                    class="h-8 rounded-md px-3 text-xs font-bold shadow-sm disabled:cursor-not-allowed disabled:opacity-50 {{ $roundConfirmed ? 'bg-slate-300 text-slate-600' : ($roundAvailable ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-white/20 text-white') }}">
+                                    {{ $roundConfirmed ? "{$label}確定済" : "{$label}確定" }}
+                                </button>
+                            @endforeach
+                        </div>
+                    @endif
+                    @if ($record->status !== \App\Models\WmsInventoryCount::STATUS_DRAFT)
+                        {{ $this->getAction('downloadDiffListPdf') }}
+                    @endif
+                    @if ($record->status === \App\Models\WmsInventoryCount::STATUS_CHECKED)
+                        {{ $this->getAction('confirm') }}
+                    @endif
+                    @if (! in_array($record->status, [
+                        \App\Models\WmsInventoryCount::STATUS_CONFIRMED,
+                        \App\Models\WmsInventoryCount::STATUS_CANCELLED,
+                    ], true))
+                        {{ $this->getAction('cancel') }}
+                    @endif
                     <div wire:loading class="text-xs">読込中...</div>
                 </div>
             </div>
 
             {{-- Table --}}
             <div class="min-h-0 flex-1 overflow-auto">
-                @if ($rows->isEmpty())
+                @if ($rows->count() === 0)
                     <div class="p-8 text-center text-sm text-slate-500">条件に一致する明細はありません。</div>
                 @else
                     <table class="w-max min-w-full border-collapse text-xs">
@@ -256,7 +332,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach ($rows as $row)
+                            @foreach ($rows->items() as $row)
                                 @php
                                     $initFirst = $row->first_count_quantity !== null ? (string) (int) $row->first_count_quantity : '';
                                     $initSecond = $row->second_count_quantity !== null ? (string) (int) $row->second_count_quantity : '';
@@ -273,7 +349,11 @@
                                         origFirst: @js($initFirst), origSecond: @js($initSecond), origFinal: @js($initFinal),
                                         system: {{ (int) $row->system_quantity }}, cost: {{ (float) $row->cost_price }},
                                         toInt(v) { return v === '' ? null : parseInt(v); },
-                                        get counted() { let f=this.toInt(this.final_),s=this.toInt(this.second),fi=this.toInt(this.first); return f!==null?f:s!==null?s:fi!==null?fi:null; },
+                                        get counted() {
+                                            if (this.activeRound == 3) return this.toInt(this.final_);
+                                            if (this.activeRound == 2) return this.toInt(this.second);
+                                            return this.toInt(this.first);
+                                        },
                                         get diff() { return this.counted!==null ? this.counted-this.system : null; },
                                         get diffAmt() { return this.diff!==null ? Math.round(this.diff*this.cost) : null; },
                                         get changed() { return this.first!==this.origFirst||this.second!==this.origSecond||this.final_!==this.origFinal; },
@@ -295,6 +375,7 @@
                                                 :value="first"
                                                 @input="first=clean($event.target.value); $event.target.value=first; notify()"
                                                 @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
+                                                @disabled($activeRound !== 1)
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
                                         <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
@@ -302,6 +383,7 @@
                                                 :value="second"
                                                 @input="second=clean($event.target.value); $event.target.value=second; notify()"
                                                 @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
+                                                @disabled($activeRound !== 2)
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
                                         <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
@@ -309,6 +391,7 @@
                                                 :value="final_"
                                                 @input="final_=clean($event.target.value); $event.target.value=final_; notify()"
                                                 @keydown="if(['e','E','+','-','.'].includes($event.key)) $event.preventDefault()"
+                                                @disabled($activeRound !== 3)
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-center font-bold tabular-nums">
@@ -339,6 +422,30 @@
                     </table>
 
                 @endif
+            </div>
+            <div class="flex shrink-0 items-center justify-between border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                <div class="tabular-nums">
+                    {{ number_format($pageFirst) }}-{{ number_format($pageLast) }} / {{ number_format($rows->total()) }}件
+                    <span class="ml-2 font-bold text-green-800">入力中: {{ $this->activeRoundLabel() }}</span>
+                    <span x-show="changeCount > 0" x-cloak class="ml-2 font-bold text-red-700">未反映の入力があります。反映後にページ移動できます。</span>
+                </div>
+                <div class="flex items-center gap-1 font-bold">
+                    <button type="button"
+                        wire:click="previousItemPage"
+                        x-bind:disabled="changeCount > 0"
+                        @disabled($rows->onFirstPage())
+                        class="h-8 rounded-md border border-slate-300 bg-white px-3 disabled:cursor-not-allowed disabled:opacity-40 hover:bg-slate-100">
+                        前へ
+                    </button>
+                    <span class="px-2 tabular-nums">{{ $rows->currentPage() }} / {{ $rows->lastPage() }}</span>
+                    <button type="button"
+                        wire:click="nextItemPage"
+                        x-bind:disabled="changeCount > 0"
+                        @disabled(! $rows->hasMorePages())
+                        class="h-8 rounded-md border border-slate-300 bg-white px-3 disabled:cursor-not-allowed disabled:opacity-40 hover:bg-slate-100">
+                        次へ
+                    </button>
+                </div>
             </div>
         </div>
     </div>
