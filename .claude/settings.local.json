@@ -71,7 +71,13 @@
       "Bash(php-fpm8.4 -i)",
       "Bash(php-fpm -i)",
       "Bash(valet restart *)",
-      "Bash(brew services *)"
+      "Bash(brew services *)",
+      "Bash(curl *)",
+      "Bash(python3 -m json.tool)",
+      "Read(//opt/homebrew/var/log/nginx/**)",
+      "Read(//usr/local/var/log/nginx/**)",
+      "Read(//Users/jungsinyu/Library/Logs/nginx/**)",
+      "Read(//Users/jungsinyu/.config/valet/Log/**)"
     ]
   }
 }
