@@ -418,7 +418,19 @@ class WaveGroupsTable
             }
         }
 
-        return $printerPath;
+        return static::pathWithS3Prefix($printerPath);
+    }
+
+    private static function pathWithS3Prefix(string $path): string
+    {
+        $prefix = trim((string) config('filesystems.disks.s3.prefix', ''), '/');
+        $path = ltrim($path, '/');
+
+        if ($prefix === '') {
+            return $path;
+        }
+
+        return $prefix . '/' . $path;
     }
 
     public static function printerSelectionSchema(?int $warehouseId = null): array
