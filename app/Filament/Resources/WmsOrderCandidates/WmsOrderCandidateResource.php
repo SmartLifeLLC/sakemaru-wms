@@ -50,7 +50,15 @@ class WmsOrderCandidateResource extends AdminResource
      */
     public static function getEloquentQuery(): Builder
     {
+        $locationSub = \App\Models\Sakemaru\Location::selectRaw("CONCAT(locations.code1, '-', locations.code2, '-', locations.code3)")
+            ->join('item_incoming_default_locations', 'item_incoming_default_locations.location_id', '=', 'locations.id')
+            ->whereColumn('item_incoming_default_locations.warehouse_id', 'wms_order_candidates.warehouse_id')
+            ->whereColumn('item_incoming_default_locations.item_id', 'wms_order_candidates.item_id')
+            ->limit(1);
+
         return parent::getEloquentQuery()
+            ->select('wms_order_candidates.*')
+            ->selectSub($locationSub, 'default_location')
             ->whereIn('status', [CandidateStatus::PENDING, CandidateStatus::EXCLUDED])
             ->with(['item.current_price', 'contractor', 'modifiedByUser']);
     }

@@ -257,7 +257,7 @@ class WmsOrderDataFilesTable
                             ->rows(3)
                             ->maxLength(200),
                     ])
-                    ->action(function (WmsOrderDataFile $record, array $data) {
+                    ->action(function (WmsOrderDataFile $record, array $data, $livewire) {
                         try {
                             $notes = $data['communication_notes'] ?? null;
 
@@ -284,7 +284,8 @@ class WmsOrderDataFilesTable
                                 ->success()
                                 ->send();
 
-                            return redirect($url);
+                            $escapedUrl = json_encode($url);
+                            $livewire->js("window.open({$escapedUrl}, '_blank')");
                         } catch (\Exception $e) {
                             Notification::make()
                                 ->title('エラーが発生しました')

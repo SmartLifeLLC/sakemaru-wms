@@ -175,13 +175,19 @@ class WmsOrderConfirmationWaitingTable
                     ->label('ケース')
                     ->numeric()
                     ->alignEnd()
-                    ->width('75px'),
+                    ->width('75px')
+                    ->weight('bold')
+                    ->size(\Filament\Support\Enums\TextSize::Large)
+                    ->color('danger'),
 
                 TextColumn::make('piece_quantity')
                     ->label('バラ')
                     ->numeric()
                     ->alignEnd()
-                    ->width('75px'),
+                    ->width('75px')
+                    ->weight('bold')
+                    ->size(\Filament\Support\Enums\TextSize::Large)
+                    ->color('danger'),
 
                 TextColumn::make('item.capacity_case')
                     ->label('入数')
