@@ -324,7 +324,9 @@ class WmsShipmentSlipsTable
                                                 ->where('warehouse_id', $warehouseId)
                                                 ->where('is_active', true)
                                                 ->get()
-                                                ->mapWithKeys(fn ($p) => [$p->id => $p->display_name ?? $p->name]);
+                                                ->mapWithKeys(fn ($p) => [
+                                                    $p->id => filled($p->user_name) ? $p->user_name : $p->display_name,
+                                                ]);
 
                                             if ($printers->isEmpty()) {
                                                 return ['' => 'なし（PDFのみ生成）'];
@@ -333,6 +335,23 @@ class WmsShipmentSlipsTable
                                             return ['' => 'なし（PDFのみ生成）'] + $printers->toArray();
                                         })
                                         ->default('')
+                                        ->extraAlpineAttributes(function () use ($record) {
+                                            $storageKey = "wms-shipment-slips.printer.{$record->warehouse_id}.{$record->delivery_course_id}";
+
+                                            return [
+                                                'x-init' => "
+                                                    const savedPrinterId = localStorage.getItem('{$storageKey}')
+                                                    if ((state === null || state === undefined || state === '') && savedPrinterId !== null) {
+                                                        state = savedPrinterId
+                                                    }
+                                                ",
+                                                'x-effect' => "
+                                                    if (state !== null && state !== undefined) {
+                                                        localStorage.setItem('{$storageKey}', state)
+                                                    }
+                                                ",
+                                            ];
+                                        })
                                         ->live()
                                         ->searchable()
                                         ->helperText(function (Get $get) {
