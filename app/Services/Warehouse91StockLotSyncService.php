@@ -266,6 +266,8 @@ WHERE w.code = ?
       lr.id IS NOT NULL
       AND (
         (
+          ot.origin_status <> 'ambiguous'
+          AND
           ot.target_shelf = 'Z00'
           AND lr.location_id <> zl.location_id
           AND NOT (
