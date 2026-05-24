@@ -77,7 +77,8 @@
       "Read(//opt/homebrew/var/log/nginx/**)",
       "Read(//usr/local/var/log/nginx/**)",
       "Read(//Users/jungsinyu/Library/Logs/nginx/**)",
-      "Read(//Users/jungsinyu/.config/valet/Log/**)"
+      "Read(//Users/jungsinyu/.config/valet/Log/**)",
+      "Bash(xargs ls -1t)"
     ]
   }
 }
