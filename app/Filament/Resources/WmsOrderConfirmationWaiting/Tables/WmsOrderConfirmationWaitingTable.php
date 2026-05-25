@@ -49,6 +49,16 @@ class WmsOrderConfirmationWaitingTable
     public static function applyItemContractorJoin(EloquentBuilder $query): EloquentBuilder
     {
         $mainTable = (new WmsOrderCandidate)->getTable();
+        $locationSub = DB::connection('sakemaru')
+            ->table('real_stock_lots as rsl')
+            ->join('real_stocks as rs', 'rs.id', '=', 'rsl.real_stock_id')
+            ->leftJoin('locations as l', 'rsl.location_id', '=', 'l.id')
+            ->whereColumn('rs.warehouse_id', "{$mainTable}.warehouse_id")
+            ->whereColumn('rs.item_id', "{$mainTable}.item_id")
+            ->where('rsl.status', 'ACTIVE')
+            ->orderBy('rsl.id')
+            ->selectRaw('CONCAT(COALESCE(l.code1, ""), COALESCE(l.code2, ""), COALESCE(l.code3, ""))')
+            ->limit(1);
 
         return $query
             ->select([
@@ -59,6 +69,7 @@ class WmsOrderConfirmationWaitingTable
                 'ic.auto_order_quantity as ic_auto_order_quantity',
                 'ic.is_auto_order as ic_is_auto_order',
             ])
+            ->selectSub($locationSub, 'default_location')
             ->leftJoin('item_contractors as ic', function ($join) use ($mainTable) {
                 $join->on('ic.warehouse_id', '=', "{$mainTable}.warehouse_id")
                     ->on('ic.item_id', '=', "{$mainTable}.item_id")
