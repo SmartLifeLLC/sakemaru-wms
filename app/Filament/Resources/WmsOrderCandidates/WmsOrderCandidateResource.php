@@ -57,13 +57,8 @@ class WmsOrderCandidateResource extends AdminResource
             ->whereColumn('rs.warehouse_id', 'wms_order_candidates.warehouse_id')
             ->whereColumn('rs.item_id', 'wms_order_candidates.item_id')
             ->where('rsl.status', 'ACTIVE')
-            ->where('rsl.current_quantity', '>', 0)
-            ->orderByRaw('CASE WHEN rsl.current_quantity > rsl.reserved_quantity THEN 0 ELSE 1 END')
-            ->orderByRaw('CASE WHEN rsl.expiration_date IS NULL THEN 1 ELSE 0 END')
-            ->orderBy('rsl.expiration_date')
-            ->orderBy('rsl.created_at')
             ->orderBy('rsl.id')
-            ->selectRaw("CONCAT_WS('-', NULLIF(locations.code1, ''), NULLIF(locations.code2, ''), NULLIF(locations.code3, ''))")
+            ->selectRaw('CONCAT(COALESCE(locations.code1, ""), COALESCE(locations.code2, ""), COALESCE(locations.code3, ""))')
             ->limit(1);
 
         return parent::getEloquentQuery()
