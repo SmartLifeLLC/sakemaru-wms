@@ -21,7 +21,15 @@
 <div x-data="{
     searchQuery: '',
     categories: @js($data),
-    selectedIds: @js($selectedIds),
+    selectedIds: $wire.$entangle(@js($selectedProperty)).live,
+
+    init() {
+        if (!Array.isArray(this.selectedIds)) {
+            this.selectedIds = @js($selectedIds);
+        }
+
+        this.selectedIds = this.selectedIds.map(id => Number(id));
+    },
 
     get filteredCategories() {
         if (!this.searchQuery) return this.categories;
@@ -46,26 +54,26 @@
     },
 
     isSelected(id) {
-        return this.selectedIds.includes(id);
+        return this.selectedIds.map(Number).includes(Number(id));
     },
 
     toggle(id) {
-        const idx = this.selectedIds.indexOf(id);
-        if (idx > -1) {
-            this.selectedIds.splice(idx, 1);
+        const normalizedId = Number(id);
+        if (this.isSelected(normalizedId)) {
+            this.selectedIds = this.selectedIds.filter(selectedId => Number(selectedId) !== normalizedId);
         } else {
-            this.selectedIds.push(id);
+            this.selectedIds = [...this.selectedIds, normalizedId];
         }
     },
 
     selectFiltered() {
-        const ids = this.filteredCategories.map(category => category.id);
+        const ids = this.filteredCategories.map(category => Number(category.id));
         this.selectedIds = [...new Set([...this.selectedIds, ...ids])];
     },
 
     deselectFiltered() {
-        const ids = this.filteredCategories.map(category => category.id);
-        this.selectedIds = this.selectedIds.filter(id => !ids.includes(id));
+        const ids = this.filteredCategories.map(category => Number(category.id));
+        this.selectedIds = this.selectedIds.filter(id => !ids.includes(Number(id)));
     },
 
     toggleAll() {
@@ -75,7 +83,7 @@
             this.selectFiltered();
         }
     },
-}" x-effect="$wire.set(@js($selectedProperty), selectedIds)" @class([
+}" @class([
     'overflow-x-hidden',
     'flex h-[24rem] flex-col overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900' => $externalOrderLayout,
     'space-y-2' => ! $externalOrderLayout,
