@@ -158,6 +158,43 @@ class InventoryCountController extends ApiController
     }
 
     /**
+     * GET /api/wms/inventory-counts/{id}/jan-codes
+     *
+     * JAN code dictionary keyed by code for barcode scanning lookup.
+     */
+    public function janCodes(Request $request, int $id): JsonResponse
+    {
+        $count = WmsInventoryCount::find($id);
+
+        if (! $count) {
+            return $this->notFound('棚卸データが見つかりません');
+        }
+
+        $itemIds = WmsInventoryCountItem::where('inventory_count_id', $count->id)
+            ->pluck('item_id');
+
+        $rows = DB::connection('sakemaru')
+            ->table('item_search_information')
+            ->whereIn('item_id', $itemIds)
+            ->where('is_active', 1)
+            ->whereNotNull('search_string')
+            ->where('search_string', '!=', '')
+            ->get(['item_id', 'search_string', 'quantity_type']);
+
+        $dict = [];
+        foreach ($rows as $row) {
+            $dict[$row->search_string][] = [
+                'item_id' => $row->item_id,
+                'quantity_type' => $row->quantity_type,
+            ];
+        }
+
+        return $this->success([
+            'jan_codes' => $dict,
+        ]);
+    }
+
+    /**
      * POST /api/wms/inventory-counts/{id}/scan
      *
      * Search items within an inventory count by barcode or item_code
@@ -192,6 +229,16 @@ class InventoryCountController extends ApiController
                     ->orWhere('item_name', 'like', $like)
                     ->orWhere('barcode', $normalizedKeyword)
                     ->orWhereRaw('LPAD(barcode, 13, "0") = ?', [$normalizedKeyword])
+                    ->orWhereExists(function ($sub) use ($normalizedKeyword) {
+                        $sub->selectRaw('1')
+                            ->from('item_search_information as isi')
+                            ->whereColumn('isi.item_id', 'wms_inventory_count_items.item_id')
+                            ->where('isi.is_active', 1)
+                            ->where(function ($q) use ($normalizedKeyword) {
+                                $q->where('isi.search_string', $normalizedKeyword)
+                                    ->orWhereRaw('LPAD(isi.search_string, 13, "0") = ?', [$normalizedKeyword]);
+                            });
+                    })
                     ->orWhereExists(function ($sub) use ($normalizedKeyword, $like) {
                         $sub->selectRaw('1')
                             ->from('item_quantity_information as iqi')
@@ -391,21 +438,19 @@ class InventoryCountController extends ApiController
         $capacityCase = max((int) ($master?->capacity_case ?? 1), 1);
         $systemQuantity = (int) $item->system_quantity;
         $currentCount = $item->final_count_quantity ?? $item->second_count_quantity ?? $item->first_count_quantity;
-        $janCodes = $this->janCodes($item->item_id);
-        $ownCodes = $this->ownCodes($item->item_id);
+        $searchCodes = $this->searchCodes($item->item_id);
 
         $payload = [
             'id' => $item->id,
             'paper_barcode' => "ICITEM-{$item->id}",
-            'search_text' => trim(implode(' ', array_filter([
+            'search_text' => trim(implode(' ', array_filter(array_unique([
                 "ICITEM-{$item->id}",
                 $item->item_code,
                 $item->item_name,
                 $item->barcode,
                 $item->location_no,
-                ...$janCodes,
-                ...$ownCodes,
-            ]))),
+                ...array_column($searchCodes, 'code'),
+            ])))),
             'item_id' => $item->item_id,
             'item_code' => $item->item_code,
             'item_name' => $item->item_name,
@@ -436,8 +481,7 @@ class InventoryCountController extends ApiController
         ];
 
         if (! $compact) {
-            $payload['jan_codes'] = $janCodes;
-            $payload['own_codes'] = $ownCodes;
+            $payload['search_codes'] = $searchCodes;
         }
 
         return $payload;
@@ -464,28 +508,26 @@ class InventoryCountController extends ApiController
         return $cache[$itemId];
     }
 
-    private function janCodes(int $itemId): array
+    private function searchCodes(int $itemId): array
     {
-        return DB::connection('sakemaru')
-            ->table('item_search_information')
-            ->where('item_id', $itemId)
-            ->where('is_active', 1)
-            ->pluck('search_string')
-            ->filter()
-            ->values()
-            ->all();
-    }
+        static $cache = [];
 
-    private function ownCodes(int $itemId): array
-    {
-        return DB::connection('sakemaru')
-            ->table('item_quantity_information')
-            ->where('item_id', $itemId)
-            ->whereNotNull('own_code')
-            ->pluck('own_code')
-            ->filter()
-            ->values()
-            ->all();
+        if (! array_key_exists($itemId, $cache)) {
+            $cache[$itemId] = DB::connection('sakemaru')
+                ->table('item_search_information')
+                ->where('item_id', $itemId)
+                ->where('is_active', 1)
+                ->get(['search_string', 'quantity_type'])
+                ->map(fn ($row) => [
+                    'code' => $row->search_string,
+                    'quantity_type' => $row->quantity_type,
+                ])
+                ->filter(fn ($row) => $row['code'] !== null && $row['code'] !== '')
+                ->values()
+                ->all();
+        }
+
+        return $cache[$itemId];
     }
 
     private function currentRound(WmsInventoryCount $count): int

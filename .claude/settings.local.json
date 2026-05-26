@@ -78,7 +78,9 @@
       "Read(//usr/local/var/log/nginx/**)",
       "Read(//Users/jungsinyu/Library/Logs/nginx/**)",
       "Read(//Users/jungsinyu/.config/valet/Log/**)",
-      "Bash(xargs ls -1t)"
+      "Bash(xargs ls -1t)",
+      "Bash(python3 *)",
+      "Bash(open *)"
     ]
   }
 }

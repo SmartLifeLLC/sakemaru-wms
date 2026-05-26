@@ -1,0 +1,3317 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "酒丸蔵 API",
+    "description": "Warehouse Management System API for Android picking terminals",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://10.0.2.2",
+      "description": "API Server"
+    }
+  ],
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Login to WMS",
+        "description": "Authenticate picker with code and password, returns API token",
+        "operationId": "dd51a484b7fa0f97c7680fdbde14cf5f",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "required": [
+                  "code",
+                  "password"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "TEST001"
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": "password123"
+                  },
+                  "device_id": {
+                    "type": "string",
+                    "example": "ANDROID-12345"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful login",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "LOGIN_SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "properties": {
+                            "token": {
+                              "type": "string",
+                              "example": "1|abcdef123456..."
+                            },
+                            "picker": {
+                              "properties": {
+                                "id": {
+                                  "type": "integer",
+                                  "example": 2
+                                },
+                                "code": {
+                                  "type": "string",
+                                  "example": "TEST001"
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "example": "テストピッカー"
+                                },
+                                "default_warehouse_id": {
+                                  "type": "integer",
+                                  "example": 991
+                                }
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "Login successful"
+                        },
+                        "debug_message": {
+                          "type": "string",
+                          "example": null,
+                          "nullable": true
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials or inactive account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "UNAUTHORIZED"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "example": null,
+                          "nullable": true
+                        },
+                        "error_message": {
+                          "type": "string",
+                          "example": "Invalid credentials"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "VALIDATION_ERROR"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "example": null,
+                          "nullable": true
+                        },
+                        "error_message": {
+                          "type": "string",
+                          "example": "Validation failed"
+                        },
+                        "errors": {
+                          "properties": {
+                            "code": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "example": "validation.required"
+                              }
+                            },
+                            "password": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "example": "validation.required"
+                              }
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          }
+        ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Logout from WMS",
+        "description": "Revoke current API token",
+        "operationId": "df9bdc6c7a6d9f20b983526b2ec0f698",
+        "responses": {
+          "200": {
+            "description": "Successfully logged out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "LOGOUT_SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "example": null,
+                          "nullable": true
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "Logged out successfully"
+                        },
+                        "debug_message": {
+                          "type": "string",
+                          "example": null,
+                          "nullable": true
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "UNAUTHORIZED"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "example": null,
+                          "nullable": true
+                        },
+                        "error_message": {
+                          "type": "string",
+                          "example": "Unauthenticated"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/me": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Get current picker info",
+        "description": "Returns information about the authenticated picker",
+        "operationId": "8367feff40ba10e43187792cad3132c1",
+        "responses": {
+          "200": {
+            "description": "Picker information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "properties": {
+                            "id": {
+                              "type": "integer",
+                              "example": 2
+                            },
+                            "code": {
+                              "type": "string",
+                              "example": "TEST001"
+                            },
+                            "name": {
+                              "type": "string",
+                              "example": "テストピッカー"
+                            },
+                            "default_warehouse_id": {
+                              "type": "integer",
+                              "example": 991
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "debug_message": {
+                          "type": "string",
+                          "example": null,
+                          "nullable": true
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "UNAUTHORIZED"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "example": null,
+                          "nullable": true
+                        },
+                        "error_message": {
+                          "type": "string",
+                          "example": "Unauthenticated"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/incoming/schedules": {
+      "get": {
+        "tags": [
+          "Incoming"
+        ],
+        "summary": "入庫予定一覧取得",
+        "description": "倉庫別の入庫予定を検索。商品コード、JANコード、商品名で検索可能。仮想倉庫に紐づく入庫予定も含む。",
+        "operationId": "4554dfb64ebbfce8c8ee2c1648dcc038",
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "description": "作業倉庫ID（実倉庫を指定すると仮想倉庫分も取得）",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 991
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "検索キーワード（商品コード、JANコード、商品名）",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "4901234567890"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "properties": {
+                              "item_id": {
+                                "type": "integer",
+                                "example": 123
+                              },
+                              "item_code": {
+                                "type": "string",
+                                "example": "10001"
+                              },
+                              "item_name": {
+                                "type": "string",
+                                "example": "商品A"
+                              },
+                              "search_code": {
+                                "type": "string",
+                                "example": "4901234567890,4901234567891"
+                              },
+                              "jan_codes": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "volume": {
+                                "type": "string",
+                                "example": "720ml"
+                              },
+                              "temperature_type": {
+                                "type": "string",
+                                "example": "常温"
+                              },
+                              "images": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "total_expected_quantity": {
+                                "type": "integer",
+                                "example": 100
+                              },
+                              "total_received_quantity": {
+                                "type": "integer",
+                                "example": 20
+                              },
+                              "total_remaining_quantity": {
+                                "type": "integer",
+                                "example": 80
+                              },
+                              "warehouses": {
+                                "description": "倉庫別の入庫予定数",
+                                "type": "array",
+                                "items": {
+                                  "properties": {
+                                    "warehouse_id": {
+                                      "type": "integer"
+                                    },
+                                    "warehouse_code": {
+                                      "type": "string"
+                                    },
+                                    "warehouse_name": {
+                                      "type": "string"
+                                    },
+                                    "expected_quantity": {
+                                      "type": "integer"
+                                    },
+                                    "received_quantity": {
+                                      "type": "integer"
+                                    },
+                                    "remaining_quantity": {
+                                      "type": "integer"
+                                    }
+                                  },
+                                  "type": "object"
+                                }
+                              },
+                              "schedules": {
+                                "description": "個別の入庫予定",
+                                "type": "array",
+                                "items": {
+                                  "properties": {
+                                    "id": {
+                                      "type": "integer"
+                                    },
+                                    "warehouse_id": {
+                                      "type": "integer"
+                                    },
+                                    "warehouse_name": {
+                                      "type": "string"
+                                    },
+                                    "expected_quantity": {
+                                      "description": "発注数",
+                                      "type": "integer"
+                                    },
+                                    "shipped_quantity": {
+                                      "description": "発注先出荷実績数（未受信時null）",
+                                      "type": "integer",
+                                      "nullable": true
+                                    },
+                                    "received_quantity": {
+                                      "description": "入庫済み数",
+                                      "type": "integer"
+                                    },
+                                    "remaining_quantity": {
+                                      "description": "残入庫数（expected - received）",
+                                      "type": "integer"
+                                    },
+                                    "shortage_quantity": {
+                                      "description": "欠品数（expected - shipped）",
+                                      "type": "integer",
+                                      "nullable": true
+                                    },
+                                    "quantity_type": {
+                                      "type": "string",
+                                      "enum": [
+                                        "PIECE",
+                                        "CASE"
+                                      ]
+                                    },
+                                    "expected_arrival_date": {
+                                      "type": "string",
+                                      "format": "date"
+                                    },
+                                    "status": {
+                                      "type": "string",
+                                      "enum": [
+                                        "PENDING",
+                                        "PARTIAL"
+                                      ]
+                                    }
+                                  },
+                                  "type": "object"
+                                }
+                              }
+                            },
+                            "type": "object"
+                          }
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "バリデーションエラー"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/incoming/schedules/{id}": {
+      "get": {
+        "tags": [
+          "Incoming"
+        ],
+        "summary": "入庫予定詳細取得",
+        "description": "入庫予定の詳細情報を取得",
+        "operationId": "d95df7711967922da5cead16e0b5b7c1",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "入庫予定ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "warehouse_id": {
+                              "type": "integer"
+                            },
+                            "warehouse_code": {
+                              "type": "string"
+                            },
+                            "warehouse_name": {
+                              "type": "string"
+                            },
+                            "item_id": {
+                              "type": "integer"
+                            },
+                            "item_code": {
+                              "type": "string"
+                            },
+                            "item_name": {
+                              "type": "string"
+                            },
+                            "search_code": {
+                              "type": "string"
+                            },
+                            "jan_codes": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "expected_quantity": {
+                              "description": "発注数",
+                              "type": "integer"
+                            },
+                            "shipped_quantity": {
+                              "description": "発注先出荷実績数（未受信時null）",
+                              "type": "integer",
+                              "nullable": true
+                            },
+                            "received_quantity": {
+                              "description": "入庫済み数",
+                              "type": "integer"
+                            },
+                            "remaining_quantity": {
+                              "description": "残入庫数",
+                              "type": "integer"
+                            },
+                            "shortage_quantity": {
+                              "description": "欠品数",
+                              "type": "integer",
+                              "nullable": true
+                            },
+                            "unit_price": {
+                              "description": "自社単価",
+                              "type": "number",
+                              "nullable": true
+                            },
+                            "partner_unit_price": {
+                              "description": "仕入先単価",
+                              "type": "number",
+                              "nullable": true
+                            },
+                            "quantity_type": {
+                              "type": "string"
+                            },
+                            "expected_arrival_date": {
+                              "type": "string",
+                              "format": "date"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "入荷予定が見つかりません"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/incoming/work-items": {
+      "get": {
+        "tags": [
+          "Incoming"
+        ],
+        "summary": "作業データ一覧取得",
+        "description": "指定倉庫の入荷作業データを取得。statusパラメータで作業中・完了・キャンセル済みを絞り込み可能。",
+        "operationId": "b40ba58d66600215a2f5e0bd5f4a60f2",
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "description": "倉庫ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "picker_id",
+            "in": "query",
+            "description": "作業者ID（指定時はその作業者のデータのみ）",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "ステータス（WORKING, COMPLETED, CANCELLED, all）。デフォルト: WORKING",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "WORKING",
+              "enum": [
+                "WORKING",
+                "COMPLETED",
+                "CANCELLED",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "from_date",
+            "in": "query",
+            "description": "開始日（履歴絞り込み用、YYYY-MM-DD形式）",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-01-01"
+            }
+          },
+          {
+            "name": "to_date",
+            "in": "query",
+            "description": "終了日（履歴絞り込み用、YYYY-MM-DD形式）",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-01-31"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "取得件数（デフォルト: 100）",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/IncomingWorkItem"
+                          }
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Incoming"
+        ],
+        "summary": "入荷作業開始",
+        "description": "入庫予定に対する入荷作業を開始し、作業データを作成。work_quantityのデフォルト値は発注先出荷実績(shipped_quantity)がある場合はshipped-received、なければexpected-receivedで計算。",
+        "operationId": "dd962f7d80e5806be193e8ea459d7ca9",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "incoming_schedule_id",
+                  "picker_id",
+                  "warehouse_id"
+                ],
+                "properties": {
+                  "incoming_schedule_id": {
+                    "description": "入庫予定ID",
+                    "type": "integer"
+                  },
+                  "picker_id": {
+                    "description": "作業者ID",
+                    "type": "integer"
+                  },
+                  "warehouse_id": {
+                    "description": "作業倉庫ID",
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/IncomingWorkItem"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "作業を開始しました"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "既に作業中 / 作業不可"
+          },
+          "404": {
+            "description": "入荷予定が見つかりません"
+          },
+          "422": {
+            "description": "バリデーションエラー"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/incoming/work-items/{id}": {
+      "put": {
+        "tags": [
+          "Incoming"
+        ],
+        "summary": "作業データ更新",
+        "description": "入荷作業中のデータ（数量、入荷日、賞味期限）を更新",
+        "operationId": "4efa766fc132e7e2a998b6279a824044",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "作業データID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "work_quantity": {
+                    "description": "入荷数量",
+                    "type": "integer"
+                  },
+                  "work_arrival_date": {
+                    "description": "入荷日",
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "work_expiration_date": {
+                    "description": "賞味期限",
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "location_id": {
+                    "description": "入庫ロケーションID",
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/IncomingWorkItem"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "更新しました"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "編集不可"
+          },
+          "404": {
+            "description": "作業データが見つかりません"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Incoming"
+        ],
+        "summary": "作業キャンセル",
+        "description": "入荷作業をキャンセル。作業中のデータのみキャンセル可能。",
+        "operationId": "eaea355f08aa3d67fd7883eeac68f4cf",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "作業データID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "null"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "キャンセルしました"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "キャンセル不可"
+          },
+          "404": {
+            "description": "作業データが見つかりません"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/incoming/work-items/{id}/complete": {
+      "post": {
+        "tags": [
+          "Incoming"
+        ],
+        "summary": "入荷作業完了",
+        "description": "入荷作業を完了し、入庫確定処理を実行。received_quantity = 既存received + work_quantityで計算。work_quantity >= remaining_quantityなら全量入庫（CONFIRMED）、それ以外は一部入庫（PARTIAL）。",
+        "operationId": "7b713d618263bb189995df702c5578a8",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "作業データID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "null"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "入荷を確定しました"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "完了不可 / 入荷予定が見つかりません"
+          },
+          "404": {
+            "description": "作業データが見つかりません"
+          },
+          "500": {
+            "description": "入庫確定に失敗"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/incoming/locations": {
+      "get": {
+        "tags": [
+          "Incoming"
+        ],
+        "summary": "ロケーション検索",
+        "description": "倉庫内のロケーションを検索。code1, code2, code3, nameで検索可能。",
+        "operationId": "1dc37b1d0dd3fa67e7703636385326d1",
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "description": "倉庫ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "検索キーワード（code1, code2, code3, nameで検索）",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "example": "A-1"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "取得件数（デフォルト: 50）",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "code1": {
+                                "type": "string"
+                              },
+                              "code2": {
+                                "type": "string"
+                              },
+                              "code3": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "display_name": {
+                                "type": "string",
+                                "example": "A 1 01"
+                              }
+                            },
+                            "type": "object"
+                          }
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "バリデーションエラー"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/master/warehouses": {
+      "get": {
+        "tags": [
+          "Master Data"
+        ],
+        "summary": "Get warehouse master list",
+        "description": "Retrieve all warehouses with id, code, name, kana_name, and out_of_stock_option",
+        "operationId": "65d68dd958f5b4642ac5adbff3137df4",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "properties": {
+                              "id": {
+                                "type": "integer",
+                                "example": 991
+                              },
+                              "code": {
+                                "type": "string",
+                                "example": "991"
+                              },
+                              "name": {
+                                "type": "string",
+                                "example": "酒丸本社"
+                              },
+                              "kana_name": {
+                                "type": "string",
+                                "example": "サケマルホンシャ"
+                              },
+                              "out_of_stock_option": {
+                                "type": "string",
+                                "example": "enum ('IGNORE_STOCK', 'UP_TO_STOCK')"
+                              }
+                            },
+                            "type": "object"
+                          }
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Invalid or missing token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "UNAUTHORIZED"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "example": null,
+                          "nullable": true
+                        },
+                        "error_message": {
+                          "type": "string",
+                          "example": "Unauthenticated"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/master/item-locations": {
+      "get": {
+        "tags": [
+          "Master Data"
+        ],
+        "summary": "商品別ロケーション検索",
+        "description": "商品CD、商品名、JAN/検索コード、社内JANから商品を検索し、指定倉庫内の商品基本情報、在庫状況、ロケーション情報を返します。",
+        "operationId": "c11d67890971e07e1c469463dcea5e2a",
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "description": "倉庫ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 91
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "商品CD、商品名、JAN/検索コード",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "4901234567890"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "商品の最大取得件数（デフォルト: 10、最大: 50）",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "properties": {
+                              "item": {
+                                "description": "商品基本情報。単価・税・原価・標準売価は返さない。",
+                                "properties": {
+                                  "id": {
+                                    "type": "integer",
+                                    "example": 123
+                                  },
+                                  "code": {
+                                    "type": "string",
+                                    "example": "10001"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "example": "商品A 720ml"
+                                  },
+                                  "kana": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "volume": {
+                                    "type": "string",
+                                    "example": "720",
+                                    "nullable": true
+                                  },
+                                  "volume_unit": {
+                                    "type": "string",
+                                    "example": "ML",
+                                    "nullable": true
+                                  },
+                                  "capacity_case": {
+                                    "type": "integer",
+                                    "example": 12,
+                                    "nullable": true
+                                  },
+                                  "capacity_carton": {
+                                    "type": "integer",
+                                    "nullable": true
+                                  },
+                                  "packaging": {
+                                    "type": "string",
+                                    "example": "瓶",
+                                    "nullable": true
+                                  },
+                                  "temperature_type": {
+                                    "type": "string",
+                                    "example": "NORMAL",
+                                    "nullable": true
+                                  },
+                                  "uses_expiration_date": {
+                                    "type": "boolean",
+                                    "example": true
+                                  },
+                                  "images": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "search_codes": {
+                                    "description": "item_search_information.search_string",
+                                    "type": "array",
+                                    "items": {
+                                      "properties": {
+                                        "code": {
+                                          "type": "string",
+                                          "example": "4901234567890"
+                                        },
+                                        "code_type": {
+                                          "type": "string",
+                                          "example": "JAN"
+                                        },
+                                        "quantity_type": {
+                                          "type": "string",
+                                          "example": "PIECE",
+                                          "nullable": true
+                                        },
+                                        "priority": {
+                                          "type": "integer",
+                                          "example": 1,
+                                          "nullable": true
+                                        }
+                                      },
+                                      "type": "object"
+                                    }
+                                  },
+                                  "jan_codes": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "item_quantity_codes": {
+                                    "description": "item_quantity_information.product_code / own_code",
+                                    "type": "array",
+                                    "items": {
+                                      "properties": {
+                                        "product_code": {
+                                          "type": "string",
+                                          "example": "100010000",
+                                          "nullable": true
+                                        },
+                                        "own_code": {
+                                          "type": "string",
+                                          "example": "10001",
+                                          "nullable": true
+                                        },
+                                        "quantity_code": {
+                                          "type": "string",
+                                          "example": "00",
+                                          "nullable": true
+                                        },
+                                        "quantity": {
+                                          "type": "integer",
+                                          "example": 1,
+                                          "nullable": true
+                                        },
+                                        "can_order": {
+                                          "type": "boolean",
+                                          "example": true
+                                        }
+                                      },
+                                      "type": "object"
+                                    }
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "warehouse": {
+                                "properties": {
+                                  "id": {
+                                    "type": "integer",
+                                    "example": 91
+                                  },
+                                  "code": {
+                                    "type": "string",
+                                    "example": "91"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "example": "華むすびの蔵センター"
+                                  },
+                                  "kana_name": {
+                                    "type": "string",
+                                    "nullable": true
+                                  }
+                                },
+                                "type": "object",
+                                "nullable": true
+                              },
+                              "stock": {
+                                "description": "指定倉庫のみの在庫状況",
+                                "properties": {
+                                  "status": {
+                                    "type": "string",
+                                    "enum": [
+                                      "IN_STOCK",
+                                      "RESERVED_ONLY",
+                                      "NO_STOCK"
+                                    ],
+                                    "example": "IN_STOCK"
+                                  },
+                                  "has_stock": {
+                                    "type": "boolean",
+                                    "example": true
+                                  },
+                                  "lot_count": {
+                                    "type": "integer",
+                                    "example": 2
+                                  },
+                                  "location_count": {
+                                    "type": "integer",
+                                    "example": 1
+                                  },
+                                  "current_quantity": {
+                                    "type": "integer",
+                                    "example": 24
+                                  },
+                                  "reserved_quantity": {
+                                    "type": "integer",
+                                    "example": 4
+                                  },
+                                  "available_quantity": {
+                                    "type": "integer",
+                                    "example": 20
+                                  },
+                                  "earliest_expiration_date": {
+                                    "type": "string",
+                                    "format": "date",
+                                    "nullable": true
+                                  },
+                                  "latest_expiration_date": {
+                                    "type": "string",
+                                    "format": "date",
+                                    "nullable": true
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "locations": {
+                                "properties": {
+                                  "suggested": {
+                                    "type": "object",
+                                    "nullable": true
+                                  },
+                                  "default": {
+                                    "type": "object",
+                                    "nullable": true
+                                  },
+                                  "stock": {
+                                    "type": "array",
+                                    "items": {
+                                      "properties": {
+                                        "id": {
+                                          "type": "integer",
+                                          "example": 789
+                                        },
+                                        "warehouse_id": {
+                                          "type": "integer",
+                                          "example": 91
+                                        },
+                                        "floor_id": {
+                                          "type": "integer",
+                                          "nullable": true
+                                        },
+                                        "code1": {
+                                          "type": "string",
+                                          "example": "A",
+                                          "nullable": true
+                                        },
+                                        "code2": {
+                                          "type": "string",
+                                          "example": "1",
+                                          "nullable": true
+                                        },
+                                        "code3": {
+                                          "type": "string",
+                                          "example": "01",
+                                          "nullable": true
+                                        },
+                                        "code": {
+                                          "type": "string",
+                                          "example": "A-1-01"
+                                        },
+                                        "display_name": {
+                                          "type": "string",
+                                          "example": "A-1-01 常温棚A"
+                                        },
+                                        "name": {
+                                          "type": "string",
+                                          "nullable": true
+                                        },
+                                        "source": {
+                                          "type": "string",
+                                          "example": "stock_lot"
+                                        },
+                                        "is_no_location": {
+                                          "type": "boolean",
+                                          "example": false
+                                        },
+                                        "temperature_type": {
+                                          "type": "string",
+                                          "nullable": true
+                                        },
+                                        "is_restricted_area": {
+                                          "type": "boolean",
+                                          "example": false
+                                        },
+                                        "available_quantity_flags": {
+                                          "type": "integer",
+                                          "example": 3,
+                                          "nullable": true
+                                        },
+                                        "lot_count": {
+                                          "type": "integer",
+                                          "example": 2
+                                        },
+                                        "current_quantity": {
+                                          "type": "integer",
+                                          "example": 24
+                                        },
+                                        "reserved_quantity": {
+                                          "type": "integer",
+                                          "example": 4
+                                        },
+                                        "available_quantity": {
+                                          "type": "integer",
+                                          "example": 20
+                                        },
+                                        "earliest_expiration_date": {
+                                          "type": "string",
+                                          "format": "date",
+                                          "nullable": true
+                                        },
+                                        "latest_expiration_date": {
+                                          "type": "string",
+                                          "format": "date",
+                                          "nullable": true
+                                        }
+                                      },
+                                      "type": "object"
+                                    }
+                                  }
+                                },
+                                "type": "object"
+                              }
+                            },
+                            "type": "object"
+                          }
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "バリデーションエラー"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/picking/tasks": {
+      "get": {
+        "tags": [
+          "Picking Tasks"
+        ],
+        "summary": "Get picking task list",
+        "description": "Retrieve picking tasks grouped by delivery course and picking area, optimized by walking order",
+        "operationId": "d9f0951f1e866c9b1f50f905853f3cbd",
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "in": "query",
+            "description": "Warehouse ID (required)",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 991
+            }
+          },
+          {
+            "name": "picker_id",
+            "in": "query",
+            "description": "Picker ID (optional, filter tasks by specific picker)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "properties": {
+                              "course": {
+                                "properties": {
+                                  "code": {
+                                    "type": "string",
+                                    "example": "910072"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "example": "佐藤　尚紀"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "picking_area": {
+                                "properties": {
+                                  "code": {
+                                    "type": "string",
+                                    "example": "B"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "example": "エリアB（バラ）"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "wave": {
+                                "properties": {
+                                  "wms_picking_task_id": {
+                                    "description": "Picking task ID",
+                                    "type": "integer",
+                                    "example": 1
+                                  },
+                                  "wms_wave_id": {
+                                    "description": "Wave ID",
+                                    "type": "integer",
+                                    "example": 5
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "started_at": {
+                                "description": "Task start time (null if not started)",
+                                "type": "string",
+                                "example": "2025-11-02 10:30:00",
+                                "nullable": true
+                              },
+                              "completed_at": {
+                                "description": "Task completion time (null if not completed)",
+                                "type": "string",
+                                "example": "2025-11-02 11:00:00",
+                                "nullable": true
+                              },
+                              "is_editable": {
+                                "description": "Whether the task can be modified by Handy. False when SHORTAGE (shortage processing) or SHIPPED (shipment confirmed)",
+                                "type": "boolean",
+                                "example": true
+                              },
+                              "picking_list": {
+                                "type": "array",
+                                "items": {
+                                  "properties": {
+                                    "wms_picking_item_result_id": {
+                                      "description": "Picking item result ID",
+                                      "type": "integer",
+                                      "example": 1
+                                    },
+                                    "item_id": {
+                                      "type": "integer",
+                                      "example": 111110
+                                    },
+                                    "item_name": {
+                                      "type": "string",
+                                      "example": "×白鶴特撰　本醸造生貯蔵酒７２０ｍｌ（ギフト）"
+                                    },
+                                    "jan_code": {
+                                      "description": "Representative JAN code (most recently updated)",
+                                      "type": "string",
+                                      "example": "4901681115008",
+                                      "nullable": true
+                                    },
+                                    "jan_code_list": {
+                                      "description": "List of all JAN codes ordered by updated_at desc",
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "example": [
+                                        "4901681115008",
+                                        "4901681115015"
+                                      ]
+                                    },
+                                    "volume": {
+                                      "description": "Item volume with unit",
+                                      "type": "string",
+                                      "example": "720ml",
+                                      "nullable": true
+                                    },
+                                    "capacity_case": {
+                                      "description": "Items per case",
+                                      "type": "integer",
+                                      "example": 12,
+                                      "nullable": true
+                                    },
+                                    "packaging": {
+                                      "description": "Item packaging type",
+                                      "type": "string",
+                                      "example": "瓶",
+                                      "nullable": true
+                                    },
+                                    "temperature_type": {
+                                      "description": "Temperature type label",
+                                      "type": "string",
+                                      "example": "常温",
+                                      "nullable": true
+                                    },
+                                    "images": {
+                                      "description": "List of item image URLs (image_url_1, image_url_2, image_url_3)",
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "example": [
+                                        "https://example.com/image1.jpg",
+                                        "https://example.com/image2.jpg"
+                                      ]
+                                    },
+                                    "planned_qty_type": {
+                                      "description": "Quantity type: CASE or PIECE",
+                                      "type": "string",
+                                      "example": "CASE"
+                                    },
+                                    "planned_qty": {
+                                      "type": "string",
+                                      "example": "2.00"
+                                    },
+                                    "picked_qty": {
+                                      "type": "string",
+                                      "example": "0.00"
+                                    },
+                                    "status": {
+                                      "description": "Item status: PENDING (not started), PICKING (in progress), COMPLETED, SHORTAGE",
+                                      "type": "string",
+                                      "example": "PENDING"
+                                    },
+                                    "customer_code": {
+                                      "description": "Customer partner code from trade",
+                                      "type": "string",
+                                      "example": "C001",
+                                      "nullable": true
+                                    },
+                                    "customer_name": {
+                                      "description": "Customer partner name from trade",
+                                      "type": "string",
+                                      "example": "居酒屋A",
+                                      "nullable": true
+                                    },
+                                    "slip_number": {
+                                      "description": "Earning ID used as slip number",
+                                      "type": "integer",
+                                      "example": 1
+                                    },
+                                    "location": {
+                                      "description": "Location information (null if not set)",
+                                      "properties": {
+                                        "code": {
+                                          "description": "Location code (code1 code2 code3)",
+                                          "type": "string",
+                                          "example": "R01 A 5"
+                                        },
+                                        "name": {
+                                          "description": "Location name",
+                                          "type": "string",
+                                          "example": "常温棚A-5",
+                                          "nullable": true
+                                        }
+                                      },
+                                      "type": "object",
+                                      "nullable": true
+                                    }
+                                  },
+                                  "type": "object"
+                                }
+                              }
+                            },
+                            "type": "object"
+                          }
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "The warehouse id field is required."
+                    },
+                    "errors": {
+                      "properties": {
+                        "warehouse_id": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "example": "The warehouse id field is required."
+                          }
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Invalid or missing token"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/picking/tasks/{id}": {
+      "get": {
+        "tags": [
+          "Picking Tasks"
+        ],
+        "summary": "Get single picking task",
+        "description": "Retrieve a single picking task with course, picking area, wave, and picking list",
+        "operationId": "ebcbc12e1f88f6bdad514257b9d5f93a",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Picking Task ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "properties": {
+                            "course": {
+                              "properties": {
+                                "code": {
+                                  "type": "string",
+                                  "example": "910072"
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "example": "佐藤　尚紀"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "picking_area": {
+                              "properties": {
+                                "code": {
+                                  "type": "string",
+                                  "example": "B"
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "example": "エリアB（バラ）"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "wave": {
+                              "properties": {
+                                "wms_picking_task_id": {
+                                  "type": "integer",
+                                  "example": 1
+                                },
+                                "wms_wave_id": {
+                                  "type": "integer",
+                                  "example": 5
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "started_at": {
+                              "description": "Task start time (null if not started)",
+                              "type": "string",
+                              "example": "2025-11-02 10:30:00",
+                              "nullable": true
+                            },
+                            "completed_at": {
+                              "description": "Task completion time (null if not completed)",
+                              "type": "string",
+                              "example": "2025-11-02 11:00:00",
+                              "nullable": true
+                            },
+                            "is_editable": {
+                              "description": "Whether the task can be modified by Handy. False when SHORTAGE or SHIPPED",
+                              "type": "boolean",
+                              "example": true
+                            },
+                            "picking_list": {
+                              "type": "array",
+                              "items": {
+                                "type": "object"
+                              }
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/picking/items/{id}": {
+      "get": {
+        "tags": [
+          "Picking Tasks"
+        ],
+        "summary": "Get single picking item result",
+        "description": "Retrieve a single picking item result with item details",
+        "operationId": "8c034ac9e0c0b0fb95f36a0dbb05add2",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Picking Item Result ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Item not found"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/picking/tasks/{id}/start": {
+      "post": {
+        "tags": [
+          "Picking Tasks"
+        ],
+        "summary": "Start picking task",
+        "description": "Change task status to PICKING and set started_at timestamp",
+        "operationId": "1e60261e8551ac157ffd7d38eed8f645",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Picking Task ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "properties": {
+                            "id": {
+                              "type": "integer",
+                              "example": 1
+                            },
+                            "status": {
+                              "type": "string",
+                              "example": "PICKING"
+                            },
+                            "started_at": {
+                              "type": "string",
+                              "example": "2025-11-02 10:30:00"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "Picking task started"
+                        },
+                        "debug_message": {
+                          "type": "string",
+                          "example": null,
+                          "nullable": true
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found"
+          },
+          "422": {
+            "description": "Task already started or completed"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/picking/tasks/{itemResultId}/update": {
+      "post": {
+        "tags": [
+          "Picking Tasks"
+        ],
+        "summary": "Update picking result",
+        "description": "Update picked quantity for a specific item in the picking task",
+        "operationId": "1ec5af53567a7d5770fe916aa6e922b0",
+        "parameters": [
+          {
+            "name": "itemResultId",
+            "in": "path",
+            "description": "Picking Item Result ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "picked_qty"
+                ],
+                "properties": {
+                  "picked_qty": {
+                    "description": "Picked quantity",
+                    "type": "number",
+                    "example": 5
+                  },
+                  "picked_qty_type": {
+                    "description": "Quantity type (CASE/PIECE)",
+                    "type": "string",
+                    "example": "PIECE"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Picking result updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "properties": {
+                            "id": {
+                              "type": "integer",
+                              "example": 1
+                            },
+                            "picked_qty": {
+                              "type": "number",
+                              "example": 5
+                            },
+                            "shortage_qty": {
+                              "type": "number",
+                              "example": 0
+                            },
+                            "status": {
+                              "type": "string",
+                              "example": "COMPLETED"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "Picking result updated"
+                        },
+                        "debug_message": {
+                          "type": "string",
+                          "example": null,
+                          "nullable": true
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Item result not found"
+          },
+          "422": {
+            "description": "Validation error"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/picking/tasks/{id}/complete": {
+      "post": {
+        "tags": [
+          "Picking Tasks"
+        ],
+        "summary": "Complete picking task",
+        "description": "Mark task as completed. Status will be COMPLETED if all items are picked, SHORTAGE if any shortages exist",
+        "operationId": "b0e5d6985c8bf3952113a11db8bec5eb",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Picking Task ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "properties": {
+                            "id": {
+                              "type": "integer",
+                              "example": 1
+                            },
+                            "status": {
+                              "type": "string",
+                              "example": "COMPLETED"
+                            },
+                            "completed_at": {
+                              "type": "string",
+                              "example": "2025-11-02 11:00:00"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "Picking task completed"
+                        },
+                        "debug_message": {
+                          "type": "string",
+                          "example": null,
+                          "nullable": true
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found"
+          },
+          "422": {
+            "description": "Task cannot be completed"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/picking/tasks/{itemResultId}/cancel": {
+      "post": {
+        "tags": [
+          "Picking Tasks"
+        ],
+        "summary": "Cancel picking item result",
+        "description": "Reset picking item result to PENDING status with picked_qty = 0",
+        "operationId": "505a5481d2451cf32563f4322d853a47",
+        "parameters": [
+          {
+            "name": "itemResultId",
+            "in": "path",
+            "description": "Picking Item Result ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "example": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Picking item cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "is_success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "SUCCESS"
+                    },
+                    "result": {
+                      "properties": {
+                        "data": {
+                          "properties": {
+                            "id": {
+                              "type": "integer",
+                              "example": 1
+                            },
+                            "picked_qty": {
+                              "type": "number",
+                              "example": 0
+                            },
+                            "shortage_qty": {
+                              "type": "number",
+                              "example": 0
+                            },
+                            "status": {
+                              "type": "string",
+                              "example": "PENDING"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "Picking item cancelled"
+                        },
+                        "debug_message": {
+                          "type": "string",
+                          "example": null,
+                          "nullable": true
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Item result not found"
+          },
+          "422": {
+            "description": "Item cannot be cancelled (already completed)"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/stock-disposals/items/search": {
+      "get": {
+        "tags": [
+          "Stock Adjustment"
+        ],
+        "summary": "在庫調節用の商品検索",
+        "description": "商品CD、商品名、検索コード、商品数量コード、自社コードで商品を検索し、選択倉庫の実在庫・理論在庫を返します。該当倉庫に在庫行がない商品は在庫0として返します。",
+        "operationId": "33a0b0d0499acc98766db7e351546561",
+        "parameters": [
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "118207"
+            }
+          },
+          {
+            "name": "warehouse_code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "91"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "422": {
+            "description": "バリデーションエラー"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/stock-disposals": {
+      "post": {
+        "tags": [
+          "Stock Adjustment"
+        ],
+        "summary": "在庫調節キュー登録",
+        "description": "Android/WMSからの在庫調節依頼を酒丸DBの stock_disposal_queue に登録します。実伝票登録は酒丸本体のqueue workerが処理します。",
+        "operationId": "4cf14d164a8c6cc4eb0891a0abba376a",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "422": {
+            "description": "バリデーションエラー"
+          }
+        },
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ]
+      }
+    },
+    "/api/wms/inventory-counts": {
+      "get": {
+        "tags": [
+          "Inventory Count"
+        ],
+        "summary": "カウント中棚卸し一覧",
+        "description": "Handy用にカウント中の棚卸し一覧を返す。",
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wms/inventory-counts/{id}/scan": {
+      "post": {
+        "tags": [
+          "Inventory Count"
+        ],
+        "summary": "棚卸し商品スキャン検索",
+        "description": "棚卸し紙バーコード、JAN、商品CD、商品名、自社CD、商品数量コードから棚卸し明細を検索する。",
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "keyword"
+                ],
+                "properties": {
+                  "keyword": {
+                    "type": "string",
+                    "example": "4901234567890"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wms/inventory-count-items/{itemId}/count": {
+      "post": {
+        "tags": [
+          "Inventory Count"
+        ],
+        "summary": "棚卸し数量登録",
+        "description": "ケース数量・バラ数量を総バラ数へ換算し、1回目・2回目・最終の数量を更新する。",
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "count_round",
+                  "request_uuid"
+                ],
+                "properties": {
+                  "case_quantity": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "example": 2
+                  },
+                  "piece_quantity": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "example": 1
+                  },
+                  "quantity": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "直接総バラ数を送る場合"
+                  },
+                  "count_round": {
+                    "type": "integer",
+                    "enum": [
+                      1,
+                      2,
+                      3
+                    ]
+                  },
+                  "device_id": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "request_uuid": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wms/inventory-count-items/{itemId}/logs": {
+      "get": {
+        "tags": [
+          "Inventory Count"
+        ],
+        "summary": "棚卸し入力履歴",
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wms/inventory-counts/{id}/jan-codes": {
+      "get": {
+        "tags": [
+          "Inventory Count"
+        ],
+        "summary": "JANコード辞書取得",
+        "description": "棚卸し対象全商品のJANコード→item_id逆引き辞書を一括取得する。初期同期時にローカル保存し、バーコードスキャン時のローカル検索に使用。同一JANが複数商品にヒットする場合は配列で返す。",
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "jan_codes": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "item_id": {
+                                  "type": "integer"
+                                },
+                                "quantity_type": {
+                                  "type": "string",
+                                  "enum": ["PIECE", "CASE"]
+                                }
+                              }
+                            }
+                          },
+                          "example": {
+                            "4901234567890": [{"item_id": 100, "quantity_type": "PIECE"}],
+                            "14901234567897": [{"item_id": 100, "quantity_type": "CASE"}],
+                            "4902110352689": [{"item_id": 200, "quantity_type": "PIECE"}, {"item_id": 301, "quantity_type": "PIECE"}]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wms/inventory-counts/{id}/items": {
+      "get": {
+        "tags": [
+          "Inventory Count"
+        ],
+        "summary": "棚卸し対象データ取得",
+        "description": "Handyがローカル保存する棚卸し対象明細をページング取得する。per_page最大500。compact=1で検索コード配列をsearch_textへ集約する。",
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 500,
+              "maximum": 500
+            }
+          },
+          {
+            "name": "compact",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ],
+              "default": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wms/inventory-counts/{id}/counts/bulk": {
+      "post": {
+        "tags": [
+          "Inventory Count"
+        ],
+        "summary": "棚卸し数量一括登録",
+        "description": "Handyがn回目終了時に、ローカル入力済み明細のみ一括送信する。",
+        "security": [
+          {
+            "apiKey": [],
+            "sanctum": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "count_round",
+                  "items"
+                ],
+                "properties": {
+                  "count_round": {
+                    "type": "integer",
+                    "enum": [
+                      1,
+                      2,
+                      3
+                    ]
+                  },
+                  "device_id": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "item_id",
+                        "request_uuid"
+                      ],
+                      "properties": {
+                        "item_id": {
+                          "type": "integer"
+                        },
+                        "case_quantity": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "piece_quantity": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "quantity": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "request_uuid": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "IncomingWorkItem": {
+        "properties": {
+          "id": {
+            "description": "作業データID",
+            "type": "integer"
+          },
+          "incoming_schedule_id": {
+            "description": "入庫予定ID",
+            "type": "integer"
+          },
+          "picker_id": {
+            "description": "作業者ID",
+            "type": "integer"
+          },
+          "warehouse_id": {
+            "description": "倉庫ID",
+            "type": "integer"
+          },
+          "location_id": {
+            "description": "入庫ロケーションID",
+            "type": "integer",
+            "nullable": true
+          },
+          "location": {
+            "description": "ロケーション情報",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "code1": {
+                "type": "string"
+              },
+              "code2": {
+                "type": "string"
+              },
+              "code3": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string",
+                "example": "A 1 01"
+              }
+            },
+            "type": "object",
+            "nullable": true
+          },
+          "work_quantity": {
+            "description": "作業数量",
+            "type": "integer"
+          },
+          "work_arrival_date": {
+            "description": "入荷日",
+            "type": "string",
+            "format": "date"
+          },
+          "work_expiration_date": {
+            "description": "賞味期限（デフォルト: 商品のdefault_expiration_daysから計算）",
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "status": {
+            "description": "ステータス",
+            "type": "string",
+            "enum": [
+              "WORKING",
+              "COMPLETED",
+              "CANCELLED"
+            ]
+          },
+          "started_at": {
+            "description": "作業開始日時",
+            "type": "string",
+            "format": "date-time"
+          },
+          "schedule": {
+            "description": "入庫予定情報",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "item_id": {
+                "type": "integer"
+              },
+              "item_code": {
+                "type": "string"
+              },
+              "item_name": {
+                "type": "string"
+              },
+              "warehouse_id": {
+                "type": "integer"
+              },
+              "warehouse_name": {
+                "type": "string"
+              },
+              "expected_quantity": {
+                "description": "発注数",
+                "type": "integer"
+              },
+              "shipped_quantity": {
+                "description": "発注先出荷実績数（未受信時null）",
+                "type": "integer",
+                "nullable": true
+              },
+              "received_quantity": {
+                "description": "入庫済み数",
+                "type": "integer"
+              },
+              "remaining_quantity": {
+                "description": "残入庫数",
+                "type": "integer"
+              },
+              "shortage_quantity": {
+                "description": "欠品数",
+                "type": "integer",
+                "nullable": true
+              },
+              "quantity_type": {
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "description": "API Key for WMS API access (required for all endpoints)",
+        "name": "X-API-Key",
+        "in": "header"
+      },
+      "sanctum": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "token",
+        "description": "Bearer token from /auth/login endpoint"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Incoming",
+      "description": "入荷作業関連API"
+    },
+    {
+      "name": "Authentication",
+      "description": "Authentication"
+    },
+    {
+      "name": "Master Data",
+      "description": "Master Data"
+    },
+    {
+      "name": "Picking Tasks",
+      "description": "Picking Tasks"
+    },
+    {
+      "name": "Stock Adjustment",
+      "description": "Stock Adjustment"
+    }
+  ]
+}
