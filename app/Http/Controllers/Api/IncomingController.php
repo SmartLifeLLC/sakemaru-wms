@@ -1274,7 +1274,7 @@ class IncomingController extends ApiController
      *     path="/api/incoming/locations",
      *     tags={"Incoming"},
      *     summary="ロケーション検索",
-     *     description="倉庫内のロケーションを検索。code1, code2, code3, nameで検索可能。",
+     *     description="倉庫内のロケーションを検索。code1, code2, code3, nameで検索可能。頭0付きの検索でヒットしない場合、先頭の0を除去して再検索する。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
@@ -1353,6 +1353,27 @@ class IncomingController extends ApiController
         $search = $request->input('search');
         $limit = $request->input('limit', 50);
 
+        $locations = $this->queryLocations($warehouseId, $search, $limit);
+
+        if ($locations->isEmpty() && $search && preg_match('/^0+/', $search)) {
+            $trimmedSearch = ltrim($search, '0') ?: '0';
+            if ($trimmedSearch !== $search) {
+                $locations = $this->queryLocations($warehouseId, $trimmedSearch, $limit);
+            }
+        }
+
+        return $this->success($locations->map(fn ($loc) => [
+            'id' => $loc->id,
+            'code1' => $loc->code1,
+            'code2' => $loc->code2,
+            'code3' => $loc->code3,
+            'name' => $loc->name,
+            'display_name' => $loc->code1.' '.$loc->code2.' '.$loc->code3,
+        ]));
+    }
+
+    private function queryLocations(int $warehouseId, ?string $search, int $limit): \Illuminate\Support\Collection
+    {
         $query = Location::where('warehouse_id', $warehouseId);
 
         if ($search) {
@@ -1366,19 +1387,10 @@ class IncomingController extends ApiController
             });
         }
 
-        $locations = $query->orderBy('code1')
+        return $query->orderBy('code1')
             ->orderBy('code2')
             ->orderBy('code3')
             ->limit($limit)
             ->get();
-
-        return $this->success($locations->map(fn ($loc) => [
-            'id' => $loc->id,
-            'code1' => $loc->code1,
-            'code2' => $loc->code2,
-            'code3' => $loc->code3,
-            'name' => $loc->name,
-            'display_name' => $loc->code1.' '.$loc->code2.' '.$loc->code3,
-        ]));
     }
 }
