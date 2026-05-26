@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>棚卸しAPI 仕様変更のお知らせ (2026-05-26)</title>
+<style>
+  :root {
+    --navy: #1e293b;
+    --blue: #2563eb;
+    --light-blue: #eff6ff;
+    --green: #16a34a;
+    --green-bg: #f0fdf4;
+    --orange: #ea580c;
+    --orange-bg: #fff7ed;
+    --red: #dc2626;
+    --gray-50: #f8fafc;
+    --gray-100: #f1f5f9;
+    --gray-200: #e2e8f0;
+    --gray-300: #cbd5e1;
+    --gray-500: #64748b;
+    --gray-700: #334155;
+    --gray-900: #0f172a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+    color: var(--gray-900);
+    background: var(--gray-50);
+    line-height: 1.7;
+    padding: 2rem;
+  }
+  .container { max-width: 860px; margin: 0 auto; }
+  header {
+    background: var(--navy);
+    color: #fff;
+    padding: 2rem 2.5rem;
+    border-radius: 12px 12px 0 0;
+  }
+  header h1 { font-size: 1.5rem; font-weight: 700; }
+  header p { color: #94a3b8; margin-top: 0.25rem; font-size: 0.9rem; }
+  .content {
+    background: #fff;
+    padding: 2.5rem;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+  }
+  .badge-new { background: var(--green-bg); color: var(--green); border: 1px solid #bbf7d0; }
+  .badge-change { background: var(--orange-bg); color: var(--orange); border: 1px solid #fed7aa; }
+  .badge-get { background: var(--light-blue); color: var(--blue); }
+  .badge-post { background: #fef3c7; color: #b45309; }
+
+  /* Section */
+  .section { margin-top: 2.5rem; }
+  .section:first-child { margin-top: 0; }
+  .section h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--navy);
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--gray-200);
+    margin-bottom: 1rem;
+  }
+  .section h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--gray-700);
+    margin: 1.25rem 0 0.5rem;
+  }
+
+  /* Endpoint */
+  .endpoint {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--gray-100);
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.85rem;
+    margin: 0.5rem 0;
+  }
+
+  /* Code block */
+  pre {
+    background: var(--gray-900);
+    color: #e2e8f0;
+    padding: 1.25rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    margin: 0.75rem 0;
+  }
+  pre .key { color: #7dd3fc; }
+  pre .str { color: #86efac; }
+  pre .num { color: #fde68a; }
+  pre .comment { color: #64748b; }
+
+  /* Table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.75rem 0;
+    font-size: 0.875rem;
+  }
+  th {
+    background: var(--gray-100);
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    font-weight: 600;
+    border-bottom: 2px solid var(--gray-200);
+  }
+  td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--gray-200);
+  }
+  td code {
+    background: var(--gray-100);
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    font-size: 0.82rem;
+  }
+
+  /* Flow */
+  .flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    align-items: center;
+    margin: 1rem 0;
+  }
+  .flow-step {
+    background: var(--light-blue);
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+    text-align: center;
+    min-width: 140px;
+  }
+  .flow-step strong { display: block; font-size: 0.75rem; color: var(--blue); margin-bottom: 0.15rem; }
+  .flow-arrow {
+    font-size: 1.2rem;
+    color: var(--gray-300);
+    padding: 0 0.4rem;
+  }
+
+  /* Info / Warning box */
+  .box {
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    margin: 0.75rem 0;
+  }
+  .box-info { background: var(--light-blue); border-left: 4px solid var(--blue); }
+  .box-warn { background: #fef9c3; border-left: 4px solid #ca8a04; }
+  .box b { font-weight: 600; }
+
+  /* Diff */
+  .diff { margin: 0.75rem 0; }
+  .diff-row { display: flex; gap: 1rem; margin-bottom: 0.5rem; }
+  .diff-before, .diff-after {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  }
+  .diff-before { background: #fef2f2; border: 1px solid #fecaca; }
+  .diff-after { background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .diff-label {
+    font-family: -apple-system, sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+  }
+  .diff-before .diff-label { color: var(--red); }
+  .diff-after .diff-label { color: var(--green); }
+
+  p { margin: 0.5rem 0; }
+  ul { padding-left: 1.5rem; margin: 0.5rem 0; }
+  li { margin: 0.25rem 0; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>棚卸しAPI 仕様変更のお知らせ</h1>
+  <p>2026-05-26 &mdash; Handy (Android) 開発チーム向け</p>
+</header>
+
+<div class="content">
+
+<!-- ========== 概要 ========== -->
+<div class="section">
+  <h2>変更概要</h2>
+  <table>
+    <thead>
+      <tr><th>対象</th><th>種別</th><th>内容</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>GET /inventory-counts/{id}/jan-codes</code></td>
+        <td><span class="badge badge-new">NEW</span></td>
+        <td>JANコード逆引き辞書の一括取得</td>
+      </tr>
+      <tr>
+        <td><code>GET /inventory-counts/{id}/items</code></td>
+        <td><span class="badge badge-change">CHANGE</span></td>
+        <td>旧 <code>jan_codes</code> / <code>own_codes</code> &rarr; <code>search_codes</code> に統合</td>
+      </tr>
+      <tr>
+        <td><code>POST /inventory-counts/{id}/scan</code></td>
+        <td><span class="badge badge-change">CHANGE</span></td>
+        <td>JANコード検索を追加（サーバー側強化）</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ========== 想定フロー ========== -->
+<div class="section">
+  <h2>想定フロー</h2>
+  <div class="flow">
+    <div class="flow-step"><strong>STEP 1</strong>items 取得<br>(ページング)</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step"><strong>STEP 2</strong>jan-codes 取得<br>(一括)</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step"><strong>STEP 3</strong>スキャン<br>辞書ローカル検索</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step"><strong>STEP 3b</strong>複数ヒット時<br>候補選択UI</div>
+  </div>
+  <div class="box box-info">
+    <b>フォールバック:</b> JANコード辞書にないコードをスキャンした場合は、従来通り <code>POST /scan</code> でサーバー検索を行う。
+  </div>
+</div>
+
+<!-- ========== 新規API ========== -->
+<div class="section">
+  <h2><span class="badge badge-new">NEW</span> JANコード辞書取得</h2>
+  <div class="endpoint"><span class="badge badge-get">GET</span> /api/wms/inventory-counts/{id}/jan-codes</div>
+
+  <p>棚卸し対象の全商品について、JANコード &rarr; <code>item_id</code> の逆引き辞書を一括取得する。<br>
+  初期同期時にローカル保存し、バーコードスキャン時の高速検索に使用。</p>
+
+  <h3>レスポンス</h3>
+<pre>{
+  <span class="key">"jan_codes"</span>: {
+    <span class="comment">// 1つのJAN → 1商品（通常パターン）</span>
+    <span class="str">"4901234567890"</span>: [
+      { <span class="key">"item_id"</span>: <span class="num">100</span>, <span class="key">"quantity_type"</span>: <span class="str">"PIECE"</span> }
+    ],
+
+    <span class="comment">// ケースJAN</span>
+    <span class="str">"14901234567897"</span>: [
+      { <span class="key">"item_id"</span>: <span class="num">100</span>, <span class="key">"quantity_type"</span>: <span class="str">"CASE"</span> }
+    ],
+
+    <span class="comment">// 1つのJAN → 複数商品（Android側で選択UI表示）</span>
+    <span class="str">"4902110352689"</span>: [
+      { <span class="key">"item_id"</span>: <span class="num">200</span>, <span class="key">"quantity_type"</span>: <span class="str">"PIECE"</span> },
+      { <span class="key">"item_id"</span>: <span class="num">301</span>, <span class="key">"quantity_type"</span>: <span class="str">"PIECE"</span> }
+    ]
+  }
+}</pre>
+
+  <h3>フィールド定義</h3>
+  <table>
+    <thead><tr><th>フィールド</th><th>型</th><th>説明</th></tr></thead>
+    <tbody>
+      <tr><td>キー（JANコード）</td><td><code>string</code></td><td>JANコード / ITFコード / 自社コード等</td></tr>
+      <tr><td><code>item_id</code></td><td><code>integer</code></td><td>商品ID。<code>items</code> の <code>item_id</code> と一致</td></tr>
+      <tr><td><code>quantity_type</code></td><td><code>string</code></td><td><code>PIECE</code> = バラ / <code>CASE</code> = ケース</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box box-warn">
+    <b>複数ヒット時の対応:</b> 同一JANコードに複数の <code>item_id</code> が紐づく場合がある。Handy側で候補リストを表示し、ユーザーに選択させること。
+  </div>
+</div>
+
+<!-- ========== items 変更 ========== -->
+<div class="section">
+  <h2><span class="badge badge-change">CHANGE</span> 棚卸し対象データ取得</h2>
+  <div class="endpoint"><span class="badge badge-get">GET</span> /api/wms/inventory-counts/{id}/items</div>
+
+  <h3>レスポンス変更箇所</h3>
+  <p>旧 <code>jan_codes</code>（文字列配列）と <code>own_codes</code>（文字列配列）を廃止し、<code>search_codes</code>（オブジェクト配列）に統合。</p>
+
+  <div class="diff">
+    <div class="diff-row">
+      <div class="diff-before">
+        <div class="diff-label">Before (削除)</div>
+"jan_codes": ["4901234567890"]<br>
+"own_codes": ["10001"]
+      </div>
+      <div class="diff-after">
+        <div class="diff-label">After (新規)</div>
+"search_codes": [<br>
+&nbsp; { "code": "4901234567890", "quantity_type": "PIECE" },<br>
+&nbsp; { "code": "14901234567897", "quantity_type": "CASE" },<br>
+&nbsp; { "code": "10001", "quantity_type": "PIECE" }<br>
+]
+      </div>
+    </div>
+  </div>
+
+  <table>
+    <thead><tr><th>フィールド</th><th>型</th><th>説明</th></tr></thead>
+    <tbody>
+      <tr><td><code>search_codes[].code</code></td><td><code>string</code></td><td>コード値</td></tr>
+      <tr><td><code>search_codes[].quantity_type</code></td><td><code>string</code></td><td><code>PIECE</code> = バラ / <code>CASE</code> = ケース</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box box-info">
+    <b>compact=1 の場合:</b> <code>search_codes</code> は返されない（従来通り <code>search_text</code> にコード文字列を含む）。
+  </div>
+</div>
+
+<!-- ========== scan 変更 ========== -->
+<div class="section">
+  <h2><span class="badge badge-change">CHANGE</span> 商品スキャン検索</h2>
+  <div class="endpoint"><span class="badge badge-post">POST</span> /api/wms/inventory-counts/{id}/scan</div>
+
+  <p>サーバー側の検索対象に <code>item_search_information</code> テーブル（JANコード）を追加。<br>
+  13桁ゼロパディング正規化にも対応。</p>
+
+  <h3>追加された検索対象</h3>
+  <table>
+    <thead><tr><th>検索テーブル</th><th>フィールド</th><th>備考</th></tr></thead>
+    <tbody>
+      <tr><td><code>item_search_information</code></td><td><code>search_string</code></td><td>JANコード完全一致</td></tr>
+      <tr><td><code>item_search_information</code></td><td><code>LPAD(search_string, 13, "0")</code></td><td>13桁正規化一致</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box box-info">
+    <b>Handy側の対応:</b> リクエスト・レスポンス形式に変更なし。サーバー側のみの改善のため、Handy側の修正は不要。<br>
+    ただしレスポンスの <code>search_codes</code> フィールドは items API と同じ形式に変更（旧 <code>jan_codes</code> / <code>own_codes</code> &rarr; <code>search_codes</code>）。
+  </div>
+</div>
+
+<!-- ========== Handy側対応まとめ ========== -->
+<div class="section">
+  <h2>Handy 側の対応事項まとめ</h2>
+  <table>
+    <thead><tr><th>#</th><th>対応内容</th><th>優先度</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>初期同期時に <code>GET /jan-codes</code> を呼び出し、JANコード辞書をローカルDBに保存する</td>
+        <td style="color: var(--red); font-weight: 600;">必須</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>バーコードスキャン時、まずローカルのJAN辞書から <code>item_id</code> を検索する</td>
+        <td style="color: var(--red); font-weight: 600;">必須</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>同一JANで複数商品がヒットした場合の候補選択UI（商品名・商品CDを表示して選択）</td>
+        <td style="color: var(--red); font-weight: 600;">必須</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>JAN辞書にないコードの場合、<code>POST /scan</code> にフォールバック</td>
+        <td style="color: var(--red); font-weight: 600;">必須</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>旧 <code>jan_codes</code> / <code>own_codes</code> の参照を <code>search_codes</code> に移行</td>
+        <td style="color: var(--orange); font-weight: 600;">必須</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>ケースJANスキャン時、<code>quantity_type: "CASE"</code> を識別してケース数量入力欄に自動フォーカス（任意）</td>
+        <td style="color: var(--gray-500);">推奨</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+</div><!-- .content -->
+</div><!-- .container -->
+</body>
+</html>
