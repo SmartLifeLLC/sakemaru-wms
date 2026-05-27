@@ -43,7 +43,7 @@ class IncomingController extends ApiController
      *     path="/api/incoming/schedules",
      *     tags={"Incoming"},
      *     summary="入庫予定一覧取得",
-     *     description="倉庫別の入庫予定を検索。商品コード、JANコード、商品名で検索可能。仮想倉庫に紐づく入庫予定も含む。頭0付きの検索でヒットしない場合、先頭の0を除去して再検索する。",
+     *     description="倉庫別の入庫予定を検索。商品コード、JANコード、商品名で検索可能。仮想倉庫に紐づく入庫予定も含む。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
@@ -179,30 +179,6 @@ class IncomingController extends ApiController
         $schedules = $query->orderBy('expected_arrival_date', 'asc')
             ->orderBy('item_id')
             ->get();
-
-        if ($schedules->isEmpty() && $search && preg_match('/^0+/', $search)) {
-            $trimmedSearch = ltrim($search, '0') ?: '0';
-            if ($trimmedSearch !== $search) {
-                $retryQuery = WmsOrderIncomingSchedule::query()
-                    ->whereIn('warehouse_id', $warehouseIds)
-                    ->whereIn('status', [
-                        IncomingScheduleStatus::PENDING,
-                        IncomingScheduleStatus::PARTIAL,
-                    ])
-                    ->with(['warehouse', 'item', 'item.item_search_information', 'contractor', 'location'])
-                    ->where(function ($q) use ($trimmedSearch) {
-                        $q->where('search_code', 'like', "%{$trimmedSearch}%")
-                            ->orWhereHas('item', function ($itemQuery) use ($trimmedSearch) {
-                                $itemQuery->where('code', 'like', "%{$trimmedSearch}%")
-                                    ->orWhere('name', 'like', "%{$trimmedSearch}%");
-                            });
-                    })
-                    ->orderBy('expected_arrival_date', 'asc')
-                    ->orderBy('item_id');
-
-                $schedules = $retryQuery->get();
-            }
-        }
 
         // Group by item and format response
         $groupedData = $this->groupSchedulesByItem($schedules, $warehouseId);
