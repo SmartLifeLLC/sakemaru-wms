@@ -280,8 +280,8 @@ class MasterDataController extends ApiController
             $defaultLocation = $defaultLocations->get($itemId);
             $itemStockLocations = $stockLocations->get($itemId, collect())->values();
             $stockSummary = $stockSummaries->get($itemId) ?? $this->emptyStockSummary();
-            $suggestedLocation = $defaultLocation
-                ?? $itemStockLocations->first()
+            $suggestedLocation = $itemStockLocations->first()
+                ?? $defaultLocation
                 ?? $warehouseDefaultLocation;
 
             return [
