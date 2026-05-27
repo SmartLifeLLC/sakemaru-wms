@@ -40,8 +40,8 @@ class StockDisposalController extends ApiController
      *
      * @OA\Get(
      *     path="/api/stock-disposals/items/search",
-     *     tags={"Stock Adjustment"},
-     *     summary="在庫調節用の商品検索",
+     *     tags={"Stock Disposal"},
+     *     summary="在庫払出用の商品検索",
      *     description="商品CD、商品名、検索コード、商品数量コード、自社コードで商品を検索し、選択倉庫の実在庫・理論在庫を返します。該当倉庫に在庫行がない商品は在庫0として返します。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
@@ -115,9 +115,9 @@ class StockDisposalController extends ApiController
      *
      * @OA\Post(
      *     path="/api/stock-disposals",
-     *     tags={"Stock Adjustment"},
-     *     summary="在庫調節キュー登録",
-     *     description="Android/WMSからの在庫調節依頼を酒丸DBの stock_disposal_queue に登録します。実伝票登録は酒丸本体のqueue workerが処理します。",
+     *     tags={"Stock Disposal"},
+     *     summary="在庫払出キュー登録",
+     *     description="Android/WMSからの在庫払出依頼を酒丸DBの stock_disposal_queue に登録します。実伝票登録は酒丸本体のqueue workerが処理します。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Response(response=200, description="成功"),

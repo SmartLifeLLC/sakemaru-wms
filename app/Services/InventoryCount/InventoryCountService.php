@@ -7,6 +7,7 @@ use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
+use App\Services\Warehouse91StockLotSyncService;
 use Illuminate\Support\Facades\DB;
 
 class InventoryCountService
@@ -51,6 +52,8 @@ class InventoryCountService
 
     public function takeSnapshot(WmsInventoryCount $inventoryCount): int
     {
+        app(Warehouse91StockLotSyncService::class)->sync([], false);
+
         $warehouseId = $inventoryCount->warehouse_id;
         $inserted = 0;
 
@@ -220,7 +223,18 @@ class InventoryCountService
 
     public function confirm(WmsInventoryCount $inventoryCount, int $userId): void
     {
+        app(Warehouse91StockLotSyncService::class)->sync([], false);
+
         DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $userId) {
+            $inventoryCount = WmsInventoryCount::query()
+                ->whereKey($inventoryCount->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($inventoryCount->status === WmsInventoryCount::STATUS_CONFIRMED) {
+                return;
+            }
+
             $missingFinalCount = $inventoryCount->items()
                 ->whereNull('final_count_quantity')
                 ->count();
@@ -229,47 +243,117 @@ class InventoryCountService
                 throw new \RuntimeException("最終数量が未入力の明細が {$missingFinalCount} 件あります。");
             }
 
+            $this->refreshDifferences($inventoryCount);
+
+            $queueResult = $this->createStockAdjustmentQueue($inventoryCount);
+
             $inventoryCount->update([
                 'status' => WmsInventoryCount::STATUS_CONFIRMED,
                 'confirmed_at' => now(),
                 'confirmed_by' => $userId,
+                'stock_adjustment_request_id' => $queueResult['request_id'],
+                'stock_adjustment_queue_id' => $queueResult['queue_id'],
+                'stock_adjustment_error_message' => null,
+            ]);
+        });
+    }
+
+    private function refreshDifferences(WmsInventoryCount $inventoryCount): void
+    {
+        $inventoryCount->items()
+            ->whereNotNull('final_count_quantity')
+            ->chunkById(500, function ($items) {
+                foreach ($items as $item) {
+                    $differenceQuantity = (int) $item->final_count_quantity - (int) $item->system_quantity;
+                    $item->update([
+                        'difference_quantity' => $differenceQuantity,
+                        'difference_amount' => $differenceQuantity * (float) $item->cost_price,
+                    ]);
+                }
+            });
+    }
+
+    private function createStockAdjustmentQueue(WmsInventoryCount $inventoryCount): array
+    {
+        $connection = DB::connection('sakemaru');
+        $requestId = "wms-inventory-count-{$inventoryCount->id}";
+        $countDate = $inventoryCount->count_date?->toDateString() ?? (string) $inventoryCount->count_date;
+
+        $existing = $connection->table('stock_adjustment_queue')
+            ->where('request_id', $requestId)
+            ->first(['id', 'request_id', 'status', 'stock_adjustment_id']);
+
+        if ($existing) {
+            return [
+                'request_id' => $existing->request_id,
+                'queue_id' => (int) $existing->id,
+                'duplicated' => true,
+            ];
+        }
+
+        $items = $connection
+            ->table('wms_inventory_count_items as ici')
+            ->leftJoin('real_stocks as rs', 'rs.id', '=', 'ici.real_stock_id')
+            ->leftJoin('stock_allocations as sa', 'sa.id', '=', 'rs.stock_allocation_id')
+            ->where('ici.inventory_count_id', $inventoryCount->id)
+            ->whereNotNull('ici.final_count_quantity')
+            ->whereNotNull('ici.difference_quantity')
+            ->where('ici.difference_quantity', '!=', 0)
+            ->orderBy('ici.id')
+            ->get([
+                'ici.id',
+                'ici.real_stock_id',
+                'ici.item_code',
+                'ici.system_quantity',
+                'ici.final_count_quantity',
+                'ici.difference_quantity',
+                'ici.cost_price',
+                'sa.code as stock_allocation_code',
             ]);
 
-            $inventoryCount->items()
-                ->whereNotNull('difference_quantity')
-                ->where('difference_quantity', '!=', 0)
-                ->whereNotNull('real_stock_id')
-                ->chunkById(100, function ($items) {
-                    foreach ($items as $item) {
-                        $realStock = DB::connection('sakemaru')
-                            ->table('real_stocks')
-                            ->where('id', $item->real_stock_id)
-                            ->first();
+        if ($items->isEmpty()) {
+            return [
+                'request_id' => null,
+                'queue_id' => null,
+                'duplicated' => false,
+            ];
+        }
 
-                        if (! $realStock) {
-                            continue;
-                        }
+        $details = $items->map(fn ($item) => [
+            'wms_inventory_count_item_id' => (int) $item->id,
+            'real_stock_id' => $item->real_stock_id ? (int) $item->real_stock_id : null,
+            'item_code' => (string) $item->item_code,
+            'stock_allocation_code' => $item->stock_allocation_code ?: '1',
+            'stock_quantity_before' => (int) $item->system_quantity,
+            'stock_quantity_after' => (int) $item->final_count_quantity,
+            'stock_adjustment_quantity' => (int) $item->difference_quantity,
+            'unit_price' => (float) $item->cost_price,
+            'amount' => (float) $item->difference_quantity * (float) $item->cost_price,
+            'note' => "WMS棚卸 {$inventoryCount->count_no}",
+        ])->values()->all();
 
-                        $diff = (float) $item->difference_quantity;
-                        $affected = DB::connection('sakemaru')
-                            ->table('real_stocks')
-                            ->where('id', $item->real_stock_id)
-                            ->where('wms_lock_version', $realStock->wms_lock_version)
-                            ->update([
-                                'current_quantity' => DB::raw("current_quantity + ({$diff})"),
-                                'available_quantity' => DB::raw("available_quantity + ({$diff})"),
-                                'wms_lock_version' => DB::raw('wms_lock_version + 1'),
-                                'updated_at' => now(),
-                            ]);
+        $queueId = $connection->table('stock_adjustment_queue')->insertGetId([
+            'client_id' => $inventoryCount->client_id,
+            'slip_number' => $inventoryCount->count_no,
+            'process_date' => $countDate,
+            'adjustment_date' => $countDate,
+            'note' => "WMS棚卸確定 {$inventoryCount->count_no}",
+            'items' => json_encode($details, JSON_UNESCAPED_UNICODE),
+            'warehouse_code' => $inventoryCount->warehouse_code,
+            'source_type' => 'WMS_INVENTORY_COUNT',
+            'source_id' => $inventoryCount->id,
+            'wms_inventory_count_id' => $inventoryCount->id,
+            'request_id' => $requestId,
+            'status' => 'BEFORE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
-                        if ($affected === 0) {
-                            throw new \RuntimeException(
-                                "楽観ロック競合: real_stock_id={$item->real_stock_id}"
-                            );
-                        }
-                    }
-                });
-        });
+        return [
+            'request_id' => $requestId,
+            'queue_id' => (int) $queueId,
+            'duplicated' => false,
+        ];
     }
 
     public function cancel(WmsInventoryCount $inventoryCount): void
