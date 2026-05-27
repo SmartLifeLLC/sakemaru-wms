@@ -279,8 +279,9 @@ class MasterDataController extends ApiController
             $itemId = (int) $item->id;
             $defaultLocation = $defaultLocations->get($itemId);
             $itemStockLocations = $stockLocations->get($itemId, collect())->values();
+            $stockLocation = $itemStockLocations->first();
             $stockSummary = $stockSummaries->get($itemId) ?? $this->emptyStockSummary();
-            $suggestedLocation = $itemStockLocations->first()
+            $suggestedLocation = $stockLocation
                 ?? $defaultLocation
                 ?? $warehouseDefaultLocation;
 
@@ -310,7 +311,9 @@ class MasterDataController extends ApiController
                 'stock' => $stockSummary,
                 'locations' => [
                     'suggested' => $suggestedLocation ? $this->formatLocation($suggestedLocation, $suggestedLocation->source ?? 'suggested') : null,
-                    'default' => $defaultLocation ? $this->formatLocation($defaultLocation, 'item_default') : null,
+                    'default' => $stockLocation
+                        ? $this->formatLocation($stockLocation, 'stock_lot')
+                        : ($defaultLocation ? $this->formatLocation($defaultLocation, 'item_default') : null),
                     'stock' => $itemStockLocations
                         ->map(fn ($location) => $this->formatLocation($location, 'stock_lot', [
                             'lot_count' => (int) $location->lot_count,
