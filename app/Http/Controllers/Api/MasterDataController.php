@@ -98,7 +98,7 @@ class MasterDataController extends ApiController
      *     path="/api/master/item-locations",
      *     tags={"Master Data"},
      *     summary="商品別ロケーション検索",
-     *     description="商品CD、商品名、JAN/検索コード、社内JANから商品を検索し、指定倉庫内の商品基本情報、在庫状況、ロケーション情報を返します。",
+     *     description="商品CD、商品名、JAN/検索コード、社内JANから商品を検索し、指定倉庫内の商品基本情報、在庫状況、ロケーション情報を返します。頭0付きの検索でヒットしない場合、先頭の0を除去して再検索します。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(name="warehouse_id", in="query", required=true, description="倉庫ID", @OA\Schema(type="integer", example=91)),
@@ -254,6 +254,14 @@ class MasterDataController extends ApiController
         $limit = (int) $request->input('limit', 10);
 
         $items = $this->searchItemsForLocation($search, $limit);
+
+        if ($items->isEmpty() && preg_match('/^0+/', $search)) {
+            $trimmedSearch = ltrim($search, '0') ?: '0';
+            if ($trimmedSearch !== $search) {
+                $items = $this->searchItemsForLocation($trimmedSearch, $limit);
+            }
+        }
+
         if ($items->isEmpty()) {
             return $this->success([]);
         }
