@@ -52,8 +52,6 @@ class ListWaves extends ListRecords
 
     protected static string $resource = WaveResource::class;
 
-    private const ALLOCATABLE_LOCATION_FLAGS = 1 | 2 | 4; // CASE | PIECE | CARTON
-
     public function getTitle(): string|Htmlable
     {
         $base = '波動';
@@ -1676,8 +1674,7 @@ class ListWaves extends ListRecords
             ->where('rs.item_id', $itemId)
             ->where('rsle.earning_id', $sourceId)
             ->where('rsle.trade_item_id', $sourceLineId)
-            ->where('rsle.status', 'RESERVED')
-            ->whereRaw('(l.available_quantity_flags & '.self::ALLOCATABLE_LOCATION_FLAGS.') != 0');
+            ->where('rsle.status', 'RESERVED');
 
         if ($buyerId !== null) {
             $query->where(function ($q) use ($buyerId) {
@@ -1728,8 +1725,7 @@ class ListWaves extends ListRecords
             ->join('locations as l', 'l.id', '=', 'rsl.location_id')
             ->leftJoin('floors as f', 'l.floor_id', '=', 'f.id')
             ->where('rs.warehouse_id', $warehouseId)
-            ->where('rs.item_id', $itemId)
-            ->whereRaw('(l.available_quantity_flags & '.self::ALLOCATABLE_LOCATION_FLAGS.') != 0');
+            ->where('rs.item_id', $itemId);
 
         if ($buyerId !== null) {
             $query->where(function ($q) use ($buyerId) {
@@ -2298,7 +2294,8 @@ class ListWaves extends ListRecords
                     ->join('locations as l', 'rsl.location_id', '=', 'l.id')
                     ->where('rs.warehouse_id', $waveSetting->warehouse_id)
                     ->where('rs.item_id', $tradeItem->item_id)
-                    ->whereNotNull('l.wms_picking_area_id')
+                    ->orderByRaw('l.floor_id IS NULL')
+                    ->orderByRaw('l.wms_picking_area_id IS NULL')
                     ->select('l.id as location_id', 'rs.id as real_stock_id', 'l.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
                     ->first();
 
@@ -2519,7 +2516,8 @@ class ListWaves extends ListRecords
                     ->join('locations as l', 'rsl.location_id', '=', 'l.id')
                     ->where('rs.warehouse_id', $waveSetting->warehouse_id)
                     ->where('rs.item_id', $tradeItem->item_id)
-                    ->whereNotNull('l.wms_picking_area_id')
+                    ->orderByRaw('l.floor_id IS NULL')
+                    ->orderByRaw('l.wms_picking_area_id IS NULL')
                     ->select('l.id as location_id', 'rs.id as real_stock_id', 'l.wms_picking_area_id', 'l.floor_id')
                     ->first();
 

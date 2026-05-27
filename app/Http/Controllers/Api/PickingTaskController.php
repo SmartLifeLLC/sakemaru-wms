@@ -6,8 +6,9 @@ use App\Enums\EItemSearchCodeType;
 use App\Enums\EVolumeUnit;
 use App\Enums\TemperatureType;
 use App\Http\Controllers\Controller;
-use App\Models\WmsPickingTask;
+use App\Models\Sakemaru\Location;
 use App\Models\WmsPickingItemResult;
+use App\Models\WmsPickingTask;
 use App\Services\EarningDeliveryQueueService;
 use App\Services\PickingLogService;
 use App\Services\Shortage\PickingShortageDetector;
@@ -101,11 +102,9 @@ class PickingTaskController extends Controller
             $destinationWarehouse = $itemResult->stockTransfer->to_warehouse?->name ?? null;
         }
 
-        // Get location code
-        $location = $itemResult->location;
-        $locationCode = $location
-            ? trim("{$location->code1} {$location->code2} {$location->code3}")
-            : null;
+        // Prefer current lot location so Handy follows the same location as real stock.
+        $location = $this->resolveCurrentStockLocation($itemResult);
+        $locationCode = $this->formatLocationCode($location);
 
         return [
             'wms_picking_item_result_id' => $itemResult->id,
@@ -136,6 +135,50 @@ class PickingTaskController extends Controller
                 'name' => $location->name ?? null,
             ] : null,
         ];
+    }
+
+    private function resolveCurrentStockLocation($itemResult): ?object
+    {
+        $realStockId = $itemResult->real_stock_id ?? null;
+
+        if ($realStockId) {
+            $location = DB::connection('sakemaru')
+                ->table('real_stock_lots as rsl')
+                ->join('locations as l', 'l.id', '=', 'rsl.location_id')
+                ->where('rsl.real_stock_id', $realStockId)
+                ->where('rsl.status', 'ACTIVE')
+                ->where('rsl.current_quantity', '>', 0)
+                ->orderByDesc('rsl.current_quantity')
+                ->orderBy('rsl.id')
+                ->first(['l.id', 'l.code1', 'l.code2', 'l.code3', 'l.name']);
+
+            if ($location) {
+                return $location;
+            }
+        }
+
+        if (($itemResult->location ?? null) instanceof Location) {
+            return $itemResult->location;
+        }
+
+        $locationId = $itemResult->location_id ?? null;
+        if (! $locationId) {
+            return null;
+        }
+
+        return DB::connection('sakemaru')
+            ->table('locations')
+            ->where('id', $locationId)
+            ->first(['id', 'code1', 'code2', 'code3', 'name']);
+    }
+
+    private function formatLocationCode(?object $location): ?string
+    {
+        if (! $location) {
+            return null;
+        }
+
+        return Location::formatCode($location->code1 ?? null, $location->code2 ?? null, $location->code3 ?? null);
     }
 
     /**
@@ -319,7 +362,7 @@ class PickingTaskController extends Controller
             $deliveryCourseName = $task->deliveryCourse->name;
             $pickingAreaCode = $task->pickingArea->code ?? 0;
             $floorLabel = preg_match('/(\d+F)$/', $task->floor->name ?? '', $m) ? "({$m[1]})" : '';
-            $pickingAreaName = $task->pickingArea ? ($task->pickingArea->name . $floorLabel) : '-';
+            $pickingAreaName = $task->pickingArea ? ($task->pickingArea->name.$floorLabel) : '-';
 
             // Create unique key per task (floor/picking_area that differ cannot be picked simultaneously)
             $groupKey = "{$task->id}";
@@ -461,7 +504,7 @@ class PickingTaskController extends Controller
         $deliveryCourseName = $task->deliveryCourse->name ?? 'Unknown Course';
         $pickingAreaCode = $task->pickingArea->code ?? 0;
         $floorLabel = preg_match('/(\d+F)$/', $task->floor->name ?? '', $m) ? "({$m[1]})" : '';
-        $pickingAreaName = $task->pickingArea ? ($task->pickingArea->name . $floorLabel) : '-';
+        $pickingAreaName = $task->pickingArea ? ($task->pickingArea->name.$floorLabel) : '-';
 
         // Build picking list
         $pickingList = [];
@@ -603,17 +646,8 @@ class PickingTaskController extends Controller
             }
         }
 
-        // Get location
-        $location = null;
-        if ($itemResult->location_id) {
-            $location = DB::connection('sakemaru')
-                ->table('locations')
-                ->where('id', $itemResult->location_id)
-                ->first(['code1', 'code2', 'code3', 'name']);
-        }
-        $locationCode = $location
-            ? trim("{$location->code1} {$location->code2} {$location->code3}")
-            : null;
+        $location = $this->resolveCurrentStockLocation($itemResult);
+        $locationCode = $this->formatLocationCode($location);
 
         $data = [
             'wms_picking_item_result_id' => $itemResult->id,
