@@ -13,6 +13,8 @@ class Location extends CustomModel
 {
     use HasFactory;
 
+    public const ALL_ALLOCATABLE_QUANTITY_FLAGS = 7; // CASE | PIECE | CARTON
+
     /**
      * Disable is_active filter as locations table doesn't have this column
      */
@@ -30,6 +32,7 @@ class Location extends CustomModel
     {
         static::creating(function (Location $location) {
             static::fillClientId($location);
+            static::fillAllocatableQuantityFlags($location);
         });
 
         static::updating(function (Location $location) {
@@ -47,6 +50,18 @@ class Location extends CustomModel
         if ($firstClient) {
             $location->client_id = $firstClient->id;
         }
+    }
+
+    private static function fillAllocatableQuantityFlags(Location $location): void
+    {
+        if (
+            $location->available_quantity_flags !== null
+            && (int) $location->available_quantity_flags !== AvailableQuantityFlag::UNKNOWN->value
+        ) {
+            return;
+        }
+
+        $location->available_quantity_flags = self::ALL_ALLOCATABLE_QUANTITY_FLAGS;
     }
 
     public function warehouse(): belongsTo
@@ -139,7 +154,7 @@ class Location extends CustomModel
      */
     public function supports(AvailableQuantityFlag $flag): bool
     {
-        return AvailableQuantityFlag::supports($this->available_quantity_flags ?? 8, $flag);
+        return AvailableQuantityFlag::supports($this->available_quantity_flags ?? self::ALL_ALLOCATABLE_QUANTITY_FLAGS, $flag);
     }
 
     /**
@@ -165,6 +180,6 @@ class Location extends CustomModel
      */
     public function getAvailableUnits(): array
     {
-        return AvailableQuantityFlag::fromBitmask($this->available_quantity_flags ?? 8);
+        return AvailableQuantityFlag::fromBitmask($this->available_quantity_flags ?? self::ALL_ALLOCATABLE_QUANTITY_FLAGS);
     }
 }

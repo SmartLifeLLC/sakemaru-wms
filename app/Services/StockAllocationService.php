@@ -7,12 +7,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Optimized stock allocation service using GET_LOCK and bitmask filtering
+ * Optimized stock allocation service using GET_LOCK
  *
  * Implements specification: 02_picking_3.md
  * - FEFO (First Expiry, First Out) for expiration-managed items
  * - FIFO (First In, First Out) for non-expiration items
- * - Location quantity type restriction is ignored for allocation, except UNKNOWN locations
+ * - Location quantity type restriction is ignored for allocation
  * - Optimistic locking with lock_version
  * - Batch processing (50 rows/batch, max 2 pages)
  */
@@ -23,8 +23,6 @@ class StockAllocationService
     protected const MAX_PAGES = 2;
 
     protected const LOCK_TIMEOUT = 1; // seconds
-
-    protected const ALLOCATABLE_LOCATION_FLAGS = 1 | 2 | 4; // CASE | PIECE | CARTON
 
     /**
      * Allocate stock for a specific item in a wave
@@ -316,7 +314,6 @@ class StockAllocationService
             ->join('locations as l', 'l.id', '=', 'rsl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
-            ->whereRaw('(l.available_quantity_flags & '.self::ALLOCATABLE_LOCATION_FLAGS.') != 0')
             ->whereRaw("{$availableExpr} > 0");
 
         // Apply buyer restriction filter if buyerId is provided

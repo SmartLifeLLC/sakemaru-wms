@@ -242,7 +242,8 @@ class GenerateWavesCommand extends Command
                             ->join('locations as l', 'rsl.location_id', '=', 'l.id')
                             ->where('rs.warehouse_id', $warehouseId)
                             ->where('rs.item_id', $tradeItem->item_id)
-                            ->whereNotNull('l.wms_picking_area_id')
+                            ->orderByRaw('l.floor_id IS NULL')
+                            ->orderByRaw('l.wms_picking_area_id IS NULL')
                             ->select('l.wms_picking_area_id', 'l.floor_id', 'l.temperature_type', 'l.is_restricted_area')
                             ->first();
 

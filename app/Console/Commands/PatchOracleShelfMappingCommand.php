@@ -329,7 +329,9 @@ class PatchOracleShelfMappingCommand extends Command
             'warehouse_id' => $warehouseId,
             'floor_id' => $floorId,
             'wms_picking_area_id' => $prefixLocation?->wms_picking_area_id,
-            'available_quantity_flags' => $prefixLocation?->available_quantity_flags ?? $sourceLocation->available_quantity_flags ?? 3,
+            'available_quantity_flags' => $this->allocatableQuantityFlags(
+                $prefixLocation?->available_quantity_flags ?? $sourceLocation->available_quantity_flags ?? null
+            ),
             'temperature_type' => $prefixLocation?->temperature_type ?? $sourceLocation->temperature_type ?? 'NORMAL',
             'is_restricted_area' => $prefixLocation?->is_restricted_area ?? $sourceLocation->is_restricted_area ?? 0,
             'code1' => $code1,
@@ -370,6 +372,11 @@ class PatchOracleShelfMappingCommand extends Command
             ->where('warehouse_id', $warehouseId)
             ->orderBy('id')
             ->value('id');
+    }
+
+    private function allocatableQuantityFlags(?int $flags): int
+    {
+        return ($flags !== null && $flags !== 8) ? $flags : 7;
     }
 
     private function findPrefixLocation(int $warehouseId, string $shelf): ?object
