@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Log;
 
 class PrintRequestService
 {
+    private const RECENT_COMPLETED_DUPLICATE_WINDOW_SECONDS = 5;
+
     /**
      * 配送コース別に伝票印刷依頼を作成
      *
@@ -108,7 +110,7 @@ class PrintRequestService
                     ->lockForUpdate()
                     ->pluck('id');
 
-                $existingQueue = $this->findActivePrintRequestQueue(
+                $existingQueue = $this->findDuplicatePrintRequestQueue(
                     $earningIds,
                     $stockTransferIds,
                     $warehouseId
@@ -205,21 +207,35 @@ class PrintRequestService
     }
 
     /**
-     * 同一対象の未処理キューを探す。
+     * 同一対象の未処理キュー、または二重押下相当の連続完了キューを探す。
      */
-    private function findActivePrintRequestQueue(array $earningIds, array $stockTransferIds, int $warehouseId): ?PrintRequestQueue
+    private function findDuplicatePrintRequestQueue(array $earningIds, array $stockTransferIds, int $warehouseId): ?PrintRequestQueue
     {
-        $activeQueues = PrintRequestQueue::query()
+        $duplicateWindowStart = now()->subSeconds(self::RECENT_COMPLETED_DUPLICATE_WINDOW_SECONDS);
+
+        $queues = PrintRequestQueue::query()
             ->where('warehouse_id', $warehouseId)
             ->where('group_by_delivery_course', true)
-            ->whereIn('status', [
-                PrintRequestQueue::STATUS_PENDING,
-                PrintRequestQueue::STATUS_PROCESSING,
-            ])
+            ->where(function ($query) use ($duplicateWindowStart) {
+                $query->whereIn('status', [
+                    PrintRequestQueue::STATUS_PENDING,
+                    PrintRequestQueue::STATUS_PROCESSING,
+                ])
+                    ->orWhere(function ($query) use ($duplicateWindowStart) {
+                        $query->where('status', PrintRequestQueue::STATUS_COMPLETED)
+                            ->where(function ($query) use ($duplicateWindowStart) {
+                                $query->where('processed_at', '>=', $duplicateWindowStart)
+                                    ->orWhere(function ($query) use ($duplicateWindowStart) {
+                                        $query->whereNull('processed_at')
+                                            ->where('created_at', '>=', $duplicateWindowStart);
+                                    });
+                            });
+                    });
+            })
             ->lockForUpdate()
             ->get();
 
-        foreach ($activeQueues as $queue) {
+        foreach ($queues as $queue) {
             if (
                 $this->sameIdSet($queue->earning_ids ?? [], $earningIds)
                 && $this->sameIdSet($queue->stock_transfer_ids ?? [], $stockTransferIds)
