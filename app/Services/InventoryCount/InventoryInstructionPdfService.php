@@ -4,15 +4,15 @@ namespace App\Services\InventoryCount;
 
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
+use Illuminate\Support\Facades\DB;
 use TCPDF;
 
 /**
- * 棚卸指示書PDF描画サービス
+ * JANブックPDF描画サービス
  *
  * TCPDF座標描画のみ使用（HTML禁止）
  * PickingListPdfService と同じパターン
  *
- * サンプル: storage/specifications/20260523/棚卸指示書（H）.pdf
  * レイアウト: A4縦 / 棚番順 / 棚番先頭2桁改ページ / 3行ブロック
  */
 class InventoryInstructionPdfService
@@ -62,27 +62,29 @@ class InventoryInstructionPdfService
     private const CONTENT_WIDTH = 190; // 210 - 10 - 10
 
     // 各列幅（mm）
-    // Row1: item_code | shelf_no | manufacturer | (blank)
-    // Row2: item_name | (blank) | packaging | (blank) | jan_code
-    // Row3: (empty) | (blank) | expiration_date | (blank)
+    // Row1: item_code | shelf_no | packaging | (blank)
+    // Row2: item_name | (long) | (blank) | (blank) | jan_code
+    // Row3: (empty) | (blank) | (blank) | (blank)
     //
     // 列配分（左→右）:
     // col1: 商品コード/商品名 = 80mm
     // col2: 棚番 = 30mm
-    // col3: メーカー/規格/賞味期限 = 35mm
+    // col3: 規格 = 35mm
     // col4: 予備 = 0mm
     // col5: JANコード = 45mm（左右交互配置用に広めに確保）
     private const COL_W1 = 80;  // item_code / item_name / (blank)
 
     private const COL_W2 = 30;  // shelf_no
 
-    private const COL_W3 = 35;  // manufacturer / packaging / expiration_date
+    private const COL_W3 = 35;  // packaging
 
     private const COL_W4 = 0;  // reserved
 
     private const COL_W5 = 45;  // barcode (3 rows)
 
-    private const BARCODE_WIDTH = 28;
+    private const BARCODE_WIDTH = 42;
+
+    private const BARCODE_HEIGHT = 10.5;
 
     private TCPDF $pdf;
 
@@ -93,11 +95,12 @@ class InventoryInstructionPdfService
     private int $renderedItemCount = 0;
 
     /**
-     * 棚卸指示書PDF生成
+     * JANブックPDF生成
      */
     public function generate(WmsInventoryCount $inventoryCount): string
     {
         $items = $this->queryItems($inventoryCount);
+        $janCodes = $this->janCodesByItemId($items);
 
         $this->initPdf();
         $this->renderedItemCount = 0;
@@ -129,7 +132,7 @@ class InventoryInstructionPdfService
                 $this->addNewPage($header, $currentShelfPrefix);
             }
 
-            $this->renderItemBlock($item, $inventoryCount);
+            $this->renderItemBlock($item, $janCodes[(int) $item->item_id] ?? '');
         }
 
         // ページが無い場合（items空）
@@ -157,14 +160,55 @@ class InventoryInstructionPdfService
     private function queryItems(WmsInventoryCount $inventoryCount): \Illuminate\Database\Eloquent\Collection
     {
         return WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
-            ->with(['item' => function ($q) {
-                $q->with(['manufacturer']);
-            }])
-            ->orderBy('floor_name')
+            ->with(['item'])
+            ->orderByRaw("
+                CASE
+                    WHEN location_id IS NULL
+                        OR COALESCE(location_no, '') = ''
+                        OR COALESCE(location_code1, '') = ''
+                    THEN 1
+                    ELSE 0
+                END
+            ")
             ->orderBy('location_code1')
             ->orderBy('location_code2')
             ->orderBy('location_code3')
+            ->orderBy('item_code')
             ->get();
+    }
+
+    private function janCodesByItemId(\Illuminate\Database\Eloquent\Collection $items): array
+    {
+        $itemIds = $items
+            ->pluck('item_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($itemIds->isEmpty()) {
+            return [];
+        }
+
+        $rows = DB::connection('sakemaru')
+            ->table('item_search_information as isi')
+            ->leftJoin('item_quantity_information as iqi', 'isi.item_quantity_information_id', '=', 'iqi.id')
+            ->whereIn('isi.item_id', $itemIds)
+            ->where('isi.code_type', 'OTHER')
+            ->where('iqi.dm_code', 0)
+            ->where('iqi.quantity_code', '00')
+            ->whereNotNull('isi.search_string')
+            ->where('isi.search_string', '!=', '')
+            ->orderBy('isi.item_id')
+            ->orderBy('isi.id')
+            ->get(['isi.item_id', 'isi.search_string']);
+
+        $janCodes = [];
+        foreach ($rows as $row) {
+            $itemId = (int) $row->item_id;
+            $janCodes[$itemId] ??= (string) $row->search_string;
+        }
+
+        return $janCodes;
     }
 
     private function buildHeader(WmsInventoryCount $inventoryCount): array
@@ -185,7 +229,7 @@ class InventoryInstructionPdfService
         $this->pdf = new TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
         $this->pdf->SetCreator('Smart WMS');
         $this->pdf->SetAuthor('Smart WMS');
-        $this->pdf->SetTitle('棚卸指示書');
+        $this->pdf->SetTitle('JANブック');
         $this->pdf->SetMargins(self::MARGIN_LEFT, self::MARGIN_TOP, self::MARGIN_RIGHT);
         $this->pdf->SetAutoPageBreak(false);
         $this->pdf->setPrintHeader(false);
@@ -252,15 +296,12 @@ class InventoryInstructionPdfService
         $this->pdf->Cell(self::COL_W2, $rowH, '棚番', 0, 0, 'L');
 
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y);
-        $this->pdf->Cell(self::COL_W3, $rowH, 'メーカー', 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W3, $rowH, '規格', 0, 0, 'L');
 
         // Row2 headers
         $y2 = $y + $rowH;
         $this->pdf->SetXY($x, $y2);
         $this->pdf->Cell(self::COL_W1, $rowH, '商品名', 0, 0, 'L');
-
-        $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y2);
-        $this->pdf->Cell(self::COL_W3, $rowH, '規格', 0, 0, 'L');
 
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3 + self::COL_W4, $y2);
         $this->pdf->Cell(self::COL_W5, $rowH, 'JANコード', 0, 0, 'L');
@@ -271,7 +312,7 @@ class InventoryInstructionPdfService
         $this->pdf->Cell(self::COL_W1, $rowH, '', 0, 0, 'L');
 
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y3);
-        $this->pdf->Cell(self::COL_W3, $rowH, '賞味期限', 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W3, $rowH, '', 0, 0, 'L');
 
         $this->currentY = $y3 + $rowH;
     }
@@ -280,7 +321,7 @@ class InventoryInstructionPdfService
     // アイテムブロック描画（3行1セット）
     // ========================================
 
-    private function renderItemBlock(WmsInventoryCountItem $countItem, WmsInventoryCount $inventoryCount): void
+    private function renderItemBlock(WmsInventoryCountItem $countItem, string $janCode): void
     {
         $x = self::MARGIN_LEFT;
         $y = $this->currentY;
@@ -294,12 +335,11 @@ class InventoryInstructionPdfService
 
         // データ準備
         $item = $countItem->item;
-        $manufacturerName = $item?->manufacturer?->name ?? '';
         $spec = (string) ($item?->packaging ?? '');
 
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
 
-        // === Row 1: item_code | shelf_no | manufacturer | (blank) ===
+        // === Row 1: item_code | shelf_no | packaging | (blank) ===
         $y1 = $y;
         $shelfNo = $this->shelfCode($countItem);
 
@@ -313,42 +353,31 @@ class InventoryInstructionPdfService
         $this->pdf->SetXY($x + self::COL_W1, $y1);
         $this->pdf->Cell(self::COL_W2, $rowH, $shelfNo, 0, 0, 'L');
 
-        // manufacturer
+        // packaging
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y1);
-        $this->pdf->Cell(self::COL_W3, $rowH, $this->truncateText($manufacturerName, self::COL_W3 - 2), 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W3, $rowH, $this->truncateText($spec, self::COL_W3 - 2), 0, 0, 'L');
 
-        // === Row 2: item_name | (blank) | packaging | (blank) | jan_code ===
+        // === Row 2: item_name | (long) | (blank) | (blank) | jan_code ===
         $y2 = $y + $rowH;
 
         // item_name
         $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_PRODUCT);
         $this->pdf->SetXY($x, $y2);
-        $this->pdf->Cell(self::COL_W1 + self::COL_W2 - 2, $rowH, (string) ($countItem->item_name ?? ''), 0, 0, 'L');
+        $this->pdf->Cell(self::COL_W1 + self::COL_W2 + self::COL_W3 - 2, $rowH, (string) ($countItem->item_name ?? ''), 0, 0, 'L');
 
-        // packaging
-        $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y2);
-        $this->pdf->Cell(self::COL_W3, $rowH, $this->truncateText($spec, self::COL_W3 - 2), 0, 0, 'L');
-
-        // === Row 3: (empty) | (blank) | expiration_date | (blank) ===
+        // === Row 3: (empty) | (blank) | (blank) | (blank) ===
         $y3 = $y + $rowH * 2;
-
-        // expiration_date
-        $expirationDate = $countItem->expiration_date ? $countItem->expiration_date->format('Y/m/d') : '';
-        $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y3);
-        $this->pdf->Cell(self::COL_W3, $rowH, $expirationDate, 0, 0, 'L');
 
         // === JANコード（Row1-3の右端、左右交互）===
         $barcodeAreaX = $x + self::COL_W1 + self::COL_W2 + self::COL_W3 + self::COL_W4;
-        $barcodeW = min(self::BARCODE_WIDTH, self::COL_W5 - 2);
-        $isBarcodeRightAligned = $this->renderedItemCount % 2 !== 0;
-        $barcodeOffset = $isBarcodeRightAligned ? self::COL_W5 - $barcodeW - 1 : 1;
-        $barcodeX = $barcodeAreaX + $barcodeOffset;
-        $barcodeH = ($rowH * 3 - 4) / 2;
+        $barcodeW = min(self::BARCODE_WIDTH, self::COL_W5 - 3);
+        $barcodeX = $barcodeAreaX + ((self::COL_W5 - $barcodeW) / 2);
+        $barcodeH = self::BARCODE_HEIGHT;
         $barcodeTextH = 3;
         $barcodeTextGap = 1;
         $barcodeY = $y1 + (($rowH * 3) - ($barcodeH + $barcodeTextGap + $barcodeTextH)) / 2;
-        $barcode = $countItem->barcode ?? $countItem->item_code ?? '';
+        $barcode = $janCode;
 
         if ($barcode !== '') {
             $this->pdf->write1DBarcode(
@@ -358,14 +387,14 @@ class InventoryInstructionPdfService
                 $barcodeY,
                 $barcodeW,
                 $barcodeH,
-                0.3,
+                0.45,
                 ['position' => '', 'border' => false, 'padding' => 0, 'fgcolor' => [0, 0, 0], 'bgcolor' => false, 'text' => false, 'font' => 'kozgopromedium', 'fontsize' => 0, 'stretchtext' => 0],
                 'N'
             );
 
             $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_JAN);
             $this->pdf->SetXY($barcodeX, $barcodeY + $barcodeH + $barcodeTextGap);
-            $this->pdf->Cell($barcodeW, $barcodeTextH, $barcode, 0, 0, $isBarcodeRightAligned ? 'R' : 'L');
+            $this->pdf->Cell($barcodeW, $barcodeTextH, $barcode, 0, 0, 'C');
         }
 
         $this->renderedItemCount++;

@@ -485,18 +485,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
     public function calculateActiveRoundDifferences(): void
     {
         if (! in_array($this->record->status, [
-            WmsInventoryCount::STATUS_DRAFT,
             WmsInventoryCount::STATUS_COUNTING,
             WmsInventoryCount::STATUS_CHECKED,
         ], true)) {
-            Notification::make()->danger()->title('このステータスでは差異計算できません')->send();
+            Notification::make()->danger()->title('カウント開始後に差異計算できます')->send();
 
             return;
-        }
-
-        if ($this->record->status === WmsInventoryCount::STATUS_DRAFT) {
-            (new InventoryCountService)->startCounting($this->record);
-            $this->record->refresh();
         }
 
         $this->calculateRoundDifferences($this->activeCountRound);
@@ -514,11 +508,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
         }
 
         if (! in_array($this->record->status, [
-            WmsInventoryCount::STATUS_DRAFT,
             WmsInventoryCount::STATUS_COUNTING,
             WmsInventoryCount::STATUS_CHECKED,
         ], true)) {
-            Notification::make()->danger()->title('このステータスでは確定できません')->send();
+            Notification::make()->danger()->title('カウント開始後に確定できます')->send();
 
             return;
         }
@@ -527,11 +520,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
             Notification::make()->danger()->title('現在進行中より先の回数は確定できません')->send();
 
             return;
-        }
-
-        if ($this->record->status === WmsInventoryCount::STATUS_DRAFT) {
-            (new InventoryCountService)->startCounting($this->record);
-            $this->record->refresh();
         }
 
         $this->calculateRoundDifferences($round);
@@ -659,13 +647,13 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
         return [
             Action::make('downloadInstructionPdf')
-                ->label('棚卸指示書PDF')
+                ->label('JANブック')
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('gray')
                 ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_CANCELLED)
                 ->action(function () use ($record) {
                     $pdfContent = (new InventoryInstructionPdfService)->generate($record);
-                    $filename = '棚卸指示書_' . ($record->count_no ?? 'unknown') . '.pdf';
+                    $filename = 'JANブック_' . ($record->count_no ?? 'unknown') . '.pdf';
 
                     return response()->streamDownload(
                         fn () => print($pdfContent),

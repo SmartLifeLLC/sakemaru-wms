@@ -249,10 +249,13 @@
                         \App\Models\WmsInventoryCount::STATUS_COUNTING,
                         \App\Models\WmsInventoryCount::STATUS_CHECKED,
                     ], true))
+                        @php
+                            $isCountingStarted = $record->status !== \App\Models\WmsInventoryCount::STATUS_DRAFT;
+                        @endphp
                         <button type="button"
                             wire:click="calculateActiveRoundDifferences"
                             @click="activeTab = 'diff'"
-                            x-bind:disabled="changeCount > 0"
+                            x-bind:disabled="changeCount > 0 || {{ $isCountingStarted ? 'false' : 'true' }}"
                             class="inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
                             <x-filament::icon icon="heroicon-m-calculator" class="h-4 w-4" />
                             <span>{{ $this->activeRoundLabel() }}差異計算</span>
@@ -265,7 +268,7 @@
                                 @endphp
                                 <button type="button"
                                     wire:click="confirmRound({{ $round }})"
-                                    x-bind:disabled="changeCount > 0 || {{ ($roundConfirmed || ! $roundAvailable) ? 'true' : 'false' }}"
+                                    x-bind:disabled="changeCount > 0 || {{ (! $isCountingStarted || $roundConfirmed || ! $roundAvailable) ? 'true' : 'false' }}"
                                     class="h-8 rounded-md px-3 text-xs font-bold shadow-sm disabled:cursor-not-allowed disabled:opacity-50 {{ $roundConfirmed ? 'bg-slate-300 text-slate-600' : ($roundAvailable ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-white/20 text-white') }}">
                                     {{ $roundConfirmed ? "{$label}確定済" : "{$label}確定" }}
                                 </button>
