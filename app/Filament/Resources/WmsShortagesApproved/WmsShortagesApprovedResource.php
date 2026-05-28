@@ -23,8 +23,10 @@ class WmsShortagesApprovedResource extends AdminResource
                 'warehouse:id,code,name,latitude,longitude',
                 'location:id,code1,code2,code3',
                 'item:id,code,name,capacity_case,volume,volume_unit',
-                'trade:id,serial_id,partner_id',
+                'trade:id,serial_id,partner_id,trade_category',
                 'trade.partner:id,code,name,latitude,longitude',
+                'trade.stock_transfer:id,trade_id,to_warehouse_id',
+                'trade.stock_transfer.to_warehouse:id,code,name',
                 'confirmedBy:id,name',
                 'confirmedUser:id,name',
             ])
