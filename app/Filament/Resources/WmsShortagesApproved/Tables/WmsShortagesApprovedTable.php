@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsShortagesApproved\Tables;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use Filament\Actions\Action;
 use Filament\Schemas\Components\Section;
@@ -115,10 +116,24 @@ class WmsShortagesApprovedTable
                         : '-')
                     ->alignment('center'),
 
-                TextColumn::make('order_qty')
-                    ->label('受注数')
+                TextColumn::make('order_case_qty')
+                    ->label('受注ケース')
                     ->numeric()
+                    ->placeholder('-')
                     ->alignment('center'),
+
+                TextColumn::make('order_piece_qty')
+                    ->label('受注バラ数')
+                    ->numeric()
+                    ->placeholder('-')
+                    ->alignment('center'),
+
+                TextColumn::make('total_order_pieces')
+                    ->label('総バラ数')
+                    ->numeric()
+                    ->alignment('center')
+                    ->weight('bold')
+                    ->size(\Filament\Support\Enums\TextSize::Large),
 
                 TextColumn::make('picked_qty')
                     ->label('引当数')
@@ -130,6 +145,14 @@ class WmsShortagesApprovedTable
                     ->numeric()
                     ->alignment('center')
                     ->color('danger'),
+
+                TextColumn::make('total_shortage_pieces')
+                    ->label('欠品総バラ数')
+                    ->numeric()
+                    ->alignment('center')
+                    ->color('danger')
+                    ->weight('bold')
+                    ->size(\Filament\Support\Enums\TextSize::Large),
 
                 TextColumn::make('allocations_total_qty')
                     ->label('横持ち出荷数')
@@ -194,14 +217,31 @@ class WmsShortagesApprovedTable
 
                 SelectFilter::make('status')
                     ->label('ステータス')
-                    ->options(WmsShortage::STATUS_LABELS)
+                    ->options([
+                        'PARTIAL_SHORTAGE' => '部分欠品',
+                        'SHORTAGE' => '欠品確定',
+                        'REALLOCATING' => '横持ち出荷',
+                    ])
                     ->multiple(),
 
                 SelectFilter::make('warehouse_id')
                     ->label('倉庫')
-                    ->relationship('warehouse', 'name')
+                    ->multiple()
                     ->searchable()
-                    ->multiple(),
+                    ->getSearchResultsUsing(function (string $search): array {
+                        $search = mb_convert_kana($search, 'as');
+
+                        return Warehouse::query()
+                            ->where('is_active', true)
+                            ->where(fn ($q) => $q
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%"))
+                            ->orderBy('code')
+                            ->limit(50)
+                            ->get()
+                            ->mapWithKeys(fn ($w) => [$w->id => "[{$w->code}]{$w->name}"])
+                            ->toArray();
+                    }),
 
                 SelectFilter::make('trade.partner_id')
                     ->label('得意先')

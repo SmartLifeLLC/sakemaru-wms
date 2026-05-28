@@ -371,6 +371,42 @@ class WmsShortage extends Model
         return $this->qty_type_at_order === self::QTY_TYPE_PIECE;
     }
 
+    protected function orderCaseQty(): Attribute
+    {
+        return Attribute::get(fn () => $this->qty_type_at_order === self::QTY_TYPE_CASE ? $this->order_qty : null);
+    }
+
+    protected function orderPieceQty(): Attribute
+    {
+        return Attribute::get(fn () => $this->qty_type_at_order === self::QTY_TYPE_PIECE ? $this->order_qty : null);
+    }
+
+    protected function totalOrderPieces(): Attribute
+    {
+        return Attribute::get(function () {
+            if ($this->qty_type_at_order === self::QTY_TYPE_CASE) {
+                $caseSize = $this->case_size_snap ?: ($this->item?->capacity_case ?? 0);
+
+                return $this->order_qty * $caseSize;
+            }
+
+            return $this->order_qty;
+        });
+    }
+
+    protected function totalShortagePieces(): Attribute
+    {
+        return Attribute::get(function () {
+            if ($this->qty_type_at_order === self::QTY_TYPE_CASE) {
+                $caseSize = $this->case_size_snap ?: ($this->item?->capacity_case ?? 0);
+
+                return $this->shortage_qty * $caseSize;
+            }
+
+            return $this->shortage_qty;
+        });
+    }
+
     /**
      * 数量を表示用フォーマットに変換
      * 受注単位に応じて適切な表示を返す
