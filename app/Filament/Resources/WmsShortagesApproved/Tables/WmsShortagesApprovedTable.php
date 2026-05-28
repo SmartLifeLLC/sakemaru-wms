@@ -46,24 +46,27 @@ class WmsShortagesApprovedTable
                     ->sortable()
                     ->alignment('center'),
 
-                TextColumn::make('status')
+                TextColumn::make('shipment_type_label')
+                    ->label('出荷区分')
+                    ->badge()
+                    ->color(fn (?string $state): string => match ($state) {
+                        '営業出荷' => 'success',
+                        '店間移動' => 'info',
+                        default => 'gray',
+                    })
+                    ->alignment('center'),
+
+                TextColumn::make('status_label')
                     ->label('ステータス')
                     ->badge()
                     ->color(fn (?string $state): string => match ($state) {
-                        'BEFORE' => 'danger',
-                        'REALLOCATING' => 'warning',
-                        'SHORTAGE' => 'info',
-                        'PARTIAL_SHORTAGE' => 'warning',
+                        '未対応' => 'danger',
+                        '横持ち出荷' => 'warning',
+                        '欠品確定' => 'danger',
+                        '部分欠品' => 'warning',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn (?string $state): string => match ($state) {
-                        'BEFORE' => '未対応',
-                        'REALLOCATING' => '横持ち出荷',
-                        'SHORTAGE' => '欠品確定',
-                        'PARTIAL_SHORTAGE' => '部分欠品',
-                        default => $state ?? '-',
-                    })
-                    ->sortable()
+                    ->sortable(query: fn ($query, $direction) => $query->orderBy('status', $direction))
                     ->alignment('center'),
 
                 TextColumn::make('wave_id')
@@ -78,16 +81,20 @@ class WmsShortagesApprovedTable
                     ->sortable()
                     ->alignment('center'),
 
-                TextColumn::make('trade.partner.code')
-                    ->label('得意先CD')
-                    ->sortable()
-                    ->searchable()
+                TextColumn::make('request_source_code')
+                    ->label('依頼元CD')
+                    ->searchable(query: fn ($query, $search) => $query->where(function ($q) use ($search) {
+                        $q->whereHas('trade.partner', fn ($q2) => $q2->where('code', 'like', "%{$search}%"))
+                            ->orWhereHas('warehouse', fn ($q2) => $q2->where('code', 'like', "%{$search}%"));
+                    }))
                     ->alignment('center'),
 
-                TextColumn::make('trade.partner.name')
-                    ->label('得意先名')
-                    ->sortable()
-                    ->searchable()
+                TextColumn::make('request_source_name')
+                    ->label('依頼元名')
+                    ->searchable(query: fn ($query, $search) => $query->where(function ($q) use ($search) {
+                        $q->whereHas('trade.partner', fn ($q2) => $q2->where('name', 'like', "%{$search}%"))
+                            ->orWhereHas('warehouse', fn ($q2) => $q2->where('name', 'like', "%{$search}%"));
+                    }))
                     ->alignment('center'),
 
                 TextColumn::make('item.code')
@@ -100,13 +107,14 @@ class WmsShortagesApprovedTable
                     ->label('商品名')
                     ->sortable()
                     ->searchable()
-                    ->limit(30)
+                    ->grow()
                     ->alignment('center'),
 
-                TextColumn::make('warehouse.name')
-                    ->label('倉庫')
-                    ->sortable()
-                    ->searchable()
+                TextColumn::make('warehouse_name_display')
+                    ->label('出庫倉庫')
+                    ->state(fn (WmsShortage $record): string => $record->warehouse->name ?? '-')
+                    ->sortable(query: fn ($query, $direction) => $query->orderBy('warehouse_id', $direction))
+                    ->searchable(query: fn ($query, $search) => $query->whereHas('warehouse', fn ($q) => $q->where('name', 'like', "%{$search}%")))
                     ->alignment('center'),
 
                 TextColumn::make('location_code')
@@ -158,7 +166,8 @@ class WmsShortagesApprovedTable
                     ->label('横持ち出荷数')
                     ->numeric()
                     ->alignment('center')
-                    ->color('info'),
+                    ->color('warning')
+                    ->weight('bold'),
 
                 TextColumn::make('remaining_qty')
                     ->label('残欠品数')
@@ -213,6 +222,18 @@ class WmsShortagesApprovedTable
                         }
 
                         return '出荷日: '.$data['shipment_date'];
+                    }),
+
+                SelectFilter::make('shipment_type')
+                    ->label('出荷区分')
+                    ->options([
+                        'EARNING' => '営業出荷',
+                        'STOCK_TRANSFER' => '店間移動',
+                    ])
+                    ->query(function ($query, array $data) {
+                        if (! empty($data['value'])) {
+                            $query->whereHas('trade', fn ($q) => $q->where('trade_category', $data['value']));
+                        }
                     }),
 
                 SelectFilter::make('status')

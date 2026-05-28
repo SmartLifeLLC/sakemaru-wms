@@ -371,6 +371,48 @@ class WmsShortage extends Model
         return $this->qty_type_at_order === self::QTY_TYPE_PIECE;
     }
 
+    protected function statusLabel(): Attribute
+    {
+        return Attribute::get(fn () => match ($this->status) {
+            'BEFORE' => '未対応',
+            'REALLOCATING' => '横持ち出荷',
+            'SHORTAGE' => '欠品確定',
+            'PARTIAL_SHORTAGE' => '部分欠品',
+            default => $this->status ?? '-',
+        });
+    }
+
+    protected function shipmentTypeLabel(): Attribute
+    {
+        return Attribute::get(fn () => match ($this->trade?->trade_category) {
+            'EARNING' => '営業出荷',
+            'STOCK_TRANSFER' => '店間移動',
+            default => $this->trade?->trade_category ?? '-',
+        });
+    }
+
+    protected function requestSourceCode(): Attribute
+    {
+        return Attribute::get(function () {
+            if ($this->trade?->trade_category === 'STOCK_TRANSFER') {
+                return $this->trade->stock_transfer?->to_warehouse?->code ?? '-';
+            }
+
+            return $this->trade?->partner?->code ?? '-';
+        });
+    }
+
+    protected function requestSourceName(): Attribute
+    {
+        return Attribute::get(function () {
+            if ($this->trade?->trade_category === 'STOCK_TRANSFER') {
+                return $this->trade->stock_transfer?->to_warehouse?->name ?? '-';
+            }
+
+            return $this->trade?->partner?->name ?? '-';
+        });
+    }
+
     protected function orderCaseQty(): Attribute
     {
         return Attribute::get(fn () => $this->qty_type_at_order === self::QTY_TYPE_CASE ? $this->order_qty : null);
