@@ -9,6 +9,7 @@ use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
 use App\Services\Warehouse91StockLotSyncService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class InventoryCountService
 {
@@ -245,16 +246,25 @@ class InventoryCountService
 
             $this->refreshDifferences($inventoryCount);
 
-            $queueResult = $this->createStockAdjustmentQueue($inventoryCount);
+            $queueResult = $this->createInventoryAdjustmentQueue($inventoryCount);
 
-            $inventoryCount->update([
+            $updates = [
                 'status' => WmsInventoryCount::STATUS_CONFIRMED,
                 'confirmed_at' => now(),
                 'confirmed_by' => $userId,
-                'stock_adjustment_request_id' => $queueResult['request_id'],
-                'stock_adjustment_queue_id' => $queueResult['queue_id'],
-                'stock_adjustment_error_message' => null,
-            ]);
+            ];
+
+            foreach ([
+                'inventory_adjustment_request_id' => $queueResult['request_id'],
+                'inventory_adjustment_queue_id' => $queueResult['queue_id'],
+                'inventory_adjustment_error_message' => null,
+            ] as $column => $value) {
+                if (Schema::connection('sakemaru')->hasColumn('wms_inventory_counts', $column)) {
+                    $updates[$column] = $value;
+                }
+            }
+
+            $inventoryCount->update($updates);
         });
     }
 
@@ -273,23 +283,11 @@ class InventoryCountService
             });
     }
 
-    private function createStockAdjustmentQueue(WmsInventoryCount $inventoryCount): array
+    private function createInventoryAdjustmentQueue(WmsInventoryCount $inventoryCount): array
     {
         $connection = DB::connection('sakemaru');
-        $requestId = "wms-inventory-count-{$inventoryCount->id}";
+        $requestId = "wms-inventory-adjustment-{$inventoryCount->id}";
         $countDate = $inventoryCount->count_date?->toDateString() ?? (string) $inventoryCount->count_date;
-
-        $existing = $connection->table('stock_adjustment_queue')
-            ->where('request_id', $requestId)
-            ->first(['id', 'request_id', 'status', 'stock_adjustment_id']);
-
-        if ($existing) {
-            return [
-                'request_id' => $existing->request_id,
-                'queue_id' => (int) $existing->id,
-                'duplicated' => true,
-            ];
-        }
 
         $items = $connection
             ->table('wms_inventory_count_items as ici')
@@ -319,6 +317,22 @@ class InventoryCountService
             ];
         }
 
+        if (! Schema::connection('sakemaru')->hasTable('inventory_adjustment_queue')) {
+            throw new \RuntimeException('実棚変更キューテーブルが見つかりません。ai-core側のマイグレーションを先に実行してください。');
+        }
+
+        $existing = $connection->table('inventory_adjustment_queue')
+            ->where('request_id', $requestId)
+            ->first(['id', 'request_id', 'status', 'inventory_adjustment_id']);
+
+        if ($existing) {
+            return [
+                'request_id' => $existing->request_id,
+                'queue_id' => (int) $existing->id,
+                'duplicated' => true,
+            ];
+        }
+
         $details = $items->map(fn ($item) => [
             'wms_inventory_count_item_id' => (int) $item->id,
             'real_stock_id' => $item->real_stock_id ? (int) $item->real_stock_id : null,
@@ -326,13 +340,13 @@ class InventoryCountService
             'stock_allocation_code' => $item->stock_allocation_code ?: '1',
             'stock_quantity_before' => (int) $item->system_quantity,
             'stock_quantity_after' => (int) $item->final_count_quantity,
-            'stock_adjustment_quantity' => (int) $item->difference_quantity,
+            'inventory_adjustment_quantity' => (int) $item->difference_quantity,
             'unit_price' => (float) $item->cost_price,
             'amount' => (float) $item->difference_quantity * (float) $item->cost_price,
             'note' => "WMS棚卸 {$inventoryCount->count_no}",
         ])->values()->all();
 
-        $queueId = $connection->table('stock_adjustment_queue')->insertGetId([
+        $queueId = $connection->table('inventory_adjustment_queue')->insertGetId([
             'client_id' => $inventoryCount->client_id,
             'slip_number' => $inventoryCount->count_no,
             'process_date' => $countDate,

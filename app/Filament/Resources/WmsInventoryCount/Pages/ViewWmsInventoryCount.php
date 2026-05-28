@@ -724,11 +724,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->visible(fn () => $record->status === WmsInventoryCount::STATUS_CHECKED)
                 ->requiresConfirmation()
                 ->modalHeading('棚卸し確定')
-                ->modalDescription('棚卸しを確定し、差異分の新在庫調節伝票作成キューを登録します。この操作は取り消せません。')
+                ->modalDescription('棚卸しを確定し、差異分の実棚変更伝票作成キューを登録します。この操作は取り消せません。')
                 ->action(function () use ($record) {
                     try {
                         (new InventoryCountService)->confirm($record, auth()->id());
-                        Notification::make()->success()->title('棚卸しを確定しました')->body('差異がある場合は新在庫調節伝票作成キューを登録しています。')->send();
+                        Notification::make()->success()->title('棚卸しを確定しました')->body('差異がある場合は実棚変更伝票作成キューを登録しています。')->send();
                     } catch (\Throwable $e) {
                         Notification::make()
                             ->danger()
