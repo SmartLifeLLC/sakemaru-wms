@@ -1185,7 +1185,7 @@ html.fi {
     flex-shrink: 0;
     overflow: visible;
     position: relative;
-    z-index: 20;
+    z-index: 30;
 }
 
 /* テーブルコンテンツ: ここだけスクロール */

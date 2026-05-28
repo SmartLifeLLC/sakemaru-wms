@@ -305,19 +305,6 @@ class WmsOrderCandidatesTable
                     ->sortable()
                     ->alignCenter(),
 
-                TextColumn::make('batch_code')
-                    ->label('実行CD')
-                    ->searchable()
-                    ->sortable()
-                    ->copyable(),
-
-                TextColumn::make('batch_code_formatted')
-                    ->label('実行時刻')
-                    ->state(function ($record) {
-                        return \Carbon\Carbon::createFromFormat('YmdHis', substr($record->batch_code, 0, 14))->format('m/d H:i');
-                    })
-                    ->sortable(query: fn ($query, $direction) => $query->orderBy('batch_code', $direction)),
-
                 TextColumn::make('lot_status')
                     ->label('ロット')
                     ->badge()
