@@ -16,6 +16,7 @@ use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Icons\Heroicon;
@@ -171,7 +172,6 @@ class WaveGroupsTable
                     ->color('info')
                     ->visible(fn (WaveGroup $record): bool => ! empty($record->picking_lists))
                     ->modalHeading(fn (WaveGroup $record): string => "ピッキングリスト出力: {$record->group_no}")
-                    ->modalDescription('リスト種別を選択し、保存済みの対象リストを出力します')
                     ->modalWidth('6xl')
                     ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
                     ->modalFooterActionsAlignment(Alignment::End)
@@ -194,7 +194,9 @@ class WaveGroupsTable
                             ->default(array_key_first($record->picking_lists ?? []))
                             ->live(),
 
-                        ...static::printerSelectionSchema($record->warehouse_id),
+                        Grid::make(2)->schema([
+                            ...static::printerSelectionSchema($record->warehouse_id),
+                        ]),
 
                         Placeholder::make('wave_preview')
                             ->label('対象波動')

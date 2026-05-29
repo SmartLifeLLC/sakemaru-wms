@@ -1199,7 +1199,7 @@ class PickingListPdfService
         'case_qty' => 'ケース',
         'piece_qty' => 'バラ',
         'total_piece' => '総バラ',
-        'shortage' => '欠品',
+        'shortage' => "欠品\n総バラ",
     ];
 
     /**
