@@ -61,16 +61,67 @@ class WmsInventoryCountItemTable
                     ->alignEnd()
                     ->placeholder('-'),
 
+                TextColumn::make('first_count_difference')
+                    ->label('1回目差分')
+                    ->state(fn (WmsInventoryCountItem $record) => $record->roundDifference(1))
+                    ->numeric(0)
+                    ->alignEnd()
+                    ->placeholder('-')
+                    ->color(fn ($state) => match (true) {
+                        $state === null => null,
+                        (float) $state > 0 => 'success',
+                        (float) $state < 0 => 'danger',
+                        default => null,
+                    }),
+
+                TextColumn::make('first_count_actor_name')
+                    ->label('1回目入力者')
+                    ->placeholder('-'),
+
                 TextColumn::make('second_count_quantity')
                     ->label('2回目')
                     ->numeric(0)
                     ->alignEnd()
                     ->placeholder('-'),
 
-                TextColumn::make('final_count_quantity')
-                    ->label('最終')
+                TextColumn::make('second_count_difference')
+                    ->label('2回目差分')
+                    ->state(fn (WmsInventoryCountItem $record) => $record->roundDifference(2))
                     ->numeric(0)
                     ->alignEnd()
+                    ->placeholder('-')
+                    ->color(fn ($state) => match (true) {
+                        $state === null => null,
+                        (float) $state > 0 => 'success',
+                        (float) $state < 0 => 'danger',
+                        default => null,
+                    }),
+
+                TextColumn::make('second_count_actor_name')
+                    ->label('2回目入力者')
+                    ->placeholder('-'),
+
+                TextColumn::make('final_count_quantity')
+                    ->label('3回目')
+                    ->numeric(0)
+                    ->alignEnd()
+                    ->placeholder('-'),
+
+                TextColumn::make('final_count_difference')
+                    ->label('3回目差分')
+                    ->state(fn (WmsInventoryCountItem $record) => $record->roundDifference(3))
+                    ->numeric(0)
+                    ->alignEnd()
+                    ->placeholder('-')
+                    ->color(fn ($state) => match (true) {
+                        $state === null => null,
+                        (float) $state > 0 => 'success',
+                        (float) $state < 0 => 'danger',
+                        default => null,
+                    }),
+
+                TextColumn::make('final_count_actor_name')
+                    ->label('3回目入力者')
                     ->placeholder('-'),
 
                 TextColumn::make('difference_quantity')

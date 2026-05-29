@@ -16,6 +16,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 
 class ViewWmsInventoryCount extends Page implements HasForms
 {
@@ -98,9 +99,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
     // Filter / Tab / Sort
     // ========================================
 
-    public function search(): void
-    {
-    }
+    public function search(): void {}
 
     public function setListTab(string $tab): void
     {
@@ -172,8 +171,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function rows(): LengthAwarePaginator
     {
-        $query = WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
-            ->with(['latestLog.picker', 'latestLog.user']);
+        $query = WmsInventoryCountItem::where('inventory_count_id', $this->record->id);
         $this->applySort($query);
 
         return $query->paginate($this->itemPerPage, ['*'], 'inventory_items_page', $this->itemPage);
@@ -206,12 +204,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function activeRoundLabel(): string
     {
-        return $this->activeCountRound === 3 ? '最終' : "{$this->activeCountRound}回目";
+        return "{$this->activeCountRound}回目";
     }
 
     public function roundLabel(int $round): string
     {
-        return $round === 3 ? '最終' : "{$round}回目";
+        return "{$round}回目";
     }
 
     public function isRoundConfirmed(int $round): bool
@@ -345,6 +343,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
             WmsInventoryCount::STATUS_CHECKED,
         ])) {
             Notification::make()->danger()->title('このステータスでは編集できません')->send();
+
             return;
         }
 
@@ -354,6 +353,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
         if (! $item) {
             Notification::make()->danger()->title('明細が見つかりません')->send();
+
             return;
         }
 
@@ -379,6 +379,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $item->first_count_quantity = $first;
         $item->second_count_quantity = $second;
         $item->final_count_quantity = $final;
+        $this->setChangedActorNames($item, [
+            1 => [$oldFirst, $first],
+            2 => [$oldSecond, $second],
+            3 => [$oldFinal, $final],
+        ]);
         $item->last_counted_at = now();
         $item->input_count = ($item->input_count ?? 0) + 1;
 
@@ -454,6 +459,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
             $item->first_count_quantity = $first;
             $item->second_count_quantity = $second;
             $item->final_count_quantity = $final;
+            $this->setChangedActorNames($item, [
+                1 => [$oldFirst, $first],
+                2 => [$oldSecond, $second],
+                3 => [$oldFinal, $final],
+            ]);
             $item->last_counted_at = now();
             $item->input_count = ($item->input_count ?? 0) + 1;
 
@@ -485,18 +495,12 @@ class ViewWmsInventoryCount extends Page implements HasForms
     public function calculateActiveRoundDifferences(): void
     {
         if (! in_array($this->record->status, [
-            WmsInventoryCount::STATUS_DRAFT,
             WmsInventoryCount::STATUS_COUNTING,
             WmsInventoryCount::STATUS_CHECKED,
         ], true)) {
-            Notification::make()->danger()->title('このステータスでは差異計算できません')->send();
+            Notification::make()->danger()->title('カウント開始後に差異計算できます')->send();
 
             return;
-        }
-
-        if ($this->record->status === WmsInventoryCount::STATUS_DRAFT) {
-            (new InventoryCountService)->startCounting($this->record);
-            $this->record->refresh();
         }
 
         $this->calculateRoundDifferences($this->activeCountRound);
@@ -514,11 +518,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
         }
 
         if (! in_array($this->record->status, [
-            WmsInventoryCount::STATUS_DRAFT,
             WmsInventoryCount::STATUS_COUNTING,
             WmsInventoryCount::STATUS_CHECKED,
         ], true)) {
-            Notification::make()->danger()->title('このステータスでは確定できません')->send();
+            Notification::make()->danger()->title('カウント開始後に確定できます')->send();
 
             return;
         }
@@ -529,11 +532,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return;
         }
 
-        if ($this->record->status === WmsInventoryCount::STATUS_DRAFT) {
-            (new InventoryCountService)->startCounting($this->record);
-            $this->record->refresh();
-        }
-
         $this->calculateRoundDifferences($round);
 
         $updates = [
@@ -542,6 +540,8 @@ class ViewWmsInventoryCount extends Page implements HasForms
         ];
 
         if ($round < 3) {
+            $this->seedNextRoundQuantity($round);
+
             $updates['current_count_round'] = max($this->currentProgressRound(), $round + 1);
             $updates['status'] = WmsInventoryCount::STATUS_COUNTING;
             $this->record->update($updates);
@@ -562,12 +562,35 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $updates['status'] = WmsInventoryCount::STATUS_CHECKED;
         $this->record->update($updates);
         $this->record->refresh();
-        Notification::make()->success()->title('最終を確定しました')->body('差異確認済に変更しました')->send();
+        Notification::make()->success()->title('3回目を確定しました')->body('差異確認済に変更しました')->send();
     }
 
     public function confirmActiveRound(): void
     {
         $this->confirmRound($this->activeCountRound);
+    }
+
+    public function reopenFinalRound(): void
+    {
+        if ($this->record->status !== WmsInventoryCount::STATUS_CHECKED) {
+            Notification::make()->danger()->title('3回目に戻せる状態ではありません')->send();
+
+            return;
+        }
+
+        $this->record->update([
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 3,
+            'final_count_confirmed_at' => null,
+            'final_count_confirmed_by' => null,
+        ]);
+
+        $this->record->refresh();
+        $this->activeCountRound = 3;
+        $this->listTab = 'all';
+        $this->itemPage = 1;
+
+        Notification::make()->success()->title('3回目の入力に戻しました')->send();
     }
 
     private function writeWebCountLogs(WmsInventoryCountItem $item, array $rounds): void
@@ -588,6 +611,26 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 'created_at' => now(),
             ]);
         }
+    }
+
+    private function setChangedActorNames(WmsInventoryCountItem $item, array $rounds): void
+    {
+        $actorName = $this->currentWebActorName();
+
+        foreach ($rounds as $round => [$old, $new]) {
+            if ((string) $old === (string) $new) {
+                continue;
+            }
+
+            $item->{$this->roundActorNameColumn($round)} = $actorName;
+        }
+    }
+
+    private function currentWebActorName(): string
+    {
+        return auth()->user()?->name
+            ? 'WEB: '.auth()->user()->name
+            : 'WEB';
     }
 
     private function currentProgressRound(): int
@@ -619,6 +662,20 @@ class ViewWmsInventoryCount extends Page implements HasForms
             });
     }
 
+    private function seedNextRoundQuantity(int $round): void
+    {
+        $currentColumn = $this->roundColumn($round);
+        $nextColumn = $this->roundColumn($round + 1);
+
+        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+            ->whereNotNull($currentColumn)
+            ->whereNull($nextColumn)
+            ->update([
+                $nextColumn => DB::raw($currentColumn),
+                'updated_at' => now(),
+            ]);
+    }
+
     private function roundColumn(int $round): string
     {
         return match ($round) {
@@ -626,6 +683,16 @@ class ViewWmsInventoryCount extends Page implements HasForms
             2 => 'second_count_quantity',
             3 => 'final_count_quantity',
             default => 'first_count_quantity',
+        };
+    }
+
+    private function roundActorNameColumn(int $round): string
+    {
+        return match ($round) {
+            1 => 'first_count_actor_name',
+            2 => 'second_count_actor_name',
+            3 => 'final_count_actor_name',
+            default => 'first_count_actor_name',
         };
     }
 
@@ -659,16 +726,16 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
         return [
             Action::make('downloadInstructionPdf')
-                ->label('棚卸指示書PDF')
+                ->label('JANブック')
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('gray')
                 ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_CANCELLED)
                 ->action(function () use ($record) {
                     $pdfContent = (new InventoryInstructionPdfService)->generate($record);
-                    $filename = '棚卸指示書_' . ($record->count_no ?? 'unknown') . '.pdf';
+                    $filename = 'JANブック_'.($record->count_no ?? 'unknown').'.pdf';
 
                     return response()->streamDownload(
-                        fn () => print($pdfContent),
+                        fn () => print ($pdfContent),
                         $filename,
                         ['Content-Type' => 'application/pdf']
                     );
@@ -708,27 +775,37 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_DRAFT)
                 ->action(function () use ($record) {
                     $pdfContent = (new InventoryDiffListPdfService)->generate($record);
-                    $filename = '棚卸差分確認_' . ($record->count_no ?? 'unknown') . '.pdf';
+                    $filename = '棚卸差分確認_'.($record->count_no ?? 'unknown').'.pdf';
 
                     return response()->streamDownload(
-                        fn () => print($pdfContent),
+                        fn () => print ($pdfContent),
                         $filename,
                         ['Content-Type' => 'application/pdf']
                     );
                 }),
 
+            Action::make('reopenFinalRound')
+                ->label('3回目に戻す')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->color('warning')
+                ->visible(fn () => $record->status === WmsInventoryCount::STATUS_CHECKED)
+                ->requiresConfirmation()
+                ->modalHeading('3回目に戻す')
+                ->modalDescription('最終確定前の状態に戻し、3回目の入力を再開します。入力済みの3回目数量は削除しません。')
+                ->action(fn () => $this->reopenFinalRound()),
+
             Action::make('confirm')
                 ->label('確定')
                 ->icon('heroicon-o-check-circle')
-                ->color('danger')
+                ->color('info')
                 ->visible(fn () => $record->status === WmsInventoryCount::STATUS_CHECKED)
                 ->requiresConfirmation()
                 ->modalHeading('棚卸し確定')
-                ->modalDescription('棚卸しを確定し、差異分の新在庫調節伝票作成キューを登録します。この操作は取り消せません。')
+                ->modalDescription('棚卸しを確定し、差異分の実棚変更伝票作成キューを登録します。この操作は取り消せません。')
                 ->action(function () use ($record) {
                     try {
                         (new InventoryCountService)->confirm($record, auth()->id());
-                        Notification::make()->success()->title('棚卸しを確定しました')->body('差異がある場合は新在庫調節伝票作成キューを登録しています。')->send();
+                        Notification::make()->success()->title('棚卸しを確定しました')->body('差異がある場合は実棚変更伝票作成キューを登録しています。')->send();
                     } catch (\Throwable $e) {
                         Notification::make()
                             ->danger()

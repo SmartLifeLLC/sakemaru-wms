@@ -83,7 +83,7 @@
     }" @count-update="setChange($event.detail.id, $event.detail.field, $event.detail.value, $event.detail.origFirst, $event.detail.origSecond, $event.detail.origFinal, $event.detail.first, $event.detail.second, $event.detail.final)"
     class="flex h-[calc(100vh-72px)] min-h-0 flex-col gap-2">
         {{-- Header bar --}}
-        <div class="shrink-0 overflow-hidden rounded-lg border border-slate-300 bg-slate-100 shadow-sm">
+        <div class="relative z-20 shrink-0 overflow-visible rounded-lg border border-slate-300 bg-slate-100 shadow-sm">
             <div class="flex items-center justify-between border-b border-slate-200 bg-slate-800 px-3 py-2 text-white">
                 <div class="flex min-w-0 items-center gap-3">
                     <span class="truncate text-xs text-slate-300">
@@ -136,7 +136,7 @@
                             <span x-text="selectedLocations.length ? selectedLocations.length + '件選択' : 'ロケーション選択'"></span>
                             <x-filament::icon icon="heroicon-m-chevron-down" class="h-4 w-4" />
                         </button>
-                        <div x-show="locationPickerOpen" x-cloak @click.outside="locationPickerOpen = false" class="absolute z-30 mt-1 w-[32rem] max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                        <div x-show="locationPickerOpen" x-cloak @click.outside="locationPickerOpen = false" class="absolute z-50 mt-1 w-[32rem] max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
                             <input type="text" x-model="filters.locationText" placeholder="ロケーション検索..." class="{{ $filterInputClass }} mb-2">
                             <div class="grid max-h-64 grid-cols-2 gap-1 overflow-auto rounded-md border border-slate-200 p-1">
                                 @foreach ($locationOptions as $location)
@@ -203,7 +203,7 @@
                 <div class="flex items-center gap-3 pb-2">
                     <div class="flex items-center gap-1 rounded-md bg-green-900/30 p-1 text-xs font-bold">
                         <span class="px-2 text-white/80">入力中</span>
-                        @foreach ([1 => '1回目', 2 => '2回目', 3 => '最終'] as $round => $label)
+                        @foreach ([1 => '1回目', 2 => '2回目', 3 => '3回目'] as $round => $label)
                             <button type="button"
                                 wire:click="setActiveCountRound({{ $round }})"
                                 x-bind:disabled="changeCount > 0"
@@ -249,23 +249,26 @@
                         \App\Models\WmsInventoryCount::STATUS_COUNTING,
                         \App\Models\WmsInventoryCount::STATUS_CHECKED,
                     ], true))
+                        @php
+                            $isCountingStarted = $record->status !== \App\Models\WmsInventoryCount::STATUS_DRAFT;
+                        @endphp
                         <button type="button"
                             wire:click="calculateActiveRoundDifferences"
                             @click="activeTab = 'diff'"
-                            x-bind:disabled="changeCount > 0"
+                            x-bind:disabled="changeCount > 0 || {{ $isCountingStarted ? 'false' : 'true' }}"
                             class="inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
                             <x-filament::icon icon="heroicon-m-calculator" class="h-4 w-4" />
                             <span>{{ $this->activeRoundLabel() }}差異計算</span>
                         </button>
                         <div class="flex items-center gap-1 rounded-md bg-green-900/30 p-1">
-                            @foreach ([1 => '1回目', 2 => '2回目', 3 => '最終'] as $round => $label)
+                            @foreach ([1 => '1回目', 2 => '2回目', 3 => '3回目'] as $round => $label)
                                 @php
                                     $roundConfirmed = $this->isRoundConfirmed($round);
                                     $roundAvailable = $round <= $activeRound;
                                 @endphp
                                 <button type="button"
                                     wire:click="confirmRound({{ $round }})"
-                                    x-bind:disabled="changeCount > 0 || {{ ($roundConfirmed || ! $roundAvailable) ? 'true' : 'false' }}"
+                                    x-bind:disabled="changeCount > 0 || {{ (! $isCountingStarted || $roundConfirmed || ! $roundAvailable) ? 'true' : 'false' }}"
                                     class="h-8 rounded-md px-3 text-xs font-bold shadow-sm disabled:cursor-not-allowed disabled:opacity-50 {{ $roundConfirmed ? 'bg-slate-300 text-slate-600' : ($roundAvailable ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-white/20 text-white') }}">
                                     {{ $roundConfirmed ? "{$label}確定済" : "{$label}確定" }}
                                 </button>
@@ -276,6 +279,7 @@
                         {{ $this->getAction('downloadDiffListPdf') }}
                     @endif
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_CHECKED)
+                        {{ $this->getAction('reopenFinalRound') }}
                         {{ $this->getAction('confirm') }}
                     @endif
                     @if (! in_array($record->status, [
@@ -318,10 +322,14 @@
                                     </button>
                                 </th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">1回目</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">1回目差分</th>
+                                <th class="border border-slate-300 px-2 py-2 text-left">1回目入力者</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">2回目</th>
-                                <th class="border border-slate-300 px-2 py-2 text-right">最終</th>
-                                <th class="border border-slate-300 px-2 py-2 text-center">回数</th>
-                                <th class="border border-slate-300 px-2 py-2 text-left">入力者</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">2回目差分</th>
+                                <th class="border border-slate-300 px-2 py-2 text-left">2回目入力者</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">3回目</th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">3回目差分</th>
+                                <th class="border border-slate-300 px-2 py-2 text-left">3回目入力者</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">
                                     <button type="button" wire:click="sortBy('difference_quantity')" class="inline-flex items-center gap-1 font-bold hover:text-sky-700">
                                         <span>差異数量</span>
@@ -338,7 +346,7 @@
                                     $initSecond = $row->second_count_quantity !== null ? (string) (int) $row->second_count_quantity : '';
                                     $initFinal = $row->final_count_quantity !== null ? (string) (int) $row->final_count_quantity : '';
                                 @endphp
-                                <tr wire:key="ic-row-{{ $row->id }}"
+                                <tr wire:key="ic-row-{{ $row->id }}-r{{ $activeRound }}-u{{ $row->updated_at?->timestamp ?? 0 }}"
                                     x-data="{
                                         floor: @js($row->floor_name ?: ''),
                                         area: @js($row->location_code1 ?: ''),
@@ -354,6 +362,9 @@
                                             if (this.activeRound == 2) return this.toInt(this.second);
                                             return this.toInt(this.first);
                                         },
+                                        get firstDiff() { return this.first !== '' ? this.toInt(this.first)-this.system : null; },
+                                        get secondDiff() { return this.second !== '' ? this.toInt(this.second)-this.system : null; },
+                                        get finalDiff() { return this.final_ !== '' ? this.toInt(this.final_)-this.system : null; },
                                         get diff() { return this.counted!==null ? this.counted-this.system : null; },
                                         get diffAmt() { return this.diff!==null ? Math.round(this.diff*this.cost) : null; },
                                         get changed() { return this.first!==this.origFirst||this.second!==this.origSecond||this.final_!==this.origFinal; },
@@ -378,6 +389,10 @@
                                                 @disabled($activeRound !== 1)
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
+                                            :class="{ 'text-green-700': firstDiff > 0, 'text-red-700': firstDiff < 0 }"
+                                            x-text="firstDiff !== null ? new Intl.NumberFormat().format(firstDiff) : '-'"></td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->first_count_actor_name ?: '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
                                             <input type="text" inputmode="numeric"
                                                 :value="second"
@@ -386,6 +401,10 @@
                                                 @disabled($activeRound !== 2)
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
+                                            :class="{ 'text-green-700': secondDiff > 0, 'text-red-700': secondDiff < 0 }"
+                                            x-text="secondDiff !== null ? new Intl.NumberFormat().format(secondDiff) : '-'"></td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->second_count_actor_name ?: '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
                                             <input type="text" inputmode="numeric"
                                                 :value="final_"
@@ -394,10 +413,10 @@
                                                 @disabled($activeRound !== 3)
                                                 class="{{ $countInputClass }}" placeholder="-">
                                         </td>
-                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-center font-bold tabular-nums">
-                                            <span x-text="final_ !== '' ? '最終' : (second !== '' ? '2回目' : (first !== '' ? '1回目' : '-'))"></span>
-                                        </td>
-                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->latestLog?->actor_name ?? '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
+                                            :class="{ 'text-green-700': finalDiff > 0, 'text-red-700': finalDiff < 0 }"
+                                            x-text="finalDiff !== null ? new Intl.NumberFormat().format(finalDiff) : '-'"></td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->final_count_actor_name ?: '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums"
                                             :class="{ 'text-green-700': diff > 0, 'text-red-700': diff < 0 }"
                                             x-text="diff !== null ? new Intl.NumberFormat().format(diff) : '-'"></td>
@@ -406,13 +425,20 @@
                                             x-text="diffAmt !== null ? '¥' + new Intl.NumberFormat().format(diffAmt) : '-'"></td>
                                     @else
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums">{{ $initFirst !== '' ? number_format((int) $initFirst) : '-' }}</td>
-                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums">{{ $initSecond !== '' ? number_format((int) $initSecond) : '-' }}</td>
-                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums">{{ $initFinal !== '' ? number_format((int) $initFinal) : '-' }}</td>
-                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-center font-bold tabular-nums">{{ $initFinal !== '' ? '最終' : ($initSecond !== '' ? '2回目' : ($initFirst !== '' ? '1回目' : '-')) }}</td>
-                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->latestLog?->actor_name ?? '-' }}</td>
                                         @php
-                                            $diffQty = $row->difference_quantity;
+                                            $firstDiff = $row->roundDifference(1);
+                                            $secondDiff = $row->roundDifference(2);
+                                            $finalDiff = $row->roundDifference(3);
                                         @endphp
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $firstDiff !== null && $firstDiff > 0 ? 'text-green-700' : ($firstDiff !== null && $firstDiff < 0 ? 'text-red-700' : '') }}">{{ $firstDiff !== null ? number_format((int) $firstDiff) : '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->first_count_actor_name ?: '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums">{{ $initSecond !== '' ? number_format((int) $initSecond) : '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $secondDiff !== null && $secondDiff > 0 ? 'text-green-700' : ($secondDiff !== null && $secondDiff < 0 ? 'text-red-700' : '') }}">{{ $secondDiff !== null ? number_format((int) $secondDiff) : '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->second_count_actor_name ?: '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums">{{ $initFinal !== '' ? number_format((int) $initFinal) : '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $finalDiff !== null && $finalDiff > 0 ? 'text-green-700' : ($finalDiff !== null && $finalDiff < 0 ? 'text-red-700' : '') }}">{{ $finalDiff !== null ? number_format((int) $finalDiff) : '-' }}</td>
+                                        <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-slate-600">{{ $row->final_count_actor_name ?: '-' }}</td>
+                                        @php $diffQty = $row->difference_quantity; @endphp
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $diffQty !== null && $diffQty > 0 ? 'text-green-700' : ($diffQty !== null && $diffQty < 0 ? 'text-red-700' : '') }}">{{ $diffQty !== null ? number_format((int) $diffQty) : '-' }}</td>
                                         <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right tabular-nums {{ $row->difference_amount !== null && (float) $row->difference_amount > 0 ? 'text-green-700' : ($row->difference_amount !== null && (float) $row->difference_amount < 0 ? 'text-red-700' : '') }}">{{ $row->difference_amount !== null ? '¥' . number_format((int) $row->difference_amount) : '-' }}</td>
                                     @endif

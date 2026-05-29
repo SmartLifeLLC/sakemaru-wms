@@ -3,12 +3,15 @@
 namespace App\Services\InventoryCount;
 
 use App\Models\Sakemaru\Location;
+use App\Models\Sakemaru\User;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
+use App\Models\WmsPicker;
 use App\Services\Warehouse91StockLotSyncService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class InventoryCountService
 {
@@ -71,13 +74,16 @@ class InventoryCountService
             ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
             ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
             ->where('rs.warehouse_id', $warehouseId)
-            ->where('rs.current_quantity', '!=', 0)
+            ->where(function ($query) {
+                $query->where('rs.current_quantity', '!=', 0)
+                    ->orWhereNotNull('lot.real_stock_id');
+            })
             ->select([
                 'rs.id as real_stock_id',
                 'rs.item_id',
                 'i.code as item_code',
                 'i.name as item_name',
-                DB::raw('(SELECT isi.search_string FROM item_search_information isi WHERE isi.item_id = i.id AND isi.code_type = 1 AND isi.is_active = 1 LIMIT 1) as barcode'),
+                DB::raw("(SELECT isi.search_string FROM item_search_information isi WHERE isi.item_id = i.id AND isi.code_type = 'JAN' AND isi.quantity_type = 'PIECE' AND isi.is_active = 1 ORDER BY isi.priority IS NULL, isi.priority, isi.id LIMIT 1) as barcode"),
                 'l.id as location_id',
                 'f.id as floor_id',
                 'f.name as floor_name',
@@ -110,8 +116,7 @@ class InventoryCountService
                         'location_no' => Location::formatCode(
                             $row->location_code1,
                             $row->location_code2,
-                            $row->location_code3,
-                            '-'
+                            $row->location_code3
                         ),
                         'system_quantity' => $row->system_quantity,
                         'cost_price' => $row->cost_price,
@@ -143,6 +148,7 @@ class InventoryCountService
         ?string $deviceId,
         ?int $userId,
         string $requestUuid,
+        bool $accumulate = false,
     ): WmsInventoryCountItem {
         // Idempotency check: if this request_uuid already exists, return as-is
         $existingLog = WmsInventoryCountItemLog::where('request_uuid', $requestUuid)->first();
@@ -158,6 +164,10 @@ class InventoryCountService
             default => null,
         };
 
+        $newQuantity = $accumulate
+            ? (float) ($oldQuantity ?? 0) + (float) $quantity
+            : (float) $quantity;
+
         // Update the appropriate count quantity based on round
         $updateData = [
             'input_count' => ($countItem->input_count ?? 0) + 1,
@@ -165,15 +175,26 @@ class InventoryCountService
         ];
 
         match ($round) {
-            1 => $updateData['first_count_quantity'] = $quantity,
-            2 => $updateData['second_count_quantity'] = $quantity,
-            3 => $updateData['final_count_quantity'] = $quantity,
+            1 => $updateData += [
+                'first_count_quantity' => $newQuantity,
+                'first_count_actor_name' => $this->actorName($deviceId, $userId),
+            ],
+            2 => $updateData += [
+                'second_count_quantity' => $newQuantity,
+                'second_count_actor_name' => $this->actorName($deviceId, $userId),
+            ],
+            3 => $updateData += [
+                'final_count_quantity' => $newQuantity,
+                'final_count_actor_name' => $this->actorName($deviceId, $userId),
+            ],
             default => throw new \InvalidArgumentException('count round must be 1, 2, or 3'),
         };
 
-        $countedQty = $round === 3
-            ? $quantity
-            : ($updateData['second_count_quantity'] ?? $countItem->second_count_quantity ?? $updateData['first_count_quantity'] ?? $countItem->first_count_quantity);
+        $countedQty = match ($round) {
+            1 => $updateData['first_count_quantity'] ?? $countItem->first_count_quantity,
+            2 => $updateData['second_count_quantity'] ?? $countItem->second_count_quantity,
+            3 => $updateData['final_count_quantity'] ?? $countItem->final_count_quantity,
+        };
 
         if ($countedQty !== null) {
             $updateData['difference_quantity'] = (float) $countedQty - (float) $countItem->system_quantity;
@@ -189,7 +210,7 @@ class InventoryCountService
             'user_id' => $userId,
             'count_round' => $round,
             'old_quantity' => $oldQuantity,
-            'new_quantity' => $quantity,
+            'new_quantity' => $newQuantity,
             'request_uuid' => $requestUuid,
             'created_at' => now(),
         ]);
@@ -235,26 +256,32 @@ class InventoryCountService
                 return;
             }
 
-            $missingFinalCount = $inventoryCount->items()
-                ->whereNull('final_count_quantity')
-                ->count();
-
-            if ($missingFinalCount > 0) {
-                throw new \RuntimeException("最終数量が未入力の明細が {$missingFinalCount} 件あります。");
-            }
+            $this->confirmUncountedItemsAsCurrentQuantity($inventoryCount);
 
             $this->refreshDifferences($inventoryCount);
 
-            $queueResult = $this->createStockAdjustmentQueue($inventoryCount);
+            $queueResult = $this->createInventoryAdjustmentQueues($inventoryCount);
 
-            $inventoryCount->update([
+            $updates = [
                 'status' => WmsInventoryCount::STATUS_CONFIRMED,
                 'confirmed_at' => now(),
                 'confirmed_by' => $userId,
-                'stock_adjustment_request_id' => $queueResult['request_id'],
-                'stock_adjustment_queue_id' => $queueResult['queue_id'],
-                'stock_adjustment_error_message' => null,
-            ]);
+            ];
+
+            foreach ([
+                'inventory_adjustment_request_id' => $queueResult['request_id'],
+                'inventory_adjustment_queue_id' => $queueResult['queue_id'],
+                'inventory_adjustment_request_ids' => $queueResult['request_ids'] !== [] ? json_encode($queueResult['request_ids'], JSON_UNESCAPED_UNICODE) : null,
+                'inventory_adjustment_queue_ids' => $queueResult['queue_ids'] !== [] ? json_encode($queueResult['queue_ids'], JSON_UNESCAPED_UNICODE) : null,
+                'inventory_adjustment_queue_count' => count($queueResult['queue_ids']),
+                'inventory_adjustment_error_message' => null,
+            ] as $column => $value) {
+                if (Schema::connection('sakemaru')->hasColumn('wms_inventory_counts', $column)) {
+                    $updates[$column] = $value;
+                }
+            }
+
+            $inventoryCount->update($updates);
         });
     }
 
@@ -273,23 +300,41 @@ class InventoryCountService
             });
     }
 
-    private function createStockAdjustmentQueue(WmsInventoryCount $inventoryCount): array
+    private function confirmUncountedItemsAsCurrentQuantity(WmsInventoryCount $inventoryCount): void
+    {
+        $inventoryCount->items()
+            ->whereNull('final_count_quantity')
+            ->update([
+                'final_count_quantity' => DB::raw('system_quantity'),
+                'difference_quantity' => 0,
+                'difference_amount' => 0,
+                'updated_at' => now(),
+            ]);
+    }
+
+    private function actorName(?string $deviceId, ?int $userId): string
+    {
+        if ($deviceId === 'WEB') {
+            $userName = $userId ? User::find($userId)?->name : null;
+
+            return $userName ? "WEB: {$userName}" : 'WEB';
+        }
+
+        $pickerName = $userId ? WmsPicker::find($userId)?->display_name : null;
+        if ($pickerName) {
+            return $pickerName;
+        }
+
+        $userName = $userId ? User::find($userId)?->name : null;
+
+        return $userName
+            ?? ($deviceId ? "HANDY: {$deviceId}" : '不明');
+    }
+
+    private function createInventoryAdjustmentQueues(WmsInventoryCount $inventoryCount): array
     {
         $connection = DB::connection('sakemaru');
-        $requestId = "wms-inventory-count-{$inventoryCount->id}";
         $countDate = $inventoryCount->count_date?->toDateString() ?? (string) $inventoryCount->count_date;
-
-        $existing = $connection->table('stock_adjustment_queue')
-            ->where('request_id', $requestId)
-            ->first(['id', 'request_id', 'status', 'stock_adjustment_id']);
-
-        if ($existing) {
-            return [
-                'request_id' => $existing->request_id,
-                'queue_id' => (int) $existing->id,
-                'duplicated' => true,
-            ];
-        }
 
         $items = $connection
             ->table('wms_inventory_count_items as ici')
@@ -308,6 +353,8 @@ class InventoryCountService
                 'ici.final_count_quantity',
                 'ici.difference_quantity',
                 'ici.cost_price',
+                'ici.location_no',
+                'ici.location_code1',
                 'sa.code as stock_allocation_code',
             ]);
 
@@ -315,45 +362,89 @@ class InventoryCountService
             return [
                 'request_id' => null,
                 'queue_id' => null,
+                'request_ids' => [],
+                'queue_ids' => [],
                 'duplicated' => false,
             ];
         }
 
-        $details = $items->map(fn ($item) => [
-            'wms_inventory_count_item_id' => (int) $item->id,
-            'real_stock_id' => $item->real_stock_id ? (int) $item->real_stock_id : null,
-            'item_code' => (string) $item->item_code,
-            'stock_allocation_code' => $item->stock_allocation_code ?: '1',
-            'stock_quantity_before' => (int) $item->system_quantity,
-            'stock_quantity_after' => (int) $item->final_count_quantity,
-            'stock_adjustment_quantity' => (int) $item->difference_quantity,
-            'unit_price' => (float) $item->cost_price,
-            'amount' => (float) $item->difference_quantity * (float) $item->cost_price,
-            'note' => "WMS棚卸 {$inventoryCount->count_no}",
-        ])->values()->all();
+        if (! Schema::connection('sakemaru')->hasTable('inventory_adjustment_queue')) {
+            throw new \RuntimeException('実棚変更キューテーブルが見つかりません。ai-core側のマイグレーションを先に実行してください。');
+        }
 
-        $queueId = $connection->table('stock_adjustment_queue')->insertGetId([
-            'client_id' => $inventoryCount->client_id,
-            'slip_number' => $inventoryCount->count_no,
-            'process_date' => $countDate,
-            'adjustment_date' => $countDate,
-            'note' => "WMS棚卸確定 {$inventoryCount->count_no}",
-            'items' => json_encode($details, JSON_UNESCAPED_UNICODE),
-            'warehouse_code' => $inventoryCount->warehouse_code,
-            'source_type' => 'WMS_INVENTORY_COUNT',
-            'source_id' => $inventoryCount->id,
-            'wms_inventory_count_id' => $inventoryCount->id,
-            'request_id' => $requestId,
-            'status' => 'BEFORE',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        $requestIds = [];
+        $queueIds = [];
+        $duplicated = false;
+
+        foreach ($items->groupBy(fn ($item) => $this->inventoryAdjustmentLocationBucket($item)) as $bucket => $groupedItems) {
+            $requestId = "wms-inventory-adjustment-{$inventoryCount->id}-{$bucket}";
+
+            $existing = $connection->table('inventory_adjustment_queue')
+                ->where('request_id', $requestId)
+                ->first(['id', 'request_id', 'status', 'inventory_adjustment_id']);
+
+            if ($existing) {
+                $requestIds[] = $existing->request_id;
+                $queueIds[] = (int) $existing->id;
+                $duplicated = true;
+
+                continue;
+            }
+
+            $details = $groupedItems->map(fn ($item) => [
+                'wms_inventory_count_item_id' => (int) $item->id,
+                'real_stock_id' => $item->real_stock_id ? (int) $item->real_stock_id : null,
+                'item_code' => (string) $item->item_code,
+                'stock_allocation_code' => $item->stock_allocation_code ?: '1',
+                'stock_quantity_before' => (int) $item->system_quantity,
+                'stock_quantity_after' => (int) $item->final_count_quantity,
+                'inventory_adjustment_quantity' => (int) $item->difference_quantity,
+                'unit_price' => (float) $item->cost_price,
+                'amount' => (float) $item->difference_quantity * (float) $item->cost_price,
+                'note' => "WMS棚卸 {$inventoryCount->count_no} 棚番{$bucket}",
+            ])->values()->all();
+
+            $queueId = $connection->table('inventory_adjustment_queue')->insertGetId([
+                'client_id' => $inventoryCount->client_id,
+                'slip_number' => "{$inventoryCount->count_no}-{$bucket}",
+                'process_date' => $countDate,
+                'adjustment_date' => $countDate,
+                'note' => "WMS棚卸確定 {$inventoryCount->count_no} 棚番{$bucket}",
+                'items' => json_encode($details, JSON_UNESCAPED_UNICODE),
+                'warehouse_code' => $inventoryCount->warehouse_code,
+                'source_type' => 'WMS_INVENTORY_COUNT',
+                'source_id' => $inventoryCount->id,
+                'wms_inventory_count_id' => $inventoryCount->id,
+                'request_id' => $requestId,
+                'status' => 'BEFORE',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $requestIds[] = $requestId;
+            $queueIds[] = (int) $queueId;
+        }
 
         return [
-            'request_id' => $requestId,
-            'queue_id' => (int) $queueId,
-            'duplicated' => false,
+            'request_id' => $requestIds[0] ?? null,
+            'queue_id' => $queueIds[0] ?? null,
+            'request_ids' => $requestIds,
+            'queue_ids' => $queueIds,
+            'duplicated' => $duplicated,
         ];
+    }
+
+    private function inventoryAdjustmentLocationBucket(object $item): string
+    {
+        $location = trim((string) ($item->location_no ?: $item->location_code1 ?: ''));
+
+        if ($location === '') {
+            return 'NO_LOCATION';
+        }
+
+        $bucket = substr(preg_replace('/[^A-Za-z0-9]/', '', $location) ?: $location, 0, 2);
+
+        return $bucket !== '' ? strtoupper($bucket) : 'NO_LOCATION';
     }
 
     public function cancel(WmsInventoryCount $inventoryCount): void

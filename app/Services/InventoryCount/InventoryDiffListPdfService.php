@@ -171,7 +171,7 @@ class InventoryDiffListPdfService
 
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_HEADER);
         $this->pdf->SetXY($x + 57, $this->currentY + 2);
-        $this->pdf->Cell(40, 5, '棚卸日 ' . $header['count_date'], 0, 0, 'L');
+        $this->pdf->Cell(40, 5, '棚卸日 '.$header['count_date'], 0, 0, 'L');
 
         $printTimestamp = now()->format('Y/m/d H:i:s');
         $this->pdf->SetXY($x + self::CONTENT_WIDTH - 45, $this->currentY);
@@ -181,10 +181,10 @@ class InventoryDiffListPdfService
         $row2Y = $this->currentY + 7;
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_HEADER);
         $this->pdf->SetXY($x + 57, $row2Y);
-        $this->pdf->Cell(35, 5, '倉庫コード ' . $header['warehouse_code'], 0, 0, 'L');
+        $this->pdf->Cell(35, 5, '倉庫コード '.$header['warehouse_code'], 0, 0, 'L');
 
         $this->pdf->SetXY($x + 95, $row2Y);
-        $this->pdf->Cell(60, 5, '倉庫名称 ' . $header['warehouse_name'], 0, 0, 'L');
+        $this->pdf->Cell(60, 5, '倉庫名称 '.$header['warehouse_name'], 0, 0, 'L');
 
         $this->currentY = $row2Y + 7;
     }
@@ -265,6 +265,15 @@ class InventoryDiffListPdfService
         $this->pdf->Cell(self::COL_W1, $rowH, $countItem->item_code ?? '', 0, 0, 'L');
 
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
+        $this->pdf->SetXY($x + self::COL_W1, $y);
+        $this->pdf->Cell(self::COL_W2, $rowH, $countItem->location_no ?? '', 0, 0, 'L');
+
+        $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y);
+        $this->pdf->Cell(self::COL_W3, $rowH, $countItem->lot_no ?? '', 0, 0, 'L');
+
+        $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3, $y);
+        $this->pdf->Cell(self::COL_W4, $rowH, $countItem->expiration_date?->format('Y/m/d') ?? '', 0, 0, 'L');
+
         $this->pdf->SetXY($rightX, $y);
         $this->pdf->Cell(self::COL_W6, $rowH, $costPrice, 0, 0, 'R');
 
@@ -336,7 +345,7 @@ class InventoryDiffListPdfService
             return '¥0';
         }
 
-        return '¥' . number_format($floatVal);
+        return '¥'.number_format($floatVal);
     }
 
     private function formatDiffMoney(mixed $value): string
@@ -353,7 +362,7 @@ class InventoryDiffListPdfService
 
         $prefix = $floatVal < 0 ? '-¥' : '¥';
 
-        return $prefix . number_format(abs($floatVal));
+        return $prefix.number_format(abs($floatVal));
     }
 
     private function truncateText(string $text, float $maxWidthMm): string
@@ -384,6 +393,6 @@ class InventoryDiffListPdfService
             $width += $charWidth;
         }
 
-        return $result . $ellipsis;
+        return $result.$ellipsis;
     }
 }
