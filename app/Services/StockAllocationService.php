@@ -314,6 +314,7 @@ class StockAllocationService
             ->join('locations as l', 'l.id', '=', 'rsl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
+            ->where('l.is_disabled', false)
             ->whereRaw("{$availableExpr} > 0");
 
         // Apply buyer restriction filter if buyerId is provided

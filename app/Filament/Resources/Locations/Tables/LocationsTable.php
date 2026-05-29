@@ -209,6 +209,7 @@ class LocationsTable
 
             $z00 = $db->table('locations')
                 ->where('warehouse_id', $source->warehouse_id)
+                ->where('is_disabled', false)
                 ->whereRaw("CONCAT(COALESCE(code1, ''), COALESCE(code2, ''), COALESCE(code3, '')) = 'Z00'")
                 ->orderByRaw("name = 'デフォルト' DESC")
                 ->orderBy('id')
@@ -285,6 +286,13 @@ class LocationsTable
                         'updated_at' => $now,
                     ]);
             }
+
+            $db->table('locations')
+                ->where('id', $source->id)
+                ->update([
+                    'is_disabled' => true,
+                    'updated_at' => $now,
+                ]);
 
             return [
                 'lots' => $lots,
