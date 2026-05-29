@@ -561,8 +561,8 @@ class WmsShortagesWaitingApprovalsTable
                                 // 新規作成
                                 $service->createProxyShipment(
                                     $record,
-                                    $allocation['from_warehouse_id'],
-                                    $allocation['assign_qty'],
+                                    (int) $allocation['from_warehouse_id'],
+                                    (int) $allocation['assign_qty'],
                                     $record->qty_type_at_order,  // 受注単位を使用
                                     auth()->id() ?? 0
                                 );

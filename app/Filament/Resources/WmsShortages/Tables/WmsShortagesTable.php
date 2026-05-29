@@ -697,6 +697,10 @@ class WmsShortagesTable
                             }
 
                             foreach ($data['allocations'] as $allocation) {
+                                if (empty($allocation['from_warehouse_id'])) {
+                                    continue;
+                                }
+
                                 // 数量が0の場合は削除
                                 if (isset($allocation['assign_qty']) && $allocation['assign_qty'] == 0) {
                                     if (! empty($allocation['id'])) {
@@ -722,8 +726,8 @@ class WmsShortagesTable
                                 } else {
                                     $service->createProxyShipment(
                                         $record,
-                                        $allocation['from_warehouse_id'],
-                                        $allocation['assign_qty'],
+                                        (int) $allocation['from_warehouse_id'],
+                                        (int) $allocation['assign_qty'],
                                         $allocation['assign_qty_type'],
                                         auth()->id() ?? 0
                                     );

@@ -7,6 +7,7 @@ use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\Sakemaru\ClientPrinterDriver;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsPickingItemResult;
@@ -46,6 +47,22 @@ class WmsShipmentSlipsTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
+                TextColumn::make('sync_status')
+                    ->label('在庫同期')
+                    ->badge()
+                    ->state(fn ($record) => $record->is_stock_synced ? '同期済' : '同期中')
+                    ->color(fn ($record) => $record->is_stock_synced ? 'success' : 'warning')
+                    ->icon(fn ($record) => $record->is_stock_synced ? 'heroicon-o-check-circle' : 'heroicon-o-arrow-path')
+                    ->alignCenter(),
+
+                TextColumn::make('dedicated_slip')
+                    ->label('専用伝票')
+                    ->badge()
+                    ->state(fn ($record) => $record->has_dedicated_slip ? '専用伝票' : null)
+                    ->color('info')
+                    ->placeholder('-')
+                    ->alignCenter(),
+
                 TextColumn::make('delivery_course_code')
                     ->label('配送コード')
                     ->searchable()
@@ -132,12 +149,6 @@ class WmsShipmentSlipsTable
                         return $record->lastPrintedPrinter?->name ?? 'PDFのみ';
                     })
                     ->placeholder('-')
-                    ->alignCenter(),
-
-                TextColumn::make('task_count')
-                    ->label('タスク数')
-                    ->state(fn ($record) => $record->grouped_tasks->count())
-                    ->suffix('件')
                     ->alignCenter(),
             ])
             ->filters([
@@ -487,10 +498,9 @@ class WmsShipmentSlipsTable
                     }),
             ], position: RecordActionsPosition::BeforeColumns)
             ->checkIfRecordIsSelectableUsing(function (WmsPickingTask $record): bool {
-                // 印刷回数0のみチェックボックスを表示（出荷確定のみ一括処理可能）
                 $printCount = $record->wave->print_count ?? 0;
 
-                return $printCount === 0;
+                return $printCount === 0 && $record->is_stock_synced;
             })
             ->bulkActions([
                 BulkAction::make('bulkPrint')
@@ -765,7 +775,14 @@ class WmsShipmentSlipsTable
             ->toolbarActions([
                 static::getExportAction(),
             ])
-            ->defaultSort('wave.created_at', 'desc');
+            ->defaultSort('wave.created_at', 'desc')
+            ->poll(function ($livewire): ?string {
+                if ($livewire->allSynced ?? false) {
+                    return null;
+                }
+
+                return '5s';
+            });
     }
 
     protected static function additionalShortagesSection(WmsPickingTask $record): Section
@@ -1064,9 +1081,53 @@ class WmsShipmentSlipsTable
             return $task->delivery_course_id.'-'.($task->wave_id ?? 'null').'-'.$task->shipment_date;
         });
 
+        // 全タスクIDからピッキング明細に紐づく未同期欠品を一括取得
+        $allTaskIds = $allTasks->pluck('id');
+        $unsyncedByTask = collect();
+        if ($allTaskIds->isNotEmpty()) {
+            $unsyncedByTask = WmsShortage::query()
+                ->join('wms_picking_item_results', 'wms_shortages.source_pick_result_id', '=', 'wms_picking_item_results.id')
+                ->whereIn('wms_picking_item_results.picking_task_id', $allTaskIds)
+                ->where('wms_shortages.shortage_qty', '>', 0)
+                ->where('wms_shortages.is_synced', false)
+                ->select('wms_picking_item_results.picking_task_id')
+                ->distinct()
+                ->pluck('picking_task_id')
+                ->flip();
+        }
+
+        // 専用伝票判定: タスク→ピッキング明細→売上→得意先→得意先詳細(最新)→伝票種別
+        $dedicatedByTask = collect();
+        if ($allTaskIds->isNotEmpty()) {
+            $systemDate = ClientSetting::systemDateYMD();
+            $currentDetails = DB::connection('sakemaru')->table('buyer_details')
+                ->selectRaw('buyer_id, slip_type_id, ROW_NUMBER() OVER (PARTITION BY buyer_id ORDER BY start_date DESC) AS rn')
+                ->where('start_date', '<=', $systemDate);
+
+            $dedicatedByTask = DB::connection('sakemaru')->table('wms_picking_item_results as pir')
+                ->join('earnings as e', 'pir.earning_id', '=', 'e.id')
+                ->joinSub($currentDetails, 'bd', function ($join) {
+                    $join->on('e.buyer_id', '=', 'bd.buyer_id');
+                })
+                ->join('slip_types as st', 'bd.slip_type_id', '=', 'st.id')
+                ->whereIn('pir.picking_task_id', $allTaskIds)
+                ->where('bd.rn', 1)
+                ->where('st.category', 2)
+                ->select('pir.picking_task_id')
+                ->distinct()
+                ->pluck('picking_task_id')
+                ->flip();
+        }
+
         foreach ($records as $record) {
             $key = $record->delivery_course_id.'-'.($record->wave_id ?? 'null').'-'.$record->shipment_date;
-            $record->grouped_tasks = $groupedTasks->get($key, collect());
+            $tasks = $groupedTasks->get($key, collect());
+            $record->grouped_tasks = $tasks;
+
+            $record->is_stock_synced = $tasks->isNotEmpty()
+                && ! $tasks->contains(fn ($task) => $unsyncedByTask->has($task->id));
+
+            $record->has_dedicated_slip = $tasks->contains(fn ($task) => $dedicatedByTask->has($task->id));
         }
     }
 

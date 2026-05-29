@@ -24,6 +24,8 @@ class ListWmsShipmentSlips extends ListRecords
 
     protected static string $resource = WmsShipmentSlipsResource::class;
 
+    public bool $allSynced = false;
+
     protected function getHeaderActions(): array
     {
         return [];
@@ -122,9 +124,10 @@ class ListWmsShipmentSlips extends ListRecords
     {
         $paginator = parent::paginateTableQuery($query);
 
-        // ページネーション結果のレコードにグループ化されたタスクをロード
         $records = collect($paginator->items());
         WmsShipmentSlipsTable::loadGroupedTasks($records);
+
+        $this->allSynced = $records->isEmpty() || $records->every(fn ($r) => $r->is_stock_synced);
 
         return $paginator;
     }
