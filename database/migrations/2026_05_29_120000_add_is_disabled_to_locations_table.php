@@ -1,26 +1,32 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        if (! Schema::hasColumn('locations', 'is_disabled')) {
-            Schema::table('locations', function (Blueprint $table) {
-                $table->boolean('is_disabled')->default(false);
-            });
+        if (! $this->hasColumn('locations', 'is_disabled')) {
+            DB::statement('ALTER TABLE `locations` ADD `is_disabled` TINYINT(1) NOT NULL DEFAULT 0');
         }
     }
 
     public function down(): void
     {
-        if (Schema::hasColumn('locations', 'is_disabled')) {
-            Schema::table('locations', function (Blueprint $table) {
-                $table->dropColumn('is_disabled');
-            });
+        if ($this->hasColumn('locations', 'is_disabled')) {
+            DB::statement('ALTER TABLE `locations` DROP COLUMN `is_disabled`');
         }
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        $database = DB::getDatabaseName();
+
+        return DB::table('information_schema.COLUMNS')
+            ->where('TABLE_SCHEMA', $database)
+            ->where('TABLE_NAME', $table)
+            ->where('COLUMN_NAME', $column)
+            ->exists();
     }
 };
