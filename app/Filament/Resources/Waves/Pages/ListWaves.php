@@ -708,6 +708,7 @@ class ListWaves extends ListRecords
         int $userId
     ): WaveGroup {
         $conditions = $data;
+        $conditions['include_past'] = (bool) ($data['include_past'] ?? false);
         $conditions['shipping_dates'] = $this->getShippingDatesFromData($data);
         $conditions['target_document_types'] = $targetDocumentTypes;
 

@@ -155,7 +155,7 @@ class WaveGroupGenerationService
         $generationType = $data['generation_type'] ?? 'delivery_course';
         $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
         $buyerIds = $data['buyer_ids'] ?? [];
-        $includePast = $data['include_past'] ?? true;
+        $includePast = (bool) ($data['include_past'] ?? false);
         $targetDocumentTypes = $this->normalizeTargetDocumentTypes($data['target_document_types'] ?? null);
 
         if (empty($shippingDates)) {
