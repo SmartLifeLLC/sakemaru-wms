@@ -1385,7 +1385,9 @@ class PickingListService
                 $piecesContribution = $qtyType === QuantityType::CASE ? $qty * $capacityCase : $qty;
 
                 $rowsByLocationItem[$key]['total_pieces'] += $piecesContribution;
-                $rowsByLocationItem[$key]['shortage_qty'] += (int) $row->shortage_qty;
+                $shortageQty = (int) $row->shortage_qty;
+                $shortagePieces = $qtyType === QuantityType::CASE ? $shortageQty * $capacityCase : $shortageQty;
+                $rowsByLocationItem[$key]['shortage_qty'] += $shortagePieces;
             }
 
             $no = 0;

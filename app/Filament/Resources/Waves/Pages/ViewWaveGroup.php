@@ -51,7 +51,6 @@ class ViewWaveGroup extends ViewRecord
                 ->color('info')
                 ->visible(fn (): bool => ! empty($this->record->picking_lists))
                 ->modalHeading(fn (): string => "ピッキングリスト出力: {$this->record->group_no}")
-                ->modalDescription('リスト種別を選択し、保存済みの対象リストを出力します')
                 ->modalWidth('6xl')
                 ->extraModalWindowAttributes(['class' => 'picking-list-modal'])
                 ->modalFooterActionsAlignment(Alignment::End)
@@ -74,7 +73,9 @@ class ViewWaveGroup extends ViewRecord
                         ->default(array_key_first($this->record->picking_lists ?? []))
                         ->live(),
 
-                    ...WaveGroupsTable::printerSelectionSchema($this->record->warehouse_id),
+                    \Filament\Schemas\Components\Grid::make(2)->schema([
+                        ...WaveGroupsTable::printerSelectionSchema($this->record->warehouse_id),
+                    ]),
 
                     Placeholder::make('wave_preview')
                         ->label('対象波動')

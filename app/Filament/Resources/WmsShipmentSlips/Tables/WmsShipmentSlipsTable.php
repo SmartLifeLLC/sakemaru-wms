@@ -502,13 +502,77 @@ class WmsShipmentSlipsTable
 
                 return $printCount === 0 && $record->is_stock_synced;
             })
-            ->bulkActions([
+            ->groupedBulkActions([
                 BulkAction::make('bulkPrint')
                     ->label('一括出荷確定')
                     ->icon('heroicon-o-printer')
                     ->color('primary')
-                    ->requiresConfirmation()
                     ->modalHeading('一括出荷確定')
+                    ->modalWidth('3xl')
+                    ->schema([
+                        Section::make('プリンター選択')
+                            ->schema([
+                                Select::make('printer_warehouse_id')
+                                    ->label('倉庫')
+                                    ->options(
+                                        Warehouse::query()
+                                            ->where('is_active', true)
+                                            ->pluck('name', 'id')
+                                    )
+                                    ->default(fn () => auth()->user()?->default_warehouse_id)
+                                    ->searchable()
+                                    ->live()
+                                    ->afterStateUpdated(fn ($set) => $set('printer_driver_id', null)),
+
+                                Select::make('printer_driver_id')
+                                    ->label('プリンター')
+                                    ->options(function (Get $get) {
+                                        $warehouseId = $get('printer_warehouse_id');
+                                        if (! $warehouseId) {
+                                            return [];
+                                        }
+
+                                        $printers = ClientPrinterDriver::query()
+                                            ->where('warehouse_id', $warehouseId)
+                                            ->where('is_active', true)
+                                            ->get()
+                                            ->mapWithKeys(fn ($p) => [
+                                                $p->id => filled($p->user_name) ? $p->user_name : $p->display_name,
+                                            ]);
+
+                                        if ($printers->isEmpty()) {
+                                            return ['' => 'なし（PDFのみ生成）'];
+                                        }
+
+                                        return ['' => 'なし（PDFのみ生成）'] + $printers->toArray();
+                                    })
+                                    ->default('')
+                                    ->extraAlpineAttributes([
+                                        'x-init' => "
+                                            const savedPrinterId = localStorage.getItem('wms-shipment-slips.printer')
+                                            if ((state === null || state === undefined || state === '') && savedPrinterId !== null) {
+                                                state = savedPrinterId
+                                            }
+                                        ",
+                                        'x-effect' => "
+                                            if (state !== null && state !== undefined) {
+                                                localStorage.setItem('wms-shipment-slips.printer', state)
+                                            }
+                                        ",
+                                    ])
+                                    ->live()
+                                    ->searchable()
+                                    ->helperText(function (Get $get) {
+                                        $printerId = $get('printer_driver_id');
+                                        if (! $printerId) {
+                                            return '印刷されず、酒丸側でPDFのみが生成されます。';
+                                        }
+
+                                        return null;
+                                    }),
+                            ])
+                            ->compact(),
+                    ])
                     ->modalDescription(function (Collection $records): \Illuminate\Support\HtmlString|string {
                         $approvalService = app(ShortageApprovalService::class);
 
@@ -627,7 +691,11 @@ class WmsShipmentSlipsTable
                         return new \Illuminate\Support\HtmlString($html);
                     })
                     ->modalSubmitActionLabel('一括出荷確定')
-                    ->action(function (Collection $records): void {
+                    ->action(function (Collection $records, array $data): void {
+                        $selectedPrinterId = ! empty($data['printer_driver_id'])
+                            ? (int) $data['printer_driver_id']
+                            : null;
+
                         $printService = app(PrintRequestService::class);
                         $approvalService = app(ShortageApprovalService::class);
                         $successCount = 0;
@@ -664,7 +732,8 @@ class WmsShipmentSlipsTable
                                     $record->delivery_course_id,
                                     $record->shipment_date,
                                     $record->warehouse_id,
-                                    $record->wave_id
+                                    $record->wave_id,
+                                    $selectedPrinterId
                                 );
 
                                 if ($result['success']) {
@@ -692,7 +761,7 @@ class WmsShipmentSlipsTable
                                         $updateData = [
                                             'last_printed_at' => $printedAt,
                                             'last_printed_by' => $printedBy,
-                                            'last_printed_printer_id' => null,
+                                            'last_printed_printer_id' => $selectedPrinterId,
                                         ];
                                         if (in_array($task->status, [WmsPickingTask::STATUS_COMPLETED, WmsPickingTask::STATUS_SHORTAGE])) {
                                             $updateData['status'] = WmsPickingTask::STATUS_SHIPPED;
@@ -772,7 +841,7 @@ class WmsShipmentSlipsTable
                     ->whereExists(fn ($query) => static::printTargetExistsQuery($query))
                     ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting', 'lastPrintedByUser', 'lastPrintedPrinter']);
             })
-            ->toolbarActions([
+            ->pushToolbarActions([
                 static::getExportAction(),
             ])
             ->defaultSort('wave.created_at', 'desc')
