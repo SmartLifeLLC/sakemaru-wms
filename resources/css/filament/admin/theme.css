@@ -7,7 +7,7 @@
 @source '../../../../resources/views/components/**/*.blade.php';
 @source '../../../../vendor/archilex/filament-filter-sets/**/*.php';
 @source '../../../../vendor/archilex/filament-filter-sets/**/*.blade.php';
-@source inline("bg-green-50 bg-green-100 bg-green-900 bg-green-950 text-green-300 text-green-700 border-green-400 border-green-600 bg-amber-50 bg-amber-100 bg-amber-900 bg-amber-950 text-amber-300 text-amber-700 border-amber-300 border-amber-600 bg-red-50 bg-red-950 text-red-700 text-red-300 border-red-200 border-red-800 select-none cursor-col-resize pointer-events-none bg-white/90 bg-white/80 bg-gray-200 dark:bg-gray-600 dark:bg-green-900/20 dark:bg-amber-900/20 dark:bg-red-900/20 text-green-600 dark:text-green-400 text-red-600 dark:text-red-400 dark:text-amber-400 text-amber-600");
+@source inline("bg-green-50 bg-green-100 bg-green-900 bg-green-950 text-green-300 text-green-700 border-green-400 border-green-600 bg-amber-50 bg-amber-100 bg-amber-900 bg-amber-950 text-amber-300 text-amber-700 border-amber-300 border-amber-600 bg-red-50 bg-red-950 text-red-700 text-red-300 border-red-200 border-red-800 select-none cursor-col-resize pointer-events-none bg-white/90 bg-white/80 bg-gray-200 dark:bg-gray-600 dark:bg-green-900/20 dark:bg-amber-900/20 dark:bg-red-900/20 text-green-600 dark:text-green-400 text-red-600 dark:text-red-400 dark:text-amber-400 text-amber-600 ring-2 ring-blue-200 ring-blue-500 ring-purple-200 ring-purple-500 border-blue-500 border-purple-500 bg-blue-50 bg-purple-50 bg-blue-100 bg-purple-100 bg-blue-800 bg-purple-800 text-blue-600 text-blue-700 text-blue-300 text-blue-400 text-blue-500 text-purple-600 text-purple-700 text-purple-300 text-purple-400 text-purple-500 dark:bg-blue-900/30 dark:bg-purple-900/30 dark:ring-blue-800 dark:ring-purple-800");
 
 /* モーダルスプリットビュー用のカスタムクラス */
 .modal-split-left {
@@ -832,11 +832,26 @@ html.fi {
     background-color: #111827 !important;
 }
 
-/* 波動生成モーダル - ヘッダー紺色 */
+/* 波動生成モーダル - ヘッダー紺色・高さ制限 */
+.wave-modal {
+    max-height: 66dvh !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.wave-modal .fi-modal-content {
+    flex: 1 1 auto !important;
+    overflow-y: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+}
+
 .wave-modal .fi-modal-header {
     background-color: #1e293b !important;
     border-radius: 0.75rem 0.75rem 0 0;
     padding: 0.75rem 1rem;
+    flex-shrink: 0 !important;
 }
 
 .wave-modal .fi-modal-header .fi-modal-heading {
@@ -858,6 +873,7 @@ html.fi {
 .wave-modal .fi-modal-footer {
     display: flex !important;
     justify-content: flex-end !important;
+    flex-shrink: 0 !important;
 }
 
 .wave-modal .fi-modal-footer > * {

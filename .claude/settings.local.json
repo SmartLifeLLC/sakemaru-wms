@@ -80,7 +80,8 @@
       "Read(//Users/jungsinyu/.config/valet/Log/**)",
       "Bash(xargs ls -1t)",
       "Bash(python3 *)",
-      "Bash(open *)"
+      "Bash(open *)",
+      "Bash(composer dump-autoload *)"
     ]
   }
 }

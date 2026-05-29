@@ -550,8 +550,8 @@ class WmsShortageAllocationsTable
                                     // 新しい横持ち出荷レコードを作成
                                     $service->createProxyShipment(
                                         shortage: $record->shortage,
-                                        fromWarehouseId: $allocation['from_warehouse_id'],
-                                        assignQty: $allocation['assign_qty'],
+                                        fromWarehouseId: (int) $allocation['from_warehouse_id'],
+                                        assignQty: (int) $allocation['assign_qty'],
                                         assignQtyType: $record->assign_qty_type,
                                         createdBy: auth()->id() ?? 0
                                     );
