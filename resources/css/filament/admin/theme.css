@@ -841,7 +841,7 @@ html.fi {
 
 .wave-modal .fi-modal-content {
     flex: 1 1 auto !important;
-    overflow-y: hidden !important;
+    overflow-y: auto !important;
     display: flex !important;
     flex-direction: column !important;
     min-height: 0 !important;
