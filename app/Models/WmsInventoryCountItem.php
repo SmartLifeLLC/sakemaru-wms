@@ -28,8 +28,11 @@ class WmsInventoryCountItem extends WmsModel
         'received_at',
         'system_quantity',
         'first_count_quantity',
+        'first_count_actor_name',
         'second_count_quantity',
+        'second_count_actor_name',
         'final_count_quantity',
+        'final_count_actor_name',
         'difference_quantity',
         'cost_price',
         'difference_amount',
@@ -81,5 +84,21 @@ class WmsInventoryCountItem extends WmsModel
         }
 
         return (float) $finalQty - (float) $this->system_quantity;
+    }
+
+    public function roundDifference(int $round): ?float
+    {
+        $quantity = match ($round) {
+            1 => $this->first_count_quantity,
+            2 => $this->second_count_quantity,
+            3 => $this->final_count_quantity,
+            default => null,
+        };
+
+        if ($quantity === null) {
+            return null;
+        }
+
+        return (float) $quantity - (float) $this->system_quantity;
     }
 }
