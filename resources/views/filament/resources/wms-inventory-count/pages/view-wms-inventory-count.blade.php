@@ -170,6 +170,7 @@
             <div class="flex flex-wrap items-end justify-between gap-2 border-b border-slate-200 bg-green-700 px-3 pt-2 text-white">
                 <div class="flex items-end gap-1">
                     <button type="button"
+                        wire:click="setListTab('all')"
                         @click="activeTab = 'all'"
                         class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
                         :class="activeTab === 'all' ? 'border-slate-200 border-b-white bg-white text-green-800 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
@@ -180,6 +181,7 @@
                         </span>
                     </button>
                     <button type="button"
+                        wire:click="setListTab('diff')"
                         @click="activeTab = 'diff'"
                         class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
                         :class="activeTab === 'diff' ? 'border-slate-200 border-b-white bg-white text-red-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
@@ -190,6 +192,7 @@
                         </span>
                     </button>
                     <button type="button"
+                        wire:click="setListTab('matched')"
                         @click="activeTab = 'matched'"
                         class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
                         :class="activeTab === 'matched' ? 'border-slate-200 border-b-white bg-white text-sky-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
@@ -200,6 +203,7 @@
                         </span>
                     </button>
                     <button type="button"
+                        wire:click="setListTab('uncounted')"
                         @click="activeTab = 'uncounted'"
                         class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
                         :class="activeTab === 'uncounted' ? 'border-slate-200 border-b-white bg-white text-amber-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
