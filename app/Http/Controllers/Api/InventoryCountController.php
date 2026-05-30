@@ -444,7 +444,17 @@ class InventoryCountController extends ApiController
             return $this->notFound('棚卸明細が見つかりません');
         }
 
+        $picker = $request->user();
+        if (! $picker) {
+            return $this->unauthorized();
+        }
+
         $logs = WmsInventoryCountItemLog::where('inventory_count_item_id', $countItem->id)
+            ->where('user_id', $picker->id)
+            ->where(function ($query) {
+                $query->whereNull('device_id')
+                    ->orWhere('device_id', '!=', 'WEB');
+            })
             ->orderBy('created_at', 'desc')
             ->orderBy('id', 'desc')
             ->get();
