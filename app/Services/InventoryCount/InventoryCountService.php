@@ -228,6 +228,125 @@ class InventoryCountService
         });
     }
 
+    public function addSingleItemByCode(WmsInventoryCount $inventoryCount, string $itemCode): array
+    {
+        $itemCode = trim(mb_convert_kana($itemCode, 'as'));
+
+        if ($itemCode === '') {
+            throw new \InvalidArgumentException('商品CDを入力してください。');
+        }
+
+        return DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $itemCode) {
+            $inventoryCount = WmsInventoryCount::query()
+                ->whereKey($inventoryCount->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (in_array($inventoryCount->status, [
+                WmsInventoryCount::STATUS_CONFIRMED,
+                WmsInventoryCount::STATUS_CANCELLED,
+            ], true)) {
+                throw new \RuntimeException('確定済または取消済の棚卸しには追加できません。');
+            }
+
+            $item = DB::connection('sakemaru')
+                ->table('items')
+                ->where('code', $itemCode)
+                ->first(['id', 'code', 'name']);
+
+            if (! $item) {
+                throw new \RuntimeException("商品CD {$itemCode} が見つかりません。");
+            }
+
+            $latestLot = DB::raw(
+                '(SELECT rsl.real_stock_id, rsl.location_id, rsl.floor_id, ROW_NUMBER() OVER (PARTITION BY rsl.real_stock_id ORDER BY rsl.updated_at DESC, rsl.id DESC) AS rn FROM real_stock_lots rsl) as lot'
+            );
+
+            $stocks = DB::connection('sakemaru')
+                ->table('real_stocks as rs')
+                ->leftJoin($latestLot, function ($join) {
+                    $join->on('lot.real_stock_id', '=', 'rs.id')
+                        ->where('lot.rn', '=', 1);
+                })
+                ->leftJoin('locations as l', 'l.id', '=', 'lot.location_id')
+                ->leftJoin('floors as f', 'f.id', '=', DB::raw('COALESCE(lot.floor_id, l.floor_id)'))
+                ->where('rs.warehouse_id', $inventoryCount->warehouse_id)
+                ->where('rs.item_id', $item->id)
+                ->select([
+                    'rs.id as real_stock_id',
+                    'rs.item_id',
+                    'rs.current_quantity as system_quantity',
+                    'l.id as location_id',
+                    'f.id as floor_id',
+                    'f.name as floor_name',
+                    'l.code1 as location_code1',
+                    'l.code2 as location_code2',
+                    'l.code3 as location_code3',
+                    DB::raw("(SELECT isi.search_string FROM item_search_information isi WHERE isi.item_id = rs.item_id AND isi.code_type = 'JAN' AND isi.quantity_type = 'PIECE' AND isi.is_active = 1 ORDER BY isi.priority IS NULL, isi.priority, isi.id LIMIT 1) as barcode"),
+                    DB::raw('COALESCE((SELECT ip.cost_unit_price FROM item_prices ip WHERE ip.item_id = rs.item_id AND ip.is_active = 1 LIMIT 1), 0) as cost_price'),
+                ])
+                ->orderBy('rs.id')
+                ->get();
+
+            if ($stocks->isEmpty()) {
+                throw new \RuntimeException("商品CD {$itemCode} はこの倉庫の在庫行がありません。");
+            }
+
+            $existingRealStockIds = WmsInventoryCountItem::query()
+                ->where('inventory_count_id', $inventoryCount->id)
+                ->whereIn('real_stock_id', $stocks->pluck('real_stock_id'))
+                ->pluck('real_stock_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            $existingMap = array_flip($existingRealStockIds);
+            $records = [];
+            $now = now();
+
+            foreach ($stocks as $stock) {
+                if (isset($existingMap[(int) $stock->real_stock_id])) {
+                    continue;
+                }
+
+                $records[] = [
+                    'inventory_count_id' => $inventoryCount->id,
+                    'real_stock_id' => $stock->real_stock_id,
+                    'item_id' => $stock->item_id,
+                    'item_code' => $item->code ?? '',
+                    'item_name' => $item->name ?? '',
+                    'barcode' => $stock->barcode,
+                    'location_id' => $stock->location_id,
+                    'floor_id' => $stock->floor_id,
+                    'floor_name' => $stock->floor_name,
+                    'location_code1' => $stock->location_code1,
+                    'location_code2' => $stock->location_code2,
+                    'location_code3' => $stock->location_code3,
+                    'location_no' => Location::formatCode(
+                        $stock->location_code1,
+                        $stock->location_code2,
+                        $stock->location_code3
+                    ),
+                    'system_quantity' => $stock->system_quantity,
+                    'cost_price' => $stock->cost_price,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            if ($records !== []) {
+                WmsInventoryCountItem::insert($records);
+            }
+
+            return [
+                'item_code' => (string) $item->code,
+                'item_name' => (string) $item->name,
+                'stock_count' => $stocks->count(),
+                'inserted_count' => count($records),
+                'existing_count' => $stocks->count() - count($records),
+            ];
+        });
+    }
+
     public function registerCount(
         WmsInventoryCountItem $countItem,
         float $quantity,

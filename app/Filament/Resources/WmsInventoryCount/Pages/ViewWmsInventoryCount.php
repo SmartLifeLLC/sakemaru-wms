@@ -10,6 +10,7 @@ use App\Services\InventoryCount\InventoryCountService;
 use App\Services\InventoryCount\InventoryDiffListPdfService;
 use App\Services\InventoryCount\InventoryInstructionPdfService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
@@ -776,6 +777,47 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $record = $this->record;
 
         return [
+            Action::make('addSingleItem')
+                ->label('単品追加')
+                ->icon('heroicon-o-plus-circle')
+                ->color('success')
+                ->visible(fn () => ! in_array($record->status, [
+                    WmsInventoryCount::STATUS_CONFIRMED,
+                    WmsInventoryCount::STATUS_CANCELLED,
+                ], true))
+                ->schema([
+                    TextInput::make('item_code')
+                        ->label('商品CD')
+                        ->required()
+                        ->maxLength(20)
+                        ->autocomplete(false),
+                ])
+                ->modalHeading('単品追加')
+                ->modalDescription('商品CDを入力して、今回の棚卸しに追加します。既に登録済みの在庫行は追加しません。')
+                ->modalSubmitActionLabel('追加')
+                ->modalCancelActionLabel('追加せず閉じる')
+                ->action(function (array $data) use ($record) {
+                    try {
+                        $result = (new InventoryCountService)->addSingleItemByCode($record, (string) ($data['item_code'] ?? ''));
+                        $this->record->refresh();
+                        $this->itemCodeFilter = $result['item_code'];
+                        $this->listTab = 'all';
+                        $this->itemPage = 1;
+
+                        Notification::make()
+                            ->success()
+                            ->title('単品を追加しました')
+                            ->body("追加: {$result['inserted_count']}件 / 登録済み: {$result['existing_count']}件")
+                            ->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->danger()
+                            ->title('単品を追加できません')
+                            ->body($e->getMessage())
+                            ->send();
+                    }
+                }),
+
             Action::make('refreshSystemQuantities')
                 ->label('現在庫に更新')
                 ->icon('heroicon-o-arrow-path')
