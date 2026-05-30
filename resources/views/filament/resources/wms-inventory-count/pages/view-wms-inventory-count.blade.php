@@ -5,6 +5,7 @@
         $totalCount = $this->totalCount();
         $allCount = $this->countForTab('all');
         $diffCount = $this->countForTab('diff');
+        $matchedCount = $this->countForTab('matched');
         $uncountedCount = $this->countForTab('uncounted');
         $pageFirst = $rows->firstItem() ?? 0;
         $pageLast = $rows->lastItem() ?? 0;
@@ -33,8 +34,8 @@
         locationPickerOpen: false,
         activeTab: @entangle('listTab'),
         activeRound: @entangle('activeCountRound'),
-        filters: { floor: '', area: '', itemCode: '', itemName: '', locationText: '' },
-        selectedLocations: [],
+        filters: { locationText: '' },
+        selectedLocations: @entangle('selectedLocationFilters'),
         changes: {},
         normalize(value) {
             return String(value ?? '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).toLowerCase();
@@ -45,13 +46,10 @@
         },
         rowVisible(row) {
             if (this.activeTab === 'diff' && !(row.diff !== null && row.diff !== 0)) return false;
+            if (this.activeTab === 'matched' && !(row.diff !== null && row.diff === 0)) return false;
             if (this.activeTab === 'uncounted' && this.activeRound === 1 && row.first !== '') return false;
             if (this.activeTab === 'uncounted' && this.activeRound === 2 && row.second !== '') return false;
             if (this.activeTab === 'uncounted' && this.activeRound === 3 && row.final_ !== '') return false;
-            if (this.filters.floor !== '' && row.floor !== this.filters.floor) return false;
-            if (!this.includes(row.area, this.filters.area)) return false;
-            if (!this.includes(row.itemCode, this.filters.itemCode)) return false;
-            if (!this.includes(row.itemName, this.filters.itemName)) return false;
             if (!this.includes(row.location, this.filters.locationText)) return false;
             if (this.selectedLocations.length && !this.selectedLocations.includes(row.location)) return false;
             return true;
@@ -64,8 +62,9 @@
             }
         },
         clearFilters() {
-            this.filters = { floor: '', area: '', itemCode: '', itemName: '', locationText: '' };
+            this.filters = { locationText: '' };
             this.selectedLocations = [];
+            this.$wire.clearFilters();
         },
         setChange(id, field, value, origFirst, origSecond, origFinal, first, second, final_) {
             let changed = (first !== origFirst || second !== origSecond || final_ !== origFinal);
@@ -97,6 +96,7 @@
                     <span class="text-xs text-slate-400">
                         全{{ number_format($allCount) }}件
                         / 差異{{ number_format($diffCount) }}件
+                        / 差異なし{{ number_format($matchedCount) }}件
                         / 未カウント{{ number_format($uncountedCount) }}件
                         / 表示{{ number_format($pageFirst) }}-{{ number_format($pageLast) }}件
                     </span>
@@ -110,12 +110,12 @@
                 </button>
             </div>
 
-            {{-- Filter form: JS only. Server communication happens only on save. --}}
+            {{-- Filter form --}}
             <div x-show="filtersOpen" x-collapse x-cloak class="bg-slate-100 p-2">
                 <div class="grid grid-cols-2 items-end gap-2 md:grid-cols-6 xl:grid-cols-12">
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">フロア</span>
-                        <select x-model="filters.floor" class="{{ $filterSelectClass }}">
+                        <select wire:model.live="floorFilter" class="{{ $filterSelectClass }}">
                             <option value="">すべて</option>
                             @foreach ($floorOptions as $floor)
                                 <option value="{{ $floor }}">{{ $floor }}</option>
@@ -124,11 +124,11 @@
                     </label>
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">エリア</span>
-                        <input type="text" x-model="filters.area" placeholder="エリア検索" class="{{ $filterInputClass }}">
+                        <input type="text" wire:model.live.debounce.300ms="areaFilter" placeholder="エリア検索" class="{{ $filterInputClass }}">
                     </label>
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">商品CD</span>
-                        <input type="text" x-model="filters.itemCode" placeholder="商品CD検索" class="{{ $filterInputClass }}">
+                        <input type="text" wire:model.live.debounce.300ms="itemCodeFilter" placeholder="商品CD検索" class="{{ $filterInputClass }}">
                     </label>
                     <div class="relative space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">ロケーション</span>
@@ -141,20 +141,20 @@
                             <div class="grid max-h-64 grid-cols-2 gap-1 overflow-auto rounded-md border border-slate-200 p-1">
                                 @foreach ($locationOptions as $location)
                                     <label x-show="includes(@js($location), filters.locationText)" class="flex min-w-0 items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50" :class="selectedLocations.includes(@js($location)) ? 'border-sky-500 bg-sky-50 text-sky-800' : ''">
-                                        <input type="checkbox" class="rounded border-slate-300" :checked="selectedLocations.includes(@js($location))" @change="toggleLocation(@js($location))">
+                                        <input type="checkbox" class="rounded border-slate-300" value="{{ $location }}" wire:model.live="selectedLocationFilters">
                                         <span class="truncate font-mono">{{ $location }}</span>
                                     </label>
                                 @endforeach
                             </div>
                             <div class="mt-2 flex items-center justify-between text-xs">
-                                <button type="button" class="text-slate-600 hover:text-slate-900" @click="selectedLocations = []">選択解除</button>
+                                <button type="button" class="text-slate-600 hover:text-slate-900" @click="$wire.set('selectedLocationFilters', [])">選択解除</button>
                                 <button type="button" class="rounded bg-slate-800 px-3 py-1 font-bold text-white" @click="locationPickerOpen = false">閉じる</button>
                             </div>
                         </div>
                     </div>
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">商品名</span>
-                        <input type="text" x-model="filters.itemName" placeholder="商品名検索" class="{{ $filterInputClass }}">
+                        <input type="text" wire:model.live.debounce.300ms="itemNameFilter" placeholder="商品名検索" class="{{ $filterInputClass }}">
                     </label>
                     <div class="flex items-end justify-end gap-2 md:col-span-2">
                         <button type="button" @click="clearFilters()" class="h-8 rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
@@ -187,6 +187,16 @@
                         <span>差異あり</span>
                         <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums" :class="activeTab === 'diff' ? 'bg-red-100 text-red-700' : 'bg-white/15 text-white ring-1 ring-white/25'">
                             {{ number_format($diffCount) }}
+                        </span>
+                    </button>
+                    <button type="button"
+                        @click="activeTab = 'matched'"
+                        class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
+                        :class="activeTab === 'matched' ? 'border-slate-200 border-b-white bg-white text-sky-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
+                        <span x-show="activeTab === 'matched'" class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-sky-500"></span>
+                        <span>差異なし</span>
+                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums" :class="activeTab === 'matched' ? 'bg-sky-100 text-sky-700' : 'bg-white/15 text-white ring-1 ring-white/25'">
+                            {{ number_format($matchedCount) }}
                         </span>
                     </button>
                     <button type="button"
