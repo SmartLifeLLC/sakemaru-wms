@@ -177,6 +177,7 @@ class InventoryCountController extends ApiController
         $rows = DB::connection('sakemaru')
             ->table('item_search_information as isi')
             ->leftJoin('item_quantity_information as iqi', 'isi.item_quantity_information_id', '=', 'iqi.id')
+            ->leftJoin('items as i', 'i.id', '=', 'isi.item_id')
             ->whereIn('isi.item_id', $itemIds)
             ->where('isi.is_active', 1)
             ->whereNotNull('isi.search_string')
@@ -190,6 +191,7 @@ class InventoryCountController extends ApiController
                 'isi.code_type',
                 'isi.quantity_type',
                 'iqi.quantity as package_quantity',
+                'i.capacity_case as item_capacity_case',
             ]);
 
         $dict = [];
@@ -573,6 +575,7 @@ class InventoryCountController extends ApiController
             $cache[$itemId] = DB::connection('sakemaru')
                 ->table('item_search_information as isi')
                 ->leftJoin('item_quantity_information as iqi', 'isi.item_quantity_information_id', '=', 'iqi.id')
+                ->leftJoin('items as i', 'i.id', '=', 'isi.item_id')
                 ->where('isi.item_id', $itemId)
                 ->where('isi.is_active', 1)
                 ->orderByRaw("CASE isi.quantity_type WHEN 'PIECE' THEN 0 WHEN 'CASE' THEN 1 WHEN 'CARTON' THEN 2 ELSE 9 END")
@@ -582,6 +585,7 @@ class InventoryCountController extends ApiController
                     'isi.code_type',
                     'isi.quantity_type',
                     'iqi.quantity as package_quantity',
+                    'i.capacity_case as item_capacity_case',
                 ])
                 ->map(fn ($row) => [
                     'c' => $row->search_string,
@@ -621,13 +625,14 @@ class InventoryCountController extends ApiController
         $row = DB::connection('sakemaru')
             ->table('item_search_information as isi')
             ->leftJoin('item_quantity_information as iqi', 'isi.item_quantity_information_id', '=', 'iqi.id')
+            ->leftJoin('items as i', 'i.id', '=', 'isi.item_id')
             ->where('isi.item_id', $itemId)
             ->where('isi.is_active', 1)
             ->where(function ($query) use ($normalizedCode) {
                 $query->where('isi.search_string', $normalizedCode)
                     ->orWhereRaw('LPAD(isi.search_string, 13, "0") = ?', [$normalizedCode]);
             })
-            ->first(['isi.quantity_type', 'iqi.quantity']);
+            ->first(['isi.quantity_type', 'iqi.quantity as package_quantity', 'i.capacity_case as item_capacity_case']);
 
         return $row ? $this->packageQuantity($row) : null;
     }
@@ -635,7 +640,7 @@ class InventoryCountController extends ApiController
     private function packageQuantity(object $row): int
     {
         if (($row->quantity_type ?? null) === 'PIECE') {
-            return 1;
+            return max((int) ($row->item_capacity_case ?? $row->capacity_case ?? 1), 1);
         }
 
         return max((int) ($row->package_quantity ?? $row->quantity ?? 1), 1);
