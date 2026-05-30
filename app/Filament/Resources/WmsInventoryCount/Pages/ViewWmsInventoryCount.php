@@ -36,6 +36,8 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public string $locationFilter = '';
 
+    public array $selectedLocationFilters = [];
+
     public string $itemNameFilter = '';
 
     public string $listTab = 'all';
@@ -103,10 +105,20 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function setListTab(string $tab): void
     {
-        if (! in_array($tab, ['all', 'diff', 'uncounted'], true)) {
+        if (! in_array($tab, ['all', 'diff', 'matched', 'uncounted'], true)) {
             return;
         }
         $this->listTab = $tab;
+        $this->itemPage = 1;
+    }
+
+    public function updatedListTab(string $tab): void
+    {
+        if (! in_array($tab, ['all', 'diff', 'matched', 'uncounted'], true)) {
+            $this->listTab = 'all';
+        }
+
+        $this->itemPage = 1;
     }
 
     public function clearFilters(): void
@@ -115,8 +127,39 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $this->areaFilter = '';
         $this->itemCodeFilter = '';
         $this->locationFilter = '';
+        $this->selectedLocationFilters = [];
         $this->itemNameFilter = '';
         $this->search();
+    }
+
+    public function updatedFloorFilter(): void
+    {
+        $this->itemPage = 1;
+    }
+
+    public function updatedAreaFilter(): void
+    {
+        $this->itemPage = 1;
+    }
+
+    public function updatedItemCodeFilter(): void
+    {
+        $this->itemPage = 1;
+    }
+
+    public function updatedLocationFilter(): void
+    {
+        $this->itemPage = 1;
+    }
+
+    public function updatedSelectedLocationFilters(): void
+    {
+        $this->itemPage = 1;
+    }
+
+    public function updatedItemNameFilter(): void
+    {
+        $this->itemPage = 1;
     }
 
     public function sortBy(string $column): void
@@ -172,6 +215,8 @@ class ViewWmsInventoryCount extends Page implements HasForms
     public function rows(): LengthAwarePaginator
     {
         $query = WmsInventoryCountItem::where('inventory_count_id', $this->record->id);
+        $this->applyFilters($query);
+        $this->applyTabFilter($query, $this->listTab);
         $this->applySort($query);
 
         return $query->paginate($this->itemPerPage, ['*'], 'inventory_items_page', $this->itemPage);
@@ -179,7 +224,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function goToItemPage(int $page): void
     {
-        $lastPage = max(1, (int) ceil($this->record->items()->count() / $this->itemPerPage));
+        $lastPage = max(1, (int) ceil($this->filteredQuery()->count() / $this->itemPerPage));
         $this->itemPage = min(max(1, $page), $lastPage);
     }
 
@@ -249,6 +294,9 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $this->applyTextFilter($query, $this->areaFilter, ['location_code1']);
         $this->applyTextFilter($query, $this->itemCodeFilter, ['item_code']);
         $this->applyTextFilter($query, $this->locationFilter, ['location_no', 'location_code1', 'location_code2', 'location_code3']);
+        if ($this->selectedLocationFilters !== []) {
+            $query->whereIn('location_no', $this->selectedLocationFilters);
+        }
         $this->applyTextFilter($query, $this->itemNameFilter, ['item_name']);
     }
 
@@ -256,6 +304,9 @@ class ViewWmsInventoryCount extends Page implements HasForms
     {
         match ($tab) {
             'diff' => $query->whereNotNull('difference_quantity')->where('difference_quantity', '!=', 0),
+            'matched' => $query
+                ->whereNotNull($this->roundColumn($this->activeCountRound))
+                ->whereColumn($this->roundColumn($this->activeCountRound), 'system_quantity'),
             'uncounted' => $query->whereNull($this->roundColumn($this->activeCountRound)),
             default => null,
         };
