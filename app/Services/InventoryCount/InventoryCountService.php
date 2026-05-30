@@ -141,6 +141,93 @@ class InventoryCountService
         ]);
     }
 
+    public function refreshSystemQuantities(WmsInventoryCount $inventoryCount): array
+    {
+        app(Warehouse91StockLotSyncService::class)->sync([], false);
+
+        return DB::connection('sakemaru')->transaction(function () use ($inventoryCount) {
+            $inventoryCount = WmsInventoryCount::query()
+                ->whereKey($inventoryCount->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (in_array($inventoryCount->status, [
+                WmsInventoryCount::STATUS_CONFIRMED,
+                WmsInventoryCount::STATUS_CANCELLED,
+            ], true)) {
+                throw new \RuntimeException('確定済または取消済の棚卸しは現在庫に更新できません。');
+            }
+
+            $updatedItems = 0;
+            $updatedDifferences = 0;
+            $missingRealStocks = 0;
+
+            WmsInventoryCountItem::query()
+                ->where('inventory_count_id', $inventoryCount->id)
+                ->whereNotNull('real_stock_id')
+                ->select([
+                    'id',
+                    'real_stock_id',
+                    'system_quantity',
+                    'first_count_quantity',
+                    'second_count_quantity',
+                    'final_count_quantity',
+                    'difference_quantity',
+                    'cost_price',
+                ])
+                ->chunkById(500, function ($items) use (&$updatedItems, &$updatedDifferences, &$missingRealStocks) {
+                    $stockQuantities = DB::connection('sakemaru')
+                        ->table('real_stocks')
+                        ->whereIn('id', $items->pluck('real_stock_id')->filter()->unique()->values())
+                        ->pluck('current_quantity', 'id');
+
+                    foreach ($items as $item) {
+                        if (! $stockQuantities->has($item->real_stock_id)) {
+                            $missingRealStocks++;
+
+                            continue;
+                        }
+
+                        $systemQuantity = (int) $stockQuantities->get($item->real_stock_id);
+                        $updateData = [];
+
+                        if ((int) $item->system_quantity !== $systemQuantity) {
+                            $updateData['system_quantity'] = $systemQuantity;
+                            $updatedItems++;
+                        }
+
+                        if ($item->difference_quantity !== null) {
+                            $countedQuantity = $item->final_count_quantity
+                                ?? $item->second_count_quantity
+                                ?? $item->first_count_quantity;
+
+                            if ($countedQuantity !== null) {
+                                $differenceQuantity = (int) $countedQuantity - $systemQuantity;
+                                $updateData['difference_quantity'] = $differenceQuantity;
+                                $updateData['difference_amount'] = $differenceQuantity * (float) $item->cost_price;
+                            } else {
+                                $updateData['difference_quantity'] = null;
+                                $updateData['difference_amount'] = null;
+                            }
+
+                            $updatedDifferences++;
+                        }
+
+                        if ($updateData !== []) {
+                            $updateData['updated_at'] = now();
+                            WmsInventoryCountItem::whereKey($item->id)->update($updateData);
+                        }
+                    }
+                });
+
+            return [
+                'updated_items' => $updatedItems,
+                'updated_differences' => $updatedDifferences,
+                'missing_real_stocks' => $missingRealStocks,
+            ];
+        });
+    }
+
     public function registerCount(
         WmsInventoryCountItem $countItem,
         float $quantity,

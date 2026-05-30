@@ -240,6 +240,7 @@
                             <span class="rounded-full bg-white/20 px-2 py-0.5 text-xs font-black" x-text="changeCount + '件'"></span>
                         </button>
                     @endif
+                    {{ $this->getAction('refreshSystemQuantities') }}
                     {{ $this->getAction('downloadInstructionPdf') }}
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_DRAFT)
                         {{ $this->getAction('startCounting') }}

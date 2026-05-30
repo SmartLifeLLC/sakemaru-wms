@@ -725,6 +725,39 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $record = $this->record;
 
         return [
+            Action::make('refreshSystemQuantities')
+                ->label('現在庫に更新')
+                ->icon('heroicon-o-arrow-path')
+                ->color('warning')
+                ->visible(fn () => ! in_array($record->status, [
+                    WmsInventoryCount::STATUS_CONFIRMED,
+                    WmsInventoryCount::STATUS_CANCELLED,
+                ], true))
+                ->requiresConfirmation()
+                ->modalHeading('現在庫に更新')
+                ->modalDescription('在庫を現時点の在庫に更新しますか？')
+                ->modalSubmitActionLabel('確認')
+                ->modalCancelActionLabel('更新せず閉じる')
+                ->action(function () use ($record) {
+                    try {
+                        $result = (new InventoryCountService)->refreshSystemQuantities($record);
+                        $this->record->refresh();
+                        $this->itemPage = 1;
+
+                        Notification::make()
+                            ->success()
+                            ->title('現在庫に更新しました')
+                            ->body("理論在庫: {$result['updated_items']}件 / 差分再計算: {$result['updated_differences']}件")
+                            ->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->danger()
+                            ->title('現在庫に更新できません')
+                            ->body($e->getMessage())
+                            ->send();
+                    }
+                }),
+
             Action::make('downloadInstructionPdf')
                 ->label('JANブック')
                 ->icon('heroicon-o-document-arrow-down')
