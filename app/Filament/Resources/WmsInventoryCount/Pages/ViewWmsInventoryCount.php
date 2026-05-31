@@ -778,13 +778,13 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
         return [
             Action::make('viewLogs')
-                ->label('作業ログ')
+                ->label('ログ')
                 ->icon('heroicon-o-list-bullet')
                 ->color('gray')
                 ->url(fn () => WmsInventoryCountResource::getUrl('logs', ['record' => $record])),
 
             Action::make('addSingleItem')
-                ->label('単品追加')
+                ->label('追加')
                 ->icon('heroicon-o-plus-circle')
                 ->color('success')
                 ->visible(fn () => ! in_array($record->status, [
@@ -825,7 +825,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 }),
 
             Action::make('refreshSystemQuantities')
-                ->label('現在庫に更新')
+                ->label('在庫更新')
                 ->icon('heroicon-o-arrow-path')
                 ->color('warning')
                 ->visible(fn () => ! in_array($record->status, [
@@ -858,7 +858,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 }),
 
             Action::make('downloadInstructionPdf')
-                ->label('JANブック')
+                ->label('JAN')
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('gray')
                 ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_CANCELLED)
@@ -901,13 +901,29 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 }),
 
             Action::make('downloadDiffListPdf')
-                ->label('差分確認PDF')
+                ->label('差分PDF')
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('gray')
                 ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_DRAFT)
                 ->action(function () use ($record) {
                     $pdfContent = (new InventoryDiffListPdfService)->generate($record);
                     $filename = '棚卸差分確認_'.($record->count_no ?? 'unknown').'.pdf';
+
+                    return response()->streamDownload(
+                        fn () => print ($pdfContent),
+                        $filename,
+                        ['Content-Type' => 'application/pdf']
+                    );
+                }),
+
+            Action::make('downloadUncountedListPdf')
+                ->label('未PDF')
+                ->icon('heroicon-o-document-arrow-down')
+                ->color('gray')
+                ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_DRAFT)
+                ->action(function () use ($record) {
+                    $pdfContent = (new InventoryDiffListPdfService)->generateUncounted($record, $this->activeCountRound);
+                    $filename = '棚卸未カウント_'.$this->activeRoundLabel().'_'.($record->count_no ?? 'unknown').'.pdf';
 
                     return response()->streamDownload(
                         fn () => print ($pdfContent),

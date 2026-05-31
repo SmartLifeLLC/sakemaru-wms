@@ -275,7 +275,7 @@
                             x-bind:disabled="changeCount > 0 || {{ $isCountingStarted ? 'false' : 'true' }}"
                             class="inline-flex items-center gap-2 rounded-md bg-amber-500 px-3 py-1.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
                             <x-filament::icon icon="heroicon-m-calculator" class="h-4 w-4" />
-                            <span>{{ $this->activeRoundLabel() }}差異計算</span>
+                            <span>差異({{ $this->activeRoundLabel() }})</span>
                         </button>
                         <div class="flex items-center gap-1 rounded-md bg-green-900/30 p-1">
                             @foreach ([1 => '1回目', 2 => '2回目', 3 => '3回目'] as $round => $label)
@@ -294,6 +294,7 @@
                     @endif
                     @if ($record->status !== \App\Models\WmsInventoryCount::STATUS_DRAFT)
                         {{ $this->getAction('downloadDiffListPdf') }}
+                        {{ $this->getAction('downloadUncountedListPdf') }}
                     @endif
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_CHECKED)
                         {{ $this->getAction('reopenFinalRound') }}
