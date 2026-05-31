@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Schema;
 
 class InventoryCountService
 {
+    public const INVENTORY_ADJUSTMENT_EXCLUDED_PREFIXES = ['4', '5', '7', '8', '9'];
+
     public function create(array $data): WmsInventoryCount
     {
         return DB::connection('sakemaru')->transaction(function () use ($data) {
@@ -542,14 +544,8 @@ class InventoryCountService
         $connection = DB::connection('sakemaru');
         $countDate = $inventoryCount->count_date?->toDateString() ?? (string) $inventoryCount->count_date;
 
-        $items = $connection
-            ->table('wms_inventory_count_items as ici')
-            ->leftJoin('real_stocks as rs', 'rs.id', '=', 'ici.real_stock_id')
-            ->leftJoin('stock_allocations as sa', 'sa.id', '=', 'rs.stock_allocation_id')
-            ->where('ici.inventory_count_id', $inventoryCount->id)
-            ->whereNotNull('ici.final_count_quantity')
-            ->whereNotNull('ici.difference_quantity')
-            ->where('ici.difference_quantity', '!=', 0)
+        $items = $this->inventoryAdjustmentBaseQuery($inventoryCount)
+            ->whereNotIn(DB::raw('LEFT(TRIM(CAST(ici.item_code AS CHAR)), 1)'), self::INVENTORY_ADJUSTMENT_EXCLUDED_PREFIXES)
             ->orderBy('ici.id')
             ->get([
                 'ici.id',
@@ -638,6 +634,50 @@ class InventoryCountService
             'queue_ids' => $queueIds,
             'duplicated' => $duplicated,
         ];
+    }
+
+    public function inventoryAdjustmentExcludedSummary(WmsInventoryCount $inventoryCount, int $limit = 100): array
+    {
+        $query = $this->inventoryAdjustmentBaseQuery($inventoryCount)
+            ->whereIn(DB::raw('LEFT(TRIM(CAST(ici.item_code AS CHAR)), 1)'), self::INVENTORY_ADJUSTMENT_EXCLUDED_PREFIXES);
+
+        $detailCount = (clone $query)->count();
+        $itemCount = (clone $query)->distinct()->count('ici.item_code');
+
+        $items = (clone $query)
+            ->selectRaw('ici.item_code, MAX(ici.item_name) as item_name, COUNT(*) as detail_count, SUM(ici.difference_quantity) as difference_quantity, SUM(ici.difference_amount) as difference_amount')
+            ->groupBy('ici.item_code')
+            ->orderBy('ici.item_code')
+            ->limit($limit)
+            ->get()
+            ->map(fn ($item) => [
+                'item_code' => (string) $item->item_code,
+                'item_name' => (string) $item->item_name,
+                'detail_count' => (int) $item->detail_count,
+                'difference_quantity' => (float) $item->difference_quantity,
+                'difference_amount' => (float) $item->difference_amount,
+            ])
+            ->all();
+
+        return [
+            'prefixes' => self::INVENTORY_ADJUSTMENT_EXCLUDED_PREFIXES,
+            'detail_count' => $detailCount,
+            'item_count' => $itemCount,
+            'items' => $items,
+            'has_more' => $itemCount > count($items),
+        ];
+    }
+
+    private function inventoryAdjustmentBaseQuery(WmsInventoryCount $inventoryCount)
+    {
+        return DB::connection('sakemaru')
+            ->table('wms_inventory_count_items as ici')
+            ->leftJoin('real_stocks as rs', 'rs.id', '=', 'ici.real_stock_id')
+            ->leftJoin('stock_allocations as sa', 'sa.id', '=', 'rs.stock_allocation_id')
+            ->where('ici.inventory_count_id', $inventoryCount->id)
+            ->whereNotNull('ici.final_count_quantity')
+            ->whereNotNull('ici.difference_quantity')
+            ->where('ici.difference_quantity', '!=', 0);
     }
 
     private function inventoryAdjustmentLocationBucket(object $item): string
