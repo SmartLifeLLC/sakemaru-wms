@@ -57,7 +57,31 @@ class InventoryDiffListPdfService
 
     private int $totalPages = 0;
 
+    private string $pdfTitle = '棚卸差異リスト';
+
+    private string $emptyMessage = '差異データなし';
+
+    private ?int $uncountedRound = null;
+
     public function generate(WmsInventoryCount $inventoryCount): string
+    {
+        $this->pdfTitle = '棚卸差異リスト';
+        $this->emptyMessage = '差異データなし';
+        $this->uncountedRound = null;
+
+        return $this->generatePdf($inventoryCount);
+    }
+
+    public function generateUncounted(WmsInventoryCount $inventoryCount, int $round): string
+    {
+        $this->pdfTitle = "{$round}回目未カウントリスト";
+        $this->emptyMessage = "{$round}回目未カウントデータなし";
+        $this->uncountedRound = min(max($round, 1), 3);
+
+        return $this->generatePdf($inventoryCount);
+    }
+
+    private function generatePdf(WmsInventoryCount $inventoryCount): string
     {
         $items = $this->queryItems($inventoryCount);
 
@@ -71,7 +95,7 @@ class InventoryDiffListPdfService
             $this->addNewPage($header, null);
             $this->pdf->SetFont('kozgopromedium', '', 12);
             $this->pdf->SetXY(self::MARGIN_LEFT, $this->currentY);
-            $this->pdf->Cell(self::CONTENT_WIDTH, 10, '差異データなし', 0, 0, 'C');
+            $this->pdf->Cell(self::CONTENT_WIDTH, 10, $this->emptyMessage, 0, 0, 'C');
         } else {
             foreach ($items as $item) {
                 $shelfPrefix = $this->shelfPagePrefix($item);
@@ -106,13 +130,20 @@ class InventoryDiffListPdfService
      */
     private function queryItems(WmsInventoryCount $inventoryCount): Collection
     {
-        return WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
-            ->where(function ($query) {
+        $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id);
+
+        if ($this->uncountedRound !== null) {
+            $query->whereNull($this->roundColumn($this->uncountedRound));
+        } else {
+            $query->where(function ($query) {
                 $query->whereNotNull('difference_quantity')
                     ->orWhereNotNull('final_count_quantity')
                     ->orWhereNotNull('second_count_quantity')
                     ->orWhereNotNull('first_count_quantity');
-            })
+            });
+        }
+
+        $items = $query
             ->orderByRaw("
                 CASE
                     WHEN location_id IS NULL
@@ -126,23 +157,27 @@ class InventoryDiffListPdfService
             ->orderBy('location_code2')
             ->orderBy('location_code3')
             ->orderBy('item_code')
-            ->get()
+            ->get();
+
+        if ($this->uncountedRound !== null) {
+            return $items;
+        }
+
+        return $items
             ->map(function (WmsInventoryCountItem $item): WmsInventoryCountItem {
-                if ($item->difference_quantity !== null) {
-                    return $item;
+                if ($item->difference_quantity === null) {
+                    $actualQty = $item->final_count_quantity
+                        ?? $item->second_count_quantity
+                        ?? $item->first_count_quantity;
+
+                    if ($actualQty === null) {
+                        return $item;
+                    }
+
+                    $differenceQuantity = (float) $actualQty - (float) $item->system_quantity;
+                    $item->difference_quantity = $differenceQuantity;
+                    $item->difference_amount = $differenceQuantity * (float) $item->cost_price;
                 }
-
-                $actualQty = $item->final_count_quantity
-                    ?? $item->second_count_quantity
-                    ?? $item->first_count_quantity;
-
-                if ($actualQty === null) {
-                    return $item;
-                }
-
-                $differenceQuantity = (float) $actualQty - (float) $item->system_quantity;
-                $item->difference_quantity = $differenceQuantity;
-                $item->difference_amount = $differenceQuantity * (float) $item->cost_price;
 
                 return $item;
             })
@@ -170,12 +205,22 @@ class InventoryDiffListPdfService
         return mb_substr($locationNo, 0, 2);
     }
 
+    private function roundColumn(int $round): string
+    {
+        return match ($round) {
+            1 => 'first_count_quantity',
+            2 => 'second_count_quantity',
+            3 => 'final_count_quantity',
+            default => 'first_count_quantity',
+        };
+    }
+
     private function initPdf(): void
     {
         $this->pdf = new TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
         $this->pdf->SetCreator('Smart WMS');
         $this->pdf->SetAuthor('Smart WMS');
-        $this->pdf->SetTitle('棚卸差異リスト');
+        $this->pdf->SetTitle($this->pdfTitle);
         $this->pdf->SetMargins(self::MARGIN_LEFT, self::MARGIN_TOP, self::MARGIN_RIGHT);
         $this->pdf->SetAutoPageBreak(false);
         $this->pdf->setPrintHeader(false);
@@ -321,15 +366,17 @@ class InventoryDiffListPdfService
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y2);
         $this->pdf->Cell(self::COL_W3, $rowH, $this->formatQuantity($countItem->system_quantity), 0, 0, 'R');
 
-        $actualQty = $countItem->final_count_quantity ?? $countItem->second_count_quantity ?? $countItem->first_count_quantity;
+        $actualQty = $this->uncountedRound !== null
+            ? $countItem->{$this->roundColumn($this->uncountedRound)}
+            : ($countItem->final_count_quantity ?? $countItem->second_count_quantity ?? $countItem->first_count_quantity);
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3, $y2);
         $this->pdf->Cell(self::COL_W4, $rowH, $this->formatQuantity($actualQty), 0, 0, 'R');
 
         $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2 + self::COL_W3 + self::COL_W4, $y2);
-        $this->pdf->Cell(self::COL_W5, $rowH, $this->formatQuantity($countItem->difference_quantity), 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W5, $rowH, $this->formatQuantity($this->uncountedRound !== null ? null : $countItem->difference_quantity), 0, 0, 'R');
 
         $this->pdf->SetXY($rightX, $y2);
-        $this->pdf->Cell(self::COL_W6, $rowH, $diffAmount, 0, 0, 'R');
+        $this->pdf->Cell(self::COL_W6, $rowH, $this->uncountedRound !== null ? '¥0' : $diffAmount, 0, 0, 'R');
 
         $this->currentY = $y2 + $rowH;
     }
