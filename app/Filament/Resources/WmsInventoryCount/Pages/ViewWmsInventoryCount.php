@@ -950,6 +950,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->requiresConfirmation()
                 ->modalHeading('棚卸し確定')
                 ->modalDescription('棚卸しを確定し、差異分の実棚変更伝票作成キューを登録します。この操作は取り消せません。')
+                ->modalContent(fn () => view('filament.resources.wms-inventory-count.modals.inventory-adjustment-exclusions', [
+                    'summary' => (new InventoryCountService)->inventoryAdjustmentExcludedSummary($record),
+                ]))
+                ->modalSubmitActionLabel('除外して確定')
                 ->action(function () use ($record) {
                     try {
                         (new InventoryCountService)->confirm($record, auth()->id());
