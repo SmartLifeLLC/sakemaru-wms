@@ -9,7 +9,6 @@ use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
 use App\Models\WmsPicker;
-use App\Services\Warehouse91StockLotSyncService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -57,8 +56,6 @@ class InventoryCountService
 
     public function takeSnapshot(WmsInventoryCount $inventoryCount): int
     {
-        app(Warehouse91StockLotSyncService::class)->sync([], false);
-
         $warehouseId = $inventoryCount->warehouse_id;
         $inserted = 0;
 
@@ -145,8 +142,6 @@ class InventoryCountService
 
     public function refreshSystemQuantities(WmsInventoryCount $inventoryCount): array
     {
-        app(Warehouse91StockLotSyncService::class)->sync([], false);
-
         return DB::connection('sakemaru')->transaction(function () use ($inventoryCount) {
             $inventoryCount = WmsInventoryCount::query()
                 ->whereKey($inventoryCount->id)
@@ -452,8 +447,6 @@ class InventoryCountService
 
     public function confirm(WmsInventoryCount $inventoryCount, int $userId): void
     {
-        app(Warehouse91StockLotSyncService::class)->sync([], false);
-
         DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $userId) {
             $inventoryCount = WmsInventoryCount::query()
                 ->whereKey($inventoryCount->id)
