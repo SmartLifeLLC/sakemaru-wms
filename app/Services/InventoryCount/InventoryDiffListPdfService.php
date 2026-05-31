@@ -64,20 +64,31 @@ class InventoryDiffListPdfService
         $this->initPdf();
 
         $header = $this->buildHeader($inventoryCount);
+        $currentShelfPrefix = null;
+        $isFirstPage = true;
 
         if ($items->isEmpty()) {
-            $this->addNewPage($header);
+            $this->addNewPage($header, null);
             $this->pdf->SetFont('kozgopromedium', '', 12);
             $this->pdf->SetXY(self::MARGIN_LEFT, $this->currentY);
             $this->pdf->Cell(self::CONTENT_WIDTH, 10, '差異データなし', 0, 0, 'C');
         } else {
-            $this->addNewPage($header);
-
             foreach ($items as $item) {
+                $shelfPrefix = $this->shelfPagePrefix($item);
+
+                if ($currentShelfPrefix !== null && $currentShelfPrefix !== $shelfPrefix) {
+                    $this->addNewPage($header, $shelfPrefix);
+                    $isFirstPage = false;
+                } elseif ($isFirstPage && $currentShelfPrefix === null) {
+                    $this->addNewPage($header, $shelfPrefix);
+                    $isFirstPage = false;
+                }
+
+                $currentShelfPrefix = $shelfPrefix;
                 $blockHeight = self::BLOCK_ROW_HEIGHT * 2;
 
                 if ($this->currentY + $blockHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM) {
-                    $this->addNewPage($header);
+                    $this->addNewPage($header, $currentShelfPrefix);
                 }
 
                 $this->renderItemBlock($item);
@@ -102,10 +113,19 @@ class InventoryDiffListPdfService
                     ->orWhereNotNull('second_count_quantity')
                     ->orWhereNotNull('first_count_quantity');
             })
-            ->orderBy('item_code')
+            ->orderByRaw("
+                CASE
+                    WHEN location_id IS NULL
+                        OR COALESCE(location_no, '') = ''
+                        OR COALESCE(location_code1, '') = ''
+                    THEN 1
+                    ELSE 0
+                END
+            ")
             ->orderBy('location_code1')
             ->orderBy('location_code2')
             ->orderBy('location_code3')
+            ->orderBy('item_code')
             ->get()
             ->map(function (WmsInventoryCountItem $item): WmsInventoryCountItem {
                 if ($item->difference_quantity !== null) {
@@ -139,6 +159,17 @@ class InventoryDiffListPdfService
         ];
     }
 
+    private function shelfPagePrefix(WmsInventoryCountItem $item): ?string
+    {
+        $locationNo = trim((string) ($item->location_no ?? ''));
+
+        if ($locationNo === '') {
+            return null;
+        }
+
+        return mb_substr($locationNo, 0, 2);
+    }
+
     private function initPdf(): void
     {
         $this->pdf = new TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
@@ -152,22 +183,22 @@ class InventoryDiffListPdfService
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
     }
 
-    private function addNewPage(array $header): void
+    private function addNewPage(array $header, ?string $shelfPrefix): void
     {
         $this->pdf->AddPage();
         $this->currentY = self::MARGIN_TOP;
-        $this->renderPageHeader($header);
+        $this->renderPageHeader($header, $shelfPrefix);
         $this->renderColumnHeaders();
     }
 
-    private function renderPageHeader(array $header): void
+    private function renderPageHeader(array $header, ?string $shelfPrefix): void
     {
         $x = self::MARGIN_LEFT;
 
         // Row 1: title + 棚卸日 + print datetime
         $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_TITLE);
         $this->pdf->SetXY($x, $this->currentY);
-        $this->pdf->Cell(55, 10, '棚卸差異リスト', 0, 0, 'L');
+        $this->pdf->Cell(55, 10, '棚番：'.($shelfPrefix ?? ''), 0, 0, 'L');
 
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_HEADER);
         $this->pdf->SetXY($x + 57, $this->currentY + 2);
