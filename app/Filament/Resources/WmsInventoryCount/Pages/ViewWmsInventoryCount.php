@@ -563,6 +563,58 @@ class ViewWmsInventoryCount extends Page implements HasForms
         Notification::make()->success()->title($this->activeRoundLabel().'の差異計算が完了しました')->send();
     }
 
+    public function fillActiveRoundUncountedWithZero(): void
+    {
+        $round = $this->activeCountRound;
+
+        if ($this->record->status !== WmsInventoryCount::STATUS_COUNTING) {
+            Notification::make()->danger()->title('カウント中のみ未カウントを0にできます')->send();
+
+            return;
+        }
+
+        if ($round !== $this->currentProgressRound() || $this->isRoundConfirmed($round)) {
+            Notification::make()->danger()->title('現在回数の未カウントだけ0にできます')->send();
+
+            return;
+        }
+
+        $roundColumn = $this->roundColumn($round);
+        $actorColumn = $this->roundActorNameColumn($round);
+        $actorName = $this->currentWebActorName();
+        $count = 0;
+
+        WmsInventoryCountItem::where('inventory_count_id', $this->record->id)
+            ->whereNull($roundColumn)
+            ->chunkById(500, function ($items) use ($round, $roundColumn, $actorColumn, $actorName, &$count) {
+                foreach ($items as $item) {
+                    $oldQuantity = $item->{$roundColumn};
+                    $item->{$roundColumn} = 0;
+                    $item->{$actorColumn} = $actorName;
+                    $item->last_counted_at = now();
+                    $item->input_count = ($item->input_count ?? 0) + 1;
+                    $item->difference_quantity = 0 - (int) $item->system_quantity;
+                    $item->difference_amount = $item->difference_quantity * (float) $item->cost_price;
+                    $item->save();
+
+                    $this->writeWebCountLogs($item, [
+                        $round => [$oldQuantity, 0],
+                    ]);
+
+                    $count++;
+                }
+            });
+
+        $this->listTab = 'all';
+        $this->itemPage = 1;
+
+        Notification::make()
+            ->success()
+            ->title($this->activeRoundLabel().'の未カウントに0を入力しました')
+            ->body("対象明細: {$count}件")
+            ->send();
+    }
+
     public function confirmRound(int $round): void
     {
         if (! in_array($round, [1, 2, 3], true)) {
@@ -931,6 +983,18 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         ['Content-Type' => 'application/pdf']
                     );
                 }),
+
+            Action::make('fillUncountedWithZero')
+                ->label('未0')
+                ->icon('heroicon-o-check-circle')
+                ->color('warning')
+                ->visible(fn () => $record->status === WmsInventoryCount::STATUS_COUNTING && ! $this->isRoundConfirmed($this->activeCountRound))
+                ->requiresConfirmation()
+                ->modalHeading(fn () => $this->activeRoundLabel().'未カウント0入力')
+                ->modalDescription(fn () => $this->activeRoundLabel().'の未カウント明細に0を入力します。現在回数以外の数量は変更しません。')
+                ->modalSubmitActionLabel('0入力')
+                ->modalCancelActionLabel('0入力せず閉じる')
+                ->action(fn () => $this->fillActiveRoundUncountedWithZero()),
 
             Action::make('reopenFinalRound')
                 ->label('3回目に戻す')
