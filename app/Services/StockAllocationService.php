@@ -302,8 +302,6 @@ class StockAllocationService
             $ownReservationPiecesExpr = sprintf(
                 '(SELECT COALESCE(SUM(%s), 0)
                     FROM real_stock_lot_earnings rsle
-                    JOIN trade_items ti ON ti.id = rsle.trade_item_id
-                    JOIN items i ON i.id = ti.item_id
                     WHERE rsle.real_stock_lot_id = rsl.id
                       AND rsle.earning_id = %d
                       AND rsle.trade_item_id = %d
@@ -391,18 +389,13 @@ class StockAllocationService
     {
         return "(SELECT COALESCE(SUM({$lotEarningPiecesExpr}), 0)
             FROM real_stock_lot_earnings rsle
-            JOIN trade_items ti ON ti.id = rsle.trade_item_id
-            JOIN items i ON i.id = ti.item_id
             WHERE rsle.real_stock_lot_id = rsl.id
               AND rsle.status = \"RESERVED\")";
     }
 
     protected function lotEarningPiecesExpression(): string
     {
-        return 'rsle.quantity * CASE ti.quantity_type
-            WHEN "CASE" THEN GREATEST(COALESCE(i.capacity_case, 1), 1)
-            WHEN "CARTON" THEN GREATEST(COALESCE(i.capacity_carton, i.capacity_case, 1), 1)
-            ELSE 1
-        END';
+        // real_stock_lot_earnings.quantity is stored as piece quantity, even for CASE/CARTON orders.
+        return 'COALESCE(rsle.quantity, 0)';
     }
 }

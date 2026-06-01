@@ -52,4 +52,23 @@ class StockAllocationServiceTest extends TestCase
         $this->assertSame(1, $unitSize);
         $this->assertSame(96, $service->unitsFromPieces(96, $unitSize));
     }
+
+    #[Test]
+    public function lot_earning_quantity_is_already_piece_quantity(): void
+    {
+        $service = new class extends StockAllocationService
+        {
+            public function lotEarningPiecesSql(): string
+            {
+                return $this->lotEarningPiecesExpression();
+            }
+        };
+
+        $sql = $service->lotEarningPiecesSql();
+
+        $this->assertStringContainsString('rsle.quantity', $sql);
+        $this->assertStringNotContainsString('quantity_type', $sql);
+        $this->assertStringNotContainsString('capacity_case', $sql);
+        $this->assertStringNotContainsString('capacity_carton', $sql);
+    }
 }
