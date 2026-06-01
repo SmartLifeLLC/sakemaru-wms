@@ -742,6 +742,8 @@ class WaveGroupGenerationService
             ->where('st.is_active', true)
             ->where('st_trade.is_active', true)
             ->where('st.picking_status', 'BEFORE')
+            ->where('st.is_delivered', false)
+            ->where('st.is_confirmed', false)
             ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->whereIn('dc.warehouse_id', $warehouseIds)
             ->whereNotNull('st.delivery_course_id')
