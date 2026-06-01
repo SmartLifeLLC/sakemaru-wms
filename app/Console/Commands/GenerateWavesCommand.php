@@ -738,6 +738,8 @@ class GenerateWavesCommand extends Command
             ->where('st.is_active', true)
             ->where('st_trade.is_active', true)
             ->where('st.picking_status', 'BEFORE')
+            ->where('st.is_delivered', false)
+            ->where('st.is_confirmed', false)
             ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->where('st.delivery_course_id', $deliveryCourseId)
             // 仮想倉庫間移動は対象外

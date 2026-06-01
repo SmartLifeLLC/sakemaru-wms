@@ -309,6 +309,8 @@ class PrintRequestService
                     ->orWhere(function ($query) {
                         $query->whereNotNull('pir.stock_transfer_id')
                             ->where('st.is_active', true)
+                            ->where('st.is_delivered', false)
+                            ->where('st.is_confirmed', false)
                             ->where('stt.is_active', true);
                     });
             })
