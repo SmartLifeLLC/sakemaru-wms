@@ -258,6 +258,7 @@
                     {{ $this->getAction('addSingleItem') }}
                     {{ $this->getAction('refreshSystemQuantities') }}
                     {{ $this->getAction('downloadInstructionPdf') }}
+                    {{ $this->getAction('downloadInstructionSheet') }}
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_DRAFT)
                         {{ $this->getAction('startCounting') }}
                     @endif
