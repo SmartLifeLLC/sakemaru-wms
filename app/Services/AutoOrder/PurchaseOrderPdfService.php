@@ -455,6 +455,12 @@ class PurchaseOrderPdfService
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
+        // 仕入先コード（FAX宛先の発注先マスタコード）
+        $contractorCode = $this->contractor?->code;
+        $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
+        $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '仕入先コード: '.($contractorCode ?: ' - '), 0, 1, 'L');
+        $lineY += self::LINE_HEIGHT_NORMAL;
+
         // 納入先指定コード
         $designatedCode = WmsContractorWarehouseSetting::getDesignatedCode(
             $this->warehouse?->id ?? 0,
