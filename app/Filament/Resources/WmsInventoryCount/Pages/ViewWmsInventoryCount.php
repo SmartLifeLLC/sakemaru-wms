@@ -9,7 +9,9 @@ use App\Models\WmsInventoryCountItemLog;
 use App\Services\InventoryCount\InventoryCountService;
 use App\Services\InventoryCount\InventoryDiffListPdfService;
 use App\Services\InventoryCount\InventoryInstructionPdfService;
+use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -917,6 +919,35 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->action(function () use ($record) {
                     $pdfContent = (new InventoryInstructionPdfService)->generate($record);
                     $filename = 'JANブック_'.($record->count_no ?? 'unknown').'.pdf';
+
+                    return response()->streamDownload(
+                        fn () => print ($pdfContent),
+                        $filename,
+                        ['Content-Type' => 'application/pdf']
+                    );
+                }),
+
+            Action::make('downloadInstructionSheet')
+                ->label('指示書')
+                ->icon('heroicon-o-clipboard-document-list')
+                ->color('gray')
+                ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_CANCELLED)
+                ->schema([
+                    Select::make('category_ids')
+                        ->label('中分類')
+                        ->options(fn () => (new InventoryInstructionSheetPdfService)->getCategoryOptions($record))
+                        ->multiple()
+                        ->searchable()
+                        ->placeholder('全て（未選択で全部門出力）'),
+                ])
+                ->modalHeading('指示書ダウンロード')
+                ->modalDescription('中分類を選択して指示書をダウンロードします。未選択の場合は全部門が出力されます。')
+                ->modalSubmitActionLabel('ダウンロード')
+                ->modalCancelActionLabel('ダウンロードせず閉じる')
+                ->action(function (array $data) use ($record) {
+                    $categoryIds = ! empty($data['category_ids']) ? array_map('intval', $data['category_ids']) : null;
+                    $pdfContent = (new InventoryInstructionSheetPdfService)->generate($record, $categoryIds);
+                    $filename = '棚卸し指示書_'.($record->count_no ?? 'unknown').'.pdf';
 
                     return response()->streamDownload(
                         fn () => print ($pdfContent),
