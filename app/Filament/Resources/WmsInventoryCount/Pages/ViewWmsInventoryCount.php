@@ -938,7 +938,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     ToggleButtons::make('item_scope')
                         ->label('出力範囲')
                         ->options(InventoryInstructionSheetPdfService::itemScopeOptions())
-                        ->default(InventoryInstructionSheetPdfService::ITEM_SCOPE_ALL)
+                        ->default(InventoryInstructionSheetPdfService::ITEM_SCOPE_TOP_50)
                         ->grouped()
                         ->inline()
                         ->required(),
@@ -958,7 +958,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->modalCancelActionLabel('ダウンロードせず閉じる')
                 ->action(function (array $data) use ($record) {
                     $categoryIds = ! empty($data['category_ids']) ? array_map('intval', $data['category_ids']) : null;
-                    $itemScope = (string) ($data['item_scope'] ?? InventoryInstructionSheetPdfService::ITEM_SCOPE_ALL);
+                    $itemScope = (string) ($data['item_scope'] ?? InventoryInstructionSheetPdfService::ITEM_SCOPE_TOP_50);
                     $pdfContent = (new InventoryInstructionSheetPdfService)->generate($record, $categoryIds, $itemScope);
                     $filename = '棚卸し指示書_'.($record->count_no ?? 'unknown').'.pdf';
 
