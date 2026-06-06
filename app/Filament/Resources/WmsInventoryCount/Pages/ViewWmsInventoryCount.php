@@ -13,10 +13,12 @@ use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ToggleButtons;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
+use Filament\Support\Enums\Alignment;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
@@ -933,6 +935,14 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->color('gray')
                 ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_CANCELLED)
                 ->schema([
+                    ToggleButtons::make('item_scope')
+                        ->label('出力範囲')
+                        ->options(InventoryInstructionSheetPdfService::itemScopeOptions())
+                        ->default(InventoryInstructionSheetPdfService::ITEM_SCOPE_ALL)
+                        ->grouped()
+                        ->inline()
+                        ->required(),
+
                     Select::make('category_ids')
                         ->label('中分類')
                         ->options(fn () => (new InventoryInstructionSheetPdfService)->getCategoryOptions($record))
@@ -941,12 +951,15 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         ->placeholder('全て（未選択で全部門出力）'),
                 ])
                 ->modalHeading('指示書ダウンロード')
-                ->modalDescription('中分類を選択して指示書をダウンロードします。未選択の場合は全部門が出力されます。')
-                ->modalSubmitActionLabel('ダウンロード')
+                ->modalDescription('中分類と出力範囲を選択して指示書をダウンロードします。未選択の場合は全部門が出力されます。')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('ダウンロード')->color('danger'))
                 ->modalCancelActionLabel('ダウンロードせず閉じる')
                 ->action(function (array $data) use ($record) {
                     $categoryIds = ! empty($data['category_ids']) ? array_map('intval', $data['category_ids']) : null;
-                    $pdfContent = (new InventoryInstructionSheetPdfService)->generate($record, $categoryIds);
+                    $itemScope = (string) ($data['item_scope'] ?? InventoryInstructionSheetPdfService::ITEM_SCOPE_ALL);
+                    $pdfContent = (new InventoryInstructionSheetPdfService)->generate($record, $categoryIds, $itemScope);
                     $filename = '棚卸し指示書_'.($record->count_no ?? 'unknown').'.pdf';
 
                     return response()->streamDownload(

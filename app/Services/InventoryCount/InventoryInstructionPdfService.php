@@ -4,7 +4,6 @@ namespace App\Services\InventoryCount;
 
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
-use Illuminate\Support\Facades\DB;
 use TCPDF;
 
 /**
@@ -100,7 +99,7 @@ class InventoryInstructionPdfService
     public function generate(WmsInventoryCount $inventoryCount): string
     {
         $items = $this->queryItems($inventoryCount);
-        $janCodes = $this->janCodesByItemId($items);
+        $janCodes = (new InventoryJanCodeResolver)->forItems($items);
 
         $this->initPdf();
         $this->renderedItemCount = 0;
@@ -175,40 +174,6 @@ class InventoryInstructionPdfService
             ->orderBy('location_code3')
             ->orderBy('item_code')
             ->get();
-    }
-
-    private function janCodesByItemId(\Illuminate\Database\Eloquent\Collection $items): array
-    {
-        $itemIds = $items
-            ->pluck('item_id')
-            ->filter()
-            ->unique()
-            ->values();
-
-        if ($itemIds->isEmpty()) {
-            return [];
-        }
-
-        $rows = DB::connection('sakemaru')
-            ->table('item_search_information as isi')
-            ->leftJoin('item_quantity_information as iqi', 'isi.item_quantity_information_id', '=', 'iqi.id')
-            ->whereIn('isi.item_id', $itemIds)
-            ->where('isi.code_type', 'OTHER')
-            ->where('iqi.dm_code', 0)
-            ->where('iqi.quantity_code', '00')
-            ->whereNotNull('isi.search_string')
-            ->where('isi.search_string', '!=', '')
-            ->orderBy('isi.item_id')
-            ->orderBy('isi.id')
-            ->get(['isi.item_id', 'isi.search_string']);
-
-        $janCodes = [];
-        foreach ($rows as $row) {
-            $itemId = (int) $row->item_id;
-            $janCodes[$itemId] ??= (string) $row->search_string;
-        }
-
-        return $janCodes;
     }
 
     private function buildHeader(WmsInventoryCount $inventoryCount): array
