@@ -19,23 +19,23 @@ class InventoryInstructionSheetPdfService
 
     private const FONT_SIZE_TITLE = 18;
 
-    private const FONT_SIZE_HEADER = 9;
+    private const FONT_SIZE_HEADER = 10;
 
     private const FONT_SIZE_NORMAL = 8;
 
-    private const FONT_SIZE_COL_HEADER = 7;
+    private const FONT_SIZE_COL_HEADER = 9;
 
     private const FONT_SIZE_PRODUCT = 9;
 
-    private const FONT_SIZE_PRODUCT_CODE = 10;
-
-    private const FONT_SIZE_SHELF = 10;
-
-    private const FONT_SIZE_STOCK = 11;
+    private const FONT_SIZE_STOCK = 10.5;
 
     private const FONT_SIZE_JAN = 7;
 
-    private const BLOCK_ROW_HEIGHT = 5.5;
+    private const PRODUCT_LINE_HEIGHT = 4.2;
+
+    private const HEADER_ROW_HEIGHT = 10;
+
+    private const ITEM_ROW_HEIGHT = 19;
 
     private const LINE_WIDTH = 0.2;
 
@@ -53,15 +53,27 @@ class InventoryInstructionSheetPdfService
 
     private const CONTENT_WIDTH = 190;
 
-    private const COL_W1 = 75; // 商品コード / 商品名
+    private const COL_W_JAN = 38;
 
-    private const COL_W2 = 25; // 棚番
+    private const COL_W_NAME = 61;
 
-    private const COL_W3 = 30; // 規格
+    private const COL_W_CAPACITY = 16;
 
-    private const COL_W4 = 25; // 現在庫
+    private const COL_W_THEORETICAL_CASE = 15;
 
-    private const COL_W5 = 35; // 場所（記入欄）
+    private const COL_W_THEORETICAL_PIECE = 15;
+
+    private const COL_W_TOTAL_PIECES = 14;
+
+    private const COL_W_ACTUAL_CASE = 15.5;
+
+    private const COL_W_ACTUAL_PIECE = 15.5;
+
+    private const BARCODE_WIDTH = 34;
+
+    private const BARCODE_HEIGHT = 8;
+
+    private const BARCODE_TEXT_HEIGHT = 3;
 
     private TCPDF $pdf;
 
@@ -93,13 +105,13 @@ class InventoryInstructionSheetPdfService
 
             $currentShelfPrefix = $shelfPrefix;
 
-            $blockHeight = self::BLOCK_ROW_HEIGHT * 3;
+            $blockHeight = $this->itemRowHeight($item);
 
             if ($this->currentY + $blockHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM) {
                 $this->addNewPage($header, $currentShelfPrefix);
             }
 
-            $this->renderItemBlock($item, $janCodes[(int) $item->item_id] ?? '');
+            $this->renderItemBlock($item, $janCodes[(int) $item->item_id] ?? '', $blockHeight);
         }
 
         if ($this->pdf->getNumPages() === 0) {
@@ -241,7 +253,7 @@ class InventoryInstructionSheetPdfService
 
         $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_TITLE);
         $this->pdf->SetXY($leftX, $this->currentY);
-        $this->pdf->Cell(52, 10, '棚番：'.($shelfPrefix ?? ''), 0, 0, 'L');
+        $this->pdf->Cell(52, 10, '棚卸し指示書', 0, 0, 'L');
 
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_HEADER);
         $this->pdf->SetXY($leftX + 54, $this->currentY + 2);
@@ -261,44 +273,36 @@ class InventoryInstructionSheetPdfService
     {
         $x = self::MARGIN_LEFT;
         $y = $this->currentY;
-        $rowH = self::BLOCK_ROW_HEIGHT;
+        $rowH = self::HEADER_ROW_HEIGHT;
 
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_COL_HEADER);
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
 
-        $this->pdf->SetXY($x, $y);
-        $this->pdf->Cell(self::COL_W1, $rowH, '商品コード', 0, 0, 'L');
+        $headers = [
+            ['JANコード', self::COL_W_JAN],
+            ['商品名', self::COL_W_NAME],
+            ['入数', self::COL_W_CAPACITY],
+            ["理論\nケース", self::COL_W_THEORETICAL_CASE],
+            ["理論\nバラ", self::COL_W_THEORETICAL_PIECE],
+            ['総バラ', self::COL_W_TOTAL_PIECES],
+            ["実棚\nケース", self::COL_W_ACTUAL_CASE],
+            ["実棚\nバラ", self::COL_W_ACTUAL_PIECE],
+        ];
 
-        $this->pdf->SetXY($x + self::COL_W1, $y);
-        $this->pdf->Cell(self::COL_W2, $rowH, '棚番', 0, 0, 'L');
+        foreach ($headers as [$label, $width]) {
+            $labelY = str_contains($label, "\n") ? $y + 0.8 : $y + 3;
+            $this->pdf->MultiCell($width, 4.1, $label, 0, 'C', false, 0, $x, $labelY);
+            $x += $width;
+        }
 
-        $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y);
-        $this->pdf->Cell(self::COL_W3, $rowH, '規格', 0, 0, 'L');
-
-        $col4X = $x + self::COL_W1 + self::COL_W2 + self::COL_W3;
-        $this->pdf->SetXY($col4X, $y);
-        $this->pdf->Cell(self::COL_W4, $rowH, '現在庫', 0, 0, 'C');
-
-        $col5X = $col4X + self::COL_W4;
-        $this->pdf->SetXY($col5X, $y);
-        $this->pdf->Cell(self::COL_W5, $rowH, '場所', 0, 0, 'C');
-
-        $y2 = $y + $rowH;
-        $this->pdf->SetXY($x, $y2);
-        $this->pdf->Cell(self::COL_W1, $rowH, '商品名', 0, 0, 'L');
-
-        $y3 = $y + $rowH * 2;
-        $this->pdf->SetXY($x, $y3);
-        $this->pdf->Cell(self::COL_W1, $rowH, 'JANコード', 0, 0, 'L');
-
-        $this->currentY = $y3 + $rowH;
+        $this->pdf->Line(self::MARGIN_LEFT, $y + $rowH, self::MARGIN_LEFT + self::CONTENT_WIDTH, $y + $rowH);
+        $this->currentY = $y + $rowH;
     }
 
-    private function renderItemBlock(WmsInventoryCountItem $countItem, string $janCode): void
+    private function renderItemBlock(WmsInventoryCountItem $countItem, string $janCode, float $rowH): void
     {
         $x = self::MARGIN_LEFT;
         $y = $this->currentY;
-        $rowH = self::BLOCK_ROW_HEIGHT;
 
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
         $this->pdf->SetLineStyle(['dash' => '2,1']);
@@ -306,58 +310,114 @@ class InventoryInstructionSheetPdfService
         $this->pdf->SetLineStyle(['dash' => '']);
 
         $item = $countItem->item;
-        $spec = (string) ($item?->packaging ?? '');
+        $capacity = $this->capacityCase($item);
+        $systemQuantity = (int) $countItem->system_quantity;
+        [$theoreticalCases, $theoreticalPieces] = $this->splitCasePieceQuantity($systemQuantity, $capacity);
+        $centerY = $y + ($rowH - self::HEADER_ROW_HEIGHT) / 2;
+        $itemName = (string) ($countItem->item_name ?? '');
 
-        // === Row 1 ===
-        $y1 = $y;
-        $shelfNo = $this->shelfCode($countItem);
+        $this->renderBarcodeCell($x, $y, self::COL_W_JAN, $janCode);
+        $x += self::COL_W_JAN;
 
-        $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_PRODUCT_CODE);
-        $this->pdf->SetXY($x, $y1);
-        $this->pdf->Cell(self::COL_W1, $rowH, $countItem->item_code ?? '', 0, 0, 'L');
+        $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_PRODUCT);
+        $itemNameLineCount = max(1, $this->pdf->getNumLines($itemName, self::COL_W_NAME - 1));
+        $itemNameHeight = $itemNameLineCount * self::PRODUCT_LINE_HEIGHT;
+        $itemNameY = $y + max(2, ($rowH - $itemNameHeight) / 2);
+        $this->pdf->MultiCell(self::COL_W_NAME, self::PRODUCT_LINE_HEIGHT, $itemName, 0, 'L', false, 0, $x, $itemNameY);
+        $x += self::COL_W_NAME;
 
-        $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_SHELF);
-        $this->pdf->SetXY($x + self::COL_W1, $y1);
-        $this->pdf->Cell(self::COL_W2, $rowH, $shelfNo, 0, 0, 'L');
+        $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_STOCK);
+        $this->pdf->SetXY($x, $centerY);
+        $this->pdf->Cell(self::COL_W_CAPACITY, self::HEADER_ROW_HEIGHT, number_format($capacity).'入り', 0, 0, 'R');
+        $x += self::COL_W_CAPACITY;
 
-        $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
-        $this->pdf->SetXY($x + self::COL_W1 + self::COL_W2, $y1);
-        $this->pdf->Cell(self::COL_W3, $rowH, $this->truncateText($spec, self::COL_W3 - 2), 0, 0, 'L');
+        $this->pdf->SetXY($x, $centerY);
+        $this->pdf->Cell(self::COL_W_THEORETICAL_CASE, self::HEADER_ROW_HEIGHT, number_format($theoreticalCases), 0, 0, 'R');
+        $x += self::COL_W_THEORETICAL_CASE;
 
-        // 現在庫（3行分のセル中央に配置）
-        $col4X = $x + self::COL_W1 + self::COL_W2 + self::COL_W3;
-        $stockQty = (int) $countItem->system_quantity;
-        $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_STOCK);
-        $stockCellY = $y + ($rowH * 3 - $rowH) / 2;
-        $this->pdf->SetXY($col4X, $stockCellY);
-        $this->pdf->Cell(self::COL_W4, $rowH, number_format($stockQty), 0, 0, 'R');
+        $this->pdf->SetXY($x, $centerY);
+        $this->pdf->Cell(self::COL_W_THEORETICAL_PIECE, self::HEADER_ROW_HEIGHT, number_format($theoreticalPieces), 0, 0, 'R');
+        $x += self::COL_W_THEORETICAL_PIECE;
 
-        // 場所（空の罫線ボックス）
-        $col5X = $col4X + self::COL_W4;
-        $boxMargin = 2;
-        $boxX = $col5X + $boxMargin;
-        $boxY = $y + 1;
-        $boxW = self::COL_W5 - ($boxMargin * 2);
-        $boxH = ($rowH * 3) - 2;
+        $this->pdf->SetXY($x, $centerY);
+        $this->pdf->Cell(self::COL_W_TOTAL_PIECES, self::HEADER_ROW_HEIGHT, number_format($systemQuantity), 0, 0, 'R');
+        $x += self::COL_W_TOTAL_PIECES;
+
+        $this->renderInputBox($x, $y, self::COL_W_ACTUAL_CASE, $rowH);
+        $x += self::COL_W_ACTUAL_CASE;
+
+        $this->renderInputBox($x, $y, self::COL_W_ACTUAL_PIECE, $rowH);
+
+        $this->currentY = $y + $rowH;
+    }
+
+    private function itemRowHeight(WmsInventoryCountItem $countItem): float
+    {
+        $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_PRODUCT);
+
+        $lineCount = max(1, $this->pdf->getNumLines((string) ($countItem->item_name ?? ''), self::COL_W_NAME - 1));
+
+        return max(self::ITEM_ROW_HEIGHT, ($lineCount * self::PRODUCT_LINE_HEIGHT) + 4);
+    }
+
+    private function renderBarcodeCell(float $x, float $y, float $width, string $janCode): void
+    {
+        if ($janCode === '') {
+            return;
+        }
+
+        $barcodeW = min(self::BARCODE_WIDTH, $width - 4);
+        $barcodeX = $x + (($width - $barcodeW) / 2);
+        $barcodeY = $y + 2;
+
+        $this->pdf->write1DBarcode(
+            $janCode,
+            'C128',
+            $barcodeX,
+            $barcodeY,
+            $barcodeW,
+            self::BARCODE_HEIGHT,
+            0.35,
+            ['position' => '', 'border' => false, 'padding' => 0, 'fgcolor' => [0, 0, 0], 'bgcolor' => false, 'text' => false, 'font' => 'kozgopromedium', 'fontsize' => 0, 'stretchtext' => 0],
+            'N'
+        );
+
+        $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_JAN);
+        $this->pdf->SetXY($x, $barcodeY + self::BARCODE_HEIGHT + 0.8);
+        $this->pdf->Cell($width, self::BARCODE_TEXT_HEIGHT, $this->truncateText($janCode, $width - 2), 0, 0, 'C');
+    }
+
+    private function renderInputBox(float $x, float $y, float $width, float $height): void
+    {
         $this->pdf->SetLineWidth(0.3);
         $this->pdf->SetLineStyle(['dash' => '']);
-        $this->pdf->Rect($boxX, $boxY, $boxW, $boxH);
+        $this->pdf->Rect($x + 1, $y + 2, $width - 2, $height - 4);
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
+    }
 
-        // === Row 2 ===
-        $y2 = $y + $rowH;
-        $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_PRODUCT);
-        $this->pdf->SetXY($x, $y2);
-        $nameWidth = self::COL_W1 + self::COL_W2 + self::COL_W3 - 2;
-        $this->pdf->Cell($nameWidth, $rowH, $this->truncateText((string) ($countItem->item_name ?? ''), $nameWidth - 2), 0, 0, 'L');
+    private function capacityCase(?object $item): int
+    {
+        $capacity = (int) ($item?->capacity_case ?? 1);
 
-        // === Row 3 ===
-        $y3 = $y + $rowH * 2;
-        $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_JAN);
-        $this->pdf->SetXY($x, $y3);
-        $this->pdf->Cell($nameWidth, $rowH, $this->truncateText($janCode, $nameWidth - 2), 0, 0, 'L');
+        return max(1, $capacity);
+    }
 
-        $this->currentY = $y + $rowH * 3;
+    /**
+     * @return array{0:int,1:int}
+     */
+    private function splitCasePieceQuantity(int $totalPieces, int $capacity): array
+    {
+        if ($capacity <= 1) {
+            return [0, $totalPieces];
+        }
+
+        $sign = $totalPieces < 0 ? -1 : 1;
+        $absolutePieces = abs($totalPieces);
+
+        return [
+            $sign * intdiv($absolutePieces, $capacity),
+            $sign * ($absolutePieces % $capacity),
+        ];
     }
 
     private function renderPageNumbers(): void

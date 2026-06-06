@@ -6,11 +6,13 @@ use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\WmsInventoryCount;
 use App\Services\InventoryCount\InventoryCountService;
+use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\ToggleButtons;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
@@ -85,6 +87,8 @@ class WmsInventoryCountTable
             ])
             ->defaultSort('id', 'desc')
             ->recordActions([
+                static::getInstructionSheetAction(),
+
                 Action::make('view')
                     ->label('詳細')
                     ->icon('heroicon-o-eye')
@@ -95,6 +99,49 @@ class WmsInventoryCountTable
                 static::getCreateAction(),
             ])
             ->extraAttributes(['class' => 'sticky-actions']);
+    }
+
+    protected static function getInstructionSheetAction(): Action
+    {
+        return Action::make('downloadInstructionSheet')
+            ->label('指示書出力')
+            ->icon('heroicon-o-clipboard-document-list')
+            ->color('gray')
+            ->visible(fn (WmsInventoryCount $record) => $record->status !== WmsInventoryCount::STATUS_CANCELLED)
+            ->schema([
+                ToggleButtons::make('item_scope')
+                    ->label('出力範囲')
+                    ->options(InventoryInstructionSheetPdfService::itemScopeOptions())
+                    ->default(InventoryInstructionSheetPdfService::ITEM_SCOPE_TOP_50)
+                    ->grouped()
+                    ->inline()
+                    ->required(),
+
+                Select::make('category_ids')
+                    ->label('中分類')
+                    ->options(fn (WmsInventoryCount $record) => (new InventoryInstructionSheetPdfService)->getCategoryOptions($record))
+                    ->multiple()
+                    ->searchable()
+                    ->placeholder('全て（未選択で全部門出力）'),
+            ])
+            ->modalHeading('指示書ダウンロード')
+            ->modalDescription('中分類と出力範囲を選択して指示書をダウンロードします。未選択の場合は全部門が出力されます。')
+            ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+            ->modalFooterActionsAlignment(Alignment::End)
+            ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('ダウンロード')->color('danger'))
+            ->modalCancelActionLabel('ダウンロードせず閉じる')
+            ->action(function (WmsInventoryCount $record, array $data) {
+                $categoryIds = ! empty($data['category_ids']) ? array_map('intval', $data['category_ids']) : null;
+                $itemScope = (string) ($data['item_scope'] ?? InventoryInstructionSheetPdfService::ITEM_SCOPE_TOP_50);
+                $pdfContent = (new InventoryInstructionSheetPdfService)->generate($record, $categoryIds, $itemScope);
+                $filename = '棚卸し指示書_'.($record->count_no ?? 'unknown').'.pdf';
+
+                return response()->streamDownload(
+                    fn () => print ($pdfContent),
+                    $filename,
+                    ['Content-Type' => 'application/pdf']
+                );
+            });
     }
 
     protected static function getCreateAction(): Action
