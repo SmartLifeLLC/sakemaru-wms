@@ -5,10 +5,18 @@ namespace App\Services\InventoryCount;
 use App\Models\Sakemaru\ItemCategory;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use TCPDF;
 
 class InventoryInstructionSheetPdfService
 {
+    public const ITEM_SCOPE_ALL = 'all';
+
+    public const ITEM_SCOPE_TOP_50 = 'top_50';
+
+    private const TOP_SYSTEM_QUANTITY_LIMIT = 50;
+
     private const FONT_SIZE_TITLE = 18;
 
     private const FONT_SIZE_HEADER = 9;
@@ -24,6 +32,8 @@ class InventoryInstructionSheetPdfService
     private const FONT_SIZE_SHELF = 10;
 
     private const FONT_SIZE_STOCK = 11;
+
+    private const FONT_SIZE_JAN = 7;
 
     private const BLOCK_ROW_HEIGHT = 5.5;
 
@@ -59,9 +69,10 @@ class InventoryInstructionSheetPdfService
 
     private int $totalPages = 0;
 
-    public function generate(WmsInventoryCount $inventoryCount, ?array $categoryIds = null): string
+    public function generate(WmsInventoryCount $inventoryCount, ?array $categoryIds = null, string $itemScope = self::ITEM_SCOPE_ALL): string
     {
-        $items = $this->queryItems($inventoryCount, $categoryIds);
+        $items = $this->queryItems($inventoryCount, $categoryIds, $itemScope);
+        $janCodes = (new InventoryJanCodeResolver)->forItems($items);
 
         $this->initPdf();
 
@@ -88,7 +99,7 @@ class InventoryInstructionSheetPdfService
                 $this->addNewPage($header, $currentShelfPrefix);
             }
 
-            $this->renderItemBlock($item);
+            $this->renderItemBlock($item, $janCodes[(int) $item->item_id] ?? '');
         }
 
         if ($this->pdf->getNumPages() === 0) {
@@ -129,7 +140,15 @@ class InventoryInstructionSheetPdfService
             ->toArray();
     }
 
-    private function queryItems(WmsInventoryCount $inventoryCount, ?array $categoryIds = null): \Illuminate\Database\Eloquent\Collection
+    public static function itemScopeOptions(): array
+    {
+        return [
+            self::ITEM_SCOPE_ALL => '全件',
+            self::ITEM_SCOPE_TOP_50 => '在庫数上位50',
+        ];
+    }
+
+    private function queryItems(WmsInventoryCount $inventoryCount, ?array $categoryIds = null, string $itemScope = self::ITEM_SCOPE_ALL): Collection
     {
         $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
             ->with(['item']);
@@ -140,6 +159,28 @@ class InventoryInstructionSheetPdfService
             });
         }
 
+        if ($this->normalizeItemScope($itemScope) === self::ITEM_SCOPE_TOP_50) {
+            $topItemIds = (clone $query)
+                ->reorder()
+                ->orderByDesc('system_quantity')
+                ->orderBy('id')
+                ->limit(self::TOP_SYSTEM_QUANTITY_LIMIT)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            if ($topItemIds === []) {
+                return $query->whereRaw('1 = 0')->get();
+            }
+
+            $query->whereKey($topItemIds);
+        }
+
+        return $this->applyInstructionOrder($query)->get();
+    }
+
+    private function applyInstructionOrder(Builder $query): Builder
+    {
         return $query
             ->orderByRaw("
                 CASE
@@ -153,8 +194,14 @@ class InventoryInstructionSheetPdfService
             ->orderBy('location_code1')
             ->orderBy('location_code2')
             ->orderBy('location_code3')
-            ->orderBy('item_code')
-            ->get();
+            ->orderBy('item_code');
+    }
+
+    private function normalizeItemScope(?string $itemScope): string
+    {
+        return $itemScope === self::ITEM_SCOPE_TOP_50
+            ? self::ITEM_SCOPE_TOP_50
+            : self::ITEM_SCOPE_ALL;
     }
 
     private function buildHeader(WmsInventoryCount $inventoryCount): array
@@ -241,11 +288,13 @@ class InventoryInstructionSheetPdfService
         $this->pdf->Cell(self::COL_W1, $rowH, '商品名', 0, 0, 'L');
 
         $y3 = $y + $rowH * 2;
+        $this->pdf->SetXY($x, $y3);
+        $this->pdf->Cell(self::COL_W1, $rowH, 'JANコード', 0, 0, 'L');
 
         $this->currentY = $y3 + $rowH;
     }
 
-    private function renderItemBlock(WmsInventoryCountItem $countItem): void
+    private function renderItemBlock(WmsInventoryCountItem $countItem, string $janCode): void
     {
         $x = self::MARGIN_LEFT;
         $y = $this->currentY;
@@ -301,6 +350,12 @@ class InventoryInstructionSheetPdfService
         $this->pdf->SetXY($x, $y2);
         $nameWidth = self::COL_W1 + self::COL_W2 + self::COL_W3 - 2;
         $this->pdf->Cell($nameWidth, $rowH, $this->truncateText((string) ($countItem->item_name ?? ''), $nameWidth - 2), 0, 0, 'L');
+
+        // === Row 3 ===
+        $y3 = $y + $rowH * 2;
+        $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_JAN);
+        $this->pdf->SetXY($x, $y3);
+        $this->pdf->Cell($nameWidth, $rowH, $this->truncateText($janCode, $nameWidth - 2), 0, 0, 'L');
 
         $this->currentY = $y + $rowH * 3;
     }
