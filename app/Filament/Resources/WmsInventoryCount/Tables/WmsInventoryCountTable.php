@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\WmsInventoryCount\Tables;
 
 use App\Enums\PaginationOptions;
-use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\WmsInventoryCount;
 use App\Services\InventoryCount\InventoryCountService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
@@ -22,8 +21,6 @@ use Filament\Tables\Table;
 
 class WmsInventoryCountTable
 {
-    use HasOptimizedFilters;
-
     public static function configure(Table $table): Table
     {
         return $table
@@ -39,6 +36,11 @@ class WmsInventoryCountTable
                 TextColumn::make('warehouse_name')
                     ->label('倉庫')
                     ->sortable(),
+
+                TextColumn::make('memo')
+                    ->label('メモ')
+                    ->limit(40)
+                    ->placeholder('-'),
 
                 TextColumn::make('count_date')
                     ->label('棚卸し日')
@@ -73,17 +75,11 @@ class WmsInventoryCountTable
                     ->sortable(),
             ])
             ->filters([
-                static::warehouseFilter(),
-
                 SelectFilter::make('status')
                     ->label('ステータス')
-                    ->options([
-                        WmsInventoryCount::STATUS_DRAFT => '下書き',
-                        WmsInventoryCount::STATUS_COUNTING => 'カウント中',
-                        WmsInventoryCount::STATUS_CHECKED => '差異確認済',
-                        WmsInventoryCount::STATUS_CONFIRMED => '確定済',
-                        WmsInventoryCount::STATUS_CANCELLED => '取消',
-                    ]),
+                    ->multiple()
+                    ->options(static::statusFilterOptions())
+                    ->default(static::defaultStatusFilterValues()),
             ])
             ->defaultSort('id', 'desc')
             ->recordActions([
@@ -101,12 +97,34 @@ class WmsInventoryCountTable
             ->extraAttributes(['class' => 'sticky-actions']);
     }
 
+    protected static function statusFilterOptions(): array
+    {
+        return [
+            WmsInventoryCount::STATUS_DRAFT => '下書き',
+            WmsInventoryCount::STATUS_COUNTING => 'カウント中',
+            WmsInventoryCount::STATUS_CHECKED => '差異確認済',
+            WmsInventoryCount::STATUS_CONFIRMED => '確定済',
+            WmsInventoryCount::STATUS_CANCELLED => '取消',
+        ];
+    }
+
+    protected static function defaultStatusFilterValues(): array
+    {
+        return [
+            WmsInventoryCount::STATUS_DRAFT,
+            WmsInventoryCount::STATUS_COUNTING,
+            WmsInventoryCount::STATUS_CHECKED,
+            WmsInventoryCount::STATUS_CONFIRMED,
+        ];
+    }
+
     protected static function getInstructionSheetAction(): Action
     {
         return Action::make('downloadInstructionSheet')
             ->label('指示書出力')
             ->icon('heroicon-o-clipboard-document-list')
             ->color('gray')
+            ->extraAttributes(['class' => 'font-bold'])
             ->visible(fn (WmsInventoryCount $record) => $record->status !== WmsInventoryCount::STATUS_CANCELLED)
             ->schema([
                 ToggleButtons::make('item_scope')
@@ -116,6 +134,11 @@ class WmsInventoryCountTable
                     ->grouped()
                     ->inline()
                     ->required(),
+
+                Checkbox::make('exclude_department_system_items')
+                    ->label('部システムを除外')
+                    ->default(true)
+                    ->helperText('部システム商品のほか、小分類名が部システムの商品を指示書から除外します。'),
 
                 Select::make('category_ids')
                     ->label('中分類')
@@ -133,7 +156,8 @@ class WmsInventoryCountTable
             ->action(function (WmsInventoryCount $record, array $data) {
                 $categoryIds = ! empty($data['category_ids']) ? array_map('intval', $data['category_ids']) : null;
                 $itemScope = (string) ($data['item_scope'] ?? InventoryInstructionSheetPdfService::ITEM_SCOPE_TOP_50);
-                $pdfContent = (new InventoryInstructionSheetPdfService)->generate($record, $categoryIds, $itemScope);
+                $excludeDepartmentSystemItems = (bool) ($data['exclude_department_system_items'] ?? true);
+                $pdfContent = (new InventoryInstructionSheetPdfService)->generate($record, $categoryIds, $itemScope, $excludeDepartmentSystemItems);
                 $filename = '棚卸し指示書_'.($record->count_no ?? 'unknown').'.pdf';
 
                 return response()->streamDownload(

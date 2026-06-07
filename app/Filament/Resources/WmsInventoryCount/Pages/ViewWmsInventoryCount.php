@@ -11,6 +11,7 @@ use App\Services\InventoryCount\InventoryDiffListPdfService;
 use App\Services\InventoryCount\InventoryInstructionPdfService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\ToggleButtons;
@@ -943,6 +944,11 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         ->inline()
                         ->required(),
 
+                    Checkbox::make('exclude_department_system_items')
+                        ->label('部システムを除外')
+                        ->default(true)
+                        ->helperText('部システム商品のほか、小分類名が部システムの商品を指示書から除外します。'),
+
                     Select::make('category_ids')
                         ->label('中分類')
                         ->options(fn () => (new InventoryInstructionSheetPdfService)->getCategoryOptions($record))
@@ -959,7 +965,8 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->action(function (array $data) use ($record) {
                     $categoryIds = ! empty($data['category_ids']) ? array_map('intval', $data['category_ids']) : null;
                     $itemScope = (string) ($data['item_scope'] ?? InventoryInstructionSheetPdfService::ITEM_SCOPE_TOP_50);
-                    $pdfContent = (new InventoryInstructionSheetPdfService)->generate($record, $categoryIds, $itemScope);
+                    $excludeDepartmentSystemItems = (bool) ($data['exclude_department_system_items'] ?? true);
+                    $pdfContent = (new InventoryInstructionSheetPdfService)->generate($record, $categoryIds, $itemScope, $excludeDepartmentSystemItems);
                     $filename = '棚卸し指示書_'.($record->count_no ?? 'unknown').'.pdf';
 
                     return response()->streamDownload(
