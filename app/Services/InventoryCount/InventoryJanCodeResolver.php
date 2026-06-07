@@ -44,6 +44,38 @@ class InventoryJanCodeResolver
             $janCodes[$itemId] ??= (string) $row->search_string;
         }
 
+        $fallbackRows = DB::connection('sakemaru')
+            ->table('item_quantity_information as iqi')
+            ->whereIn('iqi.item_id', $itemIds)
+            ->where('iqi.dm_code', 0)
+            ->where('iqi.quantity', 1)
+            ->whereNotNull('iqi.own_code')
+            ->where('iqi.own_code', '!=', '')
+            ->orderBy('iqi.item_id')
+            ->orderBy('iqi.quantity_code')
+            ->orderBy('iqi.id')
+            ->get(['iqi.item_id', 'iqi.own_code']);
+
+        foreach ($fallbackRows as $row) {
+            $itemId = (int) $row->item_id;
+            $ownCode = $this->normalizeCode($row->own_code);
+
+            if ($ownCode !== null) {
+                $janCodes[$itemId] ??= $ownCode;
+            }
+        }
+
         return $janCodes;
+    }
+
+    private function normalizeCode(?string $code): ?string
+    {
+        $code = trim((string) $code);
+
+        if ($code === '' || preg_match('/[1-9]/', $code) !== 1) {
+            return null;
+        }
+
+        return $code;
     }
 }

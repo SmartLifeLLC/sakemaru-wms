@@ -19,6 +19,8 @@ class InventoryInstructionSheetPdfService
 
     private const FONT_SIZE_TITLE = 18;
 
+    private const FONT_SIZE_PRINT_TIMESTAMP = 9;
+
     private const FONT_SIZE_HEADER = 10;
 
     private const FONT_SIZE_NORMAL = 8;
@@ -81,34 +83,41 @@ class InventoryInstructionSheetPdfService
 
     private int $totalPages = 0;
 
-    public function generate(WmsInventoryCount $inventoryCount, ?array $categoryIds = null, string $itemScope = self::ITEM_SCOPE_ALL): string
-    {
-        $items = $this->queryItems($inventoryCount, $categoryIds, $itemScope);
+    public function generate(
+        WmsInventoryCount $inventoryCount,
+        ?array $categoryIds = null,
+        string $itemScope = self::ITEM_SCOPE_ALL,
+        bool $excludeDepartmentSystemItems = true,
+    ): string {
+        $items = $this->queryItems($inventoryCount, $categoryIds, $itemScope, $excludeDepartmentSystemItems);
         $janCodes = (new InventoryJanCodeResolver)->forItems($items);
 
         $this->initPdf();
 
         $header = $this->buildHeader($inventoryCount);
-        $currentShelfPrefix = null;
+        $currentDepartmentKey = null;
+        $currentDepartmentName = null;
         $isFirstPage = true;
 
         foreach ($items as $item) {
-            $shelfPrefix = $this->shelfPagePrefix($item);
+            $departmentKey = $this->departmentPageKey($item);
+            $departmentName = $this->departmentName($item);
 
-            if ($currentShelfPrefix !== null && $currentShelfPrefix !== $shelfPrefix) {
-                $this->addNewPage($header, $shelfPrefix);
+            if ($currentDepartmentKey !== null && $currentDepartmentKey !== $departmentKey) {
+                $this->addNewPage($header, $departmentName);
                 $isFirstPage = false;
-            } elseif ($isFirstPage && $currentShelfPrefix === null) {
-                $this->addNewPage($header, $shelfPrefix);
+            } elseif ($isFirstPage && $currentDepartmentKey === null) {
+                $this->addNewPage($header, $departmentName);
                 $isFirstPage = false;
             }
 
-            $currentShelfPrefix = $shelfPrefix;
+            $currentDepartmentKey = $departmentKey;
+            $currentDepartmentName = $departmentName;
 
             $blockHeight = $this->itemRowHeight($item);
 
             if ($this->currentY + $blockHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM) {
-                $this->addNewPage($header, $currentShelfPrefix);
+                $this->addNewPage($header, $currentDepartmentName);
             }
 
             $this->renderItemBlock($item, $janCodes[(int) $item->item_id] ?? '', $blockHeight);
@@ -160,15 +169,23 @@ class InventoryInstructionSheetPdfService
         ];
     }
 
-    private function queryItems(WmsInventoryCount $inventoryCount, ?array $categoryIds = null, string $itemScope = self::ITEM_SCOPE_ALL): Collection
-    {
+    private function queryItems(
+        WmsInventoryCount $inventoryCount,
+        ?array $categoryIds = null,
+        string $itemScope = self::ITEM_SCOPE_ALL,
+        bool $excludeDepartmentSystemItems = true,
+    ): Collection {
         $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
-            ->with(['item']);
+            ->with(['item.item_category2']);
 
         if ($categoryIds !== null && $categoryIds !== []) {
             $query->whereHas('item', function ($q) use ($categoryIds) {
                 $q->whereIn('item_category2_id', $categoryIds);
             });
+        }
+
+        if ($excludeDepartmentSystemItems) {
+            $this->excludeDepartmentSystemItems($query);
         }
 
         if ($this->normalizeItemScope($itemScope) === self::ITEM_SCOPE_TOP_50) {
@@ -191,22 +208,43 @@ class InventoryInstructionSheetPdfService
         return $this->applyInstructionOrder($query)->get();
     }
 
+    private function excludeDepartmentSystemItems(Builder $query): void
+    {
+        $query
+            ->where(function (Builder $rowQuery) {
+                $rowQuery
+                    ->whereNull('item_name')
+                    ->orWhere('item_name', 'not like', '%部システム%');
+            })
+            ->whereDoesntHave('item', function (Builder $itemQuery) {
+                $itemQuery
+                    ->where('name', 'like', '%部システム%')
+                    ->orWhereHas('item_category3', function (Builder $categoryQuery) {
+                        $categoryQuery->where('name', 'like', '%部システム%');
+                    });
+            });
+    }
+
     private function applyInstructionOrder(Builder $query): Builder
     {
+        $table = (new WmsInventoryCountItem)->getTable();
+
         return $query
+            ->select("{$table}.*")
+            ->leftJoin('items as instruction_items', 'instruction_items.id', '=', "{$table}.item_id")
+            ->leftJoin('item_categories as instruction_item_categories', 'instruction_item_categories.id', '=', 'instruction_items.item_category2_id')
             ->orderByRaw("
                 CASE
-                    WHEN location_id IS NULL
-                        OR COALESCE(location_no, '') = ''
-                        OR COALESCE(location_code1, '') = ''
+                    WHEN instruction_item_categories.id IS NULL
+                        OR COALESCE(instruction_item_categories.code, '') = ''
                     THEN 1
                     ELSE 0
                 END
             ")
-            ->orderBy('location_code1')
-            ->orderBy('location_code2')
-            ->orderBy('location_code3')
-            ->orderBy('item_code');
+            ->orderBy('instruction_item_categories.code')
+            ->orderBy('instruction_item_categories.id')
+            ->orderBy("{$table}.item_code")
+            ->orderBy("{$table}.id");
     }
 
     private function normalizeItemScope(?string $itemScope): string
@@ -238,35 +276,39 @@ class InventoryInstructionSheetPdfService
         $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_NORMAL);
     }
 
-    private function addNewPage(array $header, ?string $shelfPrefix): void
+    private function addNewPage(array $header, ?string $departmentName): void
     {
         $this->pdf->AddPage();
         $this->currentY = self::MARGIN_TOP;
-        $this->renderPageHeader($header, $shelfPrefix);
+        $this->renderPageHeader($header, $departmentName);
         $this->renderColumnHeaders();
     }
 
-    private function renderPageHeader(array $header, ?string $shelfPrefix): void
+    private function renderPageHeader(array $header, ?string $departmentName): void
     {
         $leftX = self::MARGIN_LEFT;
         $contentW = self::CONTENT_WIDTH;
 
         $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_TITLE);
         $this->pdf->SetXY($leftX, $this->currentY);
-        $this->pdf->Cell(52, 10, '棚卸し指示書', 0, 0, 'L');
-
-        $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_HEADER);
-        $this->pdf->SetXY($leftX + 54, $this->currentY + 2);
-        $this->pdf->Cell(38, 5, '棚卸日 '.$header['count_date'], 0, 0, 'L');
-
-        $this->pdf->SetXY($leftX + 94, $this->currentY + 2);
-        $this->pdf->Cell(80, 5, $this->truncateText($header['warehouse_name'], 78), 0, 0, 'L');
+        $this->pdf->Cell(100, 8, '棚卸し指示書', 0, 0, 'L');
 
         $printTimestamp = now()->format('Y/m/d H:i:s');
+        $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_PRINT_TIMESTAMP);
         $this->pdf->SetXY($leftX + $contentW - 50, $this->currentY);
         $this->pdf->Cell(50, 5, $printTimestamp, 0, 0, 'R');
 
-        $this->currentY += 12;
+        $this->pdf->SetFont('kozgopromedium', '', self::FONT_SIZE_HEADER);
+        $this->pdf->SetXY($leftX, $this->currentY + 8);
+        $this->pdf->Cell(38, 5, '棚卸日 '.$header['count_date'], 0, 0, 'L');
+
+        $this->pdf->SetXY($leftX + 42, $this->currentY + 8);
+        $this->pdf->Cell(62, 5, $this->truncateText($header['warehouse_name'], 60), 0, 0, 'L');
+
+        $this->pdf->SetXY($leftX + 108, $this->currentY + 8);
+        $this->pdf->Cell(82, 5, $this->truncateText($departmentName ? '部門: '.$departmentName : '', 80), 0, 0, 'L');
+
+        $this->currentY += 16;
     }
 
     private function renderColumnHeaders(): void
@@ -314,7 +356,7 @@ class InventoryInstructionSheetPdfService
         $systemQuantity = (int) $countItem->system_quantity;
         [$theoreticalCases, $theoreticalPieces] = $this->splitCasePieceQuantity($systemQuantity, $capacity);
         $centerY = $y + ($rowH - self::HEADER_ROW_HEIGHT) / 2;
-        $itemName = (string) ($countItem->item_name ?? '');
+        $itemName = $this->displayItemName($countItem);
 
         $this->renderBarcodeCell($x, $y, self::COL_W_JAN, $janCode);
         $x += self::COL_W_JAN;
@@ -355,9 +397,21 @@ class InventoryInstructionSheetPdfService
     {
         $this->pdf->SetFont('kozgopromedium', 'B', self::FONT_SIZE_PRODUCT);
 
-        $lineCount = max(1, $this->pdf->getNumLines((string) ($countItem->item_name ?? ''), self::COL_W_NAME - 1));
+        $lineCount = max(1, $this->pdf->getNumLines($this->displayItemName($countItem), self::COL_W_NAME - 1));
 
         return max(self::ITEM_ROW_HEIGHT, ($lineCount * self::PRODUCT_LINE_HEIGHT) + 4);
+    }
+
+    private function displayItemName(WmsInventoryCountItem $countItem): string
+    {
+        $itemName = (string) ($countItem->item_name ?? '');
+        $itemCode = (string) ($countItem->item_code ?? '');
+
+        if ($itemCode === '') {
+            return $itemName;
+        }
+
+        return "[{$itemCode}] {$itemName}";
     }
 
     private function renderBarcodeCell(float $x, float $y, float $width, string $janCode): void
@@ -466,22 +520,32 @@ class InventoryInstructionSheetPdfService
         return $result.$ellipsis;
     }
 
-    private function shelfCode(WmsInventoryCountItem $countItem): string
+    private function departmentPageKey(WmsInventoryCountItem $countItem): string
     {
-        $code = \App\Models\Sakemaru\Location::formatCode(
-            $countItem->location_code1,
-            $countItem->location_code2,
-            $countItem->location_code3,
-            ''
-        );
-
-        return $code !== '' ? $code : (string) ($countItem->location_no ?? '');
+        return $countItem->item?->item_category2?->id !== null
+            ? (string) $countItem->item->item_category2->id
+            : 'no_department';
     }
 
-    private function shelfPagePrefix(WmsInventoryCountItem $countItem): string
+    private function departmentName(WmsInventoryCountItem $countItem): string
     {
-        $shelfCode = $this->shelfCode($countItem);
+        $category = $countItem->item?->item_category2;
 
-        return mb_substr($shelfCode, 0, 2);
+        if ($category === null) {
+            return '部門なし';
+        }
+
+        $code = trim((string) ($category->code ?? ''));
+        $name = trim((string) ($category->name ?? ''));
+
+        if ($code !== '' && $name !== '') {
+            return "{$code} {$name}";
+        }
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        return $code !== '' ? $code : '部門なし';
     }
 }
