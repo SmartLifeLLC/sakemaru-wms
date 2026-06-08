@@ -65,6 +65,13 @@ class WmsOrderDataFilesTable
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'order-data-files-table sticky-actions'])
             ->columns([
+                TextColumn::make('id')
+                    ->label('ID')
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('64px')
+                    ->toggleable(),
+
                 TextColumn::make('batch_code')
                     ->label('実行CD')
                     ->sortable()
@@ -197,7 +204,6 @@ class WmsOrderDataFilesTable
                     ->options(function (): array {
                         return WmsOrderDataFile::query()
                             ->where('is_test', false)
-                            ->forCreatedBy(auth()->id())
                             ->whereNotNull('created_by_name')
                             ->distinct()
                             ->orderBy('created_by_name')
