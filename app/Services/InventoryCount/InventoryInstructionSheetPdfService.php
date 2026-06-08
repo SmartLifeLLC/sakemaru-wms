@@ -63,9 +63,9 @@ class InventoryInstructionSheetPdfService
 
     private const COL_W_TOTAL_PIECES = 14;
 
-    private const COL_W_TOTAL_TO_ACTUAL_GAP = 29;
+    private const COL_W_TOTAL_TO_ACTUAL_GAP = 17;
 
-    private const COL_W_ACTUAL_QUANTITY = 12;
+    private const COL_W_ACTUAL_QUANTITY = 24;
 
     private const BARCODE_WIDTH = 34;
 
