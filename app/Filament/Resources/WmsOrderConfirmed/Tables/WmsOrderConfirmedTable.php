@@ -814,7 +814,7 @@ class WmsOrderConfirmedTable
 
     private static function defaultConfirmedByFilterValue(): ?int
     {
-        return null;
+        return auth()->id();
     }
 
     private static function jxFileGenerationFilter(): SelectFilter
@@ -930,10 +930,17 @@ class WmsOrderConfirmedTable
                 ->orWhere('name', 'like', "%{$search}%"));
         }
 
-        return $query
+        $results = $query
             ->limit(50)
             ->get()
             ->mapWithKeys(fn ($u) => [$u->id => "[{$u->code}]{$u->name}"])
             ->toArray();
+
+        $currentUser = auth()->user();
+        if ($currentUser && (! $search || str_contains((string) $currentUser->code, $search) || str_contains($currentUser->name, $search))) {
+            $results = [$currentUser->id => "[{$currentUser->code}]{$currentUser->name}"] + $results;
+        }
+
+        return $results;
     }
 }

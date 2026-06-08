@@ -59,10 +59,6 @@ class ListWmsOrderConfirmed extends ListRecords
                         })
                         ->limit(1),
                 ])
-                ->orderBy((new WmsOrderCandidate)->getTable().'.modified_at', 'desc')
-                ->orderBy('batch_code', 'desc')
-                ->orderBy((new WmsOrderCandidate)->getTable().'.warehouse_id')
-                ->orderBy((new WmsOrderCandidate)->getTable().'.item_id')
             );
     }
 
@@ -135,7 +131,6 @@ class ListWmsOrderConfirmed extends ListRecords
         }
 
         $warehouseIds = WmsOrderCandidate::whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
-            ->forCreatedBy(auth()->id())
             ->distinct()
             ->pluck('warehouse_id')
             ->toArray();
