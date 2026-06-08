@@ -40,11 +40,6 @@ class ListWmsOrderDataFiles extends ListRecords
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with(['warehouse', 'contractor', 'csvDownloadedByUser'])
                 ->where('is_test', false)
-                ->orderBy('created_at', 'desc')
-                ->orderBy('id', 'desc')
-                ->orderBy('batch_code', 'desc')
-                ->orderBy('warehouse_id')
-                ->orderBy('contractor_id')
             );
     }
 
