@@ -57,19 +57,15 @@ class InventoryInstructionSheetPdfService
 
     private const COL_W_JAN = 38;
 
-    private const COL_W_NAME = 61;
+    private const COL_W_NAME = 81;
 
     private const COL_W_CAPACITY = 16;
 
-    private const COL_W_THEORETICAL_CASE = 15;
-
-    private const COL_W_THEORETICAL_PIECE = 15;
-
     private const COL_W_TOTAL_PIECES = 14;
 
-    private const COL_W_ACTUAL_CASE = 15.5;
+    private const COL_W_TOTAL_TO_ACTUAL_GAP = 29;
 
-    private const COL_W_ACTUAL_PIECE = 15.5;
+    private const COL_W_ACTUAL_QUANTITY = 12;
 
     private const BARCODE_WIDTH = 34;
 
@@ -165,7 +161,6 @@ class InventoryInstructionSheetPdfService
     {
         return [
             self::ITEM_SCOPE_ALL => '全件',
-            self::ITEM_SCOPE_TOP_50 => '在庫数上位50',
         ];
     }
 
@@ -324,11 +319,9 @@ class InventoryInstructionSheetPdfService
             ['JANコード', self::COL_W_JAN],
             ['商品名', self::COL_W_NAME],
             ['入数', self::COL_W_CAPACITY],
-            ["理論\nケース", self::COL_W_THEORETICAL_CASE],
-            ["理論\nバラ", self::COL_W_THEORETICAL_PIECE],
             ['総バラ', self::COL_W_TOTAL_PIECES],
-            ["実棚\nケース", self::COL_W_ACTUAL_CASE],
-            ["実棚\nバラ", self::COL_W_ACTUAL_PIECE],
+            ['', self::COL_W_TOTAL_TO_ACTUAL_GAP],
+            ['実棚数', self::COL_W_ACTUAL_QUANTITY],
         ];
 
         foreach ($headers as [$label, $width]) {
@@ -354,7 +347,6 @@ class InventoryInstructionSheetPdfService
         $item = $countItem->item;
         $capacity = $this->capacityCase($item);
         $systemQuantity = (int) $countItem->system_quantity;
-        [$theoreticalCases, $theoreticalPieces] = $this->splitCasePieceQuantity($systemQuantity, $capacity);
         $centerY = $y + ($rowH - self::HEADER_ROW_HEIGHT) / 2;
         $itemName = $this->displayItemName($countItem);
 
@@ -374,21 +366,11 @@ class InventoryInstructionSheetPdfService
         $x += self::COL_W_CAPACITY;
 
         $this->pdf->SetXY($x, $centerY);
-        $this->pdf->Cell(self::COL_W_THEORETICAL_CASE, self::HEADER_ROW_HEIGHT, number_format($theoreticalCases), 0, 0, 'R');
-        $x += self::COL_W_THEORETICAL_CASE;
-
-        $this->pdf->SetXY($x, $centerY);
-        $this->pdf->Cell(self::COL_W_THEORETICAL_PIECE, self::HEADER_ROW_HEIGHT, number_format($theoreticalPieces), 0, 0, 'R');
-        $x += self::COL_W_THEORETICAL_PIECE;
-
-        $this->pdf->SetXY($x, $centerY);
         $this->pdf->Cell(self::COL_W_TOTAL_PIECES, self::HEADER_ROW_HEIGHT, number_format($systemQuantity), 0, 0, 'R');
         $x += self::COL_W_TOTAL_PIECES;
+        $x += self::COL_W_TOTAL_TO_ACTUAL_GAP;
 
-        $this->renderInputBox($x, $y, self::COL_W_ACTUAL_CASE, $rowH);
-        $x += self::COL_W_ACTUAL_CASE;
-
-        $this->renderInputBox($x, $y, self::COL_W_ACTUAL_PIECE, $rowH);
+        $this->renderInputBox($x, $y, self::COL_W_ACTUAL_QUANTITY, $rowH);
 
         $this->currentY = $y + $rowH;
     }
@@ -454,24 +436,6 @@ class InventoryInstructionSheetPdfService
         $capacity = (int) ($item?->capacity_case ?? 1);
 
         return max(1, $capacity);
-    }
-
-    /**
-     * @return array{0:int,1:int}
-     */
-    private function splitCasePieceQuantity(int $totalPieces, int $capacity): array
-    {
-        if ($capacity <= 1) {
-            return [0, $totalPieces];
-        }
-
-        $sign = $totalPieces < 0 ? -1 : 1;
-        $absolutePieces = abs($totalPieces);
-
-        return [
-            $sign * intdiv($absolutePieces, $capacity),
-            $sign * ($absolutePieces % $capacity),
-        ];
     }
 
     private function renderPageNumbers(): void
