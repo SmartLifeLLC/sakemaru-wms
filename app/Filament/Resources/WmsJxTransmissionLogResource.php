@@ -4,12 +4,18 @@ namespace App\Filament\Resources;
 
 use App\Enums\EMenu;
 use App\Enums\PaginationOptions;
+use App\Filament\Resources\WmsJxEosLines\WmsJxEosLineResource;
 use App\Filament\Resources\WmsJxTransmissionLogResource\Pages;
+use App\Filament\Support\AdminResource;
+use App\Models\WmsJxEosImportBatch;
 use App\Models\WmsJxTransmissionLog;
+use App\Services\JX\Eos\JxEosImportService;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
-use App\Filament\Support\AdminResource;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -66,6 +72,7 @@ class WmsJxTransmissionLogResource extends AdminResource
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->striped()
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['jxSetting', 'currentEosImport']))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -131,6 +138,27 @@ class WmsJxTransmissionLogResource extends AdminResource
                     ->label('サイズ')
                     ->formatStateUsing(fn (?int $state) => $state ? number_format($state).' bytes' : '-')
                     ->alignRight(),
+                TextColumn::make('currentEosImport.status')
+                    ->label('EOS取込')
+                    ->badge()
+                    ->placeholder('未取込')
+                    ->formatStateUsing(fn (?string $state): string => $state ? (WmsJxEosImportBatch::statusLabels()[$state] ?? $state) : '未取込')
+                    ->color(fn (?string $state): string => match ($state) {
+                        WmsJxEosImportBatch::STATUS_SUCCEEDED => 'success',
+                        WmsJxEosImportBatch::STATUS_FAILED => 'danger',
+                        WmsJxEosImportBatch::STATUS_IMPORTING => 'warning',
+                        WmsJxEosImportBatch::STATUS_SUPERSEDED => 'gray',
+                        default => 'gray',
+                    }),
+                TextColumn::make('currentEosImport.finet_code')
+                    ->label('FINET')
+                    ->placeholder('-')
+                    ->alignCenter(),
+                TextColumn::make('currentEosImport.line_count')
+                    ->label('EOS明細')
+                    ->numeric()
+                    ->alignRight()
+                    ->placeholder('-'),
                 TextColumn::make('http_code')
                     ->label('HTTP')
                     ->badge()
@@ -204,6 +232,38 @@ class WmsJxTransmissionLogResource extends AdminResource
                     }),
             ])
             ->recordActions([
+                Action::make('importEos')
+                    ->label(fn (WmsJxTransmissionLog $record): string => $record->currentEosImport ? 'EOS再取込' : 'EOS取込')
+                    ->icon('heroicon-o-circle-stack')
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->modalHeading('EOSデータを正規化取込')
+                    ->modalDescription('保存済みGetDocumentファイルを解析し、仕入照合用のEOS正規化テーブルへ保存します。再取込時は旧取込を履歴化し、最新成功分だけを現行データにします。')
+                    ->visible(fn (WmsJxTransmissionLog $record): bool => self::isEosImportable($record))
+                    ->action(function (WmsJxTransmissionLog $record): void {
+                        try {
+                            $batch = app(JxEosImportService::class)->importFromLog($record);
+
+                            Notification::make()
+                                ->title('EOSデータを取り込みました')
+                                ->body('FINET: '.($batch->finet_code ?: '-')." / 伝票: {$batch->slip_count}件 / 明細: {$batch->line_count}件 / 版: {$batch->import_version}")
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $throwable) {
+                            Notification::make()
+                                ->title('EOS取込エラー')
+                                ->body($throwable->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+                Action::make('viewEosLines')
+                    ->label('EOS明細')
+                    ->icon('heroicon-o-list-bullet')
+                    ->color('gray')
+                    ->url(fn (WmsJxTransmissionLog $record): string => WmsJxEosLineResource::getUrl('index')
+                        .'?'.http_build_query(['batch_id' => $record->currentEosImport?->id]))
+                    ->visible(fn (WmsJxTransmissionLog $record): bool => filled($record->currentEosImport?->id)),
                 Action::make('download')
                     ->label('ダウンロード')
                     ->icon('heroicon-o-arrow-down-tray')
@@ -211,7 +271,53 @@ class WmsJxTransmissionLogResource extends AdminResource
                     ->url(fn (WmsJxTransmissionLog $record) => route('jx-transmission-logs.download', $record))
                     ->openUrlInNewTab()
                     ->visible(fn (WmsJxTransmissionLog $record) => ! empty($record->file_path)),
+            ])
+            ->bulkActions([
+                BulkActionGroup::make([
+                    BulkAction::make('importSelectedEos')
+                        ->label('選択EOS取込/再取込')
+                        ->icon('heroicon-o-circle-stack')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('選択したGetDocumentログをEOS取込')
+                        ->modalDescription('取込可能なGetDocument成功ログだけを対象に、保存済みファイルを正規化テーブルへ保存します。')
+                        ->action(function ($records): void {
+                            $service = app(JxEosImportService::class);
+                            $imported = 0;
+                            $skipped = 0;
+                            $failed = 0;
+
+                            foreach ($records as $record) {
+                                if (! self::isEosImportable($record)) {
+                                    $skipped++;
+
+                                    continue;
+                                }
+
+                                try {
+                                    $service->importFromLog($record);
+                                    $imported++;
+                                } catch (\Throwable) {
+                                    $failed++;
+                                }
+                            }
+
+                            $notification = Notification::make()
+                                ->title('選択EOS取込が完了しました')
+                                ->body("取込: {$imported}件 / スキップ: {$skipped}件 / 失敗: {$failed}件");
+
+                            ($failed > 0 ? $notification->warning() : $notification->success())->send();
+                        }),
+                ]),
             ]);
+    }
+
+    private static function isEosImportable(WmsJxTransmissionLog $record): bool
+    {
+        return $record->direction === WmsJxTransmissionLog::DIRECTION_RECEIVE
+            && $record->operation_type === WmsJxTransmissionLog::OPERATION_GET
+            && $record->status === WmsJxTransmissionLog::STATUS_SUCCESS
+            && filled($record->file_path);
     }
 
     public static function getPages(): array

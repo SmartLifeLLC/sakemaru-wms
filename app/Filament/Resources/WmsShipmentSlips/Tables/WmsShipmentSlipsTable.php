@@ -47,6 +47,10 @@ class WmsShipmentSlipsTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
+                TextColumn::make('id')
+                    ->label('ID')
+                    ->sortable(),
+
                 TextColumn::make('sync_status')
                     ->label('在庫同期')
                     ->badge()
@@ -496,6 +500,51 @@ class WmsShipmentSlipsTable
                             ->{$notificationType}()
                             ->send();
                     }),
+
+                Action::make('resetPrint')
+                    ->extraAttributes(['class' => 'whitespace-nowrap'])
+                    ->label('印刷消し')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->visible(fn (WmsPickingTask $record) => app()->environment('production') === false && ($record->wave->print_count ?? 0) > 0)
+                    ->requiresConfirmation()
+                    ->modalHeading('印刷消し')
+                    ->modalDescription('この配送コースの印刷状態をリセットし、再度出荷確定できるようにします。')
+                    ->modalSubmitActionLabel('リセット')
+                    ->action(function (WmsPickingTask $record) {
+                        $query = WmsPickingTask::where('shipment_date', $record->shipment_date)
+                            ->where('delivery_course_id', $record->delivery_course_id);
+
+                        if ($record->wave_id) {
+                            $query->where('wave_id', $record->wave_id);
+                        }
+
+                        $tasks = $query->get();
+                        $taskIds = $tasks->pluck('id')->all();
+
+                        foreach ($tasks as $task) {
+                            $update = [
+                                'print_requested_count' => 0,
+                                'last_printed_at' => null,
+                                'last_printed_by' => null,
+                                'last_printed_printer_id' => null,
+                            ];
+                            if ($task->status === WmsPickingTask::STATUS_SHIPPED) {
+                                $update['status'] = WmsPickingTask::STATUS_COMPLETED;
+                            }
+                            $task->update($update);
+                        }
+
+                        if ($record->wave) {
+                            $record->wave->update(['print_count' => 0]);
+                        }
+
+                        Notification::make()
+                            ->success()
+                            ->title('印刷状態をリセットしました')
+                            ->body(count($taskIds).'件のタスクをリセットしました')
+                            ->send();
+                    }),
             ], position: RecordActionsPosition::BeforeColumns)
             ->checkIfRecordIsSelectableUsing(function (WmsPickingTask $record): bool {
                 $printCount = $record->wave->print_count ?? 0;
@@ -691,10 +740,12 @@ class WmsShipmentSlipsTable
                         return new \Illuminate\Support\HtmlString($html);
                     })
                     ->modalSubmitActionLabel('一括出荷確定')
-                    ->action(function (Collection $records, array $data): void {
+                    ->action(function (Collection $records, array $data, $livewire): void {
                         $selectedPrinterId = ! empty($data['printer_driver_id'])
                             ? (int) $data['printer_driver_id']
                             : null;
+
+                        $records = static::sortRecordsForBulkPrint($records, $livewire);
 
                         $printService = app(PrintRequestService::class);
                         $approvalService = app(ShortageApprovalService::class);
@@ -1248,6 +1299,30 @@ class WmsShipmentSlipsTable
             ->where('is_active', true)
             ->whereNotNull('printer_driver_id')
             ->exists();
+    }
+
+    protected static function sortRecordsForBulkPrint(Collection $records, $livewire): Collection
+    {
+        $sortColumn = $livewire->getTableSortColumn();
+        $sortDirection = $livewire->getTableSortDirection();
+
+        if ($sortColumn === null) {
+            $sortColumn = 'wave.created_at';
+            $sortDirection = 'desc';
+        }
+
+        $isDesc = $sortDirection === 'desc';
+
+        $callback = match ($sortColumn) {
+            'id' => fn ($r) => $r->id,
+            'delivery_course_code' => fn ($r) => $r->delivery_course_code ?? '',
+            'deliveryCourse.name' => fn ($r) => $r->deliveryCourse?->name ?? '',
+            'shipment_date' => fn ($r) => $r->shipment_date ?? '',
+            'wave.created_at' => fn ($r) => $r->wave?->created_at?->timestamp ?? 0,
+            default => fn ($r) => $r->wave?->created_at?->timestamp ?? 0,
+        };
+
+        return $records->sortBy($callback, SORT_REGULAR, $isDesc)->values();
     }
 
     /**
