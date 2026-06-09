@@ -21,25 +21,6 @@ class InventoryCountService
         return DB::connection('sakemaru')->transaction(function () use ($data) {
             $warehouse = Warehouse::findOrFail($data['warehouse_id']);
 
-            $activeCounts = WmsInventoryCount::query()
-                ->where('warehouse_id', $warehouse->id)
-                ->active()
-                ->lockForUpdate()
-                ->get();
-
-            if ($activeCounts->isNotEmpty() && empty($data['force_close_existing'])) {
-                throw new \RuntimeException('この倉庫には処理中の棚卸しがあります。既存棚卸しを強制終了する確認が必要です。');
-            }
-
-            if ($activeCounts->isNotEmpty()) {
-                WmsInventoryCount::query()
-                    ->whereKey($activeCounts->pluck('id'))
-                    ->update([
-                        'status' => WmsInventoryCount::STATUS_CANCELLED,
-                        'updated_at' => now(),
-                    ]);
-            }
-
             return WmsInventoryCount::create([
                 'count_no' => WmsInventoryCount::generateCountNo($data['count_date']),
                 'client_id' => $warehouse->client_id,

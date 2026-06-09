@@ -832,32 +832,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $record = $this->record;
 
         return [
-            Action::make('toggleHandyReception')
-                ->label(fn () => $record->handy_reception ? 'Handy受付 ON' : 'Handy受付 OFF')
-                ->icon(fn () => $record->handy_reception ? 'heroicon-o-signal' : 'heroicon-o-signal-slash')
-                ->color(fn () => $record->handy_reception ? 'success' : 'gray')
-                ->visible(fn () => $record->canToggleHandyReception())
-                ->requiresConfirmation()
-                ->modalHeading(fn () => $record->handy_reception ? 'Handy受付をOFFにする' : 'Handy受付をONにする')
-                ->modalDescription(fn () => $record->handy_reception
-                    ? 'この棚卸しのHANDY受付を停止します。HANDYからの入力は受け付けなくなります。'
-                    : "この棚卸しのHANDY受付を開始します。同じ倉庫（{$record->warehouse_name}）で他にHANDY受付ONの棚卸しがある場合、そちらは自動的にOFFになります。")
-                ->modalFooterActionsAlignment(Alignment::End)
-                ->modalSubmitAction(fn ($action) => $record->handy_reception
-                    ? $action->makeModalSubmitAction('submit', [])->label('OFFにする')->color('danger')
-                    : $action->makeModalSubmitAction('submit', [])->label('ONにする')->color('success'))
-                ->modalCancelActionLabel(fn () => $record->handy_reception ? 'OFFにせず閉じる' : 'ONにせず閉じる')
-                ->action(function () use ($record) {
-                    if ($record->handy_reception) {
-                        $record->disableHandyReception();
-                        Notification::make()->success()->title('Handy受付をOFFにしました')->send();
-                    } else {
-                        $record->enableHandyReception();
-                        Notification::make()->success()->title('Handy受付をONにしました')->send();
-                    }
-                    $this->record->refresh();
-                }),
-
             Action::make('viewLogs')
                 ->label('ログ')
                 ->icon('heroicon-o-list-bullet')
@@ -981,6 +955,32 @@ class ViewWmsInventoryCount extends Page implements HasForms
                         $filename,
                         ['Content-Type' => 'application/pdf']
                     );
+                }),
+
+            Action::make('toggleHandyReception')
+                ->label(fn () => $record->handy_reception ? 'Handy受付 ON' : 'Handy受付 OFF')
+                ->icon(fn () => $record->handy_reception ? 'heroicon-o-signal' : 'heroicon-o-signal-slash')
+                ->color(fn () => $record->handy_reception ? 'success' : 'gray')
+                ->disabled(fn () => ! $record->canToggleHandyReception())
+                ->requiresConfirmation()
+                ->modalHeading(fn () => $record->handy_reception ? 'Handy受付をOFFにする' : 'Handy受付をONにする')
+                ->modalDescription(fn () => $record->handy_reception
+                    ? 'この棚卸しのHANDY受付を停止します。HANDYからの入力は受け付けなくなります。'
+                    : "この棚卸しのHANDY受付を開始します。同じ倉庫（{$record->warehouse_name}）で他にHANDY受付ONの棚卸しがある場合、そちらは自動的にOFFになります。")
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $record->handy_reception
+                    ? $action->makeModalSubmitAction('submit', [])->label('OFFにする')->color('danger')
+                    : $action->makeModalSubmitAction('submit', [])->label('ONにする')->color('success'))
+                ->modalCancelActionLabel(fn () => $record->handy_reception ? 'OFFにせず閉じる' : 'ONにせず閉じる')
+                ->action(function () use ($record) {
+                    if ($record->handy_reception) {
+                        $record->disableHandyReception();
+                        Notification::make()->success()->title('Handy受付をOFFにしました')->send();
+                    } else {
+                        $record->enableHandyReception();
+                        Notification::make()->success()->title('Handy受付をONにしました')->send();
+                    }
+                    $this->record->refresh();
                 }),
 
             Action::make('startCounting')
