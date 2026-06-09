@@ -17,6 +17,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WmsInventoryCountTable
 {
@@ -77,8 +78,13 @@ class WmsInventoryCountTable
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->multiple()
-                    ->options(static::statusFilterOptions())
-                    ->default(static::defaultStatusFilterValues()),
+                    ->options(WmsInventoryCount::statusFilterOptions())
+                    ->default(WmsInventoryCount::defaultStatusFilterValues())
+                    ->query(function (Builder $query, array $data): Builder {
+                        $statuses = $data['values'] ?? [];
+
+                        return WmsInventoryCount::applyDisplayStatusFilter($query, $statuses);
+                    }),
             ])
             ->defaultSort('id', 'desc')
             ->recordActions([
@@ -98,23 +104,12 @@ class WmsInventoryCountTable
 
     protected static function statusFilterOptions(): array
     {
-        return [
-            WmsInventoryCount::STATUS_DRAFT => '下書き',
-            WmsInventoryCount::STATUS_COUNTING => 'カウント中',
-            WmsInventoryCount::STATUS_CHECKED => '差異確認済',
-            WmsInventoryCount::STATUS_CONFIRMED => '確定済',
-            WmsInventoryCount::STATUS_CANCELLED => '取消',
-        ];
+        return WmsInventoryCount::statusFilterOptions();
     }
 
     protected static function defaultStatusFilterValues(): array
     {
-        return [
-            WmsInventoryCount::STATUS_DRAFT,
-            WmsInventoryCount::STATUS_COUNTING,
-            WmsInventoryCount::STATUS_CHECKED,
-            WmsInventoryCount::STATUS_CONFIRMED,
-        ];
+        return WmsInventoryCount::defaultStatusFilterValues();
     }
 
     protected static function getInstructionSheetAction(): Action
