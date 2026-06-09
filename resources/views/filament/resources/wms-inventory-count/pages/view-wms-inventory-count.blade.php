@@ -17,12 +17,14 @@
             \App\Models\WmsInventoryCount::STATUS_COUNTING,
             \App\Models\WmsInventoryCount::STATUS_CHECKED,
         ]);
+        $displayStatus = $record->display_status;
         $filterInputClass = 'h-8 w-full rounded-md border border-slate-300 bg-slate-50 px-2 text-xs text-slate-900 shadow-inner outline-none transition placeholder:text-slate-400 focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500';
         $filterSelectClass = 'h-8 w-full rounded-md border border-slate-300 bg-slate-50 px-2 text-xs text-slate-900 shadow-inner outline-none transition focus:border-sky-500 focus:bg-white focus:ring-1 focus:ring-sky-500';
         $countInputClass = 'w-20 h-7 rounded border border-slate-300 bg-white px-1 text-right text-xs tabular-nums font-bold outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed';
         $statusColors = [
             'draft' => 'bg-slate-200 text-slate-700',
             'counting' => 'bg-sky-100 text-sky-700',
+            'current_stock_saved' => 'bg-emerald-100 text-emerald-700',
             'checked' => 'bg-amber-100 text-amber-700',
             'confirmed' => 'bg-green-100 text-green-700',
             'cancelled' => 'bg-red-100 text-red-700',
@@ -90,7 +92,7 @@
                         / {{ $record->warehouse_name }}
                         / {{ $record->count_date?->format('Y/m/d') }}
                     </span>
-                    <span class="rounded-full px-2 py-0.5 text-[11px] font-bold {{ $statusColors[$record->status] ?? 'bg-slate-200 text-slate-700' }}">
+                    <span class="rounded-full px-2 py-0.5 text-[11px] font-bold {{ $statusColors[$displayStatus] ?? 'bg-slate-200 text-slate-700' }}">
                         {{ $record->status_label }}
                     </span>
                     <span class="text-xs text-slate-400">
@@ -256,7 +258,7 @@
                     @endif
                     {{ $this->getAction('viewLogs') }}
                     {{ $this->getAction('addSingleItem') }}
-                    {{ $this->getAction('refreshSystemQuantities') }}
+                    {{ $this->getAction('saveCurrentStock') }}
                     {{ $this->getAction('downloadInstructionPdf') }}
                     {{ $this->getAction('downloadInstructionSheet') }}
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_DRAFT)

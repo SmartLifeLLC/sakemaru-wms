@@ -879,34 +879,32 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     }
                 }),
 
-            Action::make('refreshSystemQuantities')
-                ->label('在庫更新')
-                ->icon('heroicon-o-arrow-path')
+            Action::make('saveCurrentStock')
+                ->label('現状保存')
+                ->icon('heroicon-o-bookmark-square')
                 ->color('warning')
-                ->visible(fn () => ! in_array($record->status, [
-                    WmsInventoryCount::STATUS_CONFIRMED,
-                    WmsInventoryCount::STATUS_CANCELLED,
-                ], true))
+                ->visible(fn () => $record->canSaveCurrentStock())
                 ->requiresConfirmation()
-                ->modalHeading('現在庫に更新')
-                ->modalDescription('在庫を現時点の在庫に更新しますか？')
-                ->modalSubmitActionLabel('確認')
-                ->modalCancelActionLabel('更新せず閉じる')
+                ->modalHeading('現状保存')
+                ->modalDescription('現在の在庫数を理論在庫として保存します。保存後はこの棚卸しで在庫更新を再実行できません。')
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('保存する')->color('danger'))
+                ->modalCancelActionLabel('保存せず閉じる')
                 ->action(function () use ($record) {
                     try {
-                        $result = (new InventoryCountService)->refreshSystemQuantities($record);
+                        $result = (new InventoryCountService)->saveCurrentStock($record);
                         $this->record->refresh();
                         $this->itemPage = 1;
 
                         Notification::make()
                             ->success()
-                            ->title('現在庫に更新しました')
+                            ->title('現状保存しました')
                             ->body("理論在庫: {$result['updated_items']}件 / 差分再計算: {$result['updated_differences']}件")
                             ->send();
                     } catch (\Throwable $e) {
                         Notification::make()
                             ->danger()
-                            ->title('現在庫に更新できません')
+                            ->title('現状保存できません')
                             ->body($e->getMessage())
                             ->send();
                     }
