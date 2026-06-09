@@ -171,10 +171,6 @@ class WmsInventoryCount extends WmsModel
     {
         return [
             self::STATUS_DRAFT,
-            self::STATUS_COUNTING,
-            self::STATUS_CURRENT_STOCK_SAVED,
-            self::STATUS_CHECKED,
-            self::STATUS_CONFIRMED,
         ];
     }
 
