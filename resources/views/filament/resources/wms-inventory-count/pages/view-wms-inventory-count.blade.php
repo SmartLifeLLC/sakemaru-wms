@@ -266,6 +266,7 @@
                     {{ $this->getAction('saveCurrentStock') }}
                     {{ $this->getAction('downloadInstructionPdf') }}
                     {{ $this->getAction('downloadInstructionSheet') }}
+                    {{ $this->getAction('toggleHandyReception') }}
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_DRAFT)
                         {{ $this->getAction('startCounting') }}
                     @endif
