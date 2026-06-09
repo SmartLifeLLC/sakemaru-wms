@@ -7,7 +7,6 @@ use App\Models\WmsInventoryCount;
 use App\Services\InventoryCount\InventoryCountService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
-use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -179,10 +178,6 @@ class WmsInventoryCountTable
                 Textarea::make('memo')
                     ->label('メモ')
                     ->rows(3),
-
-                Checkbox::make('force_close_existing')
-                    ->label('同じ倉庫の未完了棚卸しをすべて強制終了して作成する')
-                    ->helperText('倉庫別に有効な棚卸しは1件のみです。既存の下書き・カウント中・差異確認済は取消にします。'),
             ])
             ->action(function (array $data) {
                 try {
