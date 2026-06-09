@@ -63,6 +63,7 @@ Route::middleware('api.key')->group(function () {
 
         // Inventory count (棚卸し) endpoints
         Route::get('/wms/inventory-counts', [InventoryCountController::class, 'index']);
+        Route::get('/wms/inventory-counts/active', [InventoryCountController::class, 'active']);
         Route::get('/wms/inventory-counts/{id}', [InventoryCountController::class, 'show']);
         Route::get('/wms/inventory-counts/{id}/items', [InventoryCountController::class, 'items']);
         Route::get('/wms/inventory-counts/{id}/jan-codes', [InventoryCountController::class, 'janCodes']);

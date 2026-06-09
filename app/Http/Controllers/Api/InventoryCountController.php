@@ -26,10 +26,20 @@ class InventoryCountController extends ApiController
      */
     public function index(Request $request): JsonResponse
     {
-        $counts = WmsInventoryCount::whereIn('status', [
-            WmsInventoryCount::STATUS_DRAFT,
-            WmsInventoryCount::STATUS_COUNTING,
-        ])
+        $validator = Validator::make($request->all(), [
+            'warehouse_id' => ['required', 'integer'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $counts = WmsInventoryCount::where('warehouse_id', (int) $request->input('warehouse_id'))
+            ->where('handy_reception', true)
+            ->whereIn('status', [
+                WmsInventoryCount::STATUS_DRAFT,
+                WmsInventoryCount::STATUS_COUNTING,
+            ])
             ->orderBy('count_date', 'desc')
             ->orderBy('id', 'desc')
             ->get();
@@ -46,6 +56,7 @@ class InventoryCountController extends ApiController
                 'status_label' => $count->status_label,
                 'started_at' => $count->started_at?->toIso8601String(),
                 'memo' => $count->memo,
+                'handy_reception' => true,
                 'current_round' => $this->currentRound($count),
                 'total_items' => $count->items()->count(),
                 'counted_items' => $count->items()->whereNotNull('first_count_quantity')->count(),
@@ -86,6 +97,7 @@ class InventoryCountController extends ApiController
                 'started_at' => $count->started_at?->toIso8601String(),
                 'snapshot_taken_at' => $count->snapshot_taken_at?->toIso8601String(),
                 'memo' => $count->memo,
+                'handy_reception' => (bool) $count->handy_reception,
                 'total_items' => (int) $itemStats->total_items,
                 'counted_items' => (int) $itemStats->counted_items,
                 'uncounted_items' => (int) $itemStats->uncounted_items,
@@ -673,12 +685,62 @@ class InventoryCountController extends ApiController
         return 1;
     }
 
+    public function active(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'warehouse_id' => ['required', 'integer'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        $count = WmsInventoryCount::where('warehouse_id', (int) $request->input('warehouse_id'))
+            ->where('handy_reception', true)
+            ->whereIn('status', [
+                WmsInventoryCount::STATUS_DRAFT,
+                WmsInventoryCount::STATUS_COUNTING,
+            ])
+            ->first();
+
+        if (! $count) {
+            return $this->success(['inventory_count' => null]);
+        }
+
+        $itemStats = WmsInventoryCountItem::where('inventory_count_id', $count->id)
+            ->selectRaw('COUNT(*) as total_items')
+            ->selectRaw('COUNT(first_count_quantity) as counted_items')
+            ->selectRaw('COUNT(*) - COUNT(first_count_quantity) as uncounted_items')
+            ->first();
+
+        return $this->success([
+            'inventory_count' => [
+                'id' => $count->id,
+                'count_no' => $count->count_no,
+                'warehouse_id' => $count->warehouse_id,
+                'warehouse_code' => $count->warehouse_code,
+                'warehouse_name' => $count->warehouse_name,
+                'count_date' => $count->count_date?->format('Y-m-d'),
+                'status' => $count->status,
+                'status_label' => $count->status_label,
+                'started_at' => $count->started_at?->toIso8601String(),
+                'snapshot_taken_at' => $count->snapshot_taken_at?->toIso8601String(),
+                'memo' => $count->memo,
+                'handy_reception' => true,
+                'total_items' => (int) $itemStats->total_items,
+                'counted_items' => (int) $itemStats->counted_items,
+                'uncounted_items' => (int) $itemStats->uncounted_items,
+            ],
+        ]);
+    }
+
     private function isHandyCountable(WmsInventoryCount $count): bool
     {
-        return in_array($count->status, [
-            WmsInventoryCount::STATUS_DRAFT,
-            WmsInventoryCount::STATUS_COUNTING,
-        ], true);
+        return $count->handy_reception
+            && in_array($count->status, [
+                WmsInventoryCount::STATUS_DRAFT,
+                WmsInventoryCount::STATUS_COUNTING,
+            ], true);
     }
 
     private function startDraftForHandy(WmsInventoryCount $count): void

@@ -95,6 +95,11 @@
                     <span class="rounded-full px-2 py-0.5 text-[11px] font-bold {{ $statusColors[$displayStatus] ?? 'bg-slate-200 text-slate-700' }}">
                         {{ $record->status_label }}
                     </span>
+                    @if ($record->handy_reception)
+                        <span class="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700">
+                            HANDY受付中
+                        </span>
+                    @endif
                     <span class="text-xs text-slate-400">
                         全{{ number_format($allCount) }}件
                         / 差異{{ number_format($diffCount) }}件

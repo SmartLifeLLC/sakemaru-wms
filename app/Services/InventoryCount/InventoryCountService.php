@@ -503,6 +503,7 @@ class InventoryCountService
                 'status' => WmsInventoryCount::STATUS_CONFIRMED,
                 'confirmed_at' => now(),
                 'confirmed_by' => $userId,
+                'handy_reception' => false,
             ];
 
             foreach ([
@@ -726,6 +727,7 @@ class InventoryCountService
     {
         $inventoryCount->update([
             'status' => WmsInventoryCount::STATUS_CANCELLED,
+            'handy_reception' => false,
         ]);
     }
 }

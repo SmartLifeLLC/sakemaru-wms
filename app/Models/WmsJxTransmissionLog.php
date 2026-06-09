@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * JX送受信履歴
@@ -60,6 +62,18 @@ class WmsJxTransmissionLog extends WmsModel
     public function jxSetting(): BelongsTo
     {
         return $this->belongsTo(WmsOrderJxSetting::class, 'jx_setting_id');
+    }
+
+    public function eosImportBatches(): HasMany
+    {
+        return $this->hasMany(WmsJxEosImportBatch::class, 'wms_jx_transmission_log_id');
+    }
+
+    public function currentEosImport(): HasOne
+    {
+        return $this->hasOne(WmsJxEosImportBatch::class, 'wms_jx_transmission_log_id')
+            ->where('is_current', true)
+            ->latestOfMany();
     }
 
     /**

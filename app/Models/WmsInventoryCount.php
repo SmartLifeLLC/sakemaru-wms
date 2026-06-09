@@ -33,6 +33,7 @@ class WmsInventoryCount extends WmsModel
         'status',
         'current_count_round',
         'lock_mode',
+        'handy_reception',
         'snapshot_taken_at',
         'started_at',
         'current_stock_saved_at',
@@ -65,6 +66,7 @@ class WmsInventoryCount extends WmsModel
         'count_date' => 'date',
         'current_count_round' => 'integer',
         'lock_mode' => 'boolean',
+        'handy_reception' => 'boolean',
         'snapshot_taken_at' => 'datetime',
         'started_at' => 'datetime',
         'current_stock_saved_at' => 'datetime',
@@ -230,6 +232,29 @@ class WmsInventoryCount extends WmsModel
         return ! $this->isCurrentStockSaved() && ! in_array($this->status, [
             self::STATUS_CONFIRMED,
             self::STATUS_CANCELLED,
+        ], true);
+    }
+
+    public function enableHandyReception(): void
+    {
+        static::where('warehouse_id', $this->warehouse_id)
+            ->where('id', '!=', $this->id)
+            ->where('handy_reception', true)
+            ->update(['handy_reception' => false]);
+
+        $this->update(['handy_reception' => true]);
+    }
+
+    public function disableHandyReception(): void
+    {
+        $this->update(['handy_reception' => false]);
+    }
+
+    public function canToggleHandyReception(): bool
+    {
+        return in_array($this->status, [
+            self::STATUS_DRAFT,
+            self::STATUS_COUNTING,
         ], true);
     }
 }

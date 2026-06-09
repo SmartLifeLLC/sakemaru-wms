@@ -81,6 +81,7 @@ enum EMenu: string
     case WMS_AUTO_ORDER_EXECUTION_LOG = 'logs.auto_order_execution_log';
     case WMS_PICKING_LOGS = 'logs.wms_picking_logs';
     case WMS_JX_TRANSMISSION_LOGS = 'logs.wms_jx_transmission_logs';
+    case WMS_JX_EOS_LINES = 'logs.wms_jx_eos_lines';
     case WMS_IMPORT_LOGS = 'logs.wms_import_logs';
     case WMS_QUEUE_JOBS = 'logs.wms_queue_jobs';
     case WMS_EXPORT_LOGS = 'logs.wms_export_logs';
@@ -169,6 +170,7 @@ enum EMenu: string
             self::WMS_AUTO_ORDER_EXECUTION_LOG,
             self::WMS_PICKING_LOGS,
             self::WMS_JX_TRANSMISSION_LOGS,
+            self::WMS_JX_EOS_LINES,
             self::WMS_IMPORT_LOGS,
             self::WMS_QUEUE_JOBS,
             self::WMS_EXPORT_LOGS => EMenuCategory::LOGS,
@@ -251,6 +253,7 @@ enum EMenu: string
 
             self::WMS_PICKING_LOGS => 'ピッキングログ',
             self::WMS_JX_TRANSMISSION_LOGS => 'JX送受信履歴',
+            self::WMS_JX_EOS_LINES => 'EOS受信明細',
             self::WMS_IMPORT_LOGS => 'インポート履歴',
             self::WMS_QUEUE_JOBS => 'Queueジョブ',
             self::WMS_EXPORT_LOGS => 'ダウンロードログ',
@@ -334,6 +337,7 @@ enum EMenu: string
 
             self::WMS_PICKING_LOGS => 'heroicon-o-rectangle-stack',
             self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrows-up-down',
+            self::WMS_JX_EOS_LINES => 'heroicon-o-list-bullet',
             self::WMS_IMPORT_LOGS => 'heroicon-o-arrow-up-tray',
             self::WMS_QUEUE_JOBS => 'heroicon-o-queue-list',
             self::WMS_EXPORT_LOGS => 'heroicon-o-arrow-down-tray',
@@ -431,9 +435,10 @@ enum EMenu: string
             self::WMS_AUTO_ORDER_EXECUTION_LOG => 1,
             self::WMS_PICKING_LOGS => 2,
             self::WMS_JX_TRANSMISSION_LOGS => 3,
-            self::WMS_IMPORT_LOGS => 4,
-            self::WMS_QUEUE_JOBS => 5,
-            self::WMS_EXPORT_LOGS => 6,
+            self::WMS_JX_EOS_LINES => 4,
+            self::WMS_IMPORT_LOGS => 5,
+            self::WMS_QUEUE_JOBS => 6,
+            self::WMS_EXPORT_LOGS => 7,
 
             // システム設定
             self::WAVE_SETTINGS => 1,

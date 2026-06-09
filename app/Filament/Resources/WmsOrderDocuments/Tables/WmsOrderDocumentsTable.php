@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\PaginationOptions;
+use App\Models\User;
 use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
@@ -14,6 +15,7 @@ use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
@@ -89,6 +91,13 @@ class WmsOrderDocumentsTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
+                TextColumn::make('id')
+                    ->label('ID')
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('64px')
+                    ->toggleable(),
+
                 TextColumn::make('batch_code')
                     ->label('実行CD')
                     ->sortable()
@@ -166,6 +175,26 @@ class WmsOrderDocumentsTable
                     ->sortable(),
             ])
             ->filters([
+                SelectFilter::make('created_by')
+                    ->label('作成者')
+                    ->searchable()
+                    ->options(fn (): array => static::createdByOptions())
+                    ->getSearchResultsUsing(fn (string $search): array => static::createdByOptions($search))
+                    ->default(fn () => auth()->id())
+                    ->query(function (Builder $query, array $data): void {
+                        if (blank($data['value'])) {
+                            return;
+                        }
+
+                        if ($data['value'] === '0') {
+                            $query->whereNull('created_by');
+
+                            return;
+                        }
+
+                        $query->where('created_by', (int) $data['value']);
+                    }),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(fn () => collect(TransmissionDocumentStatus::cases())
@@ -453,5 +482,45 @@ class WmsOrderDocumentsTable
                 ]),
             ])
             ->defaultSort('created_at', 'desc');
+    }
+
+    private static function createdByOptions(?string $search = null): array
+    {
+        $documentTable = (new WmsOrderJxDocument)->getTable();
+        $currentUserId = auth()->id();
+
+        $query = User::query()
+            ->where(function (Builder $query) use ($documentTable, $currentUserId): void {
+                $query->whereIn('id', fn ($subQuery) => $subQuery
+                    ->select('created_by')
+                    ->from($documentTable)
+                    ->whereNotNull('created_by')
+                    ->distinct());
+
+                if ($currentUserId) {
+                    $query->orWhereKey($currentUserId);
+                }
+            });
+
+        if ($search) {
+            $search = mb_convert_kana($search, 'as');
+            $query->where(fn (Builder $query) => $query
+                ->where('code', 'like', "%{$search}%")
+                ->orWhere('name', 'like', "%{$search}%"));
+        }
+
+        $results = $query
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn (User $user) => [
+                $user->id => filled($user->code) ? "[{$user->code}]{$user->name}" : $user->name,
+            ])
+            ->toArray();
+
+        if (! $search || str_contains('システム', $search)) {
+            $results = ['0' => 'システム'] + $results;
+        }
+
+        return $results;
     }
 }
