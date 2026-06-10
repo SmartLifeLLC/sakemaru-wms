@@ -498,7 +498,7 @@ class WmsOrderDocumentsTable
                     ->distinct());
 
                 if ($currentUserId) {
-                    $query->orWhereKey($currentUserId);
+                    $query->orWhere($query->getModel()->getQualifiedKeyName(), $currentUserId);
                 }
             });
 
