@@ -12,6 +12,7 @@ use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderIncomingSchedule;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -189,23 +190,45 @@ class OrderDataFileService
 
         // DBに記録
         $createdBy = $this->resolveCreatedBy($batchCode, $candidates);
+        $candidateIds = $candidates->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
 
-        $dataFile = WmsOrderDataFile::create([
-            'batch_code' => $batchCode,
-            'created_by' => $createdBy['id'],
-            'created_by_name' => $createdBy['name'],
-            'warehouse_id' => $warehouseId,
-            'contractor_id' => $contractorId,
-            'candidate_ids' => $candidates->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
-            'order_date' => ClientSetting::systemDateYMD(),
-            'expected_arrival_date' => $expectedArrivalDate,
-            'file_path' => $filePath,
-            'file_size' => strlen($csvContent),
-            'order_count' => $candidates->count(),
-            'total_quantity' => $totalQuantity,
-            'is_test' => false,
-            'status' => OrderDataFileStatus::GENERATED,
-        ]);
+        // 同一候補を含む既存の未使用ファイルを置き換え（重複防止）＋新規レコード作成
+        $supersededS3Paths = [];
+        $dataFile = DB::connection('sakemaru')->transaction(function () use (
+            $batchCode,
+            $createdBy,
+            $warehouseId,
+            $contractorId,
+            $candidateIds,
+            $expectedArrivalDate,
+            $filePath,
+            $csvContent,
+            $candidates,
+            $totalQuantity,
+            &$supersededS3Paths
+        ) {
+            $supersededS3Paths = $this->supersedeExistingDataFiles($batchCode, $warehouseId, $contractorId, $candidateIds);
+
+            return WmsOrderDataFile::create([
+                'batch_code' => $batchCode,
+                'created_by' => $createdBy['id'],
+                'created_by_name' => $createdBy['name'],
+                'warehouse_id' => $warehouseId,
+                'contractor_id' => $contractorId,
+                'candidate_ids' => $candidateIds,
+                'order_date' => ClientSetting::systemDateYMD(),
+                'expected_arrival_date' => $expectedArrivalDate,
+                'file_path' => $filePath,
+                'file_size' => strlen($csvContent),
+                'order_count' => $candidates->count(),
+                'total_quantity' => $totalQuantity,
+                'is_test' => false,
+                'status' => OrderDataFileStatus::GENERATED,
+            ]);
+        });
+
+        // 置き換えた旧ファイルのS3オブジェクトを削除（DBコミット後）
+        $this->deleteS3Files($supersededS3Paths);
 
         $faxError = null;
         if ($warehouseId !== null) {
@@ -237,6 +260,86 @@ class OrderDataFileService
             'order_count' => $candidates->count(),
             'total_quantity' => $totalQuantity,
         ];
+    }
+
+    /**
+     * 同一候補を含む既存の「未使用」発注データファイルを削除して置き換える（重複防止）。
+     *
+     * - 対象: 同一バッチ・未ダウンロード（CSV/FAX）・未メール送信のレコードのみ
+     * - CSVダウンロード済み / FAXダウンロード済み / メール送信済みのファイルは履歴として残す
+     *   → データ修正後の再作成（新規レコード追加）は引き続き可能
+     * - FAX/MAIL/CSV生成由来（order-data-files/）のみ対象。
+     *   JXフロー由来の確認用CSV（jx-orders/...）は wms_order_jx_documents.csv_path が
+     *   同一S3オブジェクトを参照しているため絶対に削除しない
+     *
+     * @param  array<int>  $candidateIds  これから生成するファイルに含まれる候補ID
+     * @return array<string> 削除対象のS3パス（DBコミット後に削除する）
+     */
+    private function supersedeExistingDataFiles(string $batchCode, ?int $warehouseId, ?int $contractorId, array $candidateIds): array
+    {
+        $existing = WmsOrderDataFile::where('is_test', false)
+            ->where('batch_code', $batchCode)
+            ->where('status', OrderDataFileStatus::GENERATED)
+            ->whereNull('csv_downloaded_at')
+            ->whereNull('fax_downloaded_at')
+            ->whereNull('mail_sent_at')
+            ->where('file_path', 'like', 'order-data-files/%')
+            ->lockForUpdate()
+            ->get()
+            ->filter(function (WmsOrderDataFile $file) use ($warehouseId, $contractorId, $candidateIds): bool {
+                $fileCandidateIds = is_array($file->candidate_ids)
+                    ? array_map('intval', $file->candidate_ids)
+                    : [];
+
+                if ($fileCandidateIds !== []) {
+                    // 候補が1件でも重なれば同一データの再生成とみなす
+                    return array_intersect($fileCandidateIds, $candidateIds) !== [];
+                }
+
+                // candidate_ids未記録の旧レコードは倉庫×発注先で判定
+                return (int) ($file->warehouse_id ?? 0) === (int) ($warehouseId ?? 0)
+                    && (int) ($file->contractor_id ?? 0) === (int) ($contractorId ?? 0);
+            });
+
+        if ($existing->isEmpty()) {
+            return [];
+        }
+
+        $s3Paths = $existing
+            ->flatMap(fn (WmsOrderDataFile $file): array => [$file->file_path, $file->fax_file_path])
+            ->filter()
+            ->values()
+            ->all();
+
+        WmsOrderDataFile::whereIn('id', $existing->pluck('id'))->delete();
+
+        Log::info('Superseded duplicate order data files', [
+            'batch_code' => $batchCode,
+            'warehouse_id' => $warehouseId,
+            'contractor_id' => $contractorId,
+            'superseded_ids' => $existing->pluck('id')->all(),
+        ]);
+
+        return $s3Paths;
+    }
+
+    /**
+     * S3上の旧ファイルを削除（失敗してもログのみで処理は継続）
+     *
+     * @param  array<string>  $paths
+     */
+    private function deleteS3Files(array $paths): void
+    {
+        foreach ($paths as $path) {
+            try {
+                Storage::disk('s3')->delete($path);
+            } catch (\Throwable $e) {
+                Log::warning('Failed to delete superseded order data file from S3', [
+                    'path' => $path,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     private function groupCandidatesForDataFiles(Collection $candidates, bool $splitByWarehouse): Collection
