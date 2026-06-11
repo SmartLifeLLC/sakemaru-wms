@@ -559,7 +559,7 @@ class WmsOrderConfirmedTable
                         ->color('primary')
                         ->requiresConfirmation()
                         ->modalHeading('発注データを生成')
-                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件から、FAX / MAIL / CSV 用の発注データを生成します。確定済み以外の候補は除外されます。1000件を超える場合は条件を絞ってください。")
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件から、FAX / MAIL / CSV 用の発注データを生成します。確定済み以外の候補は除外されます。同じ候補で生成済みの未使用ファイル（未ダウンロード・未送信）は新しいファイルに置き換えられます。1000件を超える場合は条件を絞ってください。")
                         ->modalSubmitActionLabel('データ生成')
                         ->modalCancelActionLabel('生成せず閉じる')
                         ->action(function (Collection $records) {
