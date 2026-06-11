@@ -463,6 +463,11 @@ class WmsOrderCandidatesTable
 
                         $isEditable = $record->status === CandidateStatus::PENDING;
 
+                        // 理論在庫は real_stocks のライブ値（引当可能数）を表示する
+                        // （current_effective_stock はバッチ算出時のスナップショットのためズレる）
+                        $liveAvailableStock = $record->liveAvailableStock();
+                        $snapshotEffectiveStock = $record->current_effective_stock ?? 0;
+
                         // 手動変更判定: 算出日と現在の予定日を比較
                         $shiftedDays = (int) ($details['到着日調整'] ?? 0);
                         $isDateManuallyChanged = false;
@@ -498,7 +503,8 @@ class WmsOrderCandidatesTable
                                     'packaging' => $item?->packaging ?? '-',
                                     'capacityText' => $capacityText,
                                     'statusLabel' => $record->status->label(),
-                                    'currentEffectiveStock' => $record->current_effective_stock ?? 0,
+                                    'currentEffectiveStock' => $liveAvailableStock,
+                                    'snapshotEffectiveStock' => $snapshotEffectiveStock,
                                     'suggestedQuantity' => $record->suggested_quantity ?? 0,
                                     'orderQuantity' => $record->order_quantity ?? 0,
                                     'hasCalculationLog' => ! empty($details),
