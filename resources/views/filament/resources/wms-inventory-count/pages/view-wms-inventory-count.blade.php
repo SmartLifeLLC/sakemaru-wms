@@ -77,9 +77,24 @@
             }
         },
         get changeCount() { return Object.keys(this.changes).length; },
+        focusItemCodeFilter() {
+            this.filtersOpen = true;
+            this.$nextTick(() => {
+                setTimeout(() => {
+                    const input = this.$refs.itemCodeFilter;
+                    if (!input) return;
+
+                    input.focus({ preventScroll: true });
+                    input.select();
+                }, 0);
+            });
+        },
         save() {
             if (!this.changeCount) return;
-            this.$wire.saveInlineChanges(this.changes).then(() => { this.changes = {}; });
+            this.$wire.saveInlineChanges(this.changes).then(() => {
+                this.changes = {};
+                this.focusItemCodeFilter();
+            });
         }
     }" @count-update="setChange($event.detail.id, $event.detail.field, $event.detail.value, $event.detail.origFirst, $event.detail.origSecond, $event.detail.origFinal, $event.detail.first, $event.detail.second, $event.detail.final)"
     class="flex h-[calc(100vh-72px)] min-h-0 flex-col gap-2">
@@ -135,7 +150,7 @@
                     </label>
                     <label class="space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">商品CD</span>
-                        <input type="text" wire:model.live.debounce.300ms="itemCodeFilter" placeholder="商品CD検索" class="{{ $filterInputClass }}">
+                        <input type="text" x-ref="itemCodeFilter" wire:model.live.debounce.300ms="itemCodeFilter" placeholder="商品CD検索" class="{{ $filterInputClass }}">
                     </label>
                     <div class="relative space-y-1 md:col-span-2">
                         <span class="text-xs font-semibold text-slate-700">ロケーション</span>
