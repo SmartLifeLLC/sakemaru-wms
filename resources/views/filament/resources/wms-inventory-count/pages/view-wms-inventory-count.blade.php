@@ -304,6 +304,7 @@
                     @if ($record->status !== \App\Models\WmsInventoryCount::STATUS_DRAFT)
                         {{ $this->getAction('downloadDiffListPdf') }}
                         {{ $this->getAction('downloadUncountedListPdf') }}
+                        {{ $this->getAction('restoreCancelledForCounting') }}
                         {{ $this->getAction('fillUncountedWithZero') }}
                     @endif
                     @if ($record->status === \App\Models\WmsInventoryCount::STATUS_CHECKED)

@@ -1042,6 +1042,34 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     );
                 }),
 
+            Action::make('restoreCancelledForCounting')
+                ->label('取消キャンセル')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->color('warning')
+                ->visible(fn () => $record->status === WmsInventoryCount::STATUS_CANCELLED)
+                ->requiresConfirmation()
+                ->modalHeading('棚卸し取消キャンセル')
+                ->modalDescription('取消済みの棚卸しをカウント中に戻します。カウント入力を再開できます。')
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('カウント中に戻す')->color('danger'))
+                ->modalCancelActionLabel('戻さず閉じる')
+                ->action(function () use ($record) {
+                    try {
+                        (new InventoryCountService)->restoreCancelledForCounting($record);
+                        Notification::make()->success()->title('棚卸しをカウント中に戻しました')->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->danger()
+                            ->title('棚卸しを戻せません')
+                            ->body($e->getMessage())
+                            ->send();
+
+                        return null;
+                    }
+
+                    return redirect()->route('filament.admin.resources.wms-inventory-counts.view', $record);
+                }),
+
             Action::make('fillUncountedWithZero')
                 ->label('未0')
                 ->icon('heroicon-o-check-circle')

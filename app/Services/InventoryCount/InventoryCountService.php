@@ -711,4 +711,34 @@ class InventoryCountService
             'handy_reception' => false,
         ]);
     }
+
+    public function restoreCancelledForCounting(WmsInventoryCount $inventoryCount): void
+    {
+        DB::connection('sakemaru')->transaction(function () use ($inventoryCount) {
+            $inventoryCount = WmsInventoryCount::query()
+                ->whereKey($inventoryCount->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($inventoryCount->status !== WmsInventoryCount::STATUS_CANCELLED) {
+                throw new \RuntimeException('取消済みの棚卸しのみカウント中に戻せます。');
+            }
+
+            $currentRound = min(max((int) ($inventoryCount->current_count_round ?: 1), 1), 3);
+            $updates = [
+                'status' => WmsInventoryCount::STATUS_COUNTING,
+                'current_count_round' => $currentRound,
+                'started_at' => $inventoryCount->started_at ?? now(),
+                'handy_reception' => false,
+            ];
+
+            if ($inventoryCount->final_count_confirmed_at !== null) {
+                $updates['current_count_round'] = 3;
+                $updates['final_count_confirmed_at'] = null;
+                $updates['final_count_confirmed_by'] = null;
+            }
+
+            $inventoryCount->update($updates);
+        });
+    }
 }
