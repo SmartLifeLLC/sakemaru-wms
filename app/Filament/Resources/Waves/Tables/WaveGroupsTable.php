@@ -134,6 +134,7 @@ class WaveGroupsTable
                     ->form([
                         \Filament\Forms\Components\DatePicker::make('shipping_date')
                             ->label('出荷日')
+                            ->native(false)
                             ->default(ClientSetting::systemDateYMD()),
                     ])
                     ->query(fn (Builder $query, array $data) => $query
