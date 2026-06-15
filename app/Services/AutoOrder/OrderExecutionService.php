@@ -215,7 +215,7 @@ class OrderExecutionService
                     continue;
                 }
 
-                $orderDate = ClientSetting::systemDateYMD();
+                $orderDate = ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto:demand_breakdown');
                 $schedule = WmsOrderIncomingSchedule::create([
                     'warehouse_id' => $warehouseId,
                     'item_id' => $candidate->item_id,
@@ -242,7 +242,7 @@ class OrderExecutionService
             }
         } else {
             // demand_breakdownがない場合は従来通り発注元倉庫に入庫予定を作成
-            $orderDate = ClientSetting::systemDateYMD();
+            $orderDate = ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto');
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,
                 'item_id' => $candidate->item_id,

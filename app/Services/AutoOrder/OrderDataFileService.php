@@ -216,7 +216,7 @@ class OrderDataFileService
                 'warehouse_id' => $warehouseId,
                 'contractor_id' => $contractorId,
                 'candidate_ids' => $candidateIds,
-                'order_date' => ClientSetting::systemDateYMD(),
+                'order_date' => ClientSetting::freshSystemDateYMD('order_data_file:create'),
                 'expected_arrival_date' => $expectedArrivalDate,
                 'file_path' => $filePath,
                 'file_size' => strlen($csvContent),
