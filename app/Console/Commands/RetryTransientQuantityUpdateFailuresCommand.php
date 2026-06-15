@@ -28,7 +28,7 @@ class RetryTransientQuantityUpdateFailuresCommand extends Command
         $candidates = QuantityUpdateQueue::query()
             ->where('status', QuantityUpdateQueue::STATUS_FINISHED)
             ->where('is_success', false)
-            ->where('error_message', 'like', '%SAVEPOINT trans2 does not exist%')
+            ->where('error_message', 'like', '%SAVEPOINT trans% does not exist%')
             ->where('updated_at', '<=', now()->subSeconds($minAgeSeconds))
             ->orderBy('id')
             ->limit($limit)
@@ -76,7 +76,7 @@ class RetryTransientQuantityUpdateFailuresCommand extends Command
                 if (! $locked
                     || $locked->status !== QuantityUpdateQueue::STATUS_FINISHED
                     || $locked->is_success !== false
-                    || ! str_contains((string) $locked->error_message, 'SAVEPOINT trans2 does not exist')
+                    || ! $this->isTransientSavepointFailure((string) $locked->error_message)
                 ) {
                     return 0;
                 }
@@ -118,5 +118,10 @@ class RetryTransientQuantityUpdateFailuresCommand extends Command
     private function cooldownCacheKey(int $queueId): string
     {
         return "quantity-update-queue:transient-retry:{$queueId}";
+    }
+
+    private function isTransientSavepointFailure(string $errorMessage): bool
+    {
+        return preg_match('/SAVEPOINT trans\\d+ does not exist/', $errorMessage) === 1;
     }
 }
