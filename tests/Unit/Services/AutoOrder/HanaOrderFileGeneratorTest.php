@@ -901,6 +901,72 @@ class HanaOrderFileGeneratorTest extends TestCase
     }
 
     /**
+     * @test
+     * 同一発注先×倉庫でも入荷予定日が異なる候補は別Bレコードに分割され、
+     * 各Bレコードの納品日が各候補の入荷予定日になること（先頭候補の日付で統一されない）
+     */
+    public function it_splits_b_records_by_expected_arrival_date(): void
+    {
+        $itemId = 999111;
+
+        $makeCandidate = function (string $arrivalDate) use ($itemId): object {
+            return (object) [
+                'id' => null,
+                'contractor_id' => 1,
+                'warehouse_id' => 1,
+                'warehouse' => null,
+                'contractor' => null,
+                'expected_arrival_date' => \Carbon\Carbon::parse($arrivalDate),
+                'ordering_code' => '4900000000001',
+                'quantity_type' => \App\Enums\QuantityType::CASE,
+                'order_quantity' => 1,
+                'item' => (object) [
+                    'id' => $itemId,
+                    'code' => '143999',
+                    'name_main' => 'TEST ARRIVAL SPLIT',
+                    'capacity_case' => 24,
+                ],
+            ];
+        };
+
+        // 同一発注先(1)×倉庫(1)・入荷予定日違いの2候補
+        $candidates = collect([
+            $makeCandidate('2026-05-09'),
+            $makeCandidate('2026-05-12'),
+        ]);
+
+        $reflection = new \ReflectionClass($this->generator);
+
+        // DBアクセスを避けるためキャッシュを事前投入
+        $orderingUnitQtyCache = $reflection->getProperty('orderingUnitQtyCache');
+        $orderingUnitQtyCache->setAccessible(true);
+        $orderingUnitQtyCache->setValue($this->generator, [$itemId.':4900000000001' => null]);
+
+        $costPriceCache = $reflection->getProperty('costPriceCache');
+        $costPriceCache->setAccessible(true);
+        $costPriceCache->setValue($this->generator, [$itemId => (object) [
+            'cost_case_price' => 0,
+            'cost_unit_price' => 0,
+        ]]);
+
+        $generateFileContent = $reflection->getMethod('generateFileContent');
+        $generateFileContent->setAccessible(true);
+        $content = $generateFileContent->invoke($this->generator, 1, $candidates, null);
+
+        $records = $this->splitRecords($content);
+        $bRecords = array_values(array_filter($records, fn ($r) => str_starts_with($r, 'B')));
+
+        // 入荷予定日が2種類 → Bレコードも2件に分割される
+        $this->assertCount(2, $bRecords, 'Each distinct arrival date should produce its own B record');
+
+        // 各Bレコードの納品日(30-35: YYMMDD)を抽出
+        $deliveryDates = array_map(fn ($r) => substr($r, 29, 6), $bRecords);
+        sort($deliveryDates);
+
+        $this->assertSame(['260509', '260512'], $deliveryDates, 'B record delivery dates must match each candidate arrival date, not be unified to the first');
+    }
+
+    /**
      * SJIS形式のファイル内容を128バイト単位のレコードに分割
      *
      * サンプルファイルの形式に合わせて、レコード間に改行がない形式を想定。
