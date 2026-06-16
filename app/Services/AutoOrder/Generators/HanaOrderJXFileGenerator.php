@@ -238,6 +238,21 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     private const MAX_D_RECORDS_PER_B = 6;
 
     /**
+     * B/Dレコードのグルーピングキーを生成
+     *
+     * 発注先×倉庫に加えて入荷予定日（納品日）を含める。
+     * 入荷予定日をキーに含めないと、同一発注先×倉庫でも入荷予定日が異なる候補が
+     * 1つのBレコードにまとまり、Bレコードの納品日が先頭候補の日付で全件統一されてしまう。
+     * （Bレコードの納品日は generateBRecord() で先頭候補の expected_arrival_date を採用するため）
+     */
+    private function buildRecordGroupKey($candidate): string
+    {
+        $arrivalDate = $candidate->expected_arrival_date?->format('Y-m-d') ?? 'no-date';
+
+        return "{$candidate->contractor_id}_{$candidate->warehouse_id}_{$arrivalDate}";
+    }
+
+    /**
      * ファイル内容を生成
      *
      * 仕様: レコード間に改行なし、ファイル末尾にのみCRLF
@@ -247,9 +262,11 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     {
         $records = [];
 
-        // 発注先×倉庫でグルーピングしてB/Dレコードを生成
+        // 発注先×倉庫×入荷予定日でグルーピングしてB/Dレコードを生成
+        // 入荷予定日をキーに含めないと、同一発注先×倉庫で入荷予定日が異なる候補が
+        // 1つのBレコードにまとまり、納品日が先頭候補の日付で全件統一されてしまう。
         $groupedByContractorWarehouse = $candidates->groupBy(function ($candidate) {
-            return "{$candidate->contractor_id}_{$candidate->warehouse_id}";
+            return $this->buildRecordGroupKey($candidate);
         });
 
         // 6行制限を考慮してBレコード数とDレコード数を計算
@@ -565,7 +582,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     {
         // 6件ずつ分割した場合のBレコード数を計算
         $grouped = $candidates->groupBy(function ($c) {
-            return "{$c->contractor_id}_{$c->warehouse_id}";
+            return $this->buildRecordGroupKey($c);
         });
 
         $bCount = 0;
