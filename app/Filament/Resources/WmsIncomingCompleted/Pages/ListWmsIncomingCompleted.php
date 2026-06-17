@@ -66,7 +66,10 @@ class ListWmsIncomingCompleted extends ListRecords
                             ->send();
                     }
                 })
-                ->visible(fn () => WmsOrderIncomingSchedule::where('status', IncomingScheduleStatus::CONFIRMED)->exists()),
+                ->visible(fn () => WmsOrderIncomingSchedule::query()
+                    ->confirmed()
+                    ->forPurchaseTransmission()
+                    ->exists()),
         ];
     }
 
