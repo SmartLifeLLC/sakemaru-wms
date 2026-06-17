@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
@@ -185,6 +186,28 @@ class WmsOrderIncomingSchedule extends WmsModel
     public function scopeFromTransfer(Builder $query): Builder
     {
         return $query->where('order_source', OrderSource::TRANSFER);
+    }
+
+    public function scopeForPurchaseTransmission(Builder $query): Builder
+    {
+        $table = $query->getModel()->getTable();
+
+        return $query
+            ->whereIn('order_source', [
+                OrderSource::AUTO->value,
+                OrderSource::MANUAL->value,
+                OrderSource::RECEIVED->value,
+            ])
+            ->whereNull('transfer_candidate_id')
+            ->whereNull('source_warehouse_id')
+            ->whereNull('stock_transfer_id')
+            ->whereNotExists(function ($subQuery) use ($table) {
+                $subQuery
+                    ->selectRaw('1')
+                    ->from('wms_contractor_settings as purchase_transmission_settings')
+                    ->whereColumn('purchase_transmission_settings.contractor_id', "{$table}.contractor_id")
+                    ->where('purchase_transmission_settings.transmission_type', TransmissionType::INTERNAL->value);
+            });
     }
 
     // Accessors

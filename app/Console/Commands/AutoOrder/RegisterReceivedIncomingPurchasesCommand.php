@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands\AutoOrder;
 
+use App\Enums\AutoOrder\TransmissionType;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -90,6 +91,16 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
             ->where('s.is_receive_matched', true)
             ->where('s.status', 'PENDING')
             ->where('s.received_quantity', '>', 0)
+            ->whereNull('s.transfer_candidate_id')
+            ->whereNull('s.source_warehouse_id')
+            ->whereNull('s.stock_transfer_id')
+            ->whereNotExists(function ($subQuery) {
+                $subQuery
+                    ->selectRaw('1')
+                    ->from('wms_contractor_settings as purchase_transmission_settings')
+                    ->whereColumn('purchase_transmission_settings.contractor_id', 's.contractor_id')
+                    ->where('purchase_transmission_settings.transmission_type', TransmissionType::INTERNAL->value);
+            })
             ->select([
                 's.id',
                 's.warehouse_id',

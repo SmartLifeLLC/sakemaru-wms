@@ -28,8 +28,10 @@ class IncomingTransmissionService
      */
     public function transmitConfirmedIncomings(): array
     {
-        // CONFIRMED状態の入庫データを取得
-        $schedules = WmsOrderIncomingSchedule::where('status', IncomingScheduleStatus::CONFIRMED)
+        // CONFIRMED状態の入庫データを取得（移動は stock_transfer 側で在庫反映するため除外）
+        $schedules = WmsOrderIncomingSchedule::query()
+            ->confirmed()
+            ->forPurchaseTransmission()
             ->with(['warehouse', 'item', 'contractor', 'supplier'])
             ->get();
 
