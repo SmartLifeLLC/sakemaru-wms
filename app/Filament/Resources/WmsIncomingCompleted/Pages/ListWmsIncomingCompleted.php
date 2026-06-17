@@ -36,7 +36,7 @@ class ListWmsIncomingCompleted extends ListRecords
                 ->icon('heroicon-o-paper-airplane')
                 ->color('primary')
                 ->modalHeading('仕入データ登録')
-                ->modalDescription(fn () => $this->getPurchaseTransmissionModalDescription())
+                ->modalDescription('入荷完了データを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
                 ->requiresConfirmation()
                 ->modalSubmitActionLabel('登録')
                 ->action(function () {
@@ -57,19 +57,11 @@ class ListWmsIncomingCompleted extends ListRecords
                         $result = $transmissionService->transmitConfirmedIncomings($warehouseId);
 
                         if ($result['success']) {
-                            if ($result['schedule_count'] === 0) {
-                                Notification::make()
-                                    ->title('仕入データ登録対象はありません')
-                                    ->body('選択中倉庫に、仕入データ生成前の外部発注データはありません。')
-                                    ->warning()
-                                    ->send();
-                            } else {
-                                Notification::make()
-                                    ->title('仕入キューに登録しました')
-                                    ->body("キュー: {$result['queue_count']}件 / 入荷データ: {$result['schedule_count']}件")
-                                    ->success()
-                                    ->send();
-                            }
+                            Notification::make()
+                                ->title('仕入キューに登録しました')
+                                ->body("キュー: {$result['queue_count']}件 / 入荷データ: {$result['schedule_count']}件")
+                                ->success()
+                                ->send();
                         } else {
                             Notification::make()
                                 ->title('一部エラーが発生しました')
@@ -109,10 +101,6 @@ class ListWmsIncomingCompleted extends ListRecords
         $activeView = $this->activePresetView ?? null;
 
         if (is_string($activeView)) {
-            if ($activeView === 'all') {
-                return null;
-            }
-
             if (preg_match('/^(?:wh|default)_(\d+)$/', $activeView, $matches)) {
                 return (int) $matches[1];
             }
@@ -121,20 +109,6 @@ class ListWmsIncomingCompleted extends ListRecords
         $warehouseId = auth()->user()?->getSelectedWarehouseId();
 
         return $warehouseId ? (int) $warehouseId : null;
-    }
-
-    private function getPurchaseTransmissionWarehouse(): ?Warehouse
-    {
-        $warehouseId = $this->getPurchaseTransmissionWarehouseId();
-
-        return $warehouseId ? Warehouse::find($warehouseId) : null;
-    }
-
-    private function getPurchaseTransmissionModalDescription(): string
-    {
-        $warehouseName = $this->getPurchaseTransmissionWarehouse()?->name ?? '選択中倉庫';
-
-        return "{$warehouseName} の入荷完了データのうち、仕入データ生成前の外部発注のみを基幹システムの仕入キューに登録します。同一の仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。";
     }
 
     protected ?array $presetViewWarehouseData = null;
