@@ -279,6 +279,7 @@
                     {{ $this->getAction('viewLogs') }}
                     {{ $this->getAction('addSingleItem') }}
                     {{ $this->getAction('saveCurrentStock') }}
+                    {{ $this->getAction('resumeCurrentStockSavedForCounting') }}
                     {{ $this->getAction('refreshCurrentStock') }}
                     {{ $this->getAction('refreshDailySnapshotStock') }}
                     {{ $this->getAction('downloadInstructionPdf') }}
