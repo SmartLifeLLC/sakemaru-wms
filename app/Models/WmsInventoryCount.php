@@ -223,6 +223,11 @@ class WmsInventoryCount extends WmsModel
         ], true) && ! $this->isCurrentStockSaved();
     }
 
+    public function canResumeCurrentStockSaved(): bool
+    {
+        return $this->isCurrentStockSaved();
+    }
+
     public function canRefreshSystemQuantities(): bool
     {
         return ! $this->isCurrentStockSaved() && ! in_array($this->status, [

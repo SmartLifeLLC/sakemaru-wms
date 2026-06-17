@@ -911,6 +911,37 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     }
                 }),
 
+            Action::make('resumeCurrentStockSavedForCounting')
+                ->label('棚卸し再開')
+                ->icon('heroicon-o-play')
+                ->color('warning')
+                ->visible(fn () => $record->canResumeCurrentStockSaved())
+                ->requiresConfirmation()
+                ->modalHeading('棚卸し再開')
+                ->modalDescription('現状保存を取り消し、カウント中に戻します。理論在庫や実棚数は変更しません。現在庫更新と指定日在庫更新を再度実行できます。')
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('再開する')->color('danger'))
+                ->modalCancelActionLabel('再開せず閉じる')
+                ->action(function () use ($record) {
+                    try {
+                        (new InventoryCountService)->resumeCurrentStockSavedForCounting($record);
+                        $this->record->refresh();
+                        $this->itemPage = 1;
+
+                        Notification::make()
+                            ->success()
+                            ->title('棚卸しを再開しました')
+                            ->body('現在庫更新と指定日在庫更新を実行できます。')
+                            ->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->danger()
+                            ->title('棚卸しを再開できません')
+                            ->body($e->getMessage())
+                            ->send();
+                    }
+                }),
+
             Action::make('refreshCurrentStock')
                 ->label('現在庫更新')
                 ->icon('heroicon-o-arrow-path')
