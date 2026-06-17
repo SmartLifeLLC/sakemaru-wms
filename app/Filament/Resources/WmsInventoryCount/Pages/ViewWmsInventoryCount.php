@@ -11,6 +11,7 @@ use App\Services\InventoryCount\InventoryDiffListPdfService;
 use App\Services\InventoryCount\InventoryInstructionPdfService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -886,25 +887,94 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->visible(fn () => $record->canSaveCurrentStock())
                 ->requiresConfirmation()
                 ->modalHeading('現状保存')
-                ->modalDescription('現在の在庫数を理論在庫として保存します。保存後はこの棚卸しで在庫更新を再実行できません。')
+                ->modalDescription('現在の棚卸し内容を現状保存に変更します。理論在庫や実棚数は変更しません。')
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('保存する')->color('danger'))
                 ->modalCancelActionLabel('保存せず閉じる')
                 ->action(function () use ($record) {
                     try {
-                        $result = (new InventoryCountService)->saveCurrentStock($record);
+                        (new InventoryCountService)->saveCurrentStock($record);
                         $this->record->refresh();
                         $this->itemPage = 1;
 
                         Notification::make()
                             ->success()
                             ->title('現状保存しました')
-                            ->body("理論在庫: {$result['updated_items']}件 / 差分再計算: {$result['updated_differences']}件")
+                            ->body('理論在庫や実棚数は変更していません。')
                             ->send();
                     } catch (\Throwable $e) {
                         Notification::make()
                             ->danger()
                             ->title('現状保存できません')
+                            ->body($e->getMessage())
+                            ->send();
+                    }
+                }),
+
+            Action::make('refreshCurrentStock')
+                ->label('現在庫更新')
+                ->icon('heroicon-o-arrow-path')
+                ->color('warning')
+                ->visible(fn () => $record->canRefreshSystemQuantities())
+                ->requiresConfirmation()
+                ->modalHeading('現在庫更新')
+                ->modalDescription('現在の在庫数を理論在庫として再取得し、入力済み実棚数との差異を再計算します。実棚数と現状保存状態は変更しません。')
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('更新する')->color('danger'))
+                ->modalCancelActionLabel('更新せず閉じる')
+                ->action(function () use ($record) {
+                    try {
+                        $result = (new InventoryCountService)->refreshSystemQuantities($record);
+                        $this->record->refresh();
+                        $this->itemPage = 1;
+
+                        Notification::make()
+                            ->success()
+                            ->title('現在庫を更新しました')
+                            ->body("理論在庫: {$result['updated_items']}件 / 差分再計算: {$result['updated_differences']}件")
+                            ->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->danger()
+                            ->title('現在庫を更新できません')
+                            ->body($e->getMessage())
+                            ->send();
+                    }
+                }),
+
+            Action::make('refreshDailySnapshotStock')
+                ->label('指定日在庫更新')
+                ->icon('heroicon-o-calendar-days')
+                ->color('warning')
+                ->visible(fn () => $record->canRefreshSystemQuantities())
+                ->requiresConfirmation()
+                ->modalHeading('指定日在庫更新')
+                ->modalDescription('選択した日の2:00時点の在庫履歴から理論在庫を復元し、入力済み実棚数との差異を再計算します。実棚数と現状保存状態は変更しません。')
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('更新する')->color('danger'))
+                ->modalCancelActionLabel('更新せず閉じる')
+                ->schema([
+                    DatePicker::make('snapshot_date')
+                        ->label('スナップショット日')
+                        ->default($record->count_date?->toDateString() ?? now()->toDateString())
+                        ->maxDate(now())
+                        ->required(),
+                ])
+                ->action(function (array $data) use ($record) {
+                    try {
+                        $result = (new InventoryCountService)->refreshSystemQuantitiesFromDailySnapshot($record, (string) $data['snapshot_date']);
+                        $this->record->refresh();
+                        $this->itemPage = 1;
+
+                        Notification::make()
+                            ->success()
+                            ->title('指定日の在庫に更新しました')
+                            ->body("対象日: {$result['snapshot_date']} / 理論在庫: {$result['updated_items']}件 / 差分再計算: {$result['updated_differences']}件 / 未取得: {$result['missing_snapshot_rows']}件")
+                            ->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->danger()
+                            ->title('指定日の在庫に更新できません')
                             ->body($e->getMessage())
                             ->send();
                     }
