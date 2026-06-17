@@ -57,11 +57,19 @@ class ListWmsIncomingCompleted extends ListRecords
                         $result = $transmissionService->transmitConfirmedIncomings($warehouseId);
 
                         if ($result['success']) {
-                            Notification::make()
-                                ->title('仕入キューに登録しました')
-                                ->body("キュー: {$result['queue_count']}件 / 入荷データ: {$result['schedule_count']}件")
-                                ->success()
-                                ->send();
+                            if ($result['schedule_count'] === 0) {
+                                Notification::make()
+                                    ->title('仕入データ登録対象はありません')
+                                    ->body('選択中倉庫に、仕入データ生成前の外部発注データはありません。')
+                                    ->warning()
+                                    ->send();
+                            } else {
+                                Notification::make()
+                                    ->title('仕入キューに登録しました')
+                                    ->body("キュー: {$result['queue_count']}件 / 入荷データ: {$result['schedule_count']}件")
+                                    ->success()
+                                    ->send();
+                            }
                         } else {
                             Notification::make()
                                 ->title('一部エラーが発生しました')
@@ -76,8 +84,7 @@ class ListWmsIncomingCompleted extends ListRecords
                             ->danger()
                             ->send();
                     }
-                })
-                ->visible(fn () => $this->hasPurchaseTransmissionTargetsForSelectedWarehouse()),
+                }),
         ];
     }
 
@@ -121,16 +128,6 @@ class ListWmsIncomingCompleted extends ListRecords
         $warehouseId = $this->getPurchaseTransmissionWarehouseId();
 
         return $warehouseId ? Warehouse::find($warehouseId) : null;
-    }
-
-    private function hasPurchaseTransmissionTargetsForSelectedWarehouse(): bool
-    {
-        $warehouseId = $this->getPurchaseTransmissionWarehouseId();
-
-        return $warehouseId !== null
-            && WmsOrderIncomingSchedule::query()
-                ->readyForPurchaseTransmission($warehouseId)
-                ->exists();
     }
 
     private function getPurchaseTransmissionModalDescription(): string
