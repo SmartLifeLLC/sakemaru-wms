@@ -26,17 +26,18 @@ class IncomingTransmissionService
      *
      * @return array ['success' => bool, 'queue_count' => int, 'schedule_count' => int, 'errors' => array]
      */
-    public function transmitConfirmedIncomings(): array
+    public function transmitConfirmedIncomings(?int $warehouseId = null): array
     {
         // CONFIRMED状態の入庫データを取得（移動は stock_transfer 側で在庫反映するため除外）
         $schedules = WmsOrderIncomingSchedule::query()
-            ->confirmed()
-            ->forPurchaseTransmission()
+            ->readyForPurchaseTransmission($warehouseId)
             ->with(['warehouse', 'item', 'contractor', 'supplier'])
             ->get();
 
         if ($schedules->isEmpty()) {
-            Log::info('No confirmed incoming schedules to transmit');
+            Log::info('No confirmed incoming schedules to transmit', [
+                'warehouse_id' => $warehouseId,
+            ]);
 
             return [
                 'success' => true,

@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Models;
 
+use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Models\WmsOrderIncomingSchedule;
@@ -41,5 +42,25 @@ class WmsOrderIncomingScheduleTest extends TestCase
         $this->assertStringContainsString('stock_transfer_id', $sql);
         $this->assertStringContainsString('wms_contractor_settings', $sql);
         $this->assertStringContainsString('transmission_type', $sql);
+    }
+
+    public function test_ready_for_purchase_transmission_scope_limits_to_unqueued_confirmed_selected_warehouse(): void
+    {
+        $warehouseId = 21;
+        $query = WmsOrderIncomingSchedule::query()->readyForPurchaseTransmission($warehouseId);
+        $sql = $query->toSql();
+
+        $this->assertSame([
+            IncomingScheduleStatus::CONFIRMED->value,
+            OrderSource::AUTO->value,
+            OrderSource::MANUAL->value,
+            OrderSource::RECEIVED->value,
+            TransmissionType::INTERNAL->value,
+            $warehouseId,
+        ], $query->getBindings());
+        $this->assertStringContainsString('status', $sql);
+        $this->assertStringContainsString('purchase_queue_id', $sql);
+        $this->assertStringContainsString('warehouse_id', $sql);
+        $this->assertStringContainsString('wms_contractor_settings', $sql);
     }
 }

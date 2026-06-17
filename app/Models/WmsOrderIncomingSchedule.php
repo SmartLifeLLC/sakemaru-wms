@@ -210,6 +210,15 @@ class WmsOrderIncomingSchedule extends WmsModel
             });
     }
 
+    public function scopeReadyForPurchaseTransmission(Builder $query, ?int $warehouseId = null): Builder
+    {
+        return $query
+            ->confirmed()
+            ->forPurchaseTransmission()
+            ->whereNull('purchase_queue_id')
+            ->when($warehouseId !== null, fn (Builder $query) => $query->forWarehouse($warehouseId));
+    }
+
     // Accessors
 
     /**
