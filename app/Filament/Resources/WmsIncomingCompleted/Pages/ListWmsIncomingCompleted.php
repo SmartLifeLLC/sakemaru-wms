@@ -36,14 +36,25 @@ class ListWmsIncomingCompleted extends ListRecords
                 ->icon('heroicon-o-paper-airplane')
                 ->color('primary')
                 ->modalHeading('仕入データ登録')
-                ->modalDescription('入荷完了データを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
+                ->modalDescription(fn () => $this->getPurchaseTransmissionModalDescription())
                 ->requiresConfirmation()
                 ->modalSubmitActionLabel('登録')
                 ->action(function () {
+                    $warehouseId = $this->getPurchaseTransmissionWarehouseId();
+                    if ($warehouseId === null) {
+                        Notification::make()
+                            ->title('倉庫を選択してください')
+                            ->body('仕入データ登録は倉庫別に実行します。倉庫タブを選択してから再実行してください。')
+                            ->warning()
+                            ->send();
+
+                        return;
+                    }
+
                     $transmissionService = app(IncomingTransmissionService::class);
 
                     try {
-                        $result = $transmissionService->transmitConfirmedIncomings();
+                        $result = $transmissionService->transmitConfirmedIncomings($warehouseId);
 
                         if ($result['success']) {
                             Notification::make()
@@ -66,7 +77,7 @@ class ListWmsIncomingCompleted extends ListRecords
                             ->send();
                     }
                 })
-                ->visible(fn () => WmsOrderIncomingSchedule::where('status', IncomingScheduleStatus::CONFIRMED)->exists()),
+                ->visible(fn () => $this->hasPurchaseTransmissionTargetsForSelectedWarehouse()),
         ];
     }
 
@@ -84,6 +95,49 @@ class ListWmsIncomingCompleted extends ListRecords
                 ->orderBy('warehouse_id')
                 ->orderBy('item_id')
             );
+    }
+
+    private function getPurchaseTransmissionWarehouseId(): ?int
+    {
+        $activeView = $this->activePresetView ?? null;
+
+        if (is_string($activeView)) {
+            if ($activeView === 'all') {
+                return null;
+            }
+
+            if (preg_match('/^(?:wh|default)_(\d+)$/', $activeView, $matches)) {
+                return (int) $matches[1];
+            }
+        }
+
+        $warehouseId = auth()->user()?->getSelectedWarehouseId();
+
+        return $warehouseId ? (int) $warehouseId : null;
+    }
+
+    private function getPurchaseTransmissionWarehouse(): ?Warehouse
+    {
+        $warehouseId = $this->getPurchaseTransmissionWarehouseId();
+
+        return $warehouseId ? Warehouse::find($warehouseId) : null;
+    }
+
+    private function hasPurchaseTransmissionTargetsForSelectedWarehouse(): bool
+    {
+        $warehouseId = $this->getPurchaseTransmissionWarehouseId();
+
+        return $warehouseId !== null
+            && WmsOrderIncomingSchedule::query()
+                ->readyForPurchaseTransmission($warehouseId)
+                ->exists();
+    }
+
+    private function getPurchaseTransmissionModalDescription(): string
+    {
+        $warehouseName = $this->getPurchaseTransmissionWarehouse()?->name ?? '選択中倉庫';
+
+        return "{$warehouseName} の入荷完了データのうち、仕入データ生成前の外部発注のみを基幹システムの仕入キューに登録します。同一の仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。";
     }
 
     protected ?array $presetViewWarehouseData = null;
