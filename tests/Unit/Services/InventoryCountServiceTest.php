@@ -57,6 +57,50 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame('20.00', $item->difference_amount);
     }
 
+    public function test_resume_current_stock_saved_for_counting_only_clears_saved_flag(): void
+    {
+        $realStockId = $this->createRealStock(999003, 99);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '小浜店',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'started_at' => now()->subHour(),
+            'current_stock_saved_at' => now(),
+        ]);
+
+        $item = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $realStockId,
+            'item_id' => 999003,
+            'item_code' => '999003',
+            'item_name' => 'テスト商品3',
+            'system_quantity' => 1,
+            'final_count_quantity' => 3,
+            'difference_quantity' => 2,
+            'cost_price' => 10,
+            'difference_amount' => 20,
+        ]);
+
+        (new InventoryCountService)->resumeCurrentStockSavedForCounting($inventoryCount);
+
+        $inventoryCount->refresh();
+        $item->refresh();
+
+        $this->assertSame(WmsInventoryCount::STATUS_COUNTING, $inventoryCount->status);
+        $this->assertFalse($inventoryCount->isCurrentStockSaved());
+        $this->assertTrue($inventoryCount->canRefreshSystemQuantities());
+        $this->assertNull($inventoryCount->current_stock_saved_at);
+        $this->assertSame(1, $item->system_quantity);
+        $this->assertSame(3, $item->final_count_quantity);
+        $this->assertSame(2, $item->difference_quantity);
+        $this->assertSame('20.00', $item->difference_amount);
+    }
+
     public function test_refresh_system_quantities_from_daily_snapshot_uses_latest_snapshot_on_or_before_selected_date(): void
     {
         if (! Schema::connection('sakemaru')->hasTable('real_stock_daily_snapshots')) {

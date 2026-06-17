@@ -20,6 +20,7 @@ class WmsInventoryCountTest extends TestCase
         $this->assertSame('現状保存', $count->status_label);
         $this->assertSame('success', $count->status_color);
         $this->assertFalse($count->canSaveCurrentStock());
+        $this->assertTrue($count->canResumeCurrentStockSaved());
         $this->assertFalse($count->canRefreshSystemQuantities());
     }
 
@@ -33,6 +34,7 @@ class WmsInventoryCountTest extends TestCase
         $this->assertFalse($count->isCurrentStockSaved());
         $this->assertSame(WmsInventoryCount::STATUS_CHECKED, $count->display_status);
         $this->assertSame('差異確認済', $count->status_label);
+        $this->assertFalse($count->canResumeCurrentStockSaved());
     }
 
     public function test_apply_display_status_filter_separates_counting_and_current_saved(): void

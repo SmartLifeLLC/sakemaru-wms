@@ -179,6 +179,25 @@ class InventoryCountService
         });
     }
 
+    public function resumeCurrentStockSavedForCounting(WmsInventoryCount $inventoryCount): void
+    {
+        DB::connection('sakemaru')->transaction(function () use ($inventoryCount) {
+            $inventoryCount = WmsInventoryCount::query()
+                ->whereKey($inventoryCount->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! $inventoryCount->isCurrentStockSaved()) {
+                throw new \RuntimeException('現状保存済みの棚卸しのみ再開できます。');
+            }
+
+            $inventoryCount->update([
+                'status' => WmsInventoryCount::STATUS_COUNTING,
+                'current_stock_saved_at' => null,
+            ]);
+        });
+    }
+
     private function refreshSystemQuantitiesLocked(WmsInventoryCount $inventoryCount): array
     {
         $this->assertCanRefreshSystemQuantities($inventoryCount);
