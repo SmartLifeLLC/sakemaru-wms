@@ -219,6 +219,14 @@ class WmsOrderIncomingSchedule extends WmsModel
             ->when($warehouseId !== null, fn (Builder $query) => $query->forWarehouse($warehouseId));
     }
 
+    public function scopeReadyForIncomingTransmission(Builder $query, ?int $warehouseId = null): Builder
+    {
+        return $query
+            ->confirmed()
+            ->whereNull('purchase_queue_id')
+            ->when($warehouseId !== null, fn (Builder $query) => $query->forWarehouse($warehouseId));
+    }
+
     // Accessors
 
     /**

@@ -28,9 +28,10 @@ class IncomingTransmissionService
      */
     public function transmitConfirmedIncomings(?int $warehouseId = null): array
     {
-        // CONFIRMED状態の入庫データを取得（移動は stock_transfer 側で在庫反映するため除外）
+        // CONFIRMED状態の未処理入庫データを取得する。
+        // 移動・本部発注対象は仕入キューを作らず、処理済み化だけ行う。
         $schedules = WmsOrderIncomingSchedule::query()
-            ->readyForPurchaseTransmission($warehouseId)
+            ->readyForIncomingTransmission($warehouseId)
             ->with(['warehouse', 'item', 'contractor', 'supplier'])
             ->get();
 
@@ -47,8 +48,29 @@ class IncomingTransmissionService
             ];
         }
 
+        $purchaseScheduleIds = WmsOrderIncomingSchedule::query()
+            ->readyForPurchaseTransmission($warehouseId)
+            ->pluck('id')
+            ->all();
+
+        $purchaseSchedules = $schedules->whereIn('id', $purchaseScheduleIds)->values();
+        $nonPurchaseSchedules = $schedules->whereNotIn('id', $purchaseScheduleIds)->values();
+
+        $queueCount = 0;
+        $scheduleCount = $this->markSchedulesAsTransmittedWithoutPurchaseQueue($nonPurchaseSchedules);
+        $errors = [];
+
+        if ($purchaseSchedules->isEmpty()) {
+            return [
+                'success' => true,
+                'queue_count' => 0,
+                'schedule_count' => $scheduleCount,
+                'errors' => [],
+            ];
+        }
+
         // グルーピング: 倉庫 + 仕入先 + 入庫日
-        $grouped = $schedules->groupBy(function ($schedule) {
+        $grouped = $purchaseSchedules->groupBy(function ($schedule) {
             $warehouseCode = $schedule->warehouse?->code ?? 'UNKNOWN';
             // supplier_id があればそちらを優先、なければ contractor から取得
             $supplierCode = $this->getSupplierCode($schedule);
@@ -56,10 +78,6 @@ class IncomingTransmissionService
 
             return "{$warehouseCode}_{$supplierCode}_{$deliveredDate}";
         });
-
-        $queueCount = 0;
-        $scheduleCount = 0;
-        $errors = [];
 
         foreach ($grouped as $groupKey => $groupSchedules) {
             try {
@@ -104,6 +122,26 @@ class IncomingTransmissionService
             'schedule_count' => $scheduleCount,
             'errors' => $errors,
         ];
+    }
+
+    /**
+     * 仕入キューを作らない入荷完了データを処理済みにする
+     */
+    private function markSchedulesAsTransmittedWithoutPurchaseQueue(Collection $schedules): int
+    {
+        foreach ($schedules as $schedule) {
+            $schedule->update([
+                'status' => IncomingScheduleStatus::TRANSMITTED,
+            ]);
+        }
+
+        if ($schedules->isNotEmpty()) {
+            Log::info('Incoming schedules marked transmitted without purchase queue', [
+                'schedule_count' => $schedules->count(),
+            ]);
+        }
+
+        return $schedules->count();
     }
 
     /**

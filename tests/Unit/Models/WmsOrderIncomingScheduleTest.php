@@ -63,4 +63,21 @@ class WmsOrderIncomingScheduleTest extends TestCase
         $this->assertStringContainsString('warehouse_id', $sql);
         $this->assertStringContainsString('wms_contractor_settings', $sql);
     }
+
+    public function test_ready_for_incoming_transmission_scope_keeps_transfer_and_internal_sources_processable(): void
+    {
+        $warehouseId = 21;
+        $query = WmsOrderIncomingSchedule::query()->readyForIncomingTransmission($warehouseId);
+        $sql = $query->toSql();
+
+        $this->assertSame([
+            IncomingScheduleStatus::CONFIRMED->value,
+            $warehouseId,
+        ], $query->getBindings());
+        $this->assertStringContainsString('status', $sql);
+        $this->assertStringContainsString('purchase_queue_id', $sql);
+        $this->assertStringContainsString('warehouse_id', $sql);
+        $this->assertStringNotContainsString('order_source', $sql);
+        $this->assertStringNotContainsString('wms_contractor_settings', $sql);
+    }
 }
