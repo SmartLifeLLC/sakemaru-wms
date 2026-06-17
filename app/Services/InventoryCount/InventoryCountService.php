@@ -9,6 +9,7 @@ use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
 use App\Models\WmsPicker;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -133,9 +134,31 @@ class InventoryCountService
         });
     }
 
-    public function saveCurrentStock(WmsInventoryCount $inventoryCount): array
+    public function refreshSystemQuantitiesFromDailySnapshot(WmsInventoryCount $inventoryCount, string $snapshotDate): array
     {
-        return DB::connection('sakemaru')->transaction(function () use ($inventoryCount) {
+        $snapshotDate = CarbonImmutable::parse($snapshotDate)->toDateString();
+
+        if ($snapshotDate > now()->toDateString()) {
+            throw new \RuntimeException('未来日の在庫スナップショットには更新できません。');
+        }
+
+        return DB::connection('sakemaru')->transaction(function () use ($inventoryCount, $snapshotDate) {
+            $inventoryCount = WmsInventoryCount::query()
+                ->whereKey($inventoryCount->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! DB::connection('sakemaru')->table('real_stock_daily_snapshots')->where('snapshot_date', $snapshotDate)->exists()) {
+                throw new \RuntimeException("{$snapshotDate} の在庫スナップショットがありません。");
+            }
+
+            return $this->refreshSystemQuantitiesFromDailySnapshotLocked($inventoryCount, $snapshotDate);
+        });
+    }
+
+    public function saveCurrentStock(WmsInventoryCount $inventoryCount): void
+    {
+        DB::connection('sakemaru')->transaction(function () use ($inventoryCount) {
             $inventoryCount = WmsInventoryCount::query()
                 ->whereKey($inventoryCount->id)
                 ->lockForUpdate()
@@ -148,30 +171,17 @@ class InventoryCountService
                 throw new \RuntimeException('現状保存できるのは下書きまたはカウント中の棚卸しのみです。');
             }
 
-            $result = $this->refreshSystemQuantitiesLocked($inventoryCount);
-
             $inventoryCount->update([
                 'status' => WmsInventoryCount::STATUS_COUNTING,
                 'started_at' => $inventoryCount->started_at ?? now(),
                 'current_stock_saved_at' => now(),
             ]);
-
-            return $result;
         });
     }
 
     private function refreshSystemQuantitiesLocked(WmsInventoryCount $inventoryCount): array
     {
-        if ($inventoryCount->isCurrentStockSaved()) {
-            throw new \RuntimeException('現状保存後の棚卸しは現在庫に更新できません。');
-        }
-
-        if (in_array($inventoryCount->status, [
-            WmsInventoryCount::STATUS_CONFIRMED,
-            WmsInventoryCount::STATUS_CANCELLED,
-        ], true)) {
-            throw new \RuntimeException('確定済または取消済の棚卸しは現在庫に更新できません。');
-        }
+        $this->assertCanRefreshSystemQuantities($inventoryCount);
 
         $updatedItems = 0;
         $updatedDifferences = 0;
@@ -204,34 +214,7 @@ class InventoryCountService
                     }
 
                     $systemQuantity = (int) $stockQuantities->get($item->real_stock_id);
-                    $updateData = [];
-
-                    if ((int) $item->system_quantity !== $systemQuantity) {
-                        $updateData['system_quantity'] = $systemQuantity;
-                        $updatedItems++;
-                    }
-
-                    if ($item->difference_quantity !== null) {
-                        $countedQuantity = $item->final_count_quantity
-                            ?? $item->second_count_quantity
-                            ?? $item->first_count_quantity;
-
-                        if ($countedQuantity !== null) {
-                            $differenceQuantity = (int) $countedQuantity - $systemQuantity;
-                            $updateData['difference_quantity'] = $differenceQuantity;
-                            $updateData['difference_amount'] = $differenceQuantity * (float) $item->cost_price;
-                        } else {
-                            $updateData['difference_quantity'] = null;
-                            $updateData['difference_amount'] = null;
-                        }
-
-                        $updatedDifferences++;
-                    }
-
-                    if ($updateData !== []) {
-                        $updateData['updated_at'] = now();
-                        WmsInventoryCountItem::whereKey($item->id)->update($updateData);
-                    }
+                    $this->updateCountItemSystemQuantity($item, $systemQuantity, $updatedItems, $updatedDifferences);
                 }
             });
 
@@ -240,6 +223,113 @@ class InventoryCountService
             'updated_differences' => $updatedDifferences,
             'missing_real_stocks' => $missingRealStocks,
         ];
+    }
+
+    private function refreshSystemQuantitiesFromDailySnapshotLocked(WmsInventoryCount $inventoryCount, string $snapshotDate): array
+    {
+        $this->assertCanRefreshSystemQuantities($inventoryCount);
+
+        $updatedItems = 0;
+        $updatedDifferences = 0;
+        $missingSnapshotRows = 0;
+
+        WmsInventoryCountItem::query()
+            ->where('inventory_count_id', $inventoryCount->id)
+            ->whereNotNull('real_stock_id')
+            ->select([
+                'id',
+                'real_stock_id',
+                'system_quantity',
+                'first_count_quantity',
+                'second_count_quantity',
+                'final_count_quantity',
+                'difference_quantity',
+                'cost_price',
+            ])
+            ->chunkById(500, function ($items) use ($inventoryCount, $snapshotDate, &$updatedItems, &$updatedDifferences, &$missingSnapshotRows) {
+                $realStockIds = $items->pluck('real_stock_id')->filter()->unique()->values();
+                $latestSnapshots = DB::connection('sakemaru')
+                    ->table('real_stock_daily_snapshots')
+                    ->whereIn('real_stock_id', $realStockIds)
+                    ->where('warehouse_id', $inventoryCount->warehouse_id)
+                    ->where('snapshot_date', '<=', $snapshotDate)
+                    ->groupBy('real_stock_id')
+                    ->selectRaw('real_stock_id, MAX(snapshot_date) as snapshot_date');
+
+                $snapshotQuantities = DB::connection('sakemaru')
+                    ->table('real_stock_daily_snapshots as snapshots')
+                    ->joinSub($latestSnapshots, 'latest_snapshots', function ($join) {
+                        $join->on('snapshots.real_stock_id', '=', 'latest_snapshots.real_stock_id')
+                            ->on('snapshots.snapshot_date', '=', 'latest_snapshots.snapshot_date');
+                    })
+                    ->pluck('snapshots.current_quantity', 'snapshots.real_stock_id');
+
+                foreach ($items as $item) {
+                    if (! $snapshotQuantities->has($item->real_stock_id)) {
+                        $missingSnapshotRows++;
+
+                        continue;
+                    }
+
+                    $systemQuantity = (int) $snapshotQuantities->get($item->real_stock_id);
+                    $this->updateCountItemSystemQuantity($item, $systemQuantity, $updatedItems, $updatedDifferences);
+                }
+            });
+
+        return [
+            'snapshot_date' => $snapshotDate,
+            'updated_items' => $updatedItems,
+            'updated_differences' => $updatedDifferences,
+            'missing_snapshot_rows' => $missingSnapshotRows,
+        ];
+    }
+
+    private function assertCanRefreshSystemQuantities(WmsInventoryCount $inventoryCount): void
+    {
+        if ($inventoryCount->isCurrentStockSaved()) {
+            throw new \RuntimeException('現状保存後の棚卸しは現在庫に更新できません。');
+        }
+
+        if (in_array($inventoryCount->status, [
+            WmsInventoryCount::STATUS_CONFIRMED,
+            WmsInventoryCount::STATUS_CANCELLED,
+        ], true)) {
+            throw new \RuntimeException('確定済または取消済の棚卸しは現在庫に更新できません。');
+        }
+    }
+
+    private function updateCountItemSystemQuantity(WmsInventoryCountItem $item, int $systemQuantity, int &$updatedItems, int &$updatedDifferences): void
+    {
+        $updateData = [];
+
+        if ((int) $item->system_quantity !== $systemQuantity) {
+            $updateData['system_quantity'] = $systemQuantity;
+            $updatedItems++;
+        }
+
+        if ($item->difference_quantity !== null) {
+            $countedQuantity = $item->final_count_quantity
+                ?? $item->second_count_quantity
+                ?? $item->first_count_quantity;
+
+            if ($countedQuantity !== null) {
+                $differenceQuantity = (int) $countedQuantity - $systemQuantity;
+                $updateData['difference_quantity'] = $differenceQuantity;
+                $updateData['difference_amount'] = $differenceQuantity * (float) $item->cost_price;
+            } else {
+                $updateData['difference_quantity'] = null;
+                $updateData['difference_amount'] = null;
+            }
+
+            $updatedDifferences++;
+        }
+
+        if ($updateData === []) {
+            return;
+        }
+
+        $updateData['updated_at'] = now();
+        WmsInventoryCountItem::whereKey($item->id)->update($updateData);
     }
 
     public function addSingleItemByCode(WmsInventoryCount $inventoryCount, string $itemCode): array
