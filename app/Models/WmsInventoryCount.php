@@ -37,6 +37,8 @@ class WmsInventoryCount extends WmsModel
         'snapshot_taken_at',
         'started_at',
         'current_stock_saved_at',
+        'stock_movement_from_at',
+        'stock_movement_calculated_at',
         'confirmed_at',
         'confirmed_by',
         'stock_adjustment_request_id',
@@ -70,6 +72,8 @@ class WmsInventoryCount extends WmsModel
         'snapshot_taken_at' => 'datetime',
         'started_at' => 'datetime',
         'current_stock_saved_at' => 'datetime',
+        'stock_movement_from_at' => 'datetime',
+        'stock_movement_calculated_at' => 'datetime',
         'confirmed_at' => 'datetime',
         'stock_adjustment_created_at' => 'datetime',
         'inventory_adjustment_request_ids' => 'array',
@@ -229,6 +233,14 @@ class WmsInventoryCount extends WmsModel
     }
 
     public function canRefreshSystemQuantities(): bool
+    {
+        return ! $this->isCurrentStockSaved() && ! in_array($this->status, [
+            self::STATUS_CONFIRMED,
+            self::STATUS_CANCELLED,
+        ], true);
+    }
+
+    public function canCalculatePostCountMovements(): bool
     {
         return ! $this->isCurrentStockSaved() && ! in_array($this->status, [
             self::STATUS_CONFIRMED,

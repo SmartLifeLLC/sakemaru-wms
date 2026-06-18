@@ -182,12 +182,135 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame('6.00', $item->difference_amount);
     }
 
-    private function createRealStock(int $itemId, int $currentQuantity): int
+    public function test_post_count_movement_calculation_only_updates_counted_rows(): void
+    {
+        foreach ([
+            'wms_inventory_counts' => 'stock_movement_from_at',
+            'wms_inventory_count_items' => 'post_count_movement_quantity',
+        ] as $table => $column) {
+            if (! Schema::connection('sakemaru')->hasColumn($table, $column)) {
+                $this->markTestSkipped("{$table}.{$column} is not available.");
+            }
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '小浜店',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+        ]);
+
+        $countedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999005,
+            'item_code' => '999005',
+            'item_name' => '入力あり商品',
+            'system_quantity' => 10,
+            'final_count_quantity' => 10,
+            'post_count_movement_quantity' => 99,
+            'cost_price' => 1,
+        ]);
+
+        $uncountedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999006,
+            'item_code' => '999006',
+            'item_name' => '未入力商品',
+            'system_quantity' => 10,
+            'post_count_movement_quantity' => 99,
+            'cost_price' => 1,
+        ]);
+
+        $result = (new InventoryCountService)->calculatePostCountMovements($inventoryCount, now()->subDay()->format('Y-m-d H:i:s'));
+
+        $countedItem->refresh();
+        $uncountedItem->refresh();
+        $inventoryCount->refresh();
+
+        $this->assertSame(1, $result['counted_item_count']);
+        $this->assertSame(0, $countedItem->post_count_movement_quantity);
+        $this->assertNull($uncountedItem->post_count_movement_quantity);
+        $this->assertNotNull($inventoryCount->stock_movement_from_at);
+        $this->assertNotNull($inventoryCount->stock_movement_calculated_at);
+    }
+
+    public function test_confirm_uses_count_execution_date_and_movement_adjusted_before_after_quantities(): void
+    {
+        if (! Schema::connection('sakemaru')->hasTable('inventory_adjustment_queue')) {
+            $this->markTestSkipped('inventory_adjustment_queue table is not available.');
+        }
+
+        foreach ([
+            'wms_inventory_counts' => 'stock_movement_from_at',
+            'wms_inventory_count_items' => 'post_count_movement_quantity',
+        ] as $table => $column) {
+            if (! Schema::connection('sakemaru')->hasColumn($table, $column)) {
+                $this->markTestSkipped("{$table}.{$column} is not available.");
+            }
+        }
+
+        $clientId = (int) DB::connection('sakemaru')->table('clients')->value('id');
+        if ($clientId <= 0) {
+            $this->markTestSkipped('clients table does not have testable rows.');
+        }
+
+        $realStockId = $this->createRealStock(999004, 99, $clientId);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => $clientId,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => '小浜店',
+            'count_date' => '2026-06-19',
+            'stock_movement_from_at' => '2026-06-17 14:30:00',
+            'status' => WmsInventoryCount::STATUS_CHECKED,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'real_stock_id' => $realStockId,
+            'item_id' => 999004,
+            'item_code' => '1999004',
+            'item_name' => 'テスト商品4',
+            'system_quantity' => 10,
+            'post_count_movement_quantity' => -4,
+            'final_count_quantity' => 12,
+            'difference_quantity' => 2,
+            'cost_price' => 5,
+            'difference_amount' => 10,
+        ]);
+
+        (new InventoryCountService)->confirm($inventoryCount, 1);
+
+        $queue = DB::connection('sakemaru')
+            ->table('inventory_adjustment_queue')
+            ->where('source_type', 'WMS_INVENTORY_COUNT')
+            ->where('source_id', $inventoryCount->id)
+            ->first();
+
+        $this->assertNotNull($queue);
+        $this->assertSame('2026-06-17', (string) $queue->process_date);
+        $this->assertSame('2026-06-17', (string) $queue->adjustment_date);
+
+        $queueItems = json_decode((string) $queue->items, true);
+        $this->assertIsArray($queueItems);
+        $this->assertCount(1, $queueItems);
+        $this->assertSame(6, $queueItems[0]['stock_quantity_before']);
+        $this->assertSame(8, $queueItems[0]['stock_quantity_after']);
+        $this->assertSame(2, $queueItems[0]['inventory_adjustment_quantity']);
+        $this->assertEquals(10.0, $queueItems[0]['amount']);
+    }
+
+    private function createRealStock(int $itemId, int $currentQuantity, int $clientId = 1): int
     {
         return (int) DB::connection('sakemaru')
             ->table('real_stocks')
             ->insertGetId([
-                'client_id' => 1,
+                'client_id' => $clientId,
                 'warehouse_id' => 22,
                 'stock_allocation_id' => 0,
                 'item_id' => $itemId,
