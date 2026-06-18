@@ -194,8 +194,9 @@
 
         {{-- Tab bar + table --}}
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div class="flex flex-wrap items-end justify-between gap-2 border-b border-slate-200 bg-green-700 px-3 pt-2 text-white">
-                <div class="flex items-end gap-1">
+            <div class="border-b border-slate-200 bg-green-700 px-3 pt-2 text-white">
+                <div class="flex flex-wrap items-end justify-between gap-2">
+                    <div class="flex items-end gap-1">
                     <button type="button"
                         wire:click="setListTab('all')"
                         @click="activeTab = 'all'"
@@ -240,8 +241,8 @@
                             {{ number_format($uncountedCount) }}
                         </span>
                     </button>
-                </div>
-                <div class="flex items-center gap-3 pb-2">
+                    </div>
+                    <div class="flex flex-wrap items-center justify-end gap-2 pb-2">
                     <div class="flex items-center gap-1 rounded-md bg-green-900/30 p-1 text-xs font-bold">
                         <span class="px-2 text-white/80">入力中</span>
                         @foreach ([1 => '1回目', 2 => '2回目', 3 => '3回目'] as $round => $label)
@@ -281,6 +282,9 @@
                             <span class="rounded-full bg-white/20 px-2 py-0.5 text-xs font-black" x-text="changeCount + '件'"></span>
                         </button>
                     @endif
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center justify-end gap-2 pb-2">
                     {{ $this->getAction('viewLogs') }}
                     {{ $this->getAction('addSingleItem') }}
                     {{ $this->getAction('saveCurrentStock') }}
