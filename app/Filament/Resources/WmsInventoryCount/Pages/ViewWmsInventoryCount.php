@@ -12,6 +12,7 @@ use App\Services\InventoryCount\InventoryInstructionPdfService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -1011,6 +1012,43 @@ class ViewWmsInventoryCount extends Page implements HasForms
                     }
                 }),
 
+            Action::make('calculatePostCountMovements')
+                ->label('受払計算')
+                ->icon('heroicon-o-calculator')
+                ->color('warning')
+                ->visible(fn () => $record->canCalculatePostCountMovements())
+                ->modalHeading('受払計算')
+                ->modalDescription('棚卸し実施日時以降の受払をai-coreの受払履歴と同じ伝票日・出荷日・払出日・調整日基準で集計し、入力済み商品の受払合計に反映します。')
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('計算する')->color('danger'))
+                ->modalCancelActionLabel('計算せず閉じる')
+                ->schema([
+                    DateTimePicker::make('counted_at')
+                        ->label('棚卸し実施日時')
+                        ->default($record->stock_movement_from_at?->format('Y-m-d H:i:s') ?? $record->count_date?->format('Y-m-d 02:00:00') ?? now()->format('Y-m-d H:i:s'))
+                        ->maxDate(now())
+                        ->required(),
+                ])
+                ->action(function (array $data) use ($record) {
+                    try {
+                        $result = (new InventoryCountService)->calculatePostCountMovements($record, (string) $data['counted_at']);
+                        $this->record->refresh();
+                        $this->itemPage = 1;
+
+                        Notification::make()
+                            ->success()
+                            ->title('受払計算が完了しました')
+                            ->body("実施日時: {$result['from_at']} / 入力済み商品: {$result['counted_item_count']}件 / 受払あり: {$result['moved_item_count']}件")
+                            ->send();
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->danger()
+                            ->title('受払計算できません')
+                            ->body($e->getMessage())
+                            ->send();
+                    }
+                }),
+
             Action::make('downloadInstructionPdf')
                 ->label('JAN')
                 ->icon('heroicon-o-document-arrow-down')
@@ -1200,7 +1238,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->visible(fn () => $record->status === WmsInventoryCount::STATUS_CHECKED)
                 ->requiresConfirmation()
                 ->modalHeading('棚卸し確定')
-                ->modalDescription('棚卸しを確定し、差異分の実棚変更伝票作成キューを登録します。この操作は取り消せません。')
+                ->modalDescription('棚卸しを確定し、差異分の実棚変更伝票作成キューを登録します。受払計算済みの場合は棚卸し実施日を伝票日とし、実施後受払を加味した理論数量・実棚数量で登録します。この操作は取り消せません。')
                 ->modalContent(fn () => view('filament.resources.wms-inventory-count.modals.inventory-adjustment-exclusions', [
                     'summary' => (new InventoryCountService)->inventoryAdjustmentExcludedSummary($record),
                 ]))

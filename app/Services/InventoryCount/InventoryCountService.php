@@ -156,6 +156,11 @@ class InventoryCountService
         });
     }
 
+    public function calculatePostCountMovements(WmsInventoryCount $inventoryCount, string $countedAt): array
+    {
+        return (new InventoryCountMovementService)->calculatePostCountMovements($inventoryCount, $countedAt);
+    }
+
     public function saveCurrentStock(WmsInventoryCount $inventoryCount): void
     {
         DB::connection('sakemaru')->transaction(function () use ($inventoryCount) {
@@ -662,7 +667,9 @@ class InventoryCountService
     private function createInventoryAdjustmentQueues(WmsInventoryCount $inventoryCount): array
     {
         $connection = DB::connection('sakemaru');
-        $countDate = $inventoryCount->count_date?->toDateString() ?? (string) $inventoryCount->count_date;
+        $countDate = $inventoryCount->stock_movement_from_at?->toDateString()
+            ?? $inventoryCount->count_date?->toDateString()
+            ?? (string) $inventoryCount->count_date;
 
         $items = $this->inventoryAdjustmentBaseQuery($inventoryCount)
             ->whereNotIn(DB::raw('LEFT(TRIM(CAST(ici.item_code AS CHAR)), 1)'), self::INVENTORY_ADJUSTMENT_EXCLUDED_PREFIXES)
@@ -672,6 +679,7 @@ class InventoryCountService
                 'ici.real_stock_id',
                 'ici.item_code',
                 'ici.system_quantity',
+                'ici.post_count_movement_quantity',
                 'ici.final_count_quantity',
                 'ici.difference_quantity',
                 'ici.cost_price',
@@ -713,18 +721,22 @@ class InventoryCountService
                 continue;
             }
 
-            $details = $groupedItems->map(fn ($item) => [
-                'wms_inventory_count_item_id' => (int) $item->id,
-                'real_stock_id' => $item->real_stock_id ? (int) $item->real_stock_id : null,
-                'item_code' => (string) $item->item_code,
-                'stock_allocation_code' => $item->stock_allocation_code ?: '1',
-                'stock_quantity_before' => (int) $item->system_quantity,
-                'stock_quantity_after' => (int) $item->final_count_quantity,
-                'inventory_adjustment_quantity' => (int) $item->difference_quantity,
-                'unit_price' => (float) $item->cost_price,
-                'amount' => (float) $item->difference_quantity * (float) $item->cost_price,
-                'note' => "WMS棚卸 {$inventoryCount->count_no} 棚番{$bucket}",
-            ])->values()->all();
+            $details = $groupedItems->map(function ($item) use ($inventoryCount, $bucket) {
+                $postCountMovementQuantity = (int) ($item->post_count_movement_quantity ?? 0);
+
+                return [
+                    'wms_inventory_count_item_id' => (int) $item->id,
+                    'real_stock_id' => $item->real_stock_id ? (int) $item->real_stock_id : null,
+                    'item_code' => (string) $item->item_code,
+                    'stock_allocation_code' => $item->stock_allocation_code ?: '1',
+                    'stock_quantity_before' => (int) $item->system_quantity + $postCountMovementQuantity,
+                    'stock_quantity_after' => (int) $item->final_count_quantity + $postCountMovementQuantity,
+                    'inventory_adjustment_quantity' => (int) $item->difference_quantity,
+                    'unit_price' => (float) $item->cost_price,
+                    'amount' => (float) $item->difference_quantity * (float) $item->cost_price,
+                    'note' => "WMS棚卸 {$inventoryCount->count_no} 棚番{$bucket}",
+                ];
+            })->values()->all();
 
             $queueId = $connection->table('inventory_adjustment_queue')->insertGetId([
                 'client_id' => $inventoryCount->client_id,

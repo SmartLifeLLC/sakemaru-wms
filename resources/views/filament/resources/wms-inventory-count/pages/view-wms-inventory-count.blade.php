@@ -115,6 +115,11 @@
                             HANDY受付中
                         </span>
                     @endif
+                    @if ($record->stock_movement_from_at)
+                        <span class="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-bold text-blue-700">
+                            実施 {{ $record->stock_movement_from_at->format('m/d H:i') }}
+                        </span>
+                    @endif
                     <span class="text-xs text-slate-400">
                         全{{ number_format($allCount) }}件
                         / 差異{{ number_format($diffCount) }}件
@@ -282,6 +287,7 @@
                     {{ $this->getAction('resumeCurrentStockSavedForCounting') }}
                     {{ $this->getAction('refreshCurrentStock') }}
                     {{ $this->getAction('refreshDailySnapshotStock') }}
+                    {{ $this->getAction('calculatePostCountMovements') }}
                     {{ $this->getAction('downloadInstructionPdf') }}
                     {{ $this->getAction('downloadInstructionSheet') }}
                     {{ $this->getAction('toggleHandyReception') }}
@@ -368,6 +374,7 @@
                                         <span class="text-[10px]">{{ $this->sortIndicator('system_quantity') }}</span>
                                     </button>
                                 </th>
+                                <th class="border border-slate-300 px-2 py-2 text-right">受払合計</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">1回目</th>
                                 <th class="border border-slate-300 px-2 py-2 text-right">1回目差分</th>
                                 <th class="border border-slate-300 px-2 py-2 text-left">1回目入力者</th>
@@ -392,6 +399,7 @@
                                     $initFirst = $row->first_count_quantity !== null ? (string) (int) $row->first_count_quantity : '';
                                     $initSecond = $row->second_count_quantity !== null ? (string) (int) $row->second_count_quantity : '';
                                     $initFinal = $row->final_count_quantity !== null ? (string) (int) $row->final_count_quantity : '';
+                                    $movementQty = $row->post_count_movement_quantity;
                                 @endphp
                                 <tr wire:key="ic-row-{{ $row->id }}-r{{ $activeRound }}-u{{ $row->updated_at?->timestamp ?? 0 }}"
                                     x-data="{
@@ -427,6 +435,9 @@
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 font-mono">{{ $row->item_code ?: '-' }}</td>
                                     <td class="min-w-[240px] border border-slate-300 px-2 py-1">{{ $row->item_name ?: '-' }}</td>
                                     <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums">{{ number_format((int) $row->system_quantity) }}</td>
+                                    <td class="whitespace-nowrap border border-slate-300 px-2 py-1 text-right font-bold tabular-nums {{ $movementQty !== null && (int) $movementQty > 0 ? 'text-green-700' : ($movementQty !== null && (int) $movementQty < 0 ? 'text-red-700' : 'text-slate-500') }}">
+                                        {{ $movementQty !== null ? number_format((int) $movementQty) : '-' }}
+                                    </td>
                                     @if ($isEditable)
                                         <td class="whitespace-nowrap border border-slate-300 px-1 py-0.5" @click.stop>
                                             <input type="text" inputmode="numeric"
