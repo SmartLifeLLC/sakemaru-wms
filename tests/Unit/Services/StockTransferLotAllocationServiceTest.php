@@ -4,38 +4,35 @@ namespace Tests\Unit\Services;
 
 use App\Services\StockTransferLotAllocationService;
 use PHPUnit\Framework\Attributes\Test;
-use RuntimeException;
 use Tests\TestCase;
 
 class StockTransferLotAllocationServiceTest extends TestCase
 {
     #[Test]
-    public function piece_allocations_use_piece_count_as_wms_quantity(): void
+    public function negative_piece_allocations_use_piece_shortage_quantity(): void
     {
         $service = $this->service();
 
-        $this->assertSame(192, $service->reservationQuantity(192, 1, 'PIECE'));
+        $this->assertSame(192, $service->shortageQuantity(192, 1, 192));
     }
 
     #[Test]
-    public function case_allocations_convert_piece_count_to_case_quantity(): void
+    public function negative_case_allocations_convert_to_case_shortage_quantity(): void
     {
         $service = $this->service();
 
         $unitSize = $service->unitSize('CASE', (object) ['capacity_case' => 24], null);
 
         $this->assertSame(24, $unitSize);
-        $this->assertSame(8, $service->reservationQuantity(192, $unitSize, 'CASE'));
+        $this->assertSame(2, $service->shortageQuantity(48, $unitSize, 8));
     }
 
     #[Test]
-    public function case_allocations_reject_piece_count_that_cannot_be_represented_as_cases(): void
+    public function negative_case_allocations_fall_back_to_full_shortage_when_not_representable(): void
     {
         $service = $this->service();
 
-        $this->expectException(RuntimeException::class);
-
-        $service->reservationQuantity(191, 24, 'CASE');
+        $this->assertSame(8, $service->shortageQuantity(47, 24, 8));
     }
 
     #[Test]
@@ -59,13 +56,40 @@ class StockTransferLotAllocationServiceTest extends TestCase
         $this->assertFalse($service->isShortageSourceLot((object) ['source_lot_current_quantity' => 48]));
     }
 
+    #[Test]
+    public function allocation_must_point_to_the_transfer_source_stock(): void
+    {
+        $service = $this->service();
+
+        $this->assertTrue($service->matchesTransferLine((object) [
+            'lot_id' => 1,
+            'real_stock_id' => 10,
+            'warehouse_id' => 91,
+            'item_id' => 143085,
+        ], 91, 143085));
+
+        $this->assertFalse($service->matchesTransferLine((object) [
+            'lot_id' => null,
+            'real_stock_id' => null,
+            'warehouse_id' => 91,
+            'item_id' => 143085,
+        ], 91, 143085));
+
+        $this->assertFalse($service->matchesTransferLine((object) [
+            'lot_id' => 1,
+            'real_stock_id' => 10,
+            'warehouse_id' => 2,
+            'item_id' => 143085,
+        ], 91, 143085));
+    }
+
     private function service(): object
     {
         return new class extends StockTransferLotAllocationService
         {
-            public function reservationQuantity(int $pieces, int $unitSize, string $quantityType): int
+            public function shortageQuantity(int $pieces, int $unitSize, int $needQty): int
             {
-                return $this->reservationQuantityFromPieces($pieces, $unitSize, $quantityType, 1, 1);
+                return $this->shortageQuantityFromPieces($pieces, $unitSize, $needQty);
             }
 
             public function unitSize(string $quantityType, object $tradeItem, ?object $item): int
@@ -81,6 +105,11 @@ class StockTransferLotAllocationServiceTest extends TestCase
             public function isShortageSourceLot(object $allocation): bool
             {
                 return $this->sourceLotRepresentsShortage($allocation);
+            }
+
+            public function matchesTransferLine(object $allocation, int $warehouseId, int $itemId): bool
+            {
+                return $this->allocationMatchesTradeItem($allocation, $warehouseId, $itemId);
             }
         };
     }
