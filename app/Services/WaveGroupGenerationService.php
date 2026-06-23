@@ -570,7 +570,7 @@ class WaveGroupGenerationService
             ->select('trade_items.*')
             ->get();
 
-        $allocationService = new StockAllocationService;
+        $allocationService = new StockTransferLotAllocationService;
         $locationCache = [];
         $itemLocationCache = [];
         $defaultAreaCache = [];
@@ -581,16 +581,11 @@ class WaveGroupGenerationService
                 continue;
             }
 
-            $result = $allocationService->allocateForItem(
+            $result = $allocationService->allocateForTradeItem(
                 $wave->id,
                 $waveSetting->warehouse_id,
-                $tradeItem->item_id,
-                $tradeItem->quantity,
-                $tradeItem->quantity_type ?? 'PIECE',
                 $stockTransferId,
-                $tradeItem->id,
-                'STOCK_TRANSFER',
-                null
+                $tradeItem
             );
 
             $primaryReservation = DB::connection('sakemaru')
@@ -599,6 +594,7 @@ class WaveGroupGenerationService
                 ->where('item_id', $tradeItem->item_id)
                 ->where('source_id', $stockTransferId)
                 ->where('source_type', 'STOCK_TRANSFER')
+                ->where('source_line_id', $tradeItem->id)
                 ->whereNotNull('location_id')
                 ->orderBy('qty_each', 'desc')
                 ->orderBy('id', 'asc')
