@@ -4,16 +4,16 @@ namespace App\Services;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
+use Illuminate\Support\Facades\Log;
 
 class StockTransferLotAllocationService
 {
     /**
      * Allocate WMS reservations from core stock transfer lot allocations.
      *
-     * stock_transfer_lot_allocations.quantity is stored in pieces. WMS
-     * reservations keep the trade item quantity type, so pieces must be
-     * converted safely before writing qty_each.
+     * stock_transfer_lot_allocations.quantity is stored in pieces and is used
+     * only as the lot source proof. WMS reservation quantities must follow the
+     * original stock transfer line quantity.
      */
     public function allocateForTradeItem(
         int $waveId,
@@ -33,29 +33,60 @@ class StockTransferLotAllocationService
 
         $allocations = $this->stockTransferLotAllocations($stockTransferId, $tradeItemId);
         if ($allocations->isEmpty()) {
-            return (new StockAllocationService)->allocateForItem(
+            Log::warning('Stock transfer lot allocations are missing; marking transfer line as shortage.', [
+                'stock_transfer_id' => $stockTransferId,
+                'trade_item_id' => $tradeItemId,
+                'item_id' => $itemId,
+                'need_qty' => $needQty,
+                'qty_type' => $quantityType,
+            ]);
+
+            $this->insertShortageReservation(
                 $waveId,
                 $warehouseId,
                 $itemId,
                 $needQty,
                 $quantityType,
                 $stockTransferId,
-                $tradeItemId,
-                'STOCK_TRANSFER',
-                null
+                $tradeItemId
             );
+
+            return $this->result(0, $needQty);
         }
 
         $item = $this->itemForCapacity($itemId);
         $unitSize = $this->unitSizeFor($quantityType, $tradeItem, $item);
         $expectedPieces = $this->expectedPieces($tradeItem, $needQty, $unitSize);
 
-        $reservationPieces = [];
-        $allocatedPieces = 0;
         $stlaPieces = 0;
+        $shortagePieces = 0;
+        $primaryAllocation = null;
 
         foreach ($allocations as $allocation) {
-            $this->assertAllocationMatchesTradeItem($allocation, $warehouseId, $itemId, $stockTransferId, $tradeItemId);
+            if (! $this->allocationMatchesTradeItem($allocation, $warehouseId, $itemId)) {
+                Log::warning('Stock transfer lot allocation does not match transfer line; marking transfer line as shortage.', [
+                    'stock_transfer_id' => $stockTransferId,
+                    'trade_item_id' => $tradeItemId,
+                    'allocation_id' => $allocation->allocation_id,
+                    'from_real_stock_lot_id' => $allocation->from_real_stock_lot_id,
+                    'expected_warehouse_id' => $warehouseId,
+                    'expected_item_id' => $itemId,
+                    'actual_warehouse_id' => $allocation->warehouse_id,
+                    'actual_item_id' => $allocation->item_id,
+                ]);
+
+                $this->insertShortageReservation(
+                    $waveId,
+                    $warehouseId,
+                    $itemId,
+                    $needQty,
+                    $quantityType,
+                    $stockTransferId,
+                    $tradeItemId
+                );
+
+                return $this->result(0, $needQty);
+            }
 
             $pieces = (int) $allocation->quantity;
             if ($pieces <= 0) {
@@ -65,97 +96,144 @@ class StockTransferLotAllocationService
             $stlaPieces += $pieces;
 
             if ($this->sourceLotRepresentsShortage($allocation)) {
+                $shortagePieces += $pieces;
+
                 continue;
             }
 
-            $key = implode(':', [
-                $allocation->real_stock_id,
-                $allocation->location_id ?? 'null',
-                $allocation->purchase_id ?? 'null',
-                $allocation->expiration_date ?? 'null',
-            ]);
-
-            if (! isset($reservationPieces[$key])) {
-                $reservationPieces[$key] = [
-                    'allocation' => $allocation,
-                    'pieces' => 0,
-                ];
-            }
-
-            $reservationPieces[$key]['pieces'] += $pieces;
-            $allocatedPieces += $pieces;
+            $primaryAllocation ??= $allocation;
         }
 
-        if ($stlaPieces > $expectedPieces) {
-            throw new RuntimeException(
-                "stock_transfer_lot_allocations quantity exceeds trade_item total pieces. stock_transfer_id={$stockTransferId}, trade_item_id={$tradeItemId}, stla_pieces={$stlaPieces}, expected_pieces={$expectedPieces}"
+        if ($stlaPieces !== $expectedPieces) {
+            Log::warning('Stock transfer lot allocation quantity mismatch; marking transfer line as shortage.', [
+                'stock_transfer_id' => $stockTransferId,
+                'trade_item_id' => $tradeItemId,
+                'item_id' => $itemId,
+                'stla_pieces' => $stlaPieces,
+                'expected_pieces' => $expectedPieces,
+                'need_qty' => $needQty,
+                'qty_type' => $quantityType,
+            ]);
+
+            $this->insertShortageReservation(
+                $waveId,
+                $warehouseId,
+                $itemId,
+                $needQty,
+                $quantityType,
+                $stockTransferId,
+                $tradeItemId
+            );
+
+            return $this->result(0, $needQty);
+        }
+
+        $shortageQty = $this->shortageQuantityFromPieces($shortagePieces, $unitSize, $needQty);
+        $allocatedQty = max(0, $needQty - $shortageQty);
+
+        if ($allocatedQty > 0 && $primaryAllocation === null) {
+            Log::warning('Stock transfer lot allocations have no usable source lot; marking transfer line as shortage.', [
+                'stock_transfer_id' => $stockTransferId,
+                'trade_item_id' => $tradeItemId,
+                'item_id' => $itemId,
+                'need_qty' => $needQty,
+                'qty_type' => $quantityType,
+            ]);
+
+            $this->insertShortageReservation(
+                $waveId,
+                $warehouseId,
+                $itemId,
+                $needQty,
+                $quantityType,
+                $stockTransferId,
+                $tradeItemId
+            );
+
+            return $this->result(0, $needQty);
+        }
+
+        if ($allocatedQty > 0 && $primaryAllocation !== null) {
+            DB::connection('sakemaru')
+                ->table('wms_reservations')
+                ->insertOrIgnore([
+                    'warehouse_id' => $warehouseId,
+                    'location_id' => $primaryAllocation->location_id,
+                    'real_stock_id' => $primaryAllocation->real_stock_id,
+                    'item_id' => $itemId,
+                    'expiry_date' => $primaryAllocation->expiration_date,
+                    'received_at' => null,
+                    'purchase_id' => $primaryAllocation->purchase_id,
+                    'unit_cost' => $primaryAllocation->unit_cost,
+                    'qty_each' => $allocatedQty,
+                    'qty_type' => $quantityType,
+                    'shortage_qty' => 0,
+                    'source_type' => 'STOCK_TRANSFER',
+                    'source_id' => $stockTransferId,
+                    'source_line_id' => $tradeItemId,
+                    'wave_id' => $waveId,
+                    'status' => 'RESERVED',
+                    'created_by' => 0,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+        }
+
+        if ($shortageQty > 0) {
+            $this->insertShortageReservation(
+                $waveId,
+                $warehouseId,
+                $itemId,
+                $shortageQty,
+                $quantityType,
+                $stockTransferId,
+                $tradeItemId,
+                $allocatedQty > 0 ? 'PARTIAL' : 'SHORTAGE'
             );
         }
 
-        $reservations = [];
-        $allocatedQty = 0;
+        return $this->result($allocatedQty, $shortageQty);
+    }
 
-        foreach ($reservationPieces as $reservationPiece) {
-            $allocation = $reservationPiece['allocation'];
-            $pieces = $reservationPiece['pieces'];
-            $qtyEach = $this->reservationQuantityFromPieces($pieces, $unitSize, $quantityType, $stockTransferId, $tradeItemId);
-
-            $reservations[] = [
-                'warehouse_id' => $warehouseId,
-                'location_id' => $allocation->location_id,
-                'real_stock_id' => $allocation->real_stock_id,
-                'item_id' => $itemId,
-                'expiry_date' => $allocation->expiration_date,
-                'received_at' => null,
-                'purchase_id' => $allocation->purchase_id,
-                'unit_cost' => $allocation->unit_cost,
-                'qty_each' => $qtyEach,
-                'qty_type' => $quantityType,
-                'shortage_qty' => 0,
-                'source_type' => 'STOCK_TRANSFER',
-                'source_id' => $stockTransferId,
-                'source_line_id' => $tradeItemId,
-                'wave_id' => $waveId,
-                'status' => 'RESERVED',
-                'created_by' => 0,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
-
-            $allocatedQty += $qtyEach;
+    protected function insertShortageReservation(
+        int $waveId,
+        int $warehouseId,
+        int $itemId,
+        int $shortageQty,
+        string $quantityType,
+        int $stockTransferId,
+        int $tradeItemId,
+        string $status = 'SHORTAGE'
+    ): void {
+        if ($shortageQty <= 0) {
+            return;
         }
 
-        if (! empty($reservations)) {
-            DB::connection('sakemaru')
-                ->table('wms_reservations')
-                ->insertOrIgnore($reservations);
-        }
+        DB::connection('sakemaru')->table('wms_reservations')->insertOrIgnore([
+            'warehouse_id' => $warehouseId,
+            'location_id' => null,
+            'real_stock_id' => null,
+            'item_id' => $itemId,
+            'expiry_date' => null,
+            'received_at' => null,
+            'purchase_id' => null,
+            'unit_cost' => null,
+            'qty_each' => 0,
+            'qty_type' => $quantityType,
+            'shortage_qty' => $shortageQty,
+            'source_type' => 'STOCK_TRANSFER',
+            'source_id' => $stockTransferId,
+            'source_line_id' => $tradeItemId,
+            'wave_id' => $waveId,
+            'status' => $status,
+            'created_by' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
 
-        $shortageQty = max(0, $needQty - $allocatedQty);
-        if ($shortageQty > 0) {
-            DB::connection('sakemaru')->table('wms_reservations')->insertOrIgnore([
-                'warehouse_id' => $warehouseId,
-                'location_id' => null,
-                'real_stock_id' => null,
-                'item_id' => $itemId,
-                'expiry_date' => null,
-                'received_at' => null,
-                'purchase_id' => null,
-                'unit_cost' => null,
-                'qty_each' => 0,
-                'qty_type' => $quantityType,
-                'shortage_qty' => $shortageQty,
-                'source_type' => 'STOCK_TRANSFER',
-                'source_id' => $stockTransferId,
-                'source_line_id' => $tradeItemId,
-                'wave_id' => $waveId,
-                'status' => $allocatedQty > 0 ? 'PARTIAL' : 'SHORTAGE',
-                'created_by' => 0,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
-
+    protected function result(int $allocatedQty, int $shortageQty): array
+    {
         return [
             'allocated' => $allocatedQty,
             'shortage' => $shortageQty,
@@ -250,20 +328,17 @@ class StockTransferLotAllocationService
             : $needQty * $unitSize;
     }
 
-    protected function reservationQuantityFromPieces(
-        int $pieces,
-        int $unitSize,
-        string $quantityType,
-        int $stockTransferId,
-        int $tradeItemId
-    ): int {
-        if ($pieces % $unitSize !== 0) {
-            throw new RuntimeException(
-                "stock_transfer_lot_allocations quantity cannot be converted to {$quantityType}. stock_transfer_id={$stockTransferId}, trade_item_id={$tradeItemId}, pieces={$pieces}, unit_size={$unitSize}"
-            );
+    protected function shortageQuantityFromPieces(int $shortagePieces, int $unitSize, int $needQty): int
+    {
+        if ($shortagePieces <= 0) {
+            return 0;
         }
 
-        return intdiv($pieces, $unitSize);
+        if ($shortagePieces % $unitSize !== 0) {
+            return $needQty;
+        }
+
+        return min($needQty, intdiv($shortagePieces, $unitSize));
     }
 
     protected function sourceLotRepresentsShortage(object $allocation): bool
@@ -271,23 +346,19 @@ class StockTransferLotAllocationService
         return (int) ($allocation->source_lot_current_quantity ?? 0) < 0;
     }
 
-    protected function assertAllocationMatchesTradeItem(
+    protected function allocationMatchesTradeItem(
         object $allocation,
         int $warehouseId,
-        int $itemId,
-        int $stockTransferId,
-        int $tradeItemId
-    ): void {
+        int $itemId
+    ): bool {
         if ($allocation->lot_id === null || $allocation->real_stock_id === null) {
-            throw new RuntimeException(
-                "stock_transfer_lot_allocations references missing source lot. stock_transfer_id={$stockTransferId}, trade_item_id={$tradeItemId}, allocation_id={$allocation->allocation_id}, lot_id={$allocation->from_real_stock_lot_id}"
-            );
+            return false;
         }
 
         if ((int) $allocation->warehouse_id !== $warehouseId || (int) $allocation->item_id !== $itemId) {
-            throw new RuntimeException(
-                "stock_transfer_lot_allocations source lot does not match the stock transfer line. stock_transfer_id={$stockTransferId}, trade_item_id={$tradeItemId}, allocation_id={$allocation->allocation_id}"
-            );
+            return false;
         }
+
+        return true;
     }
 }
