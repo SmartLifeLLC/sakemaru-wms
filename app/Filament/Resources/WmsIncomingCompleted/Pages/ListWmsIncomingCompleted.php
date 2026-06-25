@@ -32,67 +32,74 @@ class ListWmsIncomingCompleted extends ListRecords
     {
         return [
             Action::make('transmitPurchase')
-                ->label('仕入データ登録')
+                ->label(fn (): string => $this->getPurchaseTransmissionActionLabel())
                 ->icon('heroicon-o-paper-airplane')
                 ->color('primary')
-                ->modalHeading('仕入データ登録')
-                ->modalDescription('入荷完了データを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
+                ->modalHeading(fn (): string => $this->getPurchaseTransmissionActionLabel())
+                ->modalDescription(fn (): string => $this->getPurchaseTransmissionTargetLabel().'の未送信入荷完了データをすべて基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
                 ->requiresConfirmation()
-                ->modalSubmitActionLabel('登録')
+                ->modalSubmitActionLabel('全送信')
                 ->action(function () {
-                    $warehouseId = $this->getPurchaseTransmissionWarehouseId();
-                    if ($warehouseId === null) {
-                        Notification::make()
-                            ->title('倉庫を選択してください')
-                            ->body('仕入データ登録は倉庫別に実行します。倉庫タブを選択してから再実行してください。')
-                            ->warning()
-                            ->send();
-
-                        return;
-                    }
-
-                    $transmissionService = app(IncomingTransmissionService::class);
-
-                    try {
-                        $result = $transmissionService->transmitConfirmedIncomings($warehouseId);
-
-                        if ($result['success']) {
-                            Notification::make()
-                                ->title('仕入キューに登録しました')
-                                ->body("キュー: {$result['queue_count']}件 / 入荷データ: {$result['schedule_count']}件")
-                                ->success()
-                                ->send();
-                        } else {
-                            Notification::make()
-                                ->title('一部エラーが発生しました')
-                                ->body("成功: {$result['schedule_count']}件 / エラー: ".count($result['errors']).'件')
-                                ->warning()
-                                ->send();
-                        }
-                    } catch (\Exception $e) {
-                        Notification::make()
-                            ->title('登録エラー')
-                            ->body($e->getMessage())
-                            ->danger()
-                            ->send();
-                    }
+                    $this->transmitIncomingSchedules();
                 }),
         ];
+    }
+
+    public function transmitIncomingSchedules(?array $scheduleIds = null): void
+    {
+        $warehouseId = $scheduleIds === null ? $this->getPurchaseTransmissionWarehouseId() : null;
+
+        if ($scheduleIds === null && $warehouseId === null) {
+            Notification::make()
+                ->title('倉庫を選択してください')
+                ->body('仕入れデータ全送信は倉庫別に実行します。倉庫タブを選択してから再実行してください。')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        try {
+            $result = app(IncomingTransmissionService::class)
+                ->transmitConfirmedIncomings($warehouseId, $scheduleIds);
+
+            if ($result['success']) {
+                Notification::make()
+                    ->title('仕入キューに登録しました')
+                    ->body("キュー: {$result['queue_count']}件 / 入荷データ: {$result['schedule_count']}件")
+                    ->success()
+                    ->send();
+            } else {
+                $errors = collect($result['errors'] ?? [])
+                    ->map(fn ($error): string => is_array($error) ? ($error['error'] ?? json_encode($error, JSON_UNESCAPED_UNICODE)) : (string) $error)
+                    ->take(5)
+                    ->implode("\n");
+
+                Notification::make()
+                    ->title('一部エラーが発生しました')
+                    ->body("成功: {$result['schedule_count']}件 / エラー: ".count($result['errors']).($errors !== '' ? "\n{$errors}" : ''))
+                    ->warning()
+                    ->send();
+            }
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title('登録エラー')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
     }
 
     public function table(Table $table): Table
     {
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
-                ->with(['warehouse', 'item', 'contractor', 'location', 'orderCandidate', 'confirmedByUser', 'confirmedByPicker'])
+                ->with(['warehouse', 'item', 'contractor.wmsSetting', 'location', 'orderCandidate', 'confirmedByUser', 'confirmedByPicker'])
                 ->addSelect([
                     'computed_current_stock' => static::currentStockSubquery('wms_order_incoming_schedules'),
                     'computed_available_stock' => static::availableStockSubquery('wms_order_incoming_schedules'),
                     'computed_default_location' => static::defaultLocationSubquery('wms_order_incoming_schedules'),
                 ])
-                ->orderBy('confirmed_at', 'desc')
-                ->orderBy('warehouse_id')
-                ->orderBy('item_id')
             );
     }
 
@@ -101,6 +108,10 @@ class ListWmsIncomingCompleted extends ListRecords
         $activeView = $this->activePresetView ?? null;
 
         if (is_string($activeView)) {
+            if ($activeView === 'all') {
+                return null;
+            }
+
             if (preg_match('/^(?:wh|default)_(\d+)$/', $activeView, $matches)) {
                 return (int) $matches[1];
             }
@@ -108,7 +119,36 @@ class ListWmsIncomingCompleted extends ListRecords
 
         $warehouseId = auth()->user()?->getSelectedWarehouseId();
 
-        return $warehouseId ? (int) $warehouseId : null;
+        if (! $warehouseId) {
+            return null;
+        }
+
+        $warehouseData = $this->getWarehouseDataForPresetViews();
+        $warehouseIds = collect($warehouseData['ids'])
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+
+        return in_array((int) $warehouseId, $warehouseIds, true) ? (int) $warehouseId : null;
+    }
+
+    private function getPurchaseTransmissionActionLabel(): string
+    {
+        return $this->getPurchaseTransmissionTargetLabel().' 仕入れデータ全送信';
+    }
+
+    private function getPurchaseTransmissionTargetLabel(): string
+    {
+        $warehouseId = $this->getPurchaseTransmissionWarehouseId();
+
+        if ($warehouseId === null) {
+            return '倉庫未選択';
+        }
+
+        $warehouseData = $this->getWarehouseDataForPresetViews();
+        $warehouse = $warehouseData['warehouses']->firstWhere('id', $warehouseId)
+            ?? Warehouse::find($warehouseId);
+
+        return $warehouse?->name ?? "倉庫ID {$warehouseId}";
     }
 
     protected ?array $presetViewWarehouseData = null;

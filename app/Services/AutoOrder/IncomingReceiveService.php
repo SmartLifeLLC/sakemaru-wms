@@ -530,6 +530,7 @@ class IncomingReceiveService
 
             // 賞味期限: 商品マスタの default_expiration_days から算出
             $expirationDate = $this->calculateExpirationDate($itemId, $deliveryDate);
+            $supplierId = $this->resolveSupplierId($warehouse->id, $itemId, $contractor?->id);
 
             // 商品コード・検索コードを取得
             $itemCode = Item::where('id', $itemId)->value('code');
@@ -546,6 +547,7 @@ class IncomingReceiveService
                 'item_code' => $itemCode,
                 'search_code' => $searchCode,
                 'contractor_id' => $contractor?->id,
+                'supplier_id' => $supplierId,
                 'order_source' => OrderSource::RECEIVED,
                 'slip_number' => $slip->slip_number,
                 'expected_quantity' => $shippedQty,
@@ -574,6 +576,33 @@ class IncomingReceiveService
         }
 
         return $createdCount;
+    }
+
+    private function resolveSupplierId(int $warehouseId, int $itemId, ?int $contractorId): ?int
+    {
+        if (! $contractorId) {
+            return null;
+        }
+
+        $itemContractorSupplierId = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->where('warehouse_id', $warehouseId)
+            ->where('item_id', $itemId)
+            ->where('contractor_id', $contractorId)
+            ->whereNotNull('supplier_id')
+            ->orderBy('id')
+            ->value('supplier_id');
+
+        if ($itemContractorSupplierId) {
+            return (int) $itemContractorSupplierId;
+        }
+
+        $contractorSupplierId = DB::connection('sakemaru')
+            ->table('contractors')
+            ->where('id', $contractorId)
+            ->value('supplier_id');
+
+        return $contractorSupplierId ? (int) $contractorSupplierId : null;
     }
 
     /**

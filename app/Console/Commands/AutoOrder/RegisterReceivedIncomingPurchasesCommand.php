@@ -42,14 +42,16 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
         );
 
         if (! empty($skipped)) {
-            $this->warn('マスタ不足によりスキップされる入荷予定があります。');
+            $this->warn('マスタまたは日付不足によりスキップされる入荷予定があります。');
             $this->table(
-                ['ID', '倉庫CD', '仕入先CD', '商品CD'],
+                ['ID', '倉庫CD', '仕入先CD', '商品CD', '発注日', '入荷日時日付'],
                 collect($skipped)->take(20)->map(fn (array $row): array => [
                     $row['id'],
                     $row['warehouse_code'] ?: '-',
                     $row['supplier_code'] ?: '-',
                     $row['item_code'] ?: '-',
+                    $row['process_date'] ?: '-',
+                    $row['delivered_date'] ?: '-',
                 ])->all()
             );
         }
@@ -87,6 +89,8 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
             ->join('warehouses as w', 'w.id', '=', 's.warehouse_id')
             ->join('items as i', 'i.id', '=', 's.item_id')
             ->leftJoin('contractors as ct', 'ct.id', '=', 's.contractor_id')
+            ->leftJoin('suppliers as sup', 'sup.id', '=', 's.supplier_id')
+            ->leftJoin('partners as supplier_partner', 'supplier_partner.id', '=', 'sup.partner_id')
             ->where('s.order_source', 'RECEIVED')
             ->where('s.is_receive_matched', true)
             ->where('s.status', 'PENDING')
@@ -105,18 +109,22 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
                 's.id',
                 's.warehouse_id',
                 's.contractor_id',
+                's.supplier_id',
                 's.item_id',
                 's.item_code',
                 's.slip_number',
                 's.received_quantity',
                 's.shortage_quantity',
                 's.quantity_type',
+                's.order_date',
                 's.expected_arrival_date',
                 's.actual_arrival_date',
+                's.confirmed_at',
                 's.expiration_date',
                 'w.code as warehouse_code',
                 'i.code as master_item_code',
                 'ct.code as contractor_code',
+                'supplier_partner.code as supplier_code',
             ])
             ->orderBy('s.id');
 
@@ -139,19 +147,29 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
     {
         $skipped = [];
         $rows = $schedules->map(function (object $schedule) use (&$skipped): ?array {
-            $supplierCode = $this->resolveSupplierCode($schedule);
+            $supplierCode = trim((string) $schedule->supplier_code);
             $warehouseCode = trim((string) $schedule->warehouse_code);
             $itemCode = trim((string) ($schedule->master_item_code ?: $schedule->item_code));
-            $deliveredDate = $schedule->actual_arrival_date
-                ?: $schedule->expected_arrival_date
-                ?: now()->format('Y-m-d');
+            $processDate = $this->dateOnly($schedule->order_date);
+            $deliveredDate = $this->dateOnly($schedule->confirmed_at);
+            $accountDate = $deliveredDate;
 
-            if ($supplierCode === '' || $warehouseCode === '' || $itemCode === '') {
+            if (
+                ! $schedule->supplier_id
+                || $supplierCode === ''
+                || $warehouseCode === ''
+                || $itemCode === ''
+                || $processDate === null
+                || $deliveredDate === null
+                || $accountDate === null
+            ) {
                 $skipped[] = [
                     'id' => $schedule->id,
                     'warehouse_code' => $warehouseCode,
                     'supplier_code' => $supplierCode,
                     'item_code' => $itemCode,
+                    'process_date' => $processDate,
+                    'delivered_date' => $deliveredDate,
                 ];
 
                 return null;
@@ -161,30 +179,26 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
                 'schedule' => $schedule,
                 'warehouse_code' => $warehouseCode,
                 'supplier_code' => $supplierCode,
-                'delivered_date' => substr((string) $deliveredDate, 0, 10),
+                'process_date' => $processDate,
+                'delivered_date' => $deliveredDate,
+                'account_date' => $accountDate,
                 'item_code' => $itemCode,
             ];
         })->filter();
 
         return [
-            $rows->groupBy(fn (array $row): string => "{$row['warehouse_code']}|{$row['supplier_code']}|{$row['delivered_date']}"),
+            $rows->groupBy(fn (array $row): string => "{$row['warehouse_code']}|{$row['supplier_code']}|{$row['process_date']}|{$row['delivered_date']}|{$row['account_date']}"),
             $skipped,
         ];
     }
 
-    private function resolveSupplierCode(object $schedule): string
+    private function dateOnly(mixed $value): ?string
     {
-        if ($schedule->contractor_code !== null && trim((string) $schedule->contractor_code) !== '') {
-            return trim((string) $schedule->contractor_code);
+        if ($value === null || $value === '') {
+            return null;
         }
 
-        $slipContractorCode = DB::connection('sakemaru')
-            ->table('wms_incoming_received_slips')
-            ->where('slip_number', $schedule->slip_number)
-            ->whereNotNull('b_contractor_code')
-            ->value('b_contractor_code');
-
-        return trim((string) $slipContractorCode);
+        return substr((string) $value, 0, 10);
     }
 
     private function registerPurchaseQueues(Collection $groups): array
@@ -214,7 +228,6 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
                     ->update([
                         'status' => 'TRANSMITTED',
                         'actual_arrival_date' => $first['delivered_date'],
-                        'confirmed_at' => $now,
                         'purchase_queue_id' => $queueId,
                         'updated_at' => $now,
                     ]);
@@ -236,9 +249,9 @@ class RegisterReceivedIncomingPurchasesCommand extends Command
         $first = $rows->first();
 
         return [
-            'process_date' => $first['delivered_date'],
+            'process_date' => $first['process_date'],
             'delivered_date' => $first['delivered_date'],
-            'account_date' => $first['delivered_date'],
+            'account_date' => $first['account_date'],
             'supplier_code' => $first['supplier_code'],
             'warehouse_code' => $first['warehouse_code'],
             'note' => 'JX受信データ一括登録 / '.now()->format('Y-m-d H:i:s'),
