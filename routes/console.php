@@ -36,7 +36,7 @@ Artisan::command('inspire', function () {
 | │                                    │                  │ wms_contractor_settings.transmission_time             │
 | │                                    │                  │ に基づきPENDING/APPROVED→確定→ファイル生成→送信      │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
-| │ wms:incoming-receive-scheduled      │ 5分ごと          │ 入荷データ自動受信                                     │
+| │ wms:incoming-receive-scheduled      │ 停止中           │ 入荷データ自動受信                                     │
 | │                                    │                  │ wms_contractor_settings.receive_time                  │
 | │                                    │                  │ に基づきJXデータ取得→パース→照合を実行               │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
@@ -105,13 +105,13 @@ Artisan::command('inspire', function () {
 //     ->withoutOverlapping()
 //     ->appendOutputTo(storage_path('logs/auto-order-transmit.log'));
 
-// 入荷データ自動受信スケジューラー (5分間隔)
-// ※ 仕入先ごとのreceive_timeに基づいてJXデータ取得→原本保存→パース→照合を実行
-Schedule::command('wms:incoming-receive-scheduled')
-    ->everyFiveMinutes()
-    ->onOneServer()
-    ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
+// // 入荷データ自動受信スケジューラー (一時停止中: supplier_id未設定データの送信防止)
+// // ※ 再開時は以下のコメントアウトを戻す
+// Schedule::command('wms:incoming-receive-scheduled')
+//     ->everyFiveMinutes()
+//     ->onOneServer()
+//     ->withoutOverlapping()
+//     ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
 
 // quantity_update_queue の一時的な失敗再投入コマンドは残すが、ai-core側の直列化対応を見るため自動実行は一時停止。
 

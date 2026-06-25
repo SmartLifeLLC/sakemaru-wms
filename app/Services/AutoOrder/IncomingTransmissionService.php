@@ -16,28 +16,58 @@ use Illuminate\Support\Str;
  */
 class IncomingTransmissionService
 {
+    private array $supplierCodeCache = [];
+
+    private array $itemContractorSupplierIdCache = [];
+
     /**
      * 入庫完了データを purchase_create_queue にバッチ登録
      *
      * グルーピング基準:
      * - warehouse_code (倉庫コード)
      * - supplier_code (仕入先コード)
-     * - actual_arrival_date (入庫日)
+     * - order_date (発注日 = 計上日)
+     * - confirmed_at date (入荷日時の日付 = 配送日/買掛日)
      *
      * @return array ['success' => bool, 'queue_count' => int, 'schedule_count' => int, 'errors' => array]
      */
-    public function transmitConfirmedIncomings(?int $warehouseId = null): array
+    public function transmitConfirmedIncomings(?int $warehouseId = null, ?array $scheduleIds = null): array
+    {
+        $scheduleIds = $this->normalizeScheduleIds($scheduleIds);
+
+        if ($scheduleIds !== null && $scheduleIds === []) {
+            return [
+                'success' => true,
+                'queue_count' => 0,
+                'schedule_count' => 0,
+                'errors' => [],
+            ];
+        }
+
+        return DB::connection('sakemaru')->transaction(function () use ($warehouseId, $scheduleIds): array {
+            return $this->transmitConfirmedIncomingsInTransaction($warehouseId, $scheduleIds);
+        });
+    }
+
+    private function transmitConfirmedIncomingsInTransaction(?int $warehouseId, ?array $scheduleIds): array
     {
         // CONFIRMED状態の未処理入庫データを取得する。
         // 移動・本部発注対象は仕入キューを作らず、処理済み化だけ行う。
-        $schedules = WmsOrderIncomingSchedule::query()
+        $query = WmsOrderIncomingSchedule::query()
             ->readyForIncomingTransmission($warehouseId)
             ->with(['warehouse', 'item', 'contractor', 'supplier'])
-            ->get();
+            ->lockForUpdate();
+
+        if ($scheduleIds !== null) {
+            $query->whereKey($scheduleIds);
+        }
+
+        $schedules = $query->get();
 
         if ($schedules->isEmpty()) {
             Log::info('No confirmed incoming schedules to transmit', [
                 'warehouse_id' => $warehouseId,
+                'schedule_ids' => $scheduleIds,
             ]);
 
             return [
@@ -49,7 +79,8 @@ class IncomingTransmissionService
         }
 
         $purchaseScheduleIds = WmsOrderIncomingSchedule::query()
-            ->readyForPurchaseTransmission($warehouseId)
+            ->whereKey($schedules->pluck('id')->all())
+            ->forPurchaseTransmission()
             ->pluck('id')
             ->all();
 
@@ -57,26 +88,40 @@ class IncomingTransmissionService
         $nonPurchaseSchedules = $schedules->whereNotIn('id', $purchaseScheduleIds)->values();
 
         $queueCount = 0;
-        $scheduleCount = $this->markSchedulesAsTransmittedWithoutPurchaseQueue($nonPurchaseSchedules);
+        $scheduleCount = 0;
         $errors = [];
+
+        if ($scheduleIds !== null && $nonPurchaseSchedules->isNotEmpty()) {
+            foreach ($nonPurchaseSchedules as $schedule) {
+                $errors[] = [
+                    'schedule_id' => $schedule->id,
+                    'error' => "ID {$schedule->id} は仕入データ送信対象ではありません。",
+                ];
+            }
+
+            $nonPurchaseSchedules = collect();
+        }
+
+        [$purchaseSchedules, $validationErrors] = $this->filterValidPurchaseSchedules(
+            $purchaseSchedules,
+            persistSupplierId: true,
+        );
+        $errors = array_merge($errors, $validationErrors);
+
+        $scheduleCount += $this->markSchedulesAsTransmittedWithoutPurchaseQueue($nonPurchaseSchedules);
 
         if ($purchaseSchedules->isEmpty()) {
             return [
-                'success' => true,
+                'success' => empty($errors),
                 'queue_count' => 0,
                 'schedule_count' => $scheduleCount,
-                'errors' => [],
+                'errors' => $errors,
             ];
         }
 
-        // グルーピング: 倉庫 + 仕入先 + 入庫日
+        // グルーピング: 倉庫 + 仕入先 + 計上日 + 配送日 + 買掛日
         $grouped = $purchaseSchedules->groupBy(function ($schedule) {
-            $warehouseCode = $schedule->warehouse?->code ?? 'UNKNOWN';
-            // supplier_id があればそちらを優先、なければ contractor から取得
-            $supplierCode = $this->getSupplierCode($schedule);
-            $deliveredDate = $schedule->actual_arrival_date?->format('Y-m-d') ?? now()->format('Y-m-d');
-
-            return "{$warehouseCode}_{$supplierCode}_{$deliveredDate}";
+            return $this->purchaseGroupKey($schedule);
         });
 
         foreach ($grouped as $groupKey => $groupSchedules) {
@@ -85,23 +130,39 @@ class IncomingTransmissionService
                 $chunks = $groupSchedules->chunk(100);
 
                 foreach ($chunks as $chunk) {
-                    $queueId = $this->createPurchaseQueueRecord($chunk);
+                    $result = DB::connection('sakemaru')->transaction(function () use ($chunk): array {
+                        $queueId = $this->createPurchaseQueueRecord($chunk);
+                        $scheduleIds = $chunk
+                            ->pluck('id')
+                            ->map(fn ($id): int => (int) $id)
+                            ->all();
 
-                    // ステータスをTRANSMITTEDに更新
-                    foreach ($chunk as $schedule) {
-                        $schedule->update([
-                            'status' => IncomingScheduleStatus::TRANSMITTED,
-                            'purchase_queue_id' => $queueId,
-                        ]);
-                    }
+                        $updatedCount = WmsOrderIncomingSchedule::query()
+                            ->whereKey($scheduleIds)
+                            ->where('status', IncomingScheduleStatus::CONFIRMED->value)
+                            ->whereNull('purchase_queue_id')
+                            ->update([
+                                'status' => IncomingScheduleStatus::TRANSMITTED->value,
+                                'purchase_queue_id' => $queueId,
+                            ]);
+
+                        if ($updatedCount !== count($scheduleIds)) {
+                            throw new \RuntimeException('仕入キュー作成後の送信済み更新件数が一致しません。');
+                        }
+
+                        return [
+                            'queue_id' => $queueId,
+                            'schedule_count' => count($scheduleIds),
+                        ];
+                    });
 
                     $queueCount++;
-                    $scheduleCount += $chunk->count();
+                    $scheduleCount += $result['schedule_count'];
 
                     Log::info('Purchase queue created from incoming', [
                         'group_key' => $groupKey,
-                        'queue_id' => $queueId,
-                        'schedule_count' => $chunk->count(),
+                        'queue_id' => $result['queue_id'],
+                        'schedule_count' => $result['schedule_count'],
                     ]);
                 }
             } catch (\Exception $e) {
@@ -122,6 +183,65 @@ class IncomingTransmissionService
             'schedule_count' => $scheduleCount,
             'errors' => $errors,
         ];
+    }
+
+    private function normalizeScheduleIds(?array $scheduleIds): ?array
+    {
+        if ($scheduleIds === null) {
+            return null;
+        }
+
+        return collect($scheduleIds)
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function filterValidPurchaseSchedules(Collection $schedules, bool $persistSupplierId): array
+    {
+        $errors = [];
+
+        $validSchedules = $schedules
+            ->filter(function (WmsOrderIncomingSchedule $schedule) use (&$errors, $persistSupplierId): bool {
+                $supplierCode = $this->getSupplierCode($schedule, persistSupplierId: $persistSupplierId);
+                $warehouseCode = $this->getWarehouseCode($schedule);
+                $itemCode = $this->getItemCode($schedule);
+                $processDate = $this->getProcessDate($schedule);
+                $deliveredDate = $this->getDeliveredDate($schedule);
+                $accountDate = $this->getAccountDate($schedule);
+
+                if (
+                    $supplierCode === ''
+                    || $warehouseCode === ''
+                    || $itemCode === ''
+                    || $processDate === null
+                    || $deliveredDate === null
+                    || $accountDate === null
+                ) {
+                    $errors[] = [
+                        'schedule_id' => $schedule->id,
+                        'group_key' => $this->purchaseGroupKey($schedule),
+                        'error' => sprintf(
+                            '仕入キュー登録に必要な情報を解決できません（倉庫CD:%s / 仕入先CD:%s / 商品CD:%s / 発注日:%s / 入荷日時日付:%s / 買掛日:%s）',
+                            $warehouseCode !== '' ? $warehouseCode : '-',
+                            $supplierCode !== '' ? $supplierCode : '-',
+                            $itemCode !== '' ? $itemCode : '-',
+                            $processDate ?? '-',
+                            $deliveredDate ?? '-',
+                            $accountDate ?? '-',
+                        ),
+                    ];
+
+                    return false;
+                }
+
+                return true;
+            })
+            ->values();
+
+        return [$validSchedules, $errors];
     }
 
     /**
@@ -147,24 +267,139 @@ class IncomingTransmissionService
     /**
      * 仕入先コードを取得
      */
-    private function getSupplierCode(WmsOrderIncomingSchedule $schedule): string
+    private function getSupplierCode(WmsOrderIncomingSchedule $schedule, bool $persistSupplierId = false): string
     {
-        // supplier_id があればそのコードを取得
-        if ($schedule->supplier_id) {
-            $supplier = DB::connection('sakemaru')
-                ->table('suppliers as s')
-                ->join('partners as p', 's.partner_id', '=', 'p.id')
-                ->where('s.id', $schedule->supplier_id)
-                ->select('p.code')
-                ->first();
+        $cachedCode = $schedule->getAttribute('purchase_transmission_supplier_code');
 
-            if ($supplier) {
-                return $supplier->code;
-            }
+        if (is_string($cachedCode)) {
+            return $cachedCode;
         }
 
-        // contractor（発注先）から取得
-        return $schedule->contractor?->code ?? '';
+        $supplierId = $this->resolveSupplierId($schedule, $persistSupplierId);
+        $supplierCode = $supplierId ? $this->getSupplierCodeById($supplierId) : null;
+        $supplierCode = trim((string) $supplierCode);
+
+        $schedule->setAttribute('purchase_transmission_supplier_code', $supplierCode);
+
+        return $supplierCode;
+    }
+
+    private function resolveSupplierId(WmsOrderIncomingSchedule $schedule, bool $persistSupplierId): ?int
+    {
+        if ($schedule->supplier_id && $this->getSupplierCodeById((int) $schedule->supplier_id)) {
+            return (int) $schedule->supplier_id;
+        }
+
+        $supplierId = $this->resolveItemContractorSupplierId($schedule)
+            ?? $this->resolveContractorSupplierId($schedule);
+
+        if (! $supplierId || ! $this->getSupplierCodeById($supplierId)) {
+            return null;
+        }
+
+        if ($persistSupplierId && (int) $schedule->supplier_id !== $supplierId) {
+            $schedule->forceFill(['supplier_id' => $supplierId])->saveQuietly();
+        }
+
+        $schedule->setAttribute('supplier_id', $supplierId);
+
+        return $supplierId;
+    }
+
+    private function resolveItemContractorSupplierId(WmsOrderIncomingSchedule $schedule): ?int
+    {
+        $cacheKey = implode(':', [
+            (int) $schedule->warehouse_id,
+            (int) $schedule->item_id,
+            (int) $schedule->contractor_id,
+        ]);
+
+        if (array_key_exists($cacheKey, $this->itemContractorSupplierIdCache)) {
+            return $this->itemContractorSupplierIdCache[$cacheKey];
+        }
+
+        $query = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->where('warehouse_id', $schedule->warehouse_id)
+            ->where('item_id', $schedule->item_id)
+            ->whereNotNull('supplier_id');
+
+        if ($schedule->contractor_id) {
+            $query->where('contractor_id', $schedule->contractor_id);
+        }
+
+        $supplierId = $query->orderBy('id')->value('supplier_id');
+
+        return $this->itemContractorSupplierIdCache[$cacheKey] = $supplierId ? (int) $supplierId : null;
+    }
+
+    private function resolveContractorSupplierId(WmsOrderIncomingSchedule $schedule): ?int
+    {
+        if (! $schedule->contractor_id) {
+            return null;
+        }
+
+        $supplierId = DB::connection('sakemaru')
+            ->table('contractors')
+            ->where('id', $schedule->contractor_id)
+            ->value('supplier_id');
+
+        return $supplierId ? (int) $supplierId : null;
+    }
+
+    private function getSupplierCodeById(int $supplierId): ?string
+    {
+        if ($supplierId <= 0) {
+            return null;
+        }
+
+        if (array_key_exists($supplierId, $this->supplierCodeCache)) {
+            return $this->supplierCodeCache[$supplierId];
+        }
+
+        $supplierCode = DB::connection('sakemaru')
+            ->table('suppliers as s')
+            ->join('partners as p', 's.partner_id', '=', 'p.id')
+            ->where('s.id', $supplierId)
+            ->value('p.code');
+
+        return $this->supplierCodeCache[$supplierId] = filled($supplierCode) ? trim((string) $supplierCode) : null;
+    }
+
+    private function getWarehouseCode(WmsOrderIncomingSchedule $schedule): string
+    {
+        return trim((string) ($schedule->warehouse?->code ?? ''));
+    }
+
+    private function getItemCode(WmsOrderIncomingSchedule $schedule): string
+    {
+        return trim((string) ($schedule->item?->code ?? $schedule->item_code ?? ''));
+    }
+
+    private function getProcessDate(WmsOrderIncomingSchedule $schedule): ?string
+    {
+        return $schedule->order_date?->format('Y-m-d');
+    }
+
+    private function getDeliveredDate(WmsOrderIncomingSchedule $schedule): ?string
+    {
+        return $schedule->confirmed_at?->format('Y-m-d');
+    }
+
+    private function getAccountDate(WmsOrderIncomingSchedule $schedule): ?string
+    {
+        return $this->getDeliveredDate($schedule);
+    }
+
+    private function purchaseGroupKey(WmsOrderIncomingSchedule $schedule): string
+    {
+        return implode('_', [
+            $this->getWarehouseCode($schedule) ?: 'UNKNOWN_WAREHOUSE',
+            $this->getSupplierCode($schedule) ?: 'UNKNOWN_SUPPLIER',
+            $this->getProcessDate($schedule) ?? 'UNKNOWN_PROCESS_DATE',
+            $this->getDeliveredDate($schedule) ?? 'UNKNOWN_DELIVERED_DATE',
+            $this->getAccountDate($schedule) ?? 'UNKNOWN_ACCOUNT_DATE',
+        ]);
     }
 
     /**
@@ -177,14 +412,19 @@ class IncomingTransmissionService
         $first = $schedules->first();
 
         // マスタ情報を取得
-        $warehouse = $first->warehouse;
         $supplierCode = $this->getSupplierCode($first);
-        $deliveredDate = $first->actual_arrival_date?->format('Y-m-d') ?? now()->format('Y-m-d');
+        $processDate = $this->getProcessDate($first);
+        $deliveredDate = $this->getDeliveredDate($first);
+        $accountDate = $this->getAccountDate($first);
+
+        if ($processDate === null || $deliveredDate === null || $accountDate === null) {
+            throw new \RuntimeException('仕入キュー登録に必要な日付を解決できません。');
+        }
 
         // 明細を構築
         $details = $schedules->map(function ($schedule) {
             $detail = [
-                'item_code' => $schedule->item?->code ?? '',
+                'item_code' => $this->getItemCode($schedule),
                 'quantity' => $schedule->received_quantity,
                 'quantity_type' => $schedule->quantity_type?->value ?? 'PIECE',
                 'shortage_quantity' => $schedule->shortage_quantity ?? 0,
@@ -200,11 +440,11 @@ class IncomingTransmissionService
 
         // 仕入データを構築
         $purchaseData = [
-            'process_date' => $deliveredDate,
+            'process_date' => $processDate,
             'delivered_date' => $deliveredDate,
-            'account_date' => $deliveredDate,
+            'account_date' => $accountDate,
             'supplier_code' => $supplierCode,
-            'warehouse_code' => $warehouse?->code ?? '',
+            'warehouse_code' => $this->getWarehouseCode($first),
             'note' => $this->buildPurchaseNote($first),
             'details' => $details,
         ];

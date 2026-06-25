@@ -6,9 +6,9 @@ use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\EMenu;
 use App\Filament\Resources\WmsIncomingCompleted\Pages\ListWmsIncomingCompleted;
 use App\Filament\Resources\WmsIncomingCompleted\Tables\WmsIncomingCompletedTable;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsOrderIncomingSchedule;
 use BackedEnum;
-use App\Filament\Support\AdminResource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -54,7 +54,7 @@ class WmsIncomingCompletedResource extends AdminResource
             ->with([
                 'warehouse',
                 'item',
-                'contractor',
+                'contractor.wmsSetting',
                 'supplier',
             ]);
     }

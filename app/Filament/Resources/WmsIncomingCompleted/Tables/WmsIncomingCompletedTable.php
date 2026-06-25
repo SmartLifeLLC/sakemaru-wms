@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsIncomingCompleted\Tables;
 
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
@@ -12,14 +13,19 @@ use App\Models\Sakemaru\ItemDefaultLocation;
 use App\Models\Sakemaru\RealStock;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderIncomingSchedule;
+use App\Services\AutoOrder\IncomingTransmissionService;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Components\View;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class WmsIncomingCompletedTable
 {
@@ -33,6 +39,7 @@ class WmsIncomingCompletedTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'incoming-completed-table sticky-actions'])
+            ->checkIfRecordIsSelectableUsing(fn (WmsOrderIncomingSchedule $record): bool => static::isPurchaseTransmissionSelectable($record))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -79,6 +86,25 @@ class WmsIncomingCompletedTable
                     ->sortable()
                     ->alignCenter()
                     ->width('85px'),
+
+                TextColumn::make('warehouse.name')
+                    ->label('入荷倉庫')
+                    ->searchable()
+                    ->toggleable()
+                    ->width('120px'),
+
+                TextColumn::make('contractor.code')
+                    ->label('発注先CD')
+                    ->searchable()
+                    ->alignCenter()
+                    ->toggleable()
+                    ->width('50px'),
+
+                TextColumn::make('contractor.name')
+                    ->label('発注先名')
+                    ->searchable()
+                    ->toggleable()
+                    ->width('100px'),
 
                 TextColumn::make('item_code')
                     ->label('商品CD')
@@ -250,25 +276,6 @@ class WmsIncomingCompletedTable
                     ->alignCenter()
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->width('50px'),
-
-                TextColumn::make('warehouse.name')
-                    ->label('倉庫名')
-                    ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->width('120px'),
-
-                TextColumn::make('contractor.code')
-                    ->label('発注先CD')
-                    ->searchable()
-                    ->alignCenter()
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->width('50px'),
-
-                TextColumn::make('contractor.name')
-                    ->label('発注先名')
-                    ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->width('100px'),
 
                 TextColumn::make('remaining')
                     ->label('残数')
@@ -571,7 +578,83 @@ class WmsIncomingCompletedTable
             ])
             ->toolbarActions([
                 static::getExportAction(),
+                BulkActionGroup::make([
+                    BulkAction::make('transmitSelectedPurchase')
+                        ->label('チェックした仕入れデータ送信')
+                        ->icon('heroicon-o-paper-airplane')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('チェックした仕入れデータを送信')
+                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件だけを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日の中で未選択のデータは未送信のまま残ります。")
+                        ->modalSubmitActionLabel('チェック分を送信')
+                        ->modalCancelActionLabel('送信せず閉じる')
+                        ->action(function (Collection $records): void {
+                            $scheduleIds = $records
+                                ->pluck('id')
+                                ->map(fn ($id): int => (int) $id)
+                                ->filter(fn (int $id): bool => $id > 0)
+                                ->unique()
+                                ->values()
+                                ->all();
+
+                            try {
+                                $result = app(IncomingTransmissionService::class)
+                                    ->transmitConfirmedIncomings(scheduleIds: $scheduleIds);
+                            } catch (\Throwable $e) {
+                                Notification::make()
+                                    ->title('登録エラー')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            if ($result['success']) {
+                                Notification::make()
+                                    ->title('仕入キューに登録しました')
+                                    ->body("キュー: {$result['queue_count']}件 / 入荷データ: {$result['schedule_count']}件")
+                                    ->success()
+                                    ->send();
+                            } else {
+                                $errors = collect($result['errors'] ?? [])
+                                    ->map(fn ($error): string => is_array($error) ? ($error['error'] ?? json_encode($error, JSON_UNESCAPED_UNICODE)) : (string) $error)
+                                    ->take(5)
+                                    ->implode("\n");
+
+                                Notification::make()
+                                    ->title('一部エラーが発生しました')
+                                    ->body("成功: {$result['schedule_count']}件 / エラー: ".count($result['errors']).($errors !== '' ? "\n{$errors}" : ''))
+                                    ->warning()
+                                    ->send();
+                            }
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                ]),
             ])
-            ->defaultSort('confirmed_at', 'desc');
+            ->defaultSort(
+                fn (Builder $query): Builder => $query
+                    ->orderBy('confirmed_at', 'desc')
+                    ->orderBy('warehouse_id')
+                    ->orderBy('item_id'),
+                'desc'
+            );
+    }
+
+    private static function isPurchaseTransmissionSelectable(WmsOrderIncomingSchedule $record): bool
+    {
+        if (! in_array($record->order_source, [
+            OrderSource::AUTO,
+            OrderSource::MANUAL,
+            OrderSource::RECEIVED,
+        ], true)) {
+            return false;
+        }
+
+        if ($record->transfer_candidate_id || $record->source_warehouse_id || $record->stock_transfer_id) {
+            return false;
+        }
+
+        return $record->contractor?->wmsSetting?->transmission_type !== TransmissionType::INTERNAL;
     }
 }
