@@ -50,7 +50,10 @@ class WmsOrderConfirmedTable
         return (new WmsOrderCandidate)->getTable();
     }
 
-    public static function configure(Table $table): Table
+    /**
+     * @param  bool  $forJx  JX発注データ作成ページ用。標準フィルタ（JX未生成/FAX未生成/確定日〜当日/確定者なし）を初期値に設定する。
+     */
+    public static function configure(Table $table, bool $forJx = false): Table
     {
         return $table
             ->striped()
@@ -292,13 +295,13 @@ class WmsOrderConfirmedTable
 
                 static::contractorFilter(),
 
-                static::confirmedByFilter(),
+                static::confirmedByFilter($forJx),
 
-                static::confirmedDateFilter(),
+                static::confirmedDateFilter($forJx),
 
-                static::jxFileGenerationFilter(),
+                static::jxFileGenerationFilter($forJx),
 
-                static::faxFileGenerationFilter(),
+                static::faxFileGenerationFilter($forJx),
 
                 Filter::make('executed_at_range')
                     ->label('実行時刻')
@@ -795,12 +798,12 @@ class WmsOrderConfirmedTable
         ];
     }
 
-    private static function confirmedByFilter(): SelectFilter
+    private static function confirmedByFilter(bool $forJx = false): SelectFilter
     {
         return SelectFilter::make('confirmed_by')
             ->label('確定者')
             ->searchable()
-            ->default(fn () => self::defaultConfirmedByFilterValue())
+            ->default(fn () => $forJx ? null : self::defaultConfirmedByFilterValue())
             ->options(fn () => self::buildConfirmedByOptions())
             ->getSearchResultsUsing(fn (string $search) => self::buildConfirmedByOptions($search))
             ->query(function (Builder $query, array $data) {
@@ -817,7 +820,7 @@ class WmsOrderConfirmedTable
         return auth()->id();
     }
 
-    private static function jxFileGenerationFilter(): SelectFilter
+    private static function jxFileGenerationFilter(bool $forJx = false): SelectFilter
     {
         return SelectFilter::make('jx_file_generation_status')
             ->label('JX生成')
@@ -826,6 +829,7 @@ class WmsOrderConfirmedTable
                 'generated' => '生成済み',
                 'all' => 'すべて',
             ])
+            ->default($forJx ? 'not_generated' : null)
             ->query(function (Builder $query, array $data): Builder {
                 $value = $data['value'] ?? null;
                 $table = (new WmsOrderCandidate)->getTable();
@@ -838,7 +842,7 @@ class WmsOrderConfirmedTable
             });
     }
 
-    private static function faxFileGenerationFilter(): SelectFilter
+    private static function faxFileGenerationFilter(bool $forJx = false): SelectFilter
     {
         return SelectFilter::make('fax_file_generation_status')
             ->label('FAX生成')
@@ -847,6 +851,7 @@ class WmsOrderConfirmedTable
                 'generated' => '生成済み',
                 'all' => 'すべて',
             ])
+            ->default($forJx ? 'not_generated' : null)
             ->query(function (Builder $query, array $data): Builder {
                 $value = $data['value'] ?? null;
                 $table = (new WmsOrderCandidate)->getTable();
@@ -872,7 +877,7 @@ class WmsOrderConfirmedTable
             });
     }
 
-    private static function confirmedDateFilter(): Filter
+    private static function confirmedDateFilter(bool $forJx = false): Filter
     {
         return Filter::make('confirmed_date')
             ->label('確定日')
@@ -880,7 +885,8 @@ class WmsOrderConfirmedTable
                 Grid::make(2)->schema([
                     DatePicker::make('confirmed_from')
                         ->label('開始日')
-                        ->default(today()),
+                        // JX発注作成は「確定日開始=前日」を初期値とする
+                        ->default($forJx ? today()->subDay() : today()),
                     DatePicker::make('confirmed_until')
                         ->label('終了日')
                         ->default(today()),
