@@ -7,8 +7,8 @@ use Filament\Facades\Filament;
 use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
 use Filament\Support\Contracts\HasLabel;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use ReflectionClass;
 use UnitEnum;
 
@@ -159,7 +159,7 @@ class MegaMenuBuilder
         return $itemsByLabel;
     }
 
-    protected function resolveGroupLabel(string | UnitEnum | null $group): ?string
+    protected function resolveGroupLabel(string|UnitEnum|null $group): ?string
     {
         if ($group === null) {
             return null;
@@ -425,6 +425,7 @@ class MegaMenuBuilder
                 'label' => 'システム',
                 'icon' => 'fa-cogs',
                 'categories' => [
+                    EMenuCategory::ORDER_TRANSMISSION,
                     EMenuCategory::SETTINGS,
                     EMenuCategory::TEST_DATA,
                 ],
@@ -448,7 +449,7 @@ class MegaMenuBuilder
                 'permissionResource' => 'api-document',
             ],
             [
-                'url' => config('app.core_url') . '/stocks/inventory/transfer',
+                'url' => config('app.core_url').'/stocks/inventory/transfer',
                 'permissionResource' => 'warehouse-stock-transfer-delivery-course',
             ],
         ];
@@ -489,7 +490,7 @@ class MegaMenuBuilder
             return 'sakemaru';
         }
 
-        if (str_ends_with($host, '.' . $baseDomain)) {
+        if (str_ends_with($host, '.'.$baseDomain)) {
             return Str::before($host, '.');
         }
 
@@ -551,7 +552,7 @@ class MegaMenuBuilder
         }
 
         if ($iconClass && (str_starts_with($iconClass, 'o-') || str_starts_with($iconClass, 's-')) && ! str_starts_with($iconClass, 'heroicon-')) {
-            return 'heroicon-' . $iconClass;
+            return 'heroicon-'.$iconClass;
         }
 
         return $iconClass;

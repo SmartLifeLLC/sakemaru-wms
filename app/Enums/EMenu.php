@@ -43,6 +43,7 @@ enum EMenu: string
 
     // 発注履歴
     case WMS_ORDER_CONFIRMED = 'order_history.wms_order_confirmed';
+    case WMS_ORDER_FOR_JX = 'order_history.wms_order_for_jx';
     case WMS_STOCK_TRANSFER_CONFIRMED = 'order_history.wms_stock_transfer_confirmed';
     case WMS_ORDER_DATA_FILES = 'order_history.wms_order_data_files';
     case WMS_ORDER_DOCUMENTS = 'order_history.wms_order_documents';
@@ -134,6 +135,8 @@ enum EMenu: string
             self::WMS_ORDER_DATA_FILES,
             self::WMS_ORDER_DOCUMENTS => EMenuCategory::ORDER_HISTORY,
 
+            self::WMS_ORDER_FOR_JX => EMenuCategory::ORDER_TRANSMISSION,
+
             self::REAL_STOCKS,
             self::EXPIRATION_ALERTS,
             self::WMS_STOCK_SNAPSHOTS,
@@ -219,6 +222,7 @@ enum EMenu: string
             self::WMS_ORDER_CANDIDATES => '外部発注',
             self::WMS_ORDER_CONFIRMATION_WAITING => '発注確定待ち',
             self::WMS_ORDER_CONFIRMED => '発注確定済み',
+            self::WMS_ORDER_FOR_JX => 'JX発注データ作成',
             self::WMS_STOCK_TRANSFER_CONFIRMED => '移動確定済み',
             self::WMS_ORDER_DATA_FILES => '発注データファイル',
             self::WMS_AUTO_ORDER_JOBS => '発注・移動候補生成',
@@ -303,6 +307,7 @@ enum EMenu: string
             self::WMS_ORDER_CANDIDATES => 'heroicon-o-shopping-cart',
             self::WMS_ORDER_CONFIRMATION_WAITING => 'heroicon-o-clipboard-document-check',
             self::WMS_ORDER_CONFIRMED => 'heroicon-o-check-badge',
+            self::WMS_ORDER_FOR_JX => 'heroicon-o-document-arrow-up',
             self::WMS_STOCK_TRANSFER_CONFIRMED => 'heroicon-o-arrows-right-left',
             self::WMS_ORDER_DATA_FILES => 'heroicon-o-document-text',
             self::WMS_AUTO_ORDER_JOBS => 'heroicon-o-queue-list',
@@ -395,6 +400,9 @@ enum EMenu: string
             self::WMS_STOCK_TRANSFER_CONFIRMED => 2,
             self::WMS_ORDER_DATA_FILES => 3,
             self::WMS_ORDER_DOCUMENTS => 4,
+
+            // 発注送信管理
+            self::WMS_ORDER_FOR_JX => 1,
 
             // 在庫管理
             self::REAL_STOCKS => 1,
