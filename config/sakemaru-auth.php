@@ -57,6 +57,7 @@ $pagePermissions = $buildPermissions([
     'auto-order-guide',
     'floor-plan-editor',
     'jx-test-data',
+    'lot-adjustment',
     'modal-showcase',
     'picking-route-visualization',
     'test-data-generator',

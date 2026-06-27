@@ -1,0 +1,117 @@
+<x-filament-panels::page>
+    @php
+        $typeLabels = [
+            'OFFSET' => ['label' => '相殺', 'class' => 'bg-blue-100 text-blue-700'],
+            'REACTIVATE' => ['label' => '再ACTIVE化', 'class' => 'bg-green-100 text-green-700'],
+            'REPOINT' => ['label' => 'STLA修正', 'class' => 'bg-indigo-100 text-indigo-700'],
+            'SYNC_DETECTED' => ['label' => '不一致(検出のみ)', 'class' => 'bg-amber-100 text-amber-700'],
+            'SKIP' => ['label' => 'スキップ', 'class' => 'bg-gray-100 text-gray-600'],
+            'LOCATION_ABORTED' => ['label' => '棚番保護で中止', 'class' => 'bg-red-100 text-red-700'],
+        ];
+        $summary = $result['summary'] ?? null;
+        $details = $result['details'] ?? [];
+        $maxRows = 300;
+    @endphp
+
+    <x-filament::section>
+        <x-slot name="heading">対象倉庫</x-slot>
+        <div class="text-sm text-gray-700 dark:text-gray-300">
+            <span class="font-semibold">{{ $warehouseName ?? '未選択' }}</span>
+            <span class="text-gray-400">（ID: {{ $warehouseId }}）</span>
+        </div>
+        <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            上部の倉庫セレクタで対象倉庫を切り替えられます。<br>
+            「プレビュー」で変更内容を確認 → 「調節を実行」で適用します。<strong>棚番（floor/location）は変更しません。</strong>
+            C（real_stocks 同期）は今回は検出のみです。
+        </div>
+    </x-filament::section>
+
+    @if ($result === null)
+        <x-filament::section>
+            <div class="py-8 text-center text-gray-500 dark:text-gray-400">
+                「プレビュー（変更しない）」を押すと、相殺・再ACTIVE化・STLA修正の候補を表示します（在庫は変更しません）。
+            </div>
+        </x-filament::section>
+    @else
+        <x-filament::section>
+            <x-slot name="heading">
+                結果サマリ
+                @if ($resultMode === 'DRY_RUN')
+                    <span class="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-700">プレビュー（未適用）</span>
+                @else
+                    <span class="ml-2 rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">実行済み</span>
+                @endif
+            </x-slot>
+
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                @foreach (['offset' => '相殺', 'reactivate' => '再ACTIVE化', 'repoint' => 'STLA修正', 'sync_detected' => '不一致検出', 'skipped' => 'スキップ', 'location_aborted' => '棚番中止'] as $key => $jp)
+                    <div class="rounded-lg border border-gray-200 p-3 text-center dark:border-gray-700">
+                        <div class="text-xs text-gray-500">{{ $jp }}</div>
+                        <div class="text-2xl font-bold text-gray-800 dark:text-gray-100">{{ $summary[$key] ?? 0 }}</div>
+                    </div>
+                @endforeach
+            </div>
+
+            <div class="mt-3 text-sm text-gray-600 dark:text-gray-300">
+                {{ $resultMode === 'DRY_RUN' ? '適用されるはずの件数' : '適用件数' }}:
+                <span class="font-semibold">{{ $result['affected_count'] ?? 0 }}</span>
+                <span class="ml-2 text-xs text-gray-400">run: {{ \Illuminate\Support\Str::limit($result['run_uuid'] ?? '', 8, '') }}</span>
+            </div>
+        </x-filament::section>
+
+        <x-filament::section>
+            <x-slot name="heading">明細（{{ count($details) }} 件）</x-slot>
+
+            @if (count($details) > $maxRows)
+                <div class="mb-2 text-xs text-amber-600">表示は先頭 {{ $maxRows }} 件です。全件は「ロット調節履歴」で確認できます。</div>
+            @endif
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="border-b border-gray-200 text-xs text-gray-500 dark:border-gray-700">
+                        <tr>
+                            <th class="px-2 py-1">種別</th>
+                            <th class="px-2 py-1">real_stock</th>
+                            <th class="px-2 py-1">LOT / STLA</th>
+                            <th class="px-2 py-1">current 前→後</th>
+                            <th class="px-2 py-1">status 前→後</th>
+                            <th class="px-2 py-1">棚番ID</th>
+                            <th class="px-2 py-1">理由</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (array_slice($details, 0, $maxRows) as $d)
+                            @php $t = $typeLabels[$d['type'] ?? 'SKIP'] ?? ['label' => $d['type'] ?? '', 'class' => 'bg-gray-100 text-gray-600']; @endphp
+                            <tr class="border-b border-gray-100 dark:border-gray-800">
+                                <td class="px-2 py-1">
+                                    <span class="rounded px-2 py-0.5 text-xs {{ $t['class'] }}">{{ $t['label'] }}</span>
+                                </td>
+                                <td class="px-2 py-1">{{ $d['real_stock_id'] ?? '-' }}</td>
+                                <td class="px-2 py-1">
+                                    @if (!empty($d['stla_id']))
+                                        stla:{{ $d['stla_id'] }}
+                                        @if (!empty($d['old_lot_id'])) <span class="text-gray-400">({{ $d['old_lot_id'] }}→{{ $d['new_lot_id'] ?? '?' }})</span>@endif
+                                    @else
+                                        {{ $d['lot_id'] ?? '-' }}
+                                    @endif
+                                </td>
+                                <td class="px-2 py-1">
+                                    @if (array_key_exists('current_before', $d))
+                                        {{ $d['current_before'] }} → {{ $d['current_after'] }}
+                                    @else
+                                        -
+                                    @endif
+                                </td>
+                                <td class="px-2 py-1 text-xs text-gray-500">
+                                    {{ $d['status_before'] ?? '' }}{{ isset($d['status_after']) ? ' → '.$d['status_after'] : '' }}
+                                </td>
+                                <td class="px-2 py-1 text-xs">{{ $d['location_id'] ?? '' }}</td>
+                                <td class="px-2 py-1 text-xs text-gray-500">{{ $d['reason'] ?? '' }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </x-filament::section>
+    @endif
+</x-filament-panels::page>
