@@ -1,0 +1,245 @@
+<?php
+
+namespace App\Services\LotAdjustment;
+
+use App\Models\WmsLotAdjustmentLog;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+
+/**
+ * ロット調節の実行オーケストレーション。
+ *
+ * - A（相殺）/ B（§3.3 再ACTIVE化）を real_stock 単位のトランザクションで適用。
+ * - D（STLA repoint）を候補単位のトランザクションで適用。
+ * - C は検出のみ（SYNC_DETECTED）。
+ * - 各 real_stock で棚番ガード（floor_id/location_id 不変）をアサートし、違反時はその単位のみロールバック。
+ * - DRY_RUN はトランザクションをロールバックして「適用された場合の変更」を返す。
+ * - 実行結果は wms_lot_adjustment_logs に1レコードとして記録する。
+ */
+class LotAdjustmentRunner
+{
+    private string $conn = 'sakemaru';
+
+    public function __construct(
+        private ?LotPlusMinusOffsetService $offsetService = null,
+        private ?LotResidualReactivationService $reactivationService = null,
+        private ?StlaReferenceRepairService $stlaService = null,
+        private ?LotParentSyncDetector $syncDetector = null,
+    ) {
+        $this->offsetService ??= new LotPlusMinusOffsetService;
+        $this->reactivationService ??= new LotResidualReactivationService;
+        $this->stlaService ??= new StlaReferenceRepairService;
+        $this->syncDetector ??= new LotParentSyncDetector;
+    }
+
+    /**
+     * @param  bool  $apply  true=適用(APPLIED) / false=プレビュー(DRY_RUN)
+     * @return array{run_uuid:string, mode:string, summary:array, affected_count:int, details:array, log_id:int}
+     */
+    public function run(int $warehouseId, bool $apply): array
+    {
+        $runUuid = (string) Str::uuid();
+        $details = [];
+
+        // A + B（real_stock 単位）
+        foreach ($this->targetRealStockIds($warehouseId) as $rsId) {
+            $details = array_merge($details, $this->processRealStock((int) $rsId, $apply));
+        }
+
+        // D（STLA repoint・候補単位）
+        foreach ($this->stlaService->detectCandidates($warehouseId) as $cand) {
+            if ($cand->eligible) {
+                $details[] = $this->processRepoint($cand, $apply);
+            } else {
+                $details[] = [
+                    'type' => 'SKIP',
+                    'real_stock_id' => $cand->real_stock_id,
+                    'lot_id' => null,
+                    'stla_id' => $cand->stla_id,
+                    'old_lot_id' => $cand->old_lot_id,
+                    'new_lot_id' => null,
+                    'reason' => 'STLA_'.$cand->skip_reason,
+                ];
+            }
+        }
+
+        // C（検出のみ）
+        $details = array_merge($details, $this->syncDetector->detectForWarehouse($warehouseId));
+
+        $summary = $this->summarize($details);
+        $affected = count(array_filter(
+            $details,
+            fn ($d) => in_array($d['type'] ?? null, ['OFFSET', 'REACTIVATE', 'REPOINT'], true)
+        ));
+
+        $log = WmsLotAdjustmentLog::record($apply ? 'APPLIED' : 'DRY_RUN', [
+            'run_uuid' => $runUuid,
+            'warehouse_id' => $warehouseId,
+            'scope' => ['warehouse_id' => $warehouseId],
+            'summary' => $summary,
+            'affected_count' => $apply ? $affected : 0,
+            'details' => $details,
+        ]);
+
+        return [
+            'run_uuid' => $runUuid,
+            'mode' => $apply ? 'APPLIED' : 'DRY_RUN',
+            'summary' => $summary,
+            'affected_count' => $affected,
+            'details' => $details,
+            'log_id' => (int) $log->id,
+        ];
+    }
+
+    /**
+     * 1 real_stock に A+B を適用。棚番ガード違反時はロールバックして LOCATION_ABORTED を返す。
+     */
+    private function processRealStock(int $realStockId, bool $apply): array
+    {
+        $conn = DB::connection($this->conn);
+        $conn->beginTransaction();
+        try {
+            $snapshot = $this->locationSnapshot($realStockId);
+
+            $changes = array_merge(
+                $this->offsetService->applyForRealStock($realStockId),
+                $this->reactivationService->applyForRealStock($realStockId),
+            );
+
+            $violation = $this->locationGuardViolation($realStockId, $snapshot);
+            if ($violation !== null) {
+                $conn->rollBack();
+
+                return [[
+                    'type' => 'LOCATION_ABORTED',
+                    'real_stock_id' => $realStockId,
+                    'lot_id' => null,
+                    'reason' => $violation,
+                ]];
+            }
+
+            if ($apply) {
+                $conn->commit();
+            } else {
+                $conn->rollBack();
+            }
+
+            return $changes;
+        } catch (\Throwable $e) {
+            $conn->rollBack();
+
+            return [[
+                'type' => 'SKIP',
+                'real_stock_id' => $realStockId,
+                'lot_id' => null,
+                'reason' => 'ERROR: '.$e->getMessage(),
+            ]];
+        }
+    }
+
+    /**
+     * 1 STLA repoint を適用（トランザクション単位）。
+     */
+    private function processRepoint(object $candidate, bool $apply): array
+    {
+        $conn = DB::connection($this->conn);
+        $conn->beginTransaction();
+        try {
+            $change = $this->stlaService->applyRepoint($candidate);
+            if ($apply) {
+                $conn->commit();
+            } else {
+                $conn->rollBack();
+            }
+
+            return $change;
+        } catch (\Throwable $e) {
+            $conn->rollBack();
+
+            return [
+                'type' => 'SKIP',
+                'real_stock_id' => $candidate->real_stock_id,
+                'stla_id' => $candidate->stla_id,
+                'reason' => 'REPOINT_ERROR: '.$e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * A（相殺）と B（非ACTIVE残数）の対象 real_stock を抽出。
+     *
+     * @return array<int, int>
+     */
+    private function targetRealStockIds(int $warehouseId): array
+    {
+        $offset = DB::connection($this->conn)
+            ->table('real_stock_lots as l')
+            ->join('real_stocks as rs', 'rs.id', '=', 'l.real_stock_id')
+            ->where('rs.warehouse_id', $warehouseId)
+            ->where('l.status', 'ACTIVE')
+            ->groupBy('l.real_stock_id')
+            ->havingRaw('SUM(l.current_quantity > 0) > 0 AND SUM(l.current_quantity < 0) > 0')
+            ->pluck('l.real_stock_id');
+
+        $residual = DB::connection($this->conn)
+            ->table('real_stock_lots as l')
+            ->join('real_stocks as rs', 'rs.id', '=', 'l.real_stock_id')
+            ->where('rs.warehouse_id', $warehouseId)
+            ->where('l.status', '!=', 'ACTIVE')
+            ->where(function ($q) {
+                $q->where('l.current_quantity', '<>', 0)
+                    ->orWhere('l.reserved_quantity', '<>', 0);
+            })
+            ->distinct()
+            ->pluck('l.real_stock_id');
+
+        return $offset->merge($residual)->unique()->map(fn ($v) => (int) $v)->values()->all();
+    }
+
+    /**
+     * real_stock 配下全LOTの棚番スナップショット。lot_id => "floor|location"
+     *
+     * @return array<int, string>
+     */
+    private function locationSnapshot(int $realStockId): array
+    {
+        return DB::connection($this->conn)
+            ->table('real_stock_lots')
+            ->where('real_stock_id', $realStockId)
+            ->pluck(DB::raw("CONCAT(COALESCE(floor_id,'null'),'|',COALESCE(location_id,'null'))"), 'id')
+            ->map(fn ($v) => (string) $v)
+            ->all();
+    }
+
+    /**
+     * 棚番ガード: 既存LOTの floor_id/location_id が変わっていないか検査。
+     * 違反があれば理由文字列、なければ null。
+     */
+    private function locationGuardViolation(int $realStockId, array $snapshot): ?string
+    {
+        $after = $this->locationSnapshot($realStockId);
+
+        foreach ($snapshot as $lotId => $before) {
+            $now = $after[$lotId] ?? null;
+            if ($now !== null && $now !== $before) {
+                return "LOT {$lotId} の棚番が変化 ({$before} -> {$now})";
+            }
+        }
+
+        return null;
+    }
+
+    private function summarize(array $details): array
+    {
+        $count = fn (string $type) => count(array_filter($details, fn ($d) => ($d['type'] ?? null) === $type));
+
+        return [
+            'offset' => $count('OFFSET'),
+            'reactivate' => $count('REACTIVATE'),
+            'repoint' => $count('REPOINT'),
+            'sync_detected' => $count('SYNC_DETECTED'),
+            'skipped' => $count('SKIP'),
+            'location_aborted' => $count('LOCATION_ABORTED'),
+        ];
+    }
+}
