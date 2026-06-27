@@ -16,6 +16,10 @@ use App\Models\Sakemaru\RealStockLot;
  *
  * 棚番事故防止のため、別の 0/0 DEPLETED LOT を ACTIVE 化して数量を寄せることはしない。
  * floor_id / location_id は変更しない。
+ *
+ * 注: 本サービスは Runner で A（相殺）の後段に実行される。そのため「負ACTIVEロット ＋
+ * 非ACTIVE正残数」が同居する real_stock では、A 実行時点で正残数はまだ非ACTIVE のため
+ * 相殺に使われない（過剰補正を避ける保守的動作）。必要なら再実行で次段が処理する。
  */
 class LotResidualReactivationService
 {

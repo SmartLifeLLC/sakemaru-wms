@@ -91,6 +91,9 @@ class StlaReferenceRepairService
             'old_lot_id' => (int) $candidate->old_lot_id,
             'new_lot_id' => (int) $candidate->new_lot_id,
             'location_id' => $candidate->new_location_id !== null ? (int) $candidate->new_location_id : null,
+            'quantity' => (int) $candidate->quantity,
+            'new_lot_current' => $candidate->new_lot_current,
+            'quantity_sufficient' => $candidate->quantity_sufficient,
             'reason' => 'NEGATIVE_LOT_REPOINT',
         ];
     }
@@ -111,6 +114,8 @@ class StlaReferenceRepairService
             'warehouse_id' => (int) $row->warehouse_id,
             'new_lot_id' => null,
             'new_location_id' => null,
+            'new_lot_current' => null,
+            'quantity_sufficient' => null,
             'eligible' => false,
             'skip_reason' => null,
         ];
@@ -160,6 +165,10 @@ class StlaReferenceRepairService
         $newLot = $candidates->first();
         $base['new_lot_id'] = (int) $newLot->id;
         $base['new_location_id'] = $newLot->location_id !== null ? (int) $newLot->location_id : null;
+        // 付け替え先LOTの在庫が stla.quantity を満たすか（満たさなくても repoint 自体は行う＝§4.1。
+        // 運用者がプレビューで部分不足を判断できるよう情報として保持する）。
+        $base['new_lot_current'] = (int) $newLot->current_quantity;
+        $base['quantity_sufficient'] = (int) $newLot->current_quantity >= (int) $row->quantity;
         $base['eligible'] = true;
 
         return $base;

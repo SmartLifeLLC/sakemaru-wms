@@ -77,7 +77,8 @@ class LotAdjustmentRunner
             'warehouse_id' => $warehouseId,
             'scope' => ['warehouse_id' => $warehouseId],
             'summary' => $summary,
-            'affected_count' => $apply ? $affected : 0,
+            // DRY_RUN でも「適用されるはずの件数」を履歴に残す（mode で区別）。
+            'affected_count' => $affected,
             'details' => $details,
         ]);
 

@@ -24,13 +24,14 @@ class LotParentSyncDetector
             ->leftJoin('real_stock_lots as l', 'l.real_stock_id', '=', 'rs.id')
             ->where('rs.warehouse_id', $warehouseId)
             ->groupBy('rs.id', 'rs.current_quantity', 'rs.reserved_quantity')
-            ->havingRaw('rs.current_quantity <> COALESCE(SUM(CASE WHEN l.status = ? THEN l.current_quantity END), 0)
-                      OR rs.reserved_quantity <> COALESCE(SUM(CASE WHEN l.status = ? THEN l.reserved_quantity END), 0)', ['ACTIVE', 'ACTIVE'])
-            ->selectRaw('rs.id as real_stock_id,
+            // 'ACTIVE' は固定定数のためインライン（バインド順序依存を排除）。
+            ->havingRaw("rs.current_quantity <> COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' THEN l.current_quantity END), 0)
+                      OR rs.reserved_quantity <> COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' THEN l.reserved_quantity END), 0)")
+            ->selectRaw("rs.id as real_stock_id,
                 rs.current_quantity as parent_current,
                 rs.reserved_quantity as parent_reserved,
-                COALESCE(SUM(CASE WHEN l.status = ? THEN l.current_quantity END), 0) as active_current,
-                COALESCE(SUM(CASE WHEN l.status = ? THEN l.reserved_quantity END), 0) as active_reserved', ['ACTIVE', 'ACTIVE'])
+                COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' THEN l.current_quantity END), 0) as active_current,
+                COALESCE(SUM(CASE WHEN l.status = 'ACTIVE' THEN l.reserved_quantity END), 0) as active_reserved")
             ->orderBy('rs.id')
             ->get();
 
