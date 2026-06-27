@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasOptimizedFilters;
 use App\Models\User;
 use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderJxDocument;
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\Storage;
 
 class WmsOrderDocumentsTable
 {
+    use HasOptimizedFilters;
+
     /**
      * メッセージIDでXMLファイルを検索（S3）
      */
@@ -200,9 +203,7 @@ class WmsOrderDocumentsTable
                     ->options(fn () => collect(TransmissionDocumentStatus::cases())
                         ->mapWithKeys(fn ($s) => [$s->value => $s->getLabel()])),
 
-                SelectFilter::make('contractor_id')
-                    ->label('発注先')
-                    ->relationship('contractor', 'name'),
+                static::contractorFilter(),
             ])
             ->recordActions([
                 Action::make('download')
