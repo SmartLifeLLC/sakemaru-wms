@@ -1,15 +1,6 @@
 <x-filament-panels::page>
     @php
-        $typeLabels = [
-            'OFFSET' => ['label' => '相殺', 'class' => 'bg-blue-100 text-blue-700'],
-            'REACTIVATE' => ['label' => '再ACTIVE化', 'class' => 'bg-green-100 text-green-700'],
-            'REPOINT' => ['label' => 'STLA修正', 'class' => 'bg-indigo-100 text-indigo-700'],
-            'SYNC_DETECTED' => ['label' => '不一致(検出のみ)', 'class' => 'bg-amber-100 text-amber-700'],
-            'MULTI_SHELF' => ['label' => '複数棚番(検出のみ)', 'class' => 'bg-orange-100 text-orange-700'],
-            'BLANK_LOCATION' => ['label' => '空棚番(検出のみ)', 'class' => 'bg-pink-100 text-pink-700'],
-            'SKIP' => ['label' => 'スキップ', 'class' => 'bg-gray-100 text-gray-600'],
-            'LOCATION_ABORTED' => ['label' => '棚番保護で中止', 'class' => 'bg-red-100 text-red-700'],
-        ];
+        $log = \App\Models\WmsLotAdjustmentLog::class;
         $summary = $result['summary'] ?? null;
         $details = $result['details'] ?? [];
         $maxRows = 300;
@@ -46,7 +37,7 @@
             </x-slot>
 
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
-                @foreach (['offset' => '相殺', 'reactivate' => '再ACTIVE化', 'repoint' => 'STLA修正', 'sync_detected' => '不一致検出', 'multi_shelf' => '複数棚番', 'blank_location' => '空棚番', 'skipped' => 'スキップ', 'location_aborted' => '棚番中止'] as $key => $jp)
+                @foreach (['offset' => '相殺', 'reactivate' => '再ACTIVE化', 'zero_residual' => '残数0化', 'sync_applied' => '在庫数合わせ', 'sync_manual' => '合わせ要手動', 'repoint' => 'STLA修正', 'multi_shelf' => '複数棚番', 'blank_location' => '空棚番', 'skipped' => 'スキップ'] as $key => $jp)
                     <div class="rounded-lg border border-gray-200 p-3 text-center dark:border-gray-700">
                         <div class="text-xs text-gray-500">{{ $jp }}</div>
                         <div class="text-2xl font-bold text-gray-800 dark:text-gray-100">{{ $summary[$key] ?? 0 }}</div>
@@ -83,10 +74,9 @@
                     </thead>
                     <tbody>
                         @foreach (array_slice($details, 0, $maxRows) as $d)
-                            @php $t = $typeLabels[$d['type'] ?? 'SKIP'] ?? ['label' => $d['type'] ?? '', 'class' => 'bg-gray-100 text-gray-600']; @endphp
                             <tr class="border-b border-gray-100 dark:border-gray-800">
                                 <td class="px-2 py-1">
-                                    <span class="rounded px-2 py-0.5 text-xs {{ $t['class'] }}">{{ $t['label'] }}</span>
+                                    <span class="rounded px-2 py-0.5 text-xs {{ $log::typeBadgeClass($d['type'] ?? null) }}">{{ $log::typeLabel($d['type'] ?? null) }}</span>
                                 </td>
                                 <td class="px-2 py-1">{{ $d['real_stock_id'] ?? '-' }}</td>
                                 <td class="px-2 py-1">
@@ -108,7 +98,7 @@
                                     {{ $d['status_before'] ?? '' }}{{ isset($d['status_after']) ? ' → '.$d['status_after'] : '' }}
                                 </td>
                                 <td class="px-2 py-1 text-xs">{{ $d['location_id'] ?? '' }}</td>
-                                <td class="px-2 py-1 text-xs text-gray-500">{{ $d['reason'] ?? '' }}</td>
+                                <td class="px-2 py-1 text-xs text-gray-500">{{ $log::reasonLabel($d['reason'] ?? null) }}</td>
                             </tr>
                         @endforeach
                     </tbody>

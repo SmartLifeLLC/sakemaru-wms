@@ -24,13 +24,13 @@ class LotAdjustmentRunner
         private ?LotPlusMinusOffsetService $offsetService = null,
         private ?LotResidualReactivationService $reactivationService = null,
         private ?StlaReferenceRepairService $stlaService = null,
-        private ?LotParentSyncDetector $syncDetector = null,
+        private ?LotParentSyncService $syncService = null,
         private ?MultiShelfDetector $multiShelfDetector = null,
     ) {
         $this->offsetService ??= new LotPlusMinusOffsetService;
         $this->reactivationService ??= new LotResidualReactivationService;
         $this->stlaService ??= new StlaReferenceRepairService;
-        $this->syncDetector ??= new LotParentSyncDetector;
+        $this->syncService ??= new LotParentSyncService;
         $this->multiShelfDetector ??= new MultiShelfDetector;
     }
 
@@ -65,16 +65,13 @@ class LotAdjustmentRunner
             }
         }
 
-        // C（real_stocks 不一致・検出のみ）
-        $details = array_merge($details, $this->syncDetector->detectForWarehouse($warehouseId));
-
         // 複数棚番・空棚番（検出のみ・自動統一はしない）
         $details = array_merge($details, $this->multiShelfDetector->detectForWarehouse($warehouseId));
 
         $summary = $this->summarize($details);
         $affected = count(array_filter(
             $details,
-            fn ($d) => in_array($d['type'] ?? null, ['OFFSET', 'REACTIVATE', 'REPOINT'], true)
+            fn ($d) => in_array($d['type'] ?? null, ['OFFSET', 'REACTIVATE', 'ZERO_RESIDUAL', 'SYNC_APPLIED', 'REPOINT'], true)
         ));
 
         $log = WmsLotAdjustmentLog::record($apply ? 'APPLIED' : 'DRY_RUN', [
@@ -110,6 +107,8 @@ class LotAdjustmentRunner
             $changes = array_merge(
                 $this->offsetService->applyForRealStock($realStockId),
                 $this->reactivationService->applyForRealStock($realStockId),
+                // C: ACTIVE 合計を real_stocks へ合わせる（単一 ACTIVE LOT のときのみ自動）
+                $this->syncService->applyForRealStock($realStockId),
             );
 
             $violation = $this->locationGuardViolation($realStockId, $snapshot);
@@ -200,7 +199,18 @@ class LotAdjustmentRunner
             ->distinct()
             ->pluck('l.real_stock_id');
 
-        return $offset->merge($residual)->unique()->map(fn ($v) => (int) $v)->values()->all();
+        // C: 親 real_stocks と ACTIVE 合計が不一致の real_stock も対象に含める
+        $mismatch = DB::connection($this->conn)
+            ->table('real_stocks as rs')
+            ->leftJoin('real_stock_lots as l', function ($j) {
+                $j->on('l.real_stock_id', '=', 'rs.id')->where('l.status', '=', 'ACTIVE');
+            })
+            ->where('rs.warehouse_id', $warehouseId)
+            ->groupBy('rs.id', 'rs.current_quantity', 'rs.reserved_quantity')
+            ->havingRaw('rs.current_quantity <> COALESCE(SUM(l.current_quantity),0) OR rs.reserved_quantity <> COALESCE(SUM(l.reserved_quantity),0)')
+            ->pluck('rs.id');
+
+        return $offset->merge($residual)->merge($mismatch)->unique()->map(fn ($v) => (int) $v)->values()->all();
     }
 
     /**
@@ -243,8 +253,10 @@ class LotAdjustmentRunner
         return [
             'offset' => $count('OFFSET'),
             'reactivate' => $count('REACTIVATE'),
+            'zero_residual' => $count('ZERO_RESIDUAL'),
             'repoint' => $count('REPOINT'),
-            'sync_detected' => $count('SYNC_DETECTED'),
+            'sync_applied' => $count('SYNC_APPLIED'),
+            'sync_manual' => $count('SYNC_MANUAL'),
             'multi_shelf' => $count('MULTI_SHELF'),
             'blank_location' => $count('BLANK_LOCATION'),
             'skipped' => $count('SKIP'),

@@ -79,6 +79,28 @@ class LotResidualReactivationService
                     'location_id' => $lot->location_id !== null ? (int) $lot->location_id : null,
                     'reason' => 'REACTIVATE_SAME_LOT',
                 ];
+            } elseif ($classification === 'ZERO_ABNORMAL_RESIDUAL') {
+                // 親在庫が既に ACTIVE 合計と一致しており、非ACTIVE LOT に余剰数量が残っている異常残。
+                // 0/0 DEPLETED に落とす。棚番は維持し DELETED にはしない（棚番喪失を防ぐ）。
+                $before = ['current' => (int) $lot->current_quantity, 'reserved' => (int) $lot->reserved_quantity, 'status' => $lot->status];
+                $lot->current_quantity = 0;
+                $lot->reserved_quantity = 0;
+                $lot->status = RealStockLot::STATUS_DEPLETED;
+                $lot->save();
+
+                $changes[] = [
+                    'type' => 'ZERO_RESIDUAL',
+                    'real_stock_id' => $realStockId,
+                    'lot_id' => (int) $lot->id,
+                    'status_before' => $before['status'],
+                    'status_after' => $lot->status,
+                    'current_before' => $before['current'],
+                    'current_after' => 0,
+                    'reserved_before' => $before['reserved'],
+                    'reserved_after' => 0,
+                    'location_id' => $lot->location_id !== null ? (int) $lot->location_id : null,
+                    'reason' => 'ZERO_ABNORMAL_RESIDUAL',
+                ];
             } else {
                 $changes[] = [
                     'type' => 'SKIP',
@@ -100,29 +122,36 @@ class LotResidualReactivationService
     }
 
     /**
-     * 非ACTIVE残数LOTの分類。自動適用してよいのは REACTIVATE_SAME_LOT のみ。
+     * 非ACTIVE残数LOTの分類。
+     * - REACTIVATE_SAME_LOT   : ACTIVE化で親在庫へ近づく（棚番・仕入根拠あり）
+     * - ZERO_ABNORMAL_RESIDUAL: 親在庫が既に ACTIVE 合計と一致し、余剰の current のみ残る異常残 → 0/0 DEPLETED
+     * - MANUAL_REQUIRED        : 上記以外（予約残・負残・超過・根拠不足）
      */
     private function classify(RealStockLot $lot, int $parentCurrent, int $activeSum): string
     {
-        // 予約残のある非ACTIVE、負数残、棚番なし、仕入根拠なしは自動判断しない
+        // 予約残のある非ACTIVE、負数残は自動で触らない
         if ((int) $lot->reserved_quantity !== 0) {
             return 'MANUAL_REQUIRED';
         }
         if ((int) $lot->current_quantity <= 0) {
             return 'MANUAL_REQUIRED';
         }
-        if ($lot->location_id === null) {
-            return 'MANUAL_REQUIRED';
-        }
-        if ($lot->purchase_id === null) {
-            return 'MANUAL_REQUIRED';
-        }
 
-        // ACTIVE化で親在庫へ近づく場合のみ自動適用（オーバーシュートしない）
         $oldDiff = abs($parentCurrent - $activeSum);
         $newDiff = abs($parentCurrent - ($activeSum + (int) $lot->current_quantity));
+
+        // 不足を埋める方向に近づくなら ACTIVE 化（棚番・仕入根拠が必要）
         if ($newDiff < $oldDiff) {
+            if ($lot->location_id === null || $lot->purchase_id === null) {
+                return 'MANUAL_REQUIRED';
+            }
+
             return 'REACTIVATE_SAME_LOT';
+        }
+
+        // 親が既に ACTIVE 合計と一致しているのに current 残がある＝余剰の異常残 → 0/0 DEPLETED
+        if ($oldDiff === 0) {
+            return 'ZERO_ABNORMAL_RESIDUAL';
         }
 
         return 'MANUAL_REQUIRED';
