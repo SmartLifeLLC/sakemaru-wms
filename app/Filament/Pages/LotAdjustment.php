@@ -34,6 +34,9 @@ class LotAdjustment extends AdminPage
 
     public ?string $resultMode = null;
 
+    /** プレビューを実行した対象倉庫（APPLY ガード用） */
+    public ?int $previewWarehouseId = null;
+
     public static function getNavigationGroup(): ?string
     {
         return EMenu::WAVE_MANAGEMENT_ADJUST_LOT->category()->label();
@@ -65,6 +68,42 @@ class LotAdjustment extends AdminPage
         $this->warehouseName = Warehouse::query()->whereKey($this->warehouseId)->value('name');
     }
 
+    protected function currentWarehouseId(): int
+    {
+        return auth()->user()?->getSelectedWarehouseId() ?? 91;
+    }
+
+    /**
+     * APPLY 可能条件:
+     * - 直近プレビューが存在する
+     * - resultMode === 'DRY_RUN'
+     * - プレビュー対象倉庫と現在の選択倉庫が一致する
+     * （再読込で result が消える/倉庫変更で不一致 → 実行不可）
+     */
+    public function canApply(): bool
+    {
+        return $this->result !== null
+            && $this->resultMode === 'DRY_RUN'
+            && $this->previewWarehouseId !== null
+            && $this->previewWarehouseId === $this->currentWarehouseId();
+    }
+
+    protected function previewSummaryLine(): string
+    {
+        $s = $this->result['summary'] ?? [];
+
+        return sprintf(
+            '相殺 %d / 再ACTIVE %d / STLA修正 %d / 不一致検出 %d / SKIP %d / 棚番中止 %d（適用予定 %d 件）',
+            $s['offset'] ?? 0,
+            $s['reactivate'] ?? 0,
+            $s['repoint'] ?? 0,
+            $s['sync_detected'] ?? 0,
+            $s['skipped'] ?? 0,
+            $s['location_aborted'] ?? 0,
+            $this->result['affected_count'] ?? 0,
+        );
+    }
+
     protected function getHeaderActions(): array
     {
         return [
@@ -76,6 +115,7 @@ class LotAdjustment extends AdminPage
                     $this->resolveWarehouse();
                     $this->result = app(LotAdjustmentRunner::class)->run($this->warehouseId, false);
                     $this->resultMode = 'DRY_RUN';
+                    $this->previewWarehouseId = $this->warehouseId;
 
                     Notification::make()
                         ->title('プレビューを生成しました（在庫は変更していません）')
@@ -87,17 +127,30 @@ class LotAdjustment extends AdminPage
                 ->label('調節を実行')
                 ->icon('heroicon-o-play')
                 ->color('danger')
+                ->disabled(fn (): bool => ! $this->canApply())
                 ->requiresConfirmation()
                 ->modalIcon('heroicon-o-exclamation-triangle')
                 ->modalHeading('ロット調節の実行')
-                ->modalDescription(fn () => "倉庫「{$this->warehouseName}」のロット調節（相殺・非ACTIVE再ACTIVE化・STLA参照修正）を適用します。実行前にプレビューで内容をご確認ください。棚番は変更されません。")
+                ->modalDescription(fn () => "倉庫「{$this->warehouseName}」に対し、プレビュー結果を適用します。棚番（floor/location）は変更されません。\n\nプレビュー内訳: ".$this->previewSummaryLine())
                 ->modalSubmitActionLabel('実行する')
                 ->modalCancelActionLabel('実行せず閉じる')
                 ->modalFooterActionsAlignment(Alignment::End)
                 ->action(function (): void {
-                    $this->resolveWarehouse();
+                    // 実行直前の必須ガード再検証（プレビュー無し/倉庫不一致/再読込は拒否）
+                    if (! $this->canApply()) {
+                        Notification::make()
+                            ->title('実行できません')
+                            ->body('プレビュー未実施、または倉庫が変更されています。再度プレビューしてください。')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
                     $this->result = app(LotAdjustmentRunner::class)->run($this->warehouseId, true);
                     $this->resultMode = 'APPLIED';
+                    // 再適用防止: 実行後はプレビューを無効化（再実行には新たなプレビューが必要）
+                    $this->previewWarehouseId = null;
 
                     Notification::make()
                         ->title('ロット調節を実行しました')

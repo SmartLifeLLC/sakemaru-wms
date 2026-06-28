@@ -4,6 +4,8 @@
         'REACTIVATE' => ['label' => '再ACTIVE化', 'class' => 'bg-green-100 text-green-700'],
         'REPOINT' => ['label' => 'STLA修正', 'class' => 'bg-indigo-100 text-indigo-700'],
         'SYNC_DETECTED' => ['label' => '不一致(検出のみ)', 'class' => 'bg-amber-100 text-amber-700'],
+        'MULTI_SHELF' => ['label' => '複数棚番(検出のみ)', 'class' => 'bg-orange-100 text-orange-700'],
+        'BLANK_LOCATION' => ['label' => '空棚番(検出のみ)', 'class' => 'bg-pink-100 text-pink-700'],
         'SKIP' => ['label' => 'スキップ', 'class' => 'bg-gray-100 text-gray-600'],
         'LOCATION_ABORTED' => ['label' => '棚番保護で中止', 'class' => 'bg-red-100 text-red-700'],
     ];
@@ -18,8 +20,8 @@
         ／ 倉庫ID {{ $record->warehouse_id }} ／ 適用 {{ $record->affected_count }} 件
     </div>
 
-    <div class="grid grid-cols-3 gap-2 sm:grid-cols-6">
-        @foreach (['offset' => '相殺', 'reactivate' => '再ACTIVE化', 'repoint' => 'STLA修正', 'sync_detected' => '不一致検出', 'skipped' => 'スキップ', 'location_aborted' => '棚番中止'] as $key => $jp)
+    <div class="grid grid-cols-4 gap-2 sm:grid-cols-8">
+        @foreach (['offset' => '相殺', 'reactivate' => '再ACTIVE化', 'repoint' => 'STLA修正', 'sync_detected' => '不一致検出', 'multi_shelf' => '複数棚番', 'blank_location' => '空棚番', 'skipped' => 'スキップ', 'location_aborted' => '棚番中止'] as $key => $jp)
             <div class="rounded border border-gray-200 p-2 text-center dark:border-gray-700">
                 <div class="text-xs text-gray-500">{{ $jp }}</div>
                 <div class="text-lg font-bold">{{ $summary[$key] ?? 0 }}</div>

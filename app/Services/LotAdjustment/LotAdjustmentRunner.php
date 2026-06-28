@@ -25,11 +25,13 @@ class LotAdjustmentRunner
         private ?LotResidualReactivationService $reactivationService = null,
         private ?StlaReferenceRepairService $stlaService = null,
         private ?LotParentSyncDetector $syncDetector = null,
+        private ?MultiShelfDetector $multiShelfDetector = null,
     ) {
         $this->offsetService ??= new LotPlusMinusOffsetService;
         $this->reactivationService ??= new LotResidualReactivationService;
         $this->stlaService ??= new StlaReferenceRepairService;
         $this->syncDetector ??= new LotParentSyncDetector;
+        $this->multiShelfDetector ??= new MultiShelfDetector;
     }
 
     /**
@@ -63,8 +65,11 @@ class LotAdjustmentRunner
             }
         }
 
-        // C（検出のみ）
+        // C（real_stocks 不一致・検出のみ）
         $details = array_merge($details, $this->syncDetector->detectForWarehouse($warehouseId));
+
+        // 複数棚番・空棚番（検出のみ・自動統一はしない）
+        $details = array_merge($details, $this->multiShelfDetector->detectForWarehouse($warehouseId));
 
         $summary = $this->summarize($details);
         $affected = count(array_filter(
@@ -147,7 +152,8 @@ class LotAdjustmentRunner
         $conn->beginTransaction();
         try {
             $change = $this->stlaService->applyRepoint($candidate);
-            if ($apply) {
+            // 実際に repoint された場合のみ commit。SKIP（競合・WMS行）や 0 件更新は commit しない。
+            if ($apply && ($change['type'] ?? '') === 'REPOINT') {
                 $conn->commit();
             } else {
                 $conn->rollBack();
@@ -239,6 +245,8 @@ class LotAdjustmentRunner
             'reactivate' => $count('REACTIVATE'),
             'repoint' => $count('REPOINT'),
             'sync_detected' => $count('SYNC_DETECTED'),
+            'multi_shelf' => $count('MULTI_SHELF'),
+            'blank_location' => $count('BLANK_LOCATION'),
             'skipped' => $count('SKIP'),
             'location_aborted' => $count('LOCATION_ABORTED'),
         ];

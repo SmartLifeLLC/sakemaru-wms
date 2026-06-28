@@ -70,10 +70,18 @@ class StlaReferenceRepairService
 
     /**
      * 1件の repoint を適用（eligible 前提）。stla.from_real_stock_lot_id を new_lot_id へ更新。
+     *
+     * - APPLY 直前に WMS 行存在を再チェック（プレビュー後に予約等が作られた場合に備える）。
+     * - update() の影響行数が 1 の時だけ REPOINT 成功。0 件は SKIP（競合変更）扱いとし、成功ログにしない。
      */
     public function applyRepoint(object $candidate): array
     {
-        DB::connection($this->conn)
+        // APPLY 直前の WMS 行再チェック
+        if ($this->hasWmsRows((int) $candidate->stock_transfer_id, (int) $candidate->trade_item_id)) {
+            return $this->repointSkip($candidate, 'WMS_ROWS_EXIST_AT_APPLY');
+        }
+
+        $affected = DB::connection($this->conn)
             ->table('stock_transfer_lot_allocations')
             ->where('id', $candidate->stla_id)
             ->where('from_real_stock_lot_id', $candidate->old_lot_id) // 楽観的整合
@@ -82,6 +90,10 @@ class StlaReferenceRepairService
                 'from_real_stock_lot_id' => $candidate->new_lot_id,
                 'updated_at' => now(),
             ]);
+
+        if ($affected !== 1) {
+            return $this->repointSkip($candidate, 'SKIP_CONCURRENTLY_CHANGED');
+        }
 
         return [
             'type' => 'REPOINT',
@@ -94,7 +106,21 @@ class StlaReferenceRepairService
             'quantity' => (int) $candidate->quantity,
             'new_lot_current' => $candidate->new_lot_current,
             'quantity_sufficient' => $candidate->quantity_sufficient,
+            'affected_rows' => $affected,
             'reason' => 'NEGATIVE_LOT_REPOINT',
+        ];
+    }
+
+    private function repointSkip(object $candidate, string $reason): array
+    {
+        return [
+            'type' => 'SKIP',
+            'real_stock_id' => (int) $candidate->real_stock_id,
+            'lot_id' => null,
+            'stla_id' => (int) $candidate->stla_id,
+            'old_lot_id' => (int) $candidate->old_lot_id,
+            'new_lot_id' => null,
+            'reason' => 'STLA_'.$reason,
         ];
     }
 
