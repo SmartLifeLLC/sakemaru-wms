@@ -88,20 +88,30 @@ class LotAdjustment extends AdminPage
             && $this->previewWarehouseId === $this->currentWarehouseId();
     }
 
-    protected function previewSummaryLine(): string
+    /** summary 配列を全項目の日本語1行に整形 */
+    protected function summaryLine(array $s): string
     {
-        $s = $this->result['summary'] ?? [];
+        $g = fn (string $k) => (int) ($s[$k] ?? 0);
 
         return sprintf(
-            '相殺 %d / 再ACTIVE %d / STLA修正 %d / 不一致検出 %d / SKIP %d / 棚番中止 %d（適用予定 %d 件）',
-            $s['offset'] ?? 0,
-            $s['reactivate'] ?? 0,
-            $s['repoint'] ?? 0,
-            $s['sync_detected'] ?? 0,
-            $s['skipped'] ?? 0,
-            $s['location_aborted'] ?? 0,
-            $this->result['affected_count'] ?? 0,
+            '相殺 %d / 再ACTIVE %d / 残数0化 %d / 在庫数合わせ %d / 合わせ要手動 %d / STLA修正 %d / 複数棚番 %d / 空棚番 %d / SKIP %d / 棚番中止 %d',
+            $g('offset'),
+            $g('reactivate'),
+            $g('zero_residual'),
+            $g('sync_applied'),
+            $g('sync_manual'),
+            $g('repoint'),
+            $g('multi_shelf'),
+            $g('blank_location'),
+            $g('skipped'),
+            $g('location_aborted'),
         );
+    }
+
+    protected function previewSummaryLine(): string
+    {
+        return $this->summaryLine($this->result['summary'] ?? [])
+            .'（適用予定 '.($this->result['affected_count'] ?? 0).' 件）';
     }
 
     protected function getHeaderActions(): array
@@ -153,11 +163,8 @@ class LotAdjustment extends AdminPage
                     $this->previewWarehouseId = null;
 
                     Notification::make()
-                        ->title('ロット調節を実行しました')
-                        ->body("適用 {$this->result['affected_count']} 件 / "
-                            .'相殺'.$this->result['summary']['offset']
-                            .'・再ACTIVE'.$this->result['summary']['reactivate']
-                            .'・STLA修正'.$this->result['summary']['repoint'])
+                        ->title("ロット調節を実行しました（適用 {$this->result['affected_count']} 件）")
+                        ->body($this->summaryLine($this->result['summary'] ?? []))
                         ->success()
                         ->send();
                 }),

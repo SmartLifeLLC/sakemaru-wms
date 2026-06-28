@@ -9,9 +9,10 @@ use Illuminate\Support\Str;
 /**
  * ロット調節の実行オーケストレーション。
  *
- * - A（相殺）/ B（§3.3 再ACTIVE化）を real_stock 単位のトランザクションで適用。
+ * - A（相殺）/ B（§3.3 再ACTIVE化）/ C（real_stocks 合わせ）を real_stock 単位のトランザクションで適用。
+ *   C は単一 ACTIVE LOT のときのみ自動（SYNC_APPLIED）、複数/0個は SYNC_MANUAL（検出のみ）。
  * - D（STLA repoint）を候補単位のトランザクションで適用。
- * - C は検出のみ（SYNC_DETECTED）。
+ * - 複数棚番・空棚番（MultiShelfDetector）は検出のみ・自動統一しない。
  * - 各 real_stock で棚番ガード（floor_id/location_id 不変）をアサートし、違反時はその単位のみロールバック。
  * - DRY_RUN はトランザクションをロールバックして「適用された場合の変更」を返す。
  * - 実行結果は wms_lot_adjustment_logs に1レコードとして記録する。

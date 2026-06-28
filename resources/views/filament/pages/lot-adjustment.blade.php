@@ -15,7 +15,8 @@
         <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
             上部の倉庫セレクタで対象倉庫を切り替えられます。<br>
             「プレビュー」で変更内容を確認 → 「調節を実行」で適用します。<strong>棚番（floor/location）は変更しません。</strong>
-            C（real_stocks 同期）は今回は検出のみです。
+            real_stocks 同期は <strong>単一 ACTIVE LOT のときのみ</strong>親在庫に合わせます（複数/0個は「合わせ要手動」として検出のみ）。
+            複数棚番・空棚番は検出のみで自動統一はしません。
         </div>
     </x-filament::section>
 
