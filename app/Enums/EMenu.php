@@ -96,6 +96,10 @@ enum EMenu: string
     case TEST_DATA_GENERATOR = 'test_data.generator';
     case JX_TEST_DATA = 'test_data.jx_test_data';
 
+    // 波動管理
+    case WAVE_MANAGEMENT_ADJUST_LOT = 'wave_management.adjust_lot';
+    case WAVE_MANAGEMENT_ADJUST_LOT_HISTORY = 'wave_management.adjust_lot_history';
+
     public function category(): EMenuCategory
     {
         return match ($this) {
@@ -184,6 +188,9 @@ enum EMenu: string
 
             self::TEST_DATA_GENERATOR => EMenuCategory::TEST_DATA,
             self::JX_TEST_DATA => EMenuCategory::TEST_DATA,
+
+            self::WAVE_MANAGEMENT_ADJUST_LOT,
+            self::WAVE_MANAGEMENT_ADJUST_LOT_HISTORY => EMenuCategory::WAVE_MANAGEMENT,
         };
     }
 
@@ -269,6 +276,9 @@ enum EMenu: string
 
             self::TEST_DATA_GENERATOR => 'テストデータ生成',
             self::JX_TEST_DATA => 'JXテストデータ',
+
+            self::WAVE_MANAGEMENT_ADJUST_LOT => 'ロット調節',
+            self::WAVE_MANAGEMENT_ADJUST_LOT_HISTORY => 'ロット調節履歴',
         };
     }
 
@@ -353,6 +363,9 @@ enum EMenu: string
 
             self::TEST_DATA_GENERATOR => 'heroicon-o-beaker',
             self::JX_TEST_DATA => 'heroicon-o-server',
+
+            self::WAVE_MANAGEMENT_ADJUST_LOT => 'heroicon-o-adjustments-horizontal',
+            self::WAVE_MANAGEMENT_ADJUST_LOT_HISTORY => 'heroicon-o-clock',
         };
     }
 
@@ -456,6 +469,9 @@ enum EMenu: string
             // テストデータ
             self::TEST_DATA_GENERATOR => 1,
             self::JX_TEST_DATA => 2,
+
+            self::WAVE_MANAGEMENT_ADJUST_LOT => 1,
+            self::WAVE_MANAGEMENT_ADJUST_LOT_HISTORY => 2,
         };
     }
 }

@@ -426,6 +426,7 @@ class MegaMenuBuilder
                 'icon' => 'fa-cogs',
                 'categories' => [
                     EMenuCategory::ORDER_TRANSMISSION,
+                    EMenuCategory::WAVE_MANAGEMENT,
                     EMenuCategory::SETTINGS,
                     EMenuCategory::TEST_DATA,
                 ],

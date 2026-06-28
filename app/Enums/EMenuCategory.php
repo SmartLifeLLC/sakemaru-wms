@@ -21,6 +21,7 @@ enum EMenuCategory: string
     case LOGS = 'logs';
     case TEST_DATA = 'test_data';
     case GUIDE_ORDER = 'guide_order';
+    case WAVE_MANAGEMENT = 'wave_management';
 
     public function label(): string
     {
@@ -42,6 +43,7 @@ enum EMenuCategory: string
             self::LOGS => 'ログ',
             self::TEST_DATA => 'テストデータ',
             self::GUIDE_ORDER => '発注',
+            self::WAVE_MANAGEMENT => '波動管理',
         };
     }
 
@@ -65,6 +67,7 @@ enum EMenuCategory: string
             self::LOGS => 'heroicon-o-document-magnifying-glass',
             self::TEST_DATA => 'heroicon-o-beaker',
             self::GUIDE_ORDER => 'heroicon-o-shopping-cart',
+            self::WAVE_MANAGEMENT => 'heroicon-o-adjustments-horizontal',
         };
     }
 
@@ -84,6 +87,7 @@ enum EMenuCategory: string
             self::MASTER_ORDER => 11,
             self::MASTER_PICKING => 12,
             self::STATISTICS => 13,
+            self::WAVE_MANAGEMENT => 96,
             self::LOGS => 97,
             self::SETTINGS => 98,
             self::TEST_DATA => 99, // Last
