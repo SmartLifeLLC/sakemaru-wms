@@ -33,13 +33,13 @@ class WmsLotAdjustmentLogsTable
 
                 TextColumn::make('summary')
                     ->label('内訳')
-                    ->tooltip('相殺 / 再ACTIVE / 残数0化 / 在庫数合わせ / STLA修正 / 複数棚番 / 空棚番 / SKIP')
+                    ->tooltip('相殺 / 再ACTIVE / 残数0化 / 在庫数合わせ / STLA修正 / 複数棚番 / 空棚番 / RSLE再利用 / RSLE(WMS行) / SKIP')
                     ->formatStateUsing(function ($state): string {
                         $s = is_array($state) ? $state : (json_decode($state ?? '[]', true) ?: []);
                         $g = fn (string $k) => (int) ($s[$k] ?? 0);
 
                         return sprintf(
-                            '相殺%d / 再ACT%d / 0化%d / 合わせ%d / STLA%d / 複数棚%d / 空棚%d / SKIP%d',
+                            '相殺%d / 再ACT%d / 0化%d / 合わせ%d / STLA%d / 複数棚%d / 空棚%d / RSLE%d / RSLE-W%d / SKIP%d',
                             $g('offset'),
                             $g('reactivate'),
                             $g('zero_residual'),
@@ -47,6 +47,8 @@ class WmsLotAdjustmentLogsTable
                             $g('repoint'),
                             $g('multi_shelf'),
                             $g('blank_location'),
+                            $g('reserved_reuse_risk'),
+                            $g('reserved_reuse_wms_exists'),
                             $g('skipped'),
                         );
                     }),

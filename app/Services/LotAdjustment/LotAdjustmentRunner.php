@@ -27,12 +27,14 @@ class LotAdjustmentRunner
         private ?StlaReferenceRepairService $stlaService = null,
         private ?LotParentSyncService $syncService = null,
         private ?MultiShelfDetector $multiShelfDetector = null,
+        private ?RsleReuseRiskDetector $rsleReuseRiskDetector = null,
     ) {
         $this->offsetService ??= new LotPlusMinusOffsetService;
         $this->reactivationService ??= new LotResidualReactivationService;
         $this->stlaService ??= new StlaReferenceRepairService;
         $this->syncService ??= new LotParentSyncService;
         $this->multiShelfDetector ??= new MultiShelfDetector;
+        $this->rsleReuseRiskDetector ??= new RsleReuseRiskDetector;
     }
 
     /**
@@ -68,6 +70,9 @@ class LotAdjustmentRunner
 
         // 複数棚番・空棚番（検出のみ・自動統一はしない）
         $details = array_merge($details, $this->multiShelfDetector->detectForWarehouse($warehouseId));
+
+        // RSLE 再利用リスク（検出のみ・APPLYでもRSLEをCANCELしない）
+        $details = array_merge($details, $this->rsleReuseRiskDetector->detectForWarehouse($warehouseId));
 
         $summary = $this->summarize($details);
         $affected = count(array_filter(
@@ -260,6 +265,8 @@ class LotAdjustmentRunner
             'sync_manual' => $count('SYNC_MANUAL'),
             'multi_shelf' => $count('MULTI_SHELF'),
             'blank_location' => $count('BLANK_LOCATION'),
+            'reserved_reuse_risk' => $count('RSLE_REUSE_RISK'),
+            'reserved_reuse_wms_exists' => $count('RSLE_REUSE_WMS_EXISTS'),
             'skipped' => $count('SKIP'),
             'location_aborted' => $count('LOCATION_ABORTED'),
         ];

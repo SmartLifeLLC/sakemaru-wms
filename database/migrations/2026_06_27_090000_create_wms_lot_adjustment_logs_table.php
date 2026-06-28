@@ -25,13 +25,15 @@ return new class extends Migration
 
             // 集計サマリ
             // { offset, reactivate, zero_residual, repoint, sync_applied, sync_manual,
-            //   multi_shelf, blank_location, skipped, location_aborted }
+            //   multi_shelf, blank_location, reserved_reuse_risk, reserved_reuse_wms_exists,
+            //   skipped, location_aborted }
             $table->json('summary')->nullable()->comment('処理種別ごとの件数サマリ');
             $table->integer('affected_count')->nullable()->comment('実際に変更したレコード数（APPLIED時）');
 
             // 変更明細（before/after）
             // 各要素: type[OFFSET/REACTIVATE/ZERO_RESIDUAL/SYNC_APPLIED/SYNC_MANUAL/REPOINT/
-            //               MULTI_SHELF/BLANK_LOCATION/SKIP/LOCATION_ABORTED],
+            //               MULTI_SHELF/BLANK_LOCATION/RSLE_REUSE_RISK/RSLE_REUSE_WMS_EXISTS/
+            //               SKIP/LOCATION_ABORTED],
             //         real_stock_id, lot_id, status_before/after,
             //         current_before/after, reserved_before/after,
             //         location_id, stla_id, old_lot_id, new_lot_id, reason

@@ -94,7 +94,7 @@ class LotAdjustment extends AdminPage
         $g = fn (string $k) => (int) ($s[$k] ?? 0);
 
         return sprintf(
-            '相殺 %d / 再ACTIVE %d / 残数0化 %d / 在庫数合わせ %d / 合わせ要手動 %d / STLA修正 %d / 複数棚番 %d / 空棚番 %d / SKIP %d / 棚番中止 %d',
+            '相殺 %d / 再ACTIVE %d / 残数0化 %d / 在庫数合わせ %d / 合わせ要手動 %d / STLA修正 %d / 複数棚番 %d / 空棚番 %d / RSLE再利用 %d / RSLE(WMS行) %d / SKIP %d / 棚番中止 %d',
             $g('offset'),
             $g('reactivate'),
             $g('zero_residual'),
@@ -103,6 +103,8 @@ class LotAdjustment extends AdminPage
             $g('repoint'),
             $g('multi_shelf'),
             $g('blank_location'),
+            $g('reserved_reuse_risk'),
+            $g('reserved_reuse_wms_exists'),
             $g('skipped'),
             $g('location_aborted'),
         );

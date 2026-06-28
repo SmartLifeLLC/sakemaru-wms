@@ -12,7 +12,7 @@
     </div>
 
     <div class="grid grid-cols-4 gap-2 sm:grid-cols-8">
-        @foreach (['offset' => '相殺', 'reactivate' => '再ACTIVE化', 'zero_residual' => '残数0化', 'sync_applied' => '在庫数合わせ', 'sync_manual' => '合わせ要手動', 'repoint' => 'STLA修正', 'multi_shelf' => '複数棚番', 'blank_location' => '空棚番', 'skipped' => 'スキップ'] as $key => $jp)
+        @foreach (['offset' => '相殺', 'reactivate' => '再ACTIVE化', 'zero_residual' => '残数0化', 'sync_applied' => '在庫数合わせ', 'sync_manual' => '合わせ要手動', 'repoint' => 'STLA修正', 'multi_shelf' => '複数棚番', 'blank_location' => '空棚番', 'reserved_reuse_risk' => 'RSLE再利用', 'reserved_reuse_wms_exists' => 'RSLE(WMS行)', 'skipped' => 'スキップ'] as $key => $jp)
             <div class="rounded border border-gray-200 p-2 text-center dark:border-gray-700">
                 <div class="text-xs text-gray-500">{{ $jp }}</div>
                 <div class="text-lg font-bold">{{ $summary[$key] ?? 0 }}</div>

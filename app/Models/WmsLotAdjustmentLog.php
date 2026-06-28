@@ -69,6 +69,8 @@ class WmsLotAdjustmentLog extends Model
             'REPOINT' => 'STLA修正',
             'MULTI_SHELF' => '複数棚番（検出のみ）',
             'BLANK_LOCATION' => '空棚番（検出のみ）',
+            'RSLE_REUSE_RISK' => 'RSLE再利用リスク（検出のみ）',
+            'RSLE_REUSE_WMS_EXISTS' => 'RSLE再利用・WMS行あり（検出のみ）',
             'SKIP' => 'スキップ',
             'LOCATION_ABORTED' => '棚番保護で中止',
             default => (string) $type,
@@ -87,6 +89,8 @@ class WmsLotAdjustmentLog extends Model
             'REPOINT' => 'bg-indigo-100 text-indigo-700',
             'MULTI_SHELF' => 'bg-orange-100 text-orange-700',
             'BLANK_LOCATION' => 'bg-pink-100 text-pink-700',
+            'RSLE_REUSE_RISK' => 'bg-amber-100 text-amber-700',
+            'RSLE_REUSE_WMS_EXISTS' => 'bg-red-100 text-red-700',
             'LOCATION_ABORTED' => 'bg-red-100 text-red-700',
             default => 'bg-gray-100 text-gray-600',
         };
@@ -121,6 +125,8 @@ class WmsLotAdjustmentLog extends Model
             'SYNC_NO_ACTIVE_LOT' => 'ACTIVE LOT無し（新規補正が必要）',
             'SYNC_MULTIPLE_ACTIVE_LOTS' => 'ACTIVE LOTが複数（対象が一意でない）',
             'MULTI_SHELF_MANUAL_REQUIRED' => '複数棚番（要手動統一）',
+            'RSLE_REUSE_RISK_NO_WMS_ROWS' => 'WMS行なし（波動前にRSLE要確認・CANCELは別操作）',
+            'RSLE_REUSE_RISK_WMS_ROWS_EXIST' => 'WMS行あり（自動CANCEL禁止・WMS状態調査が必要）',
             'ERROR' => 'エラー',
             'REPOINT_ERROR' => 'STLA更新エラー',
         ];
