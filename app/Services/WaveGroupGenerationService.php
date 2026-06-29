@@ -20,6 +20,30 @@ class WaveGroupGenerationService
     /**
      * @return array{wave_ids: array<int>, earning_count: int, stock_transfer_count: int, picking_lists: array<string, array<string, mixed>>, timings_ms: array<string, int>}
      */
+    /**
+     * 波動生成の前段でロット調節を実行する。
+     *
+     * 【最重要】調節の成否・例外は波動生成に一切影響させない。
+     * - LotAdjustmentRunner::runForWaveGeneration() は内部で全例外を握りつぶし、失敗を
+     *   ロット調節履歴（wms_lot_adjustment_logs）に残す。
+     * - 念のためここでも Throwable を握りつぶし、波動生成を必ず継続する。
+     * - 調節は独立したトランザクションで完結しており、波動生成と DB トランザクションを共有しない。
+     */
+    private function runPreWaveLotAdjustment(int $warehouseId): void
+    {
+        try {
+            app(\App\Services\LotAdjustment\LotAdjustmentRunner::class)
+                ->runForWaveGeneration($warehouseId);
+        } catch (\Throwable $e) {
+            // 二重の安全網: ここで握りつぶし、波動生成は継続する
+            Log::error('[LOT_ADJUSTMENT] pre-wave lot adjustment failed; wave generation continues', [
+                'warehouse_id' => $warehouseId,
+                'error' => $e->getMessage(),
+                'error_class' => $e::class,
+            ]);
+        }
+    }
+
     public function generate(WaveGroup $waveGroup, int $userId, ?WmsQueueProgress $progress = null): array
     {
         ini_set('memory_limit', '1024M');
@@ -34,6 +58,11 @@ class WaveGroupGenerationService
         $data['warehouse_id'] = $waveGroup->warehouse_id;
         $data['generation_type'] = $waveGroup->generation_type;
         $data['target_document_types'] = $waveGroup->target_document_types ?? ['shipment', 'transfer'];
+
+        // 波動生成の前にロット調節を実行する。
+        // 【最重要】調節が失敗・例外・部分適用になっても波動生成には一切影響させない。
+        // runForWaveGeneration は例外を投げない設計だが、二重の安全網としてここでも握りつぶす。
+        $this->runPreWaveLotAdjustment((int) $waveGroup->warehouse_id);
 
         $phaseStartedAt = microtime(true);
         $progress?->markAsProcessing(100, '波動生成を開始しています');
