@@ -38,10 +38,26 @@ class LotAdjustmentRunner
     }
 
     /**
+     * 波動生成の前段で呼ぶ安全実行。
+     * 何が起きても例外を投げない（波動生成に一切影響させない）。失敗はログに残す。
+     */
+    public function runForWaveGeneration(int $warehouseId): ?array
+    {
+        try {
+            return $this->run($warehouseId, true, 'wave_generation');
+        } catch (\Throwable $e) {
+            $this->logFailure($warehouseId, $e);
+
+            return null;
+        }
+    }
+
+    /**
      * @param  bool  $apply  true=適用(APPLIED) / false=プレビュー(DRY_RUN)
+     * @param  string  $trigger  実行契機（manual / wave_generation）
      * @return array{run_uuid:string, mode:string, summary:array, affected_count:int, details:array, log_id:int}
      */
-    public function run(int $warehouseId, bool $apply): array
+    public function run(int $warehouseId, bool $apply, string $trigger = 'manual'): array
     {
         $runUuid = (string) Str::uuid();
         $details = [];
@@ -83,7 +99,7 @@ class LotAdjustmentRunner
         $log = WmsLotAdjustmentLog::record($apply ? 'APPLIED' : 'DRY_RUN', [
             'run_uuid' => $runUuid,
             'warehouse_id' => $warehouseId,
-            'scope' => ['warehouse_id' => $warehouseId],
+            'scope' => ['warehouse_id' => $warehouseId, 'trigger' => $trigger],
             'summary' => $summary,
             // DRY_RUN でも「適用されるはずの件数」を履歴に残す（mode で区別）。
             'affected_count' => $affected,
@@ -250,6 +266,32 @@ class LotAdjustmentRunner
         }
 
         return null;
+    }
+
+    /**
+     * 波動生成前のロット調節が例外で失敗したとき、ロット調節履歴に失敗を記録する。
+     * ログ記録自体の失敗も握りつぶす（波動生成に絶対に影響させない）。
+     */
+    private function logFailure(int $warehouseId, \Throwable $e): void
+    {
+        try {
+            WmsLotAdjustmentLog::record('APPLIED', [
+                'warehouse_id' => $warehouseId,
+                'scope' => ['warehouse_id' => $warehouseId, 'trigger' => 'wave_generation'],
+                'summary' => ['error' => 1],
+                'affected_count' => 0,
+                'details' => [[
+                    'type' => 'ERROR',
+                    'real_stock_id' => null,
+                    'lot_id' => null,
+                    'reason' => 'WAVE_PRE_ADJUSTMENT_ERROR: '.$e->getMessage(),
+                ]],
+                'note' => '波動生成前のロット調節でエラーが発生しました（波動生成は継続）。'
+                    .$e::class.': '.$e->getMessage(),
+            ]);
+        } catch (\Throwable $ignore) {
+            // ログ失敗も無視（波動生成を止めない）
+        }
     }
 
     private function summarize(array $details): array
