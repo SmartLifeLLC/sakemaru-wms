@@ -114,6 +114,7 @@ class WmsLotAdjustmentLog extends Model
             'ZERO_ABNORMAL_RESIDUAL' => '余剰の異常残を0/0に',
             'MANUAL_REQUIRED' => '要手動判断',
             'NEGATIVE_LOT_REPOINT' => '負/枯渇LOT参照を正LOTへ付替',
+            'SAME_SHELF_POSITIVE_LOT_MERGE_REPOINT' => '同一棚番の正LOTを合算してSTLA付替',
             'STLA_NO_POSITIVE_LOT' => 'STLA：正LOT無し',
             'STLA_AMBIGUOUS_POSITIVE_LOT' => 'STLA：正LOT候補が複数',
             'STLA_DELIVERED_OR_CONFIRMED' => 'STLA：出荷確定済み',
