@@ -57,6 +57,17 @@ class StockTransferLotAllocationServiceTest extends TestCase
     }
 
     #[Test]
+    public function unmanaged_item_negative_source_lot_is_allocatable(): void
+    {
+        $service = $this->service();
+
+        $this->assertFalse($service->isShortageSourceLot(
+            (object) ['source_lot_current_quantity' => -2],
+            (object) ['is_managed_stock' => 0]
+        ));
+    }
+
+    #[Test]
     public function allocation_must_point_to_the_transfer_source_stock(): void
     {
         $service = $this->service();
@@ -102,9 +113,9 @@ class StockTransferLotAllocationServiceTest extends TestCase
                 return $this->expectedPieces($tradeItem, $needQty, $unitSize);
             }
 
-            public function isShortageSourceLot(object $allocation): bool
+            public function isShortageSourceLot(object $allocation, ?object $item = null): bool
             {
-                return $this->sourceLotRepresentsShortage($allocation);
+                return $this->sourceLotRepresentsShortage($allocation, $item);
             }
 
             public function matchesTransferLine(object $allocation, int $warehouseId, int $itemId): bool
