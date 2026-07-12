@@ -124,7 +124,7 @@ Schedule::command('wms:sync-sales-summaries --days=4')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/wms-sales-summaries.log'));
 
-foreach (['06:00', '07:00', '08:00', '09:00'] as $time) {
+foreach (['07:00', '12:30'] as $time) {
     Schedule::command('wms:update-daily-stats --date='.now()->toDateString().' --force')
         ->dailyAt($time)
         ->onOneServer()
