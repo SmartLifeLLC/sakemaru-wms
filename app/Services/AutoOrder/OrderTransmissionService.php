@@ -4,6 +4,7 @@ namespace App\Services\AutoOrder;
 
 use App\Contracts\OrderFileGeneratorInterface;
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\JobProcessName;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
@@ -16,8 +17,10 @@ use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
+use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderJxSetting;
+use App\Models\WmsOrderSlipNumberAssignment;
 use App\Models\WmsOrderTransmissionLog;
 use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use App\Services\JX\JxClient;
@@ -269,6 +272,7 @@ class OrderTransmissionService
             'transmitted_by' => auth()->id(),
             ...$this->transmittedByAttributes(),
         ]);
+        $this->markSlipAssignmentsTransmitted([$document->id]);
 
         $this->logTransmission(
             $document,
@@ -871,11 +875,20 @@ class OrderTransmissionService
                 'transmitted_at' => $now,
                 'wms_order_jx_document_id' => $document->id,
             ]));
+            $this->persistSlipAssignments(
+                $document,
+                $file['slip_assignments'] ?? [],
+                WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED
+            );
 
-            // 既存PENDINGドキュメントがあれば削除
+            // 既存PENDINGドキュメントがあれば割当を取消してから削除
             WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
                 ->whereIn('contractor_id', $sourceContractorIds)
-                ->delete();
+                ->get()
+                ->each(function (WmsOrderJxDocument $pendingDocument): void {
+                    $this->cancelSlipAssignmentsForDocument($pendingDocument->id);
+                    $pendingDocument->delete();
+                });
 
             Log::info('JX送信完了（生成＆送信）', [
                 'contractor_id' => $transmissionContractorId,
@@ -1153,6 +1166,7 @@ class OrderTransmissionService
                 'message_id' => $result->messageId,
                 's3_path' => $s3Path,
             ]);
+            $this->markSlipAssignmentsTransmitted($documentIds);
 
             $candidates->each(fn (WmsOrderCandidate $candidate) => $candidate->update([
                 'status' => CandidateStatus::EXECUTED,
@@ -1473,6 +1487,7 @@ class OrderTransmissionService
                 'document_ids' => $documentIds,
                 'message_id' => $result->messageId,
             ]);
+            $this->markSlipAssignmentsTransmitted($documentIds);
 
             return [
                 'success' => true,
@@ -1603,6 +1618,13 @@ class OrderTransmissionService
 
                     return $transmissionId === $file['contractor_id'];
                 });
+                $generatedCandidateIds = $this->generatedCandidateIdsForFile($file);
+                if ($generatedCandidateIds->isNotEmpty()) {
+                    $fileCandidates = $fileCandidates
+                        ->filter(fn ($candidate) => $generatedCandidateIds->contains((int) $candidate->id))
+                        ->values();
+                }
+
                 $warehouseId = $fileCandidates->first()?->warehouse_id;
 
                 // 入荷予定日を取得（同一グループは同じ日付のはず）
@@ -1613,15 +1635,30 @@ class OrderTransmissionService
                 $csvPath = $this->generateAndSaveCsvFile($batchCode, $file, $fileCandidates, $status);
                 $csvElapsed = round((microtime(true) - $csvStart) * 1000);
 
-                // wms_order_jx_documentsに記録
+                // wms_order_jx_documentsに記録し、候補・伝票番号割当も同じ短いDBトランザクションで確定
                 $dbStart = microtime(true);
-                $document = $this->createOrderDocument($batchCode, $file, $s3Path, $warehouseId, $status, $expectedArrivalDate, $csvPath);
-                $dbElapsed = round((microtime(true) - $dbStart) * 1000);
+                $document = DB::connection('sakemaru')->transaction(function () use (
+                    $batchCode,
+                    $file,
+                    $s3Path,
+                    $warehouseId,
+                    $status,
+                    $expectedArrivalDate,
+                    $csvPath,
+                    $linkCandidates,
+                    $fileCandidates
+                ): WmsOrderJxDocument {
+                    $document = $this->createOrderDocument($batchCode, $file, $s3Path, $warehouseId, $status, $expectedArrivalDate, $csvPath);
 
-                // 発注候補とドキュメントを紐付け（確定済みの場合のみ）
-                if ($linkCandidates) {
-                    $this->linkCandidatesToDocument($candidates, $file['contractor_id'], $document);
-                }
+                    // 発注候補とドキュメントを紐付け（確定済みの場合のみ）
+                    if ($linkCandidates) {
+                        $this->linkCandidatesToDocument($fileCandidates, $file['contractor_id'], $document);
+                        $this->persistSlipAssignments($document, $file['slip_assignments'] ?? []);
+                    }
+
+                    return $document;
+                }, 3);
+                $dbElapsed = round((microtime(true) - $dbStart) * 1000);
 
                 $fileResult = [
                     'contractor_id' => $file['contractor_id'],
@@ -2218,6 +2255,24 @@ class OrderTransmissionService
      */
     public function generateJxFilesForCandidateIds(array $candidateIds): array
     {
+        $candidateIds = collect($candidateIds)
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $selectedCount = count($candidateIds);
+        $baseQuery = WmsOrderCandidate::whereIn('id', $candidateIds);
+        $existingCount = (clone $baseQuery)->count();
+        $excludedMissing = max(0, $selectedCount - $existingCount);
+        $excludedNotConfirmed = (clone $baseQuery)
+            ->where('status', '!=', CandidateStatus::CONFIRMED)
+            ->count();
+        $excludedAlreadyGenerated = (clone $baseQuery)
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->whereNotNull('wms_order_jx_document_id')
+            ->count();
+
         $candidates = WmsOrderCandidate::whereIn('id', $candidateIds)
             ->where('status', CandidateStatus::CONFIRMED)
             ->whereNull('wms_order_jx_document_id')
@@ -2225,18 +2280,44 @@ class OrderTransmissionService
             ->get();
 
         if ($candidates->isEmpty()) {
-            return ['success' => false, 'files' => [], 'total_orders' => 0, 'errors' => ['JX未生成の確定済み発注候補がありません']];
+            return [
+                'success' => false,
+                'files' => [],
+                'total_orders' => 0,
+                'selected_count' => $selectedCount,
+                'eligible_count' => 0,
+                'excluded_count' => $selectedCount,
+                'excluded_missing' => $excludedMissing,
+                'excluded_not_confirmed' => $excludedNotConfirmed,
+                'excluded_already_generated' => $excludedAlreadyGenerated,
+                'skipped_count' => 0,
+                'errors' => ['JX未生成の確定済み発注候補がありません'],
+            ];
         }
 
         $batchCode = 'J'.now()->format('YmdHis').str_pad((string) random_int(0, 999), 3, '0', STR_PAD_LEFT);
 
-        return $this->doGenerateOrderFiles(
+        $result = $this->doGenerateOrderFiles(
             $batchCode,
             $candidates,
             TransmissionDocumentStatus::PENDING,
             true,
             false
         );
+
+        $eligibleCount = $candidates->count();
+        $totalOrders = (int) ($result['total_orders'] ?? 0);
+
+        return [
+            ...$result,
+            'selected_count' => $selectedCount,
+            'eligible_count' => $eligibleCount,
+            'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated,
+            'excluded_missing' => $excludedMissing,
+            'excluded_not_confirmed' => $excludedNotConfirmed,
+            'excluded_already_generated' => $excludedAlreadyGenerated,
+            'skipped_count' => max(0, $eligibleCount - $totalOrders),
+        ];
     }
 
     /**
@@ -2244,19 +2325,24 @@ class OrderTransmissionService
      */
     public function cancelPendingJxDocumentAndRestoreCandidates(int $documentId): array
     {
-        $document = WmsOrderJxDocument::find($documentId);
+        return DB::connection('sakemaru')->transaction(function () use ($documentId): array {
+            $document = WmsOrderJxDocument::query()
+                ->whereKey($documentId)
+                ->lockForUpdate()
+                ->first();
 
-        if (! $document) {
-            return ['success' => false, 'error' => 'ドキュメントが見つかりません'];
-        }
+            if (! $document) {
+                return ['success' => false, 'error' => 'ドキュメントが見つかりません'];
+            }
 
-        if ($document->status !== TransmissionDocumentStatus::PENDING) {
-            return ['success' => false, 'error' => '送信待ちのJXデータのみ生成取消できます'];
-        }
+            if ($document->status !== TransmissionDocumentStatus::PENDING) {
+                return ['success' => false, 'error' => '送信待ちのJXデータのみ生成取消できます'];
+            }
 
-        return DB::transaction(function () use ($document): array {
             $restoredCount = WmsOrderCandidate::where('wms_order_jx_document_id', $document->id)
                 ->update(['wms_order_jx_document_id' => null]);
+
+            $this->cancelSlipAssignmentsForDocument($document->id);
 
             $document->update([
                 'status' => TransmissionDocumentStatus::CANCELLED,
@@ -2268,7 +2354,7 @@ class OrderTransmissionService
                 'document_id' => $document->id,
                 'restored_count' => $restoredCount,
             ];
-        });
+        }, 3);
     }
 
     /**
@@ -2496,6 +2582,19 @@ class OrderTransmissionService
     }
 
     /**
+     * ファイルに実際出力された発注候補IDを取得する。
+     */
+    private function generatedCandidateIdsForFile(array $file): Collection
+    {
+        return collect($file['slip_assignments'] ?? [])
+            ->flatMap(fn (array $assignment): array => $assignment['order_candidate_ids'] ?? [])
+            ->filter()
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values();
+    }
+
+    /**
      * 発注候補とドキュメントを紐付け
      */
     private function linkCandidatesToDocument(Collection $candidates, int $contractorId, WmsOrderJxDocument $document): void
@@ -2514,6 +2613,86 @@ class OrderTransmissionService
                 ]);
             }
         });
+    }
+
+    private function persistSlipAssignments(
+        WmsOrderJxDocument $document,
+        array $slipAssignments,
+        string $status = WmsOrderSlipNumberAssignment::STATUS_ACTIVE
+    ): void {
+        if (empty($slipAssignments)) {
+            return;
+        }
+
+        DB::connection('sakemaru')->transaction(function () use ($document, $slipAssignments, $status): void {
+            foreach ($slipAssignments as $assignment) {
+                $candidateIds = collect($assignment['order_candidate_ids'] ?? [])
+                    ->filter()
+                    ->map(fn ($id) => (int) $id)
+                    ->values()
+                    ->all();
+
+                WmsOrderSlipNumberAssignment::query()->create([
+                    'wms_order_jx_document_id' => $document->id,
+                    'document_type' => LegacyEosSlipNumberService::DOCUMENT_TYPE_EOS_ORDER,
+                    'slip_number' => $assignment['slip_number'],
+                    'store_code' => $assignment['store_code'],
+                    'year_code' => $assignment['year_code'],
+                    'sequence_no' => $assignment['sequence_no'],
+                    'b_record_sequence' => $assignment['b_record_sequence'] ?? null,
+                    'status' => $status,
+                    'order_candidate_ids' => $candidateIds,
+                ]);
+
+                if (empty($candidateIds)) {
+                    continue;
+                }
+
+                WmsOrderIncomingSchedule::query()
+                    ->whereIn('order_candidate_id', $candidateIds)
+                    ->where('status', IncomingScheduleStatus::PENDING->value)
+                    ->update(['slip_number' => $assignment['slip_number']]);
+            }
+        }, 3);
+    }
+
+    private function markSlipAssignmentsTransmitted(array $documentIds): void
+    {
+        $documentIds = array_values(array_unique(array_filter(array_map('intval', $documentIds))));
+        if (empty($documentIds)) {
+            return;
+        }
+
+        WmsOrderSlipNumberAssignment::query()
+            ->whereIn('wms_order_jx_document_id', $documentIds)
+            ->where('status', WmsOrderSlipNumberAssignment::STATUS_ACTIVE)
+            ->update(['status' => WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED]);
+    }
+
+    private function cancelSlipAssignmentsForDocument(int $documentId): void
+    {
+        $assignments = WmsOrderSlipNumberAssignment::query()
+            ->where('wms_order_jx_document_id', $documentId)
+            ->where('status', WmsOrderSlipNumberAssignment::STATUS_ACTIVE)
+            ->get();
+
+        foreach ($assignments as $assignment) {
+            $candidateIds = collect($assignment->order_candidate_ids ?? [])
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+
+            if (! empty($candidateIds)) {
+                WmsOrderIncomingSchedule::query()
+                    ->whereIn('order_candidate_id', $candidateIds)
+                    ->where('slip_number', $assignment->slip_number)
+                    ->where('status', IncomingScheduleStatus::PENDING->value)
+                    ->update(['slip_number' => null]);
+            }
+
+            $assignment->update(['status' => WmsOrderSlipNumberAssignment::STATUS_CANCELLED]);
+        }
     }
 
     /**
@@ -2660,6 +2839,7 @@ class OrderTransmissionService
                     'timestamp' => now()->toIso8601String(),
                 ],
             ]);
+            $this->markSlipAssignmentsTransmitted([$document->id]);
 
             Log::info('JX transmission succeeded', [
                 'document_id' => $document->id,
