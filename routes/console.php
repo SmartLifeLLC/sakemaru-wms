@@ -105,6 +105,13 @@ Artisan::command('inspire', function () {
 //     ->withoutOverlapping()
 //     ->appendOutputTo(storage_path('logs/auto-order-transmit.log'));
 
+Schedule::command('wms:generate-jx-order-documents')
+    ->everyFiveMinutes()
+    ->when(fn () => (bool) config('jx.auto_generation_schedule_enabled'))
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/jx-order-generation.log'));
+
 // // 入荷データ自動受信スケジューラー (一時停止中: supplier_id未設定データの送信防止)
 // // ※ 再開時は以下のコメントアウトを戻す
 // Schedule::command('wms:incoming-receive-scheduled')

@@ -24,7 +24,7 @@ class LegacyEosSlipNumberServiceTest extends TestCase
         $this->assertSame(45, $service->yearCode('2025-08-04'));
     }
 
-    public function test_legacy_slip_number_requires_fixed_middle_code(): void
+    public function test_legacy_slip_number_requires_fixed_middle_code_10(): void
     {
         $service = new LegacyEosSlipNumberService;
 
