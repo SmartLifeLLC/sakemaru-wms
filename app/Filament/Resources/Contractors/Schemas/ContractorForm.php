@@ -222,7 +222,7 @@ class ContractorForm
                                         ->label('締め時刻（月-土）')
                                         ->type('time')
                                         ->nullable()
-                                        ->helperText('通常運用: 13:05'),
+                                        ->helperText('通常運用: 13:20'),
 
                                     TextInput::make('wms_jx_generation_sunday_time')
                                         ->label('生成時刻（日）')
