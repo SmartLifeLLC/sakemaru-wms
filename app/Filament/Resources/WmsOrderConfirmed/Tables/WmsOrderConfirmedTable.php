@@ -911,8 +911,8 @@ class WmsOrderConfirmedTable
                 $table = (new WmsOrderCandidate)->getTable();
 
                 return $query
-                    ->when($data['confirmed_from'] ?? null, fn (Builder $q, $date) => $q->whereDate("{$table}.modified_at", '>=', $date))
-                    ->when($data['confirmed_until'] ?? null, fn (Builder $q, $date) => $q->whereDate("{$table}.modified_at", '<=', $date));
+                    ->when($data['confirmed_from'] ?? null, fn (Builder $q, $date) => $q->where("{$table}.modified_at", '>=', \Carbon\Carbon::parse($date)->startOfDay()))
+                    ->when($data['confirmed_until'] ?? null, fn (Builder $q, $date) => $q->where("{$table}.modified_at", '<', \Carbon\Carbon::parse($date)->addDay()->startOfDay()));
             })
             ->indicateUsing(function (array $data): array {
                 $indicators = [];
