@@ -167,6 +167,43 @@ class OrderTransmissionServiceTest extends TestCase
 
     /**
      * @test
+     * JX生成対象がない場合も選択数と除外数を返すこと
+     */
+    public function it_reports_counts_when_selected_candidates_are_not_eligible_for_jx_generation(): void
+    {
+        $result = $this->service->generateJxFilesForCandidateIds([-999999991, -999999992]);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame(2, $result['selected_count']);
+        $this->assertSame(0, $result['eligible_count']);
+        $this->assertSame(2, $result['excluded_count']);
+        $this->assertSame(2, $result['excluded_missing']);
+        $this->assertSame(0, $result['excluded_not_confirmed']);
+        $this->assertSame(0, $result['excluded_already_generated']);
+        $this->assertSame(0, $result['skipped_count']);
+    }
+
+    /**
+     * @test
+     * JXファイルに実出力された候補IDだけを抽出できること
+     */
+    public function it_extracts_generated_candidate_ids_from_slip_assignments(): void
+    {
+        $method = new \ReflectionMethod(OrderTransmissionService::class, 'generatedCandidateIdsForFile');
+        $method->setAccessible(true);
+
+        $ids = $method->invoke($this->service, [
+            'slip_assignments' => [
+                ['order_candidate_ids' => [10, '11', 10]],
+                ['order_candidate_ids' => [12, null, 0]],
+            ],
+        ]);
+
+        $this->assertSame([10, 11, 12], $ids->all());
+    }
+
+    /**
+     * @test
      * JX設定が存在することの確認
      */
     public function it_has_jx_settings_in_database(): void
