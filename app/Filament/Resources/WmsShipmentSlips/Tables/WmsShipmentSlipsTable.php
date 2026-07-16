@@ -65,14 +65,6 @@ class WmsShipmentSlipsTable
                     ->icon(fn ($record) => $record->is_stock_synced ? 'heroicon-o-check-circle' : 'heroicon-o-arrow-path')
                     ->alignCenter(),
 
-                TextColumn::make('dedicated_slip')
-                    ->label('専用伝票')
-                    ->badge()
-                    ->state(fn ($record) => $record->has_dedicated_slip ? '専用伝票' : null)
-                    ->color('info')
-                    ->placeholder('-')
-                    ->alignCenter(),
-
                 TextColumn::make('delivery_course_code')
                     ->label('配送コード')
                     ->searchable()
