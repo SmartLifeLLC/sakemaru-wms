@@ -90,7 +90,7 @@ return new class extends Migration
             ->update([
                 'is_jx_auto_generation_enabled' => true,
                 'jx_generation_time' => '13:30',
-                'jx_generation_cutoff_time' => '13:05',
+                'jx_generation_cutoff_time' => '13:20',
                 'jx_generation_sunday_time' => '23:30',
                 'jx_generation_sunday_cutoff_time' => '23:00',
                 'updated_at' => now(),
