@@ -736,8 +736,7 @@ class WmsOrderCandidatesTable
                     ->label('移動候補へ変更')
                     ->icon('heroicon-o-arrows-right-left')
                     ->color('warning')
-                    ->visible(fn ($record) => $record->status === CandidateStatus::PENDING
-                        && (string) $record->contractor?->code === '9012')
+                    ->visible(fn (WmsOrderCandidate $record): bool => app(OrderCandidateToTransferCandidateService::class)->canConvert($record))
                     ->requiresConfirmation()
                     ->modalHeading('発注候補を移動候補へ変更')
                     ->modalDescription(fn ($record) => "[{$record->item_code}] {$record->item?->name}\n発注先CD9012の発注候補を、91倉庫からの移動候補に変更します。")
@@ -814,7 +813,7 @@ class WmsOrderCandidatesTable
                             $records->loadMissing('contractor');
 
                             foreach ($records as $record) {
-                                if ($record->status !== CandidateStatus::PENDING || (string) $record->contractor?->code !== '9012') {
+                                if (! $service->canConvert($record)) {
                                     $skipped++;
 
                                     continue;

@@ -68,16 +68,22 @@ html.fi {
 }
 
 /* Filament通知がページヘッダーのアクションに隠れないようにする */
+:root {
+    --wms-global-message-top: 3.25rem;
+}
+
 .fi-no,
 .fi-no-notifications,
 .fi-notifications {
     z-index: 10000 !important;
 }
 
-.fi-no {
+.fi-no,
+.fi-no-notifications,
+.fi-notifications {
     position: fixed !important;
     inset: auto auto auto 50% !important;
-    top: 0 !important;
+    top: var(--wms-global-message-top) !important;
     right: auto !important;
     bottom: auto !important;
     left: 50% !important;
@@ -88,7 +94,9 @@ html.fi {
     justify-content: flex-start !important;
     width: min(48rem, calc(100vw - 1rem)) !important;
     max-width: min(48rem, calc(100vw - 1rem)) !important;
-    padding-top: 0.25rem !important;
+    max-height: calc(100dvh - var(--wms-global-message-top) - 0.5rem) !important;
+    overflow-y: auto !important;
+    padding-top: 0 !important;
 }
 
 .fi-no-notification,
@@ -96,6 +104,14 @@ html.fi {
     pointer-events: auto !important;
     width: 100% !important;
     max-width: min(48rem, calc(100vw - 1rem)) !important;
+}
+
+.fi-no .fi-no-notification.fi-transition-enter-start,
+.fi-no .fi-notification.fi-transition-enter-start {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
 }
 
 .fi-no-notification-title,
@@ -337,6 +353,32 @@ html.fi {
 
 .fi-page-content > .grid {
     gap: 0.25rem !important;
+}
+
+.fi-page-content:has(.distribution-app-shell) {
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+}
+
+.fi-page:has(.distribution-app-shell) {
+    padding-top: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+}
+
+.fi-main:has(.distribution-app-shell) {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.distribution-app-shell {
+    min-height: calc(100dvh - 2.5rem);
+    width: 100%;
+    overflow: hidden;
+    background: #f9fafb;
 }
 
 .fi-ta-header-heading {

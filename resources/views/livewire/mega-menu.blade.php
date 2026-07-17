@@ -33,12 +33,12 @@
                         @forelse($menuStructure as $tab)
                             <button
                                 type="button"
-                                class="flex items-center gap-1.5 px-3 py-1 text-base font-medium transition-colors duration-200 rounded-md"
+                                class="flex shrink-0 items-center gap-1 px-2 xl:px-2.5 py-1 text-xs xl:text-sm font-medium whitespace-nowrap transition-colors duration-200 rounded-md"
                                 :class="openTab === '{{ $tab['id'] }}' ? 'text-white bg-slate-700' : 'text-slate-200 hover:text-white hover:bg-slate-700'"
                                 @click="openTab = openTab === '{{ $tab['id'] }}' ? null : '{{ $tab['id'] }}'"
                             >
                                 <i class="fa-solid {{ $tab['icon'] }}"></i>
-                                <span class="hidden lg:inline">{{ $tab['label'] }}</span>
+                                <span class="hidden lg:inline whitespace-nowrap">{{ $tab['label'] }}</span>
                                 <i class="fa-solid fa-chevron-down text-[10px] transition-transform duration-200"
                                    :class="openTab === '{{ $tab['id'] }}' ? 'rotate-180' : ''"></i>
                             </button>
