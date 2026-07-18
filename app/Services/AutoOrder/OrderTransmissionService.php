@@ -914,16 +914,21 @@ class OrderTransmissionService
         return $this->transmitPendingJxDocumentsForContractor($contractorIds);
     }
 
-    public function transmitPendingJxDocumentsForContractor(array $contractorIds, ?CarbonInterface $orderDate = null): array
-    {
+    public function transmitPendingJxDocumentsForContractor(
+        array $contractorIds,
+        ?CarbonInterface $orderDate = null,
+        ?CarbonInterface $orderDateUntil = null
+    ): array {
         $targetContractorIds = $this->expandTransmissionContractorIds($contractorIds);
 
         $documents = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
             ->whereIn('contractor_id', $targetContractorIds)
-            ->when(
-                $orderDate,
-                fn ($query) => $query->whereDate('order_date', $orderDate->toDateString())
-            )
+            ->when($orderDate && $orderDateUntil, function ($query) use ($orderDate, $orderDateUntil): void {
+                $query
+                    ->whereDate('order_date', '>=', $orderDate->toDateString())
+                    ->whereDate('order_date', '<=', $orderDateUntil->toDateString());
+            })
+            ->when($orderDate && ! $orderDateUntil, fn ($query) => $query->whereDate('order_date', $orderDate->toDateString()))
             ->orderBy('id')
             ->get();
 

@@ -29,6 +29,7 @@ class TransmitJxOrderDocumentsCommand extends Command
     public function handle(OrderTransmissionService $transmissionService): int
     {
         $targetDate = $this->resolveTargetDate();
+        [$orderDateFrom, $orderDateUntil] = $this->targetOrderDateRange($targetDate);
         $currentTime = $this->resolveCurrentTime();
         $dayOfWeek = $targetDate->dayOfWeek;
         $dryRun = (bool) $this->option('dry-run');
@@ -64,11 +65,13 @@ class TransmitJxOrderDocumentsCommand extends Command
             }
 
             if ($dryRun) {
-                $pendingCount = $this->pendingDocumentCount($contractorIds, $targetDate);
-                $this->line("  {$label} → dry-run 送信時刻:{$transmissionTime} 送信対象JX文書:{$pendingCount}");
+                $pendingCount = $this->pendingDocumentCount($contractorIds, $orderDateFrom, $orderDateUntil);
+                $this->line("  {$label} → dry-run 送信時刻:{$transmissionTime} 対象発注日:{$orderDateFrom->format('Y-m-d')}〜{$orderDateUntil->format('Y-m-d')} 送信対象JX文書:{$pendingCount}");
                 $summary[] = [
                     'contractor_id' => $setting->contractor_id,
                     'transmission_time' => $transmissionTime,
+                    'order_date_from' => $orderDateFrom->toDateString(),
+                    'order_date_until' => $orderDateUntil->toDateString(),
                     'pending_documents' => $pendingCount,
                 ];
 
@@ -76,7 +79,11 @@ class TransmitJxOrderDocumentsCommand extends Command
             }
 
             try {
-                $result = $transmissionService->transmitPendingJxDocumentsForContractor($contractorIds, $targetDate);
+                $result = $transmissionService->transmitPendingJxDocumentsForContractor(
+                    $contractorIds,
+                    $orderDateFrom,
+                    $orderDateUntil
+                );
                 $transmitted = count($result['transmitted'] ?? []);
                 $skipped = count($result['skipped'] ?? []) + count($result['skipped_non_jx'] ?? []);
                 $errors = count($result['errors'] ?? []);
@@ -89,6 +96,8 @@ class TransmitJxOrderDocumentsCommand extends Command
                     'contractor_id' => $setting->contractor_id,
                     'label' => $label,
                     'transmission_time' => $transmissionTime,
+                    'order_date_from' => $orderDateFrom->toDateString(),
+                    'order_date_until' => $orderDateUntil->toDateString(),
                     'transmitted' => $transmitted,
                     'skipped' => $skipped,
                     'errors' => $errors,
@@ -99,6 +108,8 @@ class TransmitJxOrderDocumentsCommand extends Command
                     Log::error('JX auto transmission contractor failed', [
                         'contractor_id' => $setting->contractor_id,
                         'transmission_time' => $transmissionTime,
+                        'order_date_from' => $orderDateFrom->toDateString(),
+                        'order_date_until' => $orderDateUntil->toDateString(),
                         'errors' => $result['errors'],
                     ]);
                     $this->error("  {$label} → 送信エラー {$errors}件");
@@ -106,6 +117,8 @@ class TransmitJxOrderDocumentsCommand extends Command
                     Log::info('JX auto transmission contractor completed', [
                         'contractor_id' => $setting->contractor_id,
                         'transmission_time' => $transmissionTime,
+                        'order_date_from' => $orderDateFrom->toDateString(),
+                        'order_date_until' => $orderDateUntil->toDateString(),
                         'transmitted' => $transmitted,
                         'skipped' => $skipped,
                     ]);
@@ -117,6 +130,8 @@ class TransmitJxOrderDocumentsCommand extends Command
                     'contractor_id' => $setting->contractor_id,
                     'label' => $label,
                     'transmission_time' => $transmissionTime,
+                    'order_date_from' => $orderDateFrom->toDateString(),
+                    'order_date_until' => $orderDateUntil->toDateString(),
                     'exception' => $e::class,
                     'error' => $e->getMessage(),
                 ];
@@ -124,6 +139,8 @@ class TransmitJxOrderDocumentsCommand extends Command
                 Log::error('JX auto transmission contractor exception', [
                     'contractor_id' => $setting->contractor_id,
                     'transmission_time' => $transmissionTime,
+                    'order_date_from' => $orderDateFrom->toDateString(),
+                    'order_date_until' => $orderDateUntil->toDateString(),
                     'exception' => $e::class,
                     'error' => $e->getMessage(),
                 ]);
@@ -133,6 +150,8 @@ class TransmitJxOrderDocumentsCommand extends Command
 
         $context = [
             'target_date' => $targetDate->toDateString(),
+            'order_date_from' => $orderDateFrom->toDateString(),
+            'order_date_until' => $orderDateUntil->toDateString(),
             'current_time' => $currentTime,
             'target_contractors' => $settings->count(),
             'transmitted' => $totalTransmitted,
@@ -173,6 +192,17 @@ class TransmitJxOrderDocumentsCommand extends Command
         }
 
         return Carbon::parse($time)->format('H:i');
+    }
+
+    /**
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function targetOrderDateRange(Carbon $targetDate): array
+    {
+        return [
+            $targetDate->copy()->subDay()->startOfDay(),
+            $targetDate->copy()->startOfDay(),
+        ];
     }
 
     /**
@@ -253,12 +283,13 @@ class TransmitJxOrderDocumentsCommand extends Command
     /**
      * @param  array<int>  $contractorIds
      */
-    private function pendingDocumentCount(array $contractorIds, Carbon $targetDate): int
+    private function pendingDocumentCount(array $contractorIds, Carbon $orderDateFrom, Carbon $orderDateUntil): int
     {
         return WmsOrderJxDocument::query()
             ->where('status', TransmissionDocumentStatus::PENDING)
             ->whereIn('contractor_id', array_unique(array_map('intval', $contractorIds)))
-            ->whereDate('order_date', $targetDate->toDateString())
+            ->whereDate('order_date', '>=', $orderDateFrom->toDateString())
+            ->whereDate('order_date', '<=', $orderDateUntil->toDateString())
             ->count();
     }
 
