@@ -24,6 +24,7 @@ use App\Models\WmsOrderSlipNumberAssignment;
 use App\Models\WmsOrderTransmissionLog;
 use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use App\Services\JX\JxClient;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -751,15 +752,6 @@ class OrderTransmissionService
     }
 
     /**
-     * 仕入先単位で未送信のJXドキュメントをまとめて送信（バッチ横断）
-     *
-     * 複数PENDINGドキュメントがある場合、1つのファイルにマージして送信する。
-     * 開始レコード(A)と終了レコード(8)は1ファイルに1つのみ。
-     *
-     * @param  array  $contractorIds  対象仕入先ID（親＋子）
-     * @return array{success: bool, transmitted: array, errors: array}
-     */
-    /**
      * Generator インスタンスを取得（UIからのマッピング参照用）
      */
     public function getGenerator(): ?OrderFileGeneratorInterface
@@ -919,10 +911,20 @@ class OrderTransmissionService
 
     public function transmitPendingDocumentsForContractor(array $contractorIds): array
     {
+        return $this->transmitPendingJxDocumentsForContractor($contractorIds);
+    }
+
+    public function transmitPendingJxDocumentsForContractor(array $contractorIds, ?CarbonInterface $orderDate = null): array
+    {
         $targetContractorIds = $this->expandTransmissionContractorIds($contractorIds);
 
         $documents = WmsOrderJxDocument::where('status', TransmissionDocumentStatus::PENDING)
             ->whereIn('contractor_id', $targetContractorIds)
+            ->when(
+                $orderDate,
+                fn ($query) => $query->whereDate('order_date', $orderDate->toDateString())
+            )
+            ->orderBy('id')
             ->get();
 
         if ($documents->isEmpty()) {
@@ -934,7 +936,24 @@ class OrderTransmissionService
             ];
         }
 
-        return $this->transmitExistingPendingDocuments($documents);
+        [$jxDocuments, $nonJxDocuments] = $documents
+            ->partition(fn (WmsOrderJxDocument $document): bool => $this->isJxTransmissionTargetDocument($document));
+
+        $result = $jxDocuments->isNotEmpty()
+            ? $this->transmitExistingPendingDocuments($jxDocuments)
+            : ['success' => true, 'transmitted' => [], 'errors' => [], 'order_count' => 0, 'skipped' => []];
+
+        if ($nonJxDocuments->isNotEmpty()) {
+            $result['skipped_non_jx'] = $nonJxDocuments
+                ->map(fn (WmsOrderJxDocument $document): array => [
+                    'document_id' => $document->id,
+                    'contractor_id' => $document->contractor_id,
+                ])
+                ->values()
+                ->all();
+        }
+
+        return $result;
     }
 
     public function transmitSelectedDocuments(Collection $documents): array
@@ -951,17 +970,47 @@ class OrderTransmissionService
             ];
         }
 
-        return $this->transmitExistingPendingDocuments($pendingDocuments);
+        [$jxDocuments, $nonJxDocuments] = $pendingDocuments
+            ->partition(fn (WmsOrderJxDocument $document): bool => $this->isJxTransmissionTargetDocument($document));
+
+        $jxResult = $jxDocuments->isNotEmpty()
+            ? $this->transmitExistingPendingDocuments($jxDocuments)
+            : ['success' => true, 'transmitted' => [], 'errors' => [], 'order_count' => 0];
+
+        $completionResult = $nonJxDocuments->isNotEmpty()
+            ? $this->completeNonJxPendingDocuments($nonJxDocuments)
+            : ['success' => true, 'completed' => [], 'errors' => [], 'completed_order_count' => 0];
+
+        return [
+            'success' => empty($jxResult['errors']) && empty($completionResult['errors']),
+            'transmitted' => $jxResult['transmitted'] ?? [],
+            'completed' => $completionResult['completed'] ?? [],
+            'skipped' => $jxResult['skipped'] ?? [],
+            'errors' => array_merge($jxResult['errors'] ?? [], $completionResult['errors'] ?? []),
+            'order_count' => (int) ($jxResult['order_count'] ?? 0),
+            'completed_order_count' => (int) ($completionResult['completed_order_count'] ?? 0),
+        ];
     }
 
     private function transmitExistingPendingDocuments(Collection $documents): array
     {
         $transmitted = [];
+        $skipped = [];
         $errors = [];
         $orderCount = 0;
 
         foreach ($documents as $document) {
             $result = $this->transmitDocumentViaJx($document);
+
+            if ($result['skipped'] ?? false) {
+                $skipped[] = [
+                    'document_id' => $document->id,
+                    'contractor_id' => $document->contractor_id,
+                    'reason' => $result['message'] ?? '他の処理で送信中または処理済みです',
+                ];
+
+                continue;
+            }
 
             if ($result['success'] ?? false) {
                 $transmitted[] = [
@@ -983,9 +1032,142 @@ class OrderTransmissionService
         return [
             'success' => empty($errors),
             'transmitted' => $transmitted,
+            'skipped' => $skipped,
             'errors' => $errors,
             'order_count' => $orderCount,
         ];
+    }
+
+    private function completeNonJxPendingDocuments(Collection $documents): array
+    {
+        $completed = [];
+        $errors = [];
+        $completedOrderCount = 0;
+
+        foreach ($documents as $document) {
+            try {
+                $result = $this->completeNonJxPendingDocument($document);
+
+                if ($result['success'] ?? false) {
+                    $completed[] = [
+                        'document_id' => $document->id,
+                        'contractor_id' => $document->contractor_id,
+                    ];
+                    $completedOrderCount += (int) ($document->order_count ?? 0);
+
+                    continue;
+                }
+
+                $errors[] = [
+                    'document_id' => $document->id,
+                    'error' => $result['error'] ?? '完了処理失敗',
+                ];
+            } catch (\Throwable $e) {
+                $errors[] = [
+                    'document_id' => $document->id,
+                    'error' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'success' => empty($errors),
+            'completed' => $completed,
+            'errors' => $errors,
+            'completed_order_count' => $completedOrderCount,
+        ];
+    }
+
+    private function completeNonJxPendingDocument(WmsOrderJxDocument $document): array
+    {
+        return DB::connection('sakemaru')->transaction(function () use ($document): array {
+            $lockedDocument = WmsOrderJxDocument::query()
+                ->whereKey($document->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedDocument) {
+                return ['success' => false, 'error' => 'ドキュメントが見つかりません'];
+            }
+
+            if ($lockedDocument->status !== TransmissionDocumentStatus::PENDING) {
+                return ['success' => false, 'error' => '送信待ちのデータのみ完了処理できます'];
+            }
+
+            if ($this->isJxTransmissionTargetDocument($lockedDocument)) {
+                return ['success' => false, 'error' => 'JX送信対象のデータは完了処理に回せません'];
+            }
+
+            $now = now();
+            $errorMessage = 'JX送信対象外のため送信せず失敗完了';
+            $completionData = [
+                'completed_without_jx_transmission' => true,
+                'failure_completed_without_jx_transmission' => true,
+                'reason' => $errorMessage,
+                'timestamp' => $now->toIso8601String(),
+            ];
+
+            $lockedDocument->update([
+                'status' => TransmissionDocumentStatus::ERROR,
+                'transmitted_at' => null,
+                'transmitted_by' => null,
+                'transmitted_by_name' => null,
+                'error_message' => $errorMessage,
+                'jx_response_data' => $completionData,
+            ]);
+
+            $updatedCandidates = WmsOrderCandidate::where('wms_order_jx_document_id', $lockedDocument->id)
+                ->update([
+                    'status' => CandidateStatus::EXECUTED,
+                    'transmission_status' => 'FAILED',
+                    'transmitted_at' => null,
+                ]);
+
+            $this->cancelSlipAssignmentsForDocument($lockedDocument->id);
+            $this->logTransmission(
+                $lockedDocument,
+                $this->transmissionTypeForDocument($lockedDocument),
+                'TRANSMIT',
+                'FAILED',
+                $completionData,
+                $errorMessage
+            );
+
+            Log::info('Non-JX order document completed without transmission', [
+                'document_id' => $lockedDocument->id,
+                'contractor_id' => $lockedDocument->contractor_id,
+                'candidate_count' => $updatedCandidates,
+            ]);
+
+            return ['success' => true];
+        }, 3);
+    }
+
+    private function isJxTransmissionTargetDocument(WmsOrderJxDocument $document): bool
+    {
+        if ($document->wms_order_jx_setting_id) {
+            return true;
+        }
+
+        if ($this->transmissionTypeForDocument($document) === TransmissionType::JX_FINET) {
+            return true;
+        }
+
+        return $document->contractor_id
+            ? WmsOrderJxSetting::findByContractorId((int) $document->contractor_id) !== null
+            : false;
+    }
+
+    private function transmissionTypeForDocument(WmsOrderJxDocument $document): TransmissionType
+    {
+        $type = WmsContractorSetting::where('contractor_id', $document->contractor_id)
+            ->value('transmission_type');
+
+        if ($type instanceof TransmissionType) {
+            return $type;
+        }
+
+        return TransmissionType::tryFrom((string) $type) ?? TransmissionType::MANUAL_CSV;
     }
 
     public function transmitPendingOrGenerateForContractor(int $contractorId): array
@@ -1081,131 +1263,6 @@ class OrderTransmissionService
 
         return [
             'error' => "発注数0のデータが {$zeroCandidates->count()}件 含まれているためJX送信できません。発注確定画面または確定承認待ち画面で発注数0に絞り込み、除外してください。対象例: {$examples}",
-        ];
-    }
-
-    /**
-     * 候補データからファイル生成→JX送信（JX送信ボタン用）
-     */
-    private function generateAndTransmitForDocuments(Collection $documents, Collection $candidates): array
-    {
-        $generator = $this->getOrderFileGenerator();
-        if (! $generator) {
-            return ['success' => false, 'transmitted' => [], 'errors' => [['document_id' => '-', 'error' => 'Generator未設定']]];
-        }
-
-        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($candidates)) {
-            return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
-        }
-
-        $files = $generator->generate($candidates);
-        if (empty($files)) {
-            return ['success' => true, 'transmitted' => [], 'errors' => []];
-        }
-
-        // 1送信先=1ファイルにマージ済みなので最初のファイルを使用
-        $file = $files[0];
-        $content = $file['content'];
-
-        // JX設定を取得
-        $firstDoc = $documents->first();
-        $jxSetting = $this->resolveJxSetting($firstDoc);
-        if (! $jxSetting) {
-            $documents->each(fn ($d) => $d->update([
-                'status' => TransmissionDocumentStatus::ERROR,
-                'error_message' => 'JX設定が見つかりません',
-            ]));
-
-            return [
-                'success' => false,
-                'transmitted' => [],
-                'errors' => $documents->map(fn ($d) => ['document_id' => $d->id, 'error' => 'JX設定が見つかりません'])->toArray(),
-            ];
-        }
-
-        // S3に保存
-        $now = now();
-        $contractorCode = $firstDoc->contractor?->code ?? $firstDoc->contractor_id;
-        $filename = "{$contractorCode}_order_{$now->format('YmdHis')}.dat";
-        $s3Path = "jx-orders/{$now->format('Y-m-d')}/{$filename}";
-        Storage::disk('s3')->put($s3Path, $content);
-
-        // JX送信
-        $client = new JxClient($jxSetting);
-        $result = $client->putDocumentWithWrapper(
-            $content,
-            $jxSetting->send_document_type ?? '91',
-            'SecondGenEDI'
-        );
-
-        $documentIds = $documents->pluck('id')->toArray();
-
-        if ($result->succeeded()) {
-            $this->saveBackupToS3($firstDoc, $content);
-
-            $documents->each(fn ($d) => $d->update([
-                'status' => TransmissionDocumentStatus::TRANSMITTED,
-                'file_path' => $s3Path,
-                'file_size' => strlen($content),
-                'record_count' => $file['record_count'] ?? 0,
-                'order_count' => $candidates->count(),
-                'transmitted_at' => $now,
-                'transmitted_by' => auth()->id(),
-                ...$this->transmittedByAttributes(),
-                'jx_message_id' => $result->messageId,
-                'jx_response_data' => [
-                    'message_id' => $result->messageId,
-                    'timestamp' => $now->toIso8601String(),
-                    'regenerated' => true,
-                    'merged_document_ids' => $documentIds,
-                ],
-            ]));
-
-            Log::info('JX transmission succeeded (regenerated)', [
-                'document_ids' => $documentIds,
-                'message_id' => $result->messageId,
-                's3_path' => $s3Path,
-            ]);
-            $this->markSlipAssignmentsTransmitted($documentIds);
-
-            $candidates->each(fn (WmsOrderCandidate $candidate) => $candidate->update([
-                'status' => CandidateStatus::EXECUTED,
-                'transmitted_at' => $now,
-            ]));
-
-            return [
-                'success' => true,
-                'transmitted' => $documents->map(fn ($d) => [
-                    'document_id' => $d->id,
-                    'contractor_id' => $d->contractor_id,
-                    'message_id' => $result->messageId,
-                ])->toArray(),
-                'errors' => [],
-            ];
-        }
-
-        $documents->each(fn ($d) => $d->update([
-            'status' => TransmissionDocumentStatus::ERROR,
-            'error_message' => $result->error,
-            'jx_message_id' => $result->messageId,
-            'jx_response_data' => [
-                'message_id' => $result->messageId,
-                'timestamp' => now()->toIso8601String(),
-                'regenerated' => true,
-                'merged_document_ids' => $documentIds,
-                'error' => $result->error,
-            ],
-        ]));
-
-        Log::error('JX transmission failed (regenerated)', [
-            'document_ids' => $documentIds,
-            'error' => $result->error,
-        ]);
-
-        return [
-            'success' => false,
-            'transmitted' => [],
-            'errors' => [['document_id' => implode(',', $documentIds), 'error' => $result->error]],
         ];
     }
 
@@ -1338,190 +1395,6 @@ class OrderTransmissionService
                 'errors' => [['document_id' => $document->id, 'error' => $e->getMessage()]],
             ];
         }
-    }
-
-    /**
-     * 複数ドキュメントをマージして1ファイルで送信
-     *
-     * 各ドキュメントのDATファイルからB/Dレコードを抽出し、
-     * 1つのA-record + JXラッパーでまとめて送信する。
-     */
-    private function mergeAndTransmitDocuments(Collection $documents): array
-    {
-        $linkedCandidates = WmsOrderCandidate::whereIn('wms_order_jx_document_id', $documents->pluck('id'))
-            ->with(['item'])
-            ->get();
-        if ($zeroQuantityError = $this->zeroQuantityJxTransmissionError($linkedCandidates)) {
-            return ['success' => false, 'transmitted' => [], 'errors' => [$zeroQuantityError]];
-        }
-
-        $allBDRecords = [];
-        $bCount = 0;
-        $dCount = 0;
-        $templateARecord = null;
-        $templateWrapperHeader = null;
-        $templateWrapperFooter = null;
-
-        foreach ($documents as $document) {
-            if (! $document->file_path) {
-                continue;
-            }
-
-            $content = Storage::disk('s3')->get($document->file_path);
-            if (! $content) {
-                continue;
-            }
-
-            $records = str_split($content, 128);
-            foreach ($records as $record) {
-                if (strlen($record) !== 128) {
-                    continue;
-                }
-
-                $type = $record[0];
-                if ($type === 'B') {
-                    $allBDRecords[] = $record;
-                    $bCount++;
-                } elseif ($type === 'D') {
-                    $allBDRecords[] = $record;
-                    $dCount++;
-                } elseif ($type === 'A' && $templateARecord === null) {
-                    $templateARecord = $record;
-                } elseif ($type === '1' && $templateWrapperHeader === null) {
-                    $templateWrapperHeader = $record;
-                } elseif ($type === '8' && $templateWrapperFooter === null) {
-                    $templateWrapperFooter = $record;
-                }
-            }
-        }
-
-        if (empty($allBDRecords) || ! $templateARecord) {
-            return ['success' => true, 'transmitted' => [], 'errors' => []];
-        }
-
-        $now = now();
-        $totalRecordCount = 1 + $bCount + $dCount;
-
-        // A-record のレコード件数・帳票枚数・日時を更新（SJIS直接パッチ）
-        $aRecord = $templateARecord;
-        $aRecord = substr_replace($aRecord, $now->format('Ymd'), 3, 8);
-        $aRecord = substr_replace($aRecord, $now->format('His'), 11, 6);
-        $aRecord = substr_replace($aRecord, str_pad($totalRecordCount, 6, '0', STR_PAD_LEFT), 33, 6);
-        $aRecord = substr_replace($aRecord, str_pad($bCount, 6, '0', STR_PAD_LEFT), 39, 6);
-
-        // JXラッパーヘッダーの送信データ件数・日時を更新
-        $wrapperHeader = $templateWrapperHeader;
-        if ($wrapperHeader) {
-            $wrapperTotalRecords = $totalRecordCount + 2;
-            $wrapperHeader = substr_replace($wrapperHeader, $now->format('ymd'), 10, 6);
-            $wrapperHeader = substr_replace($wrapperHeader, $now->format('His'), 16, 6);
-            $wrapperHeader = substr_replace($wrapperHeader, $now->format('ymd'), 24, 6);
-            $wrapperHeader = substr_replace($wrapperHeader, str_pad($wrapperTotalRecords, 6, '0', STR_PAD_LEFT), 115, 6);
-        }
-
-        $mergedContent = ($wrapperHeader ?? '').
-            $aRecord.
-            implode('', $allBDRecords).
-            ($templateWrapperFooter ?? '');
-
-        // JX設定を取得
-        $firstDoc = $documents->first();
-        $jxSetting = $this->resolveJxSetting($firstDoc);
-        if (! $jxSetting) {
-            $documents->each(fn ($d) => $d->update([
-                'status' => TransmissionDocumentStatus::ERROR,
-                'error_message' => 'JX設定が見つかりません',
-            ]));
-
-            return [
-                'success' => false,
-                'transmitted' => [],
-                'errors' => $documents->map(fn ($d) => ['document_id' => $d->id, 'error' => 'JX設定が見つかりません'])->toArray(),
-            ];
-        }
-
-        // マージファイルをS3に保存
-        $contractorCode = $firstDoc->contractor?->code ?? $firstDoc->contractor_id;
-        $date = $now->format('Y-m-d');
-        $filename = "{$contractorCode}_order_merged_{$now->format('YmdHis')}.dat";
-        $mergedPath = "jx-orders/{$date}/{$filename}";
-        Storage::disk('s3')->put($mergedPath, $mergedContent);
-
-        Log::info('Merged JX files for transmission', [
-            'contractor_id' => $firstDoc->contractor_id,
-            'document_count' => $documents->count(),
-            'b_records' => $bCount,
-            'd_records' => $dCount,
-            'merged_path' => $mergedPath,
-        ]);
-
-        // JX送信実行
-        $client = new JxClient($jxSetting);
-        $result = $client->putDocumentWithWrapper(
-            $mergedContent,
-            $jxSetting->send_document_type ?? '91',
-            'SecondGenEDI'
-        );
-
-        $documentIds = $documents->pluck('id')->toArray();
-
-        if ($result->succeeded()) {
-            $this->saveBackupToS3($firstDoc, $mergedContent);
-
-            $documents->each(fn ($d) => $d->update([
-                'status' => TransmissionDocumentStatus::TRANSMITTED,
-                'transmitted_at' => $now,
-                'transmitted_by' => auth()->id(),
-                ...$this->transmittedByAttributes(),
-                'jx_message_id' => $result->messageId,
-                'jx_response_data' => [
-                    'message_id' => $result->messageId,
-                    'timestamp' => $now->toIso8601String(),
-                    'merged' => true,
-                    'merged_document_ids' => $documentIds,
-                    'merged_file_path' => $mergedPath,
-                ],
-            ]));
-
-            Log::info('Merged JX transmission succeeded', [
-                'document_ids' => $documentIds,
-                'message_id' => $result->messageId,
-            ]);
-            $this->markSlipAssignmentsTransmitted($documentIds);
-
-            return [
-                'success' => true,
-                'transmitted' => $documents->map(fn ($d) => [
-                    'document_id' => $d->id,
-                    'contractor_id' => $d->contractor_id,
-                    'message_id' => $result->messageId,
-                ])->toArray(),
-                'errors' => [],
-            ];
-        }
-
-        $documents->each(fn ($d) => $d->update([
-            'status' => TransmissionDocumentStatus::ERROR,
-            'error_message' => $result->error,
-            'jx_message_id' => $result->messageId,
-            'jx_response_data' => [
-                'message_id' => $result->messageId,
-                'timestamp' => now()->toIso8601String(),
-                'merged_document_ids' => $documentIds,
-                'error' => $result->error,
-            ],
-        ]));
-
-        Log::error('Merged JX transmission failed', [
-            'document_ids' => $documentIds,
-            'error' => $result->error,
-        ]);
-
-        return [
-            'success' => false,
-            'transmitted' => [],
-            'errors' => [['document_id' => implode(',', $documentIds), 'error' => $result->error]],
-        ];
     }
 
     /**
@@ -2794,6 +2667,15 @@ class OrderTransmissionService
             return ['success' => false, 'error' => $zeroQuantityError['error']];
         }
 
+        $document = $this->claimDocumentForJxTransmission($document);
+        if (! $document) {
+            return [
+                'success' => true,
+                'skipped' => true,
+                'message' => '他の処理で送信中または処理済みです',
+            ];
+        }
+
         $jxSetting = $this->resolveJxSetting($document);
 
         if (! $jxSetting) {
@@ -2818,16 +2700,33 @@ class OrderTransmissionService
 
         // JX送信実行
         $client = new JxClient($jxSetting);
-        $result = $client->putDocumentWithWrapper(
-            $fileContent,
-            $jxSetting->send_document_type ?? '91',
-            'SecondGenEDI'
-        );
+        try {
+            $result = $client->putDocumentWithWrapper(
+                $fileContent,
+                $jxSetting->send_document_type ?? '91',
+                'SecondGenEDI'
+            );
+        } catch (\Throwable $e) {
+            $document->update([
+                'status' => TransmissionDocumentStatus::ERROR,
+                'error_message' => $e->getMessage(),
+                'jx_response_data' => [
+                    'timestamp' => now()->toIso8601String(),
+                    'exception' => $e::class,
+                    'error' => $e->getMessage(),
+                ],
+            ]);
+
+            Log::error('JX transmission exception', [
+                'document_id' => $document->id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
 
         if ($result->succeeded()) {
-            // バックアップをS3に保存
-            $this->saveBackupToS3($document, $fileContent);
-
             $document->update([
                 'status' => TransmissionDocumentStatus::TRANSMITTED,
                 'transmitted_at' => now(),
@@ -2851,6 +2750,16 @@ class OrderTransmissionService
                 'transmitted_at' => now(),
             ]));
 
+            try {
+                $this->saveBackupToS3($document, $fileContent);
+            } catch (\Throwable $e) {
+                Log::warning('JX transmission backup failed after successful transmission', [
+                    'document_id' => $document->id,
+                    'message_id' => $result->messageId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
             return ['success' => true, 'message_id' => $result->messageId];
         } else {
             $document->update([
@@ -2871,6 +2780,24 @@ class OrderTransmissionService
 
             return ['success' => false, 'error' => $result->error];
         }
+    }
+
+    private function claimDocumentForJxTransmission(WmsOrderJxDocument $document): ?WmsOrderJxDocument
+    {
+        $updated = WmsOrderJxDocument::query()
+            ->whereKey($document->id)
+            ->where('status', TransmissionDocumentStatus::PENDING)
+            ->update([
+                'status' => TransmissionDocumentStatus::TRANSMITTING,
+                'error_message' => null,
+                'updated_at' => now(),
+            ]);
+
+        if ($updated !== 1) {
+            return null;
+        }
+
+        return WmsOrderJxDocument::query()->find($document->id);
     }
 
     /**

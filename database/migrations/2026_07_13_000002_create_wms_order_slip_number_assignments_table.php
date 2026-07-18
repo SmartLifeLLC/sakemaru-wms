@@ -10,6 +10,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (Schema::connection($this->connection)->hasTable('wms_order_slip_number_assignments')) {
+            return;
+        }
+
         Schema::connection($this->connection)->create('wms_order_slip_number_assignments', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('wms_order_jx_document_id')->nullable()->comment('JX発注ドキュメントID');
