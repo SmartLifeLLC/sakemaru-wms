@@ -39,6 +39,8 @@ class WmsContractorSetting extends WmsModel
         'jx_generation_cutoff_time',
         'jx_generation_sunday_time',
         'jx_generation_sunday_cutoff_time',
+        'jx_transmission_time',
+        'jx_transmission_sunday_time',
         'auto_order_generation_time',
         'order_mail',
         'order_mail_from',
@@ -203,6 +205,13 @@ class WmsContractorSetting extends WmsModel
         return $dayOfWeek === 0
             ? $this->jx_generation_sunday_cutoff_time
             : $this->jx_generation_cutoff_time;
+    }
+
+    public function jxTransmissionTimeForDay(int $dayOfWeek): ?string
+    {
+        return $dayOfWeek === 0
+            ? $this->jx_transmission_sunday_time
+            : $this->jx_transmission_time;
     }
 
     /**

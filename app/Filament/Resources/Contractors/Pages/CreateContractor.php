@@ -49,6 +49,8 @@ class CreateContractor extends CreateRecord
             'jx_generation_cutoff_time' => $data['wms_jx_generation_cutoff_time'] ?? null,
             'jx_generation_sunday_time' => $data['wms_jx_generation_sunday_time'] ?? null,
             'jx_generation_sunday_cutoff_time' => $data['wms_jx_generation_sunday_cutoff_time'] ?? null,
+            'jx_transmission_time' => $data['wms_jx_transmission_time'] ?? null,
+            'jx_transmission_sunday_time' => $data['wms_jx_transmission_sunday_time'] ?? null,
             'transmission_contractor_id' => $data['wms_transmission_contractor_id'] ?? null,
             'format_strategy_class' => $data['wms_format_strategy_class'] ?? null,
             'is_receive_enabled' => $data['wms_is_receive_enabled'] ?? false,

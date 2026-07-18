@@ -10,6 +10,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (Schema::connection($this->connection)->hasTable('wms_order_slip_number_sequences')) {
+            return;
+        }
+
         Schema::connection($this->connection)->create('wms_order_slip_number_sequences', function (Blueprint $table) {
             $table->id();
             $table->string('document_type', 32)->default('EOS_ORDER')->comment('採番用途');
