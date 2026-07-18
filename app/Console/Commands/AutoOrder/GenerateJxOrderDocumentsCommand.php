@@ -67,7 +67,8 @@ class GenerateJxOrderDocumentsCommand extends Command
             }
 
             $contractorIds = WmsContractorSetting::getContractorIdsWithChildren($representativeContractorId);
-            $candidates = $this->targetCandidates($contractorIds, $targetDate, $cutoffTime);
+            [$modifiedFrom, $modifiedUntil] = $this->targetModifiedAtRange($setting, $targetDate, $cutoffTime);
+            $candidates = $this->targetCandidates($contractorIds, $modifiedFrom, $modifiedUntil);
 
             if ($candidates->isEmpty()) {
                 $this->line("  {$label} → 対象候補なし");
@@ -251,21 +252,39 @@ class GenerateJxOrderDocumentsCommand extends Command
     }
 
     /**
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function targetModifiedAtRange(
+        WmsContractorSetting $setting,
+        Carbon $targetDate,
+        string $cutoffTime
+    ): array {
+        $modifiedUntil = Carbon::parse($targetDate->format('Y-m-d').' '.$cutoffTime.':00');
+        $previousDate = $targetDate->copy()->subDay();
+        $previousCutoffTime = $setting->jxGenerationCutoffTimeForDay($previousDate->dayOfWeek);
+
+        $modifiedFrom = $previousCutoffTime
+            ? Carbon::parse($previousDate->format('Y-m-d').' '.$previousCutoffTime.':00')
+            : $previousDate->startOfDay();
+
+        return [$modifiedFrom, $modifiedUntil];
+    }
+
+    /**
      * @param  array<int>  $contractorIds
      * @return Collection<int, WmsOrderCandidate>
      */
-    private function targetCandidates(array $contractorIds, Carbon $targetDate, string $cutoffTime): Collection
+    private function targetCandidates(array $contractorIds, Carbon $modifiedFrom, Carbon $modifiedUntil): Collection
     {
         $candidateTable = (new WmsOrderCandidate)->getTable();
-        $start = $targetDate->copy()->startOfDay();
-        $cutoff = Carbon::parse($targetDate->format('Y-m-d').' '.$cutoffTime.':00');
 
         return WmsOrderCandidate::query()
             ->whereIn('contractor_id', $contractorIds)
             ->where('status', CandidateStatus::CONFIRMED)
             ->where('order_quantity', '>', 0)
             ->whereNull('wms_order_jx_document_id')
-            ->whereBetween('modified_at', [$start, $cutoff])
+            ->where('modified_at', '>=', $modifiedFrom)
+            ->where('modified_at', '<=', $modifiedUntil)
             ->whereNotExists(function ($query) use ($candidateTable): void {
                 $query
                     ->selectRaw('1')

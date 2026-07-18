@@ -239,6 +239,26 @@ class ContractorForm
                         ])
                         ->columns(1),
 
+                    Fieldset::make('JXデータ自動送信')
+                        ->visible(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::JX_FINET->value && blank($get('wms_transmission_contractor_id')))
+                        ->schema([
+                            Grid::make(2)
+                                ->schema([
+                                    TextInput::make('wms_jx_transmission_time')
+                                        ->label('送信時刻（月-土）')
+                                        ->type('time')
+                                        ->nullable()
+                                        ->helperText('通常運用: 13:40'),
+
+                                    TextInput::make('wms_jx_transmission_sunday_time')
+                                        ->label('送信時刻（日）')
+                                        ->type('time')
+                                        ->nullable()
+                                        ->helperText('通常運用: 23:40'),
+                                ]),
+                        ])
+                        ->columns(1),
+
                     Fieldset::make('送信曜日')
                         ->visible(fn (Get $get) => blank($get('wms_transmission_contractor_id')))
                         ->schema([

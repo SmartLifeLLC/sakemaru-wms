@@ -15,4 +15,5 @@ return [
     ],
 
     'auto_generation_schedule_enabled' => env('JX_AUTO_GENERATION_SCHEDULE_ENABLED', false),
+    'auto_transmission_schedule_enabled' => env('JX_AUTO_TRANSMISSION_SCHEDULE_ENABLED', false),
 ];
