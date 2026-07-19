@@ -26,11 +26,14 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Actions as SchemaActions;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\Size;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -310,6 +313,10 @@ class WmsShipmentSlipsTable
                         return 'この配送コースの伝票を印刷します。プリンターを選択してください。';
                     })
                     ->schema(function (WmsPickingTask $record) {
+                        $specificSlipSchema = static::isShipmentConfirmationPrint($record)
+                            ? static::specificSlipPaperConfirmationSchema($record)
+                            : [];
+
                         return array_merge([
                             Section::make('プリンター選択')
                                 ->schema([
@@ -375,7 +382,7 @@ class WmsShipmentSlipsTable
                                         }),
                                 ])
                                 ->compact(),
-                        ], static::specificSlipPaperConfirmationSchema($record));
+                        ], $specificSlipSchema);
                     })
                     ->modalSubmitActionLabel(function (WmsPickingTask $record) {
                         $printCount = $record->wave->print_count ?? 0;
@@ -384,6 +391,7 @@ class WmsShipmentSlipsTable
                     })
                     ->action(function (WmsPickingTask $record, array $data) {
                         $shipmentDate = $record->shipment_date;
+                        $isShipmentConfirmationPrint = static::isShipmentConfirmationPrint($record);
 
                         // 印刷可能性チェック
                         $approvalService = app(ShortageApprovalService::class);
@@ -458,9 +466,8 @@ class WmsShipmentSlipsTable
 
                         // Waveの印刷回数をインクリメント、初回出荷確定時はstatusをCOMPLETEDに更新
                         if ($record->wave) {
-                            $isFirstPrint = $record->wave->print_count === 0;
                             $record->wave->increment('print_count');
-                            if ($isFirstPrint) {
+                            if ($isShipmentConfirmationPrint) {
                                 $record->wave->update(['status' => 'COMPLETED']);
                             }
                         }
@@ -492,8 +499,10 @@ class WmsShipmentSlipsTable
                             $bodyParts[] = "追加欠品の在庫更新キューを{$additionalShortageQueueCount}件作成しました。";
                         }
 
-                        $specificSlipResult = static::queueContinuousSpecificSlipsForRecord($record);
-                        $bodyParts = array_merge($bodyParts, static::specificSlipNotificationLines($specificSlipResult));
+                        if ($isShipmentConfirmationPrint) {
+                            $specificSlipResult = static::queueContinuousSpecificSlipsForRecord($record);
+                            $bodyParts = array_merge($bodyParts, static::specificSlipNotificationLines($specificSlipResult));
+                        }
 
                         Notification::make()
                             ->title($title)
@@ -511,7 +520,10 @@ class WmsShipmentSlipsTable
                     ->color('info')
                     ->visible(fn (WmsPickingTask $record) => static::recordHasSpecificSlipTargets($record))
                     ->modalHeading('専用伝票印刷')
-                    ->modalWidth('3xl')
+                    ->modalWidth('7xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal specific-slip-print-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalCancelActionLabel('印刷せず閉じる')
                     ->schema(fn (WmsPickingTask $record) => static::specificSlipPaperConfirmationSchema($record, true))
                     ->modalSubmitAction(false)
                     ->action(fn (): null => null),
@@ -912,7 +924,7 @@ class WmsShipmentSlipsTable
                 $query->whereIn('id', function ($subQuery) {
                     $subQuery->select(DB::raw('MIN(id)'))
                         ->from('wms_picking_tasks')
-                        ->groupBy('delivery_course_id', 'wave_id', 'shipment_date');
+                        ->groupBy('shipment_date', 'delivery_course_id', 'wave_id');
                 })
                     ->whereExists(fn ($query) => static::printTargetExistsQuery($query))
                     ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting', 'lastPrintedByUser', 'lastPrintedPrinter']);
@@ -941,6 +953,11 @@ class WmsShipmentSlipsTable
             ->isNotEmpty();
     }
 
+    protected static function isShipmentConfirmationPrint(WmsPickingTask $record): bool
+    {
+        return (int) ($record->wave?->print_count ?? 0) === 0;
+    }
+
     protected static function specificSlipPaperConfirmationSchema(WmsPickingTask $record, bool $includeWhenEmpty = false): array
     {
         $groups = app(SpecificSlipPrintTargetService::class)->collectForRecord($record);
@@ -961,8 +978,6 @@ class WmsShipmentSlipsTable
             return [];
         }
 
-        $groups = app(SpecificSlipPrintQueueService::class)->annotateGroupsWithQueueStatus($groups);
-
         if ($groups->isEmpty()) {
             $components = [
                 Placeholder::make('specific_slip_empty')
@@ -974,102 +989,86 @@ class WmsShipmentSlipsTable
         } else {
             $components = $groups
                 ->values()
-                ->map(fn (array $group, int $index) => Grid::make([
-                    'default' => 1,
-                    'md' => 12,
-                ])
-                    ->schema([
-                        Placeholder::make('specific_slip_row_'.$index)
-                            ->hiddenLabel()
-                            ->content(new \Illuminate\Support\HtmlString(static::buildSpecificSlipRowHtml($group, $index)))
-                            ->columnSpan([
-                                'default' => 'full',
-                                'md' => 9,
-                            ]),
-
-                        SchemaActions::make([
-                            static::specificSlipRowPrintAction($group, $index),
-                        ])
-                            ->hiddenLabel()
-                            ->alignEnd()
-                            ->columnSpan([
-                                'default' => 'full',
-                                'md' => 3,
-                            ]),
-                    ])
-                    ->extraAttributes([
-                        'class' => 'rounded-lg border border-gray-200 p-3 dark:border-gray-700',
-                    ]))
+                ->flatMap(fn (array $group, int $groupIndex) => collect($group['slips'] ?? [])
+                    ->values()
+                    ->map(fn ($slip, int $slipIndex) => static::specificSlipCardComponent($group, (array) $slip, $groupIndex, $slipIndex)))
+                ->values()
                 ->all();
         }
 
         return [
-            Section::make('専用伝票')
+            Section::make()
                 ->schema($components)
                 ->compact(),
         ];
     }
 
-    protected static function buildSpecificSlipRowHtml(array $group, int $index): string
+    protected static function specificSlipCardComponent(array $group, array $slip, int $groupIndex, int $slipIndex): Grid
     {
-        $canPrint = (bool) ($group['can_print'] ?? false);
-        $canPrintContinuously = (bool) ($group['can_print_continuously'] ?? true);
-        $printerDisplayName = filled($group['printer_display_name'] ?? null)
-            ? (string) $group['printer_display_name']
-            : '-';
-        $displayOrder = (int) ($group['print_order'] ?? ($index + 1));
-        $queueStatus = $group['queue_status'] ?? null;
-        $continuousLabel = $canPrint
-            ? ($canPrintContinuously ? '可能' : '不可')
-            : '-';
-        $continuousClass = match (true) {
-            ! $canPrint => 'text-gray-500 dark:text-gray-400',
-            ! $canPrintContinuously => 'text-warning-600 dark:text-warning-400',
-            default => 'text-success-600 dark:text-success-400',
-        };
-        $status = match ($queueStatus) {
-            SpecificSlipPrintRequestQueue::STATUS_PENDING => '印刷待ち',
-            SpecificSlipPrintRequestQueue::STATUS_PROCESSING => '印刷処理中',
-            SpecificSlipPrintRequestQueue::STATUS_COMPLETED => '完了',
-            SpecificSlipPrintRequestQueue::STATUS_FAILED => '失敗',
-            default => match (true) {
-                ! $canPrint => '印刷不可: '.($group['disabled_reason'] ?? '設定不足'),
-                default => '未印刷',
-            },
-        };
-        $statusClass = match ($queueStatus) {
-            SpecificSlipPrintRequestQueue::STATUS_PENDING => 'text-warning-600 dark:text-warning-400',
-            SpecificSlipPrintRequestQueue::STATUS_PROCESSING => 'text-info-600 dark:text-info-400',
-            SpecificSlipPrintRequestQueue::STATUS_COMPLETED => 'text-success-600 dark:text-success-400',
-            SpecificSlipPrintRequestQueue::STATUS_FAILED => 'text-danger-600 dark:text-danger-400',
-            default => $canPrint ? 'text-gray-600 dark:text-gray-300' : 'text-danger-600 dark:text-danger-400',
-        };
+        $target = static::specificSlipTargetForSlip($group, $slip);
+        $target = app(SpecificSlipPrintQueueService::class)
+            ->annotateGroupsWithQueueStatus(collect([$target]))
+            ->first() ?? $target;
 
-        $sourceLabel = '';
-        if (filled($group['source_label'] ?? null)) {
-            $sourceLabel = '<div class="mt-1 text-xs text-gray-500 dark:text-gray-400">'.e($group['source_label']).'</div>';
-        }
-
-        return sprintf(
-            '<div class="space-y-2 text-sm">'.
-            '<div class="flex flex-wrap items-center gap-x-3 gap-y-1">'.
-            '<span class="font-semibold text-gray-950 dark:text-white">%s. %s</span>'.
-            '<span class="%s">連続印刷: %s</span>'.
-            '<span class="%s">%s</span>'.
-            '</div>'.
-            '<div class="text-gray-600 dark:text-gray-300">プリンター: %s / 売上: %s件</div>'.
-            '%s'.
-            '</div>',
-            e($displayOrder),
-            e($group['slip_type_name'] ?? '-'),
-            $continuousClass,
-            e($continuousLabel),
-            $statusClass,
-            e($status),
-            e($printerDisplayName),
-            e($group['earning_count'] ?? 0),
-            $sourceLabel,
-        );
+        return Grid::make([
+            'default' => 1,
+            'md' => 12,
+        ])
+            ->schema([
+                ViewField::make('specific_slip_group_'.$groupIndex.'_slip_'.$slipIndex)
+                    ->hiddenLabel()
+                    ->dehydrated(false)
+                    ->view('filament.components.specific-slip-print-slip-row')
+                    ->viewData([
+                        'group' => $group,
+                        'slip' => $slip,
+                        'target' => $target,
+                        'index' => $slipIndex,
+                    ])
+                    ->columnSpan([
+                        'default' => 'full',
+                        'md' => 10,
+                    ]),
+                SchemaActions::make([
+                    static::specificSlipRowPrintAction($target, (($groupIndex + 1) * 1000) + $slipIndex),
+                ])
+                    ->hiddenLabel()
+                    ->alignEnd()
+                    ->extraAttributes(['class' => 'specific-slip-print-slip-action'])
+                    ->columnSpan([
+                        'default' => 'full',
+                        'md' => 2,
+                    ]),
+                ViewField::make('specific_slip_group_'.$groupIndex.'_slip_'.$slipIndex.'_info')
+                    ->hiddenLabel()
+                    ->dehydrated(false)
+                    ->view('filament.components.specific-slip-print-slip-info')
+                    ->viewData([
+                        'slip' => $slip,
+                    ])
+                    ->columnSpan([
+                        'default' => 'full',
+                        'md' => 'full',
+                    ]),
+                ViewField::make('specific_slip_group_'.$groupIndex.'_slip_'.$slipIndex.'_items')
+                    ->hiddenLabel()
+                    ->dehydrated(false)
+                    ->view('filament.components.specific-slip-print-slip-items')
+                    ->viewData([
+                        'items' => collect($slip['items'] ?? [])->values()->all(),
+                    ])
+                    ->columnSpan([
+                        'default' => 'full',
+                        'md' => 'full',
+                    ]),
+            ])
+            ->extraAttributes([
+                'class' => 'specific-slip-print-slip-card rounded-md border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-950',
+            ])
+            ->columnSpan([
+                'default' => 'full',
+                'md' => 'full',
+            ]);
     }
 
     protected static function specificSlipRowPrintAction(array $group, int $index): Action
@@ -1089,6 +1088,7 @@ class WmsShipmentSlipsTable
             ->label('印刷')
             ->icon('heroicon-o-printer')
             ->color('primary')
+            ->size(Size::Small)
             ->button()
             ->disabled(! $canPrint || $isQueued)
             ->tooltip(match (true) {
@@ -1111,7 +1111,8 @@ class WmsShipmentSlipsTable
             return null;
         }
 
-        $count = app(SpecificSlipPrintQueueService::class)->countIncompleteTargets($groups);
+        $count = app(SpecificSlipPrintQueueService::class)
+            ->countIncompleteTargets(static::specificSlipPrintTargetsFromGroups($groups));
 
         return $count > 0 ? $count : '完了';
     }
@@ -1145,28 +1146,72 @@ class WmsShipmentSlipsTable
     {
         $groups = app(SpecificSlipPrintTargetService::class)->collectForRecord($record);
 
-        return app(SpecificSlipPrintQueueService::class)->createForGroups($groups, $paperConfirmations);
+        return app(SpecificSlipPrintQueueService::class)
+            ->createForGroups(static::specificSlipPrintTargetsFromGroups($groups), $paperConfirmations);
     }
 
     protected static function queueContinuousSpecificSlipsForRecord(WmsPickingTask $record): array
     {
         $groups = app(SpecificSlipPrintTargetService::class)->collectForRecord($record);
 
-        return app(SpecificSlipPrintQueueService::class)->createForContinuouslyPrintableGroups($groups);
+        return app(SpecificSlipPrintQueueService::class)
+            ->createForContinuouslyPrintableGroups(static::specificSlipPrintTargetsFromGroups($groups));
     }
 
     protected static function queueSpecificSlipsForRecords(iterable $records, array|bool $paperConfirmations = []): array
     {
         $groups = static::specificSlipGroupsForRecords($records);
 
-        return app(SpecificSlipPrintQueueService::class)->createForGroups($groups, $paperConfirmations);
+        return app(SpecificSlipPrintQueueService::class)
+            ->createForGroups(static::specificSlipPrintTargetsFromGroups($groups), $paperConfirmations);
     }
 
     protected static function queueContinuousSpecificSlipsForRecords(iterable $records): array
     {
         $groups = static::specificSlipGroupsForRecords($records);
 
-        return app(SpecificSlipPrintQueueService::class)->createForContinuouslyPrintableGroups($groups);
+        return app(SpecificSlipPrintQueueService::class)
+            ->createForContinuouslyPrintableGroups(static::specificSlipPrintTargetsFromGroups($groups));
+    }
+
+    protected static function specificSlipPrintTargetsFromGroups(SupportCollection $groups): SupportCollection
+    {
+        return $groups
+            ->flatMap(function (array $group) {
+                $slips = collect($group['slips'] ?? [])->values();
+
+                if ($slips->isEmpty()) {
+                    return [$group];
+                }
+
+                return $slips->map(fn ($slip) => static::specificSlipTargetForSlip($group, (array) $slip));
+            })
+            ->values();
+    }
+
+    protected static function specificSlipTargetForSlip(array $group, array $slip): array
+    {
+        $earningId = (int) ($slip['earning_id'] ?? 0);
+        $target = $group;
+        $target['earning_ids'] = $earningId > 0 ? [$earningId] : [];
+        $target['earning_count'] = $earningId > 0 ? 1 : 0;
+        $target['slips'] = [$slip];
+        $target['confirmation_key'] = static::specificSlipConfirmationKeyForSlip($group, $earningId);
+
+        unset($target['queue_id'], $target['queue_status'], $target['queue_processed_at']);
+
+        return $target;
+    }
+
+    protected static function specificSlipConfirmationKeyForSlip(array $group, int $earningId): string
+    {
+        return implode('_', [
+            $group['client_id'] ?? '',
+            $group['warehouse_id'] ?? '',
+            $group['slip_type_id'] ?? '',
+            substr(sha1((string) ($group['printer_key'] ?? '')), 0, 10),
+            $earningId,
+        ]);
     }
 
     protected static function specificSlipGroupsForRecords(iterable $records): SupportCollection
