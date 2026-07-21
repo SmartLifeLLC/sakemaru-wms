@@ -1,6 +1,9 @@
 @php
     $queueStatus = $target['queue_status'] ?? null;
     $canPrint = (bool) ($target['can_print'] ?? false);
+    $slipTypeName = filled($group['slip_type_name'] ?? null)
+        ? (string) $group['slip_type_name']
+        : '専用伝票';
     $statusLabel = match ($queueStatus) {
         \App\Models\SpecificSlipPrintRequestQueue::STATUS_PENDING => '印刷待ち',
         \App\Models\SpecificSlipPrintRequestQueue::STATUS_PROCESSING => '印刷処理中',
@@ -23,7 +26,7 @@
 @endphp
 
 <div class="flex flex-wrap items-center gap-2 text-sm leading-5">
-    <div class="font-bold text-slate-900 dark:text-white">印刷対象の売上伝票</div>
+    <div class="font-bold text-slate-900 dark:text-white">{{ $slipTypeName }}</div>
     <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold ring-1 ring-inset {{ $statusClass }}">
         {{ $statusLabel }}
     </span>
