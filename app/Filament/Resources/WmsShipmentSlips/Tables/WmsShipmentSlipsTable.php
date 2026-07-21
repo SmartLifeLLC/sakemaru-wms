@@ -313,11 +313,7 @@ class WmsShipmentSlipsTable
                         return 'この配送コースの伝票を印刷します。プリンターを選択してください。';
                     })
                     ->schema(function (WmsPickingTask $record) {
-                        $specificSlipSchema = static::isShipmentConfirmationPrint($record)
-                            ? static::specificSlipPaperConfirmationSchema($record)
-                            : [];
-
-                        return array_merge([
+                        return [
                             Section::make('プリンター選択')
                                 ->schema([
                                     Select::make('printer_warehouse_id')
@@ -382,7 +378,7 @@ class WmsShipmentSlipsTable
                                         }),
                                 ])
                                 ->compact(),
-                        ], $specificSlipSchema);
+                        ];
                     })
                     ->modalSubmitActionLabel(function (WmsPickingTask $record) {
                         $printCount = $record->wave->print_count ?? 0;
@@ -499,11 +495,6 @@ class WmsShipmentSlipsTable
                             $bodyParts[] = "追加欠品の在庫更新キューを{$additionalShortageQueueCount}件作成しました。";
                         }
 
-                        if ($isShipmentConfirmationPrint) {
-                            $specificSlipResult = static::queueContinuousSpecificSlipsForRecord($record);
-                            $bodyParts = array_merge($bodyParts, static::specificSlipNotificationLines($specificSlipResult));
-                        }
-
                         Notification::make()
                             ->title($title)
                             ->body(implode("\n", $bodyParts))
@@ -585,8 +576,8 @@ class WmsShipmentSlipsTable
                     ->color('primary')
                     ->modalHeading('一括出荷確定')
                     ->modalWidth('3xl')
-                    ->schema(function ($records) {
-                        return array_merge([
+                    ->schema(function () {
+                        return [
                             Section::make('プリンター選択')
                                 ->schema([
                                     Select::make('printer_warehouse_id')
@@ -649,7 +640,7 @@ class WmsShipmentSlipsTable
                                         }),
                                 ])
                                 ->compact(),
-                        ], static::specificSlipPaperConfirmationSchemaForRecords($records));
+                        ];
                     })
                     ->modalDescription(function (Collection $records): \Illuminate\Support\HtmlString|string {
                         $approvalService = app(ShortageApprovalService::class);
@@ -785,7 +776,6 @@ class WmsShipmentSlipsTable
                         $errorCount = 0;
                         $totalEarnings = 0;
                         $totalTasks = 0;
-                        $specificSlipRecords = collect();
 
                         foreach ($records as $record) {
                             // 既に出荷確定済み（印刷回数1以上）はスキップ
@@ -862,7 +852,6 @@ class WmsShipmentSlipsTable
                                     $successCount++;
                                     $totalEarnings += $result['earning_count'];
                                     $totalTasks += $tasksToUpdate->count();
-                                    $specificSlipRecords->push($record);
                                 } else {
                                     $errorCount++;
                                 }
@@ -905,12 +894,6 @@ class WmsShipmentSlipsTable
                             $message .= "、{$errorCount}件失敗";
                         }
                         $message .= "（売上{$totalEarnings}件、タスク{$totalTasks}件）";
-
-                        $specificSlipResult = static::queueContinuousSpecificSlipsForRecords($specificSlipRecords);
-                        $specificSlipLines = static::specificSlipNotificationLines($specificSlipResult);
-                        if (! empty($specificSlipLines)) {
-                            $message .= "\n".implode("\n", $specificSlipLines);
-                        }
 
                         Notification::make()
                             ->title('一括出荷確定')
@@ -1150,28 +1133,12 @@ class WmsShipmentSlipsTable
             ->createForGroups(static::specificSlipPrintTargetsFromGroups($groups), $paperConfirmations);
     }
 
-    protected static function queueContinuousSpecificSlipsForRecord(WmsPickingTask $record): array
-    {
-        $groups = app(SpecificSlipPrintTargetService::class)->collectForRecord($record);
-
-        return app(SpecificSlipPrintQueueService::class)
-            ->createForContinuouslyPrintableGroups(static::specificSlipPrintTargetsFromGroups($groups));
-    }
-
     protected static function queueSpecificSlipsForRecords(iterable $records, array|bool $paperConfirmations = []): array
     {
         $groups = static::specificSlipGroupsForRecords($records);
 
         return app(SpecificSlipPrintQueueService::class)
             ->createForGroups(static::specificSlipPrintTargetsFromGroups($groups), $paperConfirmations);
-    }
-
-    protected static function queueContinuousSpecificSlipsForRecords(iterable $records): array
-    {
-        $groups = static::specificSlipGroupsForRecords($records);
-
-        return app(SpecificSlipPrintQueueService::class)
-            ->createForContinuouslyPrintableGroups(static::specificSlipPrintTargetsFromGroups($groups));
     }
 
     protected static function specificSlipPrintTargetsFromGroups(SupportCollection $groups): SupportCollection
