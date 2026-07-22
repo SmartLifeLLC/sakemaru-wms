@@ -627,6 +627,55 @@ class HanaOrderFileGeneratorTest extends TestCase
 
     /**
      * @test
+     * 仕入入数1のケース発注は、JX原単価にバラ原価を使うこと
+     */
+    public function it_uses_unit_cost_for_capacity_one_case_ordering_code(): void
+    {
+        $itemId = 999010;
+        $orderingCode = '4901004015112';
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => $itemId,
+            'quantity_type' => \App\Enums\QuantityType::CASE,
+            'order_quantity' => 2,
+            'ordering_code' => $orderingCode,
+            'purchase_unit_price' => 4147,
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => $itemId,
+            'code' => '171108',
+            'name_main' => 'TEST KEG 10L',
+            'capacity_case' => 1,
+        ]);
+
+        $generatorReflection = new \ReflectionClass($this->generator);
+
+        $orderingCodeInfoCache = $generatorReflection->getProperty('orderingCodeInfoCache');
+        $orderingCodeInfoCache->setAccessible(true);
+        $orderingCodeInfoCache->setValue($this->generator, [
+            $itemId.':'.$orderingCode => null,
+        ]);
+
+        $costPriceCache = $generatorReflection->getProperty('costPriceCache');
+        $costPriceCache->setAccessible(true);
+        $costPriceCache->setValue($this->generator, [$itemId => (object) [
+            'cost_case_price' => 0,
+            'cost_unit_price' => 4147,
+            'purchase_unit_price' => 4147,
+        ]]);
+
+        $generateDRecord = $generatorReflection->getMethod('generateDRecord');
+        $generateDRecord->setAccessible(true);
+        $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
+
+        $this->assertEquals(1, (int) substr($dRecord, 88, 6), 'Capacity should remain one for capacity_case=1 item');
+        $this->assertEquals(2, (int) substr($dRecord, 94, 7), 'Case quantity should keep the candidate order quantity');
+        $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Piece quantity should remain zero for case order');
+        $this->assertEquals(414700, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost when capacity_case is one');
+    }
+
+    /**
+     * @test
      * ケース発注の数量はそのまま送り、6缶発注CDでも原単価はケース原価を使うこと
      */
     public function it_keeps_case_quantity_and_uses_case_cost_for_six_pack_ordering_code(): void
