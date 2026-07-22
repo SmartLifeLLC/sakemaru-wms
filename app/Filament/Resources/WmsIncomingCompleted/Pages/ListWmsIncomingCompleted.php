@@ -36,7 +36,7 @@ class ListWmsIncomingCompleted extends ListRecords
                 ->icon('heroicon-o-paper-airplane')
                 ->color('primary')
                 ->modalHeading(fn (): string => $this->getPurchaseTransmissionActionLabel())
-                ->modalDescription(fn (): string => $this->getPurchaseTransmissionTargetLabel().'の未送信入荷完了データをすべて基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
+                ->modalDescription(fn (): string => $this->getPurchaseTransmissionTargetLabel().'の未送信入荷完了データをすべて基幹システムの仕入キューに登録します。同一の倉庫・仕入先・伝票番号・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
                 ->requiresConfirmation()
                 ->modalSubmitActionLabel('全送信')
                 ->action(function () {

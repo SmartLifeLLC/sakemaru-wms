@@ -3,6 +3,7 @@
 namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Enums\AutoOrder\OrderSource;
 use App\Models\WmsOrderIncomingSchedule;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -12,7 +13,7 @@ use Illuminate\Support\Str;
 /**
  * 入庫完了データの仕入連携サービス
  *
- * 仕様書: storage/specifications/inbound/purchase-create-queue-batching.md
+ * 仕様書: storage/specifications/20260315/inbound/purchase-create-queue-batching.md
  */
 class IncomingTransmissionService
 {
@@ -26,8 +27,9 @@ class IncomingTransmissionService
      * グルーピング基準:
      * - warehouse_code (倉庫コード)
      * - supplier_code (仕入先コード)
+     * - slip_number (入荷/EOS伝票番号)
      * - order_date (発注日 = 計上日)
-     * - confirmed_at date (入荷日時の日付 = 配送日/買掛日)
+     * - actual_arrival_date / confirmed_at date (入荷日 = 配送日/買掛日)
      *
      * @return array ['success' => bool, 'queue_count' => int, 'schedule_count' => int, 'errors' => array]
      */
@@ -119,7 +121,7 @@ class IncomingTransmissionService
             ];
         }
 
-        // グルーピング: 倉庫 + 仕入先 + 計上日 + 配送日 + 買掛日
+        // グルーピング: 倉庫 + 仕入先 + 伝票番号 + 計上日 + 配送日 + 買掛日
         $grouped = $purchaseSchedules->groupBy(function ($schedule) {
             return $this->purchaseGroupKey($schedule);
         });
@@ -208,6 +210,7 @@ class IncomingTransmissionService
                 $supplierCode = $this->getSupplierCode($schedule, persistSupplierId: $persistSupplierId);
                 $warehouseCode = $this->getWarehouseCode($schedule);
                 $itemCode = $this->getItemCode($schedule);
+                $slipNumber = $this->getSlipNumber($schedule);
                 $processDate = $this->getProcessDate($schedule);
                 $deliveredDate = $this->getDeliveredDate($schedule);
                 $accountDate = $this->getAccountDate($schedule);
@@ -216,6 +219,7 @@ class IncomingTransmissionService
                     $supplierCode === ''
                     || $warehouseCode === ''
                     || $itemCode === ''
+                    || $slipNumber === ''
                     || $processDate === null
                     || $deliveredDate === null
                     || $accountDate === null
@@ -224,9 +228,10 @@ class IncomingTransmissionService
                         'schedule_id' => $schedule->id,
                         'group_key' => $this->purchaseGroupKey($schedule),
                         'error' => sprintf(
-                            '仕入キュー登録に必要な情報を解決できません（倉庫CD:%s / 仕入先CD:%s / 商品CD:%s / 発注日:%s / 入荷日時日付:%s / 買掛日:%s）',
+                            '仕入キュー登録に必要な情報を解決できません（倉庫CD:%s / 仕入先CD:%s / 伝票番号:%s / 商品CD:%s / 発注日:%s / 入荷日:%s / 買掛日:%s）',
                             $warehouseCode !== '' ? $warehouseCode : '-',
                             $supplierCode !== '' ? $supplierCode : '-',
+                            $slipNumber !== '' ? $slipNumber : '-',
                             $itemCode !== '' ? $itemCode : '-',
                             $processDate ?? '-',
                             $deliveredDate ?? '-',
@@ -290,6 +295,10 @@ class IncomingTransmissionService
             return (int) $schedule->supplier_id;
         }
 
+        if ($this->requiresConfirmedSupplier($schedule)) {
+            return null;
+        }
+
         $supplierId = $this->resolveItemContractorSupplierId($schedule)
             ?? $this->resolveContractorSupplierId($schedule);
 
@@ -304,6 +313,12 @@ class IncomingTransmissionService
         $schedule->setAttribute('supplier_id', $supplierId);
 
         return $supplierId;
+    }
+
+    private function requiresConfirmedSupplier(WmsOrderIncomingSchedule $schedule): bool
+    {
+        return $schedule->is_receive_matched
+            || $schedule->order_source === OrderSource::RECEIVED;
     }
 
     private function resolveItemContractorSupplierId(WmsOrderIncomingSchedule $schedule): ?int
@@ -376,6 +391,11 @@ class IncomingTransmissionService
         return trim((string) ($schedule->item?->code ?? $schedule->item_code ?? ''));
     }
 
+    private function getSlipNumber(WmsOrderIncomingSchedule $schedule): string
+    {
+        return trim((string) $schedule->slip_number);
+    }
+
     private function getProcessDate(WmsOrderIncomingSchedule $schedule): ?string
     {
         return $schedule->order_date?->format('Y-m-d');
@@ -383,7 +403,8 @@ class IncomingTransmissionService
 
     private function getDeliveredDate(WmsOrderIncomingSchedule $schedule): ?string
     {
-        return $schedule->confirmed_at?->format('Y-m-d');
+        return $schedule->actual_arrival_date?->format('Y-m-d')
+            ?? $schedule->confirmed_at?->format('Y-m-d');
     }
 
     private function getAccountDate(WmsOrderIncomingSchedule $schedule): ?string
@@ -396,6 +417,7 @@ class IncomingTransmissionService
         return implode('_', [
             $this->getWarehouseCode($schedule) ?: 'UNKNOWN_WAREHOUSE',
             $this->getSupplierCode($schedule) ?: 'UNKNOWN_SUPPLIER',
+            $this->getSlipNumber($schedule) ?: 'UNKNOWN_SLIP_NUMBER',
             $this->getProcessDate($schedule) ?? 'UNKNOWN_PROCESS_DATE',
             $this->getDeliveredDate($schedule) ?? 'UNKNOWN_DELIVERED_DATE',
             $this->getAccountDate($schedule) ?? 'UNKNOWN_ACCOUNT_DATE',
@@ -413,12 +435,13 @@ class IncomingTransmissionService
 
         // マスタ情報を取得
         $supplierCode = $this->getSupplierCode($first);
+        $slipNumber = $this->getSlipNumber($first);
         $processDate = $this->getProcessDate($first);
         $deliveredDate = $this->getDeliveredDate($first);
         $accountDate = $this->getAccountDate($first);
 
-        if ($processDate === null || $deliveredDate === null || $accountDate === null) {
-            throw new \RuntimeException('仕入キュー登録に必要な日付を解決できません。');
+        if ($slipNumber === '' || $processDate === null || $deliveredDate === null || $accountDate === null) {
+            throw new \RuntimeException('仕入キュー登録に必要な伝票番号または日付を解決できません。');
         }
 
         // 明細を構築
@@ -445,6 +468,7 @@ class IncomingTransmissionService
             'account_date' => $accountDate,
             'supplier_code' => $supplierCode,
             'warehouse_code' => $this->getWarehouseCode($first),
+            'slip_number' => $slipNumber,
             'note' => $this->buildPurchaseNote($first),
             'details' => $details,
         ];
@@ -452,6 +476,7 @@ class IncomingTransmissionService
         // キューに挿入
         $queueId = DB::connection('sakemaru')->table('purchase_create_queue')->insertGetId([
             'request_uuid' => Str::uuid()->toString(),
+            'slip_number' => $slipNumber,
             'delivered_date' => $deliveredDate,
             'items' => json_encode($purchaseData, JSON_UNESCAPED_UNICODE),
             'status' => 'BEFORE',

@@ -7,9 +7,11 @@ use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsJxEosLines\WmsJxEosLineResource;
 use App\Filament\Resources\WmsJxTransmissionLogResource\Pages;
 use App\Filament\Support\AdminResource;
+use App\Models\WmsIncomingReceivedFile;
 use App\Models\WmsJxEosImportBatch;
 use App\Models\WmsJxTransmissionLog;
-use App\Services\JX\Eos\JxEosImportService;
+use App\Services\JX\Eos\JxEosIncomingSkipService;
+use App\Services\JX\Eos\JxEosIncomingWorkflowService;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -28,7 +30,7 @@ class WmsJxTransmissionLogResource extends AdminResource
 {
     protected static ?string $model = WmsJxTransmissionLog::class;
 
-    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-arrows-up-down';
+    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-arrow-down-tray';
 
     public static function getNavigationGroup(): ?string
     {
@@ -47,12 +49,12 @@ class WmsJxTransmissionLogResource extends AdminResource
 
     public static function getModelLabel(): string
     {
-        return 'JX送受信履歴';
+        return 'JX受信履歴';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return 'JX送受信履歴';
+        return 'JX受信履歴';
     }
 
     public static function canCreate(): bool
@@ -72,7 +74,10 @@ class WmsJxTransmissionLogResource extends AdminResource
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->striped()
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['jxSetting', 'currentEosImport']))
+            ->modifyQueryUsing(fn (Builder $query) => $query
+                ->with(['jxSetting', 'currentEosImport', 'incomingReceivedFile'])
+                ->eosImportTarget()
+            )
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -159,6 +164,19 @@ class WmsJxTransmissionLogResource extends AdminResource
                     ->numeric()
                     ->alignRight()
                     ->placeholder('-'),
+                TextColumn::make('incomingReceivedFile.status')
+                    ->label('入荷予定更新')
+                    ->badge()
+                    ->placeholder('未取込')
+                    ->formatStateUsing(fn (?string $state): string => self::incomingStatusLabel($state))
+                    ->color(fn (?string $state): string => match ($state) {
+                        WmsIncomingReceivedFile::STATUS_APPLIED => 'success',
+                        WmsIncomingReceivedFile::STATUS_MATCHED => 'warning',
+                        WmsIncomingReceivedFile::STATUS_PENDING => 'gray',
+                        WmsIncomingReceivedFile::STATUS_ERROR => 'danger',
+                        WmsIncomingReceivedFile::STATUS_SKIPPED => 'gray',
+                        default => 'gray',
+                    }),
                 TextColumn::make('http_code')
                     ->label('HTTP')
                     ->badge()
@@ -187,25 +205,6 @@ class WmsJxTransmissionLogResource extends AdminResource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('direction')
-                    ->label('方向')
-                    ->options([
-                        WmsJxTransmissionLog::DIRECTION_SEND => '送信',
-                        WmsJxTransmissionLog::DIRECTION_RECEIVE => '受信',
-                    ]),
-                SelectFilter::make('operation_type')
-                    ->label('操作タイプ')
-                    ->options([
-                        WmsJxTransmissionLog::OPERATION_PUT => 'PutDocument',
-                        WmsJxTransmissionLog::OPERATION_GET => 'GetDocument',
-                        WmsJxTransmissionLog::OPERATION_CONFIRM => 'ConfirmDocument',
-                    ]),
-                SelectFilter::make('status')
-                    ->label('結果')
-                    ->options([
-                        WmsJxTransmissionLog::STATUS_SUCCESS => '成功',
-                        WmsJxTransmissionLog::STATUS_FAILURE => '失敗',
-                    ]),
                 SelectFilter::make('environment')
                     ->label('環境')
                     ->options([
@@ -233,25 +232,51 @@ class WmsJxTransmissionLogResource extends AdminResource
             ])
             ->recordActions([
                 Action::make('importEos')
-                    ->label(fn (WmsJxTransmissionLog $record): string => $record->currentEosImport ? 'EOS再取込' : 'EOS取込')
+                    ->label(fn (WmsJxTransmissionLog $record): string => $record->currentEosImport ? 'EOS再取込/入荷更新' : 'EOS取込/入荷更新')
                     ->icon('heroicon-o-circle-stack')
                     ->color('success')
                     ->requiresConfirmation()
-                    ->modalHeading('EOSデータを正規化取込')
-                    ->modalDescription('保存済みGetDocumentファイルを解析し、仕入照合用のEOS正規化テーブルへ保存します。再取込時は旧取込を履歴化し、最新成功分だけを現行データにします。')
+                    ->modalHeading('EOSデータを取り込み、入荷予定を更新')
+                    ->modalDescription('保存済みGetDocumentファイルを解析し、EOS正規化、入荷予定照合、入荷予定の数量更新まで実行します。未照合が残る場合は照合結果だけ保存し、入荷予定更新は行いません。')
                     ->visible(fn (WmsJxTransmissionLog $record): bool => self::isEosImportable($record))
                     ->action(function (WmsJxTransmissionLog $record): void {
                         try {
-                            $batch = app(JxEosImportService::class)->importFromLog($record);
+                            $result = app(JxEosIncomingWorkflowService::class)
+                                ->importAndApply($record, forceEosReimport: true);
 
                             Notification::make()
-                                ->title('EOSデータを取り込みました')
-                                ->body('FINET: '.($batch->finet_code ?: '-')." / 伝票: {$batch->slip_count}件 / 明細: {$batch->line_count}件 / 版: {$batch->import_version}")
+                                ->title('EOS取込と入荷予定更新が完了しました')
+                                ->body(self::workflowResultBody($result))
                                 ->success()
                                 ->send();
                         } catch (\Throwable $throwable) {
                             Notification::make()
                                 ->title('EOS取込エラー')
+                                ->body($throwable->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+                Action::make('skipEosIncoming')
+                    ->label('対象外')
+                    ->icon('heroicon-o-no-symbol')
+                    ->color('gray')
+                    ->requiresConfirmation()
+                    ->modalHeading('EOS受信データを取込対象外にする')
+                    ->modalDescription('このGetDocumentログはEOS取込・入荷予定照合・入荷予定更新の対象から外します。JX受信履歴と原本ファイルは残ります。')
+                    ->visible(fn (WmsJxTransmissionLog $record): bool => self::isEosSkippable($record))
+                    ->action(function (WmsJxTransmissionLog $record): void {
+                        try {
+                            $file = app(JxEosIncomingSkipService::class)->skip($record, auth()->id());
+
+                            Notification::make()
+                                ->title('EOS受信データを対象外にしました')
+                                ->body("入荷受信ID: {$file->id}（".self::incomingStatusLabel($file->status).'）')
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $throwable) {
+                            Notification::make()
+                                ->title('対象外処理エラー')
                                 ->body($throwable->getMessage())
                                 ->danger()
                                 ->send();
@@ -279,11 +304,13 @@ class WmsJxTransmissionLogResource extends AdminResource
                         ->icon('heroicon-o-circle-stack')
                         ->color('success')
                         ->requiresConfirmation()
-                        ->modalHeading('選択したGetDocumentログをEOS取込')
-                        ->modalDescription('取込可能なGetDocument成功ログだけを対象に、保存済みファイルを正規化テーブルへ保存します。')
+                        ->modalHeading('選択したGetDocumentログをEOS取込・入荷予定更新')
+                        ->modalDescription('取込可能なGetDocument成功ログだけを対象に、EOS正規化、入荷予定照合、入荷予定の数量更新まで実行します。')
                         ->action(function ($records): void {
-                            $service = app(JxEosImportService::class);
-                            $imported = 0;
+                            $service = app(JxEosIncomingWorkflowService::class);
+                            $processed = 0;
+                            $applied = 0;
+                            $notApplied = 0;
                             $skipped = 0;
                             $failed = 0;
 
@@ -295,16 +322,55 @@ class WmsJxTransmissionLogResource extends AdminResource
                                 }
 
                                 try {
-                                    $service->importFromLog($record);
-                                    $imported++;
+                                    $result = $service->importAndApply($record, forceEosReimport: true);
+                                    $processed++;
+                                    $applied += $result['apply']['applied'];
+
+                                    if ($result['apply']['applied'] === 0 && $result['skipped_apply_reason']) {
+                                        $notApplied++;
+                                    }
                                 } catch (\Throwable) {
                                     $failed++;
                                 }
                             }
 
                             $notification = Notification::make()
-                                ->title('選択EOS取込が完了しました')
-                                ->body("取込: {$imported}件 / スキップ: {$skipped}件 / 失敗: {$failed}件");
+                                ->title('選択EOS取込と入荷予定更新が完了しました')
+                                ->body("処理: {$processed}件 / 入荷予定更新: {$applied}件 / 未更新: {$notApplied}件 / スキップ: {$skipped}件 / 失敗: {$failed}件");
+
+                            ($failed > 0 ? $notification->warning() : $notification->success())->send();
+                        }),
+                    BulkAction::make('skipSelectedEosIncoming')
+                        ->label('選択EOS対象外')
+                        ->icon('heroicon-o-no-symbol')
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalHeading('選択したEOS受信データを対象外にする')
+                        ->modalDescription('選択したGetDocumentログのうち、未適用のものだけをEOS取込・入荷予定照合・入荷予定更新の対象から外します。')
+                        ->action(function ($records): void {
+                            $service = app(JxEosIncomingSkipService::class);
+                            $processed = 0;
+                            $skipped = 0;
+                            $failed = 0;
+
+                            foreach ($records as $record) {
+                                if (! self::isEosSkippable($record)) {
+                                    $skipped++;
+
+                                    continue;
+                                }
+
+                                try {
+                                    $service->skip($record, auth()->id());
+                                    $processed++;
+                                } catch (\Throwable) {
+                                    $failed++;
+                                }
+                            }
+
+                            $notification = Notification::make()
+                                ->title('選択EOS対象外処理が完了しました')
+                                ->body("対象外: {$processed}件 / スキップ: {$skipped}件 / 失敗: {$failed}件");
 
                             ($failed > 0 ? $notification->warning() : $notification->success())->send();
                         }),
@@ -312,12 +378,59 @@ class WmsJxTransmissionLogResource extends AdminResource
             ]);
     }
 
+    private static function incomingStatusLabel(?string $state): string
+    {
+        return match ($state) {
+            WmsIncomingReceivedFile::STATUS_PENDING => '照合待ち',
+            WmsIncomingReceivedFile::STATUS_MATCHED => '照合済',
+            WmsIncomingReceivedFile::STATUS_APPLIED => '更新済',
+            WmsIncomingReceivedFile::STATUS_ERROR => 'エラー',
+            WmsIncomingReceivedFile::STATUS_SKIPPED => '対象外',
+            default => '未取込',
+        };
+    }
+
+    private static function workflowResultBody(array $result): string
+    {
+        $batch = $result['batch'];
+        $file = $result['received_file'];
+        $match = $result['match'];
+        $apply = $result['apply'];
+
+        $body = 'FINET: '.($batch->finet_code ?: '-')
+            ." / EOS伝票: {$batch->slip_count}件"
+            ." / EOS明細: {$batch->line_count}件"
+            ." / 入荷受信ID: {$file->id}（".self::incomingStatusLabel($file->status).'）'
+            ." / 照合: 一致{$match['matched']}・欠品{$match['shortage']}・未一致{$match['unmatched']}"
+            ." / 入荷予定更新: {$apply['applied']}件";
+
+        if ($result['skipped_apply_reason']) {
+            $body .= ' / 未更新理由: '.$result['skipped_apply_reason'];
+        }
+
+        if (count($apply['errors']) > 0) {
+            $body .= ' / 更新エラー: '.count($apply['errors']).'件';
+        }
+
+        return $body;
+    }
+
     private static function isEosImportable(WmsJxTransmissionLog $record): bool
     {
+        $receivedFile = $record->relationLoaded('incomingReceivedFile')
+            ? $record->incomingReceivedFile
+            : $record->incomingReceivedFile()->first();
+
         return $record->direction === WmsJxTransmissionLog::DIRECTION_RECEIVE
             && $record->operation_type === WmsJxTransmissionLog::OPERATION_GET
             && $record->status === WmsJxTransmissionLog::STATUS_SUCCESS
-            && filled($record->file_path);
+            && filled($record->file_path)
+            && ! in_array((string) ($receivedFile?->status), WmsIncomingReceivedFile::TERMINAL_STATUSES, true);
+    }
+
+    private static function isEosSkippable(WmsJxTransmissionLog $record): bool
+    {
+        return self::isEosImportable($record);
     }
 
     public static function getPages(): array

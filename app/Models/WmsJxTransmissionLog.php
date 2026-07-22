@@ -76,6 +76,13 @@ class WmsJxTransmissionLog extends WmsModel
             ->latestOfMany();
     }
 
+    public function incomingReceivedFile(): HasOne
+    {
+        return $this->hasOne(WmsIncomingReceivedFile::class, 'received_message_id', 'message_id')
+            ->where('format_type', 'JX')
+            ->latestOfMany();
+    }
+
     /**
      * 送信ログのスコープ
      */
@@ -90,6 +97,26 @@ class WmsJxTransmissionLog extends WmsModel
     public function scopeReceive(Builder $query): Builder
     {
         return $query->where('direction', self::DIRECTION_RECEIVE);
+    }
+
+    public function scopeEosImportTarget(Builder $query): Builder
+    {
+        return $query
+            ->where('direction', self::DIRECTION_RECEIVE)
+            ->where('operation_type', self::OPERATION_GET)
+            ->where('status', self::STATUS_SUCCESS)
+            ->whereNotNull('file_path')
+            ->where('file_path', '<>', '');
+    }
+
+    public function scopePendingEosIncomingImport(Builder $query): Builder
+    {
+        return $query
+            ->eosImportTarget()
+            ->whereDoesntHave(
+                'incomingReceivedFile',
+                fn (Builder $query): Builder => $query->whereIn('status', WmsIncomingReceivedFile::TERMINAL_STATUSES)
+            );
     }
 
     /**

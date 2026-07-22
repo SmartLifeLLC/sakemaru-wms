@@ -511,14 +511,12 @@ class WmsOrderIncomingSchedulesTable
                     ->modalWidth('5xl')
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalSubmitActionLabel('入荷確定')
-                    ->modalSubmitAction(fn ($record, $action) => in_array($record->status, [
-                        IncomingScheduleStatus::PENDING,
-                        IncomingScheduleStatus::PARTIAL,
-                    ]) ? $action->makeModalSubmitAction('submit', [])->label('入荷確定')->color('danger')->requiresConfirmation()
-                        ->modalHeading('入荷確定')
-                        ->modalDescription('入荷データを確定します。よろしいですか？')
-                        ->modalSubmitActionLabel('確定する')
-                    : false)
+                    ->modalSubmitAction(fn ($record, $action) => static::canManuallyConfirmIncoming($record)
+                        ? $action->makeModalSubmitAction('submit', [])->label('入荷確定')->color('danger')->requiresConfirmation()
+                            ->modalHeading('入荷確定')
+                            ->modalDescription('入荷データを確定します。よろしいですか？')
+                            ->modalSubmitActionLabel('確定する')
+                        : false)
                     ->modalCancelActionLabel('変更せず閉じる')
                     ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
                     ->schema(function (?WmsOrderIncomingSchedule $record): array {
@@ -574,10 +572,8 @@ class WmsOrderIncomingSchedulesTable
                         );
                         $locationText = $defaultLocation ? "{$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}" : '-';
 
-                        $isEditable = in_array($record->status, [
-                            IncomingScheduleStatus::PENDING,
-                            IncomingScheduleStatus::PARTIAL,
-                        ]);
+                        $isEosSent = $record->isEosSent();
+                        $isEditable = static::canManuallyConfirmIncoming($record);
 
                         // 手動変更判定
                         $shiftedDays = (int) ($details['到着日調整'] ?? 0);
@@ -647,6 +643,10 @@ class WmsOrderIncomingSchedulesTable
                                 ]),
                         ];
 
+                        if ($isEosSent) {
+                            $schema[] = View::make('filament.components.eos-auto-incoming-confirmation-notice');
+                        }
+
                         if ($isEditable) {
                             $capacity = $item?->capacity_case;
                             $expectedQty = $record->expected_quantity ?? 0;
@@ -706,6 +706,16 @@ class WmsOrderIncomingSchedulesTable
                             IncomingScheduleStatus::PENDING,
                             IncomingScheduleStatus::PARTIAL,
                         ])) {
+                            return;
+                        }
+
+                        if ($record->isEosSent()) {
+                            Notification::make()
+                                ->title('入荷確定操作はできません')
+                                ->body('EOS自動入荷確定対象であるため入荷確定操作はできません。')
+                                ->warning()
+                                ->send();
+
                             return;
                         }
 
@@ -880,10 +890,7 @@ class WmsOrderIncomingSchedulesTable
                         ])
                         ->action(function (Collection $records, array $data) {
                             $service = app(IncomingConfirmationService::class);
-                            $validRecords = $records->filter(fn ($r) => in_array($r->status, [
-                                IncomingScheduleStatus::PENDING,
-                                IncomingScheduleStatus::PARTIAL,
-                            ]));
+                            $validRecords = $records->filter(fn ($r) => static::canManuallyConfirmIncoming($r));
 
                             if ($validRecords->isEmpty()) {
                                 Notification::make()
@@ -902,7 +909,7 @@ class WmsOrderIncomingSchedulesTable
 
                             Notification::make()
                                 ->title("{$result['success']}件を入荷確定しました")
-                                ->body($result['failed'] > 0 ? "{$result['failed']}件でエラーが発生" : null)
+                                ->body($result['failed'] > 0 ? "{$result['failed']}件でエラーが発生" : static::bulkConfirmSkippedMessage($records, $validRecords))
                                 ->success()
                                 ->send();
                         }),
@@ -952,6 +959,25 @@ class WmsOrderIncomingSchedulesTable
                 ]),
             ])
             ->defaultSort('id', 'desc');
+    }
+
+    private static function canManuallyConfirmIncoming(?WmsOrderIncomingSchedule $record): bool
+    {
+        return $record !== null
+            && in_array($record->status, [
+                IncomingScheduleStatus::PENDING,
+                IncomingScheduleStatus::PARTIAL,
+            ], true)
+            && ! $record->isEosSent();
+    }
+
+    private static function bulkConfirmSkippedMessage(Collection $records, Collection $validRecords): ?string
+    {
+        $skippedCount = $records->count() - $validRecords->count();
+
+        return $skippedCount > 0
+            ? "EOS自動入荷確定対象など、{$skippedCount}件を除外しました。"
+            : null;
     }
 
     private static function applyCandidateCreatorNameFilter(Builder $query, string $search): void

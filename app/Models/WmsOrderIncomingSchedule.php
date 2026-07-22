@@ -245,6 +245,32 @@ class WmsOrderIncomingSchedule extends WmsModel
         return $this->received_quantity >= $this->expected_quantity;
     }
 
+    public function isEosSent(): bool
+    {
+        if (! $this->order_candidate_id) {
+            return false;
+        }
+
+        if ($this->relationLoaded('orderCandidate') && $this->orderCandidate?->wms_order_jx_document_id) {
+            return true;
+        }
+
+        if (! $this->relationLoaded('orderCandidate')
+            && $this->orderCandidate()
+                ->whereNotNull('wms_order_jx_document_id')
+                ->exists()) {
+            return true;
+        }
+
+        return WmsOrderSlipNumberAssignment::query()
+            ->whereIn('status', [
+                WmsOrderSlipNumberAssignment::STATUS_ACTIVE,
+                WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED,
+            ])
+            ->whereJsonContains('order_candidate_ids', (int) $this->order_candidate_id)
+            ->exists();
+    }
+
     // Methods
 
     /**

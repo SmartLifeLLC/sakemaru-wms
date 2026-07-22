@@ -5,7 +5,9 @@ namespace Tests\Unit\Models;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\AutoOrder\TransmissionType;
+use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
+use App\Models\WmsOrderSlipNumberAssignment;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -79,5 +81,54 @@ class WmsOrderIncomingScheduleTest extends TestCase
         $this->assertStringContainsString('warehouse_id', $sql);
         $this->assertStringNotContainsString('order_source', $sql);
         $this->assertStringNotContainsString('wms_contractor_settings', $sql);
+    }
+
+    public function test_is_eos_sent_returns_false_without_order_candidate(): void
+    {
+        $schedule = new WmsOrderIncomingSchedule;
+
+        $this->assertFalse($schedule->isEosSent());
+    }
+
+    public function test_is_eos_sent_returns_true_when_order_candidate_has_jx_document(): void
+    {
+        $schedule = new WmsOrderIncomingSchedule([
+            'order_candidate_id' => 10,
+        ]);
+        $schedule->setRelation('orderCandidate', new WmsOrderCandidate([
+            'wms_order_jx_document_id' => 20,
+        ]));
+
+        $this->assertTrue($schedule->isEosSent());
+    }
+
+    public function test_is_eos_sent_returns_true_when_slip_assignment_contains_candidate(): void
+    {
+        $candidateId = random_int(900000, 999999);
+
+        do {
+            $slipNumber = '990101'.str_pad((string) random_int(1, 99999), 5, '0', STR_PAD_LEFT);
+        } while (WmsOrderSlipNumberAssignment::query()->where('slip_number', $slipNumber)->exists());
+
+        $assignment = WmsOrderSlipNumberAssignment::query()->create([
+            'wms_order_jx_document_id' => null,
+            'document_type' => 'EOS_ORDER',
+            'slip_number' => $slipNumber,
+            'store_code' => '01',
+            'year_code' => 9,
+            'sequence_no' => (int) substr($slipNumber, 6),
+            'status' => WmsOrderSlipNumberAssignment::STATUS_ACTIVE,
+            'order_candidate_ids' => [$candidateId],
+        ]);
+
+        try {
+            $schedule = new WmsOrderIncomingSchedule([
+                'order_candidate_id' => $candidateId,
+            ]);
+
+            $this->assertTrue($schedule->isEosSent());
+        } finally {
+            $assignment->delete();
+        }
     }
 }

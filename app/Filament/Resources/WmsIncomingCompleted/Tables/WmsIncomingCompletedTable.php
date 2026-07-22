@@ -8,7 +8,6 @@ use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasOptimizedFilters;
-use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\ItemDefaultLocation;
 use App\Models\Sakemaru\RealStock;
 use App\Models\WmsOrderCalculationLog;
@@ -47,6 +46,14 @@ class WmsIncomingCompletedTable
                     ->alignCenter()
                     ->width('50px'),
 
+                TextColumn::make('slip_number')
+                    ->label('伝票番号')
+                    ->searchable()
+                    ->copyable()
+                    ->placeholder('-')
+                    ->toggleable()
+                    ->width('130px'),
+
                 TextColumn::make('order_source')
                     ->label('区分')
                     ->badge()
@@ -81,7 +88,7 @@ class WmsIncomingCompletedTable
                     ->width('70px'),
 
                 TextColumn::make('confirmed_at')
-                    ->label('入荷日時')
+                    ->label('データ連携時刻')
                     ->dateTime('m/d H:i')
                     ->sortable()
                     ->alignCenter()
@@ -262,14 +269,6 @@ class WmsIncomingCompletedTable
 
                 // --- 以下、補助カラム ---
 
-                TextColumn::make('slip_number')
-                    ->label('伝票番号')
-                    ->searchable()
-                    ->copyable()
-                    ->placeholder('-')
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->width('130px'),
-
                 TextColumn::make('warehouse.code')
                     ->label('倉庫CD')
                     ->searchable()
@@ -398,8 +397,7 @@ class WmsIncomingCompletedTable
                     ->label('入荷予定日')
                     ->form([
                         DatePicker::make('expected_arrival_date')
-                            ->label('入荷予定日')
-                            ->default(ClientSetting::systemDateYMD()),
+                            ->label('入荷予定日'),
                     ])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['expected_arrival_date'], fn (Builder $q, $date) => $q->where('expected_arrival_date', $date))
@@ -585,7 +583,7 @@ class WmsIncomingCompletedTable
                         ->color('success')
                         ->requiresConfirmation()
                         ->modalHeading('チェックした仕入れデータを送信')
-                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件だけを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日の中で未選択のデータは未送信のまま残ります。")
+                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件だけを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・伝票番号・入荷日の中で未選択のデータは未送信のまま残ります。")
                         ->modalSubmitActionLabel('チェック分を送信')
                         ->modalCancelActionLabel('送信せず閉じる')
                         ->action(function (Collection $records): void {

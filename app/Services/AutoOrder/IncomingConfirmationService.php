@@ -48,7 +48,7 @@ class IncomingConfirmationService
         $receivedQuantity = $receivedQuantity ?? $schedule->expected_quantity;
         $actualDate = $actualDate ?? now()->format('Y-m-d');
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate, $expirationDate, $locationId, $pickerId) {
+        $confirmedSchedule = DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate, $expirationDate, $locationId, $pickerId) {
             // 入庫予定を更新（仕入れ連携は別途行う）
             $updateData = [
                 'received_quantity' => $receivedQuantity,
@@ -86,6 +86,10 @@ class IncomingConfirmationService
 
             return $schedule->fresh();
         });
+
+        $this->recordPriceCheckSourcesForSchedule($confirmedSchedule);
+
+        return $confirmedSchedule;
     }
 
     /**
@@ -118,7 +122,7 @@ class IncomingConfirmationService
         $actualDate = $actualDate ?? now()->format('Y-m-d');
         $newReceivedQty = $schedule->received_quantity + $receivedQuantity;
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $newReceivedQty, $receivedQuantity, $confirmedBy, $actualDate, $expirationDate, $locationId, $pickerId) {
+        $updatedSchedule = DB::connection('sakemaru')->transaction(function () use ($schedule, $newReceivedQty, $receivedQuantity, $confirmedBy, $actualDate, $expirationDate, $locationId, $pickerId) {
             // ステータス判定
             $status = IncomingScheduleStatus::PARTIAL;
             if ($newReceivedQty >= $schedule->expected_quantity) {
@@ -160,6 +164,10 @@ class IncomingConfirmationService
 
             return $schedule->fresh();
         });
+
+        $this->recordPriceCheckSourcesForSchedule($updatedSchedule);
+
+        return $updatedSchedule;
     }
 
     /**
@@ -296,6 +304,18 @@ class IncomingConfirmationService
             'delivery_course_id' => $deliveryCourseId,
             'received_quantity' => $receivedQuantity ?? $schedule->expected_quantity,
         ]);
+    }
+
+    private function recordPriceCheckSourcesForSchedule(WmsOrderIncomingSchedule $schedule): void
+    {
+        try {
+            app(IncomingPriceCheckSourceRecorder::class)->recordForSchedule($schedule);
+        } catch (\Throwable $throwable) {
+            Log::warning('[IncomingConfirmationService] 単価チェック原本保存に失敗しました', [
+                'schedule_id' => $schedule->id,
+                'error' => $throwable->getMessage(),
+            ]);
+        }
     }
 
     /**

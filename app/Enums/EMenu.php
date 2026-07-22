@@ -137,7 +137,8 @@ enum EMenu: string
             self::WMS_ORDER_CONFIRMED,
             self::WMS_STOCK_TRANSFER_CONFIRMED,
             self::WMS_ORDER_DATA_FILES,
-            self::WMS_ORDER_DOCUMENTS => EMenuCategory::ORDER_HISTORY,
+            self::WMS_ORDER_DOCUMENTS,
+            self::WMS_JX_TRANSMISSION_LOGS => EMenuCategory::ORDER_HISTORY,
 
             self::WMS_ORDER_FOR_JX => EMenuCategory::ORDER_TRANSMISSION,
 
@@ -176,7 +177,6 @@ enum EMenu: string
 
             self::WMS_AUTO_ORDER_EXECUTION_LOG,
             self::WMS_PICKING_LOGS,
-            self::WMS_JX_TRANSMISSION_LOGS,
             self::WMS_JX_EOS_LINES,
             self::WMS_IMPORT_LOGS,
             self::WMS_QUEUE_JOBS,
@@ -263,7 +263,7 @@ enum EMenu: string
             self::STATS_SALES_SUMMARIES => '商品別出荷サマリ',
 
             self::WMS_PICKING_LOGS => 'ピッキングログ',
-            self::WMS_JX_TRANSMISSION_LOGS => 'JX送受信履歴',
+            self::WMS_JX_TRANSMISSION_LOGS => 'JX受信履歴',
             self::WMS_JX_EOS_LINES => 'EOS受信明細',
             self::WMS_IMPORT_LOGS => 'インポート履歴',
             self::WMS_QUEUE_JOBS => 'Queueジョブ',
@@ -351,7 +351,7 @@ enum EMenu: string
             self::STATS_SALES_SUMMARIES => 'heroicon-o-chart-bar-square',
 
             self::WMS_PICKING_LOGS => 'heroicon-o-rectangle-stack',
-            self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrows-up-down',
+            self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrow-down-tray',
             self::WMS_JX_EOS_LINES => 'heroicon-o-list-bullet',
             self::WMS_IMPORT_LOGS => 'heroicon-o-arrow-up-tray',
             self::WMS_QUEUE_JOBS => 'heroicon-o-queue-list',
@@ -413,6 +413,7 @@ enum EMenu: string
             self::WMS_STOCK_TRANSFER_CONFIRMED => 2,
             self::WMS_ORDER_DATA_FILES => 3,
             self::WMS_ORDER_DOCUMENTS => 4,
+            self::WMS_JX_TRANSMISSION_LOGS => 5,
 
             // 発注送信管理
             self::WMS_ORDER_FOR_JX => 1,
@@ -455,7 +456,6 @@ enum EMenu: string
             // ログ
             self::WMS_AUTO_ORDER_EXECUTION_LOG => 1,
             self::WMS_PICKING_LOGS => 2,
-            self::WMS_JX_TRANSMISSION_LOGS => 3,
             self::WMS_JX_EOS_LINES => 4,
             self::WMS_IMPORT_LOGS => 5,
             self::WMS_QUEUE_JOBS => 6,
