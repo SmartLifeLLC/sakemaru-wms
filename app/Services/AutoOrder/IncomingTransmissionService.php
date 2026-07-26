@@ -53,8 +53,8 @@ class IncomingTransmissionService
 
     private function transmitConfirmedIncomingsInTransaction(?int $warehouseId, ?array $scheduleIds): array
     {
-        // CONFIRMED状態の未処理入庫データを取得する。
-        // 移動・本部発注対象は仕入キューを作らず、処理済み化だけ行う。
+        // CONFIRMED状態の未処理入庫データを取得する。移動由来は仕入連携対象外。
+        // 本部発注対象は仕入キューを作らず、処理済み化だけ行う。
         $query = WmsOrderIncomingSchedule::query()
             ->readyForIncomingTransmission($warehouseId)
             ->with(['warehouse', 'item', 'contractor', 'supplier'])

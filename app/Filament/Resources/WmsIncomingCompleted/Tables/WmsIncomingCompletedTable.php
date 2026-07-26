@@ -178,32 +178,15 @@ class WmsIncomingCompletedTable
                     ->width('60px'),
 
                 TextColumn::make('total_piece_quantity')
-                    ->label('総バラ数')
-                    ->state(function ($record) {
-                        $qty = $record->expected_quantity ?? 0;
-                        if ($qty === 0) {
-                            return 0;
-                        }
-                        $quantityType = $record->quantity_type;
-                        if ($quantityType === QuantityType::CASE) {
-                            $capacity = $record->item?->capacity_case ?? 1;
-
-                            return $qty * $capacity;
-                        }
-                        if ($quantityType === QuantityType::CARTON) {
-                            $capacity = $record->item?->capacity_carton ?? 1;
-
-                            return $qty * $capacity;
-                        }
-
-                        return $qty;
-                    })
+                    ->label('発注総バラ')
+                    ->state(fn (WmsOrderIncomingSchedule $record): int => $record->expected_piece_quantity)
                     ->numeric()
                     ->alignEnd()
                     ->width('70px'),
 
                 TextColumn::make('received_quantity')
-                    ->label('入荷実績')
+                    ->label('入荷総バラ')
+                    ->state(fn (WmsOrderIncomingSchedule $record): int => $record->received_piece_quantity)
                     ->formatStateUsing(fn ($state) => $state > 0 ? number_format($state) : '-')
                     ->alignEnd()
                     ->width('70px'),
@@ -432,7 +415,6 @@ class WmsIncomingCompletedTable
                     ->options([
                         'AUTO' => '発注',
                         'MANUAL' => '手動',
-                        'TRANSFER' => '移動',
                         'RECEIVED' => '受信',
                     ]),
 
@@ -540,7 +522,7 @@ class WmsIncomingCompletedTable
                                     'locationText' => $locationText,
                                     'expectedQuantity' => $record->expected_quantity ?? 0,
                                     'quantityType' => $record->quantity_type?->value,
-                                    'receivedQuantity' => $record->received_quantity ?? 0,
+                                    'receivedQuantity' => $record->received_piece_quantity,
                                     'remainingQuantity' => $record->remaining_quantity ?? 0,
                                     'status' => $record->status->label(),
                                     'statusColor' => $record->status->color(),

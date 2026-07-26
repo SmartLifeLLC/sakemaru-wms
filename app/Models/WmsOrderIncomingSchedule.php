@@ -193,14 +193,7 @@ class WmsOrderIncomingSchedule extends WmsModel
         $table = $query->getModel()->getTable();
 
         return $query
-            ->whereIn('order_source', [
-                OrderSource::AUTO->value,
-                OrderSource::MANUAL->value,
-                OrderSource::RECEIVED->value,
-            ])
-            ->whereNull('transfer_candidate_id')
-            ->whereNull('source_warehouse_id')
-            ->whereNull('stock_transfer_id')
+            ->withoutTransferSource()
             ->whereNotExists(function ($subQuery) use ($table) {
                 $subQuery
                     ->selectRaw('1')
@@ -219,10 +212,24 @@ class WmsOrderIncomingSchedule extends WmsModel
             ->when($warehouseId !== null, fn (Builder $query) => $query->forWarehouse($warehouseId));
     }
 
+    public function scopeWithoutTransferSource(Builder $query): Builder
+    {
+        return $query
+            ->whereIn('order_source', [
+                OrderSource::AUTO->value,
+                OrderSource::MANUAL->value,
+                OrderSource::RECEIVED->value,
+            ])
+            ->whereNull('transfer_candidate_id')
+            ->whereNull('source_warehouse_id')
+            ->whereNull('stock_transfer_id');
+    }
+
     public function scopeReadyForIncomingTransmission(Builder $query, ?int $warehouseId = null): Builder
     {
         return $query
             ->confirmed()
+            ->withoutTransferSource()
             ->whereNull('purchase_queue_id')
             ->when($warehouseId !== null, fn (Builder $query) => $query->forWarehouse($warehouseId));
     }
@@ -243,6 +250,30 @@ class WmsOrderIncomingSchedule extends WmsModel
     public function getIsFullyReceivedAttribute(): bool
     {
         return $this->received_quantity >= $this->expected_quantity;
+    }
+
+    public function getExpectedPieceQuantityAttribute(): int
+    {
+        return $this->quantityAsPieces($this->expected_quantity);
+    }
+
+    public function getReceivedPieceQuantityAttribute(): int
+    {
+        return $this->quantityAsPieces($this->received_quantity);
+    }
+
+    public function quantityAsPieces(?int $quantity): int
+    {
+        $quantity = (int) ($quantity ?? 0);
+        $quantityType = $this->quantity_type instanceof QuantityType
+            ? $this->quantity_type
+            : QuantityType::tryFrom((string) $this->quantity_type);
+
+        return match ($quantityType) {
+            QuantityType::CASE => $quantity * max(1, (int) ($this->item?->capacity_case ?? 1)),
+            QuantityType::CARTON => $quantity * max(1, (int) ($this->item?->capacity_carton ?? 1)),
+            default => $quantity,
+        };
     }
 
     public function isEosSent(): bool

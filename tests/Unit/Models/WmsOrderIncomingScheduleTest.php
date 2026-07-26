@@ -5,6 +5,8 @@ namespace Tests\Unit\Models;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\AutoOrder\TransmissionType;
+use App\Enums\QuantityType;
+use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsOrderSlipNumberAssignment;
@@ -66,7 +68,7 @@ class WmsOrderIncomingScheduleTest extends TestCase
         $this->assertStringContainsString('wms_contractor_settings', $sql);
     }
 
-    public function test_ready_for_incoming_transmission_scope_keeps_transfer_and_internal_sources_processable(): void
+    public function test_ready_for_incoming_transmission_scope_excludes_transfer_sources_without_excluding_internal_contractors(): void
     {
         $warehouseId = 21;
         $query = WmsOrderIncomingSchedule::query()->readyForIncomingTransmission($warehouseId);
@@ -74,13 +76,42 @@ class WmsOrderIncomingScheduleTest extends TestCase
 
         $this->assertSame([
             IncomingScheduleStatus::CONFIRMED->value,
+            OrderSource::AUTO->value,
+            OrderSource::MANUAL->value,
+            OrderSource::RECEIVED->value,
             $warehouseId,
         ], $query->getBindings());
         $this->assertStringContainsString('status', $sql);
+        $this->assertStringContainsString('order_source', $sql);
+        $this->assertStringContainsString('transfer_candidate_id', $sql);
+        $this->assertStringContainsString('source_warehouse_id', $sql);
+        $this->assertStringContainsString('stock_transfer_id', $sql);
         $this->assertStringContainsString('purchase_queue_id', $sql);
         $this->assertStringContainsString('warehouse_id', $sql);
-        $this->assertStringNotContainsString('order_source', $sql);
         $this->assertStringNotContainsString('wms_contractor_settings', $sql);
+    }
+
+    public function test_quantity_as_pieces_converts_schedule_unit_to_piece_quantity(): void
+    {
+        $schedule = new WmsOrderIncomingSchedule([
+            'quantity_type' => QuantityType::CASE,
+            'expected_quantity' => 2,
+            'received_quantity' => 1,
+        ]);
+        $schedule->setRelation('item', new Item([
+            'capacity_case' => 24,
+            'capacity_carton' => 6,
+        ]));
+
+        $this->assertSame(48, $schedule->expected_piece_quantity);
+        $this->assertSame(24, $schedule->received_piece_quantity);
+        $this->assertSame(72, $schedule->quantityAsPieces(3));
+
+        $schedule->quantity_type = QuantityType::CARTON;
+        $this->assertSame(18, $schedule->quantityAsPieces(3));
+
+        $schedule->quantity_type = QuantityType::PIECE;
+        $this->assertSame(3, $schedule->quantityAsPieces(3));
     }
 
     public function test_is_eos_sent_returns_false_without_order_candidate(): void
