@@ -20,6 +20,7 @@ use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderSlipNumberAssignment;
 use App\Services\AutoOrder\IncomingPriceCheckSourceRecorder;
 use App\Services\AutoOrder\IncomingReceiveService;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -41,7 +42,10 @@ class IncomingReceiveServiceTest extends TestCase
             ->pluck('id');
 
         if ($fileIds->isNotEmpty()) {
-            WmsIncomingPriceCheckSource::query()->whereIn('received_file_id', $fileIds->all())->delete();
+            if (Schema::connection('sakemaru')->hasTable('wms_incoming_price_check_sources')) {
+                WmsIncomingPriceCheckSource::query()->whereIn('received_file_id', $fileIds->all())->delete();
+            }
+
             WmsIncomingImportError::query()->whereIn('received_file_id', $fileIds->all())->delete();
             WmsIncomingReceivedDetail::query()->whereIn('received_file_id', $fileIds->all())->delete();
             WmsIncomingReceivedSlip::query()->whereIn('received_file_id', $fileIds->all())->delete();
@@ -177,6 +181,119 @@ class IncomingReceiveServiceTest extends TestCase
 
         app(IncomingReceiveService::class)->applyMatched($file->fresh());
 
+        $this->assertSame(
+            2,
+            WmsIncomingPriceCheckSource::query()->where('received_file_id', $file->id)->count()
+        );
+    }
+
+    public function test_apply_matched_creates_received_schedule_for_duplicate_detail_on_same_schedule(): void
+    {
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-incoming-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'MATCHED',
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 2,
+        ]);
+
+        $schedule = $this->createIncomingSchedule(
+            itemId: 990003,
+            expectedQuantity: 12,
+            casePrice: 123,
+        );
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $this->slipNumber,
+            'match_status' => 'MATCHED',
+            'b_shop_code' => '0001',
+            'b_order_date' => '260719',
+            'b_delivery_date' => '260720',
+            'b_contractor_code' => '1106',
+            'matched_schedule_id' => $schedule->id,
+            'detail_count' => 2,
+        ]);
+
+        $firstDetail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '4933333333333',
+            'd_item_code' => '990003',
+            'd_pack_quantity' => 1,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 12,
+            'd_unit_price' => 12300,
+            'total_quantity' => 12,
+            'match_status' => 'MATCHED',
+            'matched_item_id' => 990003,
+            'matched_schedule_id' => $schedule->id,
+        ]);
+        $duplicateDetail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 2,
+            'd_jan_code' => '4933333333333',
+            'd_item_code' => '990003',
+            'd_pack_quantity' => 1,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 6,
+            'd_unit_price' => 12400,
+            'total_quantity' => 6,
+            'match_status' => 'MATCHED',
+            'matched_item_id' => 990003,
+            'matched_schedule_id' => $schedule->id,
+        ]);
+
+        $result = app(IncomingReceiveService::class)->applyMatched($file);
+
+        $this->assertSame(2, $result['applied']);
+        $this->assertCount(2, $result['schedule_ids']);
+
+        $schedule->refresh();
+        $duplicateDetail->refresh();
+
+        $createdSchedule = WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $duplicateDetail->id)
+            ->first();
+
+        $this->assertNotNull($createdSchedule);
+        $this->assertSame($schedule->id, (int) $createdSchedule->source_incoming_schedule_id);
+        $this->assertSame(OrderSource::RECEIVED, $createdSchedule->order_source);
+        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $createdSchedule->status);
+        $this->assertSame($this->slipNumber, $createdSchedule->slip_number);
+        $this->assertSame(6, $createdSchedule->expected_quantity);
+        $this->assertSame(6, $createdSchedule->received_quantity);
+        $this->assertSame(6, $createdSchedule->shipped_quantity);
+        $this->assertSame(0, $createdSchedule->shortage_quantity);
+        $this->assertSame("EOS_DETAIL_{$duplicateDetail->id}", $createdSchedule->purchase_split_key);
+        $this->assertTrue($createdSchedule->is_receive_matched);
+        $this->assertTrue($createdSchedule->isEosSent());
+        $this->assertSame($createdSchedule->id, $duplicateDetail->matched_schedule_id);
+
+        $this->assertSame(12, $schedule->received_quantity);
+        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $schedule->status);
+
+        $this->assertDatabaseHas('wms_incoming_price_check_sources', [
+            'received_file_id' => $file->id,
+            'received_detail_id' => $firstDetail->id,
+            'incoming_schedule_id' => $schedule->id,
+        ], 'sakemaru');
+        $this->assertDatabaseHas('wms_incoming_price_check_sources', [
+            'received_file_id' => $file->id,
+            'received_detail_id' => $duplicateDetail->id,
+            'incoming_schedule_id' => $createdSchedule->id,
+        ], 'sakemaru');
+
+        app(IncomingReceiveService::class)->applyMatched($file->fresh());
+
+        $this->assertSame(
+            1,
+            WmsOrderIncomingSchedule::query()
+                ->where('source_received_detail_id', $duplicateDetail->id)
+                ->count()
+        );
         $this->assertSame(
             2,
             WmsIncomingPriceCheckSource::query()->where('received_file_id', $file->id)->count()
@@ -962,7 +1079,7 @@ class IncomingReceiveServiceTest extends TestCase
         $this->assertEqualsCanonicalizing([$createdSchedule->id, $pendingSchedule->id], $applyResult['schedule_ids']);
     }
 
-    public function test_unassigned_jx_slip_creates_received_schedule_when_contractor_warehouse_and_item_are_resolved(): void
+    public function test_unassigned_jx_slip_is_kept_for_review_without_creating_schedule(): void
     {
         $contractorId = $this->contractorId('1330');
 
@@ -1002,49 +1119,44 @@ class IncomingReceiveServiceTest extends TestCase
 
         $result = app(IncomingReceiveService::class)->matchWithSchedules($file);
 
-        $this->assertSame(1, $result['matched']);
-        $this->assertSame(0, $result['unmatched']);
-
-        $createdSchedule = WmsOrderIncomingSchedule::query()
-            ->where('slip_number', $this->slipNumber)
-            ->where('contractor_id', $contractorId)
-            ->where('item_id', 162100)
-            ->firstOrFail();
+        $this->assertSame(0, $result['matched']);
+        $this->assertSame(1, $result['unmatched']);
 
         $slip->refresh();
         $file->refresh();
         $detail->refresh();
 
-        $this->assertSame('MATCHED', $slip->match_status);
-        $this->assertSame($createdSchedule->id, $slip->matched_schedule_id);
-        $this->assertSame($createdSchedule->id, $detail->matched_schedule_id);
-        $this->assertSame(3, $detail->expected_quantity);
-        $this->assertSame('MATCHED', $file->status);
-        $this->assertSame(OrderSource::RECEIVED, $createdSchedule->order_source);
-        $this->assertSame(IncomingScheduleStatus::PENDING, $createdSchedule->status);
-        $this->assertSame(3, $createdSchedule->expected_quantity);
-        $this->assertSame(3, $createdSchedule->received_quantity);
-        $this->assertSame(3, $createdSchedule->shipped_quantity);
-        $this->assertSame(0, $createdSchedule->shortage_quantity);
-        $this->assertTrue($createdSchedule->is_receive_matched);
+        $this->assertSame('NO_ASSIGNMENT', $slip->match_status);
+        $this->assertNull($slip->matched_schedule_id);
+        $this->assertSame('NO_ASSIGNMENT', $detail->match_status);
+        $this->assertSame(162100, $detail->matched_item_id);
+        $this->assertNull($detail->expected_quantity);
+        $this->assertSame(WmsIncomingReceivedFile::STATUS_PENDING, $file->status);
 
-        $this->assertDatabaseHas('wms_incoming_import_errors', [
-            'received_file_id' => $file->id,
-            'received_slip_id' => $slip->id,
-            'error_type' => 'WARNING',
-            'error_code' => 'EOS_UNASSIGNED_RECEIVED_SCHEDULE_CREATED',
+        $this->assertDatabaseMissing('wms_order_incoming_schedules', [
+            'slip_number' => $this->slipNumber,
+            'contractor_id' => $contractorId,
+            'item_id' => 162100,
+            'order_source' => OrderSource::RECEIVED->value,
         ], 'sakemaru');
+
         $this->assertDatabaseMissing('wms_incoming_import_errors', [
             'received_file_id' => $file->id,
             'received_slip_id' => $slip->id,
+            'error_code' => 'EOS_UNASSIGNED_RECEIVED_SCHEDULE_CREATED',
+        ], 'sakemaru');
+        $this->assertDatabaseHas('wms_incoming_import_errors', [
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'error_type' => 'ERROR',
             'error_code' => 'EOS_ASSIGNMENT_NOT_FOUND',
         ], 'sakemaru');
 
         $applyResult = app(IncomingReceiveService::class)->applyMatched($file->fresh());
 
-        $this->assertSame(1, $applyResult['applied']);
-        $this->assertSame([$createdSchedule->id], $applyResult['schedule_ids']);
-        $this->assertSame(WmsIncomingReceivedFile::STATUS_APPLIED, $file->fresh()->status);
+        $this->assertSame(0, $applyResult['applied']);
+        $this->assertSame([], $applyResult['schedule_ids']);
+        $this->assertSame(WmsIncomingReceivedFile::STATUS_PENDING, $file->fresh()->status);
     }
 
     private function contractorId(string $code): int

@@ -61,6 +61,9 @@ class WmsOrderIncomingSchedule extends WmsModel
         'shortage_quantity',
         'purchase_queue_id',
         'purchase_slip_number',
+        'source_incoming_schedule_id',
+        'source_received_detail_id',
+        'purchase_split_key',
         'note',
         'cancelled_at',
         'cancelled_by',
@@ -80,6 +83,8 @@ class WmsOrderIncomingSchedule extends WmsModel
         'is_receive_matched' => 'boolean',
         'shortage_quantity' => 'integer',
         'shipped_quantity' => 'integer',
+        'source_incoming_schedule_id' => 'integer',
+        'source_received_detail_id' => 'integer',
         'unit_price' => 'decimal:2',
         'case_price' => 'decimal:2',
         'partner_unit_price' => 'decimal:2',
@@ -225,6 +230,17 @@ class WmsOrderIncomingSchedule extends WmsModel
             ->whereNull('stock_transfer_id');
     }
 
+    public function scopeWithTransferSource(Builder $query): Builder
+    {
+        return $query->where(function (Builder $query): void {
+            $query
+                ->where('order_source', OrderSource::TRANSFER->value)
+                ->orWhereNotNull('transfer_candidate_id')
+                ->orWhereNotNull('source_warehouse_id')
+                ->orWhereNotNull('stock_transfer_id');
+        });
+    }
+
     public function scopeReadyForIncomingTransmission(Builder $query, ?int $warehouseId = null): Builder
     {
         return $query
@@ -278,6 +294,14 @@ class WmsOrderIncomingSchedule extends WmsModel
 
     public function isEosSent(): bool
     {
+        if ($this->source_received_detail_id || $this->source_incoming_schedule_id) {
+            return true;
+        }
+
+        if ($this->hasActiveSlipNumberAssignment()) {
+            return true;
+        }
+
         if (! $this->order_candidate_id) {
             return false;
         }
@@ -300,6 +324,50 @@ class WmsOrderIncomingSchedule extends WmsModel
             ])
             ->whereJsonContains('order_candidate_ids', (int) $this->order_candidate_id)
             ->exists();
+    }
+
+    private function hasActiveSlipNumberAssignment(): bool
+    {
+        $slipNumber = trim((string) $this->slip_number);
+
+        if ($slipNumber === '') {
+            return false;
+        }
+
+        $storeCode = $this->legacyStoreCode();
+
+        return WmsOrderSlipNumberAssignment::query()
+            ->whereIn('status', [
+                WmsOrderSlipNumberAssignment::STATUS_ACTIVE,
+                WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED,
+            ])
+            ->where('slip_number', $slipNumber)
+            ->when(
+                $storeCode !== null,
+                fn (Builder $query): Builder => $query->where('store_code', $storeCode)
+            )
+            ->exists();
+    }
+
+    private function legacyStoreCode(): ?string
+    {
+        if ($this->relationLoaded('warehouse')) {
+            $code = $this->warehouse?->code;
+        } elseif ($this->warehouse_id) {
+            $code = $this->warehouse()->value('code');
+        } else {
+            return null;
+        }
+
+        $code = trim((string) $code);
+
+        if ($code === '') {
+            return null;
+        }
+
+        $code = ltrim($code, '0');
+
+        return str_pad($code === '' ? '0' : $code, 2, '0', STR_PAD_LEFT);
     }
 
     // Methods

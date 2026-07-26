@@ -31,6 +31,8 @@ class IncomingReceiveService
     /** 送料JANコード（単価比較対象外） */
     private const SHIPPING_JAN_CODE = '9999999999996';
 
+    private ?IncomingPriceCheckSourceRecorder $priceCheckSourceRecorder = null;
+
     /**
      * JXデータをパースして保存
      */
@@ -187,12 +189,9 @@ class IncomingReceiveService
         if ($schedules->isEmpty()) {
             if ($this->isJxSlip($slip)) {
                 if (! $this->findJxAssignmentForSlip($slip)) {
-                    $fallbackStatus = $this->createSchedulesFromUnassignedJxSlip($slip, $file);
-                    if ($fallbackStatus !== null) {
-                        return $fallbackStatus;
-                    }
+                    $this->markUnassignedJxSlipForReview($slip, $file);
 
-                    $this->recordJxAssignmentNotFoundError($slip);
+                    return 'NO_ASSIGNMENT';
                 }
 
                 $this->recordSlipNotFoundWarning($file, $slip);
@@ -473,127 +472,19 @@ class IncomingReceiveService
             ->first();
     }
 
-    private function createSchedulesFromUnassignedJxSlip(
-        WmsIncomingReceivedSlip $slip,
-        WmsIncomingReceivedFile $file
-    ): ?string {
-        if (! $this->canCreateSchedulesFromUnassignedJxSlip($slip, $file)) {
-            return null;
-        }
+    private function markUnassignedJxSlipForReview(WmsIncomingReceivedSlip $slip, WmsIncomingReceivedFile $file): void
+    {
+        $this->recordJxAssignmentNotFoundError($slip);
+        $this->recordSlipNotFoundWarning($file, $slip);
+        $this->recordUnassignedJxResolutionErrors($slip, $file);
 
-        $creationResult = $this->createSchedulesFromSlip($slip);
-        if ($creationResult['schedule_ids'] === []) {
-            return null;
-        }
+        $slip->loadMissing('details');
+        $shortageCount = 0;
 
-        if ($slip->details()->where('match_status', 'NOT_FOUND')->exists()) {
-            $slip->update([
-                'matched_schedule_id' => null,
-                'match_status' => 'NOT_FOUND',
-            ]);
+        foreach ($slip->details as $detail) {
+            $itemId = $this->resolveItemId($detail);
 
-            return 'NOT_FOUND';
-        }
-
-        $slip->refresh();
-        $detailStatuses = $slip->details()->pluck('match_status');
-        $slipStatus = $detailStatuses->contains('SHORTAGE')
-            ? 'SHORTAGE'
-            : ($detailStatuses->contains('PARTIAL') ? 'PARTIAL' : 'MATCHED');
-
-        $slip->update([
-            'matched_schedule_id' => $creationResult['schedule_ids'][0],
-            'match_status' => $slipStatus,
-            'shortage_count' => $slip->details()
-                ->where(fn ($query) => $query
-                    ->where('is_shortage', true)
-                    ->orWhere('match_status', 'SHORTAGE'))
-                ->count(),
-        ]);
-
-        WmsIncomingImportError::firstOrCreate([
-            'received_file_id' => $file->id,
-            'received_slip_id' => $slip->id,
-            'error_code' => 'EOS_UNASSIGNED_RECEIVED_SCHEDULE_CREATED',
-        ], [
-            'error_type' => 'WARNING',
-            'error_message' => "送信済みEOS伝票番号割当がないため、受信データから入荷予定を作成しました: slip_number={$slip->slip_number}",
-            'raw_data' => [
-                'slip_number' => $slip->slip_number,
-                'b_contractor_code' => $slip->b_contractor_code,
-                'schedule_ids' => $creationResult['schedule_ids'],
-            ],
-        ]);
-
-        Log::info('[IncomingReceiveService] 未割当JX受信伝票から入荷予定を作成', [
-            'file_id' => $file->id,
-            'slip_id' => $slip->id,
-            'slip_number' => $slip->slip_number,
-            'schedule_ids' => $creationResult['schedule_ids'],
-        ]);
-
-        return $slipStatus;
-    }
-
-    private function canCreateSchedulesFromUnassignedJxSlip(
-        WmsIncomingReceivedSlip $slip,
-        WmsIncomingReceivedFile $file
-    ): bool {
-        if ($this->resolveCreateContractorId($slip) === null) {
-            WmsIncomingImportError::firstOrCreate([
-                'received_file_id' => $file->id,
-                'received_slip_id' => $slip->id,
-                'error_code' => 'EOS_UNASSIGNED_CONTRACTOR_NOT_RESOLVED',
-            ], [
-                'error_type' => 'ERROR',
-                'error_message' => "未割当EOS受信伝票の仕入先を解決できません: slip_number={$slip->slip_number}",
-                'raw_data' => [
-                    'slip_number' => $slip->slip_number,
-                    'b_contractor_code' => $slip->b_contractor_code,
-                    'file_contractor_id' => $file->contractor_id,
-                ],
-            ]);
-
-            return false;
-        }
-
-        if (! $this->resolveWarehouseForSlip($slip)) {
-            WmsIncomingImportError::firstOrCreate([
-                'received_file_id' => $file->id,
-                'received_slip_id' => $slip->id,
-                'error_code' => 'EOS_UNASSIGNED_WAREHOUSE_NOT_RESOLVED',
-            ], [
-                'error_type' => 'ERROR',
-                'error_message' => "未割当EOS受信伝票の倉庫を解決できません: slip_number={$slip->slip_number}, shop_code={$slip->b_shop_code}",
-                'raw_data' => [
-                    'slip_number' => $slip->slip_number,
-                    'b_shop_code' => $slip->b_shop_code,
-                ],
-            ]);
-
-            return false;
-        }
-
-        $details = $slip->details;
-        if ($details->isEmpty() || ! $details->contains(fn ($detail): bool => (int) $detail->total_quantity > 0)) {
-            WmsIncomingImportError::firstOrCreate([
-                'received_file_id' => $file->id,
-                'received_slip_id' => $slip->id,
-                'error_code' => 'EOS_UNASSIGNED_NO_RECEIVED_QUANTITY',
-            ], [
-                'error_type' => 'ERROR',
-                'error_message' => "未割当EOS受信伝票に入荷数量のある明細がありません: slip_number={$slip->slip_number}",
-                'raw_data' => [
-                    'slip_number' => $slip->slip_number,
-                    'detail_count' => $details->count(),
-                ],
-            ]);
-
-            return false;
-        }
-
-        foreach ($details as $detail) {
-            if (! $this->resolveItemId($detail)) {
+            if (! $itemId) {
                 $detail->update(['match_status' => 'NOT_FOUND']);
 
                 WmsIncomingImportError::firstOrCreate([
@@ -612,11 +503,85 @@ class IncomingReceiveService
                     ],
                 ]);
 
-                return false;
+                continue;
             }
+
+            if ($detail->is_shortage || (int) $detail->total_quantity === 0) {
+                $shortageCount++;
+            }
+
+            $detail->update([
+                'matched_item_id' => $itemId,
+                'expected_quantity' => null,
+                'match_status' => 'NO_ASSIGNMENT',
+            ]);
         }
 
-        return true;
+        $slip->update([
+            'matched_schedule_id' => null,
+            'match_status' => 'NO_ASSIGNMENT',
+            'shortage_count' => $shortageCount,
+        ]);
+
+        Log::info('[IncomingReceiveService] 未割当JX受信伝票をレビュー対象として記録', [
+            'file_id' => $file->id,
+            'slip_id' => $slip->id,
+            'slip_number' => $slip->slip_number,
+            'b_shop_code' => $slip->b_shop_code,
+            'b_contractor_code' => $slip->b_contractor_code,
+        ]);
+    }
+
+    private function recordUnassignedJxResolutionErrors(
+        WmsIncomingReceivedSlip $slip,
+        WmsIncomingReceivedFile $file
+    ): void {
+        if ($this->resolveCreateContractorId($slip) === null) {
+            WmsIncomingImportError::firstOrCreate([
+                'received_file_id' => $file->id,
+                'received_slip_id' => $slip->id,
+                'error_code' => 'EOS_UNASSIGNED_CONTRACTOR_NOT_RESOLVED',
+            ], [
+                'error_type' => 'ERROR',
+                'error_message' => "未割当EOS受信伝票の仕入先を解決できません: slip_number={$slip->slip_number}",
+                'raw_data' => [
+                    'slip_number' => $slip->slip_number,
+                    'b_contractor_code' => $slip->b_contractor_code,
+                    'file_contractor_id' => $file->contractor_id,
+                ],
+            ]);
+        }
+
+        if (! $this->resolveWarehouseForSlip($slip)) {
+            WmsIncomingImportError::firstOrCreate([
+                'received_file_id' => $file->id,
+                'received_slip_id' => $slip->id,
+                'error_code' => 'EOS_UNASSIGNED_WAREHOUSE_NOT_RESOLVED',
+            ], [
+                'error_type' => 'ERROR',
+                'error_message' => "未割当EOS受信伝票の倉庫を解決できません: slip_number={$slip->slip_number}, shop_code={$slip->b_shop_code}",
+                'raw_data' => [
+                    'slip_number' => $slip->slip_number,
+                    'b_shop_code' => $slip->b_shop_code,
+                ],
+            ]);
+        }
+
+        $slip->loadMissing('details');
+        if ($slip->details->isEmpty() || ! $slip->details->contains(fn ($detail): bool => (int) $detail->total_quantity > 0)) {
+            WmsIncomingImportError::firstOrCreate([
+                'received_file_id' => $file->id,
+                'received_slip_id' => $slip->id,
+                'error_code' => 'EOS_UNASSIGNED_NO_RECEIVED_QUANTITY',
+            ], [
+                'error_type' => 'ERROR',
+                'error_message' => "未割当EOS受信伝票に入荷数量のある明細がありません: slip_number={$slip->slip_number}",
+                'raw_data' => [
+                    'slip_number' => $slip->slip_number,
+                    'detail_count' => $slip->details->count(),
+                ],
+            ]);
+        }
     }
 
     private function recordJxAssignmentNotFoundError(WmsIncomingReceivedSlip $slip): void
@@ -1496,17 +1461,35 @@ class IncomingReceiveService
 
         $appliedScheduleIds = [];
         $contractorIds = null;
+        $usedMatchedScheduleIds = [];
 
         foreach ($matchedDetails as $detail) {
-            $schedule = $detail->matched_schedule_id
-                ? WmsOrderIncomingSchedule::query()
-                    ->whereKey($detail->matched_schedule_id)
-                    ->whereIn('status', [
-                        IncomingScheduleStatus::PENDING->value,
-                        IncomingScheduleStatus::PARTIAL->value,
-                    ])
-                    ->first()
+            $originalMatchedScheduleId = $detail->matched_schedule_id
+                ? (int) $detail->matched_schedule_id
                 : null;
+            $schedule = null;
+
+            if ($originalMatchedScheduleId && isset($usedMatchedScheduleIds[$originalMatchedScheduleId])) {
+                $templateSchedule = WmsOrderIncomingSchedule::query()
+                    ->whereKey($originalMatchedScheduleId)
+                    ->first();
+
+                if (! $templateSchedule) {
+                    throw new \RuntimeException("入荷予定が見つかりません: {$originalMatchedScheduleId}");
+                }
+
+                $schedule = $this->createDuplicateDetailSchedule($templateSchedule, $detail, $slip);
+            } else {
+                $schedule = $detail->matched_schedule_id
+                    ? WmsOrderIncomingSchedule::query()
+                        ->whereKey($detail->matched_schedule_id)
+                        ->whereIn('status', [
+                            IncomingScheduleStatus::PENDING->value,
+                            IncomingScheduleStatus::PARTIAL->value,
+                        ])
+                        ->first()
+                    : null;
+            }
 
             if (! $schedule) {
                 $contractorIds ??= $this->resolveSlipContractorIds($slip);
@@ -1535,6 +1518,10 @@ class IncomingReceiveService
                 $this->recordPriceCheckSource($file, $detail, $schedule);
             }
             $appliedScheduleIds[] = (int) $schedule->id;
+
+            if ($originalMatchedScheduleId) {
+                $usedMatchedScheduleIds[$originalMatchedScheduleId] = true;
+            }
         }
 
         if ($appliedScheduleIds === [] && $slip->matched_schedule_id) {
@@ -1571,6 +1558,96 @@ class IncomingReceiveService
         }
 
         return $appliedScheduleIds;
+    }
+
+    private function createDuplicateDetailSchedule(
+        WmsOrderIncomingSchedule $templateSchedule,
+        WmsIncomingReceivedDetail $detail,
+        WmsIncomingReceivedSlip $slip
+    ): WmsOrderIncomingSchedule {
+        $existing = WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->first();
+
+        if ($existing) {
+            $detail->update([
+                'matched_schedule_id' => $existing->id,
+                'expected_quantity' => $this->scheduleQuantityAsPieces($existing),
+            ]);
+
+            return $existing;
+        }
+
+        $isShortage = $detail->is_shortage
+            || $detail->match_status === 'SHORTAGE'
+            || (int) $detail->total_quantity === 0;
+        $shippedPieces = $isShortage ? 0 : (int) $detail->total_quantity;
+        $shippedQty = $this->receivedQuantityInScheduleUnit($templateSchedule, collect([$detail]), $shippedPieces);
+        $expectedQty = $this->resolveCreatedScheduleExpectedQuantity($templateSchedule, $shippedQty, $isShortage);
+        $shortageQty = max(0, $expectedQty - $shippedQty);
+        $orderDate = $this->parseJxDate($slip->b_order_date)
+            ?? $templateSchedule->order_date?->format('Y-m-d')
+            ?? now()->toDateString();
+        $deliveryDate = $this->parseJxDate($slip->b_delivery_date)
+            ?? $templateSchedule->expected_arrival_date?->format('Y-m-d')
+            ?? now()->toDateString();
+        $expirationDate = $templateSchedule->expiration_date?->format('Y-m-d')
+            ?? $this->calculateExpirationDate($templateSchedule->item_id, $deliveryDate);
+        $noteParts = array_filter([
+            trim((string) $templateSchedule->note),
+            "EOS重複明細から自動作成: 元入荷予定ID={$templateSchedule->id}, 受信明細ID={$detail->id}, 受信伝票番号={$slip->slip_number}",
+        ]);
+
+        $schedule = WmsOrderIncomingSchedule::create([
+            'warehouse_id' => $templateSchedule->warehouse_id,
+            'item_id' => $templateSchedule->item_id,
+            'item_code' => $templateSchedule->item_code,
+            'search_code' => $templateSchedule->search_code,
+            'contractor_id' => $templateSchedule->contractor_id,
+            'supplier_id' => $templateSchedule->supplier_id,
+            'location_id' => $templateSchedule->location_id,
+            'order_source' => OrderSource::RECEIVED,
+            'slip_number' => $templateSchedule->slip_number ?: $slip->slip_number,
+            'expected_quantity' => $expectedQty,
+            'shipped_quantity' => $shippedQty,
+            'received_quantity' => 0,
+            'shortage_quantity' => $shortageQty,
+            'is_receive_matched' => true,
+            'unit_price' => $templateSchedule->unit_price,
+            'case_price' => $templateSchedule->case_price,
+            'quantity_type' => $templateSchedule->quantity_type,
+            'order_date' => $orderDate,
+            'expected_arrival_date' => $deliveryDate,
+            'expiration_date' => $expirationDate,
+            'actual_arrival_date' => null,
+            'status' => IncomingScheduleStatus::PENDING,
+            'confirmed_at' => null,
+            'source_incoming_schedule_id' => $templateSchedule->id,
+            'source_received_detail_id' => $detail->id,
+            'purchase_split_key' => $this->duplicateDetailPurchaseSplitKey($detail),
+            'note' => implode(' / ', $noteParts),
+        ]);
+
+        $detail->update([
+            'matched_schedule_id' => $schedule->id,
+            'expected_quantity' => $this->scheduleQuantityAsPieces($schedule),
+            'match_status' => $isShortage ? 'SHORTAGE' : 'MATCHED',
+        ]);
+
+        Log::info('[IncomingReceiveService] EOS重複明細を別入荷予定として作成しました', [
+            'source_schedule_id' => $templateSchedule->id,
+            'created_schedule_id' => $schedule->id,
+            'received_detail_id' => $detail->id,
+            'slip_id' => $slip->id,
+            'slip_number' => $slip->slip_number,
+        ]);
+
+        return $schedule;
+    }
+
+    private function duplicateDetailPurchaseSplitKey(WmsIncomingReceivedDetail $detail): string
+    {
+        return "EOS_DETAIL_{$detail->id}";
     }
 
     private function applyDetailToSchedule(
@@ -1737,7 +1814,7 @@ class IncomingReceiveService
         }
 
         try {
-            app(IncomingPriceCheckSourceRecorder::class)->record($file, $detail, $schedule);
+            $this->priceCheckSourceRecorder()->record($file, $detail, $schedule);
         } catch (\Throwable $throwable) {
             Log::warning('[IncomingReceiveService] 単価チェック原本保存に失敗しました', [
                 'received_file_id' => $file->id,
@@ -1746,6 +1823,11 @@ class IncomingReceiveService
                 'error' => $throwable->getMessage(),
             ]);
         }
+    }
+
+    private function priceCheckSourceRecorder(): IncomingPriceCheckSourceRecorder
+    {
+        return $this->priceCheckSourceRecorder ??= app(IncomingPriceCheckSourceRecorder::class);
     }
 
     /**

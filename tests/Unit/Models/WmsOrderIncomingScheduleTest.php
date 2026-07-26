@@ -7,6 +7,7 @@ use App\Enums\AutoOrder\OrderSource;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Item;
+use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsOrderSlipNumberAssignment;
@@ -91,6 +92,18 @@ class WmsOrderIncomingScheduleTest extends TestCase
         $this->assertStringNotContainsString('wms_contractor_settings', $sql);
     }
 
+    public function test_with_transfer_source_scope_matches_transfer_source_columns(): void
+    {
+        $query = WmsOrderIncomingSchedule::query()->withTransferSource();
+        $sql = $query->toSql();
+
+        $this->assertSame([OrderSource::TRANSFER->value], $query->getBindings());
+        $this->assertStringContainsString('order_source', $sql);
+        $this->assertStringContainsString('transfer_candidate_id', $sql);
+        $this->assertStringContainsString('source_warehouse_id', $sql);
+        $this->assertStringContainsString('stock_transfer_id', $sql);
+    }
+
     public function test_quantity_as_pieces_converts_schedule_unit_to_piece_quantity(): void
     {
         $schedule = new WmsOrderIncomingSchedule([
@@ -119,6 +132,15 @@ class WmsOrderIncomingScheduleTest extends TestCase
         $schedule = new WmsOrderIncomingSchedule;
 
         $this->assertFalse($schedule->isEosSent());
+    }
+
+    public function test_is_eos_sent_returns_true_for_eos_duplicate_received_detail_schedule(): void
+    {
+        $schedule = new WmsOrderIncomingSchedule([
+            'source_received_detail_id' => 12345,
+        ]);
+
+        $this->assertTrue($schedule->isEosSent());
     }
 
     public function test_is_eos_sent_returns_true_when_order_candidate_has_jx_document(): void
@@ -158,6 +180,39 @@ class WmsOrderIncomingScheduleTest extends TestCase
             ]);
 
             $this->assertTrue($schedule->isEosSent());
+        } finally {
+            $assignment->delete();
+        }
+    }
+
+    public function test_is_eos_sent_returns_true_when_transmitted_slip_assignment_matches_slip_and_store(): void
+    {
+        do {
+            $slipNumber = '074610'.str_pad((string) random_int(1, 99999), 5, '0', STR_PAD_LEFT);
+        } while (WmsOrderSlipNumberAssignment::query()->where('slip_number', $slipNumber)->exists());
+
+        $assignment = WmsOrderSlipNumberAssignment::query()->create([
+            'wms_order_jx_document_id' => null,
+            'document_type' => 'EOS_ORDER',
+            'slip_number' => $slipNumber,
+            'store_code' => '07',
+            'year_code' => 46,
+            'sequence_no' => (int) substr($slipNumber, 6),
+            'status' => WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED,
+            'order_candidate_ids' => null,
+        ]);
+
+        try {
+            $schedule = new WmsOrderIncomingSchedule([
+                'slip_number' => $slipNumber,
+            ]);
+            $schedule->setRelation('warehouse', new Warehouse(['code' => 7]));
+
+            $this->assertTrue($schedule->isEosSent());
+
+            $schedule->setRelation('warehouse', new Warehouse(['code' => 8]));
+
+            $this->assertFalse($schedule->isEosSent());
         } finally {
             $assignment->delete();
         }

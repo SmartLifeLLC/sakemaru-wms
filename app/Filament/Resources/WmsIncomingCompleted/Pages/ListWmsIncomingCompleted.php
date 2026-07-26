@@ -161,14 +161,31 @@ class ListWmsIncomingCompleted extends ListRecords
 
         $cacheKey = 'incoming_completed_warehouses_'.auth()->id();
         $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
-            $warehouseIds = WmsOrderIncomingSchedule::where('status', IncomingScheduleStatus::CONFIRMED)
+            $warehouseIds = WmsOrderIncomingSchedule::query()
+                ->where('status', IncomingScheduleStatus::CONFIRMED)
+                ->withoutTransferSource()
                 ->distinct()
                 ->pluck('warehouse_id')
+                ->map(fn ($id): int => (int) $id)
                 ->toArray();
+
+            $warehouse91Id = Warehouse::query()
+                ->where('code', '91')
+                ->value('id');
+
+            if ($warehouse91Id) {
+                $warehouseIds[] = (int) $warehouse91Id;
+            }
+
+            $warehouseIds = collect($warehouseIds)
+                ->filter(fn (int $id): bool => $id > 0)
+                ->unique()
+                ->values()
+                ->all();
 
             $warehouses = Warehouse::whereIn('id', $warehouseIds)
                 ->orderBy('code')
-                ->get(['id', 'name']);
+                ->get(['id', 'code', 'name']);
 
             return [
                 'ids' => $warehouseIds,

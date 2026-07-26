@@ -21,15 +21,26 @@ class JxEosIncomingWorkflowService
     /**
      * EOS原本の正規化取込、入荷受信ファイル作成、入荷予定照合、入荷予定更新を一括実行する。
      */
-    public function importAndApply(WmsJxTransmissionLog $log, bool $forceEosReimport = false): array
-    {
+    public function importAndApply(
+        WmsJxTransmissionLog $log,
+        bool $forceEosReimport = false,
+        bool $allowPartialApply = false,
+    ): array {
+        $workflowStartedAt = microtime(true);
         $this->assertImportableLog($log);
         $log->loadMissing(['jxSetting', 'currentEosImport']);
 
         [$disk, $path] = $this->resolveSource((string) $log->file_path);
         $content = $this->readSourceContent($disk, $path);
 
+        $importStartedAt = microtime(true);
         $batch = $this->resolveEosBatch($log, $content, $disk, $forceEosReimport);
+        Log::info('[JxEosIncomingWorkflow] EOS原本取込確認が完了しました', [
+            'jx_transmission_log_id' => $log->id,
+            'eos_import_batch_id' => $batch->id,
+            'elapsed_ms' => $this->elapsedMs($importStartedAt),
+        ]);
+
         $eosImported = $forceEosReimport
             || ! $log->currentEosImport
             || $log->currentEosImport->status !== WmsJxEosImportBatch::STATUS_SUCCEEDED;
@@ -38,8 +49,14 @@ class JxEosIncomingWorkflowService
         $incomingImported = false;
 
         if (! $file) {
+            $parseStartedAt = microtime(true);
             $file = $this->parseIncomingFile($log, $content, $path);
             $incomingImported = true;
+            Log::info('[JxEosIncomingWorkflow] 入荷受信ファイル作成が完了しました', [
+                'jx_transmission_log_id' => $log->id,
+                'incoming_received_file_id' => $file->id,
+                'elapsed_ms' => $this->elapsedMs($parseStartedAt),
+            ]);
         }
 
         $match = $this->summarizeMatchStatus($file);
@@ -52,13 +69,32 @@ class JxEosIncomingWorkflowService
                 : '既に入荷予定へ適用済みです。';
         } else {
             if ($file->status !== WmsIncomingReceivedFile::STATUS_MATCHED) {
+                $matchStartedAt = microtime(true);
                 $match = $this->incomingReceiveService->matchWithSchedules($file);
                 $file->refresh();
+                Log::info('[JxEosIncomingWorkflow] 入荷予定照合が完了しました', [
+                    'jx_transmission_log_id' => $log->id,
+                    'incoming_received_file_id' => $file->id,
+                    'matched' => $match['matched'],
+                    'shortage' => $match['shortage'],
+                    'unmatched' => $match['unmatched'],
+                    'elapsed_ms' => $this->elapsedMs($matchStartedAt),
+                ]);
             }
 
-            if ($file->status === WmsIncomingReceivedFile::STATUS_MATCHED) {
+            if ($file->status === WmsIncomingReceivedFile::STATUS_MATCHED
+                || ($allowPartialApply && ($match['matched'] + $match['shortage']) > 0)
+            ) {
+                $applyStartedAt = microtime(true);
                 $apply = $this->incomingReceiveService->applyMatched($file);
                 $file->refresh();
+                Log::info('[JxEosIncomingWorkflow] 入荷予定適用が完了しました', [
+                    'jx_transmission_log_id' => $log->id,
+                    'incoming_received_file_id' => $file->id,
+                    'applied' => $apply['applied'],
+                    'apply_errors' => count($apply['errors']),
+                    'elapsed_ms' => $this->elapsedMs($applyStartedAt),
+                ]);
             } else {
                 $skippedApplyReason = "受信ファイルの状態が MATCHED ではありません（現在: {$file->status}）。";
             }
@@ -77,6 +113,7 @@ class JxEosIncomingWorkflowService
             'applied' => $apply['applied'],
             'apply_errors' => count($apply['errors']),
             'skipped_apply_reason' => $skippedApplyReason,
+            'elapsed_ms' => $this->elapsedMs($workflowStartedAt),
         ]);
 
         return [
@@ -214,6 +251,11 @@ class JxEosIncomingWorkflowService
             'schedule_ids' => [],
             'errors' => [],
         ];
+    }
+
+    private function elapsedMs(float $startedAt): int
+    {
+        return (int) round((microtime(true) - $startedAt) * 1000);
     }
 
     private function resolveSource(string $filePath): array

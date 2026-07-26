@@ -87,9 +87,53 @@ class IncomingTransmissionServiceTest extends TestCase
         $this->assertCount(2, $payload['details']);
     }
 
+    public function test_transmit_splits_same_slip_when_purchase_split_key_is_different(): void
+    {
+        $master = $this->purchaseMasterData();
+        $slip = $this->newSlipNumber('X');
+
+        $primary = $this->createConfirmedSchedule($master, $slip, '2026-07-20', 5);
+        $duplicateDetail = $this->createConfirmedSchedule(
+            $master,
+            $slip,
+            '2026-07-20',
+            3,
+            purchaseSplitKey: 'EOS_DETAIL_999',
+        );
+
+        $result = app(IncomingTransmissionService::class)->transmitConfirmedIncomings(
+            scheduleIds: [
+                $primary->id,
+                $duplicateDetail->id,
+            ],
+        );
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(2, $result['queue_count']);
+        $this->assertSame(2, $result['schedule_count']);
+
+        $primary->refresh();
+        $duplicateDetail->refresh();
+
+        $this->assertNotSame($primary->purchase_queue_id, $duplicateDetail->purchase_queue_id);
+
+        $payloads = DB::connection('sakemaru')
+            ->table('purchase_create_queue')
+            ->whereIn('id', [$primary->purchase_queue_id, $duplicateDetail->purchase_queue_id])
+            ->pluck('items', 'id')
+            ->map(fn (string $items): array => json_decode($items, true))
+            ->all();
+
+        $this->assertSame($slip, $payloads[$primary->purchase_queue_id]['slip_number']);
+        $this->assertSame($slip, $payloads[$duplicateDetail->purchase_queue_id]['slip_number']);
+        $this->assertCount(1, $payloads[$primary->purchase_queue_id]['details']);
+        $this->assertCount(1, $payloads[$duplicateDetail->purchase_queue_id]['details']);
+    }
+
     public function test_transmit_skips_received_schedule_without_confirmed_supplier(): void
     {
-        $master = $this->purchaseMasterData(requireContractorSupplier: true);
+        $master = $this->purchaseMasterData();
+        $master['contractor_id'] = null;
         $slip = $this->newSlipNumber('U');
         $schedule = $this->createConfirmedSchedule(
             $master,
@@ -120,6 +164,85 @@ class IncomingTransmissionServiceTest extends TestCase
         ], 'sakemaru');
     }
 
+    public function test_transmit_uses_contractor_supplier_code_without_updating_schedule_supplier_id(): void
+    {
+        $master = $this->purchaseMasterData(requireContractorSupplier: true);
+
+        if (! $master['contractor_supplier_id'] || ! $master['contractor_supplier_code']) {
+            $this->markTestSkipped('contractor supplier master data is not available in test DB');
+        }
+
+        $alternateSupplier = $this->activeSupplierExcept((int) $master['contractor_supplier_id']);
+
+        if (! $alternateSupplier) {
+            $this->markTestSkipped('alternate supplier master data is not available in test DB');
+        }
+
+        $slip = $this->newSlipNumber('S');
+        $schedule = $this->createConfirmedSchedule(
+            $master,
+            $slip,
+            '2026-07-20',
+            5,
+            supplierId: (int) $alternateSupplier->id,
+            orderSource: OrderSource::RECEIVED,
+            isReceiveMatched: true,
+        );
+
+        $result = app(IncomingTransmissionService::class)->transmitConfirmedIncomings(
+            scheduleIds: [$schedule->id],
+        );
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(1, $result['queue_count']);
+        $this->assertSame(1, $result['schedule_count']);
+
+        $schedule->refresh();
+
+        $this->assertSame((int) $alternateSupplier->id, (int) $schedule->supplier_id);
+        $this->assertNotNull($schedule->purchase_queue_id);
+
+        $queue = DB::connection('sakemaru')
+            ->table('purchase_create_queue')
+            ->where('id', $schedule->purchase_queue_id)
+            ->first();
+        $payload = json_decode($queue->items, true);
+
+        $this->assertSame((string) $master['contractor_supplier_code'], (string) $payload['supplier_code']);
+        $this->assertNotSame((string) $alternateSupplier->code, (string) $payload['supplier_code']);
+    }
+
+    public function test_transmit_does_not_create_duplicate_queue_for_already_transmitted_schedule(): void
+    {
+        $master = $this->purchaseMasterData();
+        $slip = $this->newSlipNumber('D');
+        $schedule = $this->createConfirmedSchedule($master, $slip, '2026-07-20', 5);
+
+        $firstResult = app(IncomingTransmissionService::class)->transmitConfirmedIncomings(
+            scheduleIds: [$schedule->id],
+        );
+
+        $schedule->refresh();
+
+        $this->assertTrue($firstResult['success']);
+        $this->assertSame(1, $firstResult['queue_count']);
+        $this->assertSame(1, $firstResult['schedule_count']);
+        $this->assertSame(IncomingScheduleStatus::TRANSMITTED, $schedule->status);
+        $this->assertNotNull($schedule->purchase_queue_id);
+
+        $secondResult = app(IncomingTransmissionService::class)->transmitConfirmedIncomings(
+            scheduleIds: [$schedule->id],
+        );
+
+        $this->assertTrue($secondResult['success']);
+        $this->assertSame(0, $secondResult['queue_count']);
+        $this->assertSame(0, $secondResult['schedule_count']);
+        $this->assertSame(1, DB::connection('sakemaru')
+            ->table('purchase_create_queue')
+            ->where('slip_number', $slip)
+            ->count());
+    }
+
     private function purchaseMasterData(bool $requireContractorSupplier = false): array
     {
         $warehouse = DB::connection('sakemaru')
@@ -145,6 +268,8 @@ class IncomingTransmissionServiceTest extends TestCase
         $contractorQuery = DB::connection('sakemaru')
             ->table('contractors as c')
             ->leftJoin('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'c.id')
+            ->leftJoin('suppliers as contractor_suppliers', 'contractor_suppliers.id', '=', 'c.supplier_id')
+            ->leftJoin('partners as contractor_supplier_partners', 'contractor_supplier_partners.id', '=', 'contractor_suppliers.partner_id')
             ->where('c.is_active', true)
             ->where(function ($query) {
                 $query
@@ -154,10 +279,18 @@ class IncomingTransmissionServiceTest extends TestCase
             ->orderBy('c.id');
 
         if ($requireContractorSupplier) {
-            $contractorQuery->whereNotNull('c.supplier_id');
+            $contractorQuery
+                ->whereNotNull('c.supplier_id')
+                ->where('contractor_supplier_partners.is_active', true)
+                ->where('contractor_supplier_partners.is_supplier', true)
+                ->whereNotNull('contractor_supplier_partners.code');
         }
 
-        $contractor = $contractorQuery->first(['c.id']);
+        $contractor = $contractorQuery->first([
+            'c.id',
+            'c.supplier_id as contractor_supplier_id',
+            'contractor_supplier_partners.code as contractor_supplier_code',
+        ]);
 
         if (! $warehouse || ! $item || ! $supplier || ! $contractor) {
             $this->markTestSkipped('purchase transmission master data is not available in test DB');
@@ -169,7 +302,22 @@ class IncomingTransmissionServiceTest extends TestCase
             'item_code' => (string) $item->code,
             'supplier_id' => (int) $supplier->id,
             'contractor_id' => (int) $contractor->id,
+            'contractor_supplier_id' => $contractor->contractor_supplier_id ? (int) $contractor->contractor_supplier_id : null,
+            'contractor_supplier_code' => $contractor->contractor_supplier_code ? (string) $contractor->contractor_supplier_code : null,
         ];
+    }
+
+    private function activeSupplierExcept(int $supplierId): ?object
+    {
+        return DB::connection('sakemaru')
+            ->table('suppliers as s')
+            ->join('partners as p', 'p.id', '=', 's.partner_id')
+            ->where('p.is_active', true)
+            ->where('p.is_supplier', true)
+            ->whereNotNull('p.code')
+            ->where('s.id', '!=', $supplierId)
+            ->orderBy('s.id')
+            ->first(['s.id', 'p.code']);
     }
 
     private function createConfirmedSchedule(
@@ -181,6 +329,7 @@ class IncomingTransmissionServiceTest extends TestCase
         bool $useDefaultSupplier = true,
         OrderSource $orderSource = OrderSource::AUTO,
         bool $isReceiveMatched = false,
+        ?string $purchaseSplitKey = null,
     ): WmsOrderIncomingSchedule {
         return WmsOrderIncomingSchedule::query()->create([
             'warehouse_id' => $master['warehouse_id'],
@@ -199,6 +348,7 @@ class IncomingTransmissionServiceTest extends TestCase
             'status' => IncomingScheduleStatus::CONFIRMED,
             'confirmed_at' => "{$actualDate} 09:00:00",
             'is_receive_matched' => $isReceiveMatched,
+            'purchase_split_key' => $purchaseSplitKey,
         ]);
     }
 

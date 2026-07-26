@@ -104,10 +104,7 @@ class IncomingTransmissionService
             $nonPurchaseSchedules = collect();
         }
 
-        [$purchaseSchedules, $validationErrors] = $this->filterValidPurchaseSchedules(
-            $purchaseSchedules,
-            persistSupplierId: true,
-        );
+        [$purchaseSchedules, $validationErrors] = $this->filterValidPurchaseSchedules($purchaseSchedules);
         $errors = array_merge($errors, $validationErrors);
 
         $scheduleCount += $this->markSchedulesAsTransmittedWithoutPurchaseQueue($nonPurchaseSchedules);
@@ -121,7 +118,7 @@ class IncomingTransmissionService
             ];
         }
 
-        // グルーピング: 倉庫 + 仕入先 + 伝票番号 + 計上日 + 配送日 + 買掛日
+        // グルーピング: 倉庫 + 仕入先 + 伝票番号 + 計上日 + 配送日 + 買掛日 + 分割キー
         $grouped = $purchaseSchedules->groupBy(function ($schedule) {
             return $this->purchaseGroupKey($schedule);
         });
@@ -201,13 +198,13 @@ class IncomingTransmissionService
             ->all();
     }
 
-    private function filterValidPurchaseSchedules(Collection $schedules, bool $persistSupplierId): array
+    private function filterValidPurchaseSchedules(Collection $schedules): array
     {
         $errors = [];
 
         $validSchedules = $schedules
-            ->filter(function (WmsOrderIncomingSchedule $schedule) use (&$errors, $persistSupplierId): bool {
-                $supplierCode = $this->getSupplierCode($schedule, persistSupplierId: $persistSupplierId);
+            ->filter(function (WmsOrderIncomingSchedule $schedule) use (&$errors): bool {
+                $supplierCode = $this->getSupplierCode($schedule);
                 $warehouseCode = $this->getWarehouseCode($schedule);
                 $itemCode = $this->getItemCode($schedule);
                 $slipNumber = $this->getSlipNumber($schedule);
@@ -272,7 +269,7 @@ class IncomingTransmissionService
     /**
      * 仕入先コードを取得
      */
-    private function getSupplierCode(WmsOrderIncomingSchedule $schedule, bool $persistSupplierId = false): string
+    private function getSupplierCode(WmsOrderIncomingSchedule $schedule): string
     {
         $cachedCode = $schedule->getAttribute('purchase_transmission_supplier_code');
 
@@ -280,7 +277,7 @@ class IncomingTransmissionService
             return $cachedCode;
         }
 
-        $supplierId = $this->resolveSupplierId($schedule, $persistSupplierId);
+        $supplierId = $this->resolvePurchaseTransmissionSupplierId($schedule);
         $supplierCode = $supplierId ? $this->getSupplierCodeById($supplierId) : null;
         $supplierCode = trim((string) $supplierCode);
 
@@ -289,8 +286,14 @@ class IncomingTransmissionService
         return $supplierCode;
     }
 
-    private function resolveSupplierId(WmsOrderIncomingSchedule $schedule, bool $persistSupplierId): ?int
+    private function resolvePurchaseTransmissionSupplierId(WmsOrderIncomingSchedule $schedule): ?int
     {
+        $contractorSupplierId = $this->resolveContractorSupplierId($schedule);
+
+        if ($contractorSupplierId && $this->getSupplierCodeById($contractorSupplierId)) {
+            return $contractorSupplierId;
+        }
+
         if ($schedule->supplier_id && $this->getSupplierCodeById((int) $schedule->supplier_id)) {
             return (int) $schedule->supplier_id;
         }
@@ -299,18 +302,11 @@ class IncomingTransmissionService
             return null;
         }
 
-        $supplierId = $this->resolveItemContractorSupplierId($schedule)
-            ?? $this->resolveContractorSupplierId($schedule);
+        $supplierId = $this->resolveItemContractorSupplierId($schedule);
 
         if (! $supplierId || ! $this->getSupplierCodeById($supplierId)) {
             return null;
         }
-
-        if ($persistSupplierId && (int) $schedule->supplier_id !== $supplierId) {
-            $schedule->forceFill(['supplier_id' => $supplierId])->saveQuietly();
-        }
-
-        $schedule->setAttribute('supplier_id', $supplierId);
 
         return $supplierId;
     }
@@ -352,6 +348,14 @@ class IncomingTransmissionService
     {
         if (! $schedule->contractor_id) {
             return null;
+        }
+
+        $loadedSupplierId = $schedule->relationLoaded('contractor')
+            ? $schedule->contractor?->supplier_id
+            : null;
+
+        if ($loadedSupplierId) {
+            return (int) $loadedSupplierId;
         }
 
         $supplierId = DB::connection('sakemaru')
@@ -412,6 +416,11 @@ class IncomingTransmissionService
         return $this->getDeliveredDate($schedule);
     }
 
+    private function getPurchaseSplitKey(WmsOrderIncomingSchedule $schedule): string
+    {
+        return trim((string) ($schedule->purchase_split_key ?? ''));
+    }
+
     private function purchaseGroupKey(WmsOrderIncomingSchedule $schedule): string
     {
         return implode('_', [
@@ -421,6 +430,7 @@ class IncomingTransmissionService
             $this->getProcessDate($schedule) ?? 'UNKNOWN_PROCESS_DATE',
             $this->getDeliveredDate($schedule) ?? 'UNKNOWN_DELIVERED_DATE',
             $this->getAccountDate($schedule) ?? 'UNKNOWN_ACCOUNT_DATE',
+            $this->getPurchaseSplitKey($schedule) ?: 'PRIMARY',
         ]);
     }
 

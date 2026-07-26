@@ -10,11 +10,11 @@ class JxEosIncomingSkipService
 {
     private const FORMAT_TYPE = 'JX';
 
-    public function skip(WmsJxTransmissionLog $log, ?int $userId = null): WmsIncomingReceivedFile
+    public function skip(WmsJxTransmissionLog $log, ?int $userId = null, ?string $reason = null): WmsIncomingReceivedFile
     {
         $this->assertSkippableLog($log);
 
-        return DB::connection('sakemaru')->transaction(function () use ($log, $userId): WmsIncomingReceivedFile {
+        return DB::connection('sakemaru')->transaction(function () use ($log, $userId, $reason): WmsIncomingReceivedFile {
             $lockedLog = WmsJxTransmissionLog::query()
                 ->whereKey($log->id)
                 ->lockForUpdate()
@@ -34,7 +34,7 @@ class JxEosIncomingSkipService
                 $existing->update(WmsIncomingReceivedFile::onlyExistingColumns([
                     'status' => WmsIncomingReceivedFile::STATUS_SKIPPED,
                     'received_by' => $userId,
-                    'error_message' => $this->skipReason(),
+                    'error_message' => $this->skipReason($reason),
                 ]));
 
                 return $existing->refresh();
@@ -53,7 +53,7 @@ class JxEosIncomingSkipService
                 'parsed_slip_count' => 0,
                 'parsed_detail_count' => 0,
                 'received_by' => $userId,
-                'error_message' => $this->skipReason(),
+                'error_message' => $this->skipReason($reason),
             ]));
         });
     }
@@ -115,8 +115,12 @@ class JxEosIncomingSkipService
         return basename($filePath) ?: "skipped_eos_receive_log_{$logId}.dat";
     }
 
-    private function skipReason(): string
+    private function skipReason(?string $reason = null): string
     {
+        if (filled($reason)) {
+            return $reason;
+        }
+
         return 'ユーザ操作でEOS受信データを取込対象外にしました。';
     }
 }

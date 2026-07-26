@@ -573,6 +573,7 @@ class WmsOrderIncomingSchedulesTable
                         $locationText = $defaultLocation ? "{$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}" : '-';
 
                         $isEosSent = $record->isEosSent();
+                        $isTransferIncoming = static::isTransferIncoming($record);
                         $isEditable = static::canManuallyConfirmIncoming($record);
 
                         // 手動変更判定
@@ -647,6 +648,10 @@ class WmsOrderIncomingSchedulesTable
                             $schema[] = View::make('filament.components.eos-auto-incoming-confirmation-notice');
                         }
 
+                        if ($isTransferIncoming) {
+                            $schema[] = View::make('filament.components.transfer-incoming-schedule-notice');
+                        }
+
                         if ($isEditable) {
                             $capacity = $item?->capacity_case;
                             $expectedQty = $record->expected_quantity ?? 0;
@@ -719,6 +724,16 @@ class WmsOrderIncomingSchedulesTable
                             return;
                         }
 
+                        if (static::isTransferIncoming($record)) {
+                            Notification::make()
+                                ->title('入荷確定操作はできません')
+                                ->body('店間移動の場合、数量変更・入荷確定は「酒丸勘定衆」の「倉庫移動」メニューより実施してください。')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
                         $service = app(IncomingConfirmationService::class);
 
                         try {
@@ -727,31 +742,24 @@ class WmsOrderIncomingSchedulesTable
                             $expirationDate = $data['expiration_date'] ?? null;
                             $locationId = $data['location_id'] ?? null;
 
-                            if ($receivedQty >= $remainingQty) {
-                                $service->confirmIncoming(
-                                    $record,
-                                    auth()->id(),
-                                    $record->expected_quantity,
-                                    $data['actual_date'],
-                                    $expirationDate,
-                                    $locationId
-                                );
+                            $confirmed = $service->confirmIncoming(
+                                $record,
+                                auth()->id(),
+                                $service->resolveConfirmedReceivedQuantity($record, $receivedQty),
+                                $data['actual_date'],
+                                $expirationDate,
+                                $locationId
+                            );
+
+                            if ($receivedQty < $remainingQty) {
                                 Notification::make()
-                                    ->title('入荷を確定しました')
+                                    ->title('入荷を欠品として確定しました')
+                                    ->body("入荷数: {$receivedQty} / 欠品数: {$confirmed->shortage_quantity}")
                                     ->success()
                                     ->send();
                             } else {
-                                $service->recordPartialIncoming(
-                                    $record,
-                                    $receivedQty,
-                                    auth()->id(),
-                                    $data['actual_date'],
-                                    $expirationDate,
-                                    $locationId
-                                );
                                 Notification::make()
-                                    ->title('一部入荷を記録しました')
-                                    ->body("入荷数: {$receivedQty} / 残数: ".($remainingQty - $receivedQty))
+                                    ->title('入荷を確定しました')
                                     ->success()
                                     ->send();
                             }
@@ -768,10 +776,7 @@ class WmsOrderIncomingSchedulesTable
                     ->label('取消')
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
-                    ->visible(fn ($record) => in_array($record->status, [
-                        IncomingScheduleStatus::PENDING,
-                        IncomingScheduleStatus::PARTIAL,
-                    ]))
+                    ->visible(fn ($record) => static::canCancelIncomingSchedule($record))
                     ->requiresConfirmation()
                     ->modalHeading('入荷予定を取消')
                     ->extraModalWindowAttributes(['class' => 'incoming-cancel-modal'])
@@ -784,6 +789,16 @@ class WmsOrderIncomingSchedulesTable
                             ->required(),
                     ])
                     ->action(function ($record, array $data) {
+                        if (static::isTransferIncoming($record)) {
+                            Notification::make()
+                                ->title('取消できません')
+                                ->body('店間移動の場合、取消は「酒丸勘定衆」の「倉庫移動」メニューより実施してください。')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
                         $service = app(OrderCancellationService::class);
 
                         try {
@@ -832,10 +847,7 @@ class WmsOrderIncomingSchedulesTable
                                 ->helperText('空欄の場合は更新しません'),
                         ])
                         ->action(function (Collection $records, array $data) {
-                            $validRecords = $records->filter(fn ($r) => in_array($r->status, [
-                                IncomingScheduleStatus::PENDING,
-                                IncomingScheduleStatus::PARTIAL,
-                            ]));
+                            $validRecords = $records->filter(fn ($r) => static::canUpdateIncomingSchedule($r));
 
                             if ($validRecords->isEmpty()) {
                                 Notification::make()
@@ -927,10 +939,7 @@ class WmsOrderIncomingSchedulesTable
                         ])
                         ->action(function (Collection $records, array $data) {
                             $service = app(OrderCancellationService::class);
-                            $validRecords = $records->filter(fn ($r) => in_array($r->status, [
-                                IncomingScheduleStatus::PENDING,
-                                IncomingScheduleStatus::PARTIAL,
-                            ]));
+                            $validRecords = $records->filter(fn ($r) => static::canCancelIncomingSchedule($r));
 
                             if ($validRecords->isEmpty()) {
                                 Notification::make()
@@ -968,7 +977,39 @@ class WmsOrderIncomingSchedulesTable
                 IncomingScheduleStatus::PENDING,
                 IncomingScheduleStatus::PARTIAL,
             ], true)
+            && ! static::isTransferIncoming($record)
             && ! $record->isEosSent();
+    }
+
+    private static function canUpdateIncomingSchedule(?WmsOrderIncomingSchedule $record): bool
+    {
+        return $record !== null
+            && in_array($record->status, [
+                IncomingScheduleStatus::PENDING,
+                IncomingScheduleStatus::PARTIAL,
+            ], true)
+            && ! static::isTransferIncoming($record);
+    }
+
+    private static function canCancelIncomingSchedule(?WmsOrderIncomingSchedule $record): bool
+    {
+        return $record !== null
+            && in_array($record->status, [
+                IncomingScheduleStatus::PENDING,
+                IncomingScheduleStatus::PARTIAL,
+            ], true)
+            && ! static::isTransferIncoming($record);
+    }
+
+    private static function isTransferIncoming(?WmsOrderIncomingSchedule $record): bool
+    {
+        return $record !== null
+            && (
+                $record->order_source === OrderSource::TRANSFER
+                || $record->transfer_candidate_id !== null
+                || $record->source_warehouse_id !== null
+                || $record->stock_transfer_id !== null
+            );
     }
 
     private static function bulkConfirmSkippedMessage(Collection $records, Collection $validRecords): ?string
@@ -976,7 +1017,7 @@ class WmsOrderIncomingSchedulesTable
         $skippedCount = $records->count() - $validRecords->count();
 
         return $skippedCount > 0
-            ? "EOS自動入荷確定対象など、{$skippedCount}件を除外しました。"
+            ? "EOS自動入荷確定対象・店間移動など、{$skippedCount}件を除外しました。"
             : null;
     }
 
