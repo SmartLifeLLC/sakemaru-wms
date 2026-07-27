@@ -1120,6 +1120,8 @@ class ListWmsOrderCandidates extends ListRecords
                 GREATEST(sales.sales_qty - (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)), 0) as shortage_qty,
                 COALESCE(item_contractors.purchase_unit, 1) as purchase_unit
             ')
+            ->orderBy('contractors.code')
+            ->orderBy('supplier_partners.code')
             ->orderBy('items.code')
             ->get()
             ->map(fn ($row) => [
@@ -1528,9 +1530,6 @@ class ListWmsOrderCandidates extends ListRecords
                         'contractor',
                         'supplier.partner',
                     ])
-                    ->orderBy('batch_code', 'desc')
-                    ->orderBy('warehouse_id')
-                    ->orderBy('item_id')
             ));
     }
 

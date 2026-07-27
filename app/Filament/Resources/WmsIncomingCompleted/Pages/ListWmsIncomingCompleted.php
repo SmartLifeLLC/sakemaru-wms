@@ -36,7 +36,7 @@ class ListWmsIncomingCompleted extends ListRecords
                 ->icon('heroicon-o-paper-airplane')
                 ->color('primary')
                 ->modalHeading(fn (): string => $this->getPurchaseTransmissionActionLabel())
-                ->modalDescription(fn (): string => $this->getPurchaseTransmissionTargetLabel().'の未送信入荷完了データをすべて基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
+                ->modalDescription(fn (): string => $this->getPurchaseTransmissionTargetLabel().'の未送信入荷完了データをすべて基幹システムの仕入キューに登録します。同一の倉庫・仕入先・伝票番号・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。')
                 ->requiresConfirmation()
                 ->modalSubmitActionLabel('全送信')
                 ->action(function () {
@@ -161,14 +161,31 @@ class ListWmsIncomingCompleted extends ListRecords
 
         $cacheKey = 'incoming_completed_warehouses_'.auth()->id();
         $this->presetViewWarehouseData = cache()->remember($cacheKey, 30, function () {
-            $warehouseIds = WmsOrderIncomingSchedule::where('status', IncomingScheduleStatus::CONFIRMED)
+            $warehouseIds = WmsOrderIncomingSchedule::query()
+                ->where('status', IncomingScheduleStatus::CONFIRMED)
+                ->withoutTransferSource()
                 ->distinct()
                 ->pluck('warehouse_id')
+                ->map(fn ($id): int => (int) $id)
                 ->toArray();
+
+            $warehouse91Id = Warehouse::query()
+                ->where('code', '91')
+                ->value('id');
+
+            if ($warehouse91Id) {
+                $warehouseIds[] = (int) $warehouse91Id;
+            }
+
+            $warehouseIds = collect($warehouseIds)
+                ->filter(fn (int $id): bool => $id > 0)
+                ->unique()
+                ->values()
+                ->all();
 
             $warehouses = Warehouse::whereIn('id', $warehouseIds)
                 ->orderBy('code')
-                ->get(['id', 'name']);
+                ->get(['id', 'code', 'name']);
 
             return [
                 'ids' => $warehouseIds,

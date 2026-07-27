@@ -31,7 +31,7 @@ enum EMenuCategory: string
             self::SHORTAGE => '欠品管理',
             self::HORIZONTAL_SHIPMENT => '倉庫移動',
             self::AUTO_ORDER => '発注処理',
-            self::ORDER_TRANSMISSION => '発注送信管理',
+            self::ORDER_TRANSMISSION => '発注送受信管理',
             self::ORDER_HISTORY => '発注履歴',
             self::ORDER_SETTINGS => '発注解説',
             self::INVENTORY => '在庫管理',
