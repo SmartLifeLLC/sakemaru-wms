@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\IncomingController;
 use App\Http\Controllers\Api\InventoryCountController;
 use App\Http\Controllers\Api\MasterDataController;
+use App\Http\Controllers\Api\OutboundInspectionController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\Api\PickingTaskController;
 use App\Http\Controllers\Api\ProxyShipmentController;
@@ -43,6 +44,7 @@ Route::middleware('api.key')->group(function () {
         Route::post('/picking/tasks/{itemResultId}/update', [PickingTaskController::class, 'updateItemResult']);
         Route::post('/picking/tasks/{itemResultId}/cancel', [PickingTaskController::class, 'cancelItemResult']);
         Route::post('/picking/tasks/{id}/complete', [PickingTaskController::class, 'complete']);
+        Route::get('/outbound-inspections/snapshot', [OutboundInspectionController::class, 'snapshot']);
 
         // Incoming (入荷) endpoints
         Route::get('/incoming/schedules', [IncomingController::class, 'index']);
