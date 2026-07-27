@@ -13,7 +13,6 @@ use App\Models\Sakemaru\ItemDefaultLocation;
 use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\Warehouse;
-use App\Models\WmsAutoOrderJobControl;
 use App\Models\WmsOrderCalculationLog;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingConfirmationService;
@@ -33,6 +32,7 @@ use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -73,17 +73,23 @@ class WmsOrderIncomingSchedulesTable
                     })
                     ->sortable()
                     ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true)
                     ->width('60px'),
 
-                TextColumn::make('candidate_creator_name')
-                    ->label('担当者')
-                    ->placeholder('システム')
-                    ->width('100px'),
+                TextColumn::make('is_eos_sent_for_table')
+                    ->label('EOS送信')
+                    ->state(fn (WmsOrderIncomingSchedule $record): bool => (bool) ($record->getAttribute('is_eos_sent_for_table') ?? $record->isEosSent()))
+                    ->formatStateUsing(fn (bool $state): string => $state ? '済' : '-')
+                    ->badge()
+                    ->color(fn (bool $state): string => $state ? 'success' : 'gray')
+                    ->alignCenter()
+                    ->width('70px'),
 
                 TextColumn::make('created_at')
                     ->label('作成日')
                     ->dateTime('m/d H:i')
                     ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true)
                     ->width('95px'),
 
                 TextColumn::make('order_date')
@@ -99,6 +105,13 @@ class WmsOrderIncomingSchedulesTable
                     ->sortable()
                     ->alignCenter()
                     ->width('70px'),
+
+                TextColumn::make('slip_number')
+                    ->label('伝票番号')
+                    ->searchable()
+                    ->copyable()
+                    ->placeholder('-')
+                    ->width('130px'),
 
                 TextColumn::make('contractor.code')
                     ->label('発注先CD')
@@ -266,14 +279,6 @@ class WmsOrderIncomingSchedulesTable
                     ->width('90px'),
 
                 // --- 以下、補助カラム ---
-
-                TextColumn::make('slip_number')
-                    ->label('伝票番号')
-                    ->searchable()
-                    ->copyable()
-                    ->placeholder('-')
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->width('130px'),
 
                 TextColumn::make('warehouse.code')
                     ->label('倉庫CD')
@@ -453,27 +458,15 @@ class WmsOrderIncomingSchedulesTable
 
                 static::contractorFilter(),
 
-                Filter::make('candidate_creator_name')
-                    ->label('担当者')
-                    ->form([
-                        TextInput::make('candidate_creator_name')
-                            ->label('担当者')
-                            ->placeholder('担当者名を入力'),
-                    ])
-                    ->query(fn (Builder $query, array $data) => $query->when(
-                        filled($data['candidate_creator_name'] ?? null),
-                        fn (Builder $q) => static::applyCandidateCreatorNameFilter(
-                            $q,
-                            (string) $data['candidate_creator_name']
-                        ),
-                    ))
-                    ->indicateUsing(function (array $data): ?string {
-                        if (! filled($data['candidate_creator_name'] ?? null)) {
-                            return null;
-                        }
-
-                        return '担当者: '.$data['candidate_creator_name'];
-                    }),
+                TernaryFilter::make('eos_sent')
+                    ->label('EOS送信')
+                    ->placeholder('すべて')
+                    ->trueLabel('送信済み')
+                    ->falseLabel('未送信')
+                    ->queries(
+                        true: fn (Builder $query): Builder => $query->eosSent(),
+                        false: fn (Builder $query): Builder => $query->notEosSent(),
+                    ),
 
                 Filter::make('created_at')
                     ->label('作成日')
@@ -967,7 +960,11 @@ class WmsOrderIncomingSchedulesTable
                         }),
                 ]),
             ])
-            ->defaultSort('id', 'desc');
+            ->defaultSort(fn (Builder $query): Builder => $query
+                ->orderByDesc('expected_arrival_date')
+                ->orderBy('warehouse_id')
+                ->orderBy('item_id')
+                ->orderByDesc('id'));
     }
 
     private static function canManuallyConfirmIncoming(?WmsOrderIncomingSchedule $record): bool
@@ -1019,28 +1016,5 @@ class WmsOrderIncomingSchedulesTable
         return $skippedCount > 0
             ? "EOS自動入荷確定対象・店間移動など、{$skippedCount}件を除外しました。"
             : null;
-    }
-
-    private static function applyCandidateCreatorNameFilter(Builder $query, string $search): void
-    {
-        $search = mb_convert_kana($search, 'as');
-
-        $query->where(function (Builder $query) use ($search) {
-            $query
-                ->whereHas('orderCandidate', fn (Builder $candidateQuery) => $candidateQuery
-                    ->whereIn('batch_code', static::candidateCreatorBatchCodeQuery($search)))
-                ->orWhereHas('transferCandidate', fn (Builder $candidateQuery) => $candidateQuery
-                    ->whereIn('batch_code', static::candidateCreatorBatchCodeQuery($search)));
-        });
-    }
-
-    private static function candidateCreatorBatchCodeQuery(string $search): Builder
-    {
-        return WmsAutoOrderJobControl::query()
-            ->whereNotNull('created_by')
-            ->whereHas('createdByUser', fn (Builder $userQuery) => $userQuery
-                ->where('code', 'like', "%{$search}%")
-                ->orWhere('name', 'like', "%{$search}%"))
-            ->select('batch_code');
     }
 }

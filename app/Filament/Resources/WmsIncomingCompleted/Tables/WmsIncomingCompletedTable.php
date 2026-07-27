@@ -43,7 +43,8 @@ class WmsIncomingCompletedTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'incoming-completed-table sticky-actions'])
-            ->checkIfRecordIsSelectableUsing(fn (WmsOrderIncomingSchedule $record): bool => static::isPurchaseTransmissionSelectable($record))
+            ->checkIfRecordIsSelectableUsing(fn (WmsOrderIncomingSchedule $record): bool => static::isPurchaseTransmissionSelectable($record)
+                || static::canDeleteConfirmedIncoming($record))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -516,39 +517,15 @@ class WmsIncomingCompletedTable
                     ->modalCancelActionLabel('削除せず閉じる')
                     ->action(function (WmsOrderIncomingSchedule $record): void {
                         try {
-                            DB::connection('sakemaru')->transaction(function () use ($record): void {
-                                $locked = WmsOrderIncomingSchedule::query()
-                                    ->whereKey($record->id)
-                                    ->lockForUpdate()
-                                    ->firstOrFail();
+                            $result = static::deleteConfirmedIncomingSchedules(collect([$record]));
 
-                                if ($locked->purchase_queue_id !== null) {
-                                    throw new \RuntimeException('仕入連携済みのため削除できません。');
-                                }
+                            $notification = Notification::make()
+                                ->title($result['deleted_count'] > 0 ? '入荷確定データを削除しました' : '削除対象がありません')
+                                ->body($result['deleted_count'] > 0
+                                    ? '全数欠品として完了扱いにしました。'
+                                    : '仕入連携済みまたは入荷完了以外のため削除できませんでした。');
 
-                                if ($locked->status !== IncomingScheduleStatus::CONFIRMED) {
-                                    throw new \RuntimeException('入荷完了ではないため削除できません。');
-                                }
-
-                                $expectedQuantity = max(0, (int) $locked->expected_quantity);
-
-                                $locked->update([
-                                    'received_quantity' => 0,
-                                    'shipped_quantity' => 0,
-                                    'shortage_quantity' => $expectedQuantity,
-                                    'actual_arrival_date' => $locked->actual_arrival_date
-                                        ?? $locked->expected_arrival_date
-                                        ?? now()->toDateString(),
-                                    'status' => IncomingScheduleStatus::CONFIRMED,
-                                    'confirmed_at' => $locked->confirmed_at ?? now(),
-                                ]);
-                            });
-
-                            Notification::make()
-                                ->title('入荷確定データを削除しました')
-                                ->body('全数欠品として完了扱いにしました。')
-                                ->success()
-                                ->send();
+                            ($result['deleted_count'] > 0 ? $notification->success() : $notification->warning())->send();
                         } catch (\Throwable $throwable) {
                             Notification::make()
                                 ->title('削除できませんでした')
@@ -610,6 +587,39 @@ class WmsIncomingCompletedTable
                                     ->warning()
                                     ->send();
                             }
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('bulkDeleteConfirmedIncoming')
+                        ->label('チェックした入荷完了を削除')
+                        ->icon('heroicon-o-trash')
+                        ->color('danger')
+                        ->requiresConfirmation()
+                        ->modalHeading('チェックした入荷完了を削除')
+                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件を削除し、全数欠品として完了扱いにします。仕入連携済みのデータは削除できません。")
+                        ->modalSubmitActionLabel('チェック分を削除')
+                        ->modalCancelActionLabel('削除せず閉じる')
+                        ->action(function (Collection $records): void {
+                            try {
+                                $result = static::deleteConfirmedIncomingSchedules($records);
+                            } catch (\Throwable $throwable) {
+                                Notification::make()
+                                    ->title('一括削除できませんでした')
+                                    ->body($throwable->getMessage())
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $skippedCount = $result['selected_count'] - $result['deleted_count'];
+
+                            $notification = Notification::make()
+                                ->title("{$result['deleted_count']}件を削除しました")
+                                ->body($skippedCount > 0
+                                    ? "{$skippedCount}件は仕入連携済みまたは入荷完了以外のため除外しました。"
+                                    : '全数欠品として完了扱いにしました。');
+
+                            ($result['deleted_count'] > 0 ? $notification->success() : $notification->warning())->send();
                         })
                         ->deselectRecordsAfterCompletion(),
                 ]),
@@ -754,5 +764,70 @@ class WmsIncomingCompletedTable
         }
 
         return $record->contractor?->wmsSetting?->transmission_type !== TransmissionType::INTERNAL;
+    }
+
+    private static function canDeleteConfirmedIncoming(WmsOrderIncomingSchedule $record): bool
+    {
+        return $record->status === IncomingScheduleStatus::CONFIRMED
+            && $record->purchase_queue_id === null;
+    }
+
+    /**
+     * @return array{selected_count: int, deleted_count: int}
+     */
+    private static function deleteConfirmedIncomingSchedules(Collection $records): array
+    {
+        $scheduleIds = $records
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($scheduleIds === []) {
+            return [
+                'selected_count' => 0,
+                'deleted_count' => 0,
+            ];
+        }
+
+        $deletedCount = DB::connection('sakemaru')->transaction(function () use ($scheduleIds): int {
+            $lockedSchedules = WmsOrderIncomingSchedule::query()
+                ->whereKey($scheduleIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            $deletedCount = 0;
+
+            foreach ($lockedSchedules as $schedule) {
+                if (! static::canDeleteConfirmedIncoming($schedule)) {
+                    continue;
+                }
+
+                $expectedQuantity = max(0, (int) $schedule->expected_quantity);
+
+                $schedule->update([
+                    'received_quantity' => 0,
+                    'shipped_quantity' => 0,
+                    'shortage_quantity' => $expectedQuantity,
+                    'actual_arrival_date' => $schedule->actual_arrival_date
+                        ?? $schedule->expected_arrival_date
+                        ?? now()->toDateString(),
+                    'status' => IncomingScheduleStatus::CONFIRMED,
+                    'confirmed_at' => $schedule->confirmed_at ?? now(),
+                ]);
+
+                $deletedCount++;
+            }
+
+            return $deletedCount;
+        });
+
+        return [
+            'selected_count' => count($scheduleIds),
+            'deleted_count' => $deletedCount,
+        ];
     }
 }

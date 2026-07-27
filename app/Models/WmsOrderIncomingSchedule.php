@@ -250,6 +250,82 @@ class WmsOrderIncomingSchedule extends WmsModel
             ->when($warehouseId !== null, fn (Builder $query) => $query->forWarehouse($warehouseId));
     }
 
+    public function scopeEosSent(Builder $query): Builder
+    {
+        return $query->whereRaw(static::eosSentConditionSql($query->getModel()->getTable()));
+    }
+
+    public function scopeNotEosSent(Builder $query): Builder
+    {
+        return $query->whereRaw('NOT '.static::eosSentConditionSql($query->getModel()->getTable()));
+    }
+
+    public static function eosSentConditionSql(string $table = 'wms_order_incoming_schedules'): string
+    {
+        $scheduleTable = static::rawTableReference($table);
+        $activeStatus = WmsOrderSlipNumberAssignment::STATUS_ACTIVE;
+        $transmittedStatus = WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED;
+
+        return <<<SQL
+            (
+                {$scheduleTable}.`source_received_detail_id` IS NOT NULL
+                OR {$scheduleTable}.`source_incoming_schedule_id` IS NOT NULL
+                OR (
+                    {$scheduleTable}.`order_candidate_id` IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM `wms_order_candidates` AS eos_order_candidates
+                        WHERE eos_order_candidates.`id` = {$scheduleTable}.`order_candidate_id`
+                            AND eos_order_candidates.`wms_order_jx_document_id` IS NOT NULL
+                    )
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM `wms_order_slip_number_assignments` AS eos_slip_assignments
+                    LEFT JOIN `warehouses` AS eos_warehouses
+                        ON eos_warehouses.`id` = {$scheduleTable}.`warehouse_id`
+                    WHERE eos_slip_assignments.`status` IN ('{$activeStatus}', '{$transmittedStatus}')
+                        AND TRIM(COALESCE({$scheduleTable}.`slip_number`, '')) <> ''
+                        AND eos_slip_assignments.`slip_number` = TRIM({$scheduleTable}.`slip_number`)
+                        AND eos_warehouses.`id` IS NOT NULL
+                        AND (
+                            TRIM(COALESCE(eos_warehouses.`code`, '')) = ''
+                            OR eos_slip_assignments.`store_code` = LPAD(
+                                CASE
+                                    WHEN TRIM(LEADING '0' FROM TRIM(CAST(eos_warehouses.`code` AS CHAR))) = '' THEN '0'
+                                    ELSE TRIM(LEADING '0' FROM TRIM(CAST(eos_warehouses.`code` AS CHAR)))
+                                END,
+                                2,
+                                '0'
+                            )
+                        )
+                )
+                OR (
+                    {$scheduleTable}.`order_candidate_id` IS NOT NULL
+                    AND {$scheduleTable}.`order_candidate_id` IN (
+                        SELECT CAST(eos_candidate_ids.`candidate_id` AS UNSIGNED)
+                        FROM `wms_order_slip_number_assignments` AS eos_candidate_assignments
+                        JOIN JSON_TABLE(
+                            eos_candidate_assignments.`order_candidate_ids`,
+                            '$[*]' COLUMNS (`candidate_id` BIGINT PATH '$')
+                        ) AS eos_candidate_ids
+                        WHERE eos_candidate_assignments.`status` IN ('{$activeStatus}', '{$transmittedStatus}')
+                            AND eos_candidate_assignments.`order_candidate_ids` IS NOT NULL
+                    )
+                )
+            )
+        SQL;
+    }
+
+    private static function rawTableReference(string $table): string
+    {
+        if (str_contains($table, '`')) {
+            return $table;
+        }
+
+        return '`'.str_replace('`', '``', $table).'`';
+    }
+
     // Accessors
 
     /**

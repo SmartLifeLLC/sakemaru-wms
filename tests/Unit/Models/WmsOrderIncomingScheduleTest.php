@@ -92,6 +92,23 @@ class WmsOrderIncomingScheduleTest extends TestCase
         $this->assertStringNotContainsString('wms_contractor_settings', $sql);
     }
 
+    public function test_eos_sent_scopes_use_jx_document_slip_assignment_and_received_source_conditions(): void
+    {
+        $sentQuery = WmsOrderIncomingSchedule::query()->eosSent();
+        $notSentQuery = WmsOrderIncomingSchedule::query()->notEosSent();
+        $sentSql = $sentQuery->toSql();
+        $notSentSql = $notSentQuery->toSql();
+
+        $this->assertStringContainsString('source_received_detail_id', $sentSql);
+        $this->assertStringContainsString('source_incoming_schedule_id', $sentSql);
+        $this->assertStringContainsString('wms_order_candidates', $sentSql);
+        $this->assertStringContainsString('wms_order_jx_document_id', $sentSql);
+        $this->assertStringContainsString('wms_order_slip_number_assignments', $sentSql);
+        $this->assertStringContainsString('JSON_TABLE', $sentSql);
+        $this->assertStringContainsString('NOT', $notSentSql);
+        $this->assertStringContainsString('wms_order_slip_number_assignments', $notSentSql);
+    }
+
     public function test_with_transfer_source_scope_matches_transfer_source_columns(): void
     {
         $query = WmsOrderIncomingSchedule::query()->withTransferSource();
