@@ -389,6 +389,142 @@ class IncomingReceiveServiceTest extends TestCase
         ], 'sakemaru');
     }
 
+    public function test_shortage_case_price_is_not_recorded_as_piece_price_mismatch(): void
+    {
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-incoming-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'MATCHED',
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 1,
+        ]);
+
+        $schedule = $this->createIncomingSchedule(
+            itemId: 990070,
+            expectedQuantity: 1,
+            searchCode: '4970707070707',
+            unitPrice: 82,
+            casePrice: 1640,
+            quantityType: QuantityType::CASE,
+        );
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $this->slipNumber,
+            'match_status' => 'SHORTAGE',
+            'b_shop_code' => '0001',
+            'b_order_date' => '260719',
+            'b_delivery_date' => '260720',
+            'b_contractor_code' => '1106',
+            'matched_schedule_id' => $schedule->id,
+            'detail_count' => 1,
+            'shortage_count' => 1,
+        ]);
+
+        WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '4970707070707',
+            'd_item_code' => '990070',
+            'd_pack_quantity' => 20,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 0,
+            'd_unit_price' => 164000,
+            'total_quantity' => 0,
+            'is_shortage' => true,
+            'match_status' => 'SHORTAGE',
+            'matched_item_id' => 990070,
+            'matched_schedule_id' => $schedule->id,
+        ]);
+
+        $result = app(IncomingReceiveService::class)->applyMatched($file);
+
+        $this->assertSame(1, $result['applied']);
+
+        $schedule->refresh();
+        $this->assertSame('CASE', $schedule->price_type);
+        $this->assertNull($schedule->partner_unit_price);
+        $this->assertSame('1640.00', $schedule->partner_case_price);
+
+        $source = WmsIncomingPriceCheckSource::query()
+            ->where('received_file_id', $file->id)
+            ->firstOrFail();
+        $this->assertFalse($source->current_price_mismatch);
+        $this->assertSame('CASE', $source->comparison_price_type);
+        $this->assertSame('1640.0000', $source->comparison_master_price);
+        $this->assertSame('1640.0000', $source->comparison_received_price);
+        $this->assertSame('0.0000', $source->comparison_price_diff);
+    }
+
+    public function test_shortage_piece_price_mismatch_is_still_recorded_when_received_price_is_closer_to_unit_price(): void
+    {
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-incoming-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'MATCHED',
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 1,
+        ]);
+
+        $schedule = $this->createIncomingSchedule(
+            itemId: 990071,
+            expectedQuantity: 1,
+            searchCode: '4971717171717',
+            unitPrice: 295.45,
+            casePrice: 6109,
+            quantityType: QuantityType::CASE,
+        );
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $this->slipNumber,
+            'match_status' => 'SHORTAGE',
+            'b_shop_code' => '0001',
+            'b_order_date' => '260719',
+            'b_delivery_date' => '260720',
+            'b_contractor_code' => '1106',
+            'matched_schedule_id' => $schedule->id,
+            'detail_count' => 1,
+            'shortage_count' => 1,
+        ]);
+
+        WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '4971717171717',
+            'd_item_code' => '990071',
+            'd_pack_quantity' => 20,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 0,
+            'd_unit_price' => 30545,
+            'total_quantity' => 0,
+            'is_shortage' => true,
+            'match_status' => 'SHORTAGE',
+            'matched_item_id' => 990071,
+            'matched_schedule_id' => $schedule->id,
+        ]);
+
+        $result = app(IncomingReceiveService::class)->applyMatched($file);
+
+        $this->assertSame(1, $result['applied']);
+
+        $schedule->refresh();
+        $this->assertSame('PIECE', $schedule->price_type);
+        $this->assertSame('305.45', $schedule->partner_unit_price);
+        $this->assertNull($schedule->partner_case_price);
+
+        $source = WmsIncomingPriceCheckSource::query()
+            ->where('received_file_id', $file->id)
+            ->firstOrFail();
+        $this->assertTrue($source->current_price_mismatch);
+        $this->assertSame('PIECE', $source->comparison_price_type);
+        $this->assertSame('295.4500', $source->comparison_master_price);
+        $this->assertSame('305.4500', $source->comparison_received_price);
+        $this->assertSame('10.0000', $source->comparison_price_diff);
+    }
+
     public function test_price_check_source_keeps_same_eos_raw_record_in_different_slips(): void
     {
         $messageId = 'test-incoming-receive-'.now()->format('YmdHisv').'@FINET';

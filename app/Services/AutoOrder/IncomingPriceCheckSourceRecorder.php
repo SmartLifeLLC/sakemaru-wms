@@ -59,7 +59,7 @@ class IncomingPriceCheckSourceRecorder
 
         $sourceKeys = $this->buildSourceKeys($file, $slip, $detail);
         $receivedPrice = $this->receivedUnitPrice($detail);
-        $comparison = $this->comparisonPayload($schedule, $receivedPrice);
+        $comparison = $this->comparisonPayload($schedule, $receivedPrice, $detail, $sentLinePayload);
         $isExcluded = $this->isPriceCheckExcluded($detail);
 
         $attributes = $this->encodeJsonAttributes([
@@ -454,9 +454,13 @@ class IncomingPriceCheckSourceRecorder
         return ['disk' => 's3', 'path' => ltrim($filePath, '/')];
     }
 
-    private function comparisonPayload(WmsOrderIncomingSchedule $schedule, ?float $receivedPrice): array
-    {
-        $priceType = $schedule->price_type ?: 'PIECE';
+    private function comparisonPayload(
+        WmsOrderIncomingSchedule $schedule,
+        ?float $receivedPrice,
+        WmsIncomingReceivedDetail $detail,
+        ?array $sentLinePayload
+    ): array {
+        $priceType = $this->comparisonPriceType($schedule, $detail, $receivedPrice, $sentLinePayload);
         $masterPrice = $priceType === 'CASE'
             ? $this->decimal($schedule->case_price)
             : $this->decimal($schedule->unit_price);
@@ -477,6 +481,45 @@ class IncomingPriceCheckSourceRecorder
             'has_mismatch' => $diff !== null && abs($diff) > 0.0001,
             'rule_version' => 'current-wms-direct-price-compare',
         ];
+    }
+
+    private function comparisonPriceType(
+        WmsOrderIncomingSchedule $schedule,
+        WmsIncomingReceivedDetail $detail,
+        ?float $receivedPrice,
+        ?array $sentLinePayload
+    ): string {
+        $priceType = $schedule->price_type ?: 'PIECE';
+
+        if (
+            $this->isZeroReceivedQuantity($detail)
+            && ($sentLinePayload['price_type'] ?? null) === 'CASE'
+            && $receivedPrice !== null
+        ) {
+            $casePrice = $this->decimal($schedule->case_price);
+            $unitPrice = $this->decimal($schedule->unit_price);
+
+            if ($casePrice !== null) {
+                $caseDiff = abs($receivedPrice - $casePrice);
+                $unitDiff = $unitPrice !== null ? abs($receivedPrice - $unitPrice) : null;
+
+                if ($caseDiff <= 0.0001 || ($unitDiff !== null && $caseDiff < $unitDiff)) {
+                    return 'CASE';
+                }
+            }
+        }
+
+        return $priceType;
+    }
+
+    private function isZeroReceivedQuantity(WmsIncomingReceivedDetail $detail): bool
+    {
+        return (bool) $detail->is_shortage
+            || (int) ($detail->total_quantity ?? 0) === 0
+            || (
+                (int) ($detail->d_case_quantity ?? 0) === 0
+                && (int) ($detail->d_piece_quantity ?? 0) === 0
+            );
     }
 
     private function receivedPayload(
