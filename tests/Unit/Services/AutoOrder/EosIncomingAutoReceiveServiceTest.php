@@ -26,7 +26,7 @@ class EosIncomingAutoReceiveServiceTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_complete_schedules_as_shortage_bulk_updates_pending_and_partial_schedules(): void
+    public function test_complete_schedules_as_shortage_deletes_old_purchase_schedules(): void
     {
         $master = $this->incomingMasterData();
 
@@ -52,17 +52,21 @@ class EosIncomingAutoReceiveServiceTest extends TestCase
         $partial->refresh();
         $confirmed->refresh();
 
-        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $pending->status);
-        $this->assertSame(2, $pending->received_quantity);
-        $this->assertSame(3, $pending->shortage_quantity);
+        $this->assertSame(IncomingScheduleStatus::DELETED, $pending->status);
+        $this->assertSame(0, $pending->received_quantity);
+        $this->assertSame(0, $pending->shipped_quantity);
+        $this->assertSame(5, $pending->shortage_quantity);
         $this->assertSame('2026-07-01', $pending->actual_arrival_date?->format('Y-m-d'));
         $this->assertSame(0, $pending->confirmed_by);
         $this->assertNotNull($pending->confirmed_at);
 
-        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $partial->status);
+        $this->assertSame(IncomingScheduleStatus::DELETED, $partial->status);
         $this->assertSame(0, $partial->received_quantity);
+        $this->assertSame(0, $partial->shipped_quantity);
         $this->assertSame(7, $partial->shortage_quantity);
         $this->assertSame('2026-07-01', $partial->actual_arrival_date?->format('Y-m-d'));
+        $this->assertSame(0, $partial->confirmed_by);
+        $this->assertNotNull($partial->confirmed_at);
 
         $this->assertSame(IncomingScheduleStatus::CONFIRMED, $confirmed->status);
         $this->assertSame(9, $confirmed->received_quantity);

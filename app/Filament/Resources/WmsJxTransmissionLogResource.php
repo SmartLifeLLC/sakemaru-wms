@@ -440,7 +440,7 @@ class WmsJxTransmissionLogResource extends AdminResource
             ." / 伝票不明: {$run->unknown_slip_count}件"
             ." / 91番除外: {$run->purchase_skipped_warehouse91_count}明細"
             ." / EOS送信履歴なし除外: {$run->purchase_skipped_not_eos_sent_count}明細"
-            ." / 自動完了: {$run->shortage_completed_count}件";
+            ." / 自動整理: {$run->shortage_completed_count}件";
 
         if ($manualSkipped > 0) {
             $body .= " / 手動選択スキップ: {$manualSkipped}件";
