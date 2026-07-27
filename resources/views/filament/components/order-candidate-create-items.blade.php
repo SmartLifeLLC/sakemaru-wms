@@ -21,6 +21,12 @@
     searched: false,
     categories2: [],
     categories3: [],
+    contractorSearch: '',
+    contractorOptions: [],
+    contractorDropdownOpen: false,
+    contractorLoading: false,
+    contractorComposing: false,
+    contractorJustComposed: false,
     hoveredItemName: null,
     itemNameTooltipX: 0,
     itemNameTooltipY: 0,
@@ -38,6 +44,27 @@
 
     isTransferOrderItem(item) {
         return String(item.contractor_code) === '9012';
+    },
+
+    formatVolume(item) {
+        const packaging = String(item.packaging || '').trim().replace(/[×✕ｘＸ]/g, 'x').replace(/\s*x\s*/ig, 'x');
+        const capacityCase = parseInt(item.capacity_case || 0);
+        if (!packaging) return '-';
+
+        let volume = packaging.split(/x/i)[0].trim();
+        if (capacityCase > 0) {
+            volume = volume.replace(new RegExp(`\\s+${capacityCase}$`), '').trim();
+        }
+
+        if (/^\d+(\.\d+)?$/.test(volume)) {
+            if (Number(volume) <= 0) {
+                return '-';
+            }
+
+            return `${volume}ml`;
+        }
+
+        return volume || '-';
     },
 
     async search(page = 1) {
@@ -107,10 +134,91 @@
         this.filters = { itemCode: '', janCode: '', itemName: '', contractorId: '', category1Id: '', category2Id: '', category3Id: '', lastShippedFrom: '', lastShippedTo: '' };
         this.categories2 = [];
         this.categories3 = [];
+        this.contractorSearch = '';
+        this.contractorOptions = [];
+        this.contractorDropdownOpen = false;
+        this.contractorComposing = false;
+        this.contractorJustComposed = false;
+        if (this.$refs.contractorSearchInput) {
+            this.$refs.contractorSearchInput.value = '';
+        }
         this.results = [];
         this.pinnedItems = {};
         this.searched = false;
         this.totalCount = 0;
+    },
+
+    async searchContractors() {
+        const query = this.contractorSearch.trim().normalize('NFKC');
+        this.filters.contractorId = '';
+        this.contractorDropdownOpen = true;
+
+        if (!query || (query.length < 2 && !/^\d+$/.test(query))) {
+            this.contractorOptions = [];
+            return;
+        }
+
+        this.contractorLoading = true;
+        try {
+            this.contractorOptions = await $wire.searchContractorsForOrderCreate(query);
+        } finally {
+            this.contractorLoading = false;
+        }
+    },
+
+    finishContractorComposition() {
+        this.contractorComposing = false;
+        this.contractorJustComposed = true;
+
+        setTimeout(() => {
+            this.contractorJustComposed = false;
+        }, 100);
+    },
+
+    handleContractorEnter(event) {
+        if (this.contractorComposing || this.contractorJustComposed || event.isComposing || event.keyCode === 229) {
+            return;
+        }
+
+        event.preventDefault();
+
+        if (this.contractorOptions.length === 1) {
+            this.selectContractor(this.contractorOptions[0]);
+            return;
+        }
+
+        this.search(1);
+    },
+
+    selectContractor(contractor) {
+        const label = contractor.label || `[${contractor.code}]${contractor.name}`;
+        this.filters.contractorId = contractor.id;
+        this.contractorSearch = label;
+        if (this.$refs.contractorSearchInput) {
+            this.$refs.contractorSearchInput.value = label;
+        }
+        this.contractorOptions = [];
+        this.contractorDropdownOpen = false;
+    },
+
+    selectContractorById(contractorId) {
+        const contractor = this.contractorOptions.find((option) => String(option.id) === String(contractorId));
+        if (!contractor) {
+            this.clearContractor();
+            return;
+        }
+
+        this.selectContractor(contractor);
+    },
+
+    clearContractor() {
+        this.filters.contractorId = '';
+        this.contractorSearch = '';
+        if (this.$refs.contractorSearchInput) {
+            this.$refs.contractorSearchInput.value = '';
+        }
+        this.contractorOptions = [];
+        this.contractorDropdownOpen = false;
     },
 
     async loadCategories2() {
@@ -298,15 +406,51 @@
                     placeholder="2文字以上"
                     class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
             </div>
-            <div>
+            <div class="relative z-[80]">
                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">発注先</label>
-                <select x-model="filters.contractorId"
-                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
-                    <option value="">全て</option>
-                    @foreach(\App\Models\Sakemaru\Contractor::orderBy('code')->get() as $contractor)
-                        <option value="{{ $contractor->id }}">[{{ $contractor->code }}]{{ $contractor->name }}</option>
-                    @endforeach
-                </select>
+                <div class="relative">
+                    <input type="text"
+                        x-ref="contractorSearchInput"
+                        x-model="contractorSearch"
+                        @focus="contractorDropdownOpen = true"
+                        @input.debounce.250ms="searchContractors()"
+                        @compositionstart="contractorComposing = true"
+                        @compositionend="finishContractorComposition()"
+                        @keydown.enter="handleContractorEnter($event)"
+                        @keydown.escape.prevent="contractorDropdownOpen = false"
+                        placeholder="CD・名前で検索して選択"
+                        class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 pr-7 text-xs bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+                    <button type="button"
+                        x-show="contractorSearch"
+                        x-cloak
+                        @click="clearContractor()"
+                        class="absolute inset-y-0 right-1 flex items-center px-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                        <x-filament::icon icon="heroicon-m-x-mark" class="h-3.5 w-3.5" />
+                    </button>
+
+                    <div x-show="contractorDropdownOpen && (contractorLoading || contractorOptions.length > 0 || contractorSearch)"
+                        x-cloak
+                        class="absolute z-[9999] mt-1 w-full rounded-md border border-gray-200 bg-white text-xs shadow-lg dark:border-gray-700 dark:bg-gray-900">
+                        <div x-show="contractorLoading" class="px-2 py-1.5 text-gray-400">検索中...</div>
+                        <select x-show="!contractorLoading && contractorOptions.length > 0"
+                            x-model="filters.contractorId"
+                            @change="selectContractorById($event.target.value)"
+                            size="5"
+                            class="block max-h-44 w-full border-0 bg-white px-2 py-1 text-xs text-gray-800 outline-none dark:bg-gray-900 dark:text-gray-100">
+                            <template x-for="contractor in contractorOptions" :key="contractor.id">
+                                <option :value="contractor.id" x-text="contractor.label || ('[' + contractor.code + ']' + contractor.name)"></option>
+                            </template>
+                        </select>
+                        <div x-show="!contractorLoading && contractorOptions.length === 0 && contractorSearch && (contractorSearch.trim().length >= 2 || /^\d+$/.test(contractorSearch.trim()))"
+                            class="px-2 py-1.5 text-gray-400">
+                            該当する発注先がありません
+                        </div>
+                        <div x-show="!contractorLoading && contractorOptions.length === 0 && contractorSearch && contractorSearch.trim().length < 2 && !/^\d+$/.test(contractorSearch.trim())"
+                            class="px-2 py-1.5 text-gray-400">
+                            2文字以上、またはCDを入力してください
+                        </div>
+                    </div>
+                </div>
             </div>
             <div>
                 <label class="block text-xs text-gray-500 dark:text-gray-400 mb-0.5">大分類</label>
@@ -413,26 +557,28 @@
             <table class="w-full text-sm table-fixed">
                 <colgroup>
                     <col />
-                    <col style="width: 92px" />
-                    <col style="width: 190px" />
+                    <col style="width: 48px" />
+                    <col style="width: 70px" />
+                    <col style="width: 250px" />
                     <col style="width: 48px" />
                     <col style="width: 48px" />
-                    <col style="width: 55px" />
-                    <col style="width: 62px" />
-                    <col style="width: 62px" />
-                    <col style="width: 55px" />
+                    <col style="width: 58px" />
+                    <col style="width: 58px" />
+                    <col style="width: 58px" />
+                    <col style="width: 58px" />
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-white/10">
                     <tr class="divide-x divide-gray-200 dark:divide-white/10">
-                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品</th>
-                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">規格</th>
+                        <th class="px-1.5 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">商品</th>
+                        <th class="px-1.5 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">入数</th>
+                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">容量</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">発注先</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">3日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">30日</th>
-                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">ケース</th>
-                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">バラ</th>
-                        <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">総バラ</th>
+                        <th class="px-1 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">ケース</th>
+                        <th class="px-1 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">バラ</th>
+                        <th class="px-1 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">総バラ</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -453,12 +599,15 @@
                                     x-on:mouseleave="hoveredItemName = null"
                                 ></span>
                             </td>
-                            <td class="px-1.5 py-0.5">
-                                <span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.packaging || '-'"></span>
+                            <td class="px-1.5 py-0.5 text-right">
+                                <span class="text-xs font-mono text-gray-500 dark:text-gray-400" x-text="item.capacity_case || '-'"></span>
                             </td>
-                            <td class="px-1.5 py-0.5">
+                            <td class="px-1.5 py-0.5 text-center">
+                                <span class="text-xs text-gray-500 dark:text-gray-400" x-text="formatVolume(item)"></span>
+                            </td>
+                            <td class="px-1.5 py-0.5 text-left">
                                 <span x-show="String(item.contractor_code) === '9012'" class="text-[10px] font-bold text-red-600 dark:text-red-400">移動発注対象です</span>
-                                <span class="text-xs whitespace-normal break-words"
+                                <span class="block text-left text-xs whitespace-normal break-words"
                                     :class="String(item.contractor_code) === '9012' ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-500 dark:text-gray-400'"
                                     x-text="item.contractor_name || '-'"></span>
                             </td>
@@ -494,7 +643,7 @@
                                 />
                             </td>
                             <td class="px-1 py-0.5 text-right">
-                                <span class="text-xs font-mono font-semibold"
+                                <span class="text-base font-mono font-bold leading-none tabular-nums"
                                     :class="((getQty(item.id).caseQty || 0) * (item.capacity_case || 1) + (getQty(item.id).pieceQty || 0)) > 0 ? 'text-primary-600 dark:text-primary-400' : 'text-gray-400'"
                                     x-text="(getQty(item.id).caseQty || 0) * (item.capacity_case || 1) + (getQty(item.id).pieceQty || 0) || ''"></span>
                             </td>
@@ -502,7 +651,7 @@
                     </template>
                     <template x-if="results.length === 0">
                         <tr>
-                            <td colspan="9" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                            <td colspan="10" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
                                 検索結果がありません
                             </td>
                         </tr>
