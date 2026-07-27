@@ -512,7 +512,7 @@ class WmsIncomingCompletedTable
                     ->visible(fn (WmsOrderIncomingSchedule $record): bool => $record->purchase_queue_id === null)
                     ->requiresConfirmation()
                     ->modalHeading('入荷確定データを削除')
-                    ->modalDescription('この入荷確定データを削除し、全数欠品として完了扱いにします。仕入連携済みのデータは削除できません。')
+                    ->modalDescription('この入荷確定データを削除済みにし、入荷完了一覧から非表示にします。仕入連携済みのデータは削除できません。')
                     ->modalSubmitActionLabel('削除する')
                     ->modalCancelActionLabel('削除せず閉じる')
                     ->action(function (WmsOrderIncomingSchedule $record): void {
@@ -522,7 +522,7 @@ class WmsIncomingCompletedTable
                             $notification = Notification::make()
                                 ->title($result['deleted_count'] > 0 ? '入荷確定データを削除しました' : '削除対象がありません')
                                 ->body($result['deleted_count'] > 0
-                                    ? '全数欠品として完了扱いにしました。'
+                                    ? '全数欠品の数量情報を残して削除済みにしました。'
                                     : '仕入連携済みまたは入荷完了以外のため削除できませんでした。');
 
                             ($result['deleted_count'] > 0 ? $notification->success() : $notification->warning())->send();
@@ -595,7 +595,7 @@ class WmsIncomingCompletedTable
                         ->color('danger')
                         ->requiresConfirmation()
                         ->modalHeading('チェックした入荷完了を削除')
-                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件を削除し、全数欠品として完了扱いにします。仕入連携済みのデータは削除できません。")
+                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件を削除済みにし、入荷完了一覧から非表示にします。仕入連携済みのデータは削除できません。")
                         ->modalSubmitActionLabel('チェック分を削除')
                         ->modalCancelActionLabel('削除せず閉じる')
                         ->action(function (Collection $records): void {
@@ -617,7 +617,7 @@ class WmsIncomingCompletedTable
                                 ->title("{$result['deleted_count']}件を削除しました")
                                 ->body($skippedCount > 0
                                     ? "{$skippedCount}件は仕入連携済みまたは入荷完了以外のため除外しました。"
-                                    : '全数欠品として完了扱いにしました。');
+                                    : '全数欠品の数量情報を残して削除済みにしました。');
 
                             ($result['deleted_count'] > 0 ? $notification->success() : $notification->warning())->send();
                         })
@@ -815,7 +815,7 @@ class WmsIncomingCompletedTable
                     'actual_arrival_date' => $schedule->actual_arrival_date
                         ?? $schedule->expected_arrival_date
                         ?? now()->toDateString(),
-                    'status' => IncomingScheduleStatus::CONFIRMED,
+                    'status' => IncomingScheduleStatus::DELETED,
                     'confirmed_at' => $schedule->confirmed_at ?? now(),
                 ]);
 

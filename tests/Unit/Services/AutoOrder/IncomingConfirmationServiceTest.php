@@ -189,7 +189,10 @@ class IncomingConfirmationServiceTest extends TestCase
         $this->assertEquals('PENDING', IncomingScheduleStatus::PENDING->value);
         $this->assertEquals('PARTIAL', IncomingScheduleStatus::PARTIAL->value);
         $this->assertEquals('CONFIRMED', IncomingScheduleStatus::CONFIRMED->value);
+        $this->assertEquals('TRANSMITTED', IncomingScheduleStatus::TRANSMITTED->value);
         $this->assertEquals('CANCELLED', IncomingScheduleStatus::CANCELLED->value);
+        $this->assertEquals('PARTIAL_CANCELLED', IncomingScheduleStatus::PARTIAL_CANCELLED->value);
+        $this->assertEquals('DELETED', IncomingScheduleStatus::DELETED->value);
     }
 
     /**
