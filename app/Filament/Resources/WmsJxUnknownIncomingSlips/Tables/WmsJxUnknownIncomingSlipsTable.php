@@ -5,10 +5,14 @@ namespace App\Filament\Resources\WmsJxUnknownIncomingSlips\Tables;
 use App\Enums\PaginationOptions;
 use App\Models\WmsIncomingReceivedFile;
 use App\Models\WmsIncomingReceivedSlip;
+use App\Services\AutoOrder\IncomingReceiveService;
 use Carbon\Carbon;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
@@ -19,6 +23,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class WmsJxUnknownIncomingSlipsTable
 {
@@ -50,7 +55,12 @@ class WmsJxUnknownIncomingSlipsTable
                     $query
                         ->where('match_status', 'NO_ASSIGNMENT')
                         ->orWhereHas('importErrors', fn (Builder $errorQuery): Builder => $errorQuery
-                            ->whereIn('error_code', self::REVIEW_ERROR_CODES));
+                            ->whereIn('error_code', self::REVIEW_ERROR_CODES)
+                            ->where(function (Builder $resolvedQuery): void {
+                                $resolvedQuery
+                                    ->whereNull('is_resolved')
+                                    ->orWhere('is_resolved', false);
+                            }));
                 })
                 ->orderByDesc('id'))
             ->columns([
@@ -214,6 +224,54 @@ class WmsJxUnknownIncomingSlipsTable
                     ->modalCancelActionLabel('閉じる')
                     ->infolist(fn (WmsIncomingReceivedSlip $record): array => self::detailInfolist($record)),
             ], position: RecordActionsPosition::BeforeColumns)
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    BulkAction::make('confirmUnknownIncoming')
+                        ->label('選択を入荷完了として取込')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('選択した伝票番号不明データを入荷完了として取込')
+                        ->modalDescription(fn (Collection $records): string => "選択した {$records->count()} 伝票の数量あり明細から入荷完了データを作成します。伝票番号は先方の受信伝票番号を使用します。仕入キュー作成は行いません。")
+                        ->modalSubmitActionLabel('入荷完了として取込')
+                        ->modalCancelActionLabel('取込せず閉じる')
+                        ->action(function (Collection $records): void {
+                            $service = app(IncomingReceiveService::class);
+                            $created = 0;
+                            $updated = 0;
+                            $skipped = 0;
+                            $scheduleIds = [];
+                            $errors = [];
+
+                            foreach ($records->sortBy('id') as $record) {
+                                try {
+                                    $result = $service->confirmUnassignedJxSlip($record, auth()->id());
+                                    $created += $result['created'];
+                                    $updated += $result['updated'];
+                                    $skipped += $result['skipped'];
+                                    $scheduleIds = array_merge($scheduleIds, $result['schedule_ids']);
+                                } catch (\Throwable $throwable) {
+                                    $errors[] = "伝票ID {$record->id}: {$throwable->getMessage()}";
+                                }
+                            }
+
+                            $scheduleCount = count(array_unique($scheduleIds));
+                            $body = "入荷完了データ: {$scheduleCount}件 / 新規: {$created}件 / 更新: {$updated}件 / 既存: {$skipped}件";
+
+                            if ($errors !== []) {
+                                $body .= "\n失敗: ".count($errors).'件';
+                                $body .= "\n".collect($errors)->take(5)->implode("\n");
+                            }
+
+                            $notification = Notification::make()
+                                ->title($errors === [] ? '入荷完了として取込しました' : '一部の取込に失敗しました')
+                                ->body($body);
+
+                            ($errors === [] ? $notification->success() : $notification->warning())->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                ]),
+            ])
             ->defaultSort('id', 'desc');
     }
 

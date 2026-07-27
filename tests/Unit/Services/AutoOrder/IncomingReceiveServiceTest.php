@@ -1295,6 +1295,117 @@ class IncomingReceiveServiceTest extends TestCase
         $this->assertSame(WmsIncomingReceivedFile::STATUS_PENDING, $file->fresh()->status);
     }
 
+    public function test_unassigned_jx_slip_can_be_confirmed_as_received_schedule_without_duplicates(): void
+    {
+        $contractorId = $this->contractorId('1330');
+
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-incoming-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'PENDING',
+            'contractor_id' => $contractorId,
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 1,
+        ]);
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $this->slipNumber,
+            'match_status' => 'UNMATCHED',
+            'b_shop_code' => '0008',
+            'b_order_date' => '260720',
+            'b_delivery_date' => '260721',
+            'b_contractor_code' => '1330',
+            'detail_count' => 1,
+        ]);
+
+        $detail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '7401005008597',
+            'd_item_code' => '162100',
+            'd_pack_quantity' => 6,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 3,
+            'd_unit_price' => 410500,
+            'total_quantity' => 3,
+            'match_status' => 'UNMATCHED',
+        ]);
+
+        app(IncomingReceiveService::class)->matchWithSchedules($file);
+
+        $result = app(IncomingReceiveService::class)->confirmUnassignedJxSlip($slip->fresh(), 123);
+
+        $this->assertSame(1, $result['created']);
+        $this->assertSame(0, $result['updated']);
+        $this->assertSame(0, $result['skipped']);
+        $this->assertCount(1, $result['schedule_ids']);
+
+        $schedule = WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->firstOrFail();
+
+        $this->assertSame($this->slipNumber, $schedule->slip_number);
+        $this->assertSame($contractorId, $schedule->contractor_id);
+        $this->assertSame(162100, $schedule->item_id);
+        $this->assertSame(OrderSource::RECEIVED, $schedule->order_source);
+        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $schedule->status);
+        $this->assertSame(3, $schedule->expected_quantity);
+        $this->assertSame(3, $schedule->shipped_quantity);
+        $this->assertSame(3, $schedule->received_quantity);
+        $this->assertSame(0, $schedule->shortage_quantity);
+        $this->assertSame(QuantityType::PIECE, $schedule->quantity_type);
+        $this->assertSame('2026-07-21', $schedule->actual_arrival_date?->format('Y-m-d'));
+        $this->assertSame(123, $schedule->confirmed_by);
+        $this->assertSame('PIECE', $schedule->price_type);
+        $this->assertEquals('4105.00', $schedule->partner_unit_price);
+        $this->assertSame("EOS_DETAIL_{$detail->id}", $schedule->purchase_split_key);
+
+        $slip->refresh();
+        $detail->refresh();
+        $file->refresh();
+
+        $this->assertSame('MATCHED', $slip->match_status);
+        $this->assertSame($schedule->id, $slip->matched_schedule_id);
+        $this->assertSame('MATCHED', $detail->match_status);
+        $this->assertSame($schedule->id, $detail->matched_schedule_id);
+        $this->assertSame(WmsIncomingReceivedFile::STATUS_APPLIED, $file->status);
+        $this->assertDatabaseHas('wms_incoming_import_errors', [
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'error_code' => 'EOS_ASSIGNMENT_NOT_FOUND',
+            'is_resolved' => true,
+        ], 'sakemaru');
+        $this->assertDatabaseHas('wms_incoming_price_check_sources', [
+            'received_file_id' => $file->id,
+            'received_detail_id' => $detail->id,
+            'incoming_schedule_id' => $schedule->id,
+            'received_unit_price_raw' => 410500,
+            'received_unit_price' => '4105.0000',
+            'comparison_price_type' => 'PIECE',
+        ], 'sakemaru');
+
+        $secondResult = app(IncomingReceiveService::class)->confirmUnassignedJxSlip($slip->fresh(), 123);
+
+        $this->assertSame(0, $secondResult['created']);
+        $this->assertSame(0, $secondResult['updated']);
+        $this->assertSame(1, $secondResult['skipped']);
+        $this->assertSame(1, WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->count());
+
+        $file->update(['status' => WmsIncomingReceivedFile::STATUS_PENDING]);
+        $rematch = app(IncomingReceiveService::class)->matchWithSchedules($file->fresh());
+
+        $this->assertSame(1, $rematch['matched']);
+        $this->assertSame(0, $rematch['unmatched']);
+        $this->assertSame('MATCHED', $slip->fresh()->match_status);
+        $this->assertSame(1, WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->count());
+    }
+
     private function contractorId(string $code): int
     {
         return (int) (Contractor::where('code', $code)->value('id') ?? $code);
