@@ -189,6 +189,17 @@ class IncomingReceiveService
         if ($schedules->isEmpty()) {
             if ($this->isJxSlip($slip)) {
                 if (! $this->findJxAssignmentForSlip($slip)) {
+                    $confirmedScheduleIds = $this->receivedDetailScheduleIdsForSlip($slip);
+                    if ($confirmedScheduleIds !== []) {
+                        $slip->update([
+                            'matched_schedule_id' => $confirmedScheduleIds[0],
+                            'match_status' => 'MATCHED',
+                        ]);
+                        $this->resolveUnassignedJxReviewErrors($slip);
+
+                        return 'MATCHED';
+                    }
+
                     $this->markUnassignedJxSlipForReview($slip, $file);
 
                     return 'NO_ASSIGNMENT';
@@ -1355,6 +1366,197 @@ class IncomingReceiveService
     }
 
     /**
+     * 伝票番号割当がないJX受信伝票を、受信明細由来の入荷完了データとして作成する。
+     *
+     * @return array{created: int, updated: int, skipped: int, schedule_ids: array<int>}
+     */
+    public function confirmUnassignedJxSlip(WmsIncomingReceivedSlip $slip, ?int $confirmedBy = null): array
+    {
+        $result = DB::connection('sakemaru')->transaction(function () use ($slip, $confirmedBy): array {
+            $lockedSlip = WmsIncomingReceivedSlip::query()
+                ->whereKey($slip->id)
+                ->with(['file', 'details'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! $this->isJxSlip($lockedSlip)) {
+                throw new \RuntimeException("JX受信伝票ではありません: slip_id={$lockedSlip->id}");
+            }
+
+            $file = $lockedSlip->file;
+            if (! $file) {
+                throw new \RuntimeException("受信ファイルが見つかりません: slip_id={$lockedSlip->id}");
+            }
+
+            $warehouse = $this->resolveWarehouseForSlip($lockedSlip);
+            if (! $warehouse) {
+                throw new \RuntimeException("倉庫を解決できません: slip_number={$lockedSlip->slip_number}, shop_code={$lockedSlip->b_shop_code}");
+            }
+
+            $contractorId = $this->resolveCreateContractorId($lockedSlip);
+            if (! $contractorId) {
+                throw new \RuntimeException("仕入先を解決できません: slip_number={$lockedSlip->slip_number}, contractor_code={$lockedSlip->b_contractor_code}");
+            }
+
+            $contractor = Contractor::find($contractorId);
+            if (! $contractor) {
+                throw new \RuntimeException("仕入先が見つかりません: contractor_id={$contractorId}");
+            }
+
+            $details = $lockedSlip->details
+                ->sortBy('d_line_number')
+                ->values();
+            $receivableDetails = $details
+                ->reject(fn (WmsIncomingReceivedDetail $detail): bool => $detail->is_shortage || (int) $detail->total_quantity <= 0)
+                ->values();
+
+            if ($receivableDetails->isEmpty()) {
+                throw new \RuntimeException("入荷数量のある明細がありません: slip_number={$lockedSlip->slip_number}");
+            }
+
+            $validatedDetails = [];
+            foreach ($receivableDetails as $detail) {
+                $itemId = $this->resolveItemId($detail);
+                if (! $itemId) {
+                    throw new \RuntimeException("商品を解決できません: slip_number={$lockedSlip->slip_number}, line={$detail->d_line_number}, JAN={$detail->d_jan_code}, item_code={$detail->d_item_code}");
+                }
+
+                $validatedDetails[] = [
+                    'detail' => $detail,
+                    'item_id' => (int) $itemId,
+                ];
+            }
+
+            $orderDate = $this->parseJxDate($lockedSlip->b_order_date) ?? now()->toDateString();
+            $deliveryDate = $this->parseJxDate($lockedSlip->b_delivery_date) ?? now()->toDateString();
+            $createdCount = 0;
+            $updatedCount = 0;
+            $skippedCount = 0;
+            $scheduleIds = [];
+
+            foreach ($validatedDetails as $validatedDetail) {
+                /** @var WmsIncomingReceivedDetail $detail */
+                $detail = $validatedDetail['detail'];
+                $itemId = $validatedDetail['item_id'];
+
+                $existingSchedule = WmsOrderIncomingSchedule::query()
+                    ->where('source_received_detail_id', $detail->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existingSchedule) {
+                    $this->markDetailAsConfirmedFromReceivedSchedule($detail, $existingSchedule);
+                    $scheduleIds[] = (int) $existingSchedule->id;
+
+                    if ($this->canApplyReceivedData($existingSchedule)) {
+                        $this->applyDetailToSchedule($existingSchedule, $detail, $lockedSlip);
+                        $updatedCount++;
+                    } else {
+                        $skippedCount++;
+                    }
+
+                    $this->recordPriceCheckSource($file, $detail, $existingSchedule);
+
+                    continue;
+                }
+
+                $shippedPieces = (int) $detail->total_quantity;
+                $priceData = $this->receivedPriceWritebackData(null, $detail);
+                $supplierId = $this->resolveSupplierId($warehouse->id, $itemId, $contractor->id);
+                $itemCode = Item::where('id', $itemId)->value('code');
+                $searchCode = DB::connection('sakemaru')
+                    ->table('item_search_information')
+                    ->where('item_id', $itemId)
+                    ->where('is_used_for_ordering', true)
+                    ->where('is_active', true)
+                    ->value('search_string');
+                $expirationDate = $this->calculateExpirationDate($itemId, $deliveryDate);
+
+                $schedule = WmsOrderIncomingSchedule::create([
+                    'warehouse_id' => $warehouse->id,
+                    'item_id' => $itemId,
+                    'item_code' => $itemCode,
+                    'search_code' => $searchCode,
+                    'contractor_id' => $contractor->id,
+                    'supplier_id' => $supplierId,
+                    'order_source' => OrderSource::RECEIVED,
+                    'slip_number' => $lockedSlip->slip_number,
+                    'expected_quantity' => $shippedPieces,
+                    'shipped_quantity' => $shippedPieces,
+                    'received_quantity' => $shippedPieces,
+                    'shortage_quantity' => 0,
+                    'is_receive_matched' => true,
+                    'partner_unit_price' => $priceData['partner_unit_price'],
+                    'partner_case_price' => $priceData['partner_case_price'],
+                    'price_type' => $priceData['price_type'],
+                    'quantity_type' => QuantityType::PIECE,
+                    'order_date' => $orderDate,
+                    'expected_arrival_date' => $deliveryDate,
+                    'actual_arrival_date' => $deliveryDate,
+                    'expiration_date' => $expirationDate,
+                    'status' => IncomingScheduleStatus::CONFIRMED,
+                    'confirmed_at' => now(),
+                    'confirmed_by' => $confirmedBy ?? 0,
+                    'confirmed_picker_id' => null,
+                    'source_received_detail_id' => $detail->id,
+                    'purchase_split_key' => $this->duplicateDetailPurchaseSplitKey($detail),
+                    'note' => "伝票番号不明EOS受信から入荷確定データ作成: 受信伝票ID={$lockedSlip->id}, 受信明細ID={$detail->id}",
+                ]);
+
+                $this->markDetailAsConfirmedFromReceivedSchedule($detail, $schedule);
+                $this->recordPriceCheckSource($file, $detail, $schedule);
+
+                $createdCount++;
+                $scheduleIds[] = (int) $schedule->id;
+            }
+
+            foreach ($details as $detail) {
+                if ($detail->is_shortage || (int) $detail->total_quantity <= 0) {
+                    $itemId = $this->resolveItemId($detail);
+                    $detail->update([
+                        'matched_item_id' => $itemId,
+                        'matched_schedule_id' => null,
+                        'expected_quantity' => 0,
+                        'match_status' => 'SHORTAGE',
+                    ]);
+                }
+            }
+
+            $scheduleIds = array_values(array_unique($scheduleIds));
+            $lockedSlip->update([
+                'matched_schedule_id' => $scheduleIds[0] ?? null,
+                'match_status' => 'MATCHED',
+                'shortage_count' => $details
+                    ->filter(fn (WmsIncomingReceivedDetail $detail): bool => $detail->is_shortage || (int) $detail->total_quantity <= 0)
+                    ->count(),
+            ]);
+            $this->resolveUnassignedJxReviewErrors($lockedSlip, $confirmedBy);
+            $this->refreshReceivedFileStatusAfterManualConfirmation($file);
+
+            Log::info('[IncomingReceiveService] 伝票番号不明JX受信伝票を入荷完了データとして作成しました', [
+                'file_id' => $file->id,
+                'slip_id' => $lockedSlip->id,
+                'slip_number' => $lockedSlip->slip_number,
+                'created' => $createdCount,
+                'updated' => $updatedCount,
+                'skipped' => $skippedCount,
+                'schedule_ids' => $scheduleIds,
+            ]);
+
+            return [
+                'created' => $createdCount,
+                'updated' => $updatedCount,
+                'skipped' => $skippedCount,
+                'schedule_ids' => $scheduleIds,
+            ];
+        });
+
+        $slip->refresh();
+
+        return $result;
+    }
+
+    /**
      * 照合済みデータを入荷予定に適用
      */
     public function applyMatched(WmsIncomingReceivedFile $file): array
@@ -1623,6 +1825,71 @@ class IncomingReceiveService
     private function duplicateDetailPurchaseSplitKey(WmsIncomingReceivedDetail $detail): string
     {
         return "EOS_DETAIL_{$detail->id}";
+    }
+
+    private function markDetailAsConfirmedFromReceivedSchedule(
+        WmsIncomingReceivedDetail $detail,
+        WmsOrderIncomingSchedule $schedule
+    ): void {
+        $detail->update([
+            'matched_item_id' => $schedule->item_id,
+            'matched_schedule_id' => $schedule->id,
+            'expected_quantity' => $this->scheduleQuantityAsPieces($schedule),
+            'match_status' => 'MATCHED',
+        ]);
+    }
+
+    /**
+     * @return array<int>
+     */
+    private function receivedDetailScheduleIdsForSlip(WmsIncomingReceivedSlip $slip): array
+    {
+        $detailIds = $slip->details()->pluck('id')->all();
+        if ($detailIds === []) {
+            return [];
+        }
+
+        return WmsOrderIncomingSchedule::query()
+            ->whereIn('source_received_detail_id', $detailIds)
+            ->orderBy('id')
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+    }
+
+    private function resolveUnassignedJxReviewErrors(WmsIncomingReceivedSlip $slip, ?int $resolvedBy = null): void
+    {
+        WmsIncomingImportError::query()
+            ->where('received_slip_id', $slip->id)
+            ->whereIn('error_code', [
+                'EOS_ASSIGNMENT_NOT_FOUND',
+                'EOS_UNASSIGNED_CONTRACTOR_NOT_RESOLVED',
+                'EOS_UNASSIGNED_WAREHOUSE_NOT_RESOLVED',
+                'EOS_UNASSIGNED_NO_RECEIVED_QUANTITY',
+                'EOS_UNASSIGNED_RECEIVED_SCHEDULE_CREATED',
+                'SLIP_NOT_FOUND',
+            ])
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('is_resolved')
+                    ->orWhere('is_resolved', false);
+            })
+            ->update([
+                'is_resolved' => true,
+                'resolved_by' => $resolvedBy,
+                'resolved_at' => now(),
+            ]);
+    }
+
+    private function refreshReceivedFileStatusAfterManualConfirmation(WmsIncomingReceivedFile $file): void
+    {
+        $hasUnresolvedSlips = $file->slips()
+            ->whereIn('match_status', ['UNMATCHED', 'NO_ASSIGNMENT', 'NOT_FOUND'])
+            ->exists();
+
+        if (! $hasUnresolvedSlips) {
+            $file->update(['status' => WmsIncomingReceivedFile::STATUS_APPLIED]);
+        }
     }
 
     private function applyDetailToSchedule(
