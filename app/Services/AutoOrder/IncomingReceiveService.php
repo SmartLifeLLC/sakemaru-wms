@@ -895,35 +895,17 @@ class IncomingReceiveService
         // 対象商品の明細を取得
         $matchedDetail = $details->firstWhere('matched_item_id', $schedule->item_id);
 
-        // price_type 判定
-        $priceType = 'CASE'; // デフォルト
-        $partnerUnitPrice = null;
-        $partnerCasePrice = null;
-
-        if ($matchedDetail) {
-            $rawUnitPrice = $matchedDetail->d_unit_price;
-
-            // JX: 原単価は整数（下2桁が小数部）
-            $partnerPrice = is_numeric($rawUnitPrice) ? (float) $rawUnitPrice / 100 : 0;
-
-            $caseQty = (int) ($matchedDetail->d_case_quantity ?? 0);
-
-            if ($caseQty > 0) {
-                $priceType = 'CASE';
-                $partnerCasePrice = $partnerPrice;
-            } else {
-                // EOS受信のDレコード原単価は、欠品時もバラ単価で返るケースがある。
-                $priceType = 'PIECE';
-                $partnerUnitPrice = $partnerPrice;
-            }
-        }
+        $priceData = $matchedDetail
+            ? $this->receivedPriceWritebackData($schedule, $matchedDetail)
+            : [
+                'partner_unit_price' => null,
+                'partner_case_price' => null,
+                'price_type' => 'CASE',
+            ];
 
         $quantityData = $this->scheduleQuantityWritebackData($schedule, $details, $totalShippedPieces);
 
-        $schedule->update(array_merge($quantityData, [
-            'partner_unit_price' => $partnerUnitPrice,
-            'partner_case_price' => $partnerCasePrice,
-            'price_type' => $priceType,
+        $schedule->update(array_merge($quantityData, $priceData, [
             'is_receive_matched' => true,
         ]));
 
@@ -1097,14 +1079,7 @@ class IncomingReceiveService
                 continue;
             }
 
-            // 仕入先単価を明細から取得（d_unit_price は下2桁小数の整数表現）
-            $rawUnitPrice = $detail->d_unit_price;
-            $partnerPrice = is_numeric($rawUnitPrice) ? (float) $rawUnitPrice / 100 : null;
-
-            $caseQty = (int) ($detail->d_case_quantity ?? 0);
-            $priceType = $caseQty > 0 ? 'CASE' : 'PIECE';
-            $partnerUnitPrice = $priceType === 'PIECE' ? $partnerPrice : null;
-            $partnerCasePrice = $priceType === 'CASE' ? $partnerPrice : null;
+            $priceData = $this->receivedPriceWritebackData($templateSchedule, $detail);
 
             // 賞味期限: 商品マスタの default_expiration_days から算出
             $expirationDate = $this->calculateExpirationDate($itemId, $deliveryDate);
@@ -1134,9 +1109,9 @@ class IncomingReceiveService
                 'received_quantity' => $shippedQty, // 発注先出荷実績をプリセット（検品時に不一致なら変更）
                 'shortage_quantity' => $shortageQty,
                 'is_receive_matched' => true,
-                'partner_unit_price' => $partnerUnitPrice,
-                'partner_case_price' => $partnerCasePrice,
-                'price_type' => $priceType,
+                'partner_unit_price' => $priceData['partner_unit_price'],
+                'partner_case_price' => $priceData['partner_case_price'],
+                'price_type' => $priceData['price_type'],
                 'unit_price' => $templateSchedule?->unit_price,
                 'case_price' => $templateSchedule?->case_price,
                 'quantity_type' => $quantityType,
@@ -1660,14 +1635,7 @@ class IncomingReceiveService
             : (int) $detail->total_quantity;
         $quantityData = $this->scheduleQuantityWritebackData($schedule, collect([$detail]), $shippedPieces);
 
-        // 仕入先単価を明細から取得（d_unit_price は下2桁小数の整数表現）
-        $rawUnitPrice = $detail->d_unit_price;
-        $partnerPrice = is_numeric($rawUnitPrice) ? (float) $rawUnitPrice / 100 : null;
-
-        $caseQty = (int) ($detail->d_case_quantity ?? 0);
-        $priceType = $caseQty > 0 ? 'CASE' : 'PIECE';
-        $partnerUnitPrice = $priceType === 'PIECE' ? $partnerPrice : null;
-        $partnerCasePrice = $priceType === 'CASE' ? $partnerPrice : null;
+        $priceData = $this->receivedPriceWritebackData($schedule, $detail);
 
         // 賞味期限: 未設定の場合、商品マスタの default_expiration_days から算出
         $expirationDate = $schedule->expiration_date
@@ -1684,12 +1652,69 @@ class IncomingReceiveService
             'confirmed_at' => now(),
             'confirmed_by' => 0,
             'confirmed_picker_id' => null,
-            'partner_unit_price' => $partnerUnitPrice,
-            'partner_case_price' => $partnerCasePrice,
-            'price_type' => $priceType,
+            'partner_unit_price' => $priceData['partner_unit_price'],
+            'partner_case_price' => $priceData['partner_case_price'],
+            'price_type' => $priceData['price_type'],
             'expiration_date' => $expirationDate,
             'is_receive_matched' => true,
         ]));
+    }
+
+    private function receivedPriceWritebackData(
+        ?WmsOrderIncomingSchedule $schedule,
+        WmsIncomingReceivedDetail $detail
+    ): array {
+        $rawUnitPrice = $detail->d_unit_price;
+        $partnerPrice = is_numeric($rawUnitPrice) ? (float) $rawUnitPrice / 100 : null;
+        $priceType = $this->receivedPriceType($schedule, $detail, $partnerPrice);
+
+        return [
+            'partner_unit_price' => $priceType === 'PIECE' ? $partnerPrice : null,
+            'partner_case_price' => $priceType === 'CASE' ? $partnerPrice : null,
+            'price_type' => $priceType,
+        ];
+    }
+
+    private function receivedPriceType(
+        ?WmsOrderIncomingSchedule $schedule,
+        WmsIncomingReceivedDetail $detail,
+        ?float $partnerPrice
+    ): string {
+        if ((int) ($detail->d_case_quantity ?? 0) > 0) {
+            return 'CASE';
+        }
+
+        if ((int) ($detail->d_piece_quantity ?? 0) > 0) {
+            return 'PIECE';
+        }
+
+        if (! $schedule || $partnerPrice === null) {
+            return 'PIECE';
+        }
+
+        $casePrice = $this->numericPrice($schedule->case_price);
+        if ($casePrice === null) {
+            return 'PIECE';
+        }
+
+        $caseDiff = abs($partnerPrice - $casePrice);
+        $unitPrice = $this->numericPrice($schedule->unit_price);
+        $unitDiff = $unitPrice !== null ? abs($partnerPrice - $unitPrice) : null;
+
+        if ($caseDiff <= 0.0001 || ($unitDiff !== null && $caseDiff < $unitDiff)) {
+            return 'CASE';
+        }
+
+        return 'PIECE';
+    }
+
+    private function numericPrice(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return is_numeric($value) ? (float) $value : null;
     }
 
     private function scheduleQuantityWritebackData(
