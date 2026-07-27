@@ -121,6 +121,31 @@ class ListWmsOrderCandidates extends ListRecords
             ->toArray();
     }
 
+    public function searchContractorsForOrderCreate(string $search): array
+    {
+        $search = trim(mb_convert_kana($search, 'as'));
+        if ($search === '' || (mb_strlen($search) < 2 && ! preg_match('/^\d+$/', $search))) {
+            return [];
+        }
+
+        return Contractor::query()
+            ->select(['id', 'code', 'name'])
+            ->where(function ($query) use ($search) {
+                $query->where('code', 'like', "{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%");
+            })
+            ->orderBy('code')
+            ->limit(30)
+            ->get()
+            ->map(fn ($contractor) => [
+                'id' => $contractor->id,
+                'code' => $contractor->code,
+                'name' => $contractor->name,
+                'label' => "[{$contractor->code}]{$contractor->name}",
+            ])
+            ->toArray();
+    }
+
     public function searchItemsForModal(
         int $warehouseId,
         ?string $itemCode = null,
