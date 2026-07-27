@@ -28,6 +28,7 @@ class ProcessEosIncomingReceiveRunJob implements ShouldBeUnique, ShouldQueue
         public string $triggerType = WmsEosIncomingReceiveRun::TRIGGER_SCHEDULED,
         public bool $autoPurchaseTransmission = true,
         public ?array $targetJxTransmissionLogIds = null,
+        public bool $receiveAndImportOnly = false,
     ) {}
 
     public function handle(EosIncomingAutoReceiveService $service): void
@@ -43,6 +44,12 @@ class ProcessEosIncomingReceiveRunJob implements ShouldBeUnique, ShouldQueue
                 $this->triggerType,
                 $this->autoPurchaseTransmission,
             );
+
+            return;
+        }
+
+        if ($this->receiveAndImportOnly) {
+            $service->runReceiveAndImportOnly($this->runKey, $this->triggerType, $schedule);
 
             return;
         }

@@ -127,6 +127,64 @@ class JxEosIncomingWorkflowService
         ];
     }
 
+    /**
+     * EOS原本の正規化取込と入荷受信ファイル作成のみを実行する。
+     */
+    public function importOnly(
+        WmsJxTransmissionLog $log,
+        bool $forceEosReimport = false,
+    ): array {
+        $workflowStartedAt = microtime(true);
+        $this->assertImportableLog($log);
+        $log->loadMissing(['jxSetting', 'currentEosImport']);
+
+        [$disk, $path] = $this->resolveSource((string) $log->file_path);
+        $content = $this->readSourceContent($disk, $path);
+
+        $importStartedAt = microtime(true);
+        $batch = $this->resolveEosBatch($log, $content, $disk, $forceEosReimport);
+        Log::info('[JxEosIncomingWorkflow] EOS原本取込確認が完了しました', [
+            'jx_transmission_log_id' => $log->id,
+            'eos_import_batch_id' => $batch->id,
+            'elapsed_ms' => $this->elapsedMs($importStartedAt),
+        ]);
+
+        $eosImported = $forceEosReimport
+            || ! $log->currentEosImport
+            || $log->currentEosImport->status !== WmsJxEosImportBatch::STATUS_SUCCEEDED;
+
+        $file = $this->findExistingIncomingFile($log, $content);
+        $incomingImported = false;
+
+        if (! $file) {
+            $parseStartedAt = microtime(true);
+            $file = $this->parseIncomingFile($log, $content, $path);
+            $incomingImported = true;
+            Log::info('[JxEosIncomingWorkflow] 入荷受信ファイル作成が完了しました', [
+                'jx_transmission_log_id' => $log->id,
+                'incoming_received_file_id' => $file->id,
+                'elapsed_ms' => $this->elapsedMs($parseStartedAt),
+            ]);
+        }
+
+        Log::info('[JxEosIncomingWorkflow] EOS取込のみが完了しました', [
+            'jx_transmission_log_id' => $log->id,
+            'message_id' => $log->message_id,
+            'eos_import_batch_id' => $batch->id,
+            'incoming_received_file_id' => $file->id,
+            'incoming_file_status' => $file->status,
+            'incoming_imported' => $incomingImported,
+            'elapsed_ms' => $this->elapsedMs($workflowStartedAt),
+        ]);
+
+        return [
+            'batch' => $batch,
+            'eos_imported' => $eosImported,
+            'received_file' => $file,
+            'incoming_imported' => $incomingImported,
+        ];
+    }
+
     private function assertImportableLog(WmsJxTransmissionLog $log): void
     {
         if ($log->direction !== WmsJxTransmissionLog::DIRECTION_RECEIVE) {
