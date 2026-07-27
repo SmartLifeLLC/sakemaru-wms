@@ -36,6 +36,10 @@
         this.updateItemNameTooltipPosition(event);
     },
 
+    isTransferOrderItem(item) {
+        return String(item.contractor_code) === '9012';
+    },
+
     async search(page = 1) {
         const warehouseId = $wire.get('mountedActions.0.data.warehouse_id');
         if (!warehouseId) {
@@ -87,6 +91,10 @@
         this.results.forEach(item => {
             const key = String(item.id);
             const qty = this.quantities[key];
+            if (this.isTransferOrderItem(item)) {
+                delete this.pinnedItems[key];
+                return;
+            }
             if (qty && ((qty.caseQty > 0) || (qty.pieceQty > 0))) {
                 this.pinnedItems[key] = { ...item };
             } else {
@@ -210,6 +218,7 @@
         for (const [itemId, qty] of Object.entries(this.quantities)) {
             const item = this.results.find(r => String(r.id) === itemId);
             if (!item) continue;
+            if (this.isTransferOrderItem(item)) continue;
             if ((qty.caseQty > 0) || (qty.pieceQty > 0)) {
                 if (qty.caseQty > 0) {
                     items.push({
@@ -244,7 +253,9 @@
 
     get validCount() {
         let count = 0;
-        for (const qty of Object.values(this.quantities)) {
+        for (const [itemId, qty] of Object.entries(this.quantities)) {
+            const item = this.results.find(r => String(r.id) === itemId);
+            if (item && this.isTransferOrderItem(item)) continue;
             if ((qty.caseQty > 0) || (qty.pieceQty > 0)) count++;
         }
         return count;
@@ -398,38 +409,25 @@
             </div>
         </div>
 
-        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-auto" style="max-height: 320px">
-            <table class="w-full min-w-[1280px] text-sm table-fixed">
+        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-y-auto overflow-x-hidden" style="max-height: 320px">
+            <table class="w-full text-sm table-fixed">
                 <colgroup>
-                    <col style="width: 70px" />
                     <col />
-                    <col style="width: 60px" />
-                    <col style="width: 38px" />
-                    <col style="width: 150px" />
-                    <col style="width: 65px" />
-                    <col style="width: 40px" />
-                    <col style="width: 40px" />
+                    <col style="width: 92px" />
+                    <col style="width: 190px" />
                     <col style="width: 48px" />
-                    <col style="width: 40px" />
-                    <col style="width: 40px" />
-                    <col style="width: 40px" />
+                    <col style="width: 48px" />
                     <col style="width: 55px" />
+                    <col style="width: 62px" />
+                    <col style="width: 62px" />
                     <col style="width: 55px" />
-                    <col style="width: 50px" />
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-gray-100 dark:bg-white/10">
                     <tr class="divide-x divide-gray-200 dark:divide-white/10">
-                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品CD</th>
-                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品名</th>
+                        <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">商品</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">規格</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">入数</th>
                         <th class="px-1.5 py-1 text-left text-xs font-medium text-gray-500 dark:text-gray-400">発注先</th>
-                        <th class="px-1.5 py-1 text-center text-xs font-medium text-gray-500 dark:text-gray-400">最終出荷</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">当日</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">前日</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">前々日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">3日</th>
-                        <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">5日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">7日</th>
                         <th class="px-1.5 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">30日</th>
                         <th class="px-1 py-1 text-right text-xs font-medium text-gray-500 dark:text-gray-400">ケース</th>
@@ -446,11 +444,9 @@
                                     : (index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-blue-50/30 dark:bg-blue-950/20')"
                             class="divide-x divide-gray-200 dark:divide-white/10 border-t border-gray-200 dark:border-white/10">
                             <td class="px-1.5 py-0.5">
-                                <span class="text-xs font-mono text-gray-900 dark:text-white" x-text="item.code"></span>
-                            </td>
-                            <td class="px-1.5 py-0.5">
+                                <span class="block text-[11px] font-mono text-gray-500 dark:text-gray-400" x-text="item.code"></span>
                                 <span
-                                    class="block cursor-help truncate text-xs text-gray-700 dark:text-gray-300"
+                                    class="block cursor-help whitespace-normal break-words text-xs leading-4 text-gray-700 dark:text-gray-300"
                                     x-text="item.name"
                                     x-on:mouseenter="showItemNameTooltip($event, item.name)"
                                     x-on:mousemove="updateItemNameTooltipPosition($event)"
@@ -460,32 +456,14 @@
                             <td class="px-1.5 py-0.5">
                                 <span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.packaging || '-'"></span>
                             </td>
-                            <td class="px-1.5 py-0.5 text-right">
-                                <span class="text-xs font-mono text-gray-500 dark:text-gray-400" x-text="item.capacity_case"></span>
-                            </td>
                             <td class="px-1.5 py-0.5">
                                 <span x-show="String(item.contractor_code) === '9012'" class="text-[10px] font-bold text-red-600 dark:text-red-400">移動発注対象です</span>
                                 <span class="text-xs whitespace-normal break-words"
                                     :class="String(item.contractor_code) === '9012' ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-500 dark:text-gray-400'"
                                     x-text="item.contractor_name || '-'"></span>
                             </td>
-                            <td class="px-1.5 py-0.5 text-center">
-                                <span class="text-xs text-gray-500 dark:text-gray-400" x-text="item.last_shipped_at || '-'"></span>
-                            </td>
-                            <td class="px-1.5 py-0.5 text-right">
-                                <span class="text-xs font-mono" :class="item.sales_today_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_today_qty || 0"></span>
-                            </td>
-                            <td class="px-1.5 py-0.5 text-right">
-                                <span class="text-xs font-mono" :class="item.sales_yesterday_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_yesterday_qty || 0"></span>
-                            </td>
-                            <td class="px-1.5 py-0.5 text-right">
-                                <span class="text-xs font-mono" :class="item.sales_2days_ago_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.sales_2days_ago_qty || 0"></span>
-                            </td>
                             <td class="px-1.5 py-0.5 text-right">
                                 <span class="text-xs font-mono" :class="item.last_3d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_3d_qty || 0"></span>
-                            </td>
-                            <td class="px-1.5 py-0.5 text-right">
-                                <span class="text-xs font-mono" :class="item.last_5d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_5d_qty || 0"></span>
                             </td>
                             <td class="px-1.5 py-0.5 text-right">
                                 <span class="text-xs font-mono" :class="item.last_7d_qty > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'" x-text="item.last_7d_qty || 0"></span>
@@ -496,21 +474,23 @@
                             <td class="px-0.5 py-0.5">
                                 <input type="number"
                                     :value="getQty(item.id).caseQty"
-                                    @input="getQty(item.id).caseQty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
+                                    @input="if (isTransferOrderItem(item)) { getQty(item.id).caseQty = null; $event.target.value = ''; return; } getQty(item.id).caseQty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
                                     @keydown.enter.prevent
+                                    :disabled="isTransferOrderItem(item)"
                                     min="0"
                                     placeholder=""
-                                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:disabled:bg-gray-800/60"
                                 />
                             </td>
                             <td class="px-0.5 py-0.5">
                                 <input type="number"
                                     :value="getQty(item.id).pieceQty"
-                                    @input="getQty(item.id).pieceQty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
+                                    @input="if (isTransferOrderItem(item)) { getQty(item.id).pieceQty = null; $event.target.value = ''; return; } getQty(item.id).pieceQty = $event.target.value ? parseInt($event.target.value) : null; onQtyChange()"
                                     @keydown.enter.prevent
+                                    :disabled="isTransferOrderItem(item)"
                                     min="0"
                                     placeholder=""
-                                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                                    class="w-full border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs text-right font-mono bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:disabled:bg-gray-800/60"
                                 />
                             </td>
                             <td class="px-1 py-0.5 text-right">
@@ -522,7 +502,7 @@
                     </template>
                     <template x-if="results.length === 0">
                         <tr>
-                            <td colspan="12" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                            <td colspan="9" class="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
                                 検索結果がありません
                             </td>
                         </tr>

@@ -120,7 +120,7 @@ class ListWmsEosIncomingReceiveRuns extends ListRecords
                                 ->default('91')
                                 ->maxLength(16),
                             TextInput::make('shortage_completion_days')
-                                ->label('欠品完了日数')
+                                ->label('自動整理日数')
                                 ->numeric()
                                 ->minValue(1)
                                 ->maxValue(60)

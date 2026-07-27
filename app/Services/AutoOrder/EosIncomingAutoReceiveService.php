@@ -553,13 +553,13 @@ class EosIncomingAutoReceiveService
         $completed = $this->completeSchedulesAsShortage(
             WmsOrderIncomingSchedule::query()
                 ->withoutTransferSource()
-                ->where('expected_arrival_date', '<=', $cutoffDate)
+                ->where('order_date', '<=', $cutoffDate)
                 ->whereNull('purchase_queue_id'),
         );
 
-        $run->addLog('info', 'old_shortage_completion', "発注系の{$setting->shortage_completion_days}日前までの入荷予定を欠品完了しました: {$completed}件", [
+        $run->addLog('info', 'old_purchase_schedule_cleanup', "発注日が{$setting->shortage_completion_days}日前までの入荷予定を自動整理しました: {$completed}件", [
             'completed_count' => $completed,
-            'cutoff_date' => $cutoffDate,
+            'cutoff_order_date' => $cutoffDate,
             'target' => 'purchase',
         ]);
 
@@ -660,10 +660,11 @@ class EosIncomingAutoReceiveService
                         IncomingScheduleStatus::PARTIAL->value,
                     ])
                     ->update([
-                        'received_quantity' => DB::raw('GREATEST(0, COALESCE(`received_quantity`, 0))'),
-                        'shortage_quantity' => DB::raw('GREATEST(0, COALESCE(`expected_quantity`, 0) - GREATEST(0, COALESCE(`received_quantity`, 0)))'),
+                        'received_quantity' => 0,
+                        'shipped_quantity' => 0,
+                        'shortage_quantity' => DB::raw('GREATEST(0, COALESCE(`expected_quantity`, 0))'),
                         'actual_arrival_date' => DB::raw('COALESCE(`actual_arrival_date`, `expected_arrival_date`, CURRENT_DATE)'),
-                        'status' => IncomingScheduleStatus::CONFIRMED->value,
+                        'status' => IncomingScheduleStatus::DELETED->value,
                         'confirmed_at' => $now,
                         'confirmed_by' => 0,
                         'confirmed_picker_id' => null,
