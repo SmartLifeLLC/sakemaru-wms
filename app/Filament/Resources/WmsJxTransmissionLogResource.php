@@ -26,6 +26,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Log;
 
 class WmsJxTransmissionLogResource extends AdminResource
 {
@@ -375,6 +376,7 @@ class WmsJxTransmissionLogResource extends AdminResource
                             $processed = 0;
                             $skipped = 0;
                             $failed = 0;
+                            $failureMessages = [];
 
                             foreach ($records as $record) {
                                 if (! self::isEosSkippable($record)) {
@@ -386,14 +388,29 @@ class WmsJxTransmissionLogResource extends AdminResource
                                 try {
                                     $service->skip($record, auth()->id());
                                     $processed++;
-                                } catch (\Throwable) {
+                                } catch (\Throwable $throwable) {
                                     $failed++;
+
+                                    if (count($failureMessages) < 3) {
+                                        $failureMessages[] = "ID {$record->id}: {$throwable->getMessage()}";
+                                    }
+
+                                    Log::warning('EOS受信データ対象外処理に失敗しました', [
+                                        'jx_transmission_log_id' => $record->id,
+                                        'exception' => get_class($throwable),
+                                        'error' => $throwable->getMessage(),
+                                    ]);
                                 }
+                            }
+
+                            $body = "対象外: {$processed}件 / スキップ: {$skipped}件 / 失敗: {$failed}件";
+                            if ($failureMessages !== []) {
+                                $body .= ' / 失敗理由: '.implode(' / ', $failureMessages);
                             }
 
                             $notification = Notification::make()
                                 ->title('選択EOS対象外処理が完了しました')
-                                ->body("対象外: {$processed}件 / スキップ: {$skipped}件 / 失敗: {$failed}件");
+                                ->body($body);
 
                             ($failed > 0 ? $notification->warning() : $notification->success())->send();
                         }),
