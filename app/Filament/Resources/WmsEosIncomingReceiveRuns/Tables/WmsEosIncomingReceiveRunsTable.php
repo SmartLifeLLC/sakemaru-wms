@@ -89,7 +89,7 @@ class WmsEosIncomingReceiveRunsTable
                     ->color(fn (?int $state): ?string => $state > 0 ? 'warning' : null)
                     ->width('75px'),
                 TextColumn::make('shortage_completed_count')
-                    ->label('自動完了')
+                    ->label('自動整理')
                     ->numeric()
                     ->alignEnd()
                     ->width('75px'),
