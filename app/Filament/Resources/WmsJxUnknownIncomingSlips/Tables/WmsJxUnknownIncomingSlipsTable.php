@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\WmsJxUnknownIncomingSlips\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsIncomingImportError;
 use App\Models\WmsIncomingReceivedFile;
 use App\Models\WmsIncomingReceivedSlip;
 use App\Services\AutoOrder\IncomingReceiveService;
@@ -39,30 +41,22 @@ class WmsJxUnknownIncomingSlipsTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'wms-jx-unknown-incoming-slips-table sticky-actions'])
-            ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                ->with([
+            ->modifyQueryUsing(function (Builder $query): Builder {
+                $query->with([
                     'file.contractor',
                     'details.matchedItem',
                     'importErrors',
                 ])
-                ->withCount([
-                    'details',
-                    'details as item_missing_count' => fn (Builder $query): Builder => $query
-                        ->whereNull('matched_item_id'),
-                ])
-                ->whereHas('file', fn (Builder $query): Builder => $query->where('format_type', 'JX'))
-                ->where(function (Builder $query): void {
-                    $query
-                        ->where('match_status', 'NO_ASSIGNMENT')
-                        ->orWhereHas('importErrors', fn (Builder $errorQuery): Builder => $errorQuery
-                            ->whereIn('error_code', self::REVIEW_ERROR_CODES)
-                            ->where(function (Builder $resolvedQuery): void {
-                                $resolvedQuery
-                                    ->whereNull('is_resolved')
-                                    ->orWhere('is_resolved', false);
-                            }));
-                })
-                ->orderByDesc('id'))
+                    ->withCount([
+                        'details',
+                        'details as item_missing_count' => fn (Builder $query): Builder => $query
+                            ->whereNull('matched_item_id'),
+                    ]);
+
+                self::applyReviewScope($query);
+
+                return $query->orderByDesc('id');
+            })
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
@@ -148,16 +142,10 @@ class WmsJxUnknownIncomingSlipsTable
 
                 TextColumn::make('issue_codes')
                     ->label('確認内容')
-                    ->state(fn (WmsIncomingReceivedSlip $record): string => $record->importErrors
-                        ->pluck('error_code')
-                        ->unique()
-                        ->implode(' / '))
+                    ->state(fn (WmsIncomingReceivedSlip $record): string => self::issueMessages($record, ' / '))
                     ->placeholder('-')
                     ->limit(42)
-                    ->tooltip(fn (WmsIncomingReceivedSlip $record): string => $record->importErrors
-                        ->pluck('error_message')
-                        ->unique()
-                        ->implode("\n")),
+                    ->tooltip(fn (WmsIncomingReceivedSlip $record): string => self::issueMessages($record, "\n")),
 
                 TextColumn::make('file.status')
                     ->label('取込状態')
@@ -220,9 +208,13 @@ class WmsJxUnknownIncomingSlipsTable
                     ->modalWidth('7xl')
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalFooterActionsAlignment(Alignment::End)
-                    ->modalSubmitAction(false)
-                    ->modalCancelActionLabel('閉じる')
-                    ->infolist(fn (WmsIncomingReceivedSlip $record): array => self::detailInfolist($record)),
+                    ->modalSubmitAction(fn (Action $action) => $action
+                        ->makeModalSubmitAction('submit', [])
+                        ->label('入荷確定')
+                        ->color('danger'))
+                    ->modalCancelActionLabel('入荷確定せず閉じる')
+                    ->infolist(fn (WmsIncomingReceivedSlip $record): array => self::detailInfolist($record))
+                    ->action(fn (WmsIncomingReceivedSlip $record): null => self::confirmUnknownIncomingSlip($record)),
             ], position: RecordActionsPosition::BeforeColumns)
             ->toolbarActions([
                 BulkActionGroup::make([
@@ -275,6 +267,92 @@ class WmsJxUnknownIncomingSlipsTable
             ->defaultSort('id', 'desc');
     }
 
+    private static function confirmUnknownIncomingSlip(WmsIncomingReceivedSlip $record): null
+    {
+        $service = app(IncomingReceiveService::class);
+
+        try {
+            $result = $service->confirmUnassignedJxSlip($record, auth()->id());
+            $scheduleCount = count(array_unique($result['schedule_ids']));
+
+            Notification::make()
+                ->title('入荷確定しました')
+                ->body("入荷完了データ: {$scheduleCount}件 / 新規: {$result['created']}件 / 更新: {$result['updated']}件 / 既存: {$result['skipped']}件")
+                ->success()
+                ->send();
+        } catch (\Throwable $throwable) {
+            Notification::make()
+                ->title('入荷確定に失敗しました')
+                ->body($throwable->getMessage())
+                ->danger()
+                ->send();
+        }
+
+        return null;
+    }
+
+    public static function applyReviewScope(Builder $query): Builder
+    {
+        return $query
+            ->whereHas('file', fn (Builder $query): Builder => $query->where('format_type', 'JX'))
+            ->where(function (Builder $query): void {
+                $query
+                    ->where('match_status', 'NO_ASSIGNMENT')
+                    ->orWhereHas('importErrors', fn (Builder $errorQuery): Builder => $errorQuery
+                        ->whereIn('error_code', self::REVIEW_ERROR_CODES)
+                        ->where(function (Builder $resolvedQuery): void {
+                            $resolvedQuery
+                                ->whereNull('is_resolved')
+                                ->orWhere('is_resolved', false);
+                        }));
+            });
+    }
+
+    public static function applySelectedWarehouseScope(Builder $query, ?int $warehouseId): Builder
+    {
+        if (! $warehouseId) {
+            return $query;
+        }
+
+        $warehouse = Warehouse::query()->find($warehouseId);
+        if (! $warehouse) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $codes = self::warehouseCodeCandidates($warehouse);
+        if ($codes === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn((new WmsIncomingReceivedSlip)->getTable().'.b_shop_code', $codes);
+    }
+
+    /**
+     * JXの店舗CDは4桁ゼロ埋めで届くため、倉庫CDの表記ゆれを吸収する。
+     */
+    private static function warehouseCodeCandidates(Warehouse $warehouse): array
+    {
+        $code = trim((string) $warehouse->code);
+        if ($code === '') {
+            return [];
+        }
+
+        $normalized = ltrim($code, '0');
+        if ($normalized === '') {
+            $normalized = '0';
+        }
+
+        $candidates = [$code, $normalized];
+        if (ctype_digit($normalized)) {
+            $candidates[] = str_pad($normalized, 4, '0', STR_PAD_LEFT);
+        }
+        if (ctype_digit($code)) {
+            $candidates[] = str_pad($code, 4, '0', STR_PAD_LEFT);
+        }
+
+        return array_values(array_unique(array_filter($candidates, fn (string $candidate): bool => $candidate !== '')));
+    }
+
     private static function detailInfolist(WmsIncomingReceivedSlip $record): array
     {
         $record->loadMissing(['file.contractor', 'details.matchedItem', 'importErrors']);
@@ -304,9 +382,7 @@ class WmsJxUnknownIncomingSlipsTable
                             ->state($record->file?->contractor?->name ?? '-'),
                         TextEntry::make('match_status')
                             ->label('状態')
-                            ->state(self::matchStatusLabel($record->match_status))
-                            ->badge()
-                            ->color($record->match_status === 'NO_ASSIGNMENT' ? 'warning' : 'danger'),
+                            ->state(self::matchStatusLabel($record->match_status)),
                         TextEntry::make('file_status')
                             ->label('取込状態')
                             ->state(self::fileStatusLabel($record->file?->status)),
@@ -318,6 +394,10 @@ class WmsJxUnknownIncomingSlipsTable
                         ->viewData([
                             'errors' => $record->importErrors
                                 ->sortBy('id')
+                                ->map(fn (WmsIncomingImportError $error): array => [
+                                    'message' => self::issueMessage($error),
+                                ])
+                                ->unique('message')
                                 ->values(),
                         ]),
                 ])
@@ -338,7 +418,6 @@ class WmsJxUnknownIncomingSlipsTable
             ->sortBy('d_line_number')
             ->map(fn ($detail): array => [
                 'line' => $detail->d_line_number,
-                'item_code' => $detail->d_item_code ?: '-',
                 'matched_item_code' => $detail->matchedItem?->code ?: '-',
                 'product_name' => $detail->d_product_name ?: '-',
                 'jan_code' => $detail->d_jan_code ?: '-',
@@ -346,13 +425,82 @@ class WmsJxUnknownIncomingSlipsTable
                 'case_quantity' => $detail->d_case_quantity,
                 'piece_quantity' => $detail->d_piece_quantity,
                 'total_quantity' => $detail->total_quantity,
-                'unit_price' => is_numeric($detail->d_unit_price) ? number_format(((float) $detail->d_unit_price) / 100, 2) : '-',
-                'amount' => is_numeric($detail->d_amount) ? number_format(((float) $detail->d_amount) / 100, 2) : '-',
                 'match_status' => self::matchStatusLabel($detail->match_status),
                 'is_shortage' => $detail->is_shortage ? '欠品' : '',
             ])
             ->values()
             ->all();
+    }
+
+    private static function issueMessages(WmsIncomingReceivedSlip $record, string $separator): string
+    {
+        return $record->importErrors
+            ->map(fn (WmsIncomingImportError $error): string => self::issueMessage($error))
+            ->filter()
+            ->unique()
+            ->implode($separator);
+    }
+
+    private static function issueMessage(WmsIncomingImportError $error): string
+    {
+        $message = trim((string) $error->error_message);
+
+        if ($message === '') {
+            return self::issueCodeLabel($error->error_code);
+        }
+
+        return self::localizeIssueMessage($message);
+    }
+
+    private static function issueCodeLabel(?string $code): string
+    {
+        return match ($code) {
+            'EOS_ASSIGNMENT_EMPTY' => '送信済みEOS伝票番号割当に発注候補IDがありません',
+            'EOS_ASSIGNMENT_SCHEDULE_NOT_FOUND' => 'EOS伝票番号割当に対応する入荷予定が見つかりません',
+            'EOS_CONTRACTOR_MISMATCH' => 'EOS受信伝票の仕入先が送信済み割当と一致しません',
+            'EOS_ASSIGNMENT_NOT_FOUND' => '送信済みEOS伝票番号割当が見つかりません',
+            'EOS_UNASSIGNED_CONTRACTOR_NOT_RESOLVED' => '未割当EOS受信伝票の仕入先を解決できません',
+            'EOS_UNASSIGNED_WAREHOUSE_NOT_RESOLVED' => '未割当EOS受信伝票の倉庫を解決できません',
+            'EOS_UNASSIGNED_NO_RECEIVED_QUANTITY' => '未割当EOS受信伝票に入荷数量のある明細がありません',
+            'EOS_UNASSIGNED_RECEIVED_SCHEDULE_CREATED' => '未割当EOS受信伝票から入荷予定を作成済みです',
+            'SLIP_NOT_FOUND' => '対応する入荷予定が見つかりません',
+            'ITEM_NOT_FOUND' => '商品を特定できません',
+            'SCHEDULE_ITEM_NOT_FOUND' => '伝票内の入荷予定に商品がありません',
+            'SCHEDULE_STATUS_NOT_APPLICABLE' => '入荷予定が受信適用できない状態です',
+            'PRICE_MISMATCH' => '単価が一致しません',
+            default => '確認が必要です',
+        };
+    }
+
+    private static function localizeIssueMessage(string $message): string
+    {
+        return str_replace([
+            'slip_number=',
+            'shop_code=',
+            'schedule_id=',
+            'status=',
+            'slip_id=',
+            'item_id=',
+            'assignment_id=',
+            'order_candidate_ids=',
+            'b_contractor_code=',
+            'file_contractor_id=',
+            'detail_count=',
+            ' vs ',
+        ], [
+            '伝票番号=',
+            '店舗CD=',
+            '入荷予定ID=',
+            '状態=',
+            '受信伝票ID=',
+            '商品ID=',
+            '伝票番号割当ID=',
+            '発注候補ID=',
+            '先方仕入先CD=',
+            '受信仕入先ID=',
+            '明細数=',
+            ' / ',
+        ], $message);
     }
 
     private static function formatJxDate(?string $state): string
@@ -386,7 +534,7 @@ class WmsJxUnknownIncomingSlipsTable
             'PARTIAL' => '一部欠品',
             'SHORTAGE' => '欠品',
             'NOT_FOUND' => '該当なし',
-            default => $status ?: '-',
+            default => $status ? '未確認' : '-',
         };
     }
 
@@ -398,7 +546,7 @@ class WmsJxUnknownIncomingSlipsTable
             WmsIncomingReceivedFile::STATUS_APPLIED => '適用済み',
             WmsIncomingReceivedFile::STATUS_ERROR => 'エラー',
             WmsIncomingReceivedFile::STATUS_SKIPPED => '対象外',
-            default => $status ?: '-',
+            default => $status ? '未確認' : '-',
         };
     }
 }
