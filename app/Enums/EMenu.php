@@ -44,6 +44,7 @@ enum EMenu: string
     // 発注履歴
     case WMS_ORDER_CONFIRMED = 'order_history.wms_order_confirmed';
     case WMS_ORDER_FOR_JX = 'order_history.wms_order_for_jx';
+    case WMS_EOS_INCOMING_RECEIVE_SETTINGS = 'order_history.wms_eos_incoming_receive_settings';
     case WMS_STOCK_TRANSFER_CONFIRMED = 'order_history.wms_stock_transfer_confirmed';
     case WMS_ORDER_DATA_FILES = 'order_history.wms_order_data_files';
     case WMS_ORDER_DOCUMENTS = 'order_history.wms_order_documents';
@@ -86,6 +87,7 @@ enum EMenu: string
     case WMS_IMPORT_LOGS = 'logs.wms_import_logs';
     case WMS_QUEUE_JOBS = 'logs.wms_queue_jobs';
     case WMS_EXPORT_LOGS = 'logs.wms_export_logs';
+    case WMS_JX_UNKNOWN_INCOMING_SLIPS = 'logs.wms_jx_unknown_incoming_slips';
 
     // システム設定
     case WAVE_SETTINGS = 'settings.wave_settings';
@@ -137,9 +139,12 @@ enum EMenu: string
             self::WMS_ORDER_CONFIRMED,
             self::WMS_STOCK_TRANSFER_CONFIRMED,
             self::WMS_ORDER_DATA_FILES,
-            self::WMS_ORDER_DOCUMENTS => EMenuCategory::ORDER_HISTORY,
+            self::WMS_ORDER_DOCUMENTS,
+            self::WMS_JX_TRANSMISSION_LOGS,
+            self::WMS_JX_UNKNOWN_INCOMING_SLIPS => EMenuCategory::ORDER_HISTORY,
 
-            self::WMS_ORDER_FOR_JX => EMenuCategory::ORDER_TRANSMISSION,
+            self::WMS_ORDER_FOR_JX,
+            self::WMS_EOS_INCOMING_RECEIVE_SETTINGS => EMenuCategory::ORDER_TRANSMISSION,
 
             self::REAL_STOCKS,
             self::EXPIRATION_ALERTS,
@@ -176,7 +181,6 @@ enum EMenu: string
 
             self::WMS_AUTO_ORDER_EXECUTION_LOG,
             self::WMS_PICKING_LOGS,
-            self::WMS_JX_TRANSMISSION_LOGS,
             self::WMS_JX_EOS_LINES,
             self::WMS_IMPORT_LOGS,
             self::WMS_QUEUE_JOBS,
@@ -230,6 +234,7 @@ enum EMenu: string
             self::WMS_ORDER_CONFIRMATION_WAITING => '発注確定待ち',
             self::WMS_ORDER_CONFIRMED => '発注確定済み',
             self::WMS_ORDER_FOR_JX => 'JX発注データ作成',
+            self::WMS_EOS_INCOMING_RECEIVE_SETTINGS => 'EOSデータ受信設定',
             self::WMS_STOCK_TRANSFER_CONFIRMED => '移動確定済み',
             self::WMS_ORDER_DATA_FILES => '発注データファイル',
             self::WMS_AUTO_ORDER_JOBS => '発注・移動候補生成',
@@ -263,8 +268,9 @@ enum EMenu: string
             self::STATS_SALES_SUMMARIES => '商品別出荷サマリ',
 
             self::WMS_PICKING_LOGS => 'ピッキングログ',
-            self::WMS_JX_TRANSMISSION_LOGS => 'JX送受信履歴',
+            self::WMS_JX_TRANSMISSION_LOGS => 'JX受信履歴',
             self::WMS_JX_EOS_LINES => 'EOS受信明細',
+            self::WMS_JX_UNKNOWN_INCOMING_SLIPS => '伝票番号不明',
             self::WMS_IMPORT_LOGS => 'インポート履歴',
             self::WMS_QUEUE_JOBS => 'Queueジョブ',
             self::WMS_EXPORT_LOGS => 'ダウンロードログ',
@@ -318,6 +324,7 @@ enum EMenu: string
             self::WMS_ORDER_CONFIRMATION_WAITING => 'heroicon-o-clipboard-document-check',
             self::WMS_ORDER_CONFIRMED => 'heroicon-o-check-badge',
             self::WMS_ORDER_FOR_JX => 'heroicon-o-document-arrow-up',
+            self::WMS_EOS_INCOMING_RECEIVE_SETTINGS => 'heroicon-o-clock',
             self::WMS_STOCK_TRANSFER_CONFIRMED => 'heroicon-o-arrows-right-left',
             self::WMS_ORDER_DATA_FILES => 'heroicon-o-document-text',
             self::WMS_AUTO_ORDER_JOBS => 'heroicon-o-queue-list',
@@ -351,8 +358,9 @@ enum EMenu: string
             self::STATS_SALES_SUMMARIES => 'heroicon-o-chart-bar-square',
 
             self::WMS_PICKING_LOGS => 'heroicon-o-rectangle-stack',
-            self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrows-up-down',
+            self::WMS_JX_TRANSMISSION_LOGS => 'heroicon-o-arrow-down-tray',
             self::WMS_JX_EOS_LINES => 'heroicon-o-list-bullet',
+            self::WMS_JX_UNKNOWN_INCOMING_SLIPS => 'heroicon-o-exclamation-triangle',
             self::WMS_IMPORT_LOGS => 'heroicon-o-arrow-up-tray',
             self::WMS_QUEUE_JOBS => 'heroicon-o-queue-list',
             self::WMS_EXPORT_LOGS => 'heroicon-o-arrow-down-tray',
@@ -413,9 +421,12 @@ enum EMenu: string
             self::WMS_STOCK_TRANSFER_CONFIRMED => 2,
             self::WMS_ORDER_DATA_FILES => 3,
             self::WMS_ORDER_DOCUMENTS => 4,
+            self::WMS_JX_TRANSMISSION_LOGS => 5,
+            self::WMS_JX_UNKNOWN_INCOMING_SLIPS => 6,
 
             // 発注送信管理
             self::WMS_ORDER_FOR_JX => 1,
+            self::WMS_EOS_INCOMING_RECEIVE_SETTINGS => 2,
 
             // 在庫管理
             self::REAL_STOCKS => 1,
@@ -455,7 +466,6 @@ enum EMenu: string
             // ログ
             self::WMS_AUTO_ORDER_EXECUTION_LOG => 1,
             self::WMS_PICKING_LOGS => 2,
-            self::WMS_JX_TRANSMISSION_LOGS => 3,
             self::WMS_JX_EOS_LINES => 4,
             self::WMS_IMPORT_LOGS => 5,
             self::WMS_QUEUE_JOBS => 6,

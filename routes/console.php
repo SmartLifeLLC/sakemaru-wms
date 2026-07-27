@@ -40,6 +40,8 @@ Artisan::command('inspire', function () {
 | │                                    │                  │ wms_contractor_settings.receive_time                  │
 | │                                    │                  │ に基づきJXデータ取得→パース→照合を実行               │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:eos-incoming-receive-scheduled  │ 1分ごと          │ EOS受信設定に基づくJX受信→入荷確定→仕入自動生成       │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
 | │ wms:sync-sales-summaries --days=4  │ 09:30以降30分ごと│ trade_itemsから倉庫別商品別の出荷実績を更新            │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
 | │ wms:switch-delivery-course         │ 15分ごと         │ 得意先の配送コースを時間帯で自動切替                   │
@@ -126,6 +128,12 @@ Schedule::command('wms:transmit-jx-order-documents')
 //     ->onOneServer()
 //     ->withoutOverlapping()
 //     ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
+
+Schedule::command('wms:eos-incoming-receive-scheduled')
+    ->everyMinute()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/eos-incoming-receive-scheduled.log'));
 
 // quantity_update_queue の一時的な失敗再投入コマンドは残すが、ai-core側の直列化対応を見るため自動実行は一時停止。
 

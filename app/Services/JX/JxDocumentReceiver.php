@@ -26,6 +26,8 @@ class JxDocumentReceiver
 
     protected string $environment = WmsJxTransmissionLog::ENV_PRODUCTION;
 
+    protected ?string $lastError = null;
+
     public function __construct(WmsOrderJxSetting $setting)
     {
         $this->setting = $setting;
@@ -60,6 +62,11 @@ class JxDocumentReceiver
         $this->storageDirectory = $directory;
 
         return $this;
+    }
+
+    public function getLastError(): ?string
+    {
+        return $this->lastError;
     }
 
     /**
@@ -110,6 +117,8 @@ class JxDocumentReceiver
         $getResult = $this->client->getDocument();
 
         if ($getResult->failed()) {
+            $this->lastError = $getResult->error ?? 'JX GetDocument failed';
+
             Log::error('JX GetDocument failed', [
                 'error' => $getResult->error,
                 'message_id' => $getResult->messageId,
@@ -120,12 +129,15 @@ class JxDocumentReceiver
 
         // 2. ドキュメントの有無を確認
         if (! $getResult->hasDocument()) {
+            $this->lastError = null;
+
             Log::info('JX GetDocument: No document available');
 
             return null;
         }
 
         // 3. データを抽出
+        $this->lastError = null;
         $receivedDocument = $this->extractDocument($getResult);
 
         // 4. ファイルを保存

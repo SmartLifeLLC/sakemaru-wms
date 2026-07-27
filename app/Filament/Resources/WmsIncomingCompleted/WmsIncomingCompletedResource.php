@@ -51,6 +51,7 @@ class WmsIncomingCompletedResource extends AdminResource
         // 入庫完了（CONFIRMED）のみ表示
         return parent::getEloquentQuery()
             ->where('status', IncomingScheduleStatus::CONFIRMED)
+            ->withoutTransferSource()
             ->with([
                 'warehouse',
                 'item',

@@ -2,13 +2,13 @@
 
 namespace App\Filament\Resources\WmsIncomingCompleted\Tables;
 
+use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasExportAction;
 use App\Filament\Concerns\HasOptimizedFilters;
-use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\ItemDefaultLocation;
 use App\Models\Sakemaru\RealStock;
 use App\Models\WmsOrderCalculationLog;
@@ -18,14 +18,18 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\View;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class WmsIncomingCompletedTable
 {
@@ -39,13 +43,22 @@ class WmsIncomingCompletedTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'incoming-completed-table sticky-actions'])
-            ->checkIfRecordIsSelectableUsing(fn (WmsOrderIncomingSchedule $record): bool => static::isPurchaseTransmissionSelectable($record))
+            ->checkIfRecordIsSelectableUsing(fn (WmsOrderIncomingSchedule $record): bool => static::isPurchaseTransmissionSelectable($record)
+                || static::canDeleteConfirmedIncoming($record))
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
                     ->sortable()
                     ->alignCenter()
                     ->width('50px'),
+
+                TextColumn::make('slip_number')
+                    ->label('伝票番号')
+                    ->searchable()
+                    ->copyable()
+                    ->placeholder('-')
+                    ->toggleable()
+                    ->width('130px'),
 
                 TextColumn::make('order_source')
                     ->label('区分')
@@ -81,7 +94,7 @@ class WmsIncomingCompletedTable
                     ->width('70px'),
 
                 TextColumn::make('confirmed_at')
-                    ->label('入荷日時')
+                    ->label('データ連携時刻')
                     ->dateTime('m/d H:i')
                     ->sortable()
                     ->alignCenter()
@@ -171,32 +184,15 @@ class WmsIncomingCompletedTable
                     ->width('60px'),
 
                 TextColumn::make('total_piece_quantity')
-                    ->label('総バラ数')
-                    ->state(function ($record) {
-                        $qty = $record->expected_quantity ?? 0;
-                        if ($qty === 0) {
-                            return 0;
-                        }
-                        $quantityType = $record->quantity_type;
-                        if ($quantityType === QuantityType::CASE) {
-                            $capacity = $record->item?->capacity_case ?? 1;
-
-                            return $qty * $capacity;
-                        }
-                        if ($quantityType === QuantityType::CARTON) {
-                            $capacity = $record->item?->capacity_carton ?? 1;
-
-                            return $qty * $capacity;
-                        }
-
-                        return $qty;
-                    })
+                    ->label('発注総バラ')
+                    ->state(fn (WmsOrderIncomingSchedule $record): int => $record->expected_piece_quantity)
                     ->numeric()
                     ->alignEnd()
                     ->width('70px'),
 
                 TextColumn::make('received_quantity')
-                    ->label('入荷実績')
+                    ->label('入荷総バラ')
+                    ->state(fn (WmsOrderIncomingSchedule $record): int => $record->received_piece_quantity)
                     ->formatStateUsing(fn ($state) => $state > 0 ? number_format($state) : '-')
                     ->alignEnd()
                     ->width('70px'),
@@ -261,14 +257,6 @@ class WmsIncomingCompletedTable
                     ->width('90px'),
 
                 // --- 以下、補助カラム ---
-
-                TextColumn::make('slip_number')
-                    ->label('伝票番号')
-                    ->searchable()
-                    ->copyable()
-                    ->placeholder('-')
-                    ->toggleable(isToggledHiddenByDefault: true)
-                    ->width('130px'),
 
                 TextColumn::make('warehouse.code')
                     ->label('倉庫CD')
@@ -398,8 +386,7 @@ class WmsIncomingCompletedTable
                     ->label('入荷予定日')
                     ->form([
                         DatePicker::make('expected_arrival_date')
-                            ->label('入荷予定日')
-                            ->default(ClientSetting::systemDateYMD()),
+                            ->label('入荷予定日'),
                     ])
                     ->query(fn (Builder $query, array $data) => $query
                         ->when($data['expected_arrival_date'], fn (Builder $q, $date) => $q->where('expected_arrival_date', $date))
@@ -434,7 +421,6 @@ class WmsIncomingCompletedTable
                     ->options([
                         'AUTO' => '発注',
                         'MANUAL' => '手動',
-                        'TRANSFER' => '移動',
                         'RECEIVED' => '受信',
                     ]),
 
@@ -444,136 +430,109 @@ class WmsIncomingCompletedTable
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([
-                Action::make('viewDetail')
-                    ->label('詳細')
-                    ->icon('heroicon-o-eye')
-                    ->color('gray')
-                    ->modalHeading('入荷完了詳細')
+                Action::make('editConfirmedIncoming')
+                    ->label('修正')
+                    ->icon('heroicon-o-pencil-square')
+                    ->color('warning')
+                    ->visible(fn (WmsOrderIncomingSchedule $record): bool => $record->purchase_queue_id === null)
+                    ->modalHeading('入荷確定データ修正')
+                    ->modalDescription('仕入連携前の入荷確定データだけ修正できます。仕入キュー作成後は修正できません。')
                     ->modalWidth('5xl')
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
-                    ->modalSubmitAction(false)
-                    ->modalCancelActionLabel('閉じる')
-                    ->modalFooterActionsAlignment(\Filament\Support\Enums\Alignment::End)
-                    ->schema(function (?WmsOrderIncomingSchedule $record): array {
-                        if (! $record) {
-                            return [];
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->schema(fn (WmsOrderIncomingSchedule $record): array => [
+                        static::completedDetailView($record),
+                        Grid::make(4)->schema([
+                            TextInput::make('slip_number')
+                                ->label('伝票番号')
+                                ->default($record->slip_number)
+                                ->maxLength(20)
+                                ->required(),
+                            TextInput::make('received_quantity')
+                                ->label($record->quantity_type === QuantityType::CASE ? '入荷数量（ケース）' : '入荷数量（バラ）')
+                                ->numeric()
+                                ->minValue(0)
+                                ->default((int) $record->received_quantity)
+                                ->required(),
+                            DatePicker::make('actual_arrival_date')
+                                ->label('入荷日')
+                                ->default($record->actual_arrival_date)
+                                ->required(),
+                            DatePicker::make('expiration_date')
+                                ->label('賞味期限')
+                                ->default($record->expiration_date),
+                        ]),
+                    ])
+                    ->modalSubmitActionLabel('修正する')
+                    ->modalCancelActionLabel('修正せず閉じる')
+                    ->action(function (WmsOrderIncomingSchedule $record, array $data): void {
+                        try {
+                            DB::connection('sakemaru')->transaction(function () use ($record, $data): void {
+                                $locked = WmsOrderIncomingSchedule::query()
+                                    ->whereKey($record->id)
+                                    ->lockForUpdate()
+                                    ->firstOrFail();
+
+                                if ($locked->purchase_queue_id !== null) {
+                                    throw new \RuntimeException('仕入連携済みのため修正できません。');
+                                }
+
+                                if ($locked->status !== IncomingScheduleStatus::CONFIRMED) {
+                                    throw new \RuntimeException('入荷完了ではないため修正できません。');
+                                }
+
+                                $receivedQuantity = max(0, (int) $data['received_quantity']);
+
+                                $locked->update([
+                                    'slip_number' => trim((string) $data['slip_number']),
+                                    'received_quantity' => $receivedQuantity,
+                                    'shipped_quantity' => $receivedQuantity,
+                                    'shortage_quantity' => max(0, (int) $locked->expected_quantity - $receivedQuantity),
+                                    'actual_arrival_date' => $data['actual_arrival_date'],
+                                    'expiration_date' => $data['expiration_date'] ?? null,
+                                ]);
+                            });
+
+                            Notification::make()
+                                ->title('入荷確定データを修正しました')
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $throwable) {
+                            Notification::make()
+                                ->title('修正できませんでした')
+                                ->body($throwable->getMessage())
+                                ->danger()
+                                ->send();
                         }
+                    }),
+                Action::make('deleteConfirmedIncoming')
+                    ->label('削除')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->visible(fn (WmsOrderIncomingSchedule $record): bool => $record->purchase_queue_id === null)
+                    ->requiresConfirmation()
+                    ->modalHeading('入荷確定データを削除')
+                    ->modalDescription('この入荷確定データを削除し、全数欠品として完了扱いにします。仕入連携済みのデータは削除できません。')
+                    ->modalSubmitActionLabel('削除する')
+                    ->modalCancelActionLabel('削除せず閉じる')
+                    ->action(function (WmsOrderIncomingSchedule $record): void {
+                        try {
+                            $result = static::deleteConfirmedIncomingSchedules(collect([$record]));
 
-                        $orderCandidate = $record->orderCandidate;
-                        $transferCandidate = $record->transferCandidate;
-                        $candidate = $orderCandidate ?? $transferCandidate;
-                        $log = null;
-                        $details = [];
+                            $notification = Notification::make()
+                                ->title($result['deleted_count'] > 0 ? '入荷確定データを削除しました' : '削除対象がありません')
+                                ->body($result['deleted_count'] > 0
+                                    ? '全数欠品として完了扱いにしました。'
+                                    : '仕入連携済みまたは入荷完了以外のため削除できませんでした。');
 
-                        if ($candidate) {
-                            $warehouseId = $orderCandidate
-                                ? $orderCandidate->warehouse_id
-                                : $transferCandidate->satellite_warehouse_id;
-                            $log = WmsOrderCalculationLog::where('batch_code', $candidate->batch_code)
-                                ->where('warehouse_id', $warehouseId)
-                                ->where('item_id', $candidate->item_id)
-                                ->first();
-                            $details = $log?->calculation_details ?? [];
+                            ($result['deleted_count'] > 0 ? $notification->success() : $notification->warning())->send();
+                        } catch (\Throwable $throwable) {
+                            Notification::make()
+                                ->title('削除できませんでした')
+                                ->body($throwable->getMessage())
+                                ->danger()
+                                ->send();
                         }
-
-                        $item = $record->item;
-                        $capacityText = '-';
-                        if ($item) {
-                            $parts = [];
-                            if ($item->capacity_case) {
-                                $parts[] = "ケース: {$item->capacity_case}";
-                            }
-                            if ($item->capacity_carton) {
-                                $parts[] = "ボール: {$item->capacity_carton}";
-                            }
-                            $capacityText = implode(' / ', $parts) ?: '-';
-                        }
-
-                        $currentStock = 0;
-                        $availableStock = 0;
-                        if ($record->warehouse_id && $record->item_id) {
-                            $stockData = RealStock::where('warehouse_id', $record->warehouse_id)
-                                ->where('item_id', $record->item_id)
-                                ->selectRaw('SUM(current_quantity) as current_qty, SUM(available_quantity) as available_qty')
-                                ->first();
-                            $currentStock = $stockData->current_qty ?? 0;
-                            $availableStock = $stockData->available_qty ?? 0;
-                        }
-
-                        $defaultLocation = ItemDefaultLocation::getDefaultLocation(
-                            $record->warehouse_id,
-                            $record->item_id
-                        );
-                        $locationText = $defaultLocation ? "{$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}" : '-';
-
-                        // 手動変更判定
-                        $shiftedDays = (int) ($details['到着日調整'] ?? 0);
-                        $isDateManuallyChanged = false;
-                        $calculatedDateFormatted = null;
-                        if ($candidate?->original_arrival_date && $record->expected_arrival_date) {
-                            $calculatedDate = \Carbon\Carbon::parse($candidate->original_arrival_date)->addDays($shiftedDays);
-                            $calculatedDateFormatted = $calculatedDate->format('Y/m/d');
-                            $isDateManuallyChanged = $calculatedDate->format('Y-m-d') !== $record->expected_arrival_date->format('Y-m-d');
-                        }
-
-                        return [
-                            View::make('filament.components.incoming-schedule-detail')
-                                ->viewData([
-                                    'orderSource' => match ($record->order_source) {
-                                        OrderSource::AUTO => '発注',
-                                        OrderSource::MANUAL => '手動',
-                                        OrderSource::TRANSFER => '移動',
-                                        OrderSource::RECEIVED => '受信',
-                                        default => '-',
-                                    },
-                                    'itemCode' => $record->item_code ?? $item?->code ?? '-',
-                                    'searchCode' => $record->search_code ?? '-',
-                                    'itemName' => $item?->name ?? '-',
-                                    'packaging' => $item?->packaging ?? '-',
-                                    'capacityText' => $capacityText,
-                                    'capacityCase' => $item?->capacity_case ?? 0,
-                                    'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
-                                    'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
-                                    'orderDate' => $record->order_date?->format('Y/m/d') ?? '-',
-                                    'expectedArrivalDate' => $record->expected_arrival_date?->format('Y/m/d') ?? '-',
-                                    'actualArrivalDateTime' => $record->confirmed_at?->format('Y/m/d H:i') ?? '-',
-                                    'confirmedByName' => $record->confirmedByUser?->name ?? '-',
-                                    'confirmedByPickerName' => $record->confirmedByPicker?->name ?? '-',
-                                    'locationText' => $locationText,
-                                    'expectedQuantity' => $record->expected_quantity ?? 0,
-                                    'quantityType' => $record->quantity_type?->value,
-                                    'receivedQuantity' => $record->received_quantity ?? 0,
-                                    'remainingQuantity' => $record->remaining_quantity ?? 0,
-                                    'status' => $record->status->label(),
-                                    'statusColor' => $record->status->color(),
-                                    'currentStock' => $currentStock,
-                                    'availableStock' => $availableStock,
-                                    'hasOrderCandidate' => $candidate !== null,
-                                    'orderCandidateId' => $candidate?->id,
-                                    'batchCodeFormatted' => $candidate?->batch_code
-                                        ? \Carbon\Carbon::createFromFormat('YmdHis', substr($candidate->batch_code, 0, 14))->format('Y/m/d H:i')
-                                        : null,
-                                    'hasCalculationLog' => ! empty($details),
-                                    'leadTimeDays' => $log?->lead_time_days ?? 0,
-                                    'originalArrivalDate' => $candidate?->original_arrival_date
-                                        ? \Carbon\Carbon::parse($candidate->original_arrival_date)->format('m/d')
-                                        : null,
-                                    'shiftedDays' => $shiftedDays,
-                                    'shiftReasons' => $details['調整理由'] ?? '',
-                                    'isDateManuallyChanged' => $isDateManuallyChanged,
-                                    'calculatedDate' => $calculatedDateFormatted,
-                                    'formula' => $details['計算式'] ?? '-',
-                                    'effectiveStock' => $details['有効在庫'] ?? 0,
-                                    'incomingStock' => $details['入庫予定数'] ?? 0,
-                                    'safetyStock' => $details['安全在庫'] ?? 0,
-                                    'shortageQty' => $details['不足数'] ?? 0,
-                                    'purchaseUnit' => $details['最小仕入単位'] ?? 1,
-                                    'transferIncoming' => $details['移動入庫予定'] ?? 0,
-                                    'transferOutgoing' => $details['移動出庫予定'] ?? 0,
-                                    'unitAdjustmentNote' => $details['単位調整説明'] ?? '',
-                                    'orderQuantity' => $orderCandidate?->order_quantity ?? $transferCandidate?->transfer_quantity ?? $record->expected_quantity,
-                                ]),
-                        ];
                     }),
             ])
             ->toolbarActions([
@@ -585,7 +544,7 @@ class WmsIncomingCompletedTable
                         ->color('success')
                         ->requiresConfirmation()
                         ->modalHeading('チェックした仕入れデータを送信')
-                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件だけを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・入荷日の中で未選択のデータは未送信のまま残ります。")
+                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件だけを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・伝票番号・入荷日の中で未選択のデータは未送信のまま残ります。")
                         ->modalSubmitActionLabel('チェック分を送信')
                         ->modalCancelActionLabel('送信せず閉じる')
                         ->action(function (Collection $records): void {
@@ -630,6 +589,39 @@ class WmsIncomingCompletedTable
                             }
                         })
                         ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('bulkDeleteConfirmedIncoming')
+                        ->label('チェックした入荷完了を削除')
+                        ->icon('heroicon-o-trash')
+                        ->color('danger')
+                        ->requiresConfirmation()
+                        ->modalHeading('チェックした入荷完了を削除')
+                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件を削除し、全数欠品として完了扱いにします。仕入連携済みのデータは削除できません。")
+                        ->modalSubmitActionLabel('チェック分を削除')
+                        ->modalCancelActionLabel('削除せず閉じる')
+                        ->action(function (Collection $records): void {
+                            try {
+                                $result = static::deleteConfirmedIncomingSchedules($records);
+                            } catch (\Throwable $throwable) {
+                                Notification::make()
+                                    ->title('一括削除できませんでした')
+                                    ->body($throwable->getMessage())
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $skippedCount = $result['selected_count'] - $result['deleted_count'];
+
+                            $notification = Notification::make()
+                                ->title("{$result['deleted_count']}件を削除しました")
+                                ->body($skippedCount > 0
+                                    ? "{$skippedCount}件は仕入連携済みまたは入荷完了以外のため除外しました。"
+                                    : '全数欠品として完了扱いにしました。');
+
+                            ($result['deleted_count'] > 0 ? $notification->success() : $notification->warning())->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
                 ]),
             ])
             ->defaultSort(
@@ -639,6 +631,122 @@ class WmsIncomingCompletedTable
                     ->orderBy('item_id'),
                 'desc'
             );
+    }
+
+    private static function completedDetailView(WmsOrderIncomingSchedule $record): View
+    {
+        $orderCandidate = $record->orderCandidate;
+        $transferCandidate = $record->transferCandidate;
+        $candidate = $orderCandidate ?? $transferCandidate;
+        $log = null;
+        $details = [];
+
+        if ($candidate) {
+            $warehouseId = $orderCandidate
+                ? $orderCandidate->warehouse_id
+                : $transferCandidate->satellite_warehouse_id;
+            $log = WmsOrderCalculationLog::where('batch_code', $candidate->batch_code)
+                ->where('warehouse_id', $warehouseId)
+                ->where('item_id', $candidate->item_id)
+                ->first();
+            $details = $log?->calculation_details ?? [];
+        }
+
+        $item = $record->item;
+        $capacityText = '-';
+        if ($item) {
+            $parts = [];
+            if ($item->capacity_case) {
+                $parts[] = "ケース: {$item->capacity_case}";
+            }
+            if ($item->capacity_carton) {
+                $parts[] = "ボール: {$item->capacity_carton}";
+            }
+            $capacityText = implode(' / ', $parts) ?: '-';
+        }
+
+        $currentStock = 0;
+        $availableStock = 0;
+        if ($record->warehouse_id && $record->item_id) {
+            $stockData = RealStock::where('warehouse_id', $record->warehouse_id)
+                ->where('item_id', $record->item_id)
+                ->selectRaw('SUM(current_quantity) as current_qty, SUM(available_quantity) as available_qty')
+                ->first();
+            $currentStock = $stockData->current_qty ?? 0;
+            $availableStock = $stockData->available_qty ?? 0;
+        }
+
+        $defaultLocation = ItemDefaultLocation::getDefaultLocation(
+            $record->warehouse_id,
+            $record->item_id
+        );
+        $locationText = $defaultLocation ? "{$defaultLocation->code1}-{$defaultLocation->code2}-{$defaultLocation->code3}" : '-';
+
+        $shiftedDays = (int) ($details['到着日調整'] ?? 0);
+        $isDateManuallyChanged = false;
+        $calculatedDateFormatted = null;
+        if ($candidate?->original_arrival_date && $record->expected_arrival_date) {
+            $calculatedDate = \Carbon\Carbon::parse($candidate->original_arrival_date)->addDays($shiftedDays);
+            $calculatedDateFormatted = $calculatedDate->format('Y/m/d');
+            $isDateManuallyChanged = $calculatedDate->format('Y-m-d') !== $record->expected_arrival_date->format('Y-m-d');
+        }
+
+        return View::make('filament.components.incoming-schedule-detail')
+            ->viewData([
+                'orderSource' => match ($record->order_source) {
+                    OrderSource::AUTO => '発注',
+                    OrderSource::MANUAL => '手動',
+                    OrderSource::TRANSFER => '移動',
+                    OrderSource::RECEIVED => '受信',
+                    default => '-',
+                },
+                'itemCode' => $record->item_code ?? $item?->code ?? '-',
+                'searchCode' => $record->search_code ?? '-',
+                'itemName' => $item?->name ?? '-',
+                'packaging' => $item?->packaging ?? '-',
+                'capacityText' => $capacityText,
+                'capacityCase' => $item?->capacity_case ?? 0,
+                'warehouseName' => $record->warehouse ? "[{$record->warehouse->code}]{$record->warehouse->name}" : '-',
+                'contractorName' => $record->contractor ? "[{$record->contractor->code}]{$record->contractor->name}" : '-',
+                'orderDate' => $record->order_date?->format('Y/m/d') ?? '-',
+                'expectedArrivalDate' => $record->expected_arrival_date?->format('Y/m/d') ?? '-',
+                'actualArrivalDateTime' => $record->confirmed_at?->format('Y/m/d H:i') ?? '-',
+                'confirmedByName' => $record->confirmedByUser?->name ?? '-',
+                'confirmedByPickerName' => $record->confirmedByPicker?->name ?? '-',
+                'locationText' => $locationText,
+                'expectedQuantity' => $record->expected_quantity ?? 0,
+                'quantityType' => $record->quantity_type?->value,
+                'receivedQuantity' => $record->received_piece_quantity,
+                'remainingQuantity' => $record->remaining_quantity ?? 0,
+                'status' => $record->status->label(),
+                'statusColor' => $record->status->color(),
+                'currentStock' => $currentStock,
+                'availableStock' => $availableStock,
+                'hasOrderCandidate' => $candidate !== null,
+                'orderCandidateId' => $candidate?->id,
+                'batchCodeFormatted' => $candidate?->batch_code
+                    ? \Carbon\Carbon::createFromFormat('YmdHis', substr($candidate->batch_code, 0, 14))->format('Y/m/d H:i')
+                    : null,
+                'hasCalculationLog' => ! empty($details),
+                'leadTimeDays' => $log?->lead_time_days ?? 0,
+                'originalArrivalDate' => $candidate?->original_arrival_date
+                    ? \Carbon\Carbon::parse($candidate->original_arrival_date)->format('m/d')
+                    : null,
+                'shiftedDays' => $shiftedDays,
+                'shiftReasons' => $details['調整理由'] ?? '',
+                'isDateManuallyChanged' => $isDateManuallyChanged,
+                'calculatedDate' => $calculatedDateFormatted,
+                'formula' => $details['計算式'] ?? '-',
+                'effectiveStock' => $details['有効在庫'] ?? 0,
+                'incomingStock' => $details['入庫予定数'] ?? 0,
+                'safetyStock' => $details['安全在庫'] ?? 0,
+                'shortageQty' => $details['不足数'] ?? 0,
+                'purchaseUnit' => $details['最小仕入単位'] ?? 1,
+                'transferIncoming' => $details['移動入庫予定'] ?? 0,
+                'transferOutgoing' => $details['移動出庫予定'] ?? 0,
+                'unitAdjustmentNote' => $details['単位調整説明'] ?? '',
+                'orderQuantity' => $orderCandidate?->order_quantity ?? $transferCandidate?->transfer_quantity ?? $record->expected_quantity,
+            ]);
     }
 
     private static function isPurchaseTransmissionSelectable(WmsOrderIncomingSchedule $record): bool
@@ -656,5 +764,70 @@ class WmsIncomingCompletedTable
         }
 
         return $record->contractor?->wmsSetting?->transmission_type !== TransmissionType::INTERNAL;
+    }
+
+    private static function canDeleteConfirmedIncoming(WmsOrderIncomingSchedule $record): bool
+    {
+        return $record->status === IncomingScheduleStatus::CONFIRMED
+            && $record->purchase_queue_id === null;
+    }
+
+    /**
+     * @return array{selected_count: int, deleted_count: int}
+     */
+    private static function deleteConfirmedIncomingSchedules(Collection $records): array
+    {
+        $scheduleIds = $records
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($scheduleIds === []) {
+            return [
+                'selected_count' => 0,
+                'deleted_count' => 0,
+            ];
+        }
+
+        $deletedCount = DB::connection('sakemaru')->transaction(function () use ($scheduleIds): int {
+            $lockedSchedules = WmsOrderIncomingSchedule::query()
+                ->whereKey($scheduleIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            $deletedCount = 0;
+
+            foreach ($lockedSchedules as $schedule) {
+                if (! static::canDeleteConfirmedIncoming($schedule)) {
+                    continue;
+                }
+
+                $expectedQuantity = max(0, (int) $schedule->expected_quantity);
+
+                $schedule->update([
+                    'received_quantity' => 0,
+                    'shipped_quantity' => 0,
+                    'shortage_quantity' => $expectedQuantity,
+                    'actual_arrival_date' => $schedule->actual_arrival_date
+                        ?? $schedule->expected_arrival_date
+                        ?? now()->toDateString(),
+                    'status' => IncomingScheduleStatus::CONFIRMED,
+                    'confirmed_at' => $schedule->confirmed_at ?? now(),
+                ]);
+
+                $deletedCount++;
+            }
+
+            return $deletedCount;
+        });
+
+        return [
+            'selected_count' => count($scheduleIds),
+            'deleted_count' => $deletedCount,
+        ];
     }
 }

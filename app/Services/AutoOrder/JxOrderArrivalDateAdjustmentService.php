@@ -34,24 +34,28 @@ class JxOrderArrivalDateAdjustmentService
             return $this->result([], [], [], []);
         }
 
-        $requiresAdjustment = $candidates
-            ->filter(fn (WmsOrderCandidate $candidate): bool => $this->requiresAdjustment($candidate, $executionDay))
+        $candidatesWithArrivalDate = $candidates
+            ->filter(fn (WmsOrderCandidate $candidate): bool => $candidate->expected_arrival_date !== null)
             ->values();
 
-        if ($requiresAdjustment->isEmpty()) {
+        if ($candidatesWithArrivalDate->isEmpty()) {
             return $this->result($candidates->pluck('id')->map(fn ($id) => (int) $id)->all(), [], [], []);
         }
 
-        $deliveryDaySettings = $this->loadDeliveryDaySettings($requiresAdjustment);
-        $warehouseHolidays = $this->loadWarehouseHolidays($requiresAdjustment, $executionDay);
+        $deliveryDaySettings = $this->loadDeliveryDaySettings($candidatesWithArrivalDate);
+        $warehouseHolidays = $this->loadWarehouseHolidays($candidatesWithArrivalDate, $executionDay);
 
         $adjustments = [];
         $excludedCandidateIds = [];
         $errors = [];
 
-        foreach ($requiresAdjustment as $candidate) {
+        foreach ($candidatesWithArrivalDate as $candidate) {
             $settingKey = $this->settingKey((int) $candidate->contractor_id, (int) $candidate->warehouse_id);
             $deliveryDays = $deliveryDaySettings[$settingKey] ?? null;
+
+            if (! $this->requiresAdjustment($candidate, $executionDay, $deliveryDays, $warehouseHolidays)) {
+                continue;
+            }
 
             if ($deliveryDays === null || ! in_array(true, $deliveryDays, true)) {
                 $excludedCandidateIds[] = (int) $candidate->id;
@@ -66,7 +70,7 @@ class JxOrderArrivalDateAdjustmentService
             }
 
             $nextArrivalDate = $this->findNextArrivalDate(
-                $executionDay,
+                $this->nextArrivalSearchBaseDay($candidate, $executionDay),
                 (int) $candidate->warehouse_id,
                 $deliveryDays,
                 $warehouseHolidays
@@ -109,13 +113,46 @@ class JxOrderArrivalDateAdjustmentService
         return $this->result($eligibleCandidateIds, $excludedCandidateIds, $adjustments, $errors);
     }
 
-    private function requiresAdjustment(WmsOrderCandidate $candidate, Carbon $executionDay): bool
-    {
+    /**
+     * @param  array<int, bool>|null  $deliveryDays
+     * @param  array<int, array<string, bool>>  $warehouseHolidays
+     */
+    private function requiresAdjustment(
+        WmsOrderCandidate $candidate,
+        Carbon $executionDay,
+        ?array $deliveryDays,
+        array $warehouseHolidays
+    ): bool {
         if ($candidate->expected_arrival_date === null) {
             return false;
         }
 
-        return Carbon::parse($candidate->expected_arrival_date)->startOfDay()->lte($executionDay);
+        $arrivalDay = Carbon::parse($candidate->expected_arrival_date)->startOfDay();
+
+        if ($arrivalDay->lte($executionDay)) {
+            return true;
+        }
+
+        if ($deliveryDays === null) {
+            return false;
+        }
+
+        if (! in_array(true, $deliveryDays, true)) {
+            return true;
+        }
+
+        return ! $this->isArrivalDateAllowed($arrivalDay, (int) $candidate->warehouse_id, $deliveryDays, $warehouseHolidays);
+    }
+
+    private function nextArrivalSearchBaseDay(WmsOrderCandidate $candidate, Carbon $executionDay): Carbon
+    {
+        if ($candidate->expected_arrival_date === null) {
+            return $executionDay;
+        }
+
+        $arrivalDay = Carbon::parse($candidate->expected_arrival_date)->startOfDay();
+
+        return $arrivalDay->gt($executionDay) ? $arrivalDay : $executionDay;
     }
 
     /**
@@ -154,7 +191,15 @@ class JxOrderArrivalDateAdjustmentService
     {
         $warehouseIds = $candidates->pluck('warehouse_id')->map(fn ($id) => (int) $id)->unique()->values();
         $from = $executionDay->copy()->addDay()->toDateString();
-        $to = $executionDay->copy()->addDays(self::MAX_LOOKAHEAD_DAYS)->toDateString();
+        $latestBaseDay = $candidates
+            ->pluck('expected_arrival_date')
+            ->filter()
+            ->map(fn ($date) => Carbon::parse($date)->startOfDay())
+            ->filter(fn (Carbon $date): bool => $date->gt($executionDay))
+            ->reduce(fn (?Carbon $latest, Carbon $date): Carbon => $latest === null || $date->gt($latest) ? $date : $latest);
+        $to = ($latestBaseDay instanceof Carbon ? $latestBaseDay : $executionDay->copy())
+            ->addDays(self::MAX_LOOKAHEAD_DAYS)
+            ->toDateString();
 
         return DB::connection('sakemaru')
             ->table('wms_warehouse_calendars')
@@ -175,19 +220,15 @@ class JxOrderArrivalDateAdjustmentService
      * @param  array<int, array<string, bool>>  $warehouseHolidays
      */
     private function findNextArrivalDate(
-        Carbon $executionDay,
+        Carbon $baseDay,
         int $warehouseId,
         array $deliveryDays,
         array $warehouseHolidays
     ): ?Carbon {
-        $date = $executionDay->copy()->addDay();
+        $date = $baseDay->copy()->addDay();
 
         for ($i = 1; $i <= self::MAX_LOOKAHEAD_DAYS; $i++, $date->addDay()) {
-            if (! ($deliveryDays[$date->dayOfWeek] ?? false)) {
-                continue;
-            }
-
-            if ($warehouseHolidays[$warehouseId][$date->toDateString()] ?? false) {
+            if (! $this->isArrivalDateAllowed($date, $warehouseId, $deliveryDays, $warehouseHolidays)) {
                 continue;
             }
 
@@ -195,6 +236,23 @@ class JxOrderArrivalDateAdjustmentService
         }
 
         return null;
+    }
+
+    /**
+     * @param  array<int, bool>  $deliveryDays
+     * @param  array<int, array<string, bool>>  $warehouseHolidays
+     */
+    private function isArrivalDateAllowed(
+        Carbon $arrivalDay,
+        int $warehouseId,
+        array $deliveryDays,
+        array $warehouseHolidays
+    ): bool {
+        if (! ($deliveryDays[$arrivalDay->dayOfWeek] ?? false)) {
+            return false;
+        }
+
+        return ! ($warehouseHolidays[$warehouseId][$arrivalDay->toDateString()] ?? false);
     }
 
     private function calculateExpirationDate(WmsOrderCandidate $candidate, Carbon $arrivalDate): ?string
