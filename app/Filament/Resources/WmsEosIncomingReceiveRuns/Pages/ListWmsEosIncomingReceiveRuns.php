@@ -76,8 +76,8 @@ class ListWmsEosIncomingReceiveRuns extends ListRecords
                 ->icon('heroicon-o-play')
                 ->color('success')
                 ->requiresConfirmation()
-                ->modalHeading('EOSデータ受信を今すぐ実行')
-                ->modalDescription('有効なJX接続設定すべてで受信し、受信したEOSデータの入荷確定と仕入データ自動生成までキューで実行します。')
+                ->modalHeading('JXデータ受信を今すぐ実行')
+                ->modalDescription('有効なJX接続設定すべてでGetDocument受信し、今回受信したEOSログの取込までキューで実行します。入荷予定照合、入荷確定、仕入データ生成は実行しません。')
                 ->modalSubmitActionLabel('実行')
                 ->action(function (): void {
                     WmsEosIncomingReceiveSetting::ensureDefault();
@@ -87,11 +87,13 @@ class ListWmsEosIncomingReceiveRuns extends ListRecords
                         $runKey,
                         null,
                         WmsEosIncomingReceiveRun::TRIGGER_MANUAL,
+                        false,
+                        null,
                         true,
                     );
 
                     Notification::make()
-                        ->title('EOSデータ受信をキューに登録しました')
+                        ->title('JXデータ受信とEOSログ取込をキューに登録しました')
                         ->body("実行キー: {$runKey}")
                         ->success()
                         ->send();
