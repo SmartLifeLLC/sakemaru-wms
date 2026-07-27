@@ -61,6 +61,61 @@ class EosIncomingAutoReceiveService
         }
     }
 
+    public function runReceiveAndImportOnly(
+        string $runKey,
+        string $triggerType,
+        ?WmsEosIncomingReceiveSchedule $schedule = null,
+    ): WmsEosIncomingReceiveRun {
+        [$run, $isDuplicate] = $this->startRun($runKey, $triggerType, $schedule);
+
+        if ($isDuplicate) {
+            return $run;
+        }
+
+        $stats = $this->emptyStats();
+        $metadata = $this->emptyMetadata();
+
+        try {
+            $setting = $run->setting ?: WmsEosIncomingReceiveSetting::ensureDefault();
+
+            $run->addLog('info', 'start', 'JXデータ受信とEOSログ取込のみを開始しました', [
+                'trigger_type' => $triggerType,
+                'schedule_id' => $schedule?->id,
+                'schedule_label' => $schedule?->label(),
+            ]);
+
+            [$receivedDocumentCount, $targetLogs, $receiveErrors] = $this->receiveJxDocuments($run);
+            $stats['received_jx_document_count'] = $receivedDocumentCount;
+            $stats['target_jx_log_count'] = $targetLogs->count();
+            $stats['error_count'] += count($receiveErrors);
+            $metadata['jx_transmission_log_ids'] = $targetLogs->pluck('id')->map(fn ($id): int => (int) $id)->all();
+            $metadata['incoming_received_file_ids'] = $this->importLogsOnly($run, $targetLogs, $stats);
+            $stats['active_jx_setting_count'] = WmsOrderJxSetting::query()->active()->count();
+
+            $status = $stats['error_count'] > 0
+                ? WmsEosIncomingReceiveRun::STATUS_PARTIAL_FAILED
+                : WmsEosIncomingReceiveRun::STATUS_SUCCEEDED;
+
+            $run->update(array_merge($stats, [
+                'status' => $status,
+                'finished_at' => now(),
+                'error_summary' => $this->errorSummary($run),
+                'metadata' => $this->limitMetadata($metadata),
+            ]));
+
+            $setting->update(['last_run_at' => now()]);
+
+            $run->addLog('info', 'finish', 'JXデータ受信とEOSログ取込のみが完了しました', [
+                'status' => $status,
+                'stats' => $stats,
+            ]);
+
+            return $run->fresh(['logs']);
+        } catch (\Throwable $throwable) {
+            return $this->failRun($run, $stats, $metadata, $throwable);
+        }
+    }
+
     public function runForJxTransmissionLogs(
         array $jxTransmissionLogIds,
         string $runKey,
@@ -156,6 +211,14 @@ class EosIncomingAutoReceiveService
             return [0, collect(), []];
         }
 
+        $receiveDocumentTypes = $settings
+            ->pluck('receive_document_type')
+            ->map(fn ($documentType): string => trim((string) $documentType))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
         $receivedCount = 0;
         $messageIds = [];
         $errors = [];
@@ -203,6 +266,7 @@ class EosIncomingAutoReceiveService
             ->pendingEosIncomingImport()
             ->where('environment', WmsJxTransmissionLog::ENV_PRODUCTION)
             ->whereIn('message_id', $messageIds)
+            ->when($receiveDocumentTypes !== [], fn ($query) => $query->whereIn('document_type', $receiveDocumentTypes))
             ->orderBy('id')
             ->get();
 
@@ -263,6 +327,48 @@ class EosIncomingAutoReceiveService
 
         return collect($confirmedScheduleIds)
             ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function importLogsOnly(WmsEosIncomingReceiveRun $run, $logs, array &$stats): array
+    {
+        if ($logs->isEmpty()) {
+            $run->addLog('info', 'import_only', '今回受信したEOS取込対象ログはありません。');
+
+            return [];
+        }
+
+        $incomingReceivedFileIds = [];
+
+        foreach ($logs as $log) {
+            try {
+                $result = $this->workflowService->importOnly($log);
+                $file = $result['received_file'];
+
+                $stats['eos_imported_count']++;
+                $incomingReceivedFileIds[] = (int) $file->id;
+
+                $run->addLog('info', 'import_only', "JXログ {$log->id}: EOSログ取込を実行しました", [
+                    'jx_transmission_log_id' => $log->id,
+                    'eos_import_batch_id' => $result['batch']->id,
+                    'incoming_received_file_id' => $file->id,
+                    'incoming_file_status' => $file->status,
+                    'eos_imported' => $result['eos_imported'],
+                    'incoming_imported' => $result['incoming_imported'],
+                ]);
+            } catch (\Throwable $throwable) {
+                $stats['error_count']++;
+                $run->addLog('error', 'import_only', "JXログ {$log->id}: {$throwable->getMessage()}", [
+                    'jx_transmission_log_id' => $log->id,
+                    'exception' => get_class($throwable),
+                ]);
+            }
+        }
+
+        return collect($incomingReceivedFileIds)
             ->filter(fn (int $id): bool => $id > 0)
             ->unique()
             ->values()
@@ -593,6 +699,7 @@ class EosIncomingAutoReceiveService
         return [
             'requested_jx_transmission_log_ids' => [],
             'jx_transmission_log_ids' => [],
+            'incoming_received_file_ids' => [],
             'confirmed_schedule_ids' => [],
             'auto_purchase_schedule_ids' => [],
             'purchase_errors' => [],
@@ -642,7 +749,7 @@ class EosIncomingAutoReceiveService
 
     private function limitMetadata(array $metadata): array
     {
-        foreach (['requested_jx_transmission_log_ids', 'jx_transmission_log_ids', 'confirmed_schedule_ids', 'auto_purchase_schedule_ids'] as $key) {
+        foreach (['requested_jx_transmission_log_ids', 'jx_transmission_log_ids', 'incoming_received_file_ids', 'confirmed_schedule_ids', 'auto_purchase_schedule_ids'] as $key) {
             if (count($metadata[$key] ?? []) > 200) {
                 $metadata[$key] = array_slice($metadata[$key], 0, 200);
                 $metadata["{$key}_truncated"] = true;
