@@ -52,7 +52,8 @@ class PrintRequestService
 
             // 対象のピッキングタスクを取得
             $query = WmsPickingTask::where('delivery_course_id', $deliveryCourseId)
-                ->where('shipment_date', $shipmentDate);
+                ->where('shipment_date', $shipmentDate)
+                ->where('warehouse_id', $warehouseId);
 
             if ($waveId) {
                 $query->where('wave_id', $waveId);
@@ -309,8 +310,6 @@ class PrintRequestService
                     ->orWhere(function ($query) {
                         $query->whereNotNull('pir.stock_transfer_id')
                             ->where('st.is_active', true)
-                            ->where('st.is_delivered', false)
-                            ->where('st.is_confirmed', false)
                             ->where('stt.is_active', true);
                     });
             })
