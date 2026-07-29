@@ -652,10 +652,13 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $setting = WmsContractorSetting::where('contractor_id', $contractorId)->first();
 
         if ($setting?->wms_order_jx_setting_id) {
-            return WmsOrderJxSetting::find($setting->wms_order_jx_setting_id);
+            $jxSetting = WmsOrderJxSetting::find($setting->wms_order_jx_setting_id);
+            if ($jxSetting?->is_active) {
+                return $jxSetting;
+            }
         }
 
-        return null;
+        return WmsOrderJxSetting::findByContractorId($contractorId);
     }
 
     /**
