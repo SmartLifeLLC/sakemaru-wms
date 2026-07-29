@@ -176,12 +176,37 @@ class OrderTransmissionServiceTest extends TestCase
         $this->assertFalse($result['success']);
         $this->assertSame(2, $result['selected_count']);
         $this->assertSame(0, $result['eligible_count']);
+        $this->assertSame(0, $result['jx_target_count']);
         $this->assertSame(2, $result['excluded_count']);
         $this->assertSame(2, $result['excluded_missing']);
         $this->assertSame(0, $result['excluded_not_confirmed']);
         $this->assertSame(0, $result['excluded_already_generated']);
         $this->assertSame(0, $result['excluded_not_jx_target']);
+        $this->assertSame(0, $result['excluded_missing_ordering_code']);
         $this->assertSame(0, $result['skipped_count']);
+    }
+
+    /**
+     * @test
+     * JX発注CDを解決できない発注候補は生成対象から除外されること
+     */
+    public function it_excludes_candidates_without_resolvable_jx_ordering_code_before_generation(): void
+    {
+        $candidate = (new WmsOrderCandidate)->forceFill([
+            'id' => 999999991,
+            'ordering_code' => null,
+            'order_quantity' => 1,
+            'quantity_type' => 'CASE',
+        ]);
+        $candidate->setRelation('item', null);
+
+        $method = new \ReflectionMethod(OrderTransmissionService::class, 'filterCandidatesWithJxOrderingCode');
+        $method->setAccessible(true);
+
+        [$filtered, $excludedCount] = $method->invoke($this->service, collect([$candidate]));
+
+        $this->assertCount(0, $filtered);
+        $this->assertSame(1, $excludedCount);
     }
 
     /**
@@ -211,8 +236,10 @@ class OrderTransmissionServiceTest extends TestCase
             $this->assertFalse($result['success']);
             $this->assertSame(1, $result['selected_count']);
             $this->assertSame(0, $result['eligible_count']);
+            $this->assertSame(0, $result['jx_target_count']);
             $this->assertSame(1, $result['excluded_count']);
             $this->assertSame(1, $result['excluded_not_jx_target']);
+            $this->assertSame(0, $result['excluded_missing_ordering_code']);
             $this->assertSame(0, $result['total_orders']);
             $this->assertSame([], $result['files']);
             $this->assertStringContainsString('JX送信対象外', $result['errors'][0] ?? '');

@@ -2212,7 +2212,7 @@ class OrderTransmissionService
             )
             ->count();
 
-        $candidates = WmsOrderCandidate::whereIn('id', $candidateIds)
+        $targetCandidates = WmsOrderCandidate::whereIn('id', $candidateIds)
             ->where('status', CandidateStatus::CONFIRMED)
             ->whereNull('wms_order_jx_document_id')
             ->when(
@@ -2223,10 +2223,14 @@ class OrderTransmissionService
             ->with(['item', 'contractor', 'warehouse'])
             ->get();
 
+        [$candidates, $excludedMissingOrderingCode] = $this->filterCandidatesWithJxOrderingCode($targetCandidates);
+
         if ($candidates->isEmpty()) {
-            $message = $excludedNotJxTarget > 0
+            $message = $excludedMissingOrderingCode > 0
+                ? 'JX対象の発注候補にJX発注CD未設定の商品が含まれているため、生成対象がありません'
+                : ($excludedNotJxTarget > 0
                 ? 'JX送信対象外の発注先が含まれているため、生成対象がありません'
-                : 'JX未生成の確定済み発注候補がありません';
+                : 'JX未生成の確定済み発注候補がありません');
 
             return [
                 'success' => false,
@@ -2234,11 +2238,13 @@ class OrderTransmissionService
                 'total_orders' => 0,
                 'selected_count' => $selectedCount,
                 'eligible_count' => 0,
-                'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedNotJxTarget,
+                'jx_target_count' => $targetCandidates->count(),
+                'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedNotJxTarget + $excludedMissingOrderingCode,
                 'excluded_missing' => $excludedMissing,
                 'excluded_not_confirmed' => $excludedNotConfirmed,
                 'excluded_already_generated' => $excludedAlreadyGenerated,
                 'excluded_not_jx_target' => $excludedNotJxTarget,
+                'excluded_missing_ordering_code' => $excludedMissingOrderingCode,
                 'skipped_count' => 0,
                 'errors' => [$message],
             ];
@@ -2256,18 +2262,57 @@ class OrderTransmissionService
 
         $eligibleCount = $candidates->count();
         $totalOrders = (int) ($result['total_orders'] ?? 0);
+        $files = $result['files'] ?? [];
+        if ($totalOrders === 0 && empty($files)) {
+            $result['success'] = false;
+            $result['errors'] = [
+                ...($result['errors'] ?? []),
+                'JX対象の発注候補はありますが、JXファイルに出力できる明細がありません',
+            ];
+        }
 
         return [
             ...$result,
             'selected_count' => $selectedCount,
             'eligible_count' => $eligibleCount,
-            'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedNotJxTarget,
+            'jx_target_count' => $targetCandidates->count(),
+            'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedNotJxTarget + $excludedMissingOrderingCode,
             'excluded_missing' => $excludedMissing,
             'excluded_not_confirmed' => $excludedNotConfirmed,
             'excluded_already_generated' => $excludedAlreadyGenerated,
             'excluded_not_jx_target' => $excludedNotJxTarget,
+            'excluded_missing_ordering_code' => $excludedMissingOrderingCode,
             'skipped_count' => max(0, $eligibleCount - $totalOrders),
         ];
+    }
+
+    /**
+     * JX固定長へ出力できる発注CDを持つ候補だけを残す。
+     *
+     * @return array{0: Collection<int, WmsOrderCandidate>, 1: int}
+     */
+    private function filterCandidatesWithJxOrderingCode(Collection $candidates): array
+    {
+        if ($candidates->isEmpty()) {
+            return [$candidates, 0];
+        }
+
+        $resolver = app(OrderOutputQuantityResolver::class);
+        $excludedCount = 0;
+        $filtered = $candidates
+            ->filter(function (WmsOrderCandidate $candidate) use ($resolver, &$excludedCount): bool {
+                $orderingCode = $resolver->resolve($candidate)['ordering_code'] ?? null;
+                if (filled($orderingCode)) {
+                    return true;
+                }
+
+                $excludedCount++;
+
+                return false;
+            })
+            ->values();
+
+        return [$filtered, $excludedCount];
     }
 
     /**
