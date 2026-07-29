@@ -44,6 +44,7 @@ class WmsIncomingCompletedTable
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'incoming-completed-table sticky-actions'])
             ->checkIfRecordIsSelectableUsing(fn (WmsOrderIncomingSchedule $record): bool => static::isPurchaseTransmissionSelectable($record)
+                || static::canUpdateConfirmedIncomingSlipNumber($record)
                 || static::canDeleteConfirmedIncoming($record))
             ->columns([
                 TextColumn::make('id')
@@ -539,11 +540,11 @@ class WmsIncomingCompletedTable
                 static::getExportAction(),
                 BulkActionGroup::make([
                     BulkAction::make('transmitSelectedPurchase')
-                        ->label('チェックした仕入れデータ送信')
+                        ->label('仕入データ一括送信')
                         ->icon('heroicon-o-paper-airplane')
                         ->color('success')
                         ->requiresConfirmation()
-                        ->modalHeading('チェックした仕入れデータを送信')
+                        ->modalHeading('仕入データ一括送信')
                         ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件だけを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・伝票番号・入荷日の中で未選択のデータは未送信のまま残ります。")
                         ->modalSubmitActionLabel('チェック分を送信')
                         ->modalCancelActionLabel('送信せず閉じる')
@@ -589,12 +590,56 @@ class WmsIncomingCompletedTable
                             }
                         })
                         ->deselectRecordsAfterCompletion(),
+                    BulkAction::make('bulkUpdateSlipNumber')
+                        ->label('伝票番号一括変更')
+                        ->icon('heroicon-o-pencil-square')
+                        ->color('warning')
+                        ->modalHeading('伝票番号一括変更')
+                        ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件に同じ伝票番号を設定します。仕入連携済みのデータは修正できません。")
+                        ->modalWidth('lg')
+                        ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                        ->modalFooterActionsAlignment(Alignment::End)
+                        ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('変更を適用')->color('danger'))
+                        ->modalCancelActionLabel('変更せず閉じる')
+                        ->schema([
+                            TextInput::make('slip_number')
+                                ->label('新しい伝票番号')
+                                ->maxLength(20)
+                                ->required(),
+                        ])
+                        ->action(function (Collection $records, array $data): void {
+                            try {
+                                $result = static::updateConfirmedIncomingSlipNumbers(
+                                    $records,
+                                    trim((string) ($data['slip_number'] ?? ''))
+                                );
+                            } catch (\Throwable $throwable) {
+                                Notification::make()
+                                    ->title('一括修正できませんでした')
+                                    ->body($throwable->getMessage())
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            $skippedCount = $result['selected_count'] - $result['updated_count'];
+
+                            $notification = Notification::make()
+                                ->title("{$result['updated_count']}件の伝票番号を修正しました")
+                                ->body($skippedCount > 0
+                                    ? "{$skippedCount}件は仕入連携済みまたは入荷完了以外のため除外しました。"
+                                    : "伝票番号を {$result['slip_number']} に変更しました。");
+
+                            ($result['updated_count'] > 0 ? $notification->success() : $notification->warning())->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
                     BulkAction::make('bulkDeleteConfirmedIncoming')
-                        ->label('チェックした入荷完了を削除')
+                        ->label('一括削除')
                         ->icon('heroicon-o-trash')
                         ->color('danger')
                         ->requiresConfirmation()
-                        ->modalHeading('チェックした入荷完了を削除')
+                        ->modalHeading('一括削除')
                         ->modalDescription(fn (Collection $records): string => "チェックした {$records->count()} 件を削除済みにし、入荷完了一覧から非表示にします。仕入連携済みのデータは削除できません。")
                         ->modalSubmitActionLabel('チェック分を削除')
                         ->modalCancelActionLabel('削除せず閉じる')
@@ -770,6 +815,68 @@ class WmsIncomingCompletedTable
     {
         return $record->status === IncomingScheduleStatus::CONFIRMED
             && $record->purchase_queue_id === null;
+    }
+
+    private static function canUpdateConfirmedIncomingSlipNumber(WmsOrderIncomingSchedule $record): bool
+    {
+        return $record->status === IncomingScheduleStatus::CONFIRMED
+            && $record->purchase_queue_id === null;
+    }
+
+    /**
+     * @return array{selected_count: int, updated_count: int, slip_number: string}
+     */
+    private static function updateConfirmedIncomingSlipNumbers(Collection $records, string $slipNumber): array
+    {
+        if ($slipNumber === '') {
+            throw new \InvalidArgumentException('伝票番号を入力してください。');
+        }
+
+        $scheduleIds = $records
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($scheduleIds === []) {
+            return [
+                'selected_count' => 0,
+                'updated_count' => 0,
+                'slip_number' => $slipNumber,
+            ];
+        }
+
+        $updatedCount = DB::connection('sakemaru')->transaction(function () use ($scheduleIds, $slipNumber): int {
+            $lockedSchedules = WmsOrderIncomingSchedule::query()
+                ->whereKey($scheduleIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            $updatedCount = 0;
+
+            foreach ($lockedSchedules as $schedule) {
+                if (! static::canUpdateConfirmedIncomingSlipNumber($schedule)) {
+                    continue;
+                }
+
+                $schedule->update([
+                    'slip_number' => $slipNumber,
+                ]);
+
+                $updatedCount++;
+            }
+
+            return $updatedCount;
+        });
+
+        return [
+            'selected_count' => count($scheduleIds),
+            'updated_count' => $updatedCount,
+            'slip_number' => $slipNumber,
+        ];
     }
 
     /**
