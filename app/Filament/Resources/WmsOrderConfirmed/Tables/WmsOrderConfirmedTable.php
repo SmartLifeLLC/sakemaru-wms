@@ -644,6 +644,7 @@ class WmsOrderConfirmedTable
                             $excludedAlreadyGenerated = $result['excluded_already_generated'] ?? 0;
                             $excludedNotConfirmed = $result['excluded_not_confirmed'] ?? 0;
                             $excludedMissing = $result['excluded_missing'] ?? 0;
+                            $excludedNotJxTarget = $result['excluded_not_jx_target'] ?? 0;
                             $skippedCount = $result['skipped_count'] ?? max(0, $eligibleCount - $totalOrders);
 
                             if ($fileCount > 0) {
@@ -654,8 +655,8 @@ class WmsOrderConfirmedTable
                                     '「発注データファイル」画面の送信前タブから送信してください。',
                                 ];
 
-                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0) {
-                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / 不明 {$excludedMissing}件";
+                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0 || $excludedNotJxTarget > 0) {
+                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / JX対象外 {$excludedNotJxTarget}件 / 不明 {$excludedMissing}件";
                                 }
 
                                 if ($skippedCount > 0) {
@@ -673,8 +674,8 @@ class WmsOrderConfirmedTable
                                     "選択: {$selectedCount}件 / 生成対象: {$eligibleCount}件",
                                 ];
 
-                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0) {
-                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / 不明 {$excludedMissing}件";
+                                if ($excludedAlreadyGenerated > 0 || $excludedNotConfirmed > 0 || $excludedMissing > 0 || $excludedNotJxTarget > 0) {
+                                    $bodyLines[] = "除外: 生成済み {$excludedAlreadyGenerated}件 / 確定済み以外 {$excludedNotConfirmed}件 / JX対象外 {$excludedNotJxTarget}件 / 不明 {$excludedMissing}件";
                                 }
 
                                 Notification::make()

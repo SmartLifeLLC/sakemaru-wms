@@ -515,17 +515,7 @@ class OrderTransmissionService
             ];
         }
 
-        // JX送信対象の発注先IDを取得
-        $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET)
-            ->pluck('contractor_id')
-            ->toArray();
-
-        // Generatorの送信先マッピングを考慮（複数発注先→1つのJX代表発注先）
-        $mapping = $generator->getTransmissionContractorMapping();
-        $mappedContractorIds = array_keys($mapping);
-
-        // JX対象発注先 = 直接JX設定がある OR マッピングされている発注先
-        $targetContractorIds = array_unique(array_merge($jxContractorIds, $mappedContractorIds));
+        $targetContractorIds = $this->jxOrderTargetContractorIds($generator);
 
         if (empty($targetContractorIds)) {
             return [
@@ -580,15 +570,7 @@ class OrderTransmissionService
             ];
         }
 
-        // JX送信対象の発注先IDを取得
-        $jxContractorIds = WmsContractorSetting::where('transmission_type', TransmissionType::JX_FINET)
-            ->pluck('contractor_id')
-            ->toArray();
-
-        $mapping = $generator->getTransmissionContractorMapping();
-        $mappedContractorIds = array_keys($mapping);
-
-        $targetContractorIds = array_unique(array_merge($jxContractorIds, $mappedContractorIds));
+        $targetContractorIds = $this->jxOrderTargetContractorIds($generator);
 
         // 対象仕入先かつJX対象に絞る
         $scopedContractorIds = array_intersect($contractorIds, $targetContractorIds);
@@ -2116,6 +2098,75 @@ class OrderTransmissionService
     }
 
     /**
+     * JX発注データ生成対象の発注先IDを取得する。
+     *
+     * 代表発注先は「発注先設定がJX_FINET」かつ「有効なJX設定あり」に限定し、
+     * その代表へ集約される子発注先だけを追加する。これにより手動バルク生成でも
+     * FAX/メール/手動CSV対象の発注先がJXファイルへ混入しない。
+     *
+     * @return array<int>
+     */
+    private function jxOrderTargetContractorIds(?OrderFileGeneratorInterface $generator = null): array
+    {
+        $generator ??= $this->getOrderFileGenerator();
+
+        $representativeIds = WmsContractorSetting::query()
+            ->where('transmission_type', TransmissionType::JX_FINET->value)
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('transmission_contractor_id')
+                    ->orWhereColumn('transmission_contractor_id', 'contractor_id');
+            })
+            ->where(function ($query): void {
+                $query
+                    ->whereExists(function ($subQuery): void {
+                        $subQuery
+                            ->selectRaw('1')
+                            ->from('wms_order_jx_settings')
+                            ->whereColumn('wms_order_jx_settings.id', 'wms_contractor_settings.wms_order_jx_setting_id')
+                            ->where('wms_order_jx_settings.is_active', true);
+                    })
+                    ->orWhereExists(function ($subQuery): void {
+                        $subQuery
+                            ->selectRaw('1')
+                            ->from('wms_order_jx_settings')
+                            ->whereColumn('wms_order_jx_settings.contractor_id', 'wms_contractor_settings.contractor_id')
+                            ->where('wms_order_jx_settings.is_active', true);
+                    });
+            })
+            ->pluck('contractor_id')
+            ->map(fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+
+        if (empty($representativeIds)) {
+            return [];
+        }
+
+        $childIds = WmsContractorSetting::query()
+            ->whereIn('transmission_contractor_id', $representativeIds)
+            ->pluck('contractor_id')
+            ->map(fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+
+        $mappedSourceIds = [];
+        foreach ($generator?->getTransmissionContractorMapping() ?? [] as $sourceId => $targetId) {
+            if (in_array((int) $targetId, $representativeIds, true)) {
+                $mappedSourceIds[] = (int) $sourceId;
+            }
+        }
+
+        return collect($representativeIds)
+            ->merge($childIds)
+            ->merge($mappedSourceIds)
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
      * 修正再送用の一時実行CDを生成する。
      *
      * wms_order_candidates.batch_code は17桁制限だが、再送ファイルは候補へ再紐付けしないため
@@ -2150,26 +2201,46 @@ class OrderTransmissionService
             ->where('status', CandidateStatus::CONFIRMED)
             ->whereNotNull('wms_order_jx_document_id')
             ->count();
+        $targetContractorIds = $this->jxOrderTargetContractorIds();
+        $excludedNotJxTarget = (clone $baseQuery)
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->whereNull('wms_order_jx_document_id')
+            ->when(
+                ! empty($targetContractorIds),
+                fn ($query) => $query->whereNotIn('contractor_id', $targetContractorIds),
+                fn ($query) => $query
+            )
+            ->count();
 
         $candidates = WmsOrderCandidate::whereIn('id', $candidateIds)
             ->where('status', CandidateStatus::CONFIRMED)
             ->whereNull('wms_order_jx_document_id')
+            ->when(
+                ! empty($targetContractorIds),
+                fn ($query) => $query->whereIn('contractor_id', $targetContractorIds),
+                fn ($query) => $query->whereRaw('1 = 0')
+            )
             ->with(['item', 'contractor', 'warehouse'])
             ->get();
 
         if ($candidates->isEmpty()) {
+            $message = $excludedNotJxTarget > 0
+                ? 'JX送信対象外の発注先が含まれているため、生成対象がありません'
+                : 'JX未生成の確定済み発注候補がありません';
+
             return [
                 'success' => false,
                 'files' => [],
                 'total_orders' => 0,
                 'selected_count' => $selectedCount,
                 'eligible_count' => 0,
-                'excluded_count' => $selectedCount,
+                'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedNotJxTarget,
                 'excluded_missing' => $excludedMissing,
                 'excluded_not_confirmed' => $excludedNotConfirmed,
                 'excluded_already_generated' => $excludedAlreadyGenerated,
+                'excluded_not_jx_target' => $excludedNotJxTarget,
                 'skipped_count' => 0,
-                'errors' => ['JX未生成の確定済み発注候補がありません'],
+                'errors' => [$message],
             ];
         }
 
@@ -2190,10 +2261,11 @@ class OrderTransmissionService
             ...$result,
             'selected_count' => $selectedCount,
             'eligible_count' => $eligibleCount,
-            'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated,
+            'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedNotJxTarget,
             'excluded_missing' => $excludedMissing,
             'excluded_not_confirmed' => $excludedNotConfirmed,
             'excluded_already_generated' => $excludedAlreadyGenerated,
+            'excluded_not_jx_target' => $excludedNotJxTarget,
             'skipped_count' => max(0, $eligibleCount - $totalOrders),
         ];
     }

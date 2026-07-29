@@ -180,7 +180,48 @@ class OrderTransmissionServiceTest extends TestCase
         $this->assertSame(2, $result['excluded_missing']);
         $this->assertSame(0, $result['excluded_not_confirmed']);
         $this->assertSame(0, $result['excluded_already_generated']);
+        $this->assertSame(0, $result['excluded_not_jx_target']);
         $this->assertSame(0, $result['skipped_count']);
+    }
+
+    /**
+     * @test
+     * JX送信対象外の発注先は手動JXファイル生成の対象から除外されること
+     */
+    public function it_excludes_non_jx_target_contractors_from_selected_jx_file_generation(): void
+    {
+        $candidate = WmsOrderCandidate::create([
+            'batch_code' => 'TJXEXCL0000000001',
+            'warehouse_id' => 999999991,
+            'item_id' => 999999991,
+            'item_code' => 'TEST-JX-EXCL',
+            'contractor_id' => 999999991,
+            'suggested_quantity' => 1,
+            'order_quantity' => 1,
+            'purchase_unit' => 1,
+            'quantity_type' => 'CASE',
+            'status' => CandidateStatus::CONFIRMED,
+            'lot_status' => 'RAW',
+            'modified_at' => now(),
+        ]);
+
+        try {
+            $result = $this->service->generateJxFilesForCandidateIds([$candidate->id]);
+
+            $this->assertFalse($result['success']);
+            $this->assertSame(1, $result['selected_count']);
+            $this->assertSame(0, $result['eligible_count']);
+            $this->assertSame(1, $result['excluded_count']);
+            $this->assertSame(1, $result['excluded_not_jx_target']);
+            $this->assertSame(0, $result['total_orders']);
+            $this->assertSame([], $result['files']);
+            $this->assertStringContainsString('JX送信対象外', $result['errors'][0] ?? '');
+            $this->assertDatabaseMissing('wms_order_jx_documents', [
+                'batch_code' => 'TJXEXCL0000000001',
+            ], 'sakemaru');
+        } finally {
+            $candidate->delete();
+        }
     }
 
     /**
