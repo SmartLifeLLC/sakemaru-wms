@@ -52,7 +52,7 @@ class ListWmsIncomingCompleted extends ListRecords
         if ($scheduleIds === null && $warehouseId === null) {
             Notification::make()
                 ->title('倉庫を選択してください')
-                ->body('仕入れデータ全送信は倉庫別に実行します。倉庫タブを選択してから再実行してください。')
+                ->body('仕入データ全送信は倉庫別に実行します。倉庫タブを選択してから再実行してください。')
                 ->warning()
                 ->send();
 
@@ -133,7 +133,7 @@ class ListWmsIncomingCompleted extends ListRecords
 
     private function getPurchaseTransmissionActionLabel(): string
     {
-        return $this->getPurchaseTransmissionTargetLabel().' 仕入れデータ全送信';
+        return '仕入データ全送信';
     }
 
     private function getPurchaseTransmissionTargetLabel(): string
