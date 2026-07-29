@@ -1433,6 +1433,7 @@ class IncomingReceiveService
             $updatedCount = 0;
             $skippedCount = 0;
             $scheduleIds = [];
+            $purchaseSplitKey = $this->unassignedJxSlipPurchaseSplitKey($lockedSlip);
 
             foreach ($validatedDetails as $validatedDetail) {
                 /** @var WmsIncomingReceivedDetail $detail */
@@ -1499,7 +1500,7 @@ class IncomingReceiveService
                     'confirmed_by' => $confirmedBy ?? 0,
                     'confirmed_picker_id' => null,
                     'source_received_detail_id' => $detail->id,
-                    'purchase_split_key' => $this->duplicateDetailPurchaseSplitKey($detail),
+                    'purchase_split_key' => $purchaseSplitKey,
                     'note' => "伝票番号不明EOS受信から入荷確定データ作成: 受信伝票ID={$lockedSlip->id}, 受信明細ID={$detail->id}",
                 ]);
 
@@ -1825,6 +1826,11 @@ class IncomingReceiveService
     private function duplicateDetailPurchaseSplitKey(WmsIncomingReceivedDetail $detail): string
     {
         return "EOS_DETAIL_{$detail->id}";
+    }
+
+    private function unassignedJxSlipPurchaseSplitKey(WmsIncomingReceivedSlip $slip): string
+    {
+        return "UNASSIGNED_JX_SLIP_{$slip->id}";
     }
 
     private function markDetailAsConfirmedFromReceivedSchedule(

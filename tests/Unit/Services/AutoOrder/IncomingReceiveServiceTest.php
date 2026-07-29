@@ -20,6 +20,8 @@ use App\Models\WmsOrderJxDocument;
 use App\Models\WmsOrderSlipNumberAssignment;
 use App\Services\AutoOrder\IncomingPriceCheckSourceRecorder;
 use App\Services\AutoOrder\IncomingReceiveService;
+use App\Services\AutoOrder\IncomingTransmissionService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -52,11 +54,34 @@ class IncomingReceiveServiceTest extends TestCase
             WmsIncomingReceivedFile::query()->whereIn('id', $fileIds->all())->delete();
         }
 
+        $purchaseQueueIds = WmsOrderIncomingSchedule::query()
+            ->where(function ($query) {
+                $query->where('slip_number', $this->slipNumber)
+                    ->orWhere('slip_number', 'FAX-'.$this->slipNumber);
+            })
+            ->pluck('purchase_queue_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
         WmsOrderIncomingSchedule::query()
             ->where(function ($query) {
                 $query->where('slip_number', $this->slipNumber)
                     ->orWhere('slip_number', 'FAX-'.$this->slipNumber);
             })
+            ->delete();
+
+        if ($purchaseQueueIds !== []) {
+            DB::connection('sakemaru')
+                ->table('purchase_create_queue')
+                ->whereIn('id', $purchaseQueueIds)
+                ->delete();
+        }
+
+        DB::connection('sakemaru')
+            ->table('purchase_create_queue')
+            ->where('slip_number', $this->slipNumber)
             ->delete();
 
         WmsOrderSlipNumberAssignment::query()
@@ -1360,7 +1385,7 @@ class IncomingReceiveServiceTest extends TestCase
         $this->assertSame(123, $schedule->confirmed_by);
         $this->assertSame('PIECE', $schedule->price_type);
         $this->assertEquals('4105.00', $schedule->partner_unit_price);
-        $this->assertSame("EOS_DETAIL_{$detail->id}", $schedule->purchase_split_key);
+        $this->assertSame("UNASSIGNED_JX_SLIP_{$slip->id}", $schedule->purchase_split_key);
 
         $slip->refresh();
         $detail->refresh();
@@ -1404,6 +1429,102 @@ class IncomingReceiveServiceTest extends TestCase
         $this->assertSame(1, WmsOrderIncomingSchedule::query()
             ->where('source_received_detail_id', $detail->id)
             ->count());
+    }
+
+    public function test_unassigned_jx_slip_multiple_details_transmit_as_one_purchase_queue(): void
+    {
+        $contractorId = $this->contractorId('1330');
+
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-incoming-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'PENDING',
+            'contractor_id' => $contractorId,
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 2,
+        ]);
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $this->slipNumber,
+            'match_status' => 'UNMATCHED',
+            'b_shop_code' => '0008',
+            'b_order_date' => '260720',
+            'b_delivery_date' => '260721',
+            'b_contractor_code' => '1330',
+            'detail_count' => 2,
+        ]);
+
+        $firstDetail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '7401005008597',
+            'd_item_code' => '162100',
+            'd_pack_quantity' => 6,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 3,
+            'd_unit_price' => 410500,
+            'total_quantity' => 3,
+            'match_status' => 'UNMATCHED',
+        ]);
+
+        $secondDetail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 2,
+            'd_jan_code' => '7401005008597',
+            'd_item_code' => '162100',
+            'd_pack_quantity' => 6,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 2,
+            'd_unit_price' => 410500,
+            'total_quantity' => 2,
+            'match_status' => 'UNMATCHED',
+        ]);
+
+        app(IncomingReceiveService::class)->matchWithSchedules($file);
+
+        $confirmResult = app(IncomingReceiveService::class)->confirmUnassignedJxSlip($slip->fresh(), 123);
+
+        $this->assertSame(2, $confirmResult['created']);
+        $this->assertSame(0, $confirmResult['updated']);
+        $this->assertSame(0, $confirmResult['skipped']);
+        $this->assertCount(2, $confirmResult['schedule_ids']);
+
+        $schedules = WmsOrderIncomingSchedule::query()
+            ->whereIn('source_received_detail_id', [$firstDetail->id, $secondDetail->id])
+            ->orderBy('source_received_detail_id')
+            ->get();
+
+        $this->assertCount(2, $schedules);
+        $this->assertSame(
+            ["UNASSIGNED_JX_SLIP_{$slip->id}"],
+            $schedules->pluck('purchase_split_key')->unique()->values()->all()
+        );
+
+        $transmitResult = app(IncomingTransmissionService::class)->transmitConfirmedIncomings(
+            scheduleIds: $confirmResult['schedule_ids'],
+        );
+
+        $this->assertTrue($transmitResult['success'], json_encode($transmitResult['errors'], JSON_UNESCAPED_UNICODE));
+        $this->assertSame(1, $transmitResult['queue_count']);
+        $this->assertSame(2, $transmitResult['schedule_count']);
+
+        $schedules = $schedules->fresh();
+        $this->assertNotNull($schedules[0]->purchase_queue_id);
+        $this->assertSame($schedules[0]->purchase_queue_id, $schedules[1]->purchase_queue_id);
+
+        $queue = DB::connection('sakemaru')
+            ->table('purchase_create_queue')
+            ->where('id', $schedules[0]->purchase_queue_id)
+            ->first();
+        $payload = json_decode($queue->items, true);
+
+        $this->assertSame($this->slipNumber, $queue->slip_number);
+        $this->assertSame($this->slipNumber, $payload['slip_number']);
+        $this->assertCount(2, $payload['details']);
+        $this->assertSame([3, 2], collect($payload['details'])->pluck('quantity')->all());
     }
 
     private function contractorId(string $code): int
