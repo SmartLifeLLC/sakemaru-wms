@@ -28,7 +28,7 @@ class IncomingTransmissionService
      * - warehouse_code (倉庫コード)
      * - supplier_code (仕入先コード)
      * - slip_number (入荷/EOS伝票番号)
-     * - order_date (発注日 = 計上日)
+     * - process_date (仕入連携日 = 計上日)
      * - actual_arrival_date / confirmed_at date (入荷日 = 配送日/買掛日)
      *
      * @return array ['success' => bool, 'queue_count' => int, 'schedule_count' => int, 'errors' => array]
@@ -230,7 +230,7 @@ class IncomingTransmissionService
                         'schedule_id' => $schedule->id,
                         'group_key' => $this->purchaseGroupKey($schedule),
                         'error' => sprintf(
-                            '仕入キュー登録に必要な情報を解決できません（倉庫CD:%s / 仕入先CD:%s / 伝票番号:%s / 商品CD:%s / 発注日:%s / 入荷日:%s / 買掛日:%s）',
+                            '仕入キュー登録に必要な情報を解決できません（倉庫CD:%s / 仕入先CD:%s / 伝票番号:%s / 商品CD:%s / 連携日:%s / 入荷日:%s / 買掛日:%s）',
                             $warehouseCode !== '' ? $warehouseCode : '-',
                             $supplierCode !== '' ? $supplierCode : '-',
                             $slipNumber !== '' ? $slipNumber : '-',
@@ -407,12 +407,13 @@ class IncomingTransmissionService
 
     private function getProcessDate(WmsOrderIncomingSchedule $schedule): ?string
     {
-        return $schedule->order_date?->format('Y-m-d');
+        return $this->getDeliveredDate($schedule);
     }
 
     private function getDeliveredDate(WmsOrderIncomingSchedule $schedule): ?string
     {
         return $schedule->actual_arrival_date?->format('Y-m-d')
+            ?? $schedule->expected_arrival_date?->format('Y-m-d')
             ?? $schedule->confirmed_at?->format('Y-m-d');
     }
 
@@ -484,7 +485,7 @@ class IncomingTransmissionService
             'supplier_code' => $supplierCode,
             'warehouse_code' => $this->getWarehouseCode($first),
             'slip_number' => $slipNumber,
-            'note' => $this->buildPurchaseNote($first),
+            'note' => $this->buildPurchaseNote($first, $schedules),
             'details' => $details,
         ];
 
@@ -506,7 +507,7 @@ class IncomingTransmissionService
     /**
      * 仕入れ伝票の備考を構築
      */
-    private function buildPurchaseNote(WmsOrderIncomingSchedule $schedule): string
+    private function buildPurchaseNote(WmsOrderIncomingSchedule $schedule, ?Collection $schedules = null): string
     {
         $parts = [];
 
@@ -527,6 +528,17 @@ class IncomingTransmissionService
         // 欠品数がある場合は備考に追記
         if ($schedule->shortage_quantity > 0) {
             $parts[] = "欠品数:{$schedule->shortage_quantity}";
+        }
+
+        $orderDates = ($schedules ?? collect([$schedule]))
+            ->map(fn (WmsOrderIncomingSchedule $schedule): ?string => $schedule->order_date?->format('Y-m-d'))
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values();
+
+        if ($orderDates->isNotEmpty()) {
+            $parts[] = '元発注日:'.$orderDates->implode(',');
         }
 
         return implode(' / ', $parts);
