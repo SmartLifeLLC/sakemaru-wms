@@ -472,9 +472,9 @@ class WmsJxUnknownIncomingSlipsTable
         $line = $detail->d_line_number ?: '-';
         $jan = filled($detail->d_jan_code) ? $detail->d_jan_code : '-';
         $itemCode = filled($detail->d_item_code) ? $detail->d_item_code : '-';
-        $name = filled($detail->d_product_name) ? $detail->d_product_name : '-';
+        $name = filled($detail->d_product_name) ? $detail->d_product_name : '受信商品名なし';
 
-        return "行{$line} / JAN: {$jan} / 商品CD: {$itemCode} / 総バラ: {$detail->total_quantity} / {$name}";
+        return "商品名: {$name} / 行{$line} / JAN: {$jan} / 商品CD: {$itemCode} / 総バラ: {$detail->total_quantity}";
     }
 
     private static function searchItemOptions(string $search): array
