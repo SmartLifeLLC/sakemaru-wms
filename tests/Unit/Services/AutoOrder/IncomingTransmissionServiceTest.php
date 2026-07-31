@@ -8,6 +8,7 @@ use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingTransmissionService;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -17,6 +18,8 @@ class IncomingTransmissionServiceTest extends TestCase
 
     protected function tearDown(): void
     {
+        Carbon::setTestNow();
+
         $queueIds = WmsOrderIncomingSchedule::query()
             ->where('slip_number', 'like', self::TEST_SLIP_PREFIX.'%')
             ->pluck('purchase_queue_id')
@@ -44,6 +47,8 @@ class IncomingTransmissionServiceTest extends TestCase
 
     public function test_transmit_groups_by_slip_number_and_splits_by_arrival_date(): void
     {
+        Carbon::setTestNow('2026-07-31 22:00:00');
+
         $master = $this->purchaseMasterData();
         $slipA = $this->newSlipNumber('A');
         $slipB = $this->newSlipNumber('B');
@@ -83,8 +88,48 @@ class IncomingTransmissionServiceTest extends TestCase
 
         $this->assertSame($slipA, $queue->slip_number);
         $this->assertSame($slipA, $payload['slip_number']);
+        $this->assertSame('2026-07-20', $payload['process_date']);
         $this->assertSame('2026-07-20', $payload['delivered_date']);
         $this->assertCount(2, $payload['details']);
+    }
+
+    public function test_transmit_uses_incoming_date_for_process_date_when_order_date_is_old(): void
+    {
+        Carbon::setTestNow('2026-07-31 22:05:00');
+
+        $master = $this->purchaseMasterData();
+        $slip = $this->newSlipNumber('R');
+        $schedule = $this->createConfirmedSchedule(
+            $master,
+            $slip,
+            '2026-08-01',
+            5,
+            orderSource: OrderSource::RECEIVED,
+            isReceiveMatched: true,
+            purchaseSplitKey: 'UNASSIGNED_JX_SLIP_999',
+            orderDate: '2026-06-18',
+        );
+
+        $result = app(IncomingTransmissionService::class)->transmitConfirmedIncomings(
+            scheduleIds: [$schedule->id],
+        );
+
+        $this->assertTrue($result['success'], json_encode($result['errors'], JSON_UNESCAPED_UNICODE));
+        $this->assertSame(1, $result['queue_count']);
+        $this->assertSame(1, $result['schedule_count']);
+
+        $schedule->refresh();
+
+        $queue = DB::connection('sakemaru')
+            ->table('purchase_create_queue')
+            ->where('id', $schedule->purchase_queue_id)
+            ->first();
+        $payload = json_decode($queue->items, true);
+
+        $this->assertSame('2026-08-01', $payload['process_date']);
+        $this->assertSame('2026-08-01', $payload['delivered_date']);
+        $this->assertSame('2026-08-01', $payload['account_date']);
+        $this->assertStringContainsString('元発注日:2026-06-18', $payload['note']);
     }
 
     public function test_transmit_splits_same_slip_when_purchase_split_key_is_different(): void
@@ -384,6 +429,7 @@ class IncomingTransmissionServiceTest extends TestCase
         OrderSource $orderSource = OrderSource::AUTO,
         bool $isReceiveMatched = false,
         ?string $purchaseSplitKey = null,
+        string $orderDate = '2026-07-19',
     ): WmsOrderIncomingSchedule {
         return WmsOrderIncomingSchedule::query()->create([
             'warehouse_id' => $master['warehouse_id'],
@@ -396,7 +442,7 @@ class IncomingTransmissionServiceTest extends TestCase
             'expected_quantity' => $quantity,
             'received_quantity' => $quantity,
             'quantity_type' => QuantityType::PIECE,
-            'order_date' => '2026-07-19',
+            'order_date' => $orderDate,
             'expected_arrival_date' => $actualDate,
             'actual_arrival_date' => $actualDate,
             'status' => IncomingScheduleStatus::CONFIRMED,
