@@ -221,6 +221,9 @@ class WmsJxUnknownIncomingSlipsTable
                     ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitActionLabel('商品を確定')
                     ->modalCancelActionLabel('確定せず閉じる')
+                    ->fillForm(fn (array $arguments): array => [
+                        'detail_id' => $arguments['detail_id'] ?? null,
+                    ])
                     ->schema([
                         Select::make('detail_id')
                             ->label('商品不明明細')
@@ -274,6 +277,9 @@ class WmsJxUnknownIncomingSlipsTable
                     ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitActionLabel('商品不明を削除')
                     ->modalCancelActionLabel('削除せず閉じる')
+                    ->fillForm(fn (array $arguments): array => [
+                        'detail_id' => $arguments['detail_id'] ?? null,
+                    ])
                     ->schema([
                         Select::make('detail_id')
                             ->label('商品不明明細')
@@ -620,6 +626,7 @@ class WmsJxUnknownIncomingSlipsTable
                 ->schema([
                     View::make('filament.components.jx-unknown-incoming-slip-detail-table')
                         ->viewData([
+                            'recordKey' => (string) $record->getKey(),
                             'details' => self::detailRows($record),
                         ]),
                 ]),
@@ -631,6 +638,7 @@ class WmsJxUnknownIncomingSlipsTable
         return $record->details
             ->sortBy('d_line_number')
             ->map(fn ($detail): array => [
+                'id' => $detail->id,
                 'line' => $detail->d_line_number,
                 'matched_item_code' => $detail->matchedItem?->code ?: '-',
                 'product_name' => $detail->d_product_name ?: '-',
@@ -641,6 +649,7 @@ class WmsJxUnknownIncomingSlipsTable
                 'total_quantity' => $detail->total_quantity,
                 'match_status' => self::matchStatusLabel($detail->match_status),
                 'is_shortage' => $detail->is_shortage ? '欠品' : '',
+                'can_adjust_item' => blank($detail->matched_item_id) && $detail->match_status !== 'IGNORED',
             ])
             ->values()
             ->all();
