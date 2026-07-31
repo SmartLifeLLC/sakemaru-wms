@@ -33,7 +33,7 @@ class IncomingTransmissionService
      *
      * @return array ['success' => bool, 'queue_count' => int, 'schedule_count' => int, 'errors' => array]
      */
-    public function transmitConfirmedIncomings(?int $warehouseId = null, ?array $scheduleIds = null): array
+    public function transmitConfirmedIncomings(?int $warehouseId = null, ?array $scheduleIds = null, ?int $contractorId = null): array
     {
         $scheduleIds = $this->normalizeScheduleIds($scheduleIds);
 
@@ -46,12 +46,12 @@ class IncomingTransmissionService
             ];
         }
 
-        return DB::connection('sakemaru')->transaction(function () use ($warehouseId, $scheduleIds): array {
-            return $this->transmitConfirmedIncomingsInTransaction($warehouseId, $scheduleIds);
+        return DB::connection('sakemaru')->transaction(function () use ($warehouseId, $scheduleIds, $contractorId): array {
+            return $this->transmitConfirmedIncomingsInTransaction($warehouseId, $scheduleIds, $contractorId);
         });
     }
 
-    private function transmitConfirmedIncomingsInTransaction(?int $warehouseId, ?array $scheduleIds): array
+    private function transmitConfirmedIncomingsInTransaction(?int $warehouseId, ?array $scheduleIds, ?int $contractorId): array
     {
         // CONFIRMED状態の未処理入庫データを取得する。移動由来は仕入連携対象外。
         // 本部発注対象は仕入キューを作らず、処理済み化だけ行う。
@@ -64,12 +64,17 @@ class IncomingTransmissionService
             $query->whereKey($scheduleIds);
         }
 
+        if ($contractorId !== null) {
+            $query->where('contractor_id', $contractorId);
+        }
+
         $schedules = $query->get();
 
         if ($schedules->isEmpty()) {
             Log::info('No confirmed incoming schedules to transmit', [
                 'warehouse_id' => $warehouseId,
                 'schedule_ids' => $scheduleIds,
+                'contractor_id' => $contractorId,
             ]);
 
             return [
