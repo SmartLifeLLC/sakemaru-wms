@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WmsJxUnknownIncomingSlips\Tables;
 
 use App\Enums\PaginationOptions;
+use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsIncomingImportError;
 use App\Models\WmsIncomingReceivedFile;
@@ -98,10 +99,11 @@ class WmsJxUnknownIncomingSlipsTable
 
                 TextColumn::make('file.contractor.name')
                     ->label('受信仕入先')
+                    ->state(fn (WmsIncomingReceivedSlip $record): string => self::resolvedContractorLabel($record))
                     ->searchable()
                     ->placeholder('-')
                     ->limit(18)
-                    ->tooltip(fn ($state) => $state),
+                    ->tooltip(fn (WmsIncomingReceivedSlip $record): string => self::resolvedContractorLabel($record)),
 
                 TextColumn::make('b_delivery_date')
                     ->label('納品日')
@@ -379,7 +381,7 @@ class WmsJxUnknownIncomingSlipsTable
                             ->state($record->b_contractor_code ?? '-'),
                         TextEntry::make('file_contractor')
                             ->label('受信仕入先')
-                            ->state($record->file?->contractor?->name ?? '-'),
+                            ->state(self::resolvedContractorLabel($record)),
                         TextEntry::make('match_status')
                             ->label('状態')
                             ->state(self::matchStatusLabel($record->match_status)),
@@ -430,6 +432,20 @@ class WmsJxUnknownIncomingSlipsTable
             ])
             ->values()
             ->all();
+    }
+
+    private static function resolvedContractorLabel(WmsIncomingReceivedSlip $record): string
+    {
+        $contractorId = app(IncomingReceiveService::class)->resolveUnassignedJxSlipContractorId($record);
+        $contractor = $contractorId ? Contractor::query()->find($contractorId) : null;
+
+        if ($contractor) {
+            return filled($contractor->code)
+                ? "[{$contractor->code}]{$contractor->name}"
+                : $contractor->name;
+        }
+
+        return $record->file?->contractor?->name ?? '-';
     }
 
     private static function issueMessages(WmsIncomingReceivedSlip $record, string $separator): string

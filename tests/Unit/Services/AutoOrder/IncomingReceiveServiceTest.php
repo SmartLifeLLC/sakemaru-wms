@@ -1431,6 +1431,58 @@ class IncomingReceiveServiceTest extends TestCase
             ->count());
     }
 
+    public function test_unassigned_jx_slip_uses_item_contractor_before_file_contractor(): void
+    {
+        $fileContractorId = $this->contractorId('1106');
+        $itemContractorId = $this->contractorId('1021');
+
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-incoming-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'PENDING',
+            'contractor_id' => $fileContractorId,
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 1,
+        ]);
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $this->slipNumber,
+            'match_status' => 'UNMATCHED',
+            'b_shop_code' => '0091',
+            'b_order_date' => '260729',
+            'b_delivery_date' => '260730',
+            'b_contractor_code' => '0010',
+            'detail_count' => 1,
+        ]);
+
+        $detail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '4901004061805',
+            'd_item_code' => '490100',
+            'd_pack_quantity' => 1,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 1,
+            'd_unit_price' => 194000,
+            'total_quantity' => 1,
+            'match_status' => 'UNMATCHED',
+        ]);
+
+        $result = app(IncomingReceiveService::class)->confirmUnassignedJxSlip($slip->fresh(), 123);
+
+        $this->assertSame(1, $result['created']);
+
+        $schedule = WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->firstOrFail();
+
+        $this->assertSame(312085, (int) $schedule->item_id);
+        $this->assertSame($itemContractorId, (int) $schedule->contractor_id);
+        $this->assertNotSame($fileContractorId, (int) $schedule->contractor_id);
+    }
+
     public function test_unassigned_jx_slip_multiple_details_transmit_as_one_purchase_queue(): void
     {
         $contractorId = $this->contractorId('1330');
