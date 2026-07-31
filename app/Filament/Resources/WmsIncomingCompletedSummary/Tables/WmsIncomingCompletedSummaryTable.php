@@ -178,6 +178,19 @@ class WmsIncomingCompletedSummaryTable
                             'details' => self::detailRows($record),
                         ],
                     )),
+                Action::make('transmitPurchaseGroup')
+                    ->label('仕入連携')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->color('success')
+                    ->visible(fn (WmsOrderIncomingSchedule $record): bool => self::canTransmitSummaryGroup($record))
+                    ->requiresConfirmation()
+                    ->modalHeading(fn (WmsOrderIncomingSchedule $record): string => self::purchaseTransmissionHeading($record))
+                    ->modalDescription(fn (WmsOrderIncomingSchedule $record): string => self::purchaseTransmissionDescription($record))
+                    ->modalSubmitActionLabel('仕入連携する')
+                    ->modalCancelActionLabel('連携せず閉じる')
+                    ->action(function (WmsOrderIncomingSchedule $record): void {
+                        self::transmitSelectedPurchaseGroups(collect([$record]));
+                    }),
             ], position: RecordActionsPosition::BeforeColumns)
             ->toolbarActions([
                 BulkActionGroup::make([
@@ -296,6 +309,22 @@ class WmsIncomingCompletedSummaryTable
             ->body(self::purchaseTransmissionResultMessage($queueCount, $scheduleCount, $skippedCount, $errors));
 
         ($errors === [] ? $notification->success() : $notification->warning())->send();
+    }
+
+    private static function purchaseTransmissionHeading(WmsOrderIncomingSchedule $record): string
+    {
+        return self::contractorLabel($record).' 仕入連携';
+    }
+
+    private static function purchaseTransmissionDescription(WmsOrderIncomingSchedule $record): string
+    {
+        $detailCount = number_format((int) ($record->summary_untransmitted_count ?? 0));
+        $slipCount = number_format((int) ($record->summary_slip_count ?? 0));
+
+        return self::summaryGroupLabel($record)
+            ." の未連携入荷完了データ {$detailCount}件を基幹システムの仕入キューに登録します。"
+            .'同一の倉庫・仕入先・伝票番号・入荷日ごとに1伝票としてまとめられます。'
+            ."グループ内伝票数: {$slipCount}件。登録後はデータの修正ができなくなります。";
     }
 
     private static function purchaseTransmissionResultMessage(
