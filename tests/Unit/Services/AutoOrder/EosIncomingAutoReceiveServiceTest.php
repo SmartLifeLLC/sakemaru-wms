@@ -5,11 +5,20 @@ namespace Tests\Unit\Services\AutoOrder;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\QuantityType;
+use App\Models\WmsEosIncomingReceiveRun;
+use App\Models\WmsEosIncomingReceiveSetting;
+use App\Models\WmsIncomingImportError;
+use App\Models\WmsIncomingPriceCheckSource;
+use App\Models\WmsIncomingReceivedDetail;
+use App\Models\WmsIncomingReceivedFile;
+use App\Models\WmsIncomingReceivedSlip;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\EosIncomingAutoReceiveService;
+use App\Services\AutoOrder\IncomingReceiveService;
 use App\Services\AutoOrder\IncomingTransmissionService;
 use App\Services\JX\Eos\JxEosIncomingWorkflowService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -19,8 +28,27 @@ class EosIncomingAutoReceiveServiceTest extends TestCase
 
     protected function tearDown(): void
     {
+        $fileIds = WmsIncomingReceivedFile::query()
+            ->where('filename', 'like', 'test-eos-auto-receive-%')
+            ->pluck('id');
+
+        if ($fileIds->isNotEmpty()) {
+            if (Schema::connection('sakemaru')->hasTable('wms_incoming_price_check_sources')) {
+                WmsIncomingPriceCheckSource::query()->whereIn('received_file_id', $fileIds->all())->delete();
+            }
+
+            WmsIncomingImportError::query()->whereIn('received_file_id', $fileIds->all())->delete();
+            WmsIncomingReceivedDetail::query()->whereIn('received_file_id', $fileIds->all())->delete();
+            WmsIncomingReceivedSlip::query()->whereIn('received_file_id', $fileIds->all())->delete();
+            WmsIncomingReceivedFile::query()->whereIn('id', $fileIds->all())->delete();
+        }
+
         WmsOrderIncomingSchedule::query()
             ->where('slip_number', 'like', self::TEST_SLIP_PREFIX.'%')
+            ->delete();
+
+        WmsEosIncomingReceiveRun::query()
+            ->where('run_key', 'like', 'test-eos-auto-receive-%')
             ->delete();
 
         parent::tearDown();
@@ -122,6 +150,93 @@ class EosIncomingAutoReceiveServiceTest extends TestCase
         $this->assertNull($confirmed->confirmed_by);
     }
 
+    public function test_auto_confirm_unassigned_jx_slips_creates_confirmed_unknown_incoming(): void
+    {
+        $contractorId = $this->contractorId('1330');
+        $slipNumber = self::TEST_SLIP_PREFIX.'U'.random_int(100000, 999999);
+
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-eos-auto-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'PENDING',
+            'contractor_id' => $contractorId,
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 1,
+        ]);
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $slipNumber,
+            'match_status' => 'UNMATCHED',
+            'b_shop_code' => '0008',
+            'b_order_date' => '260720',
+            'b_delivery_date' => '260721',
+            'b_contractor_code' => '1330',
+            'detail_count' => 1,
+        ]);
+
+        $detail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '7401005008597',
+            'd_item_code' => '162100',
+            'd_pack_quantity' => 6,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 3,
+            'd_unit_price' => 410500,
+            'total_quantity' => 3,
+            'match_status' => 'UNMATCHED',
+        ]);
+
+        app(IncomingReceiveService::class)->matchWithSchedules($file);
+
+        $setting = WmsEosIncomingReceiveSetting::ensureDefault();
+        $run = WmsEosIncomingReceiveRun::create([
+            'run_key' => 'test-eos-auto-receive-'.now()->format('YmdHisv'),
+            'setting_id' => $setting->id,
+            'execution_date' => now()->toDateString(),
+            'trigger_type' => WmsEosIncomingReceiveRun::TRIGGER_MANUAL,
+            'status' => WmsEosIncomingReceiveRun::STATUS_RUNNING,
+            'started_at' => now(),
+        ]);
+        $stats = [
+            'incoming_matched_count' => 0,
+            'incoming_unmatched_count' => 1,
+            'incoming_confirmed_schedule_count' => 0,
+            'unknown_slip_count' => 1,
+        ];
+
+        $service = new EosIncomingAutoReceiveService(
+            $this->createMock(JxEosIncomingWorkflowService::class),
+            $this->createMock(IncomingTransmissionService::class),
+        );
+        $method = new ReflectionMethod($service, 'autoConfirmUnassignedJxSlips');
+        $method->setAccessible(true);
+
+        $scheduleIds = $method->invokeArgs($service, [$run, $file->fresh(), &$stats]);
+
+        $this->assertCount(1, $scheduleIds);
+        $this->assertSame(1, $stats['incoming_matched_count']);
+        $this->assertSame(0, $stats['incoming_unmatched_count']);
+        $this->assertSame(1, $stats['incoming_confirmed_schedule_count']);
+        $this->assertSame(0, $stats['unknown_slip_count']);
+
+        $schedule = WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->firstOrFail();
+
+        $this->assertSame($schedule->id, $scheduleIds[0]);
+        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $schedule->status);
+        $this->assertSame(OrderSource::RECEIVED, $schedule->order_source);
+        $this->assertTrue($schedule->isUnassignedJxReceived());
+        $this->assertSame("UNASSIGNED_JX_SLIP_{$slip->id}", $schedule->purchase_split_key);
+        $this->assertSame(3, $schedule->received_quantity);
+        $this->assertSame('MATCHED', $slip->fresh()->match_status);
+        $this->assertSame('MATCHED', $detail->fresh()->match_status);
+        $this->assertSame(WmsIncomingReceivedFile::STATUS_APPLIED, $file->fresh()->status);
+    }
+
     private function incomingMasterData(): array
     {
         $warehouse = DB::connection('sakemaru')
@@ -179,5 +294,19 @@ class EosIncomingAutoReceiveServiceTest extends TestCase
             'status' => $status,
             'confirmed_at' => $status === IncomingScheduleStatus::CONFIRMED ? '2026-07-01 09:00:00' : null,
         ]);
+    }
+
+    private function contractorId(string $code): int
+    {
+        $contractorId = DB::connection('sakemaru')
+            ->table('contractors')
+            ->where('code', $code)
+            ->value('id');
+
+        if (! $contractorId) {
+            $this->markTestSkipped("contractor {$code} is not available in test DB");
+        }
+
+        return (int) $contractorId;
     }
 }

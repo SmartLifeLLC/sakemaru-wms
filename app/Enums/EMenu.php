@@ -8,6 +8,7 @@ enum EMenu: string
     case INBOUND_DASHBOARD = 'inbound.dashboard';
     case WMS_ORDER_INCOMING_SCHEDULES = 'inbound.wms_order_incoming_schedules';
     case WMS_INCOMING_COMPLETED = 'inbound.wms_incoming_completed';
+    case WMS_INCOMING_COMPLETED_SUMMARY = 'inbound.wms_incoming_completed_summary';
     case WMS_INCOMING_TRANSMITTED = 'inbound.wms_incoming_transmitted';
     case WMS_INCOMING_RECEIVED_DATA = 'inbound.wms_incoming_received_data';
     case WMS_INCOMING_IMPORT_LOGS = 'inbound.wms_incoming_import_logs';
@@ -108,6 +109,7 @@ enum EMenu: string
             self::INBOUND_DASHBOARD,
             self::WMS_ORDER_INCOMING_SCHEDULES,
             self::WMS_INCOMING_COMPLETED,
+            self::WMS_INCOMING_COMPLETED_SUMMARY,
             self::WMS_INCOMING_TRANSMITTED,
             self::WMS_INCOMING_RECEIVED_DATA,
             self::WMS_INCOMING_IMPORT_LOGS,
@@ -204,6 +206,7 @@ enum EMenu: string
             self::INBOUND_DASHBOARD => '入荷ダッシュボード',
             self::WMS_ORDER_INCOMING_SCHEDULES => '入荷予定',
             self::WMS_INCOMING_COMPLETED => '入荷完了',
+            self::WMS_INCOMING_COMPLETED_SUMMARY => '入荷完了サマリー',
             self::WMS_INCOMING_TRANSMITTED => '仕入連携済み',
             self::WMS_INCOMING_RECEIVED_DATA => '入荷データ受信',
             self::WMS_INCOMING_IMPORT_LOGS => '取込ログ',
@@ -294,6 +297,7 @@ enum EMenu: string
             self::INBOUND_DASHBOARD => 'heroicon-o-presentation-chart-line',
             self::WMS_ORDER_INCOMING_SCHEDULES => 'heroicon-o-inbox-arrow-down',
             self::WMS_INCOMING_COMPLETED => 'heroicon-o-check-circle',
+            self::WMS_INCOMING_COMPLETED_SUMMARY => 'heroicon-o-list-bullet',
             self::WMS_INCOMING_TRANSMITTED => 'heroicon-o-cloud-arrow-up',
             self::WMS_INCOMING_RECEIVED_DATA => 'heroicon-o-arrow-down-tray',
             self::WMS_INCOMING_IMPORT_LOGS => 'heroicon-o-document-text',
@@ -384,12 +388,13 @@ enum EMenu: string
             self::INBOUND_DASHBOARD => 1,
             self::WMS_ORDER_INCOMING_SCHEDULES => 2,
             self::WMS_INCOMING_COMPLETED => 3,
-            self::WMS_INCOMING_TRANSMITTED => 4,
-            self::WMS_INCOMING_RECEIVED_DATA => 5,
-            self::WMS_INCOMING_IMPORT_LOGS => 6,
-            self::WMS_INCOMING_IMPORT_ERRORS => 7,
-            self::PURCHASES => 8,
-            self::RECEIPT_INSPECTIONS => 9,
+            self::WMS_INCOMING_COMPLETED_SUMMARY => 4,
+            self::WMS_INCOMING_TRANSMITTED => 5,
+            self::WMS_INCOMING_RECEIVED_DATA => 6,
+            self::WMS_INCOMING_IMPORT_LOGS => 7,
+            self::WMS_INCOMING_IMPORT_ERRORS => 8,
+            self::PURCHASES => 9,
+            self::RECEIPT_INSPECTIONS => 10,
 
             // 出荷管理
             self::WAVES => 0,

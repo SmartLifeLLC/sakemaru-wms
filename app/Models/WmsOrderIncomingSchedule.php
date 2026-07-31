@@ -402,6 +402,16 @@ class WmsOrderIncomingSchedule extends WmsModel
             ->exists();
     }
 
+    public function isUnassignedJxReceived(): bool
+    {
+        $orderSource = $this->order_source instanceof OrderSource
+            ? $this->order_source
+            : OrderSource::tryFrom((string) $this->order_source);
+
+        return $orderSource === OrderSource::RECEIVED
+            && str_starts_with((string) $this->purchase_split_key, 'UNASSIGNED_JX_SLIP_');
+    }
+
     private function hasActiveSlipNumberAssignment(): bool
     {
         $slipNumber = trim((string) $this->slip_number);

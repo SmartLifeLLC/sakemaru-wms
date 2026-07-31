@@ -9,6 +9,7 @@ use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\WmsOrderIncomingSchedule;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Support\Enums\Alignment;
@@ -45,13 +46,13 @@ class WmsIncomingTransmittedTable
                 TextColumn::make('order_source')
                     ->label('入荷区分')
                     ->badge()
-                    ->formatStateUsing(fn (OrderSource $state): string => match ($state) {
+                    ->formatStateUsing(fn (OrderSource $state, WmsOrderIncomingSchedule $record): string => $record->isUnassignedJxReceived() ? '不明' : match ($state) {
                         OrderSource::AUTO => '発注',
                         OrderSource::MANUAL => '手動',
                         OrderSource::TRANSFER => '移動',
                         OrderSource::RECEIVED => '受信',
                     })
-                    ->color(fn (OrderSource $state): string => match ($state) {
+                    ->color(fn (OrderSource $state, WmsOrderIncomingSchedule $record): string => $record->isUnassignedJxReceived() ? 'warning' : match ($state) {
                         OrderSource::AUTO => 'info',
                         OrderSource::MANUAL => 'gray',
                         OrderSource::TRANSFER => 'warning',
