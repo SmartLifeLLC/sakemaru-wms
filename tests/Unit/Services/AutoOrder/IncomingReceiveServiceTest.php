@@ -1484,8 +1484,14 @@ class IncomingReceiveServiceTest extends TestCase
 
         $detail->refresh();
         $slip->refresh();
+        $item = DB::connection('sakemaru')
+            ->table('items')
+            ->where('id', 162100)
+            ->first(['name', 'name_main']);
+        $expectedProductName = mb_substr((string) (($item?->name ?: $item?->name_main) ?: ''), 0, 64);
 
         $this->assertSame(162100, (int) $detail->matched_item_id);
+        $this->assertSame($expectedProductName, $detail->d_product_name);
         $this->assertSame('NO_ASSIGNMENT', $detail->match_status);
         $this->assertSame('NO_ASSIGNMENT', $slip->match_status);
         $this->assertDatabaseHas('wms_incoming_import_errors', [

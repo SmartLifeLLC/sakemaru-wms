@@ -22,7 +22,7 @@
                         @if ($detail['can_adjust_item'])
                             <button
                                 type="button"
-                                wire:click="mountTableAction('resolveMissingItem', '{{ $recordKey }}', { detail_id: {{ (int) $detail['id'] }} })"
+                                wire:click="replaceMountedAction('resolveMissingItem', { detail_id: {{ (int) $detail['id'] }} }, { table: true, recordKey: '{{ $recordKey }}' })"
                                 class="inline-flex items-center justify-center rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
                             >
                                 商品検索
@@ -42,7 +42,7 @@
                         @if ($detail['can_adjust_item'])
                             <button
                                 type="button"
-                                wire:click="mountTableAction('ignoreMissingItem', '{{ $recordKey }}', { detail_id: {{ (int) $detail['id'] }} })"
+                                wire:click="replaceMountedAction('ignoreMissingItem', { detail_id: {{ (int) $detail['id'] }} }, { table: true, recordKey: '{{ $recordKey }}' })"
                                 class="inline-flex items-center justify-center rounded border border-red-300 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-950 dark:text-red-200"
                             >
                                 削除

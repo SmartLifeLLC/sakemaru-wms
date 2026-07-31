@@ -237,6 +237,97 @@ class EosIncomingAutoReceiveServiceTest extends TestCase
         $this->assertSame(WmsIncomingReceivedFile::STATUS_APPLIED, $file->fresh()->status);
     }
 
+    public function test_auto_confirm_unassigned_jx_slips_skips_manually_resolved_unknown_item(): void
+    {
+        $contractorId = $this->contractorId('1330');
+        $slipNumber = self::TEST_SLIP_PREFIX.'R'.random_int(100000, 999999);
+
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-eos-auto-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'PENDING',
+            'contractor_id' => $contractorId,
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 1,
+        ]);
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $slipNumber,
+            'match_status' => 'NO_ASSIGNMENT',
+            'b_shop_code' => '0008',
+            'b_order_date' => '260720',
+            'b_delivery_date' => '260721',
+            'b_contractor_code' => '1330',
+            'detail_count' => 1,
+        ]);
+
+        $detail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '9999999999001',
+            'd_item_code' => '999999',
+            'd_product_name' => '商品不明手動確定テスト',
+            'd_pack_quantity' => 6,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 3,
+            'd_unit_price' => 410500,
+            'total_quantity' => 3,
+            'matched_item_id' => 162100,
+            'match_status' => 'NO_ASSIGNMENT',
+        ]);
+
+        WmsIncomingImportError::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'received_detail_id' => $detail->id,
+            'error_type' => 'ERROR',
+            'error_code' => 'ITEM_NOT_FOUND',
+            'error_message' => '商品を特定できません',
+            'item_code' => '999999',
+            'is_resolved' => true,
+            'resolved_by' => 123,
+            'resolved_at' => now(),
+        ]);
+
+        $setting = WmsEosIncomingReceiveSetting::ensureDefault();
+        $run = WmsEosIncomingReceiveRun::create([
+            'run_key' => 'test-eos-auto-receive-'.now()->format('YmdHisv'),
+            'setting_id' => $setting->id,
+            'execution_date' => now()->toDateString(),
+            'trigger_type' => WmsEosIncomingReceiveRun::TRIGGER_MANUAL,
+            'status' => WmsEosIncomingReceiveRun::STATUS_RUNNING,
+            'started_at' => now(),
+        ]);
+        $stats = [
+            'incoming_matched_count' => 0,
+            'incoming_unmatched_count' => 1,
+            'incoming_confirmed_schedule_count' => 0,
+            'unknown_slip_count' => 1,
+        ];
+
+        $service = new EosIncomingAutoReceiveService(
+            $this->createMock(JxEosIncomingWorkflowService::class),
+            $this->createMock(IncomingTransmissionService::class),
+        );
+        $method = new ReflectionMethod($service, 'autoConfirmUnassignedJxSlips');
+        $method->setAccessible(true);
+
+        $scheduleIds = $method->invokeArgs($service, [$run, $file->fresh(), &$stats]);
+
+        $this->assertSame([], $scheduleIds);
+        $this->assertSame(0, WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->count());
+        $this->assertSame('NO_ASSIGNMENT', $slip->fresh()->match_status);
+        $this->assertSame('NO_ASSIGNMENT', $detail->fresh()->match_status);
+        $this->assertSame(0, $stats['incoming_matched_count']);
+        $this->assertSame(1, $stats['incoming_unmatched_count']);
+        $this->assertSame(0, $stats['incoming_confirmed_schedule_count']);
+        $this->assertSame(1, $stats['unknown_slip_count']);
+    }
+
     private function incomingMasterData(): array
     {
         $warehouse = DB::connection('sakemaru')

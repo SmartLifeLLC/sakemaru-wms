@@ -347,6 +347,11 @@ class EosIncomingAutoReceiveService
     ): array {
         $slips = $file->slips()
             ->where('match_status', 'NO_ASSIGNMENT')
+            ->whereDoesntHave('importErrors', function ($query): void {
+                $query
+                    ->whereIn('error_code', ['ITEM_NOT_FOUND', 'SCHEDULE_ITEM_NOT_FOUND'])
+                    ->where('is_resolved', true);
+            })
             ->with(['file', 'details'])
             ->orderBy('id')
             ->get();
