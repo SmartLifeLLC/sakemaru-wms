@@ -1182,12 +1182,59 @@ class IncomingReceiveService
             return $directContractorIds[0];
         }
 
+        $itemContractorId = $this->resolveUniqueItemContractorIdForSlip($slip);
+        if ($itemContractorId) {
+            return $itemContractorId;
+        }
+
         $fileContractorId = $slip->file?->contractor_id;
         if ($fileContractorId) {
             return (int) $fileContractorId;
         }
 
         return null;
+    }
+
+    public function resolveUnassignedJxSlipContractorId(WmsIncomingReceivedSlip $slip): ?int
+    {
+        return $this->resolveCreateContractorId($slip);
+    }
+
+    private function resolveUniqueItemContractorIdForSlip(WmsIncomingReceivedSlip $slip): ?int
+    {
+        $warehouse = $this->resolveWarehouseForSlip($slip);
+        if (! $warehouse) {
+            return null;
+        }
+
+        $slip->loadMissing('details');
+
+        $itemIds = $slip->details
+            ->map(fn (WmsIncomingReceivedDetail $detail): ?int => $detail->matched_item_id
+                ? (int) $detail->matched_item_id
+                : $this->resolveItemId($detail))
+            ->filter()
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($itemIds === []) {
+            return null;
+        }
+
+        $contractorIds = DB::connection('sakemaru')
+            ->table('item_contractors')
+            ->where('warehouse_id', $warehouse->id)
+            ->whereIn('item_id', $itemIds)
+            ->whereNotNull('contractor_id')
+            ->pluck('contractor_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        return count($contractorIds) === 1 ? $contractorIds[0] : null;
     }
 
     private function findTemplateSchedule($templateSchedules, int $itemId): ?WmsOrderIncomingSchedule

@@ -6,10 +6,15 @@ use App\Enums\AutoOrder\OrderSource;
 use App\Enums\PaginationOptions;
 use App\Enums\QuantityType;
 use App\Filament\Concerns\HasOptimizedFilters;
+use App\Filament\Concerns\HasStockSubqueries;
 use App\Models\WmsOrderIncomingSchedule;
+use App\Services\AutoOrder\IncomingTransmissionService;
 use Carbon\Carbon;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
@@ -17,10 +22,12 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class WmsIncomingCompletedSummaryTable
 {
     use HasOptimizedFilters;
+    use HasStockSubqueries;
 
     public static function configure(Table $table): Table
     {
@@ -29,6 +36,7 @@ class WmsIncomingCompletedSummaryTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->extraAttributes(['class' => 'incoming-completed-summary-table sticky-actions'])
+            ->checkIfRecordIsSelectableUsing(fn (WmsOrderIncomingSchedule $record): bool => self::canTransmitSummaryGroup($record))
             ->columns([
                 TextColumn::make('warehouse.name')
                     ->label('入荷倉庫')
@@ -114,7 +122,6 @@ class WmsIncomingCompletedSummaryTable
                     ->width('80px'),
             ])
             ->filters([
-                static::warehouseFilter(),
                 static::contractorFilter(),
                 SelectFilter::make('purchase_transmission_state')
                     ->label('仕入連携')
@@ -172,6 +179,22 @@ class WmsIncomingCompletedSummaryTable
                         ],
                     )),
             ], position: RecordActionsPosition::BeforeColumns)
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    BulkAction::make('transmitSelectedPurchaseGroups')
+                        ->label('チェックした仕入データ連携')
+                        ->icon('heroicon-o-paper-airplane')
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalHeading('チェックした仕入データ連携')
+                        ->modalDescription(fn (Collection $records): string => "選択した {$records->count()} 件の発注先グループの未連携入荷完了データを基幹システムの仕入キューに登録します。同一の倉庫・仕入先・伝票番号・入荷日ごとに1伝票としてまとめられます。登録後はデータの修正ができなくなります。")
+                        ->modalSubmitActionLabel('連携する')
+                        ->modalCancelActionLabel('連携せず閉じる')
+                        ->action(function (Collection $records): void {
+                            self::transmitSelectedPurchaseGroups($records);
+                        }),
+                ]),
+            ])
             ->defaultKeySort(false)
             ->defaultSort(
                 fn (Builder $query): Builder => $query
@@ -225,6 +248,81 @@ class WmsIncomingCompletedSummaryTable
         ];
     }
 
+    private static function canTransmitSummaryGroup(WmsOrderIncomingSchedule $record): bool
+    {
+        return (int) ($record->warehouse_id ?? 0) > 0
+            && (int) ($record->contractor_id ?? 0) > 0
+            && (int) ($record->summary_untransmitted_count ?? 0) > 0;
+    }
+
+    private static function transmitSelectedPurchaseGroups(Collection $records): void
+    {
+        $queueCount = 0;
+        $scheduleCount = 0;
+        $errors = [];
+        $skippedCount = 0;
+        $service = app(IncomingTransmissionService::class);
+
+        foreach ($records as $record) {
+            if (! $record instanceof WmsOrderIncomingSchedule || ! self::canTransmitSummaryGroup($record)) {
+                $skippedCount++;
+
+                continue;
+            }
+
+            try {
+                $result = $service->transmitConfirmedIncomings(
+                    warehouseId: (int) $record->warehouse_id,
+                    contractorId: (int) $record->contractor_id,
+                );
+            } catch (\Throwable $throwable) {
+                $errors[] = self::summaryGroupLabel($record).': '.$throwable->getMessage();
+
+                continue;
+            }
+
+            $queueCount += (int) ($result['queue_count'] ?? 0);
+            $scheduleCount += (int) ($result['schedule_count'] ?? 0);
+
+            foreach ($result['errors'] ?? [] as $error) {
+                $errors[] = self::summaryGroupLabel($record).': '.(is_array($error)
+                    ? ($error['error'] ?? json_encode($error, JSON_UNESCAPED_UNICODE))
+                    : (string) $error);
+            }
+        }
+
+        $notification = Notification::make()
+            ->title($errors === [] ? '仕入キューに登録しました' : '一部エラーが発生しました')
+            ->body(self::purchaseTransmissionResultMessage($queueCount, $scheduleCount, $skippedCount, $errors));
+
+        ($errors === [] ? $notification->success() : $notification->warning())->send();
+    }
+
+    private static function purchaseTransmissionResultMessage(
+        int $queueCount,
+        int $scheduleCount,
+        int $skippedCount,
+        array $errors,
+    ): string {
+        $message = "キュー: {$queueCount}件 / 入荷データ: {$scheduleCount}件";
+
+        if ($skippedCount > 0) {
+            $message .= " / スキップ: {$skippedCount}件";
+        }
+
+        if ($errors !== []) {
+            $message .= "\nエラー: ".count($errors).'件';
+            $message .= "\n".collect($errors)->take(5)->implode("\n");
+        }
+
+        return $message;
+    }
+
+    private static function summaryGroupLabel(WmsOrderIncomingSchedule $record): string
+    {
+        return self::warehouseLabel($record).' / '.self::contractorLabel($record);
+    }
+
     private static function detailRows(?WmsOrderIncomingSchedule $record): array
     {
         if (! $record) {
@@ -236,6 +334,9 @@ class WmsIncomingCompletedSummaryTable
             ->withoutTransferSource()
             ->where('warehouse_id', $record->warehouse_id)
             ->where('contractor_id', $record->contractor_id)
+            ->addSelect([
+                'computed_default_location' => static::defaultLocationSubquery('wms_order_incoming_schedules'),
+            ])
             ->with(['warehouse', 'contractor', 'item', 'location', 'confirmedByUser', 'confirmedByPicker'])
             ->orderByDesc('confirmed_at')
             ->orderBy('slip_number')
@@ -364,6 +465,12 @@ class WmsIncomingCompletedSummaryTable
 
     private static function locationLabel(WmsOrderIncomingSchedule $record): string
     {
+        $defaultLocation = trim((string) $record->getAttribute('computed_default_location'));
+
+        if ($defaultLocation !== '') {
+            return $defaultLocation;
+        }
+
         if (! $record->location) {
             return '-';
         }
