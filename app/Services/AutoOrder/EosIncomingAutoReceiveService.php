@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Models\WmsEosIncomingReceiveRun;
 use App\Models\WmsEosIncomingReceiveSchedule;
 use App\Models\WmsEosIncomingReceiveSetting;
+use App\Models\WmsIncomingReceivedFile;
 use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsOrderJxSetting;
@@ -296,7 +297,12 @@ class EosIncomingAutoReceiveService
                 $stats['incoming_confirmed_schedule_count'] += (int) $apply['applied'];
                 $stats['error_count'] += count($apply['errors']);
 
-                $confirmedScheduleIds = array_merge($confirmedScheduleIds, $apply['schedule_ids'] ?? []);
+                $autoConfirmedUnknownScheduleIds = $this->autoConfirmUnassignedJxSlips($run, $file, $stats);
+                $confirmedScheduleIds = array_merge(
+                    $confirmedScheduleIds,
+                    $apply['schedule_ids'] ?? [],
+                    $autoConfirmedUnknownScheduleIds,
+                );
 
                 $run->addLog('info', 'import_apply', "JXログ {$log->id}: EOS取込と入荷予定更新を実行しました", [
                     'jx_transmission_log_id' => $log->id,
@@ -305,6 +311,7 @@ class EosIncomingAutoReceiveService
                     'shortage' => $match['shortage'],
                     'unmatched' => $match['unmatched'],
                     'applied' => $apply['applied'],
+                    'auto_confirmed_unknown_schedules' => count($autoConfirmedUnknownScheduleIds),
                     'apply_errors' => count($apply['errors']),
                     'skipped_apply_reason' => $result['skipped_apply_reason'],
                 ]);
@@ -328,6 +335,69 @@ class EosIncomingAutoReceiveService
         return collect($confirmedScheduleIds)
             ->map(fn ($id): int => (int) $id)
             ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function autoConfirmUnassignedJxSlips(
+        WmsEosIncomingReceiveRun $run,
+        WmsIncomingReceivedFile $file,
+        array &$stats,
+    ): array {
+        $slips = $file->slips()
+            ->where('match_status', 'NO_ASSIGNMENT')
+            ->with(['file', 'details'])
+            ->orderBy('id')
+            ->get();
+
+        if ($slips->isEmpty()) {
+            return [];
+        }
+
+        $service = app(IncomingReceiveService::class);
+        $scheduleIds = [];
+        $confirmedSlipCount = 0;
+
+        foreach ($slips as $slip) {
+            try {
+                $result = $service->confirmUnassignedJxSlip($slip, 0);
+                $resultScheduleIds = collect($result['schedule_ids'] ?? [])
+                    ->map(fn ($id): int => (int) $id)
+                    ->filter(fn (int $id): bool => $id > 0)
+                    ->values()
+                    ->all();
+
+                $scheduleIds = array_merge($scheduleIds, $resultScheduleIds);
+                $confirmedSlipCount++;
+                $stats['incoming_confirmed_schedule_count'] += (int) ($result['created'] ?? 0) + (int) ($result['updated'] ?? 0);
+
+                $run->addLog('info', 'unknown_slip_auto_confirm', "伝票番号不明JX受信伝票 {$slip->slip_number} を入荷完了として自動作成しました", [
+                    'incoming_received_file_id' => $file->id,
+                    'received_slip_id' => $slip->id,
+                    'slip_number' => $slip->slip_number,
+                    'created' => $result['created'] ?? 0,
+                    'updated' => $result['updated'] ?? 0,
+                    'skipped' => $result['skipped'] ?? 0,
+                    'schedule_ids' => $resultScheduleIds,
+                ]);
+            } catch (\Throwable $throwable) {
+                $run->addLog('warning', 'unknown_slip_auto_confirm', "伝票番号不明JX受信伝票 {$slip->slip_number} は自動入荷完了できませんでした", [
+                    'incoming_received_file_id' => $file->id,
+                    'received_slip_id' => $slip->id,
+                    'slip_number' => $slip->slip_number,
+                    'error' => $throwable->getMessage(),
+                ]);
+            }
+        }
+
+        if ($confirmedSlipCount > 0) {
+            $stats['incoming_matched_count'] += $confirmedSlipCount;
+            $stats['incoming_unmatched_count'] = max(0, (int) $stats['incoming_unmatched_count'] - $confirmedSlipCount);
+            $stats['unknown_slip_count'] = max(0, (int) $stats['unknown_slip_count'] - $confirmedSlipCount);
+        }
+
+        return collect($scheduleIds)
             ->unique()
             ->values()
             ->all();

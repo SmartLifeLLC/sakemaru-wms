@@ -243,6 +243,44 @@ class IncomingTransmissionServiceTest extends TestCase
             ->count());
     }
 
+    public function test_transmit_can_be_filtered_by_contractor(): void
+    {
+        $master = $this->purchaseMasterData();
+        $otherContractor = $this->activeContractorExcept((int) $master['contractor_id']);
+
+        if (! $otherContractor) {
+            $this->markTestSkipped('alternate contractor master data is not available in test DB');
+        }
+
+        $targetSlip = $this->newSlipNumber('C');
+        $otherSlip = $this->newSlipNumber('O');
+        $targetSchedule = $this->createConfirmedSchedule($master, $targetSlip, '2026-07-20', 5);
+        $otherMaster = array_merge($master, [
+            'contractor_id' => (int) $otherContractor->id,
+        ]);
+        $otherSchedule = $this->createConfirmedSchedule($otherMaster, $otherSlip, '2026-07-20', 7);
+
+        $result = app(IncomingTransmissionService::class)->transmitConfirmedIncomings(
+            warehouseId: (int) $master['warehouse_id'],
+            contractorId: (int) $master['contractor_id'],
+        );
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(1, $result['queue_count']);
+        $this->assertSame(1, $result['schedule_count']);
+
+        $targetSchedule->refresh();
+        $otherSchedule->refresh();
+
+        $this->assertSame(IncomingScheduleStatus::TRANSMITTED, $targetSchedule->status);
+        $this->assertNotNull($targetSchedule->purchase_queue_id);
+        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $otherSchedule->status);
+        $this->assertNull($otherSchedule->purchase_queue_id);
+        $this->assertDatabaseMissing('purchase_create_queue', [
+            'slip_number' => $otherSlip,
+        ], 'sakemaru');
+    }
+
     private function purchaseMasterData(bool $requireContractorSupplier = false): array
     {
         $warehouse = DB::connection('sakemaru')
@@ -318,6 +356,22 @@ class IncomingTransmissionServiceTest extends TestCase
             ->where('s.id', '!=', $supplierId)
             ->orderBy('s.id')
             ->first(['s.id', 'p.code']);
+    }
+
+    private function activeContractorExcept(int $contractorId): ?object
+    {
+        return DB::connection('sakemaru')
+            ->table('contractors as c')
+            ->leftJoin('wms_contractor_settings as wcs', 'wcs.contractor_id', '=', 'c.id')
+            ->where('c.is_active', true)
+            ->where('c.id', '!=', $contractorId)
+            ->where(function ($query) {
+                $query
+                    ->whereNull('wcs.transmission_type')
+                    ->orWhere('wcs.transmission_type', '!=', TransmissionType::INTERNAL->value);
+            })
+            ->orderBy('c.id')
+            ->first(['c.id']);
     }
 
     private function createConfirmedSchedule(

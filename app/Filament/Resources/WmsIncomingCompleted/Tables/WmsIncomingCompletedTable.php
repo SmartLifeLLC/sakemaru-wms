@@ -64,13 +64,13 @@ class WmsIncomingCompletedTable
                 TextColumn::make('order_source')
                     ->label('区分')
                     ->badge()
-                    ->formatStateUsing(fn (OrderSource $state): string => match ($state) {
+                    ->formatStateUsing(fn (OrderSource $state, WmsOrderIncomingSchedule $record): string => $record->isUnassignedJxReceived() ? '不明' : match ($state) {
                         OrderSource::AUTO => '発注',
                         OrderSource::MANUAL => '手動',
                         OrderSource::TRANSFER => '移動',
                         OrderSource::RECEIVED => '受信',
                     })
-                    ->color(fn (OrderSource $state): string => match ($state) {
+                    ->color(fn (OrderSource $state, WmsOrderIncomingSchedule $record): string => $record->isUnassignedJxReceived() ? 'warning' : match ($state) {
                         OrderSource::AUTO => 'info',
                         OrderSource::MANUAL => 'gray',
                         OrderSource::TRANSFER => 'warning',
@@ -742,7 +742,7 @@ class WmsIncomingCompletedTable
                     OrderSource::AUTO => '発注',
                     OrderSource::MANUAL => '手動',
                     OrderSource::TRANSFER => '移動',
-                    OrderSource::RECEIVED => '受信',
+                    OrderSource::RECEIVED => $record->isUnassignedJxReceived() ? '不明' : '受信',
                     default => '-',
                 },
                 'itemCode' => $record->item_code ?? $item?->code ?? '-',
