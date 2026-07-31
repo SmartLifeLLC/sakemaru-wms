@@ -106,26 +106,13 @@ class WmsJxUnknownIncomingSlipsTable
                     ->label('受信仕入先')
                     ->state(fn (WmsIncomingReceivedSlip $record): string => self::resolvedContractorLabel($record))
                     ->searchable()
-                    ->placeholder('-')
-                    ->limit(18)
-                    ->tooltip(fn (WmsIncomingReceivedSlip $record): string => self::resolvedContractorLabel($record)),
+                    ->placeholder('-'),
 
                 TextColumn::make('b_delivery_date')
                     ->label('納品日')
                     ->formatStateUsing(fn (?string $state): string => self::formatJxDate($state))
                     ->placeholder('-')
                     ->alignCenter()
-                    ->width('100px'),
-
-                TextColumn::make('match_status')
-                    ->label('状態')
-                    ->formatStateUsing(fn (?string $state): string => self::matchStatusLabel($state))
-                    ->badge()
-                    ->color(fn (?string $state): string => match ($state) {
-                        'NO_ASSIGNMENT' => 'warning',
-                        'NOT_FOUND' => 'danger',
-                        default => 'gray',
-                    })
                     ->width('100px'),
 
                 TextColumn::make('details_count')
@@ -146,13 +133,6 @@ class WmsJxUnknownIncomingSlipsTable
                     ->numeric()
                     ->alignEnd()
                     ->width('70px'),
-
-                TextColumn::make('issue_codes')
-                    ->label('確認内容')
-                    ->state(fn (WmsIncomingReceivedSlip $record): string => self::issueMessages($record, ' / '))
-                    ->placeholder('-')
-                    ->limit(42)
-                    ->tooltip(fn (WmsIncomingReceivedSlip $record): string => self::issueMessages($record, "\n")),
 
                 TextColumn::make('file.status')
                     ->label('取込状態')
@@ -215,7 +195,7 @@ class WmsJxUnknownIncomingSlipsTable
                     ->color('warning')
                     ->visible(fn (WmsIncomingReceivedSlip $record): bool => self::hasMissingItemDetails($record))
                     ->modalHeading(fn (WmsIncomingReceivedSlip $record): string => "商品不明を確定: {$record->slip_number}")
-                    ->modalDescription('商品不明の受信明細を選択し、商品マスタから正しい商品を検索して確定します。確定後は入荷完了として取込できます。')
+                    ->modalDescription('商品不明の受信明細を選択し、商品マスタから正しい商品を検索して確定します。商品確定後も自動では入荷確定しません。必要に応じて詳細から入荷確定してください。')
                     ->modalWidth('3xl')
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalFooterActionsAlignment(Alignment::End)
@@ -253,7 +233,7 @@ class WmsJxUnknownIncomingSlipsTable
 
                             Notification::make()
                                 ->title('商品を確定しました')
-                                ->body('商品不明の受信明細を入荷確定対象に戻しました。')
+                                ->body('商品不明の受信明細の商品を確定しました。入荷確定は詳細から別途実行してください。')
                                 ->success()
                                 ->send();
                         } catch (\Throwable $throwable) {
@@ -478,7 +458,7 @@ class WmsJxUnknownIncomingSlipsTable
         $line = $detail->d_line_number ?: '-';
         $jan = filled($detail->d_jan_code) ? $detail->d_jan_code : '-';
         $itemCode = filled($detail->d_item_code) ? $detail->d_item_code : '-';
-        $name = filled($detail->d_product_name) ? $detail->d_product_name : '受信商品名なし';
+        $name = self::hasVisibleText($detail->d_product_name) ? $detail->d_product_name : '受信商品名なし';
 
         return "商品名: {$name} / 行{$line} / JAN: {$jan} / 商品CD: {$itemCode} / 総バラ: {$detail->total_quantity}";
     }
@@ -600,9 +580,6 @@ class WmsJxUnknownIncomingSlipsTable
                         TextEntry::make('file_contractor')
                             ->label('受信仕入先')
                             ->state(self::resolvedContractorLabel($record)),
-                        TextEntry::make('match_status')
-                            ->label('状態')
-                            ->state(self::matchStatusLabel($record->match_status)),
                         TextEntry::make('file_status')
                             ->label('取込状態')
                             ->state(self::fileStatusLabel($record->file?->status)),
@@ -641,7 +618,7 @@ class WmsJxUnknownIncomingSlipsTable
                 'id' => $detail->id,
                 'line' => $detail->d_line_number,
                 'matched_item_code' => $detail->matchedItem?->code ?: '-',
-                'product_name' => $detail->d_product_name ?: '-',
+                'product_name' => self::detailProductName($detail),
                 'jan_code' => $detail->d_jan_code ?: '-',
                 'pack_quantity' => $detail->d_pack_quantity,
                 'case_quantity' => $detail->d_case_quantity,
@@ -653,6 +630,25 @@ class WmsJxUnknownIncomingSlipsTable
             ])
             ->values()
             ->all();
+    }
+
+    private static function detailProductName(WmsIncomingReceivedDetail $detail): string
+    {
+        if (self::hasVisibleText($detail->d_product_name)) {
+            return (string) $detail->d_product_name;
+        }
+
+        $matchedItemName = (string) ($detail->matchedItem?->name ?: $detail->matchedItem?->name_main ?: '');
+        if (self::hasVisibleText($matchedItemName)) {
+            return $matchedItemName;
+        }
+
+        return '-';
+    }
+
+    private static function hasVisibleText(?string $value): bool
+    {
+        return preg_replace('/[\s　]+/u', '', (string) $value) !== '';
     }
 
     private static function resolvedContractorLabel(WmsIncomingReceivedSlip $record): string

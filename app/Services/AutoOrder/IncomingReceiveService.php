@@ -1643,6 +1643,7 @@ class IncomingReceiveService
             }
 
             $lockedDetail->update([
+                'd_product_name' => mb_substr((string) ($item->name ?: $item->name_main ?: ''), 0, 64),
                 'matched_item_id' => $item->id,
                 'matched_schedule_id' => null,
                 'expected_quantity' => null,
@@ -1655,7 +1656,7 @@ class IncomingReceiveService
 
             $slip = $lockedDetail->slip;
             if ($slip) {
-                $this->refreshUnassignedSlipStatusAfterManualDetailAdjustment($slip, $resolvedBy);
+                $this->refreshUnassignedSlipStatusAfterManualDetailAdjustment($slip, $resolvedBy, keepReviewVisible: true);
                 $this->refreshReceivedFileStatusAfterManualConfirmation($slip->file);
             }
 
@@ -2090,7 +2091,8 @@ class IncomingReceiveService
 
     private function refreshUnassignedSlipStatusAfterManualDetailAdjustment(
         WmsIncomingReceivedSlip $slip,
-        ?int $resolvedBy = null
+        ?int $resolvedBy = null,
+        bool $keepReviewVisible = false,
     ): void {
         $details = $slip->details()
             ->where(function ($query): void {
@@ -2111,10 +2113,13 @@ class IncomingReceiveService
         if ($receivableDetails->isEmpty()) {
             $slip->update([
                 'matched_schedule_id' => null,
-                'match_status' => 'IGNORED',
+                'match_status' => $keepReviewVisible ? 'NO_ASSIGNMENT' : 'IGNORED',
                 'shortage_count' => $shortageCount,
             ]);
-            $this->resolveUnassignedJxReviewErrors($slip, $resolvedBy);
+
+            if (! $keepReviewVisible) {
+                $this->resolveUnassignedJxReviewErrors($slip, $resolvedBy);
+            }
 
             return;
         }
