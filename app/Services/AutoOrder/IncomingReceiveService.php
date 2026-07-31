@@ -1350,6 +1350,13 @@ class IncomingReceiveService
         return null;
     }
 
+    private function resolveItemIdForUnassignedJxConfirmation(WmsIncomingReceivedDetail $detail): ?int
+    {
+        return $detail->matched_item_id
+            ? (int) $detail->matched_item_id
+            : $this->resolveItemId($detail);
+    }
+
     /**
      * JX受信コードの表記揺れを検索用に正規化する。
      */
@@ -1454,7 +1461,9 @@ class IncomingReceiveService
                 ->sortBy('d_line_number')
                 ->values();
             $receivableDetails = $details
-                ->reject(fn (WmsIncomingReceivedDetail $detail): bool => $detail->is_shortage || (int) $detail->total_quantity <= 0)
+                ->reject(fn (WmsIncomingReceivedDetail $detail): bool => $detail->match_status === 'IGNORED'
+                    || $detail->is_shortage
+                    || (int) $detail->total_quantity <= 0)
                 ->values();
 
             if ($receivableDetails->isEmpty()) {
@@ -1463,7 +1472,7 @@ class IncomingReceiveService
 
             $validatedDetails = [];
             foreach ($receivableDetails as $detail) {
-                $itemId = $this->resolveItemId($detail);
+                $itemId = $this->resolveItemIdForUnassignedJxConfirmation($detail);
                 if (! $itemId) {
                     throw new \RuntimeException("商品を解決できません: slip_number={$lockedSlip->slip_number}, line={$detail->d_line_number}, JAN={$detail->d_jan_code}, item_code={$detail->d_item_code}");
                 }
@@ -1559,8 +1568,12 @@ class IncomingReceiveService
             }
 
             foreach ($details as $detail) {
+                if ($detail->match_status === 'IGNORED') {
+                    continue;
+                }
+
                 if ($detail->is_shortage || (int) $detail->total_quantity <= 0) {
-                    $itemId = $this->resolveItemId($detail);
+                    $itemId = $this->resolveItemIdForUnassignedJxConfirmation($detail);
                     $detail->update([
                         'matched_item_id' => $itemId,
                         'matched_schedule_id' => null,
@@ -1602,6 +1615,108 @@ class IncomingReceiveService
         $slip->refresh();
 
         return $result;
+    }
+
+    /**
+     * 商品不明のJX受信明細に商品を手動確定する。
+     *
+     * @return array{detail_id: int, item_id: int}
+     */
+    public function resolveUnassignedJxDetailItem(WmsIncomingReceivedDetail $detail, int $itemId, ?int $resolvedBy = null): array
+    {
+        return DB::connection('sakemaru')->transaction(function () use ($detail, $itemId, $resolvedBy): array {
+            $lockedDetail = WmsIncomingReceivedDetail::query()
+                ->whereKey($detail->id)
+                ->with(['slip.file'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $this->assertUnassignedJxDetailCanBeAdjusted($lockedDetail);
+
+            if ($lockedDetail->match_status === 'IGNORED') {
+                throw new \RuntimeException("対象外にした受信明細は商品確定できません: detail_id={$lockedDetail->id}");
+            }
+
+            $item = Item::query()->whereKey($itemId)->first();
+            if (! $item) {
+                throw new \RuntimeException("商品が見つかりません: item_id={$itemId}");
+            }
+
+            $lockedDetail->update([
+                'matched_item_id' => $item->id,
+                'matched_schedule_id' => null,
+                'expected_quantity' => null,
+                'match_status' => ($lockedDetail->is_shortage || (int) $lockedDetail->total_quantity <= 0)
+                    ? 'SHORTAGE'
+                    : 'NO_ASSIGNMENT',
+            ]);
+
+            $this->resolveItemErrorsForDetail($lockedDetail, $resolvedBy);
+
+            $slip = $lockedDetail->slip;
+            if ($slip) {
+                $this->refreshUnassignedSlipStatusAfterManualDetailAdjustment($slip, $resolvedBy);
+                $this->refreshReceivedFileStatusAfterManualConfirmation($slip->file);
+            }
+
+            Log::info('[IncomingReceiveService] 商品不明のJX受信明細を手動確定しました', [
+                'slip_id' => $lockedDetail->received_slip_id,
+                'detail_id' => $lockedDetail->id,
+                'item_id' => $item->id,
+                'resolved_by' => $resolvedBy,
+            ]);
+
+            return [
+                'detail_id' => (int) $lockedDetail->id,
+                'item_id' => (int) $item->id,
+            ];
+        });
+    }
+
+    /**
+     * 商品不明のJX受信明細を入荷確定対象から外す。
+     *
+     * 原本は保持し、match_status=IGNORED として以後の入荷確定対象から除外する。
+     *
+     * @return array{detail_id: int, slip_status: string|null}
+     */
+    public function ignoreUnassignedJxDetail(WmsIncomingReceivedDetail $detail, ?int $resolvedBy = null): array
+    {
+        return DB::connection('sakemaru')->transaction(function () use ($detail, $resolvedBy): array {
+            $lockedDetail = WmsIncomingReceivedDetail::query()
+                ->whereKey($detail->id)
+                ->with(['slip.file'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $this->assertUnassignedJxDetailCanBeAdjusted($lockedDetail);
+
+            $lockedDetail->update([
+                'matched_item_id' => null,
+                'matched_schedule_id' => null,
+                'expected_quantity' => 0,
+                'match_status' => 'IGNORED',
+            ]);
+
+            $this->resolveItemErrorsForDetail($lockedDetail, $resolvedBy);
+
+            $slip = $lockedDetail->slip;
+            if ($slip) {
+                $this->refreshUnassignedSlipStatusAfterManualDetailAdjustment($slip, $resolvedBy);
+                $this->refreshReceivedFileStatusAfterManualConfirmation($slip->file);
+            }
+
+            Log::info('[IncomingReceiveService] 商品不明のJX受信明細を対象外にしました', [
+                'slip_id' => $lockedDetail->received_slip_id,
+                'detail_id' => $lockedDetail->id,
+                'resolved_by' => $resolvedBy,
+            ]);
+
+            return [
+                'detail_id' => (int) $lockedDetail->id,
+                'slip_status' => $slip?->fresh()?->match_status,
+            ];
+        });
     }
 
     /**
@@ -1921,6 +2036,8 @@ class IncomingReceiveService
                 'EOS_UNASSIGNED_NO_RECEIVED_QUANTITY',
                 'EOS_UNASSIGNED_RECEIVED_SCHEDULE_CREATED',
                 'SLIP_NOT_FOUND',
+                'ITEM_NOT_FOUND',
+                'SCHEDULE_ITEM_NOT_FOUND',
             ])
             ->where(function ($query): void {
                 $query
@@ -1932,6 +2049,84 @@ class IncomingReceiveService
                 'resolved_by' => $resolvedBy,
                 'resolved_at' => now(),
             ]);
+    }
+
+    private function assertUnassignedJxDetailCanBeAdjusted(WmsIncomingReceivedDetail $detail): void
+    {
+        $slip = $detail->slip;
+        if (! $slip || ! $this->isJxSlip($slip)) {
+            throw new \RuntimeException("JX受信明細ではありません: detail_id={$detail->id}");
+        }
+
+        if (! $slip->file) {
+            throw new \RuntimeException("受信ファイルが見つかりません: detail_id={$detail->id}");
+        }
+
+        $hasSchedule = WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->exists();
+
+        if ($hasSchedule) {
+            throw new \RuntimeException("入荷完了データ作成済みのため修正できません: detail_id={$detail->id}");
+        }
+    }
+
+    private function resolveItemErrorsForDetail(WmsIncomingReceivedDetail $detail, ?int $resolvedBy = null): void
+    {
+        WmsIncomingImportError::query()
+            ->where('received_detail_id', $detail->id)
+            ->whereIn('error_code', ['ITEM_NOT_FOUND', 'SCHEDULE_ITEM_NOT_FOUND'])
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('is_resolved')
+                    ->orWhere('is_resolved', false);
+            })
+            ->update([
+                'is_resolved' => true,
+                'resolved_by' => $resolvedBy,
+                'resolved_at' => now(),
+            ]);
+    }
+
+    private function refreshUnassignedSlipStatusAfterManualDetailAdjustment(
+        WmsIncomingReceivedSlip $slip,
+        ?int $resolvedBy = null
+    ): void {
+        $details = $slip->details()
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('match_status')
+                    ->orWhere('match_status', '!=', 'IGNORED');
+            })
+            ->get();
+
+        $shortageCount = $details
+            ->filter(fn (WmsIncomingReceivedDetail $detail): bool => $detail->is_shortage || (int) $detail->total_quantity <= 0)
+            ->count();
+
+        $receivableDetails = $details
+            ->reject(fn (WmsIncomingReceivedDetail $detail): bool => $detail->is_shortage || (int) $detail->total_quantity <= 0)
+            ->values();
+
+        if ($receivableDetails->isEmpty()) {
+            $slip->update([
+                'matched_schedule_id' => null,
+                'match_status' => 'IGNORED',
+                'shortage_count' => $shortageCount,
+            ]);
+            $this->resolveUnassignedJxReviewErrors($slip, $resolvedBy);
+
+            return;
+        }
+
+        $hasMissingItem = $receivableDetails
+            ->contains(fn (WmsIncomingReceivedDetail $detail): bool => ! $this->resolveItemIdForUnassignedJxConfirmation($detail));
+
+        $slip->update([
+            'matched_schedule_id' => null,
+            'match_status' => $hasMissingItem ? 'NOT_FOUND' : 'NO_ASSIGNMENT',
+            'shortage_count' => $shortageCount,
+        ]);
     }
 
     private function refreshReceivedFileStatusAfterManualConfirmation(WmsIncomingReceivedFile $file): void

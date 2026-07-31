@@ -4,8 +4,10 @@ namespace App\Filament\Resources\WmsJxUnknownIncomingSlips\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Models\Sakemaru\Contractor;
+use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsIncomingImportError;
+use App\Models\WmsIncomingReceivedDetail;
 use App\Models\WmsIncomingReceivedFile;
 use App\Models\WmsIncomingReceivedSlip;
 use App\Services\AutoOrder\IncomingReceiveService;
@@ -14,6 +16,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Grid;
@@ -33,6 +36,7 @@ class WmsJxUnknownIncomingSlipsTable
     private const REVIEW_ERROR_CODES = [
         'EOS_ASSIGNMENT_NOT_FOUND',
         'EOS_UNASSIGNED_RECEIVED_SCHEDULE_CREATED',
+        'ITEM_NOT_FOUND',
     ];
 
     public static function configure(Table $table): Table
@@ -51,7 +55,8 @@ class WmsJxUnknownIncomingSlipsTable
                     ->withCount([
                         'details',
                         'details as item_missing_count' => fn (Builder $query): Builder => $query
-                            ->whereNull('matched_item_id'),
+                            ->whereNull('matched_item_id')
+                            ->where(fn (Builder $query): Builder => self::notIgnoredDetailQuery($query)),
                     ]);
 
                 self::applyReviewScope($query);
@@ -182,7 +187,9 @@ class WmsJxUnknownIncomingSlipsTable
                     ->label('商品不明あり')
                     ->query(fn (Builder $query): Builder => $query->whereHas(
                         'details',
-                        fn (Builder $detailQuery): Builder => $detailQuery->whereNull('matched_item_id')
+                        fn (Builder $detailQuery): Builder => $detailQuery
+                            ->whereNull('matched_item_id')
+                            ->where(fn (Builder $query): Builder => self::notIgnoredDetailQuery($query))
                     )),
 
                 Filter::make('created_at')
@@ -202,6 +209,100 @@ class WmsJxUnknownIncomingSlipsTable
             ])
             ->recordActionsColumnLabel('操作')
             ->recordActions([
+                Action::make('resolveMissingItem')
+                    ->label('商品確定')
+                    ->icon('heroicon-o-magnifying-glass')
+                    ->color('warning')
+                    ->visible(fn (WmsIncomingReceivedSlip $record): bool => self::hasMissingItemDetails($record))
+                    ->modalHeading(fn (WmsIncomingReceivedSlip $record): string => "商品不明を確定: {$record->slip_number}")
+                    ->modalDescription('商品不明の受信明細を選択し、商品マスタから正しい商品を検索して確定します。確定後は入荷完了として取込できます。')
+                    ->modalWidth('3xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitActionLabel('商品を確定')
+                    ->modalCancelActionLabel('確定せず閉じる')
+                    ->schema([
+                        Select::make('detail_id')
+                            ->label('商品不明明細')
+                            ->options(fn (WmsIncomingReceivedSlip $record): array => self::missingDetailOptions($record))
+                            ->searchable()
+                            ->required(),
+                        Select::make('item_id')
+                            ->label('商品検索')
+                            ->helperText('商品CD、商品名、JAN/検索CDで検索できます。')
+                            ->searchable()
+                            ->getSearchResultsUsing(fn (string $search): array => self::searchItemOptions($search))
+                            ->getOptionLabelUsing(fn ($value): ?string => self::itemOptionLabel($value))
+                            ->required(),
+                    ])
+                    ->action(function (WmsIncomingReceivedSlip $record, array $data): void {
+                        $detail = WmsIncomingReceivedDetail::query()
+                            ->where('received_slip_id', $record->id)
+                            ->whereKey((int) $data['detail_id'])
+                            ->firstOrFail();
+
+                        try {
+                            app(IncomingReceiveService::class)->resolveUnassignedJxDetailItem(
+                                $detail,
+                                (int) $data['item_id'],
+                                auth()->id()
+                            );
+
+                            Notification::make()
+                                ->title('商品を確定しました')
+                                ->body('商品不明の受信明細を入荷確定対象に戻しました。')
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $throwable) {
+                            Notification::make()
+                                ->title('商品確定に失敗しました')
+                                ->body($throwable->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
+                Action::make('ignoreMissingItem')
+                    ->label('商品不明を削除')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->visible(fn (WmsIncomingReceivedSlip $record): bool => self::hasMissingItemDetails($record))
+                    ->requiresConfirmation()
+                    ->modalHeading(fn (WmsIncomingReceivedSlip $record): string => "商品不明を削除: {$record->slip_number}")
+                    ->modalDescription('受信原本は削除せず、選択した商品不明明細を入荷確定対象から外します。確定しない明細をリストからなくすための操作です。')
+                    ->modalWidth('3xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalSubmitActionLabel('商品不明を削除')
+                    ->modalCancelActionLabel('削除せず閉じる')
+                    ->schema([
+                        Select::make('detail_id')
+                            ->label('商品不明明細')
+                            ->options(fn (WmsIncomingReceivedSlip $record): array => self::missingDetailOptions($record))
+                            ->searchable()
+                            ->required(),
+                    ])
+                    ->action(function (WmsIncomingReceivedSlip $record, array $data): void {
+                        $detail = WmsIncomingReceivedDetail::query()
+                            ->where('received_slip_id', $record->id)
+                            ->whereKey((int) $data['detail_id'])
+                            ->firstOrFail();
+
+                        try {
+                            app(IncomingReceiveService::class)->ignoreUnassignedJxDetail($detail, auth()->id());
+
+                            Notification::make()
+                                ->title('商品不明を削除しました')
+                                ->body('選択した明細を入荷確定対象から外しました。')
+                                ->success()
+                                ->send();
+                        } catch (\Throwable $throwable) {
+                            Notification::make()
+                                ->title('商品不明の削除に失敗しました')
+                                ->body($throwable->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
                 Action::make('viewDetails')
                     ->label('詳細')
                     ->icon('heroicon-o-eye')
@@ -299,6 +400,11 @@ class WmsJxUnknownIncomingSlipsTable
             ->whereHas('file', fn (Builder $query): Builder => $query->where('format_type', 'JX'))
             ->where(function (Builder $query): void {
                 $query
+                    ->whereNull('match_status')
+                    ->orWhere('match_status', '!=', 'IGNORED');
+            })
+            ->where(function (Builder $query): void {
+                $query
                     ->where('match_status', 'NO_ASSIGNMENT')
                     ->orWhereHas('importErrors', fn (Builder $errorQuery): Builder => $errorQuery
                         ->whereIn('error_code', self::REVIEW_ERROR_CODES)
@@ -327,6 +433,112 @@ class WmsJxUnknownIncomingSlipsTable
         }
 
         return $query->whereIn((new WmsIncomingReceivedSlip)->getTable().'.b_shop_code', $codes);
+    }
+
+    private static function notIgnoredDetailQuery(Builder $query): Builder
+    {
+        return $query
+            ->whereNull('match_status')
+            ->orWhere('match_status', '!=', 'IGNORED');
+    }
+
+    private static function hasMissingItemDetails(WmsIncomingReceivedSlip $record): bool
+    {
+        if (array_key_exists('item_missing_count', $record->getAttributes())) {
+            return (int) $record->item_missing_count > 0;
+        }
+
+        return $record->details()
+            ->whereNull('matched_item_id')
+            ->where(fn (Builder $query): Builder => self::notIgnoredDetailQuery($query))
+            ->exists();
+    }
+
+    private static function missingDetailOptions(WmsIncomingReceivedSlip $record): array
+    {
+        return $record->details()
+            ->whereNull('matched_item_id')
+            ->where(fn (Builder $query): Builder => self::notIgnoredDetailQuery($query))
+            ->orderBy('d_line_number')
+            ->get()
+            ->mapWithKeys(fn (WmsIncomingReceivedDetail $detail): array => [
+                (string) $detail->id => self::missingDetailLabel($detail),
+            ])
+            ->all();
+    }
+
+    private static function missingDetailLabel(WmsIncomingReceivedDetail $detail): string
+    {
+        $line = $detail->d_line_number ?: '-';
+        $jan = filled($detail->d_jan_code) ? $detail->d_jan_code : '-';
+        $itemCode = filled($detail->d_item_code) ? $detail->d_item_code : '-';
+        $name = filled($detail->d_product_name) ? $detail->d_product_name : '-';
+
+        return "行{$line} / JAN: {$jan} / 商品CD: {$itemCode} / 総バラ: {$detail->total_quantity} / {$name}";
+    }
+
+    private static function searchItemOptions(string $search): array
+    {
+        $search = trim(mb_convert_kana($search, 'asKV'));
+        if (mb_strlen($search) < 2) {
+            return [];
+        }
+
+        return Item::query()
+            ->with('piece_jan_code_information')
+            ->where(function (Builder $query) use ($search): void {
+                $query
+                    ->where('code', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%")
+                    ->orWhere('kana', 'like', "%{$search}%")
+                    ->orWhere('abbreviation', 'like', "%{$search}%")
+                    ->orWhereHas('item_search_information', function (Builder $query) use ($search): void {
+                        $query->where('search_string', 'like', "%{$search}%");
+                    });
+            })
+            ->orderBy('code')
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn (Item $item): array => [
+                (string) $item->id => self::itemOptionLabelFromItem($item),
+            ])
+            ->all();
+    }
+
+    private static function itemOptionLabel($value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        $item = Item::query()
+            ->with('piece_jan_code_information')
+            ->whereKey((int) $value)
+            ->first();
+
+        return $item ? self::itemOptionLabelFromItem($item) : null;
+    }
+
+    private static function itemOptionLabelFromItem(Item $item): string
+    {
+        $parts = [
+            "[{$item->code}]{$item->name}",
+        ];
+
+        $jan = $item->piece_jan_code_information?->search_string;
+        if (filled($jan)) {
+            $parts[] = "JAN: {$jan}";
+        }
+
+        if (filled($item->capacity_case)) {
+            $parts[] = "入数: {$item->capacity_case}";
+        }
+
+        if (filled($item->volume)) {
+            $parts[] = trim((string) $item->volume.(string) ($item->volume_unit ?? ''));
+        }
+
+        return implode(' / ', $parts);
     }
 
     /**
@@ -550,6 +762,7 @@ class WmsJxUnknownIncomingSlipsTable
             'PARTIAL' => '一部欠品',
             'SHORTAGE' => '欠品',
             'NOT_FOUND' => '該当なし',
+            'IGNORED' => '対象外',
             default => $status ? '未確認' : '-',
         };
     }

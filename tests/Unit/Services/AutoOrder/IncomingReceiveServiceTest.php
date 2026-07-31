@@ -1431,6 +1431,158 @@ class IncomingReceiveServiceTest extends TestCase
             ->count());
     }
 
+    public function test_unassigned_jx_slip_product_unknown_can_be_resolved_manually_before_confirmation(): void
+    {
+        $contractorId = $this->contractorId('1330');
+
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-incoming-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'PENDING',
+            'contractor_id' => $contractorId,
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 1,
+        ]);
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $this->slipNumber,
+            'match_status' => 'NOT_FOUND',
+            'b_shop_code' => '0008',
+            'b_order_date' => '260720',
+            'b_delivery_date' => '260721',
+            'b_contractor_code' => '1330',
+            'detail_count' => 1,
+        ]);
+
+        $detail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '9999999999001',
+            'd_item_code' => '999999',
+            'd_product_name' => '商品不明テスト',
+            'd_pack_quantity' => 6,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 3,
+            'd_unit_price' => 410500,
+            'total_quantity' => 3,
+            'match_status' => 'NOT_FOUND',
+        ]);
+
+        WmsIncomingImportError::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'received_detail_id' => $detail->id,
+            'error_type' => 'ERROR',
+            'error_code' => 'ITEM_NOT_FOUND',
+            'error_message' => '商品を特定できません',
+            'item_code' => '999999',
+        ]);
+
+        app(IncomingReceiveService::class)->resolveUnassignedJxDetailItem($detail, 162100, 123);
+
+        $detail->refresh();
+        $slip->refresh();
+
+        $this->assertSame(162100, (int) $detail->matched_item_id);
+        $this->assertSame('NO_ASSIGNMENT', $detail->match_status);
+        $this->assertSame('NO_ASSIGNMENT', $slip->match_status);
+        $this->assertDatabaseHas('wms_incoming_import_errors', [
+            'received_detail_id' => $detail->id,
+            'error_code' => 'ITEM_NOT_FOUND',
+            'is_resolved' => true,
+        ], 'sakemaru');
+
+        $result = app(IncomingReceiveService::class)->confirmUnassignedJxSlip($slip->fresh(), 123);
+
+        $this->assertSame(1, $result['created']);
+
+        $schedule = WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->firstOrFail();
+
+        $this->assertSame(162100, (int) $schedule->item_id);
+        $this->assertSame(3, $schedule->received_quantity);
+        $this->assertSame('MATCHED', $detail->fresh()->match_status);
+    }
+
+    public function test_unassigned_jx_slip_product_unknown_can_be_ignored_without_creating_schedule(): void
+    {
+        $contractorId = $this->contractorId('1330');
+
+        $file = WmsIncomingReceivedFile::create([
+            'filename' => 'test-incoming-receive-'.now()->format('YmdHisv').'.dat',
+            'format_type' => 'JX',
+            'status' => 'PENDING',
+            'contractor_id' => $contractorId,
+            'parsed_slip_count' => 1,
+            'parsed_detail_count' => 1,
+        ]);
+
+        $slip = WmsIncomingReceivedSlip::create([
+            'received_file_id' => $file->id,
+            'slip_number' => $this->slipNumber,
+            'match_status' => 'NOT_FOUND',
+            'b_shop_code' => '0008',
+            'b_order_date' => '260720',
+            'b_delivery_date' => '260721',
+            'b_contractor_code' => '1330',
+            'detail_count' => 1,
+        ]);
+
+        $detail = WmsIncomingReceivedDetail::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'd_line_number' => 1,
+            'd_jan_code' => '9999999999002',
+            'd_item_code' => '999998',
+            'd_product_name' => '商品不明削除テスト',
+            'd_pack_quantity' => 1,
+            'd_case_quantity' => 0,
+            'd_piece_quantity' => 1,
+            'd_unit_price' => 100000,
+            'total_quantity' => 1,
+            'match_status' => 'NOT_FOUND',
+        ]);
+
+        WmsIncomingImportError::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'received_detail_id' => $detail->id,
+            'error_type' => 'ERROR',
+            'error_code' => 'ITEM_NOT_FOUND',
+            'error_message' => '商品を特定できません',
+            'item_code' => '999998',
+        ]);
+        WmsIncomingImportError::create([
+            'received_file_id' => $file->id,
+            'received_slip_id' => $slip->id,
+            'error_type' => 'WARNING',
+            'error_code' => 'EOS_ASSIGNMENT_NOT_FOUND',
+            'error_message' => '送信済みEOS伝票番号割当が見つかりません',
+        ]);
+
+        $result = app(IncomingReceiveService::class)->ignoreUnassignedJxDetail($detail, 123);
+
+        $this->assertSame($detail->id, $result['detail_id']);
+        $this->assertSame('IGNORED', $result['slip_status']);
+        $this->assertSame('IGNORED', $detail->fresh()->match_status);
+        $this->assertSame('IGNORED', $slip->fresh()->match_status);
+        $this->assertSame(WmsIncomingReceivedFile::STATUS_APPLIED, $file->fresh()->status);
+        $this->assertSame(0, WmsOrderIncomingSchedule::query()
+            ->where('source_received_detail_id', $detail->id)
+            ->count());
+        $this->assertSame(0, WmsIncomingImportError::query()
+            ->where('received_slip_id', $slip->id)
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('is_resolved')
+                    ->orWhere('is_resolved', false);
+            })
+            ->count());
+    }
+
     public function test_unassigned_jx_slip_uses_item_contractor_before_file_contractor(): void
     {
         $fileContractorId = $this->contractorId('1106');
