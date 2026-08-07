@@ -43,11 +43,6 @@ class WmsOrderDataFilesTable
             return null;
         }
 
-        $attachments = collect([
-            filled($record->file_path) ? '・発注データ（CSV形式）' : null,
-            '・発注書（PDF形式）',
-        ])->filter()->implode("\n");
-
         $variables = [
             '$$VAR_CONTRACTOR_NAME$$' => $record->contractor?->name ?? '発注先',
             '$$VAR_WAREHOUSE_NAME$$' => $record->warehouse?->name ?? '倉庫',
@@ -56,7 +51,7 @@ class WmsOrderDataFilesTable
             '$$VAR_EXPECTED_ARRIVAL_DATE$$' => $record->expected_arrival_date?->format('Y年m月d日') ?? '未定',
             '$$VAR_ORDER_COUNT$$' => number_format($record->order_count),
             '$$VAR_TOTAL_QUANTITY$$' => number_format($record->total_quantity),
-            '$$VAR_ATTACHMENTS$$' => $attachments,
+            '$$VAR_ATTACHMENTS$$' => "・発注データ（CSV形式）\n・発注書（PDF形式）",
         ];
 
         return str_replace(array_keys($variables), array_values($variables), $template);
@@ -226,7 +221,6 @@ class WmsOrderDataFilesTable
                     ->label('CSV')
                     ->icon('heroicon-o-document-text')
                     ->color('primary')
-                    ->visible(fn (WmsOrderDataFile $record): bool => filled($record->file_path))
                     ->action(function (WmsOrderDataFile $record) {
                         if (! $record->file_path) {
                             Notification::make()
@@ -370,13 +364,11 @@ class WmsOrderDataFilesTable
 
                         CheckboxList::make('attachments')
                             ->label('添付ファイル')
-                            ->options(fn (WmsOrderDataFile $record): array => collect([
+                            ->options([
                                 'csv' => 'CSV（発注データ）',
                                 'fax' => 'FAX（発注書PDF）',
                             ])
-                                ->when(blank($record->file_path), fn ($options) => $options->forget('csv'))
-                                ->all())
-                            ->default(fn (WmsOrderDataFile $record): array => filled($record->file_path) ? ['csv', 'fax'] : ['fax'])
+                            ->default(['csv', 'fax'])
                             ->required(),
                     ])
                     ->action(function (WmsOrderDataFile $record, array $data) {
@@ -472,7 +464,7 @@ class WmsOrderDataFilesTable
 
                                     Mail::to($email)->send(new OrderDataMail(
                                         dataFile: $record,
-                                        attachCsv: filled($record->file_path),
+                                        attachCsv: true,
                                         attachFax: true,
                                         fromName: $setting?->order_mail_from,
                                         subject: $subject,

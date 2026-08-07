@@ -39,7 +39,6 @@ enum EMenu: string
     // 発注処理
     case WMS_AUTO_ORDER_JOBS = 'auto_order.wms_auto_order_jobs';
     case WMS_STOCK_TRANSFER_CANDIDATES = 'auto_order.wms_stock_transfer_candidates';
-    case WMS_ORDER_REGISTRATION = 'auto_order.wms_order_registration';
     case WMS_ORDER_CANDIDATES = 'auto_order.wms_order_candidates';
     case WMS_ORDER_CONFIRMATION_WAITING = 'auto_order.wms_order_confirmation_waiting';
 
@@ -136,7 +135,6 @@ enum EMenu: string
 
             self::WMS_AUTO_ORDER_JOBS,
             self::WMS_STOCK_TRANSFER_CANDIDATES,
-            self::WMS_ORDER_REGISTRATION,
             self::WMS_ORDER_CANDIDATES,
             self::WMS_ORDER_CONFIRMATION_WAITING => EMenuCategory::AUTO_ORDER,
 
@@ -235,7 +233,6 @@ enum EMenu: string
 
             self::WMS_AUTO_ORDER_EXECUTION_LOG => '自動発注実行ログ',
             self::WMS_STOCK_TRANSFER_CANDIDATES => '物流発注(店間）',
-            self::WMS_ORDER_REGISTRATION => '（新）外部発注',
             self::WMS_ORDER_CANDIDATES => '外部発注',
             self::WMS_ORDER_CONFIRMATION_WAITING => '発注確定待ち',
             self::WMS_ORDER_CONFIRMED => '発注確定済み',
@@ -327,7 +324,6 @@ enum EMenu: string
 
             self::WMS_AUTO_ORDER_EXECUTION_LOG => 'heroicon-o-clipboard-document-check',
             self::WMS_STOCK_TRANSFER_CANDIDATES => 'heroicon-o-arrows-right-left',
-            self::WMS_ORDER_REGISTRATION => 'heroicon-o-document-plus',
             self::WMS_ORDER_CANDIDATES => 'heroicon-o-shopping-cart',
             self::WMS_ORDER_CONFIRMATION_WAITING => 'heroicon-o-clipboard-document-check',
             self::WMS_ORDER_CONFIRMED => 'heroicon-o-check-badge',
@@ -422,9 +418,8 @@ enum EMenu: string
             // 発注処理
             self::WMS_AUTO_ORDER_JOBS => 0,
             self::WMS_STOCK_TRANSFER_CANDIDATES => 1,
-            self::WMS_ORDER_REGISTRATION => 2,
-            self::WMS_ORDER_CANDIDATES => 3,
-            self::WMS_ORDER_CONFIRMATION_WAITING => 4,
+            self::WMS_ORDER_CANDIDATES => 2,
+            self::WMS_ORDER_CONFIRMATION_WAITING => 3,
 
             // 発注履歴
             self::WMS_ORDER_CONFIRMED => 1,

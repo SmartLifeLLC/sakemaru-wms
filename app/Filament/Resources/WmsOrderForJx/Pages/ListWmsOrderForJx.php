@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\WmsOrderForJx\Pages;
 
-use App\Enums\AutoOrder\OrderChannel;
-use App\Enums\AutoOrder\OrderDataFileChannel;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
@@ -53,18 +51,6 @@ class ListWmsOrderForJx extends ListRecords
                         ->whereColumn('wms_order_data_files.warehouse_id', (new WmsOrderCandidate)->getTable().'.warehouse_id')
                         ->whereColumn('wms_order_data_files.contractor_id', (new WmsOrderCandidate)->getTable().'.contractor_id')
                         ->whereColumn('wms_order_data_files.expected_arrival_date', (new WmsOrderCandidate)->getTable().'.expected_arrival_date')
-                        ->where(function ($query) {
-                            $candidateTable = (new WmsOrderCandidate)->getTable();
-
-                            $query
-                                ->whereNull("{$candidateTable}.order_channel")
-                                ->orWhere("{$candidateTable}.order_channel", OrderChannel::FAX->value);
-                        })
-                        ->where(function ($query): void {
-                            $query
-                                ->whereNull('wms_order_data_files.order_channel')
-                                ->orWhere('wms_order_data_files.order_channel', OrderDataFileChannel::FAX->value);
-                        })
                         ->where(function ($query) {
                             $candidateTable = (new WmsOrderCandidate)->getTable();
 

@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
-use App\Enums\AutoOrder\OrderChannel;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
@@ -40,7 +39,6 @@ class WmsOrderIncomingSchedule extends WmsModel
         'stock_transfer_id',
         'manual_order_number',
         'order_source',
-        'order_channel',
         'slip_number',
         'expected_quantity',
         'received_quantity',
@@ -81,7 +79,6 @@ class WmsOrderIncomingSchedule extends WmsModel
         'cancelled_at' => 'datetime',
         'status' => IncomingScheduleStatus::class,
         'order_source' => OrderSource::class,
-        'order_channel' => OrderChannel::class,
         'quantity_type' => QuantityType::class,
         'is_receive_matched' => 'boolean',
         'shortage_quantity' => 'integer',
