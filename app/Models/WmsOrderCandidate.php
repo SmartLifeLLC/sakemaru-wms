@@ -4,8 +4,6 @@ namespace App\Models;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
-use App\Enums\AutoOrder\OrderChannel;
-use App\Enums\AutoOrder\OrderEntrySource;
 use App\Enums\AutoOrder\OriginType;
 use App\Enums\QuantityType;
 use App\Models\Concerns\HasOptimisticLock;
@@ -80,8 +78,6 @@ class WmsOrderCandidate extends WmsModel
         'modified_by',
         'modified_at',
         'origin_type',
-        'order_channel',
-        'entry_source',
         'exclusion_reason',
         'transmission_status',
         'transmitted_at',
@@ -99,8 +95,6 @@ class WmsOrderCandidate extends WmsModel
         'quantity_type' => QuantityType::class,
         'is_manually_modified' => 'boolean',
         'origin_type' => OriginType::class,
-        'order_channel' => OrderChannel::class,
-        'entry_source' => OrderEntrySource::class,
         'lot_fee_amount' => 'decimal:2',
         'demand_breakdown' => 'array',
         'current_effective_stock' => 'integer',

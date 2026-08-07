@@ -2,11 +2,8 @@
 
 namespace Tests\Unit\Services\AutoOrder;
 
-use App\Enums\AutoOrder\OrderDataFileChannel;
-use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Models\User;
 use App\Models\WmsOrderCandidate;
-use App\Models\WmsOrderDataFile;
 use App\Services\AutoOrder\OrderDataFileService;
 use Tests\TestCase;
 
@@ -84,24 +81,6 @@ class OrderDataFileServiceTest extends TestCase
             'id' => 123,
             'name' => '発注担当者',
         ], $method->invoke($service, 'J20260520182144448', collect()));
-    }
-
-    public function test_eos_control_pdf_is_not_marked_as_fax_downloaded(): void
-    {
-        $dataFile = new WmsOrderDataFile([
-            'order_channel' => OrderDataFileChannel::EOS,
-            'show_eos_stamp' => true,
-            'status' => OrderDataFileStatus::GENERATED,
-            'fax_downloaded_at' => null,
-            'fax_downloaded_by' => null,
-        ]);
-
-        $dataFile->markAsFaxDownloaded(123);
-
-        $this->assertTrue($dataFile->isEosControlPdf());
-        $this->assertSame(OrderDataFileStatus::GENERATED, $dataFile->status);
-        $this->assertNull($dataFile->fax_downloaded_at);
-        $this->assertNull($dataFile->fax_downloaded_by);
     }
 
     private function candidate(int $id, int $warehouseId, int $contractorId, int $supplierId, string $expectedArrivalDate): WmsOrderCandidate

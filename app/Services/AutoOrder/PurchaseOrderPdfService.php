@@ -3,8 +3,6 @@
 namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
-use App\Enums\AutoOrder\OrderChannel;
-use App\Enums\AutoOrder\OrderDataFileChannel;
 use App\Enums\EVolumeUnit;
 use App\Models\Sakemaru\Client;
 use App\Models\WmsContractorWarehouseSetting;
@@ -89,19 +87,6 @@ class PurchaseOrderPdfService
     private $warehouse;
 
     private OrderOutputQuantityResolver $quantityResolver;
-
-    private array $logoImageSourceCache = [];
-
-    private array $temporaryLogoImagePaths = [];
-
-    public function __destruct()
-    {
-        foreach ($this->temporaryLogoImagePaths as $path) {
-            if (is_string($path) && @file_exists($path)) {
-                @unlink($path);
-            }
-        }
-    }
 
     /**
      * WmsOrderDataFileからPDFを生成
@@ -401,9 +386,6 @@ class PurchaseOrderPdfService
      */
     private function renderHeader(): void
     {
-        $this->renderOrderMeta();
-        $this->renderCompanyHeader();
-
         // タイトル「発注書」
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_TITLE);
         $titleWidth = $this->pdf->GetStringWidth('発注書');
@@ -411,9 +393,12 @@ class PurchaseOrderPdfService
         $this->pdf->Cell($titleWidth, 14, '発注書', 0, 0, 'C');
         $this->currentY += 16;
 
-        if ($this->shouldRenderEosStamp()) {
-            $this->renderEosStamp();
-        }
+        // 発注日・発注番号（右上）
+        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+        $this->pdf->SetXY(self::PAGE_WIDTH - self::MARGIN_RIGHT - 90, self::MARGIN_TOP);
+        $this->pdf->Cell(90, self::LINE_HEIGHT_NORMAL, '発注日: '.$this->dataFile->order_date->format('Y年m月d日'), 0, 1, 'R');
+        $this->pdf->SetX(self::PAGE_WIDTH - self::MARGIN_RIGHT - 90);
+        $this->pdf->Cell(90, self::LINE_HEIGHT_NORMAL, '発注番号: '.$this->dataFile->batch_code, 0, 1, 'R');
 
         // 発注先・発注元情報を同じ高さから描画
         $infoStartY = $this->currentY;
@@ -421,338 +406,12 @@ class PurchaseOrderPdfService
         // 発注先情報（左側）
         $this->renderContractorInfo($infoStartY);
 
+        // 発注元情報（右側）- 同じ高さから開始
+        if ($this->client) {
+            $this->renderClientInfo($infoStartY);
+        }
+
         $this->currentY += 5;
-    }
-
-    private function renderOrderMeta(): void
-    {
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
-        $this->pdf->SetXY(self::MARGIN_LEFT, self::MARGIN_TOP);
-        $this->pdf->Cell(95, self::LINE_HEIGHT_NORMAL, '発注日: '.$this->dataFile->order_date->format('Y年m月d日'), 0, 1, 'L');
-        $this->pdf->SetX(self::MARGIN_LEFT);
-        $this->pdf->Cell(95, self::LINE_HEIGHT_NORMAL, '発注番号: '.$this->dataFile->batch_code, 0, 1, 'L');
-    }
-
-    private function renderCompanyHeader(): void
-    {
-        if (! $this->client) {
-            return;
-        }
-
-        $startX = self::PAGE_WIDTH - self::MARGIN_RIGHT - 83;
-        $startY = self::MARGIN_TOP - 1;
-        $width = 83;
-        $lineY = $startY;
-        $logoSource = $this->client?->setting?->logo_image_url;
-        $logoPath = $this->resolveLogoImageSource($logoSource);
-        $stampPath = $this->resolveLogoImageSource($this->client?->setting?->stamp_image_url);
-
-        if ($logoPath) {
-            try {
-                $this->pdf->Image(
-                    $logoPath,
-                    $startX + 8,
-                    $lineY,
-                    50,
-                    0,
-                    '',
-                    '',
-                    '',
-                    false,
-                    300,
-                    '',
-                    false,
-                    false,
-                    0,
-                );
-                $lineY += 15;
-            } catch (\Throwable) {
-                $logoPath = null;
-            }
-        }
-
-        if (! $logoPath) {
-            $this->pdf->SetFont('kozminproregular', 'B', self::FONT_SIZE_NORMAL);
-            $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->Cell($width, self::LINE_HEIGHT_NORMAL, $this->client->name ?? '', 0, 1, 'L');
-            $lineY += self::LINE_HEIGHT_NORMAL;
-        }
-
-        if ($stampPath) {
-            try {
-                $this->pdf->SetAlpha(0.45);
-                $this->pdf->Image($stampPath, $startX + 58, $lineY - 1, 15, 15);
-                $this->pdf->SetAlpha(1);
-            } catch (\Throwable) {
-                $this->pdf->SetAlpha(1);
-            }
-        }
-
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
-        $textLineHeight = 5.8;
-
-        if ($logoPath && filled($this->client->name ?? null)) {
-            $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->Cell($width, $textLineHeight, (string) $this->client->name, 0, 1, 'L');
-            $lineY += $textLineHeight;
-        }
-
-        if ($this->warehouse?->name) {
-            $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->Cell($width, $textLineHeight, $this->warehouse->name, 0, 1, 'L');
-            $lineY += $textLineHeight;
-        }
-
-        $address = $this->companyHeaderAddress();
-        if ($address !== '') {
-            $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->MultiCell($width, $textLineHeight, $address, 0, 'L');
-            $lineY = $this->pdf->GetY();
-        }
-
-        foreach ($this->companyHeaderContactLines() as $contactLine) {
-            $this->pdf->SetXY($startX, $lineY);
-            $this->pdf->Cell($width, $textLineHeight, $contactLine, 0, 1, 'L');
-            $lineY += $textLineHeight;
-        }
-
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
-    }
-
-    private function companyHeaderAddress(): string
-    {
-        $address = trim(($this->warehouse?->address1 ?? '').($this->warehouse?->address2 ?? ''));
-        $postalCode = (string) ($this->warehouse?->postal_code ?? '');
-
-        if ($address === '') {
-            $address = trim(($this->client->order_form_address1 ?? $this->client->address1 ?? '').($this->client->order_form_address2 ?? $this->client->address2 ?? ''));
-            $postalCode = (string) ($this->client->postal_code ?? '');
-        }
-
-        if ($address === '') {
-            return '';
-        }
-
-        return $postalCode !== '' ? '〒'.$postalCode.' '.$address : $address;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function companyHeaderContactLines(): array
-    {
-        $tel = $this->warehouse?->tel ?: $this->client->tel;
-        $fax = $this->warehouse?->fax ?: $this->client->fax;
-        $lines = [];
-
-        if ($tel) {
-            $lines[] = 'TEL: '.$tel;
-        }
-
-        if ($fax) {
-            $lines[] = 'FAX: '.$fax;
-        }
-
-        return $lines;
-    }
-
-    private function resolveLogoImageSource(?string $source): ?string
-    {
-        if (blank($source)) {
-            return null;
-        }
-
-        $source = trim((string) $source);
-        if (array_key_exists($source, $this->logoImageSourceCache)) {
-            return $this->logoImageSourceCache[$source];
-        }
-
-        if (str_starts_with($source, 'data:image/')) {
-            $base64 = preg_replace('/^data:image\/[^;]+;base64,/', '', $source);
-            $binary = base64_decode((string) $base64, true);
-
-            return $this->logoImageSourceCache[$source] = $binary !== false && $binary !== ''
-                ? $this->writeLogoImageBinaryToTemporaryFile($binary, $source)
-                : null;
-        }
-
-        if (@file_exists($source)) {
-            return $this->logoImageSourceCache[$source] = $this->prepareLogoImagePath($source);
-        }
-
-        if (! filter_var($source, FILTER_VALIDATE_URL)) {
-            return null;
-        }
-
-        $binary = $this->resolveLogoImageBinaryFromUrl($source);
-
-        return $this->logoImageSourceCache[$source] = $binary !== null && $binary !== ''
-            ? $this->writeLogoImageBinaryToTemporaryFile($binary, $source)
-            : null;
-    }
-
-    private function resolveLogoImageBinaryFromUrl(string $url): ?string
-    {
-        try {
-            $host = parse_url($url, PHP_URL_HOST) ?? '';
-            $isS3Url = $host !== '' && (str_contains($host, '.s3.') || str_contains($host, '.s3-'));
-
-            if ($isS3Url) {
-                $path = ltrim((string) parse_url($url, PHP_URL_PATH), '/');
-                if ($path !== '') {
-                    $content = $this->resolveLogoImageBinaryFromS3Path($path);
-                    if ($content !== null && $content !== '') {
-                        return $content;
-                    }
-                }
-            }
-        } catch (\Throwable) {
-            // S3取得失敗時はURL直取得へフォールバックする。
-        }
-
-        $content = @file_get_contents($url);
-
-        return is_string($content) && $content !== '' ? $content : null;
-    }
-
-    private function resolveLogoImageBinaryFromS3Path(string $path): ?string
-    {
-        $logicalPaths = array_values(array_unique(array_filter([
-            $path,
-            $this->stripConfiguredS3Prefix($path),
-        ])));
-
-        foreach ($logicalPaths as $logicalPath) {
-            try {
-                $content = Storage::disk('s3')->get($logicalPath);
-                if (is_string($content) && $content !== '') {
-                    return $content;
-                }
-            } catch (\Throwable) {
-                // 次の解決方法へフォールバックする。
-            }
-        }
-
-        try {
-            $config = config('filesystems.disks.s3', []);
-            unset($config['prefix']);
-
-            $content = Storage::build($config)->get($path);
-
-            return is_string($content) && $content !== '' ? $content : null;
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    private function stripConfiguredS3Prefix(string $path): string
-    {
-        $prefix = trim((string) config('filesystems.disks.s3.prefix', ''), '/');
-        if ($prefix === '') {
-            return $path;
-        }
-
-        return str_starts_with($path, $prefix.'/')
-            ? substr($path, strlen($prefix) + 1)
-            : $path;
-    }
-
-    private function writeLogoImageBinaryToTemporaryFile(string $binary, string $source): ?string
-    {
-        $extension = pathinfo((string) parse_url($source, PHP_URL_PATH), PATHINFO_EXTENSION) ?: 'png';
-        if (str_starts_with($source, 'data:image/jpeg')) {
-            $extension = 'jpg';
-        } elseif (str_starts_with($source, 'data:image/png')) {
-            $extension = 'png';
-        }
-
-        $path = tempnam(sys_get_temp_dir(), 'wms_po_logo_').'.'.strtolower($extension);
-        if (@file_put_contents($path, $binary) === false) {
-            return null;
-        }
-
-        $this->temporaryLogoImagePaths[] = $path;
-
-        return $this->prepareLogoImagePath($path);
-    }
-
-    private function prepareLogoImagePath(string $path): string
-    {
-        if (! str_ends_with(strtolower($path), '.png') || ! function_exists('imagecreatefrompng')) {
-            return $path;
-        }
-
-        $image = @imagecreatefrompng($path);
-        if (! $image) {
-            return $path;
-        }
-
-        $width = imagesx($image);
-        $height = imagesy($image);
-        $jpeg = imagecreatetruecolor($width, $height);
-        $white = imagecolorallocate($jpeg, 255, 255, 255);
-        imagefill($jpeg, 0, 0, $white);
-        imagealphablending($jpeg, true);
-        imagecopy($jpeg, $image, 0, 0, 0, 0, $width, $height);
-
-        $jpegPath = tempnam(sys_get_temp_dir(), 'wms_po_logo_').'.jpg';
-        if (@imagejpeg($jpeg, $jpegPath, 95)) {
-            $this->temporaryLogoImagePaths[] = $jpegPath;
-            imagedestroy($image);
-            imagedestroy($jpeg);
-
-            return $jpegPath;
-        }
-
-        imagedestroy($image);
-        imagedestroy($jpeg);
-
-        return $path;
-    }
-
-    private function shouldRenderEosStamp(): bool
-    {
-        $dataFileChannel = $this->dataFile->order_channel instanceof OrderDataFileChannel
-            ? $this->dataFile->order_channel
-            : OrderDataFileChannel::tryFrom((string) $this->dataFile->order_channel);
-
-        if ($this->dataFile->show_eos_stamp || $dataFileChannel === OrderDataFileChannel::EOS) {
-            return true;
-        }
-
-        $candidateIds = collect($this->dataFile->candidate_ids ?? [])
-            ->map(fn ($id) => (int) $id)
-            ->filter()
-            ->values()
-            ->all();
-
-        if ($candidateIds === []) {
-            return false;
-        }
-
-        return WmsOrderCandidate::query()
-            ->whereIn('id', $candidateIds)
-            ->where('order_channel', OrderChannel::EOS->value)
-            ->exists();
-    }
-
-    private function renderEosStamp(): void
-    {
-        $width = 42;
-        $height = 11;
-        $x = (self::PAGE_WIDTH - $width) / 2;
-        $y = self::MARGIN_TOP + 16;
-
-        $this->pdf->SetDrawColor(30, 64, 175);
-        $this->pdf->SetTextColor(30, 64, 175);
-        $this->pdf->SetLineWidth(self::LINE_WIDTH_THICK);
-        $this->pdf->SetFont('kozminproregular', 'B', self::FONT_SIZE_SMALL);
-        $this->pdf->Rect($x, $y, $width, $height);
-        $this->pdf->SetXY($x, $y + 1.5);
-        $this->pdf->Cell($width, 7, 'EOS発注控え', 0, 0, 'C');
-        $this->pdf->SetTextColor(0, 0, 0);
-        $this->pdf->SetDrawColor(0, 0, 0);
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
     }
 
     /**
