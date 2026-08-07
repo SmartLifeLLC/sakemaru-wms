@@ -3,6 +3,8 @@
 namespace App\Console\Commands\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\OrderChannel;
+use App\Enums\AutoOrder\OrderDataFileChannel;
 use App\Enums\AutoOrder\TransmissionType;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsJxOrderGenerationRun;
@@ -285,18 +287,31 @@ class GenerateJxOrderDocumentsCommand extends Command
             ->whereNull('wms_order_jx_document_id')
             ->where('modified_at', '>=', $modifiedFrom)
             ->where('modified_at', '<=', $modifiedUntil)
-            ->whereNotExists(function ($query) use ($candidateTable): void {
+            ->where(function ($query) use ($candidateTable): void {
                 $query
-                    ->selectRaw('1')
-                    ->from('wms_order_data_files')
-                    ->whereColumn('wms_order_data_files.batch_code', "{$candidateTable}.batch_code")
-                    ->whereColumn('wms_order_data_files.warehouse_id', "{$candidateTable}.warehouse_id")
-                    ->whereColumn('wms_order_data_files.contractor_id', "{$candidateTable}.contractor_id")
-                    ->whereColumn('wms_order_data_files.expected_arrival_date', "{$candidateTable}.expected_arrival_date")
-                    ->where(function ($query) use ($candidateTable): void {
+                    ->where("{$candidateTable}.order_channel", OrderChannel::EOS->value)
+                    ->orWhere(function ($query) use ($candidateTable): void {
                         $query
-                            ->whereNull('wms_order_data_files.candidate_ids')
-                            ->orWhereRaw("JSON_CONTAINS(wms_order_data_files.candidate_ids, JSON_ARRAY({$candidateTable}.id))");
+                            ->whereNull("{$candidateTable}.order_channel")
+                            ->whereNotExists(function ($query) use ($candidateTable): void {
+                                $query
+                                    ->selectRaw('1')
+                                    ->from('wms_order_data_files')
+                                    ->whereColumn('wms_order_data_files.batch_code', "{$candidateTable}.batch_code")
+                                    ->whereColumn('wms_order_data_files.warehouse_id', "{$candidateTable}.warehouse_id")
+                                    ->whereColumn('wms_order_data_files.contractor_id', "{$candidateTable}.contractor_id")
+                                    ->whereColumn('wms_order_data_files.expected_arrival_date', "{$candidateTable}.expected_arrival_date")
+                                    ->where(function ($query): void {
+                                        $query
+                                            ->whereNull('wms_order_data_files.order_channel')
+                                            ->orWhere('wms_order_data_files.order_channel', OrderDataFileChannel::FAX->value);
+                                    })
+                                    ->where(function ($query) use ($candidateTable): void {
+                                        $query
+                                            ->whereNull('wms_order_data_files.candidate_ids')
+                                            ->orWhereRaw("JSON_CONTAINS(wms_order_data_files.candidate_ids, JSON_ARRAY({$candidateTable}.id))");
+                                    });
+                            });
                     });
             })
             ->with(['item', 'contractor', 'warehouse'])

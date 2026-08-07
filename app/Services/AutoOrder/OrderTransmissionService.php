@@ -6,6 +6,8 @@ use App\Contracts\OrderFileGeneratorInterface;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\JobProcessName;
+use App\Enums\AutoOrder\OrderChannel;
+use App\Enums\AutoOrder\OrderDataFileChannel;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\AutoOrder\TransmissionDocumentType;
@@ -25,6 +27,7 @@ use App\Models\WmsOrderTransmissionLog;
 use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use App\Services\JX\JxClient;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -532,6 +535,7 @@ class OrderTransmissionService
             ->where('status', CandidateStatus::CONFIRMED)
             ->whereNull('wms_order_jx_document_id')
             ->whereIn('contractor_id', $targetContractorIds)
+            ->where(fn (Builder $query): Builder => $this->applyJxEligibleOrderChannel($query))
             ->with(['warehouse', 'item', 'contractor']);
 
         if ($warehouseId !== null) {
@@ -590,6 +594,7 @@ class OrderTransmissionService
         $candidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
             ->whereNull('wms_order_jx_document_id')
             ->whereIn('contractor_id', $scopedContractorIds)
+            ->where(fn (Builder $query): Builder => $this->applyJxEligibleOrderChannel($query))
             ->with(['warehouse', 'item', 'contractor'])
             ->get();
 
@@ -741,6 +746,15 @@ class OrderTransmissionService
         return $this->getOrderFileGenerator();
     }
 
+    private function applyJxEligibleOrderChannel(Builder $query): Builder
+    {
+        return $query->where(function (Builder $query): void {
+            $query
+                ->whereNull('order_channel')
+                ->orWhere('order_channel', OrderChannel::EOS->value);
+        });
+    }
+
     /**
      * 確定済み候補からファイル生成→JX送信（JX送信ボタン用）
      */
@@ -763,6 +777,7 @@ class OrderTransmissionService
 
         $candidates = WmsOrderCandidate::where('status', CandidateStatus::CONFIRMED)
             ->whereIn('contractor_id', $sourceContractorIds)
+            ->where(fn (Builder $query): Builder => $this->applyJxEligibleOrderChannel($query))
             ->with(['item', 'contractor', 'warehouse'])
             ->get();
 
@@ -1754,6 +1769,8 @@ class OrderTransmissionService
             'warehouse_id' => $firstCandidate?->warehouse_id,
             'contractor_id' => $file['contractor_id'],
             'candidate_ids' => $candidates->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
+            'order_channel' => OrderDataFileChannel::JX_CONFIRMATION,
+            'show_eos_stamp' => false,
             'order_date' => ClientSetting::freshSystemDateYMD('order_transmission:data_file'),
             'expected_arrival_date' => $firstCandidate?->expected_arrival_date,
             'file_path' => $csvPath,
@@ -2201,10 +2218,20 @@ class OrderTransmissionService
             ->where('status', CandidateStatus::CONFIRMED)
             ->whereNotNull('wms_order_jx_document_id')
             ->count();
+        $excludedFaxChannel = (clone $baseQuery)
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->whereNull('wms_order_jx_document_id')
+            ->where('order_channel', OrderChannel::FAX->value)
+            ->count();
         $targetContractorIds = $this->jxOrderTargetContractorIds();
         $excludedNotJxTarget = (clone $baseQuery)
             ->where('status', CandidateStatus::CONFIRMED)
             ->whereNull('wms_order_jx_document_id')
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('order_channel')
+                    ->orWhere('order_channel', OrderChannel::EOS->value);
+            })
             ->when(
                 ! empty($targetContractorIds),
                 fn ($query) => $query->whereNotIn('contractor_id', $targetContractorIds),
@@ -2215,6 +2242,11 @@ class OrderTransmissionService
         $targetCandidates = WmsOrderCandidate::whereIn('id', $candidateIds)
             ->where('status', CandidateStatus::CONFIRMED)
             ->whereNull('wms_order_jx_document_id')
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('order_channel')
+                    ->orWhere('order_channel', OrderChannel::EOS->value);
+            })
             ->when(
                 ! empty($targetContractorIds),
                 fn ($query) => $query->whereIn('contractor_id', $targetContractorIds),
@@ -2228,9 +2260,11 @@ class OrderTransmissionService
         if ($candidates->isEmpty()) {
             $message = $excludedMissingOrderingCode > 0
                 ? 'JX対象の発注候補にJX発注CD未設定の商品が含まれているため、生成対象がありません'
+                : ($excludedFaxChannel > 0
+                ? 'FAX発注として登録された候補が含まれているため、生成対象がありません'
                 : ($excludedNotJxTarget > 0
                 ? 'JX送信対象外の発注先が含まれているため、生成対象がありません'
-                : 'JX未生成の確定済み発注候補がありません');
+                : 'JX未生成の確定済み発注候補がありません'));
 
             return [
                 'success' => false,
@@ -2239,10 +2273,11 @@ class OrderTransmissionService
                 'selected_count' => $selectedCount,
                 'eligible_count' => 0,
                 'jx_target_count' => $targetCandidates->count(),
-                'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedNotJxTarget + $excludedMissingOrderingCode,
+                'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedFaxChannel + $excludedNotJxTarget + $excludedMissingOrderingCode,
                 'excluded_missing' => $excludedMissing,
                 'excluded_not_confirmed' => $excludedNotConfirmed,
                 'excluded_already_generated' => $excludedAlreadyGenerated,
+                'excluded_fax_channel' => $excludedFaxChannel,
                 'excluded_not_jx_target' => $excludedNotJxTarget,
                 'excluded_missing_ordering_code' => $excludedMissingOrderingCode,
                 'skipped_count' => 0,
@@ -2276,10 +2311,11 @@ class OrderTransmissionService
             'selected_count' => $selectedCount,
             'eligible_count' => $eligibleCount,
             'jx_target_count' => $targetCandidates->count(),
-            'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedNotJxTarget + $excludedMissingOrderingCode,
+            'excluded_count' => $excludedMissing + $excludedNotConfirmed + $excludedAlreadyGenerated + $excludedFaxChannel + $excludedNotJxTarget + $excludedMissingOrderingCode,
             'excluded_missing' => $excludedMissing,
             'excluded_not_confirmed' => $excludedNotConfirmed,
             'excluded_already_generated' => $excludedAlreadyGenerated,
+            'excluded_fax_channel' => $excludedFaxChannel,
             'excluded_not_jx_target' => $excludedNotJxTarget,
             'excluded_missing_ordering_code' => $excludedMissingOrderingCode,
             'skipped_count' => max(0, $eligibleCount - $totalOrders),
