@@ -4,6 +4,8 @@ namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Models\Sakemaru\ClientSetting;
+use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
 use Carbon\Carbon;
@@ -13,6 +15,50 @@ use Illuminate\Support\Facades\DB;
 class JxOrderArrivalDateAdjustmentService
 {
     private const MAX_LOOKAHEAD_DAYS = 14;
+
+    public function earliestArrivalDate(int $contractorId, int $warehouseId, ?Carbon $orderDate = null): ?Carbon
+    {
+        $orderDay = ($orderDate ?? Carbon::parse(ClientSetting::freshSystemDateYMD('jx_arrival_date:default')))
+            ->copy()
+            ->startOfDay();
+        $contractor = Contractor::with('leadTime')->find($contractorId);
+
+        if (! $contractor) {
+            return $orderDay->copy()->addDay();
+        }
+
+        $arrivalDate = app(ContractorLeadTimeService::class)
+            ->calculateArrivalDate($contractor, $orderDay)['arrival_date']
+            ->copy()
+            ->startOfDay();
+
+        if ($arrivalDate->lte($orderDay)) {
+            $arrivalDate = $orderDay->copy()->addDay();
+        }
+
+        $deliveryDays = $this->loadDeliveryDaySetting($contractorId, $warehouseId);
+
+        if ($deliveryDays === null) {
+            return $arrivalDate;
+        }
+
+        if (! in_array(true, $deliveryDays, true)) {
+            return null;
+        }
+
+        $warehouseHolidays = $this->loadWarehouseHolidaysForWarehouse($warehouseId, $orderDay, $arrivalDate);
+
+        if ($this->isArrivalDateAllowed($arrivalDate, $warehouseId, $deliveryDays, $warehouseHolidays)) {
+            return $arrivalDate;
+        }
+
+        return $this->findNextArrivalDate(
+            $arrivalDate->copy()->subDay(),
+            $warehouseId,
+            $deliveryDays,
+            $warehouseHolidays
+        );
+    }
 
     /**
      * @param  Collection<int, WmsOrderCandidate>  $candidates
@@ -184,6 +230,32 @@ class JxOrderArrivalDateAdjustmentService
     }
 
     /**
+     * @return array<int, bool>|null
+     */
+    private function loadDeliveryDaySetting(int $contractorId, int $warehouseId): ?array
+    {
+        $row = DB::connection('sakemaru')
+            ->table('wms_contractor_warehouse_delivery_days')
+            ->where('contractor_id', $contractorId)
+            ->where('warehouse_id', $warehouseId)
+            ->first();
+
+        if (! $row) {
+            return null;
+        }
+
+        return [
+            0 => (bool) $row->delivery_sun,
+            1 => (bool) $row->delivery_mon,
+            2 => (bool) $row->delivery_tue,
+            3 => (bool) $row->delivery_wed,
+            4 => (bool) $row->delivery_thu,
+            5 => (bool) $row->delivery_fri,
+            6 => (bool) $row->delivery_sat,
+        ];
+    }
+
+    /**
      * @param  Collection<int, WmsOrderCandidate>  $candidates
      * @return array<int, array<string, bool>>
      */
@@ -213,6 +285,26 @@ class JxOrderArrivalDateAdjustmentService
                 ->all()
             )
             ->all();
+    }
+
+    /**
+     * @return array<int, array<string, bool>>
+     */
+    private function loadWarehouseHolidaysForWarehouse(int $warehouseId, Carbon $orderDay, Carbon $arrivalDate): array
+    {
+        $from = $orderDay->copy()->addDay()->toDateString();
+        $to = $arrivalDate->copy()->addDays(self::MAX_LOOKAHEAD_DAYS)->toDateString();
+
+        return [
+            $warehouseId => DB::connection('sakemaru')
+                ->table('wms_warehouse_calendars')
+                ->where('warehouse_id', $warehouseId)
+                ->where('is_holiday', true)
+                ->whereBetween('target_date', [$from, $to])
+                ->get(['target_date'])
+                ->mapWithKeys(fn ($row): array => [(string) $row->target_date => true])
+                ->all(),
+        ];
     }
 
     /**

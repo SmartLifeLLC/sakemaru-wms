@@ -10,6 +10,7 @@ use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderIncomingSchedule;
+use App\Models\WmsOrderSlipNumberAssignment;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -48,6 +49,21 @@ class OrderExecutionService
         }
 
         return DB::connection('sakemaru')->transaction(function () use ($candidate, $confirmedBy) {
+            if ($candidate->status === CandidateStatus::CONFIRMED && $this->hasJxSlipNumberAssignment($candidate)) {
+                $existingSchedules = WmsOrderIncomingSchedule::query()
+                    ->where('order_candidate_id', $candidate->id)
+                    ->get();
+
+                if ($existingSchedules->isNotEmpty()) {
+                    Log::info('Skip reconfirming JX generated order candidate', [
+                        'candidate_id' => $candidate->id,
+                        'wms_order_jx_document_id' => $candidate->wms_order_jx_document_id,
+                    ]);
+
+                    return $existingSchedules;
+                }
+            }
+
             if ($candidate->status === CandidateStatus::APPROVED && (int) $candidate->order_quantity <= 0) {
                 $candidate->delete();
 
@@ -216,6 +232,7 @@ class OrderExecutionService
                 }
 
                 $orderDate = ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto:demand_breakdown');
+                $slipNumber = $this->resolveIncomingSlipNumber($candidate, $orderDate);
                 $schedule = WmsOrderIncomingSchedule::create([
                     'warehouse_id' => $warehouseId,
                     'item_id' => $candidate->item_id,
@@ -225,7 +242,8 @@ class OrderExecutionService
                     'supplier_id' => $supplierId,
                     'order_candidate_id' => $candidate->id,
                     'order_source' => OrderSource::AUTO,
-                    'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
+                    'order_channel' => $candidate->order_channel,
+                    'slip_number' => $slipNumber,
                     'expected_quantity' => $quantity,
                     'received_quantity' => 0,
                     'quantity_type' => $incomingQuantityType,
@@ -243,6 +261,7 @@ class OrderExecutionService
         } else {
             // demand_breakdownがない場合は従来通り発注元倉庫に入庫予定を作成
             $orderDate = ClientSetting::freshSystemDateYMD('order_incoming_schedule:auto');
+            $slipNumber = $this->resolveIncomingSlipNumber($candidate, $orderDate);
             $schedule = WmsOrderIncomingSchedule::create([
                 'warehouse_id' => $candidate->warehouse_id,
                 'item_id' => $candidate->item_id,
@@ -252,7 +271,8 @@ class OrderExecutionService
                 'supplier_id' => $supplierId,
                 'order_candidate_id' => $candidate->id,
                 'order_source' => OrderSource::AUTO,
-                'slip_number' => WmsOrderIncomingSchedule::generateSlipNumber($orderDate),
+                'order_channel' => $candidate->order_channel,
+                'slip_number' => $slipNumber,
                 'expected_quantity' => $incomingExpectedQuantity,
                 'received_quantity' => 0,
                 'quantity_type' => $incomingQuantityType,
@@ -269,6 +289,38 @@ class OrderExecutionService
         }
 
         return $incomingSchedules;
+    }
+
+    private function resolveIncomingSlipNumber(WmsOrderCandidate $candidate, string $orderDate): string
+    {
+        return $this->resolveAssignedSlipNumber($candidate)
+            ?? WmsOrderIncomingSchedule::generateSlipNumber($orderDate);
+    }
+
+    private function hasJxSlipNumberAssignment(WmsOrderCandidate $candidate): bool
+    {
+        return filled($candidate->wms_order_jx_document_id)
+            || $this->resolveAssignedSlipNumber($candidate) !== null;
+    }
+
+    private function resolveAssignedSlipNumber(WmsOrderCandidate $candidate): ?string
+    {
+        if (! $candidate->id) {
+            return null;
+        }
+
+        $slipNumber = WmsOrderSlipNumberAssignment::query()
+            ->whereIn('status', [
+                WmsOrderSlipNumberAssignment::STATUS_ACTIVE,
+                WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED,
+            ])
+            ->whereJsonContains('order_candidate_ids', (int) $candidate->id)
+            ->latest('id')
+            ->value('slip_number');
+
+        $slipNumber = trim((string) $slipNumber);
+
+        return $slipNumber !== '' ? $slipNumber : null;
     }
 
     /**
