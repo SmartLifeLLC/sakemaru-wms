@@ -224,6 +224,7 @@ class WmsOrderIncomingSchedule extends WmsModel
                 OrderSource::AUTO->value,
                 OrderSource::MANUAL->value,
                 OrderSource::RECEIVED->value,
+                OrderSource::APP_UNPLANNED->value,
             ])
             ->whereNull('transfer_candidate_id')
             ->whereNull('source_warehouse_id')

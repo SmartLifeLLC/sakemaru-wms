@@ -15,6 +15,7 @@ enum EMenu: string
     case WMS_INCOMING_IMPORT_ERRORS = 'inbound.wms_incoming_import_errors';
     case PURCHASES = 'inbound.purchases';
     case RECEIPT_INSPECTIONS = 'inbound.receipt_inspections';
+    case WMS_INCOMING_APP_INSPECTIONS = 'inbound.wms_incoming_app_inspections';
 
     // 出荷管理
     case OUTBOUND_DASHBOARD = 'outbound.dashboard';
@@ -115,7 +116,8 @@ enum EMenu: string
             self::WMS_INCOMING_IMPORT_LOGS,
             self::WMS_INCOMING_IMPORT_ERRORS,
             self::PURCHASES,
-            self::RECEIPT_INSPECTIONS => EMenuCategory::INBOUND,
+            self::RECEIPT_INSPECTIONS,
+            self::WMS_INCOMING_APP_INSPECTIONS => EMenuCategory::INBOUND,
 
             self::OUTBOUND_DASHBOARD,
             self::WMS_PICKING_WAITINGS,
@@ -213,6 +215,7 @@ enum EMenu: string
             self::WMS_INCOMING_IMPORT_ERRORS => '取込エラー',
             self::PURCHASES => '発注データ',
             self::RECEIPT_INSPECTIONS => '入荷検品',
+            self::WMS_INCOMING_APP_INSPECTIONS => 'アプリ入荷検品履歴',
 
             self::OUTBOUND_DASHBOARD => '出荷ダッシュボード',
             self::WMS_PICKER_ATTENDANCE => 'ピッカー勤怠管理',
@@ -304,6 +307,7 @@ enum EMenu: string
             self::WMS_INCOMING_IMPORT_ERRORS => 'heroicon-o-exclamation-circle',
             self::PURCHASES => 'heroicon-o-shopping-cart',
             self::RECEIPT_INSPECTIONS => 'heroicon-o-clipboard-document-check',
+            self::WMS_INCOMING_APP_INSPECTIONS => 'heroicon-o-clipboard-document-check',
 
             self::OUTBOUND_DASHBOARD => 'heroicon-o-presentation-chart-bar',
             self::WMS_PICKER_ATTENDANCE => 'heroicon-o-calendar-days',
@@ -395,6 +399,7 @@ enum EMenu: string
             self::WMS_INCOMING_IMPORT_ERRORS => 8,
             self::PURCHASES => 9,
             self::RECEIPT_INSPECTIONS => 10,
+            self::WMS_INCOMING_APP_INSPECTIONS => 11,
 
             // 出荷管理
             self::WAVES => 0,
