@@ -215,6 +215,7 @@ class IncomingConfirmationService
                 OrderSource::AUTO,
                 OrderSource::MANUAL,
                 OrderSource::RECEIVED,
+                OrderSource::APP_UNPLANNED,
             ], true)
             && ! $schedule->isEosSent()
             && $schedule->transfer_candidate_id === null
@@ -303,7 +304,7 @@ class IncomingConfirmationService
             ? $schedule->order_source
             : OrderSource::tryFrom((string) $schedule->order_source);
 
-        if (! in_array($orderSource, [OrderSource::AUTO, OrderSource::MANUAL, OrderSource::RECEIVED], true)) {
+        if (! in_array($orderSource, [OrderSource::AUTO, OrderSource::MANUAL, OrderSource::RECEIVED, OrderSource::APP_UNPLANNED], true)) {
             return null;
         }
 

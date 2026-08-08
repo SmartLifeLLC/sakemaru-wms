@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\IncomingController;
+use App\Http\Controllers\Api\IncomingV2Controller;
 use App\Http\Controllers\Api\InventoryCountController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\OutboundInspectionController;
@@ -55,6 +56,10 @@ Route::middleware('api.key')->group(function () {
         Route::post('/incoming/work-items/{id}/complete', [IncomingController::class, 'completeWork']);
         Route::delete('/incoming/work-items/{id}', [IncomingController::class, 'cancelWork']);
         Route::get('/incoming/locations', [IncomingController::class, 'searchLocations']);
+
+        // Incoming v2 endpoints for offline app inspection and EOS-safe history recording
+        Route::get('/v2/incoming/snapshot', [IncomingV2Controller::class, 'snapshot']);
+        Route::post('/v2/incoming/inspection-batches/sync', [IncomingV2Controller::class, 'sync']);
 
         // Proxy shipment (横持ち出荷) endpoints
         Route::get('/proxy-shipments', [ProxyShipmentController::class, 'index']);

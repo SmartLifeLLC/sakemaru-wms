@@ -64,12 +64,14 @@ class WmsOrderIncomingSchedulesTable
                         OrderSource::MANUAL => '手動',
                         OrderSource::TRANSFER => '移動',
                         OrderSource::RECEIVED => '受信',
+                        OrderSource::APP_UNPLANNED => '予定なし',
                     })
                     ->color(fn (OrderSource $state): string => match ($state) {
                         OrderSource::AUTO => 'info',
                         OrderSource::MANUAL => 'gray',
                         OrderSource::TRANSFER => 'warning',
                         OrderSource::RECEIVED => 'success',
+                        OrderSource::APP_UNPLANNED => 'warning',
                     })
                     ->sortable()
                     ->alignCenter()
@@ -446,6 +448,7 @@ class WmsOrderIncomingSchedulesTable
                         'MANUAL' => '手動',
                         'TRANSFER' => '移動',
                         'RECEIVED' => '受信',
+                        'APP_UNPLANNED' => '予定なし',
                     ]),
 
                 static::warehouseFilter()
@@ -587,6 +590,7 @@ class WmsOrderIncomingSchedulesTable
                                         OrderSource::MANUAL => '手動',
                                         OrderSource::TRANSFER => '移動',
                                         OrderSource::RECEIVED => '受信',
+                                        OrderSource::APP_UNPLANNED => '予定なし入荷',
                                         default => '-',
                                     },
                                     'itemCode' => $record->item_code ?? $item?->code ?? '-',

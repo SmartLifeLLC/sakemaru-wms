@@ -472,6 +472,7 @@ class WmsIncomingCompletedSummaryTable
                 OrderSource::MANUAL => '手動',
                 OrderSource::TRANSFER => '移動',
                 OrderSource::RECEIVED => '受信',
+                OrderSource::APP_UNPLANNED => '予定なし',
             };
         }
 
