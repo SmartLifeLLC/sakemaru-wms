@@ -3,11 +3,13 @@
 namespace App\Services\AutoOrder;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\OrderDataFileChannel;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Enums\EVolumeUnit;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\User as SakemaruUser;
 use App\Models\WmsAutoOrderJobControl;
+use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
 use App\Models\WmsOrderIncomingSchedule;
@@ -107,7 +109,7 @@ class OrderDataFileService
     {
         $candidates = WmsOrderCandidate::whereIn('id', $candidateIds)
             ->where('status', CandidateStatus::CONFIRMED)
-            ->with(['warehouse', 'item', 'contractor'])
+            ->with(['warehouse', 'item', 'contractor', 'supplier.partner'])
             ->get();
 
         if ($candidates->isEmpty()) {
@@ -148,6 +150,144 @@ class OrderDataFileService
             'files' => $results,
             'total_files' => count($results),
             'errors' => $errors,
+        ];
+    }
+
+    /**
+     * 選択された確定済み発注候補からFAX PDFのみを生成する。
+     * CSVは作成せず、wms_order_data_files.file_path はNULLにする。
+     *
+     * @param  array<int>  $candidateIds
+     * @return array{success: bool, files: array, total_files: int, errors: array}
+     */
+    public function generateFaxPdfFilesForCandidates(
+        array $candidateIds,
+        OrderDataFileChannel $channel,
+        bool $splitByWarehouse = true
+    ): array {
+        $candidates = WmsOrderCandidate::whereIn('id', $candidateIds)
+            ->where('status', CandidateStatus::CONFIRMED)
+            ->with(['warehouse', 'item', 'contractor'])
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            return [
+                'success' => true,
+                'files' => [],
+                'total_files' => 0,
+                'errors' => [],
+                'message' => '生成対象の確定済み発注候補がありません',
+            ];
+        }
+
+        $results = [];
+        $errors = [];
+
+        foreach ($candidates->groupBy('batch_code') as $batchCode => $batchCandidates) {
+            $grouped = $this->groupCandidatesForDataFiles($batchCandidates, $splitByWarehouse);
+
+            foreach ($grouped as $groupKey => $groupCandidates) {
+                try {
+                    $results[] = $this->generateFaxPdfFile((string) $batchCode, $groupCandidates, $channel, $splitByWarehouse);
+                } catch (\Throwable $e) {
+                    $errors[] = [
+                        'group' => $groupKey,
+                        'error' => $e->getMessage(),
+                    ];
+                    Log::error('Order FAX PDF file generation failed', [
+                        'batch_code' => $batchCode,
+                        'group' => $groupKey,
+                        'channel' => $channel->value,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        return [
+            'success' => empty($errors),
+            'files' => $results,
+            'total_files' => count($results),
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * 1つのFAX PDF用データファイルレコードを生成する。
+     */
+    private function generateFaxPdfFile(
+        string $batchCode,
+        Collection $candidates,
+        OrderDataFileChannel $channel,
+        bool $splitByWarehouse = true
+    ): array {
+        $firstCandidate = $candidates->first();
+        $contractorId = $firstCandidate->contractor_id;
+        $contractor = $firstCandidate->contractor;
+        $supplierId = $firstCandidate->supplier_id;
+        $supplierName = $firstCandidate->supplier?->partner?->name;
+        $warehouseId = $splitByWarehouse ? $firstCandidate->warehouse_id : null;
+        $warehouse = $splitByWarehouse ? $firstCandidate->warehouse : null;
+        $expectedArrivalDate = $firstCandidate->expected_arrival_date;
+        $quantityResolver = app(OrderOutputQuantityResolver::class);
+        $totalQuantity = $quantityResolver->sumOutputOrderQuantity($candidates);
+        $createdBy = $this->resolveCreatedBy($batchCode, $candidates);
+        $candidateIds = $candidates->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+
+        $dataFile = WmsOrderDataFile::create([
+            'batch_code' => $batchCode,
+            'created_by' => $createdBy['id'],
+            'created_by_name' => $createdBy['name'],
+            'warehouse_id' => $warehouseId,
+            'contractor_id' => $contractorId,
+            'candidate_ids' => $candidateIds,
+            'order_channel' => $channel,
+            'show_eos_stamp' => $channel === OrderDataFileChannel::EOS,
+            'order_date' => ClientSetting::freshSystemDateYMD('order_data_file:fax_pdf'),
+            'expected_arrival_date' => $expectedArrivalDate,
+            'file_path' => '',
+            'file_size' => 0,
+            'order_count' => $candidates->count(),
+            'total_quantity' => $totalQuantity,
+            'is_mail_order' => (bool) WmsContractorSetting::where('contractor_id', $contractorId)
+                ->whereNotNull('order_mail')
+                ->where('order_mail', '!=', '')
+                ->exists(),
+            'is_test' => false,
+            'status' => OrderDataFileStatus::GENERATED,
+        ]);
+
+        $faxError = null;
+        try {
+            app(PurchaseOrderPdfService::class)->generateAndStoreFromCandidates($candidates, $dataFile);
+            $dataFile->refresh();
+        } catch (\Throwable $e) {
+            $faxError = $e->getMessage();
+            Log::error('Order FAX PDF generation failed', [
+                'batch_code' => $batchCode,
+                'warehouse_id' => $warehouseId,
+                'contractor_id' => $contractorId,
+                'candidate_ids' => $candidateIds,
+                'channel' => $channel->value,
+                'error' => $faxError,
+            ]);
+        }
+
+        return [
+            'id' => $dataFile->id,
+            'warehouse_id' => $warehouseId,
+            'warehouse_name' => $splitByWarehouse ? $warehouse?->name : '全倉庫',
+            'contractor_id' => $contractorId,
+            'contractor_name' => $contractor?->name,
+            'supplier_id' => $supplierId,
+            'supplier_name' => $supplierName,
+            'expected_arrival_date' => $expectedArrivalDate?->format('Y-m-d'),
+            'order_channel' => $channel->value,
+            'file_path' => '',
+            'fax_file_path' => $dataFile->fax_file_path,
+            'fax_error' => $faxError,
+            'order_count' => $candidates->count(),
+            'total_quantity' => $totalQuantity,
         ];
     }
 
@@ -216,6 +356,8 @@ class OrderDataFileService
                 'warehouse_id' => $warehouseId,
                 'contractor_id' => $contractorId,
                 'candidate_ids' => $candidateIds,
+                'order_channel' => OrderDataFileChannel::FAX,
+                'show_eos_stamp' => false,
                 'order_date' => ClientSetting::freshSystemDateYMD('order_data_file:create'),
                 'expected_arrival_date' => $expectedArrivalDate,
                 'file_path' => $filePath,
@@ -254,6 +396,7 @@ class OrderDataFileService
             'contractor_id' => $contractorId,
             'contractor_name' => $contractor?->name,
             'expected_arrival_date' => $expectedArrivalDate?->format('Y-m-d'),
+            'order_channel' => OrderDataFileChannel::FAX->value,
             'file_path' => $filePath,
             'fax_file_path' => $dataFile->fax_file_path,
             'fax_error' => $faxError,
