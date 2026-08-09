@@ -51,12 +51,14 @@ class WmsIncomingTransmittedTable
                         OrderSource::MANUAL => '手動',
                         OrderSource::TRANSFER => '移動',
                         OrderSource::RECEIVED => '受信',
+                        OrderSource::APP_UNPLANNED => '予定なし',
                     })
                     ->color(fn (OrderSource $state, WmsOrderIncomingSchedule $record): string => $record->isUnassignedJxReceived() ? 'warning' : match ($state) {
                         OrderSource::AUTO => 'info',
                         OrderSource::MANUAL => 'gray',
                         OrderSource::TRANSFER => 'warning',
                         OrderSource::RECEIVED => 'success',
+                        OrderSource::APP_UNPLANNED => 'warning',
                     })
                     ->width('60px'),
 
@@ -183,6 +185,7 @@ class WmsIncomingTransmittedTable
                         'MANUAL' => '手動',
                         'TRANSFER' => '移動',
                         'RECEIVED' => '受信',
+                        'APP_UNPLANNED' => '予定なし',
                     ]),
 
                 SelectFilter::make('warehouse_id')
