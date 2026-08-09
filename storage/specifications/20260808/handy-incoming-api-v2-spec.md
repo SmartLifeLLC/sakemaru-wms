@@ -28,14 +28,15 @@ HANDYアプリで入荷予定を事前ダウンロードし、倉庫内で入荷
 ## 基本方針
 
 1. 既存APIと同じ認証方式、同じレスポンス形式を使う。
-2. HANDYアプリは作業開始時に倉庫単位のスナップショットを取得し、オフラインでも検品できるようにする。
-3. EOS対象の入荷予定は、アプリからは入荷確定しない。検品履歴のみ保存する。
-4. EOSが先に確定済みの場合も、予定なし入荷を新規作成せず、EOS確定済み履歴に紐づけて履歴のみ保存する。
-5. 非EOSの入荷予定は、アプリ検品結果で入荷確定できる。
-6. 入荷予定を超過した数量は、元伝票番号を使って `APP_UNPLANNED` の入荷完了データを作成する。
-7. 入荷予定が見つからないものは、直近3日以内のEOS確定済みを確認する。見つからなければ `APP_UNPLANNED` として入荷完了データを作成する。
-8. 一意に判断できないものは自動確定せず、アプリ入荷検品履歴に `NEEDS_REVIEW` として残す。
-9. 作業倉庫はリクエスト倉庫のまま保存し、入荷予定・EOS確定済みの照合対象だけ同一実倉庫配下の倉庫IDに広げる。
+2. HANDYアプリは作業開始時に倉庫単位の商品マスタを1日1回取得し、端末に永続キャッシュする。
+3. HANDYアプリは入荷予定同期時に、入荷予定・EOS確定済み照合用データ・ロケーションのみを取得する。
+4. EOS対象の入荷予定は、アプリからは入荷確定しない。検品履歴のみ保存する。
+5. EOSが先に確定済みの場合も、予定なし入荷を新規作成せず、EOS確定済み履歴に紐づけて履歴のみ保存する。
+6. 非EOSの入荷予定は、アプリ検品結果で入荷確定できる。
+7. 入荷予定を超過した数量は、元伝票番号を使って `APP_UNPLANNED` の入荷完了データを作成する。
+8. 入荷予定が見つからないものは、直近3日以内のEOS確定済みを確認する。見つからなければ `APP_UNPLANNED` として入荷完了データを作成する。
+9. 一意に判断できないものは自動確定せず、アプリ入荷検品履歴に `NEEDS_REVIEW` として残す。
+10. 作業倉庫はリクエスト倉庫のまま保存し、入荷予定・EOS確定済みの照合対象だけ同一実倉庫配下の倉庫IDに広げる。
 
 ## 用語
 
@@ -54,19 +55,21 @@ HANDYアプリで入荷予定を事前ダウンロードし、倉庫内で入荷
 
 ```mermaid
 flowchart TD
-    A["HANDYアプリ ログイン"] --> B["GET /api/v2/incoming/snapshot"]
-    B --> C["倉庫単位で入荷予定・EOS確定済み・商品・ロケを保存"]
-    C --> D["倉庫で入荷検品"]
-    D --> E["POST /api/v2/incoming/inspection-batches/sync"]
-    E --> F{"入荷予定またはEOS確定済みに照合"}
-    F -->|"非EOS予定"| G["入荷予定を確定"]
-    F -->|"EOS予定またはEOS確定済み"| H["履歴のみ保存"]
-    F -->|"予定なし"| I["APP_UNPLANNEDで入荷完了を作成"]
-    F -->|"一意に判断不可"| J["NEEDS_REVIEWとして保存"]
-    G --> K["WMS アプリ入荷検品履歴"]
-    H --> K
-    I --> K
-    J --> K
+    A["HANDYアプリ ログイン"] --> B["GET /api/v2/incoming/item-master"]
+    B --> C["倉庫単位の商品マスタを端末へ日次保存"]
+    C --> D["GET /api/v2/incoming/snapshot"]
+    D --> E["入荷予定・EOS確定済み・ロケを保存"]
+    E --> F["倉庫で入荷検品"]
+    F --> G["POST /api/v2/incoming/inspection-batches/sync"]
+    G --> H{"入荷予定またはEOS確定済みに照合"}
+    H -->|"非EOS予定"| I["入荷予定を確定"]
+    H -->|"EOS予定またはEOS確定済み"| J["履歴のみ保存"]
+    H -->|"予定なし"| K["APP_UNPLANNEDで入荷完了を作成"]
+    H -->|"一意に判断不可"| L["NEEDS_REVIEWとして保存"]
+    I --> M["WMS アプリ入荷検品履歴"]
+    J --> M
+    K --> M
+    L --> M
 ```
 
 ## 認証
@@ -123,6 +126,7 @@ Accept: application/json
 
 | メソッド | URL | 用途 |
 | --- | --- | --- |
+| GET | `/api/v2/incoming/item-master` | 入荷検品用商品マスタ取得 |
 | GET | `/api/v2/incoming/snapshot` | 入荷検品用スナップショット取得 |
 | POST | `/api/v2/incoming/inspection-batches/sync` | アプリ入荷検品結果同期 |
 
@@ -130,7 +134,7 @@ Accept: application/json
 
 ### 用途
 
-作業倉庫単位で、HANDYアプリに必要な入荷検品データを一括取得する。ネットワークが不安定な倉庫でも作業できるよう、アプリは取得結果を端末側に保持する。
+作業倉庫単位で、HANDYアプリに必要な入荷予定・EOS確定済み照合用データ・ロケーションを取得する。商品マスタ全件は含めず、`GET /api/v2/incoming/item-master` の日次キャッシュを利用する。
 
 ### リクエスト
 
@@ -175,6 +179,7 @@ GET /api/v2/incoming/snapshot?warehouse_id=91&inspection_date=2026-08-08
 | eos_confirmed_index_days | EOS確定済み照合期間。固定で `3` |
 | unplanned_order_source | 予定なし入荷の `order_source`。固定で `APP_UNPLANNED` |
 | quantity_input | 数量入力方式。固定で `CASE_AND_PIECE` |
+| item_master_sync | 商品マスタ同期方式。固定で `DAILY_CACHE` |
 | matching_warehouse_ids | 入荷予定・EOS確定済み照合に使う倉庫ID配列 |
 
 ### schedules
@@ -201,6 +206,19 @@ GET /api/v2/incoming/snapshot?warehouse_id=91&inspection_date=2026-08-08
 | item | 商品 |
 | location | デフォルトまたは予定ロケーション |
 | quantity | 数量情報 |
+
+item:
+
+| 項目 | 内容 |
+| --- | --- |
+| id | 商品ID |
+| code | 商品CD |
+| name | 商品名 |
+| packaging | 荷姿。アプリの規格表示に利用 |
+| volume | 容量 |
+| volume_unit | 容量単位 |
+| capacity_case | ケース入数 |
+| capacity_carton | ボール入数 |
 
 quantity:
 
@@ -239,6 +257,54 @@ EOSが先に入荷確定済みだった場合に、アプリ側で予定なし�
 | actual_arrival_date | 入荷日 |
 | expected_arrival_date | 入荷予定日 |
 | received_piece_quantity | 入荷総バラ数 |
+
+### items
+
+互換用フィールド。スナップショットでは商品マスタ全件を返さないため、通常は空配列。
+
+入荷予定に必要な商品情報は `schedules[].item` に含める。予定なし入荷の商品検索やJAN照合は、`GET /api/v2/incoming/item-master` の端末キャッシュを使う。
+
+## GET /api/v2/incoming/item-master
+
+### 用途
+
+作業倉庫で取扱可能な商品マスタを取得する。HANDYアプリは倉庫ごとに1日1回だけ取得し、アプリ再起動後も使えるよう端末に永続保存する。
+
+入荷予定同期では商品マスタ全件を再取得しない。入荷予定にない商品コードを登録しようとしてローカルマスタに存在しない場合、アプリは「商品が見つかりません。最新マスタを取得しますか？」と表示し、ユーザ確認後にこのAPIを再取得する。
+
+### リクエスト
+
+| パラメータ | 必須 | 型 | 内容 |
+| --- | --- | --- | --- |
+| warehouse_id | 必須 | integer | 作業倉庫ID |
+
+例:
+
+```http
+GET /api/v2/incoming/item-master?warehouse_id=91
+```
+
+### レスポンス構造
+
+```json
+{
+  "is_success": true,
+  "code": "SUCCESS",
+  "result": {
+    "data": {
+      "version": "v2",
+      "generated_at": "2026-08-08T10:00:00+09:00",
+      "master_date": "2026-08-08",
+      "warehouse": {},
+      "rules": {
+        "item_master_sync": "DAILY_CACHE",
+        "matching_warehouse_ids": [91]
+      },
+      "items": []
+    }
+  }
+}
+```
 
 ### items
 
@@ -563,9 +629,11 @@ HANDYアプリは作業倉庫としてリクエストした倉庫IDを使う。
 ### UC-001 作業開始時に倉庫データをダウンロードする
 
 1. ユーザがHANDYアプリで倉庫を選択する
-2. アプリが `/api/v2/incoming/snapshot` を呼ぶ
-3. 入荷予定、EOS確定済み、商品、ロケーションを端末に保存する
-4. 以後、ネットワークが不安定でも検索・検品できる
+2. アプリが当日分の商品マスタキャッシュを確認する
+3. 当日分がなければ `/api/v2/incoming/item-master` を呼び、商品マスタを端末に保存する
+4. アプリが `/api/v2/incoming/snapshot` を呼ぶ
+5. 入荷予定、EOS確定済み、ロケーションを端末に保存する
+6. 以後、ネットワークが不安定でも検索・検品できる
 
 期待結果:
 
@@ -802,8 +870,8 @@ APP_UNPLANNED
 
 ### パフォーマンス
 
-- スナップショットは倉庫単位で取得する。
-- 商品は倉庫で取扱可能な商品に限定する。
+- スナップショットは倉庫単位で取得し、商品マスタ全件は含めない。
+- 商品マスタは倉庫で取扱可能な商品に限定し、端末側で1日1回キャッシュする。
 - EOS確定済みインデックスは検品日を含む過去3日分に限定する。
 - 同期明細は1リクエスト最大1000件。
 - 本番相当データでレスポンスサイズと応答時間を確認する。
@@ -825,14 +893,15 @@ APP_UNPLANNED
 | No | 観点 | 期待結果 |
 | --- | --- | --- |
 | 1 | 既存 `/api/incoming/*` が変わらない | v1 APIのレスポンス・確定動作が従来通り |
-| 2 | スナップショット取得 | 未確定予定、EOS確定済み、商品、ロケが返る |
-| 3 | 仮想倉庫 | 入荷予定照合は仮想倉庫分も含む |
-| 4 | 非EOS通常入荷 | `CONFIRMED` で入荷確定 |
-| 5 | EOS予定 | `HISTORY_ONLY` で入荷予定は更新されない |
-| 6 | EOS確定済み | `EOS_ALREADY_CONFIRMED` で予定なし入荷を作らない |
-| 7 | 分納 | 残数量に対して確定 |
-| 8 | 欠品 | 不足分が `shortage_piece_quantity` に出る |
-| 9 | 超過入荷 | 元予定確定 + `APP_UNPLANNED` 作成 |
+| 2 | 商品マスタ取得 | 倉庫取扱商品を1日1回取得し、端末に永続キャッシュする |
+| 3 | スナップショット取得 | 未確定予定、EOS確定済み、ロケが返る。商品マスタ全件は返らない |
+| 4 | 仮想倉庫 | 入荷予定照合は仮想倉庫分も含む |
+| 5 | 非EOS通常入荷 | `CONFIRMED` で入荷確定 |
+| 6 | EOS予定 | `HISTORY_ONLY` で入荷予定は更新されない |
+| 7 | EOS確定済み | `EOS_ALREADY_CONFIRMED` で予定なし入荷を作らない |
+| 8 | 分納 | 残数量に対して確定 |
+| 9 | 欠品 | 不足分が `shortage_piece_quantity` に出る |
+| 10 | 超過入荷 | 元予定確定 + `APP_UNPLANNED` 作成 |
 | 10 | 入荷予定なし | `APP_UNPLANNED` 作成 |
 | 11 | 商品不明 | `NEEDS_REVIEW` |
 | 12 | 発注先不明 | `NEEDS_REVIEW` |
@@ -845,7 +914,7 @@ APP_UNPLANNED
 
 1. `APP_UNPLANNED` のENUM追加DDLリスクを確認する。
 2. 新規テーブルのインデックスを確認する。
-3. `/api/v2/incoming/snapshot` と `/api/v2/incoming/inspection-batches/sync` がルート登録されていることを確認する。
+3. `/api/v2/incoming/item-master`、`/api/v2/incoming/snapshot`、`/api/v2/incoming/inspection-batches/sync` がルート登録されていることを確認する。
 4. 既存 `/api/incoming/*` の回帰テストを実施する。
 5. EOS対象で入荷予定が更新されないことをテストする。
 6. 直近3日以内のEOS確定済みによって予定なし入荷が防がれることをテストする。
@@ -856,5 +925,5 @@ APP_UNPLANNED
 
 - この仕様はv2 API初期実装に合わせたHANDYアプリ向け仕様である。
 - WMS側の「アプリ入荷検品履歴」画面での最終確認フローは、運用開始前に担当者の確認手順を決める必要がある。
-- 大量商品マスタのレスポンスサイズは本番相当データで確認が必要。
+- 大量商品マスタのレスポンスサイズは本番相当データで確認が必要。ただし通常の入荷予定同期では商品マスタ全件を返さない。
 - この作業ツリーでは `vendor/autoload.php` が存在しないため、`php artisan route:list` によるルート確認は未実施。

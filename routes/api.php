@@ -59,6 +59,7 @@ Route::middleware('api.key')->group(function () {
 
         // Incoming v2 endpoints for offline app inspection and EOS-safe history recording
         Route::get('/v2/incoming/snapshot', [IncomingV2Controller::class, 'snapshot']);
+        Route::get('/v2/incoming/item-master', [IncomingV2Controller::class, 'itemMaster']);
         Route::post('/v2/incoming/inspection-batches/sync', [IncomingV2Controller::class, 'sync']);
 
         // Proxy shipment (横持ち出荷) endpoints

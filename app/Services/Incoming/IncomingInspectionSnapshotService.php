@@ -18,12 +18,10 @@ class IncomingInspectionSnapshotService
     {
         $date = CarbonImmutable::parse($inspectionDate ?: now()->toDateString());
         $warehouseIds = $this->matchingWarehouseIds($warehouseId);
-        $itemContractorWarehouseId = WarehouseResolver::resolveRealWarehouseId($warehouseId);
         $warehouse = $this->warehouse($warehouseId);
         $schedules = $this->pendingSchedules($warehouseIds);
         $scheduleIds = $schedules->pluck('id')->all();
         $eosScheduleIds = $this->eosScheduleIds($scheduleIds);
-        $handledItemIds = $this->handledItemIds($warehouseIds);
 
         return [
             'version' => 'v2',
@@ -36,14 +34,34 @@ class IncomingInspectionSnapshotService
                 'unplanned_order_source' => OrderSource::APP_UNPLANNED->value,
                 'quantity_input' => 'CASE_AND_PIECE',
                 'matching_warehouse_ids' => $warehouseIds,
+                'item_master_sync' => 'DAILY_CACHE',
             ],
             'schedules' => $schedules
                 ->map(fn (WmsOrderIncomingSchedule $schedule): array => $this->formatSchedule($schedule, $eosScheduleIds->contains((int) $schedule->id)))
                 ->values()
                 ->all(),
             'confirmed_eos_index' => $this->confirmedEosIndex($warehouseIds, $date),
-            'items' => $this->items($warehouseId, $itemContractorWarehouseId, $handledItemIds),
+            'items' => [],
             'locations' => $this->locations($warehouseId),
+        ];
+    }
+
+    public function buildItemMaster(int $warehouseId): array
+    {
+        $warehouseIds = $this->matchingWarehouseIds($warehouseId);
+        $itemContractorWarehouseId = WarehouseResolver::resolveRealWarehouseId($warehouseId);
+        $handledItemIds = $this->handledItemIds($warehouseIds);
+
+        return [
+            'version' => 'v2',
+            'generated_at' => now()->toIso8601String(),
+            'master_date' => now()->toDateString(),
+            'warehouse' => $this->warehouse($warehouseId),
+            'rules' => [
+                'item_master_sync' => 'DAILY_CACHE',
+                'matching_warehouse_ids' => $warehouseIds,
+            ],
+            'items' => $this->items($warehouseId, $itemContractorWarehouseId, $handledItemIds),
         ];
     }
 
@@ -412,6 +430,7 @@ class IncomingInspectionSnapshotService
             'volume_unit' => $item->volume_unit,
             'capacity_case' => $item->capacity_case !== null ? (int) $item->capacity_case : null,
             'capacity_carton' => $item->capacity_carton !== null ? (int) $item->capacity_carton : null,
+            'packaging' => $item->packaging,
             'search_codes' => $item->relationLoaded('item_search_information')
                 ? $item->item_search_information->map(fn ($row) => [
                     'code' => $row->search_string,

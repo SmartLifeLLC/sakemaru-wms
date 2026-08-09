@@ -29,7 +29,7 @@ codex/incoming-api-v2-eos-inspection
 | 5 | DB設計確定 | 完了 | 中 | migration案レビュー | migration未適用なら破棄 |
 | 6 | `APP_UNPLANNED` Enum追加 | 完了 | 高 | 既存画面・既存APIの表示確認 | Enum追加コミットをrevert |
 | 7 | 検品履歴テーブル追加 | 完了 | 中 | migration status、index確認 | 追加テーブルdrop |
-| 8 | v2ルート追加 | 完了 | 低 | `/api/v2/incoming/snapshot` ルート確認 | ルート削除 |
+| 8 | v2ルート追加 | 完了 | 低 | `/api/v2/incoming/item-master` と `/api/v2/incoming/snapshot` ルート確認 | ルート削除 |
 | 9 | スナップショットサービス追加 | 完了 | 中 | 本番相当件数でレスポンス時間確認 | サービス未使用化 |
 | 10 | 同期サービス追加 | 完了 | 高 | 冪等性・競合テスト | v2同期ルート無効化 |
 | 11 | 非EOS確定連携 | 完了 | 高 | 確定・分納・超過テスト | v2確定分岐無効化 |
@@ -82,3 +82,4 @@ codex/incoming-api-v2-eos-inspection
 | 2026-08-08 | API仕様コメント追加 | `IncomingV2Controller` に既存APIと同じOpenAPIコメントを追加 |
 | 2026-08-08 | 仮想倉庫対応 | 作業倉庫はリクエスト倉庫のまま、入荷予定・EOS確定済み照合対象を同一実倉庫配下へ拡張 |
 | 2026-08-08 | HANDY向け仕様書追加 | HANDYアプリ開発者向けに、開発要件・API仕様・ユースケース・表示要件を別資料化 |
+| 2026-08-09 | 商品マスタ同期方針変更 | スナップショットから商品マスタ全件を外し、`/api/v2/incoming/item-master` の日次端末キャッシュ方式へ変更 |

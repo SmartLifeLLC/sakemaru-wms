@@ -27,7 +27,7 @@ class IncomingV2Controller extends ApiController
      *     path="/api/v2/incoming/snapshot",
      *     tags={"Incoming v2"},
      *     summary="入荷検品スナップショット取得",
-     *     description="アプリのオフライン入荷検品用に、未確定入荷予定、EOS確定済み照合用データ、倉庫取扱商品、ロケーションを倉庫単位で取得する。実倉庫指定時は同一実倉庫配下の仮想倉庫分も入荷予定・EOS照合対象に含める。EOS対象はアプリ側で入荷確定せず履歴のみ保存するため、inspection_policyで処理方針を返す。",
+     *     description="アプリのオフライン入荷検品用に、未確定入荷予定、EOS確定済み照合用データ、ロケーションを倉庫単位で取得する。商品マスタ全件は含めず、/api/v2/incoming/item-master を1日1回取得して端末に保存する。実倉庫指定時は同一実倉庫配下の仮想倉庫分も入荷予定・EOS照合対象に含める。EOS対象はアプリ側で入荷確定せず履歴のみ保存するため、inspection_policyで処理方針を返す。",
      *     security={{"apiKey":{}, "sanctum":{}}},
      *
      *     @OA\Parameter(
@@ -81,6 +81,7 @@ class IncomingV2Controller extends ApiController
      *                         @OA\Property(property="eos_confirmed_index_days", type="integer", example=3),
      *                         @OA\Property(property="unplanned_order_source", type="string", example="APP_UNPLANNED"),
      *                         @OA\Property(property="quantity_input", type="string", example="CASE_AND_PIECE"),
+     *                         @OA\Property(property="item_master_sync", type="string", example="DAILY_CACHE"),
      *                         @OA\Property(property="matching_warehouse_ids", type="array", @OA\Items(type="integer"), example={91, 92, 93})
      *                     ),
      *                     @OA\Property(
@@ -129,7 +130,7 @@ class IncomingV2Controller extends ApiController
      *                     @OA\Property(
      *                         property="items",
      *                         type="array",
-     *                         description="倉庫で取扱可能な商品マスタ",
+     *                         description="互換用フィールド。商品マスタ全件は /api/v2/incoming/item-master で取得するため通常は空配列",
      *
      *                         @OA\Items(type="object")
      *                     ),
@@ -163,6 +164,44 @@ class IncomingV2Controller extends ApiController
             (int) $request->input('warehouse_id'),
             $request->input('inspection_date')
         ));
+    }
+
+    /**
+     * GET /api/v2/incoming/item-master
+     *
+     * 倉庫単位の商品マスタ取得
+     *
+     * @OA\Get(
+     *     path="/api/v2/incoming/item-master",
+     *     tags={"Incoming v2"},
+     *     summary="入荷検品用商品マスタ取得",
+     *     description="HANDYアプリが倉庫ごとに1日1回取得して端末へ保存する商品マスタ。入荷予定スナップショットには全商品マスタを含めないため、予定なし入荷の商品検索・JAN照合にはこのAPIの結果を利用する。",
+     *     security={{"apiKey":{}, "sanctum":{}}},
+     *
+     *     @OA\Parameter(
+     *         name="warehouse_id",
+     *         in="query",
+     *         required=true,
+     *         description="作業倉庫ID。商品取扱判定は同一実倉庫配下も含め、デフォルトロケは作業倉庫のものを返す",
+     *
+     *         @OA\Schema(type="integer", example=91)
+     *     ),
+     *
+     *     @OA\Response(response=200, description="成功"),
+     *     @OA\Response(response=422, description="バリデーションエラー")
+     * )
+     */
+    public function itemMaster(Request $request, IncomingInspectionSnapshotService $service): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'warehouse_id' => 'required|integer',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors()->toArray());
+        }
+
+        return $this->success($service->buildItemMaster((int) $request->input('warehouse_id')));
     }
 
     /**
