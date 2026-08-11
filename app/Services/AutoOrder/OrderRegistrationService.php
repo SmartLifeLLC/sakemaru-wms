@@ -36,7 +36,8 @@ class OrderRegistrationService
         int $warehouseId,
         array $lines,
         int $userId,
-        ?OrderChannel $fallbackChannel = null
+        ?OrderChannel $fallbackChannel = null,
+        ?string $communicationNotes = null
     ): array {
         if ($warehouseId < 1) {
             throw new \InvalidArgumentException('倉庫を選択してください。');
@@ -124,7 +125,7 @@ class OrderRegistrationService
             return $job->batch_code;
         }, 3);
 
-        $dataFileResult = $this->generateDataFilesByChannel($candidateIdsByChannel);
+        $dataFileResult = $this->generateDataFilesByChannel($candidateIdsByChannel, $communicationNotes);
 
         return [
             'batch_code' => $batchCode,
@@ -183,19 +184,44 @@ class OrderRegistrationService
             ->when($supplierId > 0, fn ($query) => $query->where('supplier_id', $supplierId))
             ->first();
 
-        if (! $itemContractor) {
+        $settingsItemContractor = $itemContractor;
+        if (! $settingsItemContractor && $supplierId > 0) {
+            $settingsItemContractor = ItemContractor::query()
+                ->where('warehouse_id', $incomingWarehouseId)
+                ->where('item_id', $itemId)
+                ->where('contractor_id', $contractorId)
+                ->first();
+        }
+
+        if (! $itemContractor && $channel === OrderChannel::EOS) {
+            throw new \InvalidArgumentException("{$lineNumber}行目の商品は選択した仕入先に紐づいていないためEOS発注できません。FAX発注に変更してください。");
+        }
+
+        if (! $itemContractor && $supplierId <= 0) {
             throw new \InvalidArgumentException("{$lineNumber}行目の商品に発注先設定がありません。");
         }
 
-        $supplierId = (int) ($itemContractor->supplier_id ?? $supplierId ?: 0);
+        if (! $itemContractor && ! $this->supplierBelongsToContractor($supplierId, $contractorId)) {
+            throw new \InvalidArgumentException("{$lineNumber}行目の仕入先に紐づく発注先がありません。");
+        }
+
+        if ($itemContractor) {
+            $supplierId = (int) ($itemContractor->supplier_id ?? $supplierId ?: 0);
+        }
+
+        $purchaseUnit = max(1, (int) ($line['purchase_unit'] ?? $settingsItemContractor?->purchase_unit ?? 1));
+        $safetyStock = (int) ($settingsItemContractor?->safety_stock ?? 0);
         $expectedArrivalDate = $expectedArrivalDate->toDateString();
         $searchCode = $line['search_code'] ?? $this->searchService->searchCodeForItem($itemId);
         $orderingCode = $line['ordering_code'] ?? $this->searchService->orderingCodeForItem($itemId);
         $currentStock = $this->searchService->availableStock($warehouseId, $itemId);
         $incomingQuantity = $this->searchService->incomingQuantity($incomingWarehouseId, $itemId);
-        $purchaseUnitPrice = $quantityType === QuantityType::CASE
-            ? $item->current_price?->purchase_case_price
-            : $item->current_price?->purchase_unit_price;
+        $linePurchaseUnitPrice = $line['purchase_unit_price'] ?? null;
+        $purchaseUnitPrice = is_numeric($linePurchaseUnitPrice)
+            ? (float) $linePurchaseUnitPrice
+            : ($quantityType === QuantityType::CASE
+                ? $item->current_price?->purchase_case_price
+                : $item->current_price?->purchase_unit_price);
 
         $candidate = WmsOrderCandidate::create([
             'batch_code' => $batchCode,
@@ -209,14 +235,14 @@ class OrderRegistrationService
             'purchase_unit_price' => $purchaseUnitPrice,
             'current_effective_stock' => $currentStock,
             'incoming_quantity' => $incomingQuantity,
-            'safety_stock' => (int) ($itemContractor->safety_stock ?? 0),
+            'safety_stock' => $safetyStock,
             'self_shortage_qty' => (int) ($line['sales_qty'] ?? 0),
             'satellite_demand_qty' => 0,
             'suggested_quantity' => (int) ($line['suggested_quantity'] ?? $orderQuantity),
             'order_quantity' => $orderQuantity,
             'quantity_type' => $quantityType,
             'calculated_shortage_qty' => (int) ($line['calculated_shortage_qty'] ?? $orderQuantity),
-            'purchase_unit' => max(1, (int) ($line['purchase_unit'] ?? $itemContractor->purchase_unit ?? 1)),
+            'purchase_unit' => $purchaseUnit,
             'expected_arrival_date' => $expectedArrivalDate,
             'original_arrival_date' => $expectedArrivalDate,
             'status' => CandidateStatus::APPROVED,
@@ -240,7 +266,7 @@ class OrderRegistrationService
             'source_warehouse_id' => null,
             'current_effective_stock' => $currentStock,
             'incoming_quantity' => $incomingQuantity,
-            'safety_stock_setting' => (int) ($itemContractor->safety_stock ?? 0),
+            'safety_stock_setting' => $safetyStock,
             'lead_time_days' => 0,
             'calculated_shortage_qty' => (int) ($line['calculated_shortage_qty'] ?? $orderQuantity),
             'calculated_order_quantity' => $orderQuantity,
@@ -249,6 +275,12 @@ class OrderRegistrationService
                 'order_channel' => $channel->value,
                 'entry_source' => $entrySource->value,
                 'expected_arrival_date' => $expectedArrivalDate,
+                'supplier_id' => $supplierId > 0 ? $supplierId : null,
+                'supplier_partner_id' => isset($line['supplier_partner_id']) && (int) $line['supplier_partner_id'] > 0
+                    ? (int) $line['supplier_partner_id']
+                    : null,
+                'purchase_unit_price_source' => $line['purchase_unit_price_source'] ?? null,
+                'is_item_contractor_linked' => $itemContractor !== null,
                 'sales_qty' => (int) ($line['sales_qty'] ?? 0),
                 'created_by' => $userId,
                 'created_at' => now()->toDateTimeString(),
@@ -268,11 +300,29 @@ class OrderRegistrationService
             ?? OrderChannel::FAX;
     }
 
+    private function supplierBelongsToContractor(int $supplierId, int $contractorId): bool
+    {
+        if ($supplierId < 1 || $contractorId < 1) {
+            return false;
+        }
+
+        return DB::connection('sakemaru')
+            ->table('wms_contractor_suppliers')
+            ->where('supplier_id', $supplierId)
+            ->where('contractor_id', $contractorId)
+            ->exists()
+            || DB::connection('sakemaru')
+                ->table('contractors')
+                ->where('id', $contractorId)
+                ->where('supplier_id', $supplierId)
+                ->exists();
+    }
+
     /**
      * @param  array<string, array<int>>  $candidateIdsByChannel
      * @return array{success: bool, files: array, total_files: int, errors: array}
      */
-    private function generateDataFilesByChannel(array $candidateIdsByChannel): array
+    private function generateDataFilesByChannel(array $candidateIdsByChannel, ?string $communicationNotes = null): array
     {
         $files = [];
         $errors = [];
@@ -287,6 +337,7 @@ class OrderRegistrationService
                 $candidateIds,
                 $channel === OrderChannel::EOS ? OrderDataFileChannel::EOS : OrderDataFileChannel::FAX,
                 splitByWarehouse: true,
+                communicationNotes: $communicationNotes,
             );
 
             $files = array_merge($files, $result['files'] ?? []);

@@ -563,9 +563,16 @@ class WmsOrderConfirmedTable
                         ->requiresConfirmation()
                         ->modalHeading('発注データを生成')
                         ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件から、FAX / MAIL / CSV 用の発注データを生成します。確定済み以外の候補は除外されます。同じ候補で生成済みの未使用ファイル（未ダウンロード・未送信）は新しいファイルに置き換えられます。1000件を超える場合は条件を絞ってください。")
+                        ->schema([
+                            Textarea::make('communication_notes')
+                                ->label('連絡事項')
+                                ->rows(4)
+                                ->maxLength(500)
+                                ->helperText('生成するFAX PDFの通信欄に表示します。空欄の場合は空の通信欄になります。'),
+                        ])
                         ->modalSubmitActionLabel('データ生成')
                         ->modalCancelActionLabel('生成せず閉じる')
-                        ->action(function (Collection $records) {
+                        ->action(function (Collection $records, array $data) {
                             if ($records->count() > 1000) {
                                 Notification::make()
                                     ->title('選択件数が多すぎます')
@@ -578,7 +585,10 @@ class WmsOrderConfirmedTable
 
                             $candidateIds = $records->pluck('id')->map(fn ($id) => (int) $id)->all();
                             $result = app(OrderDataFileService::class)
-                                ->generateCsvFilesForCandidates($candidateIds);
+                                ->generateCsvFilesForCandidates(
+                                    $candidateIds,
+                                    communicationNotes: $data['communication_notes'] ?? null,
+                                );
 
                             $fileCount = $result['total_files'] ?? count($result['files'] ?? []);
                             $totalOrders = collect($result['files'] ?? [])->sum('order_count');

@@ -17,6 +17,9 @@ class OrderRegistrationSearchService
     /** @var array<string, string> */
     private array $defaultExpectedArrivalDateCache = [];
 
+    /** @var array<string, string|null> */
+    private array $incomingExpectedArrivalDateCache = [];
+
     /**
      * @return array<int, array{id: int, code: string, name: string, label: string}>
      */
@@ -165,7 +168,7 @@ class OrderRegistrationSearchService
             ->orderBy('items.code')
             ->limit($limit)
             ->get()
-            ->map(function ($row) use ($warehouseId, $incomingWarehouseId): array {
+            ->map(function ($row) use ($channel, $warehouseId, $incomingWarehouseId): array {
                 $itemId = (int) $row->item_id;
                 $contractorId = (int) $row->contractor_id;
                 $supplierId = (int) ($row->supplier_id ?? 0);
@@ -187,9 +190,10 @@ class OrderRegistrationSearchService
                     'safety_stock' => (int) ($row->safety_stock ?? 0),
                     'search_code' => $this->searchCodeForItem($itemId),
                     'ordering_code' => $this->orderingCodeForItem($itemId),
-                    'default_expected_arrival_date' => $this->defaultExpectedArrivalDate($warehouseId, $contractorId),
+                    'default_expected_arrival_date' => $this->defaultExpectedArrivalDate($warehouseId, $contractorId, $channel),
                     'current_stock' => $this->availableStock($warehouseId, $itemId),
                     'incoming_quantity' => $this->incomingQuantity($incomingWarehouseId, $itemId),
+                    'incoming_expected_arrival_date' => $this->incomingExpectedArrivalDate($incomingWarehouseId, $itemId),
                 ];
             })
             ->values()
@@ -257,10 +261,22 @@ class OrderRegistrationSearchService
 
         $incomingSubquery = DB::connection('sakemaru')
             ->table('wms_order_incoming_schedules')
-            ->where('warehouse_id', $warehouseId)
-            ->whereIn('status', ['PENDING', 'PARTIAL'])
-            ->selectRaw('item_id, SUM(expected_quantity - received_quantity) as incoming_qty')
-            ->groupBy('item_id');
+            ->join('items as incoming_items', 'incoming_items.id', '=', 'wms_order_incoming_schedules.item_id')
+            ->where('wms_order_incoming_schedules.warehouse_id', $warehouseId)
+            ->whereIn('wms_order_incoming_schedules.status', ['PENDING', 'PARTIAL'])
+            ->whereRaw('(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity) > 0')
+            ->selectRaw('
+                wms_order_incoming_schedules.item_id,
+                SUM(
+                    CASE wms_order_incoming_schedules.quantity_type
+                        WHEN \'CASE\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_case, 1), 1)
+                        WHEN \'CARTON\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_carton, 1), 1)
+                        ELSE GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0)
+                    END
+                ) as incoming_qty,
+                MIN(wms_order_incoming_schedules.expected_arrival_date) as incoming_expected_arrival_date
+            ')
+            ->groupBy('wms_order_incoming_schedules.item_id');
 
         $targetItemContractorsSubquery = DB::connection('sakemaru')
             ->table('item_contractors')
@@ -336,6 +352,7 @@ class OrderRegistrationSearchService
                 sales.transfer_piece_qty as transfer_piece_qty,
                 COALESCE(stocks.effective_stock, 0) as effective_stock,
                 COALESCE(incoming.incoming_qty, 0) as incoming_qty,
+                incoming.incoming_expected_arrival_date as incoming_expected_arrival_date,
                 GREATEST(sales.sales_qty - (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)), 0) as shortage_qty,
                 COALESCE(item_contractors.purchase_unit, 1) as purchase_unit
             ')
@@ -365,11 +382,14 @@ class OrderRegistrationSearchService
                 'daily_avg_qty' => round(((int) $row->sales_qty) / $days, 2),
                 'effective_stock' => (int) $row->effective_stock,
                 'incoming_quantity' => (int) $row->incoming_qty,
+                'incoming_expected_arrival_date' => filled($row->incoming_expected_arrival_date)
+                    ? Carbon::parse((string) $row->incoming_expected_arrival_date)->toDateString()
+                    : null,
                 'purchase_unit' => max(1, (int) $row->purchase_unit),
                 'order_piece_qty' => (int) $row->shortage_qty,
                 'search_code' => $this->searchCodeForItem((int) $row->item_id),
                 'ordering_code' => $this->orderingCodeForItem((int) $row->item_id),
-                'default_expected_arrival_date' => $this->defaultExpectedArrivalDate($warehouseId, (int) $row->contractor_id),
+                'default_expected_arrival_date' => $this->defaultExpectedArrivalDate($warehouseId, (int) $row->contractor_id, $channel),
             ])
             ->values()
             ->all();
@@ -421,26 +441,130 @@ class OrderRegistrationSearchService
     {
         return (int) (DB::connection('sakemaru')
             ->table('wms_order_incoming_schedules')
-            ->where('warehouse_id', $warehouseId)
-            ->where('item_id', $itemId)
-            ->whereIn('status', ['PENDING', 'PARTIAL'])
-            ->selectRaw('SUM(expected_quantity - received_quantity) as total_incoming')
+            ->join('items as incoming_items', 'incoming_items.id', '=', 'wms_order_incoming_schedules.item_id')
+            ->where('wms_order_incoming_schedules.warehouse_id', $warehouseId)
+            ->where('wms_order_incoming_schedules.item_id', $itemId)
+            ->whereIn('wms_order_incoming_schedules.status', ['PENDING', 'PARTIAL'])
+            ->whereRaw('(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity) > 0')
+            ->selectRaw('
+                SUM(
+                    CASE wms_order_incoming_schedules.quantity_type
+                        WHEN \'CASE\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_case, 1), 1)
+                        WHEN \'CARTON\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_carton, 1), 1)
+                        ELSE GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0)
+                    END
+                ) as total_incoming
+            ')
             ->value('total_incoming') ?? 0);
     }
 
-    public function defaultExpectedArrivalDate(int $warehouseId, int $contractorId): string
+    public function incomingExpectedArrivalDate(int $warehouseId, int $itemId): ?string
     {
-        $cacheKey = "{$warehouseId}:{$contractorId}";
+        $cacheKey = "{$warehouseId}:{$itemId}";
+
+        if (array_key_exists($cacheKey, $this->incomingExpectedArrivalDateCache)) {
+            return $this->incomingExpectedArrivalDateCache[$cacheKey];
+        }
+
+        $date = DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->where('warehouse_id', $warehouseId)
+            ->where('item_id', $itemId)
+            ->whereIn('status', ['PENDING', 'PARTIAL'])
+            ->whereRaw('(expected_quantity - received_quantity) > 0')
+            ->orderBy('expected_arrival_date')
+            ->value('expected_arrival_date');
+
+        return $this->incomingExpectedArrivalDateCache[$cacheKey] = filled($date)
+            ? Carbon::parse((string) $date)->toDateString()
+            : null;
+    }
+
+    public function defaultExpectedArrivalDate(
+        int $warehouseId,
+        int $contractorId,
+        OrderChannel $channel = OrderChannel::FAX
+    ): string {
+        $orderDate = $this->defaultArrivalOrderDate($contractorId, $channel);
+        $cacheKey = "{$warehouseId}:{$contractorId}:{$channel->value}:{$orderDate->toDateString()}";
 
         if (isset($this->defaultExpectedArrivalDateCache[$cacheKey])) {
             return $this->defaultExpectedArrivalDateCache[$cacheKey];
         }
 
         $arrivalDate = app(JxOrderArrivalDateAdjustmentService::class)
-            ->earliestArrivalDate($contractorId, $warehouseId);
+            ->earliestArrivalDate($contractorId, $warehouseId, $orderDate);
 
-        return $this->defaultExpectedArrivalDateCache[$cacheKey] = ($arrivalDate ?? Carbon::parse(ClientSetting::freshSystemDateYMD('order_registration:default_arrival'))->addDay())
+        return $this->defaultExpectedArrivalDateCache[$cacheKey] = ($arrivalDate ?? $orderDate->copy()->addDay())
             ->toDateString();
+    }
+
+    private function defaultArrivalOrderDate(int $contractorId, OrderChannel $channel): Carbon
+    {
+        $orderDate = Carbon::parse(ClientSetting::freshSystemDateYMD('order_registration:default_arrival'))->startOfDay();
+
+        if ($channel !== OrderChannel::EOS) {
+            return $orderDate;
+        }
+
+        $currentTime = Carbon::now();
+        $currentAt = $orderDate->copy()->setTime(
+            (int) $currentTime->format('H'),
+            (int) $currentTime->format('i'),
+            (int) $currentTime->format('s')
+        );
+
+        return $this->hasReachedJxGenerationCutoff($contractorId, $currentAt)
+            ? $orderDate->copy()->addDay()
+            : $orderDate;
+    }
+
+    private function hasReachedJxGenerationCutoff(int $contractorId, Carbon $currentAt): bool
+    {
+        $setting = WmsContractorSetting::query()
+            ->where('contractor_id', $contractorId)
+            ->first();
+
+        if (! $setting) {
+            return false;
+        }
+
+        $effectiveSetting = $setting->getEffectiveTransmissionSettings();
+        $transmissionType = $effectiveSetting->transmission_type instanceof TransmissionType
+            ? $effectiveSetting->transmission_type
+            : TransmissionType::tryFrom((string) $effectiveSetting->transmission_type);
+
+        if ($transmissionType !== TransmissionType::JX_FINET) {
+            return false;
+        }
+
+        $cutoffAt = $this->jxGenerationCutoffAt($currentAt, $effectiveSetting);
+
+        return $cutoffAt !== null && $currentAt->gte($cutoffAt);
+    }
+
+    private function jxGenerationCutoffAt(Carbon $currentAt, WmsContractorSetting $setting): ?Carbon
+    {
+        $generationAt = $this->timeOnDate($currentAt, $setting->jxGenerationTimeForDay($currentAt->dayOfWeek));
+
+        if ($generationAt !== null) {
+            return $generationAt->subMinutes(10);
+        }
+
+        return $this->timeOnDate($currentAt, $setting->jxGenerationCutoffTimeForDay($currentAt->dayOfWeek));
+    }
+
+    private function timeOnDate(Carbon $date, ?string $time): ?Carbon
+    {
+        if (! filled($time)) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($date->toDateString().' '.trim($time));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

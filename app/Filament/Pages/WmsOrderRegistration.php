@@ -17,10 +17,13 @@ use App\Models\Sakemaru\ItemCategory;
 use App\Models\Sakemaru\ItemContractor;
 use App\Models\StatsItemWarehouseSalesSummary;
 use App\Models\WmsContractorSetting;
+use App\Models\WmsOrderCandidate;
 use App\Models\WmsOrderDataFile;
 use App\Models\WmsWarehouseAutoOrderSetting;
 use App\Services\AutoOrder\OrderRegistrationSearchService;
 use App\Services\AutoOrder\OrderRegistrationService;
+use App\Services\AutoOrder\PurchaseOrderPdfService;
+use App\Services\AutoOrder\PurchasePriceService;
 use BackedEnum;
 use Carbon\Carbon;
 use Filament\Notifications\Notification;
@@ -58,6 +61,14 @@ class WmsOrderRegistration extends AdminPage
     public bool $showSalesHistoryModal = false;
 
     public bool $showSalesBasedExternalOrderPreviewModal = false;
+
+    public bool $showSupplierChangeModal = false;
+
+    public ?int $supplierChangeLineIndex = null;
+
+    public string $supplierChangeSearch = '';
+
+    public array $supplierChangeRows = [];
 
     public string $itemSearch = '';
 
@@ -103,6 +114,28 @@ class WmsOrderRegistration extends AdminPage
 
     public array $lines = [];
 
+    public string $lineSupplierFilter = '';
+
+    public bool $showCompletionFaxDownloadModal = false;
+
+    public ?int $completionFaxDownloadDataFileId = null;
+
+    public string $completionFaxCommunicationNotes = '';
+
+    public bool $showCompletionDetailModal = false;
+
+    public ?int $completionDetailDataFileId = null;
+
+    public bool $showWarehouseStockModal = false;
+
+    public ?int $warehouseStockItemId = null;
+
+    public string $warehouseStockItemCode = '';
+
+    public string $warehouseStockItemName = '';
+
+    public array $warehouseStockRows = [];
+
     public array $completionResult = [];
 
     public bool $isConfirming = false;
@@ -139,6 +172,11 @@ class WmsOrderRegistration extends AdminPage
         $this->warehouseId = auth()->user()?->getSelectedWarehouseId();
         $this->salesStartDate = now()->subDays(2)->toDateString();
         $this->salesEndDate = now()->toDateString();
+    }
+
+    public function defaultOrderExpectedArrivalDate(): string
+    {
+        return $this->fallbackExpectedArrivalDate();
     }
 
     public function setOrderChannel(string $channel): void
@@ -211,6 +249,236 @@ class WmsOrderRegistration extends AdminPage
     {
         $this->showSalesBasedExternalOrderPreviewModal = false;
         $this->resetSalesBasedExternalOrderPreview();
+    }
+
+    public function openSupplierChangeModal(int $index): void
+    {
+        if (! isset($this->lines[$index])) {
+            $this->notifyWarning('変更対象の明細が見つかりません。');
+
+            return;
+        }
+
+        $this->supplierChangeLineIndex = $index;
+        $this->supplierChangeSearch = '';
+        $this->showSupplierChangeModal = true;
+        $this->searchSupplierChangeCandidates();
+    }
+
+    public function closeSupplierChangeModal(): void
+    {
+        $this->showSupplierChangeModal = false;
+        $this->supplierChangeLineIndex = null;
+        $this->supplierChangeSearch = '';
+        $this->supplierChangeRows = [];
+    }
+
+    public function openWarehouseStockModal(int $itemId): void
+    {
+        $warehouseId = (int) $this->warehouseId;
+        if ($warehouseId < 1 || $itemId < 1) {
+            $this->notifyWarning('他倉庫在庫を確認できませんでした。');
+
+            return;
+        }
+
+        $item = Item::query()
+            ->select(['id', 'code', 'name'])
+            ->find($itemId);
+
+        if (! $item) {
+            $this->notifyWarning('商品が見つかりません。');
+
+            return;
+        }
+
+        $this->warehouseStockItemId = (int) $item->id;
+        $this->warehouseStockItemCode = (string) $item->code;
+        $this->warehouseStockItemName = (string) $item->name;
+        $this->warehouseStockRows = $this->otherWarehouseStockRows((int) $item->id, $warehouseId);
+        $this->showWarehouseStockModal = true;
+    }
+
+    public function closeWarehouseStockModal(): void
+    {
+        $this->showWarehouseStockModal = false;
+        $this->warehouseStockItemId = null;
+        $this->warehouseStockItemCode = '';
+        $this->warehouseStockItemName = '';
+        $this->warehouseStockRows = [];
+    }
+
+    public function searchSupplierChangeCandidates(): void
+    {
+        if ($this->supplierChangeLineIndex === null || ! isset($this->lines[$this->supplierChangeLineIndex])) {
+            $this->supplierChangeRows = [];
+
+            return;
+        }
+
+        $line = $this->lines[$this->supplierChangeLineIndex];
+        $itemId = (int) ($line['item_id'] ?? 0);
+        $warehouseId = (int) ($this->warehouseId ?: ($line['warehouse_id'] ?? 0));
+        if ($itemId < 1 || $warehouseId < 1) {
+            $this->supplierChangeRows = [];
+
+            return;
+        }
+
+        $search = trim(mb_convert_kana($this->supplierChangeSearch, 'as'));
+        $supplierRows = DB::connection('sakemaru')
+            ->table('suppliers as s')
+            ->join('partners as p', 'p.id', '=', 's.partner_id')
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('p.code', 'like', "{$search}%")
+                        ->orWhere('p.name', 'like', "%{$search}%")
+                        ->orWhere('s.id', (int) $search);
+                });
+            })
+            ->orderBy('p.code')
+            ->limit(50)
+            ->get([
+                's.id as supplier_id',
+                's.partner_id as supplier_partner_id',
+                'p.code as supplier_code',
+                'p.name as supplier_name',
+            ]);
+
+        $supplierIds = $supplierRows
+            ->pluck('supplier_id')
+            ->map(fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+        $contractorsBySupplier = $this->contractorsBySupplierIds($supplierIds);
+        $incomingWarehouseId = app(OrderRegistrationSearchService::class)->incomingWarehouseId($warehouseId);
+        $itemContractorsByPair = $this->itemContractorsBySupplierAndContractor(
+            $incomingWarehouseId,
+            $itemId,
+            $supplierIds,
+            $contractorsBySupplier,
+        );
+        $jxContractorIds = app(OrderRegistrationSearchService::class)->jxContractorIds();
+
+        $this->supplierChangeRows = $supplierRows
+            ->map(function ($supplier) use ($contractorsBySupplier, $itemContractorsByPair, $jxContractorIds): array {
+                $supplierId = (int) $supplier->supplier_id;
+                $contractors = collect($contractorsBySupplier[$supplierId] ?? []);
+                $contractor = $contractors->count() === 1 ? $contractors->first() : null;
+                $contractorId = $contractor ? (int) $contractor['id'] : 0;
+                $itemContractor = $contractorId > 0
+                    ? ($itemContractorsByPair["{$supplierId}:{$contractorId}"] ?? null)
+                    : null;
+                $isItemLinked = $itemContractor !== null;
+                $isEosAvailable = $isItemLinked && in_array($contractorId, $jxContractorIds, true);
+
+                return [
+                    'supplier_id' => $supplierId,
+                    'supplier_partner_id' => (int) ($supplier->supplier_partner_id ?? 0),
+                    'supplier_code' => (string) ($supplier->supplier_code ?? ''),
+                    'supplier_name' => (string) ($supplier->supplier_name ?? ''),
+                    'contractor_count' => $contractors->count(),
+                    'contractor_id' => $contractorId,
+                    'contractor_code' => (string) ($contractor['code'] ?? ''),
+                    'contractor_name' => (string) ($contractor['name'] ?? ''),
+                    'is_selectable' => $contractors->count() === 1,
+                    'is_item_linked' => $isItemLinked,
+                    'is_eos_available' => $isEosAvailable,
+                    'will_force_fax' => $contractors->count() === 1 && ! $isItemLinked,
+                    'purchase_unit' => max(1, (int) ($itemContractor?->purchase_unit ?? 1)),
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
+    public function applySupplierChange(int $supplierId): void
+    {
+        if ($this->supplierChangeLineIndex === null || ! isset($this->lines[$this->supplierChangeLineIndex])) {
+            $this->notifyWarning('変更対象の明細が見つかりません。');
+
+            return;
+        }
+
+        $lineIndex = $this->supplierChangeLineIndex;
+        $line = $this->lines[$lineIndex];
+        $itemId = (int) ($line['item_id'] ?? 0);
+        $warehouseId = (int) ($this->warehouseId ?: ($line['warehouse_id'] ?? 0));
+        $supplier = DB::connection('sakemaru')
+            ->table('suppliers as s')
+            ->join('partners as p', 'p.id', '=', 's.partner_id')
+            ->where('s.id', $supplierId)
+            ->first([
+                's.id as supplier_id',
+                's.partner_id as supplier_partner_id',
+                'p.code as supplier_code',
+                'p.name as supplier_name',
+            ]);
+
+        if (! $supplier || $itemId < 1 || $warehouseId < 1) {
+            $this->notifyWarning('仕入先を変更できませんでした。');
+
+            return;
+        }
+
+        $contractors = collect($this->contractorsBySupplierIds([$supplierId])[$supplierId] ?? []);
+        if ($contractors->isEmpty()) {
+            $this->notifyWarning('この仕入先に紐づく発注先がありません。');
+
+            return;
+        }
+        if ($contractors->count() > 1) {
+            $this->notifyWarning('この仕入先に紐づく発注先が複数あります。発注先マスタを確認してください。');
+
+            return;
+        }
+
+        $contractor = $contractors->first();
+        $contractorId = (int) $contractor['id'];
+        $searchService = app(OrderRegistrationSearchService::class);
+        $incomingWarehouseId = $searchService->incomingWarehouseId($warehouseId);
+        $itemContractor = ItemContractor::query()
+            ->where('warehouse_id', $incomingWarehouseId)
+            ->where('item_id', $itemId)
+            ->where('contractor_id', $contractorId)
+            ->where('supplier_id', $supplierId)
+            ->first();
+
+        $isItemLinked = $itemContractor !== null;
+        $isEosAvailable = $isItemLinked && $searchService->isJxContractor($contractorId);
+        $currentChannel = OrderChannel::tryFrom((string) ($line['order_channel'] ?? '')) ?? OrderChannel::FAX;
+        $orderChannel = $isEosAvailable
+            ? $currentChannel
+            : OrderChannel::FAX;
+        $expectedArrivalDate = $searchService->defaultExpectedArrivalDate($warehouseId, $contractorId, $orderChannel);
+
+        $line['contractor_id'] = $contractorId;
+        $line['contractor_code'] = (string) ($contractor['code'] ?? '');
+        $line['contractor_name'] = (string) ($contractor['name'] ?? '');
+        $line['supplier_id'] = (int) $supplier->supplier_id;
+        $line['supplier_partner_id'] = (int) ($supplier->supplier_partner_id ?? 0);
+        $line['supplier_code'] = (string) ($supplier->supplier_code ?? '');
+        $line['supplier_name'] = (string) ($supplier->supplier_name ?? '-');
+        $line['purchase_unit'] = max(1, (int) ($itemContractor?->purchase_unit ?? $line['purchase_unit'] ?? 1));
+        $line['default_expected_arrival_date'] = $expectedArrivalDate;
+        $line['expected_arrival_date'] = $expectedArrivalDate;
+        $line['is_eos_available'] = $isEosAvailable;
+        $line['item_contractor_linked'] = $isItemLinked;
+        $line['order_channel'] = $orderChannel->value;
+        $line['order_channel_label'] = $orderChannel->label();
+        $quantityType = QuantityType::tryFrom((string) ($line['quantity_type'] ?? '')) ?? QuantityType::PIECE;
+        $purchasePrice = $this->purchasePriceForLine($itemId, (int) ($supplier->supplier_partner_id ?? 0), $warehouseId, $quantityType);
+        $line['purchase_unit_price'] = $purchasePrice['price'];
+        $line['purchase_unit_price_source'] = $purchasePrice['source'];
+
+        $this->lines[$lineIndex] = $line;
+        $this->closeSupplierChangeModal();
+
+        Notification::make()
+            ->title('仕入先を変更しました')
+            ->body($isItemLinked ? null : '商品に紐づかない仕入先のため、この明細はFAX発注固定にしました。')
+            ->success()
+            ->send();
     }
 
     public function searchItemCandidates(): void
@@ -366,19 +634,8 @@ class WmsOrderRegistration extends AdminPage
             return;
         }
 
-        $this->salesBasedExternalOrderPreviewConditions = [
-            'expected_arrival_date' => now()->addDay()->toDateString(),
-            'sales_start_date' => $startDate,
-            'sales_end_date' => $endDate,
-            'selected_warehouse_name' => $this->selectedWarehouseLabel(),
-            'target_warehouse_name' => '外部発注',
-            'auto_order_flag_filter' => '考慮しない',
-            'order_channel' => $this->salesGenerationOrderChannelEnum()->label(),
-            'days' => $days,
-            'contractor_count' => count($contractorIds),
-            'category2_count' => count($category2Ids),
-            'category2_total_count' => count($allCategory2Ids),
-        ];
+        $orderChannel = $this->salesGenerationOrderChannelEnum();
+        $searchService = app(OrderRegistrationSearchService::class);
 
         $internalContractorIds = WmsContractorSetting::query()
             ->where('transmission_type', TransmissionType::INTERNAL->value)
@@ -413,10 +670,22 @@ class WmsOrderRegistration extends AdminPage
 
         $incomingSubquery = DB::connection('sakemaru')
             ->table('wms_order_incoming_schedules')
-            ->where('warehouse_id', $selectedWarehouseId)
-            ->whereIn('status', ['PENDING', 'PARTIAL'])
-            ->selectRaw('item_id, SUM(expected_quantity - received_quantity) as incoming_qty')
-            ->groupBy('item_id');
+            ->join('items as incoming_items', 'incoming_items.id', '=', 'wms_order_incoming_schedules.item_id')
+            ->where('wms_order_incoming_schedules.warehouse_id', $selectedWarehouseId)
+            ->whereIn('wms_order_incoming_schedules.status', ['PENDING', 'PARTIAL'])
+            ->whereRaw('(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity) > 0')
+            ->selectRaw('
+                wms_order_incoming_schedules.item_id,
+                SUM(
+                    CASE wms_order_incoming_schedules.quantity_type
+                        WHEN \'CASE\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_case, 1), 1)
+                        WHEN \'CARTON\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_carton, 1), 1)
+                        ELSE GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0)
+                    END
+                ) as incoming_qty,
+                MIN(wms_order_incoming_schedules.expected_arrival_date) as incoming_expected_arrival_date
+            ')
+            ->groupBy('wms_order_incoming_schedules.item_id');
 
         $targetItemContractorsSubquery = DB::connection('sakemaru')
             ->table('item_contractors')
@@ -467,12 +736,13 @@ class WmsOrderRegistration extends AdminPage
             $query->whereIn('items.item_category2_id', $category2Ids);
         }
 
-        $this->salesBasedExternalOrderPreviewRows = $query
+        $previewRows = $query
             ->selectRaw('
                 item_contractors.warehouse_id as warehouse_id,
                 item_contractors.item_id as item_id,
                 item_contractors.contractor_id as contractor_id,
                 item_contractors.supplier_id as supplier_id,
+                suppliers.partner_id as supplier_partner_id,
                 item_category2.code as item_category2_code,
                 items.code as item_code,
                 items.name as item_name,
@@ -487,27 +757,51 @@ class WmsOrderRegistration extends AdminPage
                 sales.transfer_piece_qty as transfer_piece_qty,
                 COALESCE(stocks.effective_stock, 0) as effective_stock,
                 COALESCE(incoming.incoming_qty, 0) as incoming_qty,
+                incoming.incoming_expected_arrival_date as incoming_expected_arrival_date,
                 (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)) as projected_stock,
                 GREATEST(sales.sales_qty - (COALESCE(stocks.effective_stock, 0) + COALESCE(incoming.incoming_qty, 0)), 0) as shortage_qty,
-                COALESCE(item_contractors.purchase_unit, 1) as purchase_unit
+                COALESCE(item_contractors.purchase_unit, 1) as purchase_unit,
+                COALESCE(item_contractors.safety_stock, 0) as safety_stock
             ')
             ->orderBy('contractors.code')
             ->orderBy('supplier_partners.code')
             ->orderBy('items.code')
-            ->get()
-            ->map(function ($row) use ($days, $jxContractorIds): array {
+            ->get();
+
+        $previewItemIds = $previewRows
+            ->pluck('item_id')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+        $lastOrderDates = $this->lastOrderDates($selectedWarehouseId, $previewItemIds);
+        $weeklySalesQuantities = $this->weeklySalesQuantities($selectedWarehouseId, $previewItemIds);
+        $defaultLocationCodes = $this->defaultLocationCodes($selectedWarehouseId, $previewItemIds);
+
+        $this->salesBasedExternalOrderPreviewRows = $previewRows
+            ->map(function ($row) use ($days, $defaultLocationCodes, $jxContractorIds, $lastOrderDates, $orderChannel, $searchService, $selectedWarehouseId, $weeklySalesQuantities): array {
                 $contractorId = (int) $row->contractor_id;
+                $itemId = (int) $row->item_id;
+                $defaultExpectedArrivalDate = $searchService->defaultExpectedArrivalDate($selectedWarehouseId, $contractorId, $orderChannel);
+                $weeklySales = $weeklySalesQuantities[$itemId] ?? [
+                    'sales_week1_qty' => 0,
+                    'sales_week2_qty' => 0,
+                    'sales_week3_qty' => 0,
+                    'previous_month_sales_qty' => 0,
+                ];
 
                 return [
                     'warehouse_id' => (int) $row->warehouse_id,
-                    'item_id' => (int) $row->item_id,
+                    'item_id' => $itemId,
                     'contractor_id' => $contractorId,
                     'supplier_id' => (int) ($row->supplier_id ?? 0),
+                    'supplier_partner_id' => (int) ($row->supplier_partner_id ?? 0),
                     'item_category2_code' => (string) ($row->item_category2_code ?? ''),
                     'item_code' => (string) $row->item_code,
                     'item_name' => (string) $row->item_name,
                     'item_packaging' => (string) ($row->item_packaging ?? ''),
                     'capacity_case' => max(1, (int) ($row->capacity_case ?? 1)),
+                    'default_location_code' => (string) ($defaultLocationCodes[$itemId] ?? ''),
                     'contractor_code' => (string) $row->contractor_code,
                     'contractor_name' => (string) $row->contractor_name,
                     'supplier_name' => (string) ($row->supplier_name ?? '-'),
@@ -515,13 +809,23 @@ class WmsOrderRegistration extends AdminPage
                     'sales_piece_qty' => (int) $row->sales_piece_qty,
                     'return_piece_qty' => (int) $row->return_piece_qty,
                     'transfer_piece_qty' => (int) $row->transfer_piece_qty,
+                    'last_order_date' => $lastOrderDates[$itemId] ?? null,
+                    'sales_week1_qty' => (int) $weeklySales['sales_week1_qty'],
+                    'sales_week2_qty' => (int) $weeklySales['sales_week2_qty'],
+                    'sales_week3_qty' => (int) $weeklySales['sales_week3_qty'],
+                    'previous_month_sales_qty' => (int) $weeklySales['previous_month_sales_qty'],
                     'daily_avg_qty' => round(((int) $row->sales_qty) / $days, 2),
+                    'safety_stock' => (int) $row->safety_stock,
                     'effective_stock' => (int) $row->effective_stock,
                     'incoming_qty' => (int) $row->incoming_qty,
+                    'incoming_expected_arrival_date' => filled($row->incoming_expected_arrival_date)
+                        ? Carbon::parse((string) $row->incoming_expected_arrival_date)->toDateString()
+                        : null,
                     'projected_stock' => (int) $row->projected_stock,
                     'purchase_unit' => max(1, (int) $row->purchase_unit),
                     'order_piece_qty' => (int) $row->shortage_qty,
-                    'order_channel' => $this->salesGenerationOrderChannelEnum()->value,
+                    'default_expected_arrival_date' => $defaultExpectedArrivalDate,
+                    'order_channel' => $orderChannel->value,
                     'is_eos_available' => in_array($contractorId, $jxContractorIds, true),
                     'input_order_case_qty' => null,
                     'input_order_piece_qty' => null,
@@ -535,6 +839,23 @@ class WmsOrderRegistration extends AdminPage
 
             return;
         }
+
+        $defaultExpectedArrivalDate = $this->earliestExpectedArrivalDateFromRows($this->salesBasedExternalOrderPreviewRows, $orderChannel)
+            ?? $this->defaultExpectedArrivalDateForContractors($selectedWarehouseId, $contractorIds, $jxContractorIds, $orderChannel);
+
+        $this->salesBasedExternalOrderPreviewConditions = [
+            'expected_arrival_date' => $defaultExpectedArrivalDate,
+            'sales_start_date' => $startDate,
+            'sales_end_date' => $endDate,
+            'selected_warehouse_name' => $this->selectedWarehouseLabel(),
+            'target_warehouse_name' => '外部発注',
+            'auto_order_flag_filter' => '考慮しない',
+            'order_channel' => $orderChannel->label(),
+            'days' => $days,
+            'contractor_count' => count($contractorIds),
+            'category2_count' => count($category2Ids),
+            'category2_total_count' => count($allCategory2Ids),
+        ];
 
         $this->showSalesHistoryModal = false;
         $this->showSalesBasedExternalOrderPreviewModal = true;
@@ -552,6 +873,14 @@ class WmsOrderRegistration extends AdminPage
                 $row['input_order_piece_qty'] = ($inputPieceQuantity === null || $inputPieceQuantity === '')
                     ? null
                     : max(0, (int) $inputPieceQuantity);
+                try {
+                    $expectedArrivalDate = $row['default_expected_arrival_date'] ?? null;
+                    $row['default_expected_arrival_date'] = filled($expectedArrivalDate)
+                        ? Carbon::parse((string) $expectedArrivalDate)->toDateString()
+                        : null;
+                } catch (\Throwable) {
+                    $row['default_expected_arrival_date'] = null;
+                }
 
                 return $row;
             })
@@ -564,7 +893,9 @@ class WmsOrderRegistration extends AdminPage
         try {
             $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] = Carbon::parse($date)->toDateString();
         } catch (\Throwable) {
-            $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] = now()->addDay()->toDateString();
+            $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] =
+                $this->earliestExpectedArrivalDateFromRows($this->salesBasedExternalOrderPreviewRows, $this->salesGenerationOrderChannelEnum())
+                ?? $this->fallbackExpectedArrivalDate();
         }
     }
 
@@ -578,7 +909,7 @@ class WmsOrderRegistration extends AdminPage
 
         try {
             $expectedArrivalDate = Carbon::parse(
-                $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] ?? now()->addDay()->toDateString()
+                $this->salesBasedExternalOrderPreviewConditions['expected_arrival_date'] ?? $this->fallbackExpectedArrivalDate()
             )->toDateString();
         } catch (\Throwable) {
             Notification::make()
@@ -620,6 +951,22 @@ class WmsOrderRegistration extends AdminPage
                 continue;
             }
 
+            try {
+                $rowExpectedArrivalDate = filled($row['default_expected_arrival_date'] ?? null)
+                    ? Carbon::parse((string) $row['default_expected_arrival_date'])->toDateString()
+                    : $expectedArrivalDate;
+            } catch (\Throwable) {
+                $skipped++;
+
+                continue;
+            }
+
+            if (Carbon::parse($rowExpectedArrivalDate)->lt(Carbon::today())) {
+                $skipped++;
+
+                continue;
+            }
+
             $lineRow = [
                 'item_id' => (int) ($row['item_id'] ?? 0),
                 'item_code' => (string) ($row['item_code'] ?? ''),
@@ -630,15 +977,17 @@ class WmsOrderRegistration extends AdminPage
                 'contractor_code' => (string) ($row['contractor_code'] ?? ''),
                 'contractor_name' => (string) ($row['contractor_name'] ?? ''),
                 'supplier_id' => (int) ($row['supplier_id'] ?? 0),
+                'supplier_partner_id' => (int) ($row['supplier_partner_id'] ?? 0),
                 'supplier_name' => (string) ($row['supplier_name'] ?? '-'),
                 'search_code' => $searchService->searchCodeForItem((int) ($row['item_id'] ?? 0)),
                 'ordering_code' => $searchService->orderingCodeForItem((int) ($row['item_id'] ?? 0)),
                 'purchase_unit' => max(1, (int) ($row['purchase_unit'] ?? 1)),
-                'default_expected_arrival_date' => $expectedArrivalDate,
+                'default_expected_arrival_date' => $rowExpectedArrivalDate,
                 'order_piece_qty' => (int) ($row['order_piece_qty'] ?? 0),
                 'sales_qty' => (int) ($row['sales_qty'] ?? 0),
                 'order_channel' => $orderChannel->value,
                 'is_eos_available' => $isEosAvailable,
+                'item_contractor_linked' => true,
             ];
 
             if ($this->addLine($lineRow, ['case' => $caseQuantity, 'piece' => $pieceQuantity], OrderEntrySource::SALES_HISTORY, false)) {
@@ -768,6 +1117,23 @@ class WmsOrderRegistration extends AdminPage
                 continue;
             }
 
+            $defaultExpectedArrivalDate = $searchService->defaultExpectedArrivalDate($warehouseId, (int) $itemContractor->contractor_id, $requestedChannel);
+            try {
+                $expectedArrivalDate = filled($itemData['default_expected_arrival_date'] ?? null)
+                    ? Carbon::parse((string) $itemData['default_expected_arrival_date'])->toDateString()
+                    : $defaultExpectedArrivalDate;
+            } catch (\Throwable) {
+                $errors[] = "[{$item->code}] {$item->name}: 予定日を正しく指定してください";
+
+                continue;
+            }
+
+            if (Carbon::parse($expectedArrivalDate)->lt(Carbon::today())) {
+                $errors[] = "[{$item->code}] {$item->name}: 予定日は本日以降を選択してください";
+
+                continue;
+            }
+
             $row = [
                 'item_id' => (int) $item->id,
                 'item_code' => (string) $item->code,
@@ -778,6 +1144,7 @@ class WmsOrderRegistration extends AdminPage
                 'contractor_code' => (string) $itemContractor->contractor->code,
                 'contractor_name' => (string) $itemContractor->contractor->name,
                 'supplier_id' => (int) ($itemContractor->supplier_id ?? 0),
+                'supplier_partner_id' => (int) ($itemContractor->supplier?->partner_id ?? 0),
                 'supplier_name' => (string) ($itemContractor->supplier?->partner?->name ?? '-'),
                 'search_code' => filled($itemData['search_code'] ?? null)
                     ? (string) $itemData['search_code']
@@ -786,11 +1153,12 @@ class WmsOrderRegistration extends AdminPage
                     ? (string) $itemData['ordering_code']
                     : $searchService->orderingCodeForItem((int) $item->id),
                 'purchase_unit' => max(1, (int) ($itemContractor->purchase_unit ?? 1)),
-                'default_expected_arrival_date' => $searchService->defaultExpectedArrivalDate($warehouseId, (int) $itemContractor->contractor_id),
+                'default_expected_arrival_date' => $expectedArrivalDate,
                 'current_stock' => $searchService->availableStock($warehouseId, (int) $item->id),
                 'incoming_quantity' => $searchService->incomingQuantity($incomingWarehouseId, (int) $item->id),
                 'order_channel' => $requestedChannel->value,
                 'is_eos_available' => $isEosAvailable,
+                'item_contractor_linked' => true,
             ];
 
             if ($this->addLine($row, ['case' => $caseQty, 'piece' => $pieceQty], OrderEntrySource::SEARCH, false)) {
@@ -958,6 +1326,7 @@ class WmsOrderRegistration extends AdminPage
         $defaultLocationCodes = $this->defaultLocationCodes($incomingWarehouseId, $itemIds);
         $effectiveStocks = $this->availableStockQuantities($warehouseId, $itemIds);
         $incomingQuantities = $this->incomingQuantities($incomingWarehouseId, $itemIds);
+        $incomingExpectedArrivalDates = $this->incomingExpectedArrivalDates($incomingWarehouseId, $itemIds);
         $lastOrderDates = $this->lastOrderDates($incomingWarehouseId, $itemIds);
         $weeklySalesQuantities = $this->weeklySalesQuantities($warehouseId, $itemIds);
 
@@ -965,7 +1334,7 @@ class WmsOrderRegistration extends AdminPage
             ->whereIn('item_id', $itemIds)
             ->groupBy('item_id');
 
-        $data = $items->map(function (Item $item) use ($summaries, $itemContractors, $registeredLines, $searchService, $warehouseId, $jxContractorIds, $category2Codes, $defaultLocationCodes, $effectiveStocks, $incomingQuantities, $lastOrderDates, $weeklySalesQuantities) {
+        $data = $items->map(function (Item $item) use ($summaries, $itemContractors, $registeredLines, $searchService, $warehouseId, $jxContractorIds, $category2Codes, $defaultLocationCodes, $effectiveStocks, $incomingQuantities, $incomingExpectedArrivalDates, $lastOrderDates, $weeklySalesQuantities) {
             $summary = $summaries->get($item->id);
             $itemContractor = $itemContractors->get($item->id);
             $registered = $registeredLines->get($item->id, collect());
@@ -978,6 +1347,7 @@ class WmsOrderRegistration extends AdminPage
                 'sales_week1_qty' => 0,
                 'sales_week2_qty' => 0,
                 'sales_week3_qty' => 0,
+                'previous_month_sales_qty' => 0,
             ];
             $registeredCaseQty = 0;
             $registeredPieceQty = 0;
@@ -1005,12 +1375,17 @@ class WmsOrderRegistration extends AdminPage
                     ? "[{$itemContractor->contractor->code}]{$itemContractor->contractor->name}"
                     : null,
                 'supplier_id' => $itemContractor ? (int) ($itemContractor->supplier_id ?? 0) : null,
+                'supplier_partner_id' => $itemContractor ? (int) ($itemContractor->supplier?->partner_id ?? 0) : null,
                 'supplier_name' => $itemContractor?->supplier?->partner?->name,
                 'purchase_unit' => max(1, (int) ($itemContractor->purchase_unit ?? 1)),
                 'default_location_code' => (string) ($defaultLocationCodes[(int) $item->id] ?? ''),
                 'safety_stock' => (int) ($itemContractor->safety_stock ?? 0),
                 'default_expected_arrival_date' => $itemContractor
-                    ? $searchService->defaultExpectedArrivalDate($warehouseId, (int) $itemContractor->contractor_id)
+                    ? $searchService->defaultExpectedArrivalDate(
+                        $warehouseId,
+                        (int) $itemContractor->contractor_id,
+                        $isEosAvailable ? OrderChannel::EOS : OrderChannel::FAX
+                    )
                     : null,
                 'last_order_date' => $lastOrderDates[(int) $item->id] ?? null,
                 'last_shipped_at' => $summary?->last_shipped_at?->format('m/d'),
@@ -1024,8 +1399,10 @@ class WmsOrderRegistration extends AdminPage
                 'sales_week1_qty' => (int) $weeklySales['sales_week1_qty'],
                 'sales_week2_qty' => (int) $weeklySales['sales_week2_qty'],
                 'sales_week3_qty' => (int) $weeklySales['sales_week3_qty'],
+                'previous_month_sales_qty' => (int) $weeklySales['previous_month_sales_qty'],
                 'effective_stock' => $effectiveStock,
                 'incoming_qty' => $incomingQuantity,
+                'incoming_expected_arrival_date' => $incomingExpectedArrivalDates[(int) $item->id] ?? null,
                 'projected_stock' => $effectiveStock + $incomingQuantity,
                 'pending_case_qty' => $registeredCaseQty ?: null,
                 'pending_piece_qty' => $registeredPieceQty ?: null,
@@ -1085,10 +1462,80 @@ class WmsOrderRegistration extends AdminPage
     }
 
     /**
+     * @return array<int, array{warehouse_id: int, warehouse_code: string, warehouse_name: string, theoretical_stock: int}>
+     */
+    private function otherWarehouseStockRows(int $itemId, int $currentWarehouseId): array
+    {
+        $stockSubquery = DB::connection('sakemaru')
+            ->table('wms_v_stock_available')
+            ->where('item_id', $itemId)
+            ->where('warehouse_id', '<>', $currentWarehouseId)
+            ->selectRaw('DISTINCT warehouse_id, real_stock_id, available_quantity');
+
+        return DB::connection('sakemaru')
+            ->query()
+            ->fromSub($stockSubquery, 'stock')
+            ->join('warehouses as w', 'w.id', '=', 'stock.warehouse_id')
+            ->selectRaw('
+                w.id as warehouse_id,
+                w.code as warehouse_code,
+                w.name as warehouse_name,
+                SUM(stock.available_quantity) as theoretical_stock
+            ')
+            ->groupBy('w.id', 'w.code', 'w.name')
+            ->orderBy('w.code')
+            ->get()
+            ->filter(fn ($row): bool => (int) ($row->theoretical_stock ?? 0) !== 0)
+            ->map(fn ($row): array => [
+                'warehouse_id' => (int) $row->warehouse_id,
+                'warehouse_code' => (string) ($row->warehouse_code ?? ''),
+                'warehouse_name' => (string) ($row->warehouse_name ?? ''),
+                'theoretical_stock' => (int) ($row->theoretical_stock ?? 0),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
      * @param  array<int>  $itemIds
      * @return array<int, int>
      */
     private function incomingQuantities(int $warehouseId, array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        return DB::connection('sakemaru')
+            ->table('wms_order_incoming_schedules')
+            ->join('items as incoming_items', 'incoming_items.id', '=', 'wms_order_incoming_schedules.item_id')
+            ->where('wms_order_incoming_schedules.warehouse_id', $warehouseId)
+            ->whereIn('wms_order_incoming_schedules.item_id', $itemIds)
+            ->whereIn('wms_order_incoming_schedules.status', [
+                IncomingScheduleStatus::PENDING->value,
+                IncomingScheduleStatus::PARTIAL->value,
+            ])
+            ->selectRaw('
+                wms_order_incoming_schedules.item_id,
+                SUM(
+                    CASE wms_order_incoming_schedules.quantity_type
+                        WHEN \'CASE\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_case, 1), 1)
+                        WHEN \'CARTON\' THEN GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0) * GREATEST(COALESCE(incoming_items.capacity_carton, 1), 1)
+                        ELSE GREATEST(wms_order_incoming_schedules.expected_quantity - wms_order_incoming_schedules.received_quantity, 0)
+                    END
+                ) as incoming_qty
+            ')
+            ->groupBy('wms_order_incoming_schedules.item_id')
+            ->get()
+            ->mapWithKeys(fn ($row): array => [(int) $row->item_id => (int) ($row->incoming_qty ?? 0)])
+            ->all();
+    }
+
+    /**
+     * @param  array<int>  $itemIds
+     * @return array<int, string>
+     */
+    private function incomingExpectedArrivalDates(int $warehouseId, array $itemIds): array
     {
         if ($itemIds === []) {
             return [];
@@ -1102,10 +1549,16 @@ class WmsOrderRegistration extends AdminPage
                 IncomingScheduleStatus::PENDING->value,
                 IncomingScheduleStatus::PARTIAL->value,
             ])
-            ->selectRaw('item_id, SUM(GREATEST(expected_quantity - received_quantity, 0)) as incoming_qty')
+            ->whereRaw('(expected_quantity - received_quantity) > 0')
+            ->selectRaw('item_id, MIN(expected_arrival_date) as incoming_expected_arrival_date')
             ->groupBy('item_id')
             ->get()
-            ->mapWithKeys(fn ($row): array => [(int) $row->item_id => (int) ($row->incoming_qty ?? 0)])
+            ->mapWithKeys(fn ($row): array => [
+                (int) $row->item_id => filled($row->incoming_expected_arrival_date)
+                    ? Carbon::parse((string) $row->incoming_expected_arrival_date)->toDateString()
+                    : '',
+            ])
+            ->filter()
             ->all();
     }
 
@@ -1141,7 +1594,7 @@ class WmsOrderRegistration extends AdminPage
 
     /**
      * @param  array<int>  $itemIds
-     * @return array<int, array{sales_week1_qty: int, sales_week2_qty: int, sales_week3_qty: int}>
+     * @return array<int, array{sales_week1_qty: int, sales_week2_qty: int, sales_week3_qty: int, previous_month_sales_qty: int}>
      */
     private function weeklySalesQuantities(int $warehouseId, array $itemIds): array
     {
@@ -1156,20 +1609,23 @@ class WmsOrderRegistration extends AdminPage
         $week2End = $basisDate->copy()->subDays(7)->toDateString();
         $week3Start = $basisDate->copy()->subDays(20)->toDateString();
         $week3End = $basisDate->copy()->subDays(14)->toDateString();
+        $previousMonthStart = $basisDate->copy()->subMonthNoOverflow()->startOfMonth()->toDateString();
+        $previousMonthEnd = $basisDate->copy()->subMonthNoOverflow()->endOfMonth()->toDateString();
 
         return DB::connection('sakemaru')
             ->table('stats_item_warehouse_daily_sales')
             ->where('warehouse_id', $warehouseId)
             ->whereIn('item_id', $itemIds)
-            ->whereBetween('business_date', [$week3Start, $week1End])
+            ->whereBetween('business_date', [min($previousMonthStart, $week3Start), max($previousMonthEnd, $week1End)])
             ->selectRaw(
                 '
                     item_id,
                     SUM(CASE WHEN business_date BETWEEN ? AND ? THEN shipped_piece_qty ELSE 0 END) as sales_week1_qty,
                     SUM(CASE WHEN business_date BETWEEN ? AND ? THEN shipped_piece_qty ELSE 0 END) as sales_week2_qty,
-                    SUM(CASE WHEN business_date BETWEEN ? AND ? THEN shipped_piece_qty ELSE 0 END) as sales_week3_qty
+                    SUM(CASE WHEN business_date BETWEEN ? AND ? THEN shipped_piece_qty ELSE 0 END) as sales_week3_qty,
+                    SUM(CASE WHEN business_date BETWEEN ? AND ? THEN shipped_piece_qty ELSE 0 END) as previous_month_sales_qty
                 ',
-                [$week1Start, $week1End, $week2Start, $week2End, $week3Start, $week3End],
+                [$week1Start, $week1End, $week2Start, $week2End, $week3Start, $week3End, $previousMonthStart, $previousMonthEnd],
             )
             ->groupBy('item_id')
             ->get()
@@ -1178,6 +1634,7 @@ class WmsOrderRegistration extends AdminPage
                     'sales_week1_qty' => (int) ($row->sales_week1_qty ?? 0),
                     'sales_week2_qty' => (int) ($row->sales_week2_qty ?? 0),
                     'sales_week3_qty' => (int) ($row->sales_week3_qty ?? 0),
+                    'previous_month_sales_qty' => (int) ($row->previous_month_sales_qty ?? 0),
                 ],
             ])
             ->all();
@@ -1290,6 +1747,100 @@ class WmsOrderRegistration extends AdminPage
             ->toArray();
     }
 
+    /**
+     * @param  array<int>  $supplierIds
+     * @return array<int, array<int, array{id: int, code: string, name: string}>>
+     */
+    private function contractorsBySupplierIds(array $supplierIds): array
+    {
+        $supplierIds = collect($supplierIds)
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($supplierIds === []) {
+            return [];
+        }
+
+        $mappedRows = DB::connection('sakemaru')
+            ->table('wms_contractor_suppliers as wcs')
+            ->join('contractors as c', 'c.id', '=', 'wcs.contractor_id')
+            ->whereIn('wcs.supplier_id', $supplierIds)
+            ->get([
+                'wcs.supplier_id',
+                'c.id as contractor_id',
+                'c.code as contractor_code',
+                'c.name as contractor_name',
+            ]);
+        $defaultRows = DB::connection('sakemaru')
+            ->table('contractors as c')
+            ->whereIn('c.supplier_id', $supplierIds)
+            ->get([
+                'c.supplier_id',
+                'c.id as contractor_id',
+                'c.code as contractor_code',
+                'c.name as contractor_name',
+            ]);
+
+        return $mappedRows
+            ->merge($defaultRows)
+            ->unique(fn ($row): string => ((int) $row->supplier_id).':'.((int) $row->contractor_id))
+            ->groupBy(fn ($row): int => (int) $row->supplier_id)
+            ->map(fn ($rows): array => $rows
+                ->map(fn ($row): array => [
+                    'id' => (int) $row->contractor_id,
+                    'code' => (string) ($row->contractor_code ?? ''),
+                    'name' => (string) ($row->contractor_name ?? ''),
+                ])
+                ->values()
+                ->toArray())
+            ->all();
+    }
+
+    /**
+     * @param  array<int>  $supplierIds
+     * @param  array<int, array<int, array{id: int, code: string, name: string}>>  $contractorsBySupplier
+     * @return array<string, ItemContractor>
+     */
+    private function itemContractorsBySupplierAndContractor(
+        int $warehouseId,
+        int $itemId,
+        array $supplierIds,
+        array $contractorsBySupplier
+    ): array {
+        $contractorIds = collect($contractorsBySupplier)
+            ->flatten(1)
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+        $supplierIds = collect($supplierIds)
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($warehouseId < 1 || $itemId < 1 || $supplierIds === [] || $contractorIds === []) {
+            return [];
+        }
+
+        return ItemContractor::query()
+            ->where('warehouse_id', $warehouseId)
+            ->where('item_id', $itemId)
+            ->whereIn('supplier_id', $supplierIds)
+            ->whereIn('contractor_id', $contractorIds)
+            ->get()
+            ->mapWithKeys(fn (ItemContractor $itemContractor): array => [
+                ((int) $itemContractor->supplier_id).':'.((int) $itemContractor->contractor_id) => $itemContractor,
+            ])
+            ->all();
+    }
+
     private function initializeExternalOrderContractors(): void
     {
         $this->externalOrderContractorsData = $this->getExternalOrderContractorsForSalesBasedGeneration();
@@ -1327,6 +1878,7 @@ class WmsOrderRegistration extends AdminPage
     {
         unset($this->lines[$index]);
         $this->lines = array_values($this->lines);
+        $this->resetLineSupplierFilterIfInvalid();
     }
 
     public function confirmOrders(): void
@@ -1359,6 +1911,9 @@ class WmsOrderRegistration extends AdminPage
 
             $this->completionResult = $this->buildCompletionResult($result);
             $this->lines = [];
+            $this->lineSupplierFilter = '';
+            $this->resetCompletionFaxDownloadModal();
+            $this->resetCompletionDetailModal();
             $this->resetSearchState();
         } catch (\Throwable $e) {
             Notification::make()
@@ -1374,17 +1929,36 @@ class WmsOrderRegistration extends AdminPage
     public function startNewRegistration(): void
     {
         $this->completionResult = [];
+        $this->lineSupplierFilter = '';
+        $this->resetCompletionFaxDownloadModal();
+        $this->resetCompletionDetailModal();
         $this->resetSearchState();
     }
 
-    public function downloadCompletionFax(int $dataFileId): void
+    public function openCompletionDetailModal(int $dataFileId): void
     {
-        $allowedIds = collect($this->completionResult['files'] ?? [])
-            ->pluck('id')
-            ->map(fn ($id): int => (int) $id)
-            ->all();
+        if (! in_array($dataFileId, $this->completionFaxFileIds(), true)) {
+            Notification::make()
+                ->title('今回生成したPDFではありません')
+                ->danger()
+                ->send();
 
-        if (! in_array($dataFileId, $allowedIds, true)) {
+            return;
+        }
+
+        $this->resetCompletionFaxDownloadModal();
+        $this->completionDetailDataFileId = $dataFileId;
+        $this->showCompletionDetailModal = true;
+    }
+
+    public function closeCompletionDetailModal(): void
+    {
+        $this->resetCompletionDetailModal();
+    }
+
+    public function openCompletionFaxDownloadModal(int $dataFileId): void
+    {
+        if (! in_array($dataFileId, $this->completionFaxFileIds(), true)) {
             Notification::make()
                 ->title('今回生成したFAXではありません')
                 ->danger()
@@ -1403,16 +1977,75 @@ class WmsOrderRegistration extends AdminPage
             return;
         }
 
+        $this->resetCompletionDetailModal();
+        $this->completionFaxDownloadDataFileId = $dataFileId;
+        $this->completionFaxCommunicationNotes = '';
+        $this->showCompletionFaxDownloadModal = true;
+    }
+
+    public function closeCompletionFaxDownloadModal(): void
+    {
+        $this->resetCompletionFaxDownloadModal();
+    }
+
+    public function downloadCompletionFaxWithNotes(): void
+    {
+        if ($this->completionFaxDownloadDataFileId === null) {
+            Notification::make()
+                ->title('ダウンロード対象が選択されていません')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        if ($this->downloadCompletionFax(
+            $this->completionFaxDownloadDataFileId,
+            $this->normalizedCompletionFaxCommunicationNotes(),
+        )) {
+            $this->resetCompletionFaxDownloadModal();
+        }
+    }
+
+    public function downloadCompletionFax(int $dataFileId, ?string $communicationNotes = null): bool
+    {
+        if (! in_array($dataFileId, $this->completionFaxFileIds(), true)) {
+            Notification::make()
+                ->title('今回生成したFAXではありません')
+                ->danger()
+                ->send();
+
+            return false;
+        }
+
+        $dataFile = WmsOrderDataFile::query()->find($dataFileId);
+        if (! $dataFile || blank($dataFile->fax_file_path)) {
+            Notification::make()
+                ->title('FAX PDFが見つかりません')
+                ->danger()
+                ->send();
+
+            return false;
+        }
+
         try {
+            app(PurchaseOrderPdfService::class)->generateAndStore($dataFile, $communicationNotes);
+            $dataFile->refresh();
+
             $url = Storage::disk('s3')->temporaryUrl($dataFile->fax_file_path, now()->addHour());
             $dataFile->markAsFaxDownloaded((int) auth()->id());
+            $this->syncCompletionFaxFilePath($dataFile->id, $dataFile->fax_file_path);
             $this->js('window.open('.json_encode($url).", '_blank')");
+
+            return true;
         } catch (\Throwable $e) {
             Notification::make()
                 ->title('FAX PDFのダウンロードURL生成に失敗しました')
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
+
+            return false;
         }
     }
 
@@ -1449,9 +2082,15 @@ class WmsOrderRegistration extends AdminPage
         $quantityType = $caseQty > 0 ? QuantityType::CASE : QuantityType::PIECE;
         $orderQuantity = $caseQty > 0 ? $caseQty : $pieceQty;
         $contractorId = (int) ($row['contractor_id'] ?? 0);
+        $itemContractorLinked = array_key_exists('item_contractor_linked', $row)
+            ? (bool) $row['item_contractor_linked']
+            : true;
         $isEosAvailable = array_key_exists('is_eos_available', $row)
             ? (bool) $row['is_eos_available']
             : app(OrderRegistrationSearchService::class)->isJxContractor($contractorId);
+        if (! $itemContractorLinked) {
+            $isEosAvailable = false;
+        }
         $orderChannel = OrderChannel::tryFrom((string) ($row['order_channel'] ?? ''))
             ?? ($isEosAvailable ? OrderChannel::EOS : OrderChannel::FAX);
 
@@ -1471,6 +2110,13 @@ class WmsOrderRegistration extends AdminPage
             return false;
         }
 
+        $purchasePrice = $this->purchasePriceForLine(
+            (int) ($row['item_id'] ?? 0),
+            (int) ($row['supplier_partner_id'] ?? 0),
+            (int) ($this->warehouseId ?: ($row['warehouse_id'] ?? 0)),
+            $quantityType,
+        );
+
         $this->lines[] = [
             'warehouse_id' => (int) $this->warehouseId,
             'item_id' => (int) $row['item_id'],
@@ -1482,20 +2128,25 @@ class WmsOrderRegistration extends AdminPage
             'contractor_code' => (string) ($row['contractor_code'] ?? ''),
             'contractor_name' => (string) $row['contractor_name'],
             'supplier_id' => (int) ($row['supplier_id'] ?? 0),
+            'supplier_partner_id' => (int) ($row['supplier_partner_id'] ?? 0),
+            'supplier_code' => (string) ($row['supplier_code'] ?? ''),
             'supplier_name' => (string) ($row['supplier_name'] ?? '-'),
             'search_code' => $row['search_code'] ?? null,
             'ordering_code' => $row['ordering_code'] ?? null,
             'purchase_unit' => max(1, (int) ($row['purchase_unit'] ?? 1)),
+            'purchase_unit_price' => $purchasePrice['price'],
+            'purchase_unit_price_source' => $purchasePrice['source'],
             'order_quantity' => $orderQuantity,
             'quantity_type' => $quantityType->value,
             'quantity_type_label' => $quantityType->name(),
             'total_piece_quantity' => $quantityType === QuantityType::CASE
                 ? $orderQuantity * max(1, (int) ($row['capacity_case'] ?? 1))
                 : $orderQuantity,
-            'expected_arrival_date' => (string) ($row['default_expected_arrival_date'] ?? now()->addDay()->toDateString()),
+            'expected_arrival_date' => $this->resolveExpectedArrivalDateForLine($row, $contractorId),
             'order_channel' => $orderChannel->value,
             'order_channel_label' => $orderChannel->label(),
             'is_eos_available' => $isEosAvailable,
+            'item_contractor_linked' => $itemContractorLinked,
             'entry_source' => $entrySource->value,
             'entry_source_label' => $entrySource->label(),
             'suggested_quantity' => (int) ($row['order_piece_qty'] ?? $orderQuantity),
@@ -1514,6 +2165,172 @@ class WmsOrderRegistration extends AdminPage
         return true;
     }
 
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function earliestExpectedArrivalDateFromRows(array $rows, OrderChannel $orderChannel): ?string
+    {
+        return collect($rows)
+            ->filter(fn (array $row): bool => $orderChannel !== OrderChannel::EOS || (bool) ($row['is_eos_available'] ?? false))
+            ->pluck('default_expected_arrival_date')
+            ->filter()
+            ->map(function ($date): ?string {
+                try {
+                    return Carbon::parse((string) $date)->toDateString();
+                } catch (\Throwable) {
+                    return null;
+                }
+            })
+            ->filter()
+            ->sort()
+            ->first();
+    }
+
+    /**
+     * @param  array<int>  $contractorIds
+     * @param  array<int>  $jxContractorIds
+     */
+    private function defaultExpectedArrivalDateForContractors(
+        int $warehouseId,
+        array $contractorIds,
+        array $jxContractorIds,
+        OrderChannel $orderChannel
+    ): string {
+        $searchService = app(OrderRegistrationSearchService::class);
+        $targetContractorIds = collect($contractorIds)
+            ->map(fn ($id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->when(
+                $orderChannel === OrderChannel::EOS,
+                fn ($contractors) => $contractors->filter(fn (int $id): bool => in_array($id, $jxContractorIds, true))
+            )
+            ->unique()
+            ->values();
+
+        $date = $targetContractorIds
+            ->map(fn (int $contractorId): string => $searchService->defaultExpectedArrivalDate($warehouseId, $contractorId, $orderChannel))
+            ->filter()
+            ->sort()
+            ->first();
+
+        return $date ?: $this->fallbackExpectedArrivalDate();
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function resolveExpectedArrivalDateForLine(array $row, int $contractorId): string
+    {
+        $warehouseId = (int) ($this->warehouseId ?: ($row['warehouse_id'] ?? 0));
+        $orderChannel = OrderChannel::tryFrom((string) ($row['order_channel'] ?? '')) ?? OrderChannel::FAX;
+        $fallback = ($warehouseId > 0 && $contractorId > 0)
+            ? app(OrderRegistrationSearchService::class)->defaultExpectedArrivalDate($warehouseId, $contractorId, $orderChannel)
+            : $this->fallbackExpectedArrivalDate();
+
+        try {
+            $date = filled($row['default_expected_arrival_date'] ?? null)
+                ? Carbon::parse((string) $row['default_expected_arrival_date'])->toDateString()
+                : $fallback;
+        } catch (\Throwable) {
+            $date = $fallback;
+        }
+
+        return Carbon::parse($date)->lt(Carbon::today())
+            ? Carbon::today()->toDateString()
+            : $date;
+    }
+
+    private function fallbackExpectedArrivalDate(): string
+    {
+        return Carbon::parse(ClientSetting::freshSystemDateYMD('order_registration:default_arrival'))
+            ->addDay()
+            ->toDateString();
+    }
+
+    /**
+     * @return array{price: float, source: string}
+     */
+    private function purchasePriceForLine(int $itemId, int $supplierPartnerId, int $warehouseId, QuantityType $quantityType): array
+    {
+        if ($itemId < 1) {
+            return ['price' => 0.0, 'source' => 'NONE'];
+        }
+
+        $prices = app(PurchasePriceService::class)->getPrice(
+            $itemId,
+            $supplierPartnerId > 0 ? $supplierPartnerId : null,
+            $warehouseId > 0 ? $warehouseId : null,
+            now()->toDateString(),
+        );
+
+        return [
+            'price' => (float) ($quantityType === QuantityType::CASE
+                ? ($prices['case_price'] ?? 0)
+                : ($prices['unit_price'] ?? 0)),
+            'source' => (string) ($prices['source'] ?? 'NONE'),
+        ];
+    }
+
+    private function resetLineSupplierFilterIfInvalid(): void
+    {
+        if ($this->lineSupplierFilter === '') {
+            return;
+        }
+
+        $hasSelectedSupplier = collect($this->lines)
+            ->contains(fn (array $line): bool => (string) ($line['supplier_id'] ?? '') === $this->lineSupplierFilter);
+
+        if (! $hasSelectedSupplier) {
+            $this->lineSupplierFilter = '';
+        }
+    }
+
+    /**
+     * @return array<int>
+     */
+    private function completionFaxFileIds(): array
+    {
+        return collect($this->completionResult['files'] ?? [])
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
+    }
+
+    private function syncCompletionFaxFilePath(int $dataFileId, ?string $faxFilePath): void
+    {
+        $this->completionResult['files'] = collect($this->completionResult['files'] ?? [])
+            ->map(function (array $file) use ($dataFileId, $faxFilePath): array {
+                if ((int) ($file['id'] ?? 0) === $dataFileId) {
+                    $file['fax_file_path'] = $faxFilePath;
+                    $file['fax_error'] = null;
+                }
+
+                return $file;
+            })
+            ->values()
+            ->toArray();
+    }
+
+    private function resetCompletionFaxDownloadModal(): void
+    {
+        $this->showCompletionFaxDownloadModal = false;
+        $this->completionFaxDownloadDataFileId = null;
+        $this->completionFaxCommunicationNotes = '';
+    }
+
+    private function resetCompletionDetailModal(): void
+    {
+        $this->showCompletionDetailModal = false;
+        $this->completionDetailDataFileId = null;
+    }
+
+    private function normalizedCompletionFaxCommunicationNotes(): ?string
+    {
+        $notes = trim(str_replace(["\r\n", "\r"], "\n", $this->completionFaxCommunicationNotes));
+
+        return $notes === '' ? null : mb_substr($notes, 0, 500);
+    }
+
     private function resetSearchState(): void
     {
         $this->searchRows = [];
@@ -1524,6 +2341,7 @@ class WmsOrderRegistration extends AdminPage
         $this->salesSearchError = null;
         $this->showSalesHistoryModal = false;
         $this->showSalesBasedExternalOrderPreviewModal = false;
+        $this->closeWarehouseStockModal();
         $this->resetSalesBasedExternalOrderPreview();
     }
 
@@ -1534,7 +2352,10 @@ class WmsOrderRegistration extends AdminPage
     {
         return collect($this->lines)
             ->map(function (array $line): array {
-                $isEosAvailable = (bool) ($line['is_eos_available'] ?? false);
+                $itemContractorLinked = array_key_exists('item_contractor_linked', $line)
+                    ? (bool) $line['item_contractor_linked']
+                    : true;
+                $isEosAvailable = $itemContractorLinked && (bool) ($line['is_eos_available'] ?? false);
                 $orderChannel = OrderChannel::tryFrom((string) ($line['order_channel'] ?? ''))
                     ?? ($isEosAvailable ? OrderChannel::EOS : OrderChannel::FAX);
 
@@ -1545,6 +2366,7 @@ class WmsOrderRegistration extends AdminPage
                 $line['order_channel'] = $orderChannel->value;
                 $line['order_channel_label'] = $orderChannel->label();
                 $line['is_eos_available'] = $isEosAvailable;
+                $line['item_contractor_linked'] = $itemContractorLinked;
 
                 return $line;
             })
@@ -1553,17 +2375,107 @@ class WmsOrderRegistration extends AdminPage
     }
 
     /**
+     * @param  array<int, array<string, mixed>>  $files
+     * @return array<int, array<int, array<string, mixed>>>
+     */
+    private function completionDetailLinesByFile(array $files): array
+    {
+        $candidateIdsByFileId = collect($files)
+            ->mapWithKeys(function (array $file): array {
+                $fileId = (int) ($file['id'] ?? 0);
+                $candidateIds = collect($file['candidate_ids'] ?? [])
+                    ->map(fn ($id): int => (int) $id)
+                    ->filter(fn (int $id): bool => $id > 0)
+                    ->values()
+                    ->all();
+
+                return $fileId > 0 && $candidateIds !== []
+                    ? [$fileId => $candidateIds]
+                    : [];
+            })
+            ->all();
+
+        $candidateIds = collect($candidateIdsByFileId)
+            ->flatten()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($candidateIds === []) {
+            return [];
+        }
+
+        $candidatesById = WmsOrderCandidate::query()
+            ->with(['item', 'contractor', 'supplier.partner'])
+            ->whereIn('id', $candidateIds)
+            ->get()
+            ->keyBy('id');
+
+        return collect($candidateIdsByFileId)
+            ->mapWithKeys(function (array $ids, int|string $fileId) use ($candidatesById): array {
+                $lines = collect($ids)
+                    ->map(fn (int $id): ?WmsOrderCandidate => $candidatesById->get($id))
+                    ->filter()
+                    ->map(fn (WmsOrderCandidate $candidate): array => $this->completionDetailLineFromCandidate($candidate))
+                    ->values()
+                    ->toArray();
+
+                return [(int) $fileId => $lines];
+            })
+            ->all();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function completionDetailLineFromCandidate(WmsOrderCandidate $candidate): array
+    {
+        $quantityType = $candidate->quantity_type instanceof QuantityType
+            ? $candidate->quantity_type
+            : QuantityType::tryFrom((string) $candidate->quantity_type);
+        $orderChannel = $candidate->order_channel instanceof OrderChannel
+            ? $candidate->order_channel
+            : OrderChannel::tryFrom((string) $candidate->order_channel);
+        $orderQuantity = max(0, (int) $candidate->order_quantity);
+        $capacityCase = max(1, (int) ($candidate->item?->capacity_case ?? $candidate->purchase_unit ?? 1));
+        $purchaseUnitPrice = (float) $candidate->purchase_unit_price;
+
+        return [
+            'id' => (int) $candidate->id,
+            'order_channel_label' => $orderChannel?->label() ?? '-',
+            'expected_arrival_date' => $candidate->expected_arrival_date?->format('Y-m-d') ?? '-',
+            'contractor_code' => (string) ($candidate->contractor?->code ?? ''),
+            'contractor_name' => (string) ($candidate->contractor?->name ?? '-'),
+            'supplier_name' => (string) ($candidate->supplier?->partner?->name ?? '-'),
+            'item_code' => (string) ($candidate->item?->code ?? $candidate->item_code ?? ''),
+            'item_name' => (string) ($candidate->item?->name ?? '-'),
+            'capacity_case' => $capacityCase,
+            'quantity_type_label' => $quantityType?->name() ?? '-',
+            'order_quantity' => $orderQuantity,
+            'total_piece_quantity' => $quantityType === QuantityType::CASE
+                ? $orderQuantity * $capacityCase
+                : $orderQuantity,
+            'purchase_unit_price' => $purchaseUnitPrice,
+            'total_amount' => $purchaseUnitPrice * $orderQuantity,
+        ];
+    }
+
+    /**
      * @param  array<string, mixed>  $result
      * @return array<string, mixed>
      */
     private function buildCompletionResult(array $result): array
     {
-        $files = collect($result['data_file_result']['files'] ?? [])
-            ->map(function (array $file): array {
+        $dataFiles = $result['data_file_result']['files'] ?? [];
+        $detailLinesByFile = $this->completionDetailLinesByFile($dataFiles);
+
+        $files = collect($dataFiles)
+            ->map(function (array $file) use ($detailLinesByFile): array {
                 $channel = OrderDataFileChannel::tryFrom((string) ($file['order_channel'] ?? ''));
+                $id = (int) ($file['id'] ?? 0);
 
                 return [
-                    'id' => (int) ($file['id'] ?? 0),
+                    'id' => $id,
                     'order_channel' => $channel?->value,
                     'order_channel_label' => $channel?->label() ?? 'FAX発注',
                     'warehouse_name' => (string) ($file['warehouse_name'] ?? '-'),
@@ -1572,8 +2484,11 @@ class WmsOrderRegistration extends AdminPage
                     'expected_arrival_date' => (string) ($file['expected_arrival_date'] ?? '-'),
                     'order_count' => (int) ($file['order_count'] ?? 0),
                     'total_quantity' => (int) ($file['total_quantity'] ?? 0),
+                    'total_piece_quantity' => (int) ($file['total_piece_quantity'] ?? $file['total_quantity'] ?? 0),
+                    'total_amount' => collect($detailLinesByFile[$id] ?? [])->sum(fn (array $line): float => (float) ($line['total_amount'] ?? 0)),
                     'fax_file_path' => $file['fax_file_path'] ?? null,
                     'fax_error' => $file['fax_error'] ?? null,
+                    'lines' => $detailLinesByFile[$id] ?? [],
                 ];
             })
             ->filter(fn (array $file): bool => $file['id'] > 0)

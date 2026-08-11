@@ -51,7 +51,7 @@ class PurchaseOrderPdfService
     // 行高さ（mm）
     private const LINE_HEIGHT_NORMAL = 7;
 
-    private const LINE_HEIGHT_TABLE = 9;
+    private const LINE_HEIGHT_TABLE = 7.5;
 
     // 罫線幅（mm）
     private const LINE_WIDTH = 0.2;
@@ -60,11 +60,11 @@ class PurchaseOrderPdfService
 
     // テーブル列幅（mm）
     private const COL_WIDTHS = [
-        'ordering_code' => 55,     // 発注CD（JANコード）- 省略禁止
+        'ordering_code' => 48,     // 発注CD（JANコード）- 省略禁止
         'item_code' => 32,         // 自社コード
         'volume' => 22,            // 容量
         'capacity_case' => 18,     // 入数
-        'item_name' => 121,        // 商品名（省略なし）
+        'item_name' => 128,        // 商品名（省略なし）
         'case_qty' => 15,          // ケース
         'piece_qty' => 14,         // バラ
     ];
@@ -78,6 +78,8 @@ class PurchaseOrderPdfService
     private int $currentPage = 1;
 
     private int $totalPages = 0;
+
+    private ?string $communicationNotes = null;
 
     // ヘッダー情報を保持（全ページで使用）
     private WmsOrderDataFile $dataFile;
@@ -376,6 +378,7 @@ class PurchaseOrderPdfService
         $this->contractor = $firstCandidate->contractor;
         $this->client = $this->getClientInfo($this->warehouse);
         $this->quantityResolver = app(OrderOutputQuantityResolver::class);
+        $this->communicationNotes = $communicationNotes;
 
         // 最初のページ
         $this->pdf->AddPage();
@@ -386,8 +389,7 @@ class PurchaseOrderPdfService
         $this->renderHeader();
 
         // 通信欄描画（商品リストの前）
-        $this->renderCommunicationArea($communicationNotes);
-        $this->currentY += 5;
+        $this->renderCommunicationAreaForPage();
 
         // 明細テーブル描画
         $this->renderDetailTable($candidates);
@@ -514,6 +516,12 @@ class PurchaseOrderPdfService
             $this->pdf->SetXY($startX, $lineY);
             $this->pdf->Cell($width, $textLineHeight, $contactLine, 0, 1, 'L');
             $lineY += $textLineHeight;
+        }
+
+        $creatorName = $this->dataFile->created_by_name ?? '';
+        if ($creatorName) {
+            $this->pdf->SetXY($startX, $lineY);
+            $this->pdf->Cell($width, $textLineHeight, '発注担当: '.$creatorName, 0, 1, 'L');
         }
 
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
@@ -799,16 +807,15 @@ class PurchaseOrderPdfService
         // 仕入先コード（FAX宛先の発注先マスタコード）
         $contractorCode = $this->contractor?->code;
         $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-        $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '仕入先コード: '.($contractorCode ?: ' - '), 0, 1, 'L');
-        $lineY += self::LINE_HEIGHT_NORMAL;
+        $this->pdf->Cell(58, self::LINE_HEIGHT_NORMAL, '仕入先コード: '.($contractorCode ?: ' - '), 0, 0, 'L');
 
         // 納入先指定コード
         $designatedCode = WmsContractorWarehouseSetting::getDesignatedCode(
             $this->warehouse?->id ?? 0,
             $this->contractor?->id ?? 0,
         );
-        $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-        $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '納入先指定コード: '.($designatedCode ?? ' - '), 0, 1, 'L');
+        $this->pdf->SetXY(self::MARGIN_LEFT + 58, $lineY);
+        $this->pdf->Cell(90, self::LINE_HEIGHT_NORMAL, '納入先指定コード: '.($designatedCode ?? ' - '), 0, 1, 'L');
         $lineY += self::LINE_HEIGHT_NORMAL;
 
         // 納入予定日（入荷日）
@@ -819,15 +826,7 @@ class PurchaseOrderPdfService
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
-        // 発注担当（作成者名）
-        $creatorName = $this->dataFile->created_by_name ?? '';
-        if ($creatorName) {
-            $this->pdf->SetXY(self::MARGIN_LEFT, $lineY);
-            $this->pdf->Cell(110, self::LINE_HEIGHT_NORMAL, '発注担当: '.$creatorName, 0, 1, 'L');
-            $lineY += self::LINE_HEIGHT_NORMAL;
-        }
-
-        $this->currentY = max($this->currentY, $lineY + 3);
+        $this->currentY = max($this->currentY, $lineY + 2);
     }
 
     /**
@@ -972,6 +971,9 @@ class PurchaseOrderPdfService
             // 全ページにヘッダーを表示
             $this->renderHeader();
 
+            // 全ページに通信欄を表示
+            $this->renderCommunicationAreaForPage();
+
             // テーブルヘッダー再描画
             $this->renderTableHeader();
         }
@@ -1060,7 +1062,7 @@ class PurchaseOrderPdfService
         $boxX = self::MARGIN_LEFT;
         $boxY = $this->currentY;
         $boxWidth = self::CONTENT_WIDTH;
-        $defaultBoxHeight = 25;
+        $defaultBoxHeight = 16;
         $lineHeight = 5;
         $padding = 2;
 
@@ -1092,6 +1094,12 @@ class PurchaseOrderPdfService
 
         // Y座標を通信欄の下へ進める
         $this->currentY = $boxY + $boxHeight;
+    }
+
+    private function renderCommunicationAreaForPage(): void
+    {
+        $this->renderCommunicationArea($this->communicationNotes);
+        $this->currentY += 2;
     }
 
     /**

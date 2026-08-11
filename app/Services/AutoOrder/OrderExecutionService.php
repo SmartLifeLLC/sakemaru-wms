@@ -25,6 +25,8 @@ use Illuminate\Support\Facades\Log;
  */
 class OrderExecutionService
 {
+    private array $supplierPartnerIdCache = [];
+
     public function __construct(
         private readonly OrderAuditService $auditService,
         private readonly PurchasePriceService $purchasePriceService = new PurchasePriceService,
@@ -191,11 +193,12 @@ class OrderExecutionService
     {
         $incomingSchedules = collect();
         $supplierId = $this->getSupplierIdFromCandidate($candidate);
+        $supplierPartnerId = $this->getSupplierPartnerId($supplierId);
         $searchCode = $this->getSearchCodeForItem($candidate->item_id);
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $candidate->expected_arrival_date);
         $prices = $this->purchasePriceService->getPrice(
             $candidate->item_id,
-            $supplierId,
+            $supplierPartnerId,
             $candidate->warehouse_id,
             now()->toDateString()
         );
@@ -384,9 +387,10 @@ class OrderExecutionService
 
         $orderDate = $data['order_date'] ?? now()->format('Y-m-d');
         $supplierId = $data['supplier_id'] ?? null;
+        $supplierPartnerId = $this->getSupplierPartnerId($supplierId ? (int) $supplierId : null);
         $prices = $this->purchasePriceService->getPrice(
             $data['item_id'],
-            $supplierId,
+            $supplierPartnerId,
             $data['warehouse_id'],
             $orderDate
         );
@@ -423,7 +427,10 @@ class OrderExecutionService
      */
     private function getSupplierIdFromCandidate(WmsOrderCandidate $candidate): ?int
     {
-        // item_contractors から supplier_id を取得
+        if ($candidate->supplier_id) {
+            return (int) $candidate->supplier_id;
+        }
+
         $itemContractor = DB::connection('sakemaru')
             ->table('item_contractors')
             ->where('warehouse_id', $candidate->warehouse_id)
@@ -432,6 +439,27 @@ class OrderExecutionService
             ->first();
 
         return $itemContractor?->supplier_id;
+    }
+
+    /**
+     * PurchasePriceService は suppliers.id ではなく suppliers.partner_id を要求する。
+     */
+    private function getSupplierPartnerId(?int $supplierId): ?int
+    {
+        if (! $supplierId) {
+            return null;
+        }
+
+        if (! array_key_exists($supplierId, $this->supplierPartnerIdCache)) {
+            $partnerId = DB::connection('sakemaru')
+                ->table('suppliers')
+                ->where('id', $supplierId)
+                ->value('partner_id');
+
+            $this->supplierPartnerIdCache[$supplierId] = $partnerId ? (int) $partnerId : null;
+        }
+
+        return $this->supplierPartnerIdCache[$supplierId];
     }
 
     /**

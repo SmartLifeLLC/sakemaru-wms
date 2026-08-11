@@ -254,7 +254,7 @@
                 <span class="font-semibold" x-text="conditionValue('target_warehouse_name')"></span>
             </span>
             <span>
-                選択中倉庫:
+                発注店:
                 <span class="font-semibold" x-text="conditionValue('selected_warehouse_name')"></span>
             </span>
             <span>
