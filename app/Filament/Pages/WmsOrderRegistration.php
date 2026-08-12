@@ -697,7 +697,8 @@ class WmsOrderRegistration extends AdminPage
                 item_id,
                 contractor_id,
                 MIN(supplier_id) as supplier_id,
-                MAX(COALESCE(purchase_unit, 1)) as purchase_unit
+                MAX(COALESCE(purchase_unit, 1)) as purchase_unit,
+                MAX(COALESCE(safety_stock, 0)) as safety_stock
             ')
             ->groupBy('warehouse_id', 'item_id', 'contractor_id');
 
