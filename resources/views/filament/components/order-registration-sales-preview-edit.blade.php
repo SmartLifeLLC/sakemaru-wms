@@ -32,10 +32,10 @@
 
 <div
     x-data="{
-        columnHelpDescriptions: @js($candidateColumnHelps),
+        columnHelpDescriptions: {},
         columnHelpLabel: null,
-        rows: @js($rows),
-        conditions: @js($conditions),
+        rows: [],
+        conditions: {},
         orderChannel: @js($salesGenerationOrderChannel ?? 'FAX'),
         channelControlled: @js($salesGenerationOrderChannel !== null),
         today: @js($today),
@@ -43,6 +43,22 @@
         expectedArrivalDate: @js($conditions['expected_arrival_date'] ?? $defaultExpectedArrivalDate),
         expectedArrivalDisplayValue: '',
         expectedArrivalPreviousValue: '',
+        readJsonRef(refName, fallback) {
+            try {
+                const raw = this.$refs[refName]?.textContent || '';
+                return raw ? JSON.parse(raw) : fallback;
+            } catch (error) {
+                console.error(`外部発注候補リストの初期データを読み込めませんでした: ${refName}`, error);
+                return fallback;
+            }
+        },
+        initSalesPreview() {
+            this.columnHelpDescriptions = this.readJsonRef('columnHelpJson', {});
+            this.rows = this.readJsonRef('rowsJson', []);
+            this.conditions = this.readJsonRef('conditionsJson', {});
+            this.expectedArrivalDate = this.conditions.expected_arrival_date || this.expectedArrivalDate || this.fallbackExpectedArrivalDate;
+            this.initExpectedArrivalDate();
+        },
         formatNumber(value) {
             return new Intl.NumberFormat('ja-JP').format(Number(value || 0));
         },
@@ -273,9 +289,13 @@
             });
         },
     }"
-    x-init="initExpectedArrivalDate()"
+    x-init="initSalesPreview()"
     class="space-y-3"
 >
+    <script type="application/json" x-ref="columnHelpJson">@json($candidateColumnHelps, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
+    <script type="application/json" x-ref="rowsJson">@json($rows, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
+    <script type="application/json" x-ref="conditionsJson">@json($conditions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
+
     <div
         x-cloak
         x-show="hoveredItemName"
