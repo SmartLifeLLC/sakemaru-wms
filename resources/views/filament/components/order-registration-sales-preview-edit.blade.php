@@ -60,7 +60,8 @@
             this.initExpectedArrivalDate();
         },
         formatNumber(value) {
-            return new Intl.NumberFormat('ja-JP').format(Number(value || 0));
+            const number = Number(value);
+            return new Intl.NumberFormat('ja-JP').format(Number.isFinite(number) ? number : 0);
         },
         conditionValue(key) {
             return this.conditions[key] || '-';

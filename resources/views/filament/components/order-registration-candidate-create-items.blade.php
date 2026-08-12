@@ -86,11 +86,13 @@
     },
 
     formatNumber(value) {
-        return new Intl.NumberFormat('ja-JP').format(Number(value || 0));
+        const number = Number(value);
+        return new Intl.NumberFormat('ja-JP').format(Number.isFinite(number) ? number : 0);
     },
 
     formatDecimal(value) {
-        return Number(value || 0).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const number = Number(value);
+        return (Number.isFinite(number) ? number : 0).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     },
 
     isTransferOrderItem(item) {

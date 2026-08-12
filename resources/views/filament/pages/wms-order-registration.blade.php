@@ -720,8 +720,16 @@
 
                 <div class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
                     <button type="button" wire:click="closeSalesHistoryModal" class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">表示せず閉じる</button>
-                    <button type="button" wire:click="calculateSalesBasedExternalOrderPreview" class="rounded-md bg-danger-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-danger-500">
-                        候補表示
+                    <button
+                        type="button"
+                        wire:click="calculateSalesBasedExternalOrderPreview"
+                        wire:loading.attr="disabled"
+                        wire:target="calculateSalesBasedExternalOrderPreview"
+                        class="inline-flex items-center gap-2 rounded-md bg-danger-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-danger-500 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                        <span wire:loading wire:target="calculateSalesBasedExternalOrderPreview" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+                        <span wire:loading.remove wire:target="calculateSalesBasedExternalOrderPreview">候補表示</span>
+                        <span wire:loading wire:target="calculateSalesBasedExternalOrderPreview">表示中</span>
                     </button>
                 </div>
             </div>
