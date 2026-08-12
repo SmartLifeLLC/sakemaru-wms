@@ -55,6 +55,8 @@ class PurchaseOrderPdfService
 
     private const COMMUNICATION_TOP_GAP = 3;
 
+    private const COMMUNICATION_DETAIL_GAP = 2;
+
     private const COMMUNICATION_CONTENT_HEIGHT = 12;
 
     // 罫線幅（mm）
@@ -602,9 +604,9 @@ class PurchaseOrderPdfService
     private function renderContractorCard(): float
     {
         $x = self::MARGIN_LEFT;
-        $y = 26;
+        $y = 28;
         $width = 140;
-        $height = 20;
+        $height = 22;
 
         $this->pdf->SetDrawColor(203, 213, 225);
         $this->pdf->SetFillColor(255, 255, 255);
@@ -637,7 +639,7 @@ class PurchaseOrderPdfService
 
         $this->pdf->SetFont('kozminproregular', '', 10);
         $this->pdf->SetTextColor(71, 85, 105);
-        $this->pdf->SetXY($x + 5, $y + 16.2);
+        $this->pdf->SetXY($x + 5, $y + 16);
         $this->pdf->Cell($width - 8, 4, '下記内容にて、発注をお願いいたします。', 0, 1, 'L');
 
         $this->pdf->SetTextColor(0, 0, 0);
@@ -696,17 +698,18 @@ class PurchaseOrderPdfService
             ['納品予定日:', $this->dataFile->expected_arrival_date?->format('Y-m-d') ?? ''],
         ];
 
-        $labelWidth = 30;
+        $labelWidth = 31;
+        $valueGap = 2;
         $lineHeight = 4.6;
         $y = $startY;
 
         foreach ($rows as [$label, $value]) {
             $this->pdf->SetFont('kozminproregular', 'B', 11);
             $this->pdf->SetXY(self::MARGIN_LEFT, $y);
-            $this->pdf->Cell($labelWidth, $lineHeight, $label, 0, 0, 'L');
+            $this->pdf->Cell($labelWidth, $lineHeight, $label, 0, 0, 'R');
 
             $this->pdf->SetFont('kozminproregular', '', 11);
-            $this->pdf->SetXY(self::MARGIN_LEFT + $labelWidth, $y);
+            $this->pdf->SetXY(self::MARGIN_LEFT + $labelWidth + $valueGap, $y);
             $this->pdf->Cell(95, $lineHeight, $value, 0, 1, 'L');
             $y += $lineHeight;
         }
@@ -1045,6 +1048,8 @@ class PurchaseOrderPdfService
      */
     private function renderDetailTable(Collection $candidates): void
     {
+        $this->renderCommunicationAreaForPage();
+
         // テーブルヘッダー
         $this->renderTableHeader();
 
@@ -1057,7 +1062,6 @@ class PurchaseOrderPdfService
 
         // テーブル下線
         $this->renderTableBottomLine();
-        $this->renderCommunicationAreaForPage();
     }
 
     /**
@@ -1150,20 +1154,20 @@ class PurchaseOrderPdfService
         $itemNameLines = $this->pdf->getNumLines($itemName, $itemNameWidth);
         $actualRowHeight = max($rowHeight, $itemNameLines * self::LINE_HEIGHT_NORMAL);
 
-        // ページ残高チェック（明細表の下に通信欄を必ず残す）
+        // ページ残高チェック
         if (
             $this->currentPageDetailRowCount > 0
-            && $this->currentY + $actualRowHeight + $this->communicationAreaReservedHeight() > self::PAGE_HEIGHT - self::MARGIN_BOTTOM
+            && $this->currentY + $actualRowHeight > self::PAGE_HEIGHT - self::MARGIN_BOTTOM
         ) {
             $this->renderTableBottomLine();
-            $this->renderCommunicationAreaForPage();
 
             $this->pdf->AddPage();
             $this->currentY = self::MARGIN_TOP;
             $this->currentPage++;
 
-            // 全ページにヘッダーとテーブルヘッダーを表示
+            // 全ページにヘッダー、通信欄、テーブルヘッダーを表示
             $this->renderHeader();
+            $this->renderCommunicationAreaForPage();
             $this->renderTableHeader();
             $this->currentPageDetailRowCount = 0;
         }
@@ -1256,11 +1260,7 @@ class PurchaseOrderPdfService
     {
         $this->currentY += self::COMMUNICATION_TOP_GAP;
         $this->renderCommunicationArea($this->communicationNotes);
-    }
-
-    private function communicationAreaReservedHeight(): float
-    {
-        return self::COMMUNICATION_TOP_GAP + self::LINE_HEIGHT_NORMAL + $this->communicationContentHeight($this->communicationNotes);
+        $this->currentY += self::COMMUNICATION_DETAIL_GAP;
     }
 
     private function communicationContentHeight(?string $notes = null): float
