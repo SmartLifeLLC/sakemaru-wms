@@ -115,6 +115,12 @@
         return this.channelControlled && this.orderChannel === 'EOS' && item.is_eos_available === false;
     },
 
+    itemKey(itemOrId, channel = this.orderChannel) {
+        const id = typeof itemOrId === 'object' ? itemOrId.id : itemOrId;
+
+        return `${channel || 'FAX'}:${String(id)}`;
+    },
+
     canAddItem(item) {
         return !this.isTransferOrderItem(item) && !this.isEosUnavailable(item);
     },
@@ -123,7 +129,7 @@
         for (const item of this.results) {
             if (!this.isEosUnavailable(item)) continue;
 
-            const key = String(item.id);
+            const key = this.itemKey(item);
             if (this.quantities[key]) {
                 this.quantities[key].caseQty = null;
                 this.quantities[key].pieceQty = null;
@@ -204,15 +210,18 @@
             this.searched = true;
 
             const newIds = new Set(result.data.map(r => String(r.id)));
-            const pinned = Object.values(this.pinnedItems).filter(p => !newIds.has(String(p.id)));
+            const activePrefix = `${this.orderChannel}:`;
+            const pinned = Object.entries(this.pinnedItems)
+                .filter(([key, item]) => key.startsWith(activePrefix) && !newIds.has(String(item.id)))
+                .map(([, item]) => item);
             this.results = [...pinned, ...result.data];
 
             this.results.forEach(item => {
-                const key = String(item.id);
+                const key = this.itemKey(item);
                 if (!(key in this.quantities)) {
                     this.quantities[key] = {
-                        caseQty: item.pending_case_qty || null,
-                        pieceQty: item.pending_piece_qty || null,
+                        caseQty: null,
+                        pieceQty: null,
                     };
                 }
                 this.plannedDateFor(item);
@@ -226,7 +235,7 @@
 
     updatePinnedItems() {
         this.results.forEach(item => {
-            const key = String(item.id);
+            const key = this.itemKey(item);
             const qty = this.quantities[key];
             if (!this.canAddItem(item)) {
                 delete this.pinnedItems[key];
@@ -433,7 +442,7 @@
     },
 
     plannedDateFor(item) {
-        const key = String(item.id);
+        const key = this.itemKey(item);
         const defaultDate = item.default_expected_arrival_date || this.fallbackExpectedArrivalDate;
         if (!this.plannedDates[key]) {
             this.plannedDates[key] = defaultDate < this.today ? this.today : defaultDate;
@@ -446,7 +455,7 @@
     },
 
     setPlannedDate(item, value) {
-        const key = String(item.id);
+        const key = this.itemKey(item);
         const date = value || item.default_expected_arrival_date || this.fallbackExpectedArrivalDate;
         this.plannedDates[key] = date < this.today ? this.today : date;
         this.syncToWire();
@@ -513,7 +522,12 @@
 
     syncToWire() {
         const items = [];
-        for (const [itemId, qty] of Object.entries(this.quantities)) {
+        for (const [key, qty] of Object.entries(this.quantities)) {
+            const separatorIndex = key.indexOf(':');
+            const channel = separatorIndex >= 0 ? key.slice(0, separatorIndex) : this.orderChannel;
+            const itemId = separatorIndex >= 0 ? key.slice(separatorIndex + 1) : key;
+            if (channel !== this.orderChannel) continue;
+
             const item = this.results.find(r => String(r.id) === itemId);
             if (!item) continue;
             if (!this.canAddItem(item)) continue;
@@ -539,7 +553,7 @@
                         case_qty: qty.caseQty,
                         piece_qty: 0,
                         order_quantity: qty.caseQty,
-                        order_channel: this.orderChannel,
+                        order_channel: channel,
                         is_eos_available: !!item.is_eos_available,
                     });
                 }
@@ -564,7 +578,7 @@
                         case_qty: 0,
                         piece_qty: qty.pieceQty,
                         order_quantity: qty.pieceQty,
-                        order_channel: this.orderChannel,
+                        order_channel: channel,
                         is_eos_available: !!item.is_eos_available,
                     });
                 }
@@ -575,7 +589,11 @@
 
     get validCount() {
         let count = 0;
-        for (const [itemId, qty] of Object.entries(this.quantities)) {
+        const activePrefix = `${this.orderChannel}:`;
+        for (const [key, qty] of Object.entries(this.quantities)) {
+            if (!key.startsWith(activePrefix)) continue;
+
+            const itemId = key.slice(activePrefix.length);
             const item = this.results.find(r => String(r.id) === itemId);
             if (item && !this.canAddItem(item)) continue;
             if ((qty.caseQty > 0) || (qty.pieceQty > 0)) count++;
@@ -588,7 +606,7 @@
     },
 
     getQty(itemId) {
-        const key = String(itemId);
+        const key = this.itemKey(itemId);
         if (!(key in this.quantities)) {
             this.quantities[key] = { caseQty: null, pieceQty: null };
         }
@@ -871,7 +889,7 @@
                                 ? 'bg-red-50 dark:bg-red-950/30'
                                 : isEosUnavailable(item)
                                     ? 'bg-red-50 dark:bg-red-950/30'
-                                : (String(item.id) in pinnedItems)
+                                : (itemKey(item) in pinnedItems)
                                     ? 'bg-green-50 dark:bg-green-950/30'
                                     : 'bg-white dark:bg-slate-900'"
                             class="hover:bg-amber-50 dark:hover:bg-amber-950/30"
