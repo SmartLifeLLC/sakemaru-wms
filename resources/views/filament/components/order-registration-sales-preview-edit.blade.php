@@ -29,16 +29,21 @@
         '前月' => '基準日の前月1か月分の販売数量です。',
     ];
     $jsonOptions = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
-    $encodedColumnHelpDescriptions = base64_encode(json_encode($candidateColumnHelps, $jsonOptions) ?: '{}');
-    $encodedRows = base64_encode(json_encode($rows, $jsonOptions) ?: '[]');
-    $encodedConditions = base64_encode(json_encode($conditions, $jsonOptions) ?: '{}');
+    $jsonElementPrefix = uniqid('order-registration-sales-preview-', false);
+    $columnHelpJsonElementId = "{$jsonElementPrefix}-column-help";
+    $rowsJsonElementId = "{$jsonElementPrefix}-rows";
+    $conditionsJsonElementId = "{$jsonElementPrefix}-conditions";
 @endphp
+
+<script type="application/json" id="{{ $columnHelpJsonElementId }}">@json($candidateColumnHelps, $jsonOptions)</script>
+<script type="application/json" id="{{ $rowsJsonElementId }}">@json($rows, $jsonOptions)</script>
+<script type="application/json" id="{{ $conditionsJsonElementId }}">@json($conditions, $jsonOptions)</script>
 
 <div
     x-data="{
-        encodedColumnHelpDescriptions: @js($encodedColumnHelpDescriptions),
-        encodedRows: @js($encodedRows),
-        encodedConditions: @js($encodedConditions),
+        columnHelpJsonElementId: @js($columnHelpJsonElementId),
+        rowsJsonElementId: @js($rowsJsonElementId),
+        conditionsJsonElementId: @js($conditionsJsonElementId),
         columnHelpDescriptions: {},
         columnHelpLabel: null,
         rows: [],
@@ -50,21 +55,19 @@
         expectedArrivalDate: @js($conditions['expected_arrival_date'] ?? $defaultExpectedArrivalDate),
         expectedArrivalDisplayValue: '',
         expectedArrivalPreviousValue: '',
-        decodeJson(encoded, fallback) {
+        readJsonElement(elementId, fallback) {
             try {
-                if (!encoded) return fallback;
-
-                const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
-                return JSON.parse(new TextDecoder().decode(bytes));
+                const raw = document.getElementById(elementId)?.textContent || '';
+                return raw ? JSON.parse(raw) : fallback;
             } catch (error) {
                 console.error('外部発注候補リストの初期データを読み込めませんでした。', error);
                 return fallback;
             }
         },
         initSalesPreview() {
-            this.columnHelpDescriptions = this.decodeJson(this.encodedColumnHelpDescriptions, {});
-            this.rows = this.decodeJson(this.encodedRows, []);
-            this.conditions = this.decodeJson(this.encodedConditions, {});
+            this.columnHelpDescriptions = this.readJsonElement(this.columnHelpJsonElementId, {});
+            this.rows = this.readJsonElement(this.rowsJsonElementId, []);
+            this.conditions = this.readJsonElement(this.conditionsJsonElementId, {});
             this.expectedArrivalDate = this.conditions.expected_arrival_date || this.expectedArrivalDate || this.fallbackExpectedArrivalDate;
             this.initExpectedArrivalDate();
         },
