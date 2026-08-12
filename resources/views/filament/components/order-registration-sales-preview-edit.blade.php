@@ -273,7 +273,7 @@
             });
         },
     }"
-    x-init="initExpectedArrivalDate(); sync()"
+    x-init="initExpectedArrivalDate()"
     class="space-y-3"
 >
     <div
