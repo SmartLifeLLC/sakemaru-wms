@@ -28,10 +28,17 @@
         '3週' => '2週の前の7日間の販売数量です。',
         '前月' => '基準日の前月1か月分の販売数量です。',
     ];
+    $jsonOptions = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
+    $encodedColumnHelpDescriptions = base64_encode(json_encode($candidateColumnHelps, $jsonOptions) ?: '{}');
+    $encodedRows = base64_encode(json_encode($rows, $jsonOptions) ?: '[]');
+    $encodedConditions = base64_encode(json_encode($conditions, $jsonOptions) ?: '{}');
 @endphp
 
 <div
     x-data="{
+        encodedColumnHelpDescriptions: @js($encodedColumnHelpDescriptions),
+        encodedRows: @js($encodedRows),
+        encodedConditions: @js($encodedConditions),
         columnHelpDescriptions: {},
         columnHelpLabel: null,
         rows: [],
@@ -43,19 +50,21 @@
         expectedArrivalDate: @js($conditions['expected_arrival_date'] ?? $defaultExpectedArrivalDate),
         expectedArrivalDisplayValue: '',
         expectedArrivalPreviousValue: '',
-        readJsonRef(refName, fallback) {
+        decodeJson(encoded, fallback) {
             try {
-                const raw = this.$refs[refName]?.textContent || '';
-                return raw ? JSON.parse(raw) : fallback;
+                if (!encoded) return fallback;
+
+                const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+                return JSON.parse(new TextDecoder().decode(bytes));
             } catch (error) {
-                console.error(`外部発注候補リストの初期データを読み込めませんでした: ${refName}`, error);
+                console.error('外部発注候補リストの初期データを読み込めませんでした。', error);
                 return fallback;
             }
         },
         initSalesPreview() {
-            this.columnHelpDescriptions = this.readJsonRef('columnHelpJson', {});
-            this.rows = this.readJsonRef('rowsJson', []);
-            this.conditions = this.readJsonRef('conditionsJson', {});
+            this.columnHelpDescriptions = this.decodeJson(this.encodedColumnHelpDescriptions, {});
+            this.rows = this.decodeJson(this.encodedRows, []);
+            this.conditions = this.decodeJson(this.encodedConditions, {});
             this.expectedArrivalDate = this.conditions.expected_arrival_date || this.expectedArrivalDate || this.fallbackExpectedArrivalDate;
             this.initExpectedArrivalDate();
         },
@@ -293,10 +302,6 @@
     x-init="initSalesPreview()"
     class="space-y-3"
 >
-    <script type="application/json" x-ref="columnHelpJson">@json($candidateColumnHelps, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
-    <script type="application/json" x-ref="rowsJson">@json($rows, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
-    <script type="application/json" x-ref="conditionsJson">@json($conditions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)</script>
-
     <div
         x-cloak
         x-show="hoveredItemName"
