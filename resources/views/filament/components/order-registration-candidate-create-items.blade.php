@@ -140,25 +140,8 @@
         }
     },
 
-    formatVolume(item) {
-        const packaging = String(item.packaging || '').trim().replace(/[×✕ｘＸ]/g, 'x').replace(/\s*x\s*/ig, 'x');
-        const capacityCase = parseInt(item.capacity_case || 0);
-        if (!packaging) return '-';
-
-        let volume = packaging.split(/x/i)[0].trim();
-        if (capacityCase > 0) {
-            volume = volume.replace(new RegExp(`\\s+${capacityCase}$`), '').trim();
-        }
-
-        if (/^\d+(\.\d+)?$/.test(volume)) {
-            if (Number(volume) <= 0) {
-                return '-';
-            }
-
-            return `${volume}ml`;
-        }
-
-        return volume || '-';
+    formatPackaging(item) {
+        return String(item.packaging || '').trim() || '-';
     },
 
     safeWireGet(path) {
@@ -916,7 +899,7 @@
                                     x-on:mouseleave="hoveredItemName = null"
                                 ></span>
                             </td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="formatVolume(item)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="formatPackaging(item)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.default_location_code || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.safety_stock)"></td>
                             <td class="whitespace-nowrap px-1 py-1.5 text-center">

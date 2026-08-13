@@ -864,6 +864,10 @@ class WmsOrderRegistration extends AdminPage
 
     public function updateSalesBasedExternalOrderPreviewRows(array $rows): void
     {
+        if ($rows === [] && $this->salesBasedExternalOrderPreviewRows !== []) {
+            return;
+        }
+
         $this->salesBasedExternalOrderPreviewRows = collect($rows)
             ->map(function (array $row): array {
                 $inputCaseQuantity = $row['input_order_case_qty'] ?? null;

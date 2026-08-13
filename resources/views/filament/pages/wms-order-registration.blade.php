@@ -754,7 +754,7 @@
                     </button>
                 </div>
 
-                <div class="overflow-auto p-4">
+                <div wire:ignore class="overflow-auto p-4">
                     @include('filament.components.order-registration-sales-preview-edit', ['lw' => $this])
                 </div>
 

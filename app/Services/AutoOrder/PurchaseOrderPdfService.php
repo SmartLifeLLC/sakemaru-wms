@@ -510,7 +510,7 @@ class PurchaseOrderPdfService
         if ($address !== '') {
             $this->pdf->SetXY($startX + 2, $lineY);
             $this->setFittingFont('kozminproregular', '', 9, 7.2, $address, $width - 4);
-            $this->pdf->Cell($width - 4, $textLineHeight, $address, 0, 1, 'C');
+            $this->pdf->Cell($width - 4, $textLineHeight, $address, 0, 1, 'R');
             $lineY += $textLineHeight;
         }
 
@@ -519,7 +519,7 @@ class PurchaseOrderPdfService
             $contactText = implode('  ', $contactLines);
             $this->pdf->SetXY($startX + 2, $lineY);
             $this->setFittingFont('kozminproregular', '', 9, 7.2, $contactText, $width - 4);
-            $this->pdf->Cell($width - 4, $textLineHeight, $contactText, 0, 1, 'C');
+            $this->pdf->Cell($width - 4, $textLineHeight, $contactText, 0, 1, 'R');
             $lineY += $textLineHeight;
         }
 
@@ -1232,25 +1232,18 @@ class PurchaseOrderPdfService
         $boxWidth = self::CONTENT_WIDTH;
         $lineHeight = 5;
         $padding = 2;
+        $communicationText = '【通信欄】'.($notes ? '  '.$notes : '');
 
         $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
 
-        $contentHeight = $this->communicationContentHeight($notes);
-        $boxHeight = self::LINE_HEIGHT_NORMAL + $contentHeight;
-
-        $this->pdf->SetXY($boxX, $boxY);
-        $this->pdf->Cell($boxWidth, self::LINE_HEIGHT_NORMAL, '【通信欄】', 0, 1, 'L');
+        $boxHeight = $this->communicationContentHeight($communicationText);
 
         // 枠線
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
-        $this->pdf->Rect($boxX, $boxY + self::LINE_HEIGHT_NORMAL, $boxWidth, $contentHeight);
+        $this->pdf->Rect($boxX, $boxY, $boxWidth, $boxHeight);
 
-        // 枠内にテキストを描画
-        if ($notes) {
-            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
-            $this->pdf->SetXY($boxX + $padding, $boxY + self::LINE_HEIGHT_NORMAL + 1);
-            $this->pdf->MultiCell($boxWidth - ($padding * 2), $lineHeight, $notes, 0, 'L');
-        }
+        $this->pdf->SetXY($boxX + $padding, $boxY + 0.5);
+        $this->pdf->MultiCell($boxWidth - ($padding * 2), $lineHeight, $communicationText, 0, 'L');
 
         // Y座標を通信欄の下へ進める
         $this->currentY = $boxY + $boxHeight;
