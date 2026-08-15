@@ -2,18 +2,20 @@
     $lw = $lw ?? (isset($getLivewire) ? $getLivewire() : null);
     $selectedWarehouseLabel = $lw?->selectedWarehouseLabel() ?? '-';
     $today = now()->toDateString();
+    $defaultLastShippedFrom = now()->subDays(3)->toDateString();
+    $defaultLastShippedTo = now()->toDateString();
     $defaultExpectedArrivalDate = $lw?->defaultOrderExpectedArrivalDate() ?? now()->addDay()->toDateString();
     $candidateColumnHelps = [
-        '仕入先' => 'この商品で発注する仕入先です。EOS可・EOS不可の判定もここに表示します。',
-        '分類CD' => '商品の中分類コードです。商品分類の確認に使います。',
+        '仕入先' => 'この商品で発注する仕入先です。EOS可・FAX専用の判定もここに表示します。',
         '商品CD' => '商品マスタの商品コードです。',
-        '商品名' => '商品マスタの商品名です。長い商品名は省略表示されます。',
-        '規格' => '商品の容量や入り数など、商品パッケージの規格です。',
+        '商品名' => '商品マスタの商品名です。',
+        '規格' => '商品の容量です。',
         '棚番' => '選択中の倉庫で設定されている入荷デフォルト棚番です。',
         '発注点' => '選択中の倉庫・発注先・商品に設定されている発注点です。',
         '予定日' => '今回この画面から発注した場合の入荷予定日です。必要に応じて明細ごとに変更できます。',
         'ケース' => 'ケース単位で発注する数量を入力します。ケースとバラはどちらか一方を入力します。',
         'バラ' => 'バラ単位で発注する数量を入力します。ケースとバラはどちらか一方を入力します。',
+        '総バラ' => 'ケース入力は入数を掛け、バラ入力はそのまま集計した発注数量です。',
         '理論在庫' => '選択中の倉庫の real_stocks.available_quantity です。数値をクリックすると他倉庫の理論在庫を確認できます。',
         '見込在庫' => '理論在庫に、既に発注済みで未入荷の納品予定数を加えた見込在庫です。',
         '納品予定数' => '既に発注済みで、まだ入荷完了またはキャンセルされていない納品予定数です。',
@@ -23,12 +25,14 @@
         '2週' => '1週の前の7日間の販売数量です。',
         '3週' => '2週の前の7日間の販売数量です。',
         '前月' => '基準日の前月1か月分の販売数量です。',
+        '備考' => '商品発注先マスタの備考です。ボタンで内容を確認できます。',
     ];
 @endphp
 
 <div x-data="{
     columnHelpDescriptions: @js($candidateColumnHelps),
     columnHelpLabel: null,
+    noteModalText: null,
     filters: {
         itemCode: '',
         janCode: '',
@@ -37,8 +41,8 @@
         category1Id: '',
         category2Id: '',
         category3Id: '',
-        lastShippedFrom: '',
-        lastShippedTo: '',
+        lastShippedFrom: @js($defaultLastShippedFrom),
+        lastShippedTo: @js($defaultLastShippedTo),
     },
     results: [],
     quantities: {},
@@ -50,7 +54,7 @@
     perPage: 100,
     today: @js($today),
     fallbackExpectedArrivalDate: @js($defaultExpectedArrivalDate),
-    orderChannel: 'FAX',
+    orderChannel: 'AUTO',
     channelControlled: false,
     loading: false,
     searched: false,
@@ -85,6 +89,14 @@
         this.columnHelpLabel = null;
     },
 
+    openNoteModal(note) {
+        this.noteModalText = String(note || '').trim() || '備考はありません。';
+    },
+
+    closeNoteModal() {
+        this.noteModalText = null;
+    },
+
     formatNumber(value) {
         const number = Number(value);
         return new Intl.NumberFormat('ja-JP').format(Number.isFinite(number) ? number : 0);
@@ -100,36 +112,36 @@
     },
 
     initOrderCandidateCreateItems() {
-        const channel = this.safeWireGet('candidateSearchOrderChannel');
-        this.channelControlled = channel !== null;
-        this.orderChannel = this.channelControlled ? (channel || 'EOS') : 'FAX';
+        this.channelControlled = false;
+        this.orderChannel = 'AUTO';
         this.safeWireSet('orderCandidateItems', []);
     },
 
     setOrderChannel(channel) {
-        this.orderChannel = channel;
-        this.safeWireSet('candidateSearchOrderChannel', channel);
-        this.clearEosUnavailableQuantities();
-        this.syncToWire();
+        this.orderChannel = 'AUTO';
     },
 
     isEosUnavailable(item) {
-        return this.channelControlled && this.orderChannel === 'EOS' && item.is_eos_available === false;
+        return item.is_eos_available === false;
     },
 
-    itemKey(itemOrId, channel = this.orderChannel) {
+    isUnhandledItem(item) {
+        return !item.contractor_id || item.item_contractor_linked === false;
+    },
+
+    itemKey(itemOrId) {
         const id = typeof itemOrId === 'object' ? itemOrId.id : itemOrId;
 
-        return `${channel || 'FAX'}:${String(id)}`;
+        return String(id);
     },
 
     canAddItem(item) {
-        return !this.isTransferOrderItem(item) && !this.isEosUnavailable(item);
+        return !this.isTransferOrderItem(item) && !!item.contractor_id;
     },
 
-    clearEosUnavailableQuantities() {
+    clearUnavailableQuantities() {
         for (const item of this.results) {
-            if (!this.isEosUnavailable(item)) continue;
+            if (this.canAddItem(item)) continue;
 
             const key = this.itemKey(item);
             if (this.quantities[key]) {
@@ -142,6 +154,22 @@
 
     formatPackaging(item) {
         return String(item.packaging || '').trim() || '-';
+    },
+
+    formatShortDate(value) {
+        if (!value) return '-';
+        const text = String(value);
+        const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        return match ? `${match[1].slice(2)}/${match[2]}/${match[3]}` : text;
+    },
+
+    orderTotalPieces(item) {
+        const qty = this.getQty(item.id);
+        const capacityCase = Math.max(1, Number(item.capacity_case || 1));
+        const caseQty = Math.max(0, Number(qty.caseQty || 0));
+        const pieceQty = Math.max(0, Number(qty.pieceQty || 0));
+
+        return caseQty > 0 ? caseQty * capacityCase : pieceQty;
     },
 
     safeWireGet(path) {
@@ -195,9 +223,8 @@
             this.searched = true;
 
             const newIds = new Set(result.data.map(r => String(r.id)));
-            const activePrefix = `${this.orderChannel}:`;
             const pinned = Object.entries(this.pinnedItems)
-                .filter(([key, item]) => key.startsWith(activePrefix) && !newIds.has(String(item.id)))
+                .filter(([key, item]) => !newIds.has(String(item.id)))
                 .map(([, item]) => item);
             this.results = [...pinned, ...result.data];
 
@@ -211,7 +238,7 @@
                 }
                 this.plannedDateFor(item);
             });
-            this.clearEosUnavailableQuantities();
+            this.clearUnavailableQuantities();
             this.syncToWire();
         } finally {
             this.loading = false;
@@ -235,7 +262,7 @@
     },
 
     resetFilters() {
-        this.filters = { itemCode: '', janCode: '', itemName: '', contractorId: '', category1Id: '', category2Id: '', category3Id: '', lastShippedFrom: '', lastShippedTo: '' };
+        this.filters = { itemCode: '', janCode: '', itemName: '', contractorId: '', category1Id: '', category2Id: '', category3Id: '', lastShippedFrom: @js($defaultLastShippedFrom), lastShippedTo: @js($defaultLastShippedTo) };
         this.categories2 = [];
         this.categories3 = [];
         this.contractorSearch = '';
@@ -508,14 +535,11 @@
     syncToWire() {
         const items = [];
         for (const [key, qty] of Object.entries(this.quantities)) {
-            const separatorIndex = key.indexOf(':');
-            const channel = separatorIndex >= 0 ? key.slice(0, separatorIndex) : this.orderChannel;
-            const itemId = separatorIndex >= 0 ? key.slice(separatorIndex + 1) : key;
-            if (channel !== this.orderChannel) continue;
-
+            const itemId = key;
             const item = this.results.find(r => String(r.id) === itemId);
             if (!item) continue;
             if (!this.canAddItem(item)) continue;
+            const channel = item.order_channel || (item.is_eos_available ? 'EOS' : 'FAX');
             if ((qty.caseQty > 0) || (qty.pieceQty > 0)) {
                 if (qty.caseQty > 0) {
                     items.push({
@@ -523,6 +547,7 @@
                         item_code: item.code,
                         item_name: item.name,
                         item_packaging: item.packaging || '',
+                        item_contractor_note: item.item_contractor_note || '',
                         search_code: item.search_code || '',
                         ordering_code: item.ordering_code || '',
                         capacity_case: item.capacity_case || 1,
@@ -548,6 +573,7 @@
                         item_code: item.code,
                         item_name: item.name,
                         item_packaging: item.packaging || '',
+                        item_contractor_note: item.item_contractor_note || '',
                         search_code: item.search_code || '',
                         ordering_code: item.ordering_code || '',
                         capacity_case: item.capacity_case || 1,
@@ -574,12 +600,8 @@
 
     get validCount() {
         let count = 0;
-        const activePrefix = `${this.orderChannel}:`;
         for (const [key, qty] of Object.entries(this.quantities)) {
-            if (!key.startsWith(activePrefix)) continue;
-
-            const itemId = key.slice(activePrefix.length);
-            const item = this.results.find(r => String(r.id) === itemId);
+            const item = this.results.find(r => String(r.id) === key);
             if (item && !this.canAddItem(item)) continue;
             if ((qty.caseQty > 0) || (qty.pieceQty > 0)) count++;
         }
@@ -607,32 +629,27 @@
         x-text="hoveredItemName"
     ></div>
     @include('filament.components.order-registration-column-help-modal')
+    <div
+        x-cloak
+        x-show="noteModalText"
+        class="fixed inset-0 z-[10030] flex items-center justify-center bg-slate-950/50 p-4"
+    >
+        <div class="w-full max-w-xl overflow-hidden rounded-lg bg-white shadow-xl dark:bg-gray-900">
+            <div class="flex items-center justify-between bg-slate-800 px-4 py-3 text-white">
+                <div class="text-sm font-semibold">商品発注先マスタ備考</div>
+                <button type="button" x-on:click="closeNoteModal()" class="rounded p-1 text-white hover:bg-white/10">
+                    <x-heroicon-o-x-mark class="h-5 w-5" />
+                </button>
+            </div>
+            <div class="whitespace-pre-wrap px-4 py-4 text-sm leading-6 text-slate-800 dark:text-gray-100" x-text="noteModalText"></div>
+            <div class="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+                <button type="button" x-on:click="closeNoteModal()" class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">閉じる</button>
+            </div>
+        </div>
+    </div>
 
     <div class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
         <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <div x-show="channelControlled" x-cloak class="flex items-center gap-2">
-                <span class="whitespace-nowrap text-sm font-semibold text-slate-800 dark:text-slate-100">発注区分:</span>
-                <div class="grid w-64 grid-cols-2 gap-1 rounded-md bg-slate-100 p-1 dark:bg-gray-800">
-                    <button
-                        type="button"
-                        @click="setOrderChannel('EOS')"
-                        :class="orderChannel === 'EOS' ? 'bg-white text-blue-700 shadow-sm dark:bg-gray-950 dark:text-blue-300' : 'text-slate-600 hover:bg-white/70 dark:text-gray-300 dark:hover:bg-gray-700'"
-                        class="inline-flex items-center justify-center gap-1 rounded px-3 py-1.5 text-sm font-semibold transition"
-                    >
-                        <x-heroicon-o-cloud-arrow-up class="h-4 w-4" />
-                        EOS発注
-                    </button>
-                    <button
-                        type="button"
-                        @click="setOrderChannel('FAX')"
-                        :class="orderChannel === 'FAX' ? 'bg-white text-blue-700 shadow-sm dark:bg-gray-950 dark:text-blue-300' : 'text-slate-600 hover:bg-white/70 dark:text-gray-300 dark:hover:bg-gray-700'"
-                        class="inline-flex items-center justify-center gap-1 rounded px-3 py-1.5 text-sm font-semibold transition"
-                    >
-                        <x-heroicon-o-document-text class="h-4 w-4" />
-                        FAX発注
-                    </button>
-                </div>
-            </div>
             <span>
                 発注店:
                 <span class="font-semibold">{{ $selectedWarehouseLabel }}</span>
@@ -645,8 +662,8 @@
                 件数:
                 <span class="font-mono font-semibold" x-text="formatNumber(totalCount) + '件'"></span>
             </span>
-            <span x-show="searched && orderChannel === 'EOS'">
-                EOS不可:
+            <span x-show="searched">
+                FAX専用:
                 <span class="font-mono font-semibold text-amber-700 dark:text-amber-300" x-text="formatNumber(eosUnavailableCount) + '件'"></span>
             </span>
             <div class="ml-auto flex items-center gap-2">
@@ -822,18 +839,18 @@
     {{-- 検索結果テーブル --}}
     <div x-show="searched && !loading" x-cloak class="flex min-h-0 flex-1 flex-col">
         <div class="min-h-0 flex-1 overflow-x-scroll overflow-y-auto rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <table class="logistics-candidate-table divide-y divide-slate-200 text-xs dark:divide-slate-700" style="width: 1760px; min-width: 1760px;">
+            <table class="logistics-candidate-table divide-y divide-slate-200 text-xs dark:divide-slate-700" style="width: 1880px; min-width: 1880px;">
                 <colgroup>
-                    <col class="logistics-candidate-contractor-col" style="width: 132px !important;">
-                    <col class="logistics-candidate-code-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 40px !important;">
+                    <col class="logistics-candidate-contractor-col" style="width: 150px !important;">
                     <col class="logistics-candidate-code-col" style="width: 64px !important;">
                     <col class="logistics-candidate-item-name-col" style="width: 390px !important;">
                     <col class="logistics-candidate-packaging-col" style="width: 68px !important;">
                     <col class="logistics-candidate-location-col" style="width: 78px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-date-col" style="width: 136px !important;">
                     <col class="logistics-candidate-order-qty-col" style="width: 44px !important;">
                     <col class="logistics-candidate-order-qty-col" style="width: 44px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 58px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-number-col" style="width: 58px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
@@ -843,19 +860,21 @@
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-number-col" style="width: 58px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-date-col" style="width: 136px !important;">
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-200">
                     <tr>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold">行</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="仕入先" /></th>
-                        <th class="whitespace-nowrap px-1 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="分類CD" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="商品CD" /></th>
                         <th class="logistics-candidate-item-name px-2 py-1.5 text-left font-semibold" style="width: 390px !important; min-width: 390px !important; max-width: 390px !important;"><x-order-registration.column-help-heading label="商品名" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="規格" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="棚番" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="発注点" align="right" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
                         <th class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100"><x-order-registration.column-help-heading label="ケース" align="right" /></th>
                         <th class="logistics-candidate-order-qty whitespace-nowrap bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"><x-order-registration.column-help-heading label="バラ" align="right" /></th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="総バラ" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="理論在庫" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="見込在庫" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="納品予定数" align="right" /></th>
@@ -865,34 +884,38 @@
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="2週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="3週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="前月" align="right" /></th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="備考" align="center" /></th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
                     <template x-for="(item, index) in results" :key="item.id">
                         <tr
-                            :class="String(item.contractor_code) === '9012'
+                            :class="isUnhandledItem(item)
                                 ? 'bg-red-50 dark:bg-red-950/30'
                                 : isEosUnavailable(item)
-                                    ? 'bg-red-50 dark:bg-red-950/30'
+                                    ? 'bg-green-50 dark:bg-green-950/30'
                                 : (itemKey(item) in pinnedItems)
                                     ? 'bg-green-50 dark:bg-green-950/30'
                                     : 'bg-white dark:bg-slate-900'"
                             class="hover:bg-amber-50 dark:hover:bg-amber-950/30"
                         >
+                            <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono font-semibold text-slate-500 dark:text-slate-400" x-text="index + 1"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-700 dark:text-slate-200">
                                 <span x-show="String(item.contractor_code) === '9012'" class="block text-[10px] font-bold text-red-600 dark:text-red-400">移動発注対象</span>
-                                <span x-show="channelControlled && item.is_eos_available === false" class="inline-flex rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-200">EOS不可</span>
-                                <span x-show="channelControlled && item.is_eos_available === true" class="inline-flex rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">EOS可</span>
-                                <span class="block" x-text="item.supplier_name || item.contractor_name || '-'"></span>
+                                <span x-show="isUnhandledItem(item)" class="inline-flex rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-200">取扱なし</span>
+                                <span x-show="!isUnhandledItem(item) && item.is_eos_available === false" class="inline-flex rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX専用</span>
+                                <span x-show="!isUnhandledItem(item) && item.is_eos_available === true" class="inline-flex rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">EOS可</span>
+                                <span class="block whitespace-normal leading-4" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" x-text="item.supplier_name || item.contractor_name || '-'"></span>
                             </td>
-                            <td class="whitespace-nowrap px-1 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.item_category2_code || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.code"></td>
                             <td
                                 class="logistics-candidate-item-name px-2 py-1.5 font-medium text-slate-900 dark:text-white"
                                 style="width: 390px !important; min-width: 390px !important; max-width: 390px !important;"
                             >
                                 <span
-                                    class="block cursor-help truncate"
+                                    class="block cursor-help whitespace-normal leading-4"
+                                    style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"
                                     x-text="item.name"
                                     x-on:mouseenter="showItemNameTooltip($event, item.name)"
                                     x-on:mousemove="updateItemNameTooltipPosition($event)"
@@ -902,16 +925,6 @@
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="formatPackaging(item)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="item.default_location_code || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.safety_stock)"></td>
-                            <td class="whitespace-nowrap px-1 py-1.5 text-center">
-                                <input
-                                    type="date"
-                                    :value="plannedDateFor(item)"
-                                    :min="today"
-                                    x-bind:disabled="!canAddItem(item)"
-                                    x-on:change="setPlannedDate(item, $event.target.value)"
-                                    class="w-[128px] rounded-md border border-slate-300 bg-white px-1 py-0.5 text-xs font-mono text-slate-900 shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
-                                >
-                            </td>
                             <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-right dark:border-slate-600 dark:bg-amber-950/30">
                                 <input
                                     type="text"
@@ -956,6 +969,7 @@
                                     class="w-12 rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
                                 >
                             </td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono font-bold text-sky-700 dark:text-sky-300" x-text="formatNumber(orderTotalPieces(item))"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right">
                                 <button
                                     type="button"
@@ -967,17 +981,30 @@
                             </td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.projected_stock)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.incoming_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200" x-text="item.incoming_expected_arrival_date || '-'"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200" x-text="formatShortDate(item.incoming_expected_arrival_date)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="item.last_order_date || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week1_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week2_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.sales_week3_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(item.previous_month_sales_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-center">
+                                <button type="button" x-on:click.stop="openNoteModal(item.item_contractor_note)" class="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">表示</button>
+                            </td>
+                            <td class="whitespace-nowrap px-1 py-1.5 text-center">
+                                <input
+                                    type="date"
+                                    :value="plannedDateFor(item)"
+                                    :min="today"
+                                    x-bind:disabled="!canAddItem(item)"
+                                    x-on:change="setPlannedDate(item, $event.target.value)"
+                                    class="w-[128px] rounded-md border border-slate-300 bg-white px-1 py-0.5 text-xs font-mono text-slate-900 shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
+                                >
+                            </td>
                         </tr>
                     </template>
                     <template x-if="results.length === 0">
                         <tr>
-                            <td colspan="19" class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
+                            <td colspan="21" class="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
                                 検索結果がありません
                             </td>
                         </tr>

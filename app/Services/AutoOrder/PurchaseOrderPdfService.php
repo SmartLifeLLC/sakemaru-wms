@@ -13,6 +13,7 @@ use App\Models\WmsOrderDataFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use TCPDF;
+use TCPDF_FONTS;
 
 /**
  * 発注書PDF生成サービス（FAX用）
@@ -64,6 +65,8 @@ class PurchaseOrderPdfService
 
     private const LINE_WIDTH_THICK = 0.4;
 
+    private const DEFAULT_FONT_FAMILY = 'kozgopromedium';
+
     // テーブル列幅（mm）
     private const COL_WIDTHS = [
         'ordering_code' => 46,     // 発注CD（JANコード）- 省略禁止
@@ -91,6 +94,8 @@ class PurchaseOrderPdfService
     private ?string $communicationNotes = null;
 
     private string $generatedAtText = '';
+
+    private string $fontFamily = self::DEFAULT_FONT_FAMILY;
 
     // ヘッダー情報を保持（全ページで使用）
     private WmsOrderDataFile $dataFile;
@@ -372,9 +377,92 @@ class PurchaseOrderPdfService
         $this->pdf->setPrintHeader(false);
         $this->pdf->setPrintFooter(false);
 
-        // 日本語フォント設定（TCPDF内蔵CIDフォント）
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+        // 日本語フォント設定。Meiryo定義が配置されていない環境では日本語ゴシックへフォールバックする。
+        $this->fontFamily = $this->resolvePreferredFontFamily();
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_NORMAL);
         $this->generatedAtText = now()->format('Y年m月d H時i分s秒');
+    }
+
+    private function resolvePreferredFontFamily(): string
+    {
+        if ($this->tcpdfFontDefinitionExists('meiryo') && $this->tcpdfFontDefinitionExists('meiryob')) {
+            return 'meiryo';
+        }
+
+        $regularFontPath = $this->firstExistingFontPath([
+            'meiryo.ttf',
+            'Meiryo.ttf',
+            'meiryo.ttc',
+            'Meiryo.ttc',
+        ]);
+
+        if ($regularFontPath !== null && ! str_ends_with(strtolower($regularFontPath), '.ttc')) {
+            $registeredFont = TCPDF_FONTS::addTTFfont($regularFontPath, 'TrueTypeUnicode', '', 32);
+            if (is_string($registeredFont) && $registeredFont !== '') {
+                $this->registerBoldMeiryoFont();
+
+                if ($this->tcpdfFontDefinitionExists($registeredFont) && $this->tcpdfFontDefinitionExists($registeredFont.'b')) {
+                    return $registeredFont;
+                }
+            }
+        }
+
+        return self::DEFAULT_FONT_FAMILY;
+    }
+
+    private function registerBoldMeiryoFont(): void
+    {
+        if ($this->tcpdfFontDefinitionExists('meiryob')) {
+            return;
+        }
+
+        $boldFontPath = $this->firstExistingFontPath([
+            'meiryob.ttf',
+            'MeiryoBold.ttf',
+            'Meiryo Bold.ttf',
+            'meiryob.ttc',
+            'Meiryob.ttc',
+        ]);
+
+        if ($boldFontPath !== null && ! str_ends_with(strtolower($boldFontPath), '.ttc')) {
+            TCPDF_FONTS::addTTFfont($boldFontPath, 'TrueTypeUnicode', '', 32);
+        }
+    }
+
+    private function tcpdfFontDefinitionExists(string $fontName): bool
+    {
+        $fontPath = TCPDF_FONTS::_getfontpath();
+
+        return $fontPath !== '' && @file_exists($fontPath.$fontName.'.php');
+    }
+
+    /**
+     * @param  array<int, string>  $filenames
+     */
+    private function firstExistingFontPath(array $filenames): ?string
+    {
+        $directories = array_filter([
+            storage_path('fonts'),
+            resource_path('fonts'),
+            public_path('fonts'),
+            base_path('fonts'),
+            '/usr/share/fonts',
+            '/usr/local/share/fonts',
+            '/Library/Fonts',
+            '/System/Library/Fonts/Supplemental',
+            getenv('WMS_PDF_FONT_PATH') ?: null,
+        ]);
+
+        foreach ($directories as $directory) {
+            foreach ($filenames as $filename) {
+                $path = rtrim((string) $directory, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$filename;
+                if (@is_file($path)) {
+                    return $path;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -386,7 +474,7 @@ class PurchaseOrderPdfService
 
         // ヘッダー情報を保持（全ページで使用）
         $this->dataFile = $dataFile;
-        $this->warehouse = $firstCandidate->warehouse;
+        $this->warehouse = $dataFile->warehouse ?? $firstCandidate->warehouse;
         $this->contractor = $firstCandidate->contractor;
         $this->client = $this->getClientInfo($this->warehouse);
         $this->quantityResolver = app(OrderOutputQuantityResolver::class);
@@ -420,24 +508,23 @@ class PurchaseOrderPdfService
         }
 
         $contractorBottomY = $this->renderContractorCard();
-        $this->renderApprovalBoxes();
-        $deliveryBottomY = $this->renderDeliverySummary(max($contractorBottomY + 4, 50));
+        $deliveryBottomY = $this->renderDeliverySummary(max($contractorBottomY + 5, 51));
 
-        $this->currentY = max($deliveryBottomY + 3, 76);
+        $this->currentY = max($deliveryBottomY + 4, 75);
     }
 
     private function renderOrderTitleBlock(): void
     {
         $this->pdf->SetTextColor(15, 23, 42);
-        $this->pdf->SetFont('kozminproregular', '', 10);
+        $this->pdf->SetFont($this->fontFamily, '', 10);
         $this->pdf->SetXY(self::MARGIN_LEFT, self::MARGIN_TOP - 3);
         $this->pdf->Cell(95, 5, '生成日時: '.$this->generatedAtText, 0, 1, 'L');
 
-        $this->pdf->SetFont('kozminproregular', 'B', 20);
+        $this->pdf->SetFont($this->fontFamily, 'B', 20);
         $this->pdf->SetXY(self::MARGIN_LEFT, self::MARGIN_TOP + 3);
         $this->pdf->Cell(80, 8, '発注書', 0, 1, 'L');
 
-        $this->pdf->SetFont('kozminproregular', 'B', 10.5);
+        $this->pdf->SetFont($this->fontFamily, 'B', 10.5);
         $this->pdf->SetXY(self::MARGIN_LEFT, self::MARGIN_TOP + 11.5);
         $this->pdf->Cell(95, 5, '発注番号: '.$this->dataFile->batch_code, 0, 1, 'L');
         $this->pdf->SetTextColor(0, 0, 0);
@@ -449,14 +536,13 @@ class PurchaseOrderPdfService
             return;
         }
 
-        $startX = self::PAGE_WIDTH - self::MARGIN_RIGHT - 80;
+        $startX = self::PAGE_WIDTH - self::MARGIN_RIGHT - 86;
         $startY = self::MARGIN_TOP - 1;
-        $width = 80;
-        $height = 38;
+        $width = 86;
+        $height = 37;
         $lineY = $startY + 4;
         $logoSource = $this->client?->setting?->logo_image_url;
         $logoPath = $this->resolveLogoImageSource($logoSource);
-        $stampPath = $this->resolveLogoImageSource($this->client?->setting?->stamp_image_url);
 
         $this->pdf->SetDrawColor(203, 213, 225);
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
@@ -467,9 +553,9 @@ class PurchaseOrderPdfService
             try {
                 $this->pdf->Image(
                     $logoPath,
-                    $startX + 12,
+                    $startX + 14,
                     $lineY,
-                    56,
+                    58,
                     0,
                     '',
                     '',
@@ -488,28 +574,18 @@ class PurchaseOrderPdfService
         }
 
         if (! $logoPath) {
-            $this->pdf->SetFont('kozminproregular', 'B', self::FONT_SIZE_NORMAL);
+            $this->pdf->SetFont($this->fontFamily, 'B', self::FONT_SIZE_NORMAL);
             $this->pdf->SetXY($startX + 2, $lineY);
             $this->pdf->Cell($width - 4, self::LINE_HEIGHT_NORMAL, $this->client->name ?? '', 0, 1, 'C');
             $lineY += self::LINE_HEIGHT_NORMAL;
         }
 
-        if ($stampPath) {
-            try {
-                $this->pdf->SetAlpha(0.25);
-                $this->pdf->Image($stampPath, $startX + 65, $lineY - 0.5, 11, 11);
-                $this->pdf->SetAlpha(1);
-            } catch (\Throwable) {
-                $this->pdf->SetAlpha(1);
-            }
-        }
-
-        $textLineHeight = 3.9;
+        $textLineHeight = 4.4;
 
         $address = $this->companyHeaderAddress();
         if ($address !== '') {
             $this->pdf->SetXY($startX + 2, $lineY);
-            $this->setFittingFont('kozminproregular', '', 9, 7.2, $address, $width - 4);
+            $this->setFittingFont($this->fontFamily, '', 10.2, 8.2, $address, $width - 4);
             $this->pdf->Cell($width - 4, $textLineHeight, $address, 0, 1, 'R');
             $lineY += $textLineHeight;
         }
@@ -518,7 +594,7 @@ class PurchaseOrderPdfService
         if ($contactLines !== []) {
             $contactText = implode('  ', $contactLines);
             $this->pdf->SetXY($startX + 2, $lineY);
-            $this->setFittingFont('kozminproregular', '', 9, 7.2, $contactText, $width - 4);
+            $this->setFittingFont($this->fontFamily, '', 10.2, 8.2, $contactText, $width - 4);
             $this->pdf->Cell($width - 4, $textLineHeight, $contactText, 0, 1, 'R');
             $lineY += $textLineHeight;
         }
@@ -526,20 +602,11 @@ class PurchaseOrderPdfService
         $registrationLine = $this->companyHeaderRegistrationLine();
         if ($registrationLine !== '') {
             $this->pdf->SetXY($startX + 2, $lineY);
-            $this->setFittingFont('kozminproregular', '', 9, 7.2, $registrationLine, $width - 4);
+            $this->setFittingFont($this->fontFamily, '', 10.2, 8.2, $registrationLine, $width - 4);
             $this->pdf->Cell($width - 4, $textLineHeight, $registrationLine, 0, 1, 'R');
-            $lineY += $textLineHeight;
         }
 
-        $creatorName = $this->dataFile->created_by_name ?? '';
-        if ($creatorName) {
-            $creatorText = '発注担当: '.$creatorName;
-            $this->pdf->SetXY($startX + 2, $lineY);
-            $this->setFittingFont('kozminproregular', '', 9, 7.2, $creatorText, $width - 4);
-            $this->pdf->Cell($width - 4, $textLineHeight, $creatorText, 0, 1, 'R');
-        }
-
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_NORMAL);
     }
 
     private function companyHeaderAddress(): string
@@ -606,7 +673,7 @@ class PurchaseOrderPdfService
         $x = self::MARGIN_LEFT;
         $y = 28;
         $width = 140;
-        $height = 22;
+        $height = 18;
 
         $this->pdf->SetDrawColor(203, 213, 225);
         $this->pdf->SetFillColor(255, 255, 255);
@@ -617,7 +684,7 @@ class PurchaseOrderPdfService
         $this->pdf->SetTextColor(15, 23, 42);
         $contractorName = $this->contractor?->name ?? '（発注先名）';
         $contractorTitle = $contractorName.' 御中';
-        $this->setFittingFont('kozminproregular', 'B', 14, 10.5, $contractorTitle, $width - 8);
+        $this->setFittingFont($this->fontFamily, 'B', 14, 10.5, $contractorTitle, $width - 8);
         $this->pdf->SetXY($x + 5, $y + 3);
         $this->pdf->Cell($width - 8, 6, $contractorTitle, 0, 1, 'L');
 
@@ -633,49 +700,14 @@ class PurchaseOrderPdfService
         }
 
         $contactText = implode('   ', $contactParts);
-        $this->setFittingFont('kozminproregular', '', 11, 8.5, $contactText, $width - 8);
+        $this->setFittingFont($this->fontFamily, '', 11, 8.5, $contactText, $width - 8);
         $this->pdf->SetXY($x + 5, $y + 11.6);
         $this->pdf->Cell($width - 8, 5, $contactText, 0, 1, 'L');
-
-        $this->pdf->SetFont('kozminproregular', '', 10);
-        $this->pdf->SetTextColor(71, 85, 105);
-        $this->pdf->SetXY($x + 5, $y + 16);
-        $this->pdf->Cell($width - 8, 4, '下記内容にて、発注をお願いいたします。', 0, 1, 'L');
 
         $this->pdf->SetTextColor(0, 0, 0);
         $this->pdf->SetDrawColor(0, 0, 0);
 
         return $y + $height;
-    }
-
-    private function renderApprovalBoxes(): void
-    {
-        $x = self::PAGE_WIDTH - self::MARGIN_RIGHT - 64;
-        $y = 50;
-        $width = 64;
-        $headerHeight = 6;
-        $bodyHeight = 11;
-        $colWidth = $width / 3;
-        $labels = ['確認', '処理', '承認'];
-
-        $this->pdf->SetDrawColor(203, 213, 225);
-        $this->pdf->SetLineWidth(self::LINE_WIDTH);
-        $this->pdf->SetFillColor(248, 250, 252);
-        $this->pdf->Rect($x, $y, $width, $headerHeight, 'DF');
-        $this->pdf->Rect($x, $y + $headerHeight, $width, $bodyHeight);
-
-        $this->pdf->SetFont('kozminproregular', 'B', 9);
-        foreach ($labels as $index => $label) {
-            $colX = $x + ($colWidth * $index);
-            if ($index > 0) {
-                $this->pdf->Line($colX, $y, $colX, $y + $headerHeight + $bodyHeight);
-            }
-            $this->pdf->SetXY($colX, $y + 0.5);
-            $this->pdf->Cell($colWidth, $headerHeight - 1, $label, 0, 0, 'C');
-        }
-
-        $this->pdf->Line($x, $y + $headerHeight, $x + $width, $y + $headerHeight);
-        $this->pdf->SetDrawColor(0, 0, 0);
     }
 
     private function renderDeliverySummary(float $startY): float
@@ -690,31 +722,103 @@ class PurchaseOrderPdfService
             $this->contractor?->id ?? 0,
         );
 
-        $rows = [
-            ['納入場所:', $deliveryWarehouse?->name ?? ''],
-            ['仕入先コード:', (string) ($this->contractor?->code ?: ' - ')],
-            ['納入先指定コード:', (string) ($designatedCode ?? ' - ')],
-            ['発注日:', $this->dataFile->order_date?->format('Y-m-d') ?? ''],
-            ['納品予定日:', $this->dataFile->expected_arrival_date?->format('Y-m-d') ?? ''],
-        ];
-
         $labelWidth = 31;
         $valueGap = 2;
-        $lineHeight = 4.6;
+        $lineHeight = 4.8;
         $y = $startY;
 
-        foreach ($rows as [$label, $value]) {
-            $this->pdf->SetFont('kozminproregular', 'B', 11);
-            $this->pdf->SetXY(self::MARGIN_LEFT, $y);
-            $this->pdf->Cell($labelWidth, $lineHeight, $label, 0, 0, 'R');
+        $this->renderDeliverySummaryItem(
+            self::MARGIN_LEFT,
+            $y,
+            $labelWidth,
+            $valueGap,
+            120,
+            $lineHeight,
+            '納入場所:',
+            $deliveryWarehouse?->name ?? '',
+        );
+        $y += $lineHeight;
 
-            $this->pdf->SetFont('kozminproregular', '', 11);
-            $this->pdf->SetXY(self::MARGIN_LEFT + $labelWidth + $valueGap, $y);
-            $this->pdf->Cell(95, $lineHeight, $value, 0, 1, 'L');
+        $rightColumnX = self::MARGIN_LEFT + 72;
+        $this->renderDeliverySummaryItem(
+            self::MARGIN_LEFT,
+            $y,
+            $labelWidth,
+            $valueGap,
+            34,
+            $lineHeight,
+            '仕入先コード:',
+            (string) ($this->contractor?->code ?: ' - '),
+        );
+        $this->renderDeliverySummaryItem(
+            $rightColumnX,
+            $y,
+            $labelWidth,
+            $valueGap,
+            48,
+            $lineHeight,
+            '納入先指定コード:',
+            (string) ($designatedCode ?? ' - '),
+        );
+        $y += $lineHeight;
+
+        $this->renderDeliverySummaryItem(
+            self::MARGIN_LEFT,
+            $y,
+            $labelWidth,
+            $valueGap,
+            34,
+            $lineHeight,
+            '発注日:',
+            $this->dataFile->order_date?->format('Y-m-d') ?? '',
+        );
+        $this->renderDeliverySummaryItem(
+            $rightColumnX,
+            $y,
+            $labelWidth,
+            $valueGap,
+            48,
+            $lineHeight,
+            '納品予定日:',
+            $this->dataFile->expected_arrival_date?->format('Y-m-d') ?? '',
+        );
+        $y += $lineHeight;
+
+        $creatorName = trim((string) ($this->dataFile->created_by_name ?? ''));
+        if ($creatorName !== '') {
+            $this->renderDeliverySummaryItem(
+                self::MARGIN_LEFT,
+                $y,
+                $labelWidth,
+                $valueGap,
+                120,
+                $lineHeight,
+                '発注担当:',
+                $creatorName,
+            );
             $y += $lineHeight;
         }
 
         return $y;
+    }
+
+    private function renderDeliverySummaryItem(
+        float $x,
+        float $y,
+        float $labelWidth,
+        float $valueGap,
+        float $valueWidth,
+        float $lineHeight,
+        string $label,
+        string $value
+    ): void {
+        $this->pdf->SetFont($this->fontFamily, 'B', 11);
+        $this->pdf->SetXY($x, $y);
+        $this->pdf->Cell($labelWidth, $lineHeight, $label, 0, 0, 'R');
+
+        $this->pdf->SetFont($this->fontFamily, '', 11);
+        $this->pdf->SetXY($x + $labelWidth + $valueGap, $y);
+        $this->pdf->Cell($valueWidth, $lineHeight, $value, 0, 0, 'L');
     }
 
     private function resolveLogoImageSource(?string $source): ?string
@@ -907,13 +1011,13 @@ class PurchaseOrderPdfService
         $this->pdf->SetDrawColor(30, 64, 175);
         $this->pdf->SetTextColor(30, 64, 175);
         $this->pdf->SetLineWidth(self::LINE_WIDTH_THICK);
-        $this->pdf->SetFont('kozminproregular', 'B', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont($this->fontFamily, 'B', self::FONT_SIZE_SMALL);
         $this->pdf->Rect($x, $y, $width, $height);
         $this->pdf->SetXY($x, $y + 1.5);
         $this->pdf->Cell($width, 7, 'EOS発注控え', 0, 0, 'C');
         $this->pdf->SetTextColor(0, 0, 0);
         $this->pdf->SetDrawColor(0, 0, 0);
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_NORMAL);
     }
 
     /**
@@ -921,7 +1025,7 @@ class PurchaseOrderPdfService
      */
     private function renderContractorInfo(float $startY): void
     {
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_LARGE);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_LARGE);
         $this->pdf->SetXY(self::MARGIN_LEFT, $startY);
 
         $contractorName = $this->contractor?->name ?? '（発注先名）';
@@ -930,7 +1034,7 @@ class PurchaseOrderPdfService
         // 下線
         $this->pdf->Line(self::MARGIN_LEFT, $startY + 10, self::MARGIN_LEFT + 110, $startY + 10);
 
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_NORMAL);
         $lineY = $startY + 13;
 
         if ($this->contractor?->tel) {
@@ -991,7 +1095,7 @@ class PurchaseOrderPdfService
         $startX = self::PAGE_WIDTH - self::MARGIN_RIGHT - 100;
         $wh = $this->warehouse;
 
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_NORMAL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_NORMAL);
 
         $lineY = $startY;
 
@@ -1002,7 +1106,7 @@ class PurchaseOrderPdfService
 
         // 倉庫名
         if ($wh?->name) {
-            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+            $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
             $this->pdf->SetXY($startX, $lineY);
             $this->pdf->Cell(100, self::LINE_HEIGHT_NORMAL, $wh->name, 0, 1, 'L');
             $lineY += self::LINE_HEIGHT_NORMAL;
@@ -1015,14 +1119,14 @@ class PurchaseOrderPdfService
         }
         if ($address) {
             $postalCode = $wh?->postal_code ?? '';
-            $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+            $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
             $this->pdf->SetXY($startX, $lineY);
             $displayAddress = $postalCode ? '〒'.$postalCode.' '.$address : $address;
             $this->pdf->MultiCell(100, self::LINE_HEIGHT_NORMAL, $displayAddress, 0, 'L');
             $lineY = $this->pdf->GetY();
         }
 
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
 
         // TEL（倉庫優先 → Clientフォールバック）
         $tel = $wh?->tel ?: $this->client->tel;
@@ -1069,7 +1173,7 @@ class PurchaseOrderPdfService
      */
     private function renderTableHeader(): void
     {
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
         $this->pdf->SetLineWidth(self::LINE_WIDTH);
 
         $headers = [
@@ -1150,7 +1254,7 @@ class PurchaseOrderPdfService
         // 商品名の高さを計算（複数行対応）- index 4
         $itemName = $rowData[4];
         $itemNameWidth = $widths[4] - 2; // パディング分引く
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
         $itemNameLines = $this->pdf->getNumLines($itemName, $itemNameWidth);
         $actualRowHeight = max($rowHeight, $itemNameLines * self::LINE_HEIGHT_NORMAL);
 
@@ -1172,7 +1276,7 @@ class PurchaseOrderPdfService
             $this->currentPageDetailRowCount = 0;
         }
 
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
 
         $x = self::MARGIN_LEFT;
         $y = $this->currentY;
@@ -1234,7 +1338,7 @@ class PurchaseOrderPdfService
         $padding = 2;
         $communicationText = '【通信欄】'.($notes ? '  '.$notes : '');
 
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
 
         $boxHeight = $this->communicationContentHeight($communicationText);
 
@@ -1263,7 +1367,7 @@ class PurchaseOrderPdfService
             return $contentHeight;
         }
 
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
         $numLines = $this->pdf->getNumLines($notes, self::CONTENT_WIDTH - 4);
 
         return $numLines >= 4
@@ -1277,7 +1381,7 @@ class PurchaseOrderPdfService
     private function renderPageNumbers(): void
     {
         $totalPages = $this->totalPages;
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
 
         for ($i = 1; $i <= $totalPages; $i++) {
             $this->pdf->setPage($i);
@@ -1295,7 +1399,7 @@ class PurchaseOrderPdfService
      */
     private function truncateText(string $text, float $maxWidth): string
     {
-        $this->pdf->SetFont('kozminproregular', '', self::FONT_SIZE_SMALL);
+        $this->pdf->SetFont($this->fontFamily, '', self::FONT_SIZE_SMALL);
         $currentWidth = $this->pdf->GetStringWidth($text);
 
         if ($currentWidth <= $maxWidth) {

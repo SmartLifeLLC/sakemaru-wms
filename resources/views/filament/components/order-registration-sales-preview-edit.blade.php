@@ -2,22 +2,19 @@
     $lw = $lw ?? (isset($getLivewire) ? $getLivewire() : null);
     $rows = $lw->salesBasedExternalOrderPreviewRows ?? [];
     $conditions = $lw->salesBasedExternalOrderPreviewConditions ?? [];
-    $salesGenerationOrderChannel = $lw && property_exists($lw, 'salesGenerationOrderChannel')
-        ? $lw->salesGenerationOrderChannel
-        : null;
     $today = now()->toDateString();
     $defaultExpectedArrivalDate = $lw?->defaultOrderExpectedArrivalDate() ?? now()->addDay()->toDateString();
     $candidateColumnHelps = [
-        '仕入先' => 'この商品で発注する仕入先です。EOS可・EOS不可の判定もここに表示します。',
-        '分類CD' => '商品の中分類コードです。商品分類の確認に使います。',
+        '仕入先' => 'この商品で発注する仕入先です。EOS可・FAX専用の判定もここに表示します。',
         '商品CD' => '商品マスタの商品コードです。',
-        '商品名' => '商品マスタの商品名です。長い商品名は省略表示されます。',
-        '規格' => '商品の容量や入り数など、商品パッケージの規格です。',
+        '商品名' => '商品マスタの商品名です。',
+        '規格' => '商品の容量です。',
         '棚番' => '選択中の倉庫で設定されている入荷デフォルト棚番です。',
         '発注点' => '選択中の倉庫・発注先・商品に設定されている発注点です。',
         '予定日' => '今回この画面から発注した場合の入荷予定日です。必要に応じて明細ごとに変更できます。',
         'ケース' => 'ケース単位で発注する数量を入力します。ケースとバラはどちらか一方を入力します。',
         'バラ' => 'バラ単位で発注する数量を入力します。ケースとバラはどちらか一方を入力します。',
+        '総バラ' => 'ケース入力は入数を掛け、バラ入力はそのまま集計した発注数量です。',
         '理論在庫' => '選択中の倉庫の real_stocks.available_quantity です。数値をクリックすると他倉庫の理論在庫を確認できます。',
         '見込在庫' => '理論在庫に、既に発注済みで未入荷の納品予定数を加えた見込在庫です。',
         '納品予定数' => '既に発注済みで、まだ入荷完了またはキャンセルされていない納品予定数です。',
@@ -27,6 +24,7 @@
         '2週' => '1週の前の7日間の販売数量です。',
         '3週' => '2週の前の7日間の販売数量です。',
         '前月' => '基準日の前月1か月分の販売数量です。',
+        '備考' => '商品発注先マスタの備考です。ボタンで内容を確認できます。',
     ];
     $jsonOptions = JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
     $jsonElementPrefix = uniqid('order-registration-sales-preview-', false);
@@ -46,10 +44,11 @@
         conditionsJsonElementId: @js($conditionsJsonElementId),
         columnHelpDescriptions: {},
         columnHelpLabel: null,
+        noteModalText: null,
         rows: [],
         conditions: {},
-        orderChannel: @js($salesGenerationOrderChannel ?? 'FAX'),
-        channelControlled: @js($salesGenerationOrderChannel !== null),
+        orderChannel: 'AUTO',
+        channelControlled: false,
         today: @js($today),
         fallbackExpectedArrivalDate: @js($defaultExpectedArrivalDate),
         expectedArrivalDate: @js($conditions['expected_arrival_date'] ?? $defaultExpectedArrivalDate),
@@ -79,10 +78,13 @@
             return this.conditions[key] || '-';
         },
         isEosUnavailable(row) {
-            return this.channelControlled && this.orderChannel === 'EOS' && row.is_eos_available === false;
+            return row.is_eos_available === false;
+        },
+        isUnhandledRow(row) {
+            return !row.contractor_id || row.item_contractor_linked === false;
         },
         isRowDisabled(row) {
-            return this.isEosUnavailable(row);
+            return false;
         },
         hoveredItemName: null,
         itemNameTooltipX: 0,
@@ -101,6 +103,25 @@
         },
         closeColumnHelp() {
             this.columnHelpLabel = null;
+        },
+        openNoteModal(note) {
+            this.noteModalText = String(note || '').trim() || '備考はありません。';
+        },
+        closeNoteModal() {
+            this.noteModalText = null;
+        },
+        formatShortDate(value) {
+            if (!value) return '-';
+            const text = String(value);
+            const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            return match ? `${match[1].slice(2)}/${match[2]}/${match[3]}` : text;
+        },
+        rowTotalPieces(row) {
+            const capacityCase = Math.max(1, Number(row.capacity_case || 1));
+            const caseQty = Math.max(0, Number(row.input_order_case_qty || 0));
+            const pieceQty = Math.max(0, Number(row.input_order_piece_qty || 0));
+
+            return caseQty > 0 ? caseQty * capacityCase : pieceQty;
         },
         syncExpectedArrivalDate() {
             this.conditions.expected_arrival_date = this.expectedArrivalDate;
@@ -202,7 +223,6 @@
 
             const date = value < this.today ? this.today : value;
             this.rows.forEach((row) => {
-                if (this.isRowDisabled(row)) return;
                 row.default_expected_arrival_date = date;
             });
         },
@@ -241,20 +261,10 @@
         sync() {
             this.rows.forEach((row) => {
                 this.rowExpectedArrivalDateFor(row);
-                if (!this.isRowDisabled(row)) return;
-
-                row.input_order_case_qty = null;
-                row.input_order_piece_qty = null;
             });
             $wire.updateSalesBasedExternalOrderPreviewRows(this.rows);
         },
         cleanQuantity(row, field, oppositeField) {
-            if (this.isRowDisabled(row)) {
-                row[field] = null;
-                row[oppositeField] = null;
-                return;
-            }
-
             let value = String(row[field] ?? '');
             value = value.replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xFEE0));
             value = value.replace(/[^0-9]/g, '');
@@ -314,6 +324,24 @@
         x-text="hoveredItemName"
     ></div>
     @include('filament.components.order-registration-column-help-modal')
+    <div
+        x-cloak
+        x-show="noteModalText"
+        class="fixed inset-0 z-[10030] flex items-center justify-center bg-slate-950/50 p-4"
+    >
+        <div class="w-full max-w-xl overflow-hidden rounded-lg bg-white shadow-xl dark:bg-gray-900">
+            <div class="flex items-center justify-between bg-slate-800 px-4 py-3 text-white">
+                <div class="text-sm font-semibold">商品発注先マスタ備考</div>
+                <button type="button" x-on:click="closeNoteModal()" class="rounded p-1 text-white hover:bg-white/10">
+                    <x-heroicon-o-x-mark class="h-5 w-5" />
+                </button>
+            </div>
+            <div class="whitespace-pre-wrap px-4 py-4 text-sm leading-6 text-slate-800 dark:text-gray-100" x-text="noteModalText"></div>
+            <div class="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
+                <button type="button" x-on:click="closeNoteModal()" class="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">閉じる</button>
+            </div>
+        </div>
+    </div>
 
     <div class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
         <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -362,12 +390,8 @@
                 対象:
                 <span class="font-semibold" x-text="conditionValue('target_warehouse_name')"></span>
             </span>
-            <span x-show="channelControlled">
-                発注区分:
-                <span class="font-semibold" x-text="orderChannel === 'EOS' ? 'EOS発注' : 'FAX発注'"></span>
-            </span>
-            <span x-show="channelControlled && orderChannel === 'EOS'">
-                EOS不可:
+            <span>
+                FAX専用:
                 <span class="font-mono font-semibold text-amber-700 dark:text-amber-300" x-text="formatNumber(rows.filter((row) => isEosUnavailable(row)).length) + '件'"></span>
             </span>
             <span>
@@ -402,18 +426,18 @@
 
     <div x-show="rows.length > 0">
         <div class="max-h-[58vh] overflow-auto rounded-md border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <table class="logistics-candidate-table divide-y divide-slate-200 text-xs dark:divide-slate-700" style="width: 1760px; min-width: 1760px;">
+            <table class="logistics-candidate-table divide-y divide-slate-200 text-xs dark:divide-slate-700" style="width: 1880px; min-width: 1880px;">
                 <colgroup>
-                    <col class="logistics-candidate-contractor-col" style="width: 132px !important;">
-                    <col class="logistics-candidate-code-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 40px !important;">
+                    <col class="logistics-candidate-contractor-col" style="width: 150px !important;">
                     <col class="logistics-candidate-code-col" style="width: 64px !important;">
                     <col class="logistics-candidate-item-name-col" style="width: 390px !important;">
                     <col class="logistics-candidate-packaging-col" style="width: 68px !important;">
                     <col class="logistics-candidate-location-col" style="width: 78px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
-                    <col class="logistics-candidate-date-col" style="width: 136px !important;">
                     <col class="logistics-candidate-order-qty-col" style="width: 44px !important;">
                     <col class="logistics-candidate-order-qty-col" style="width: 44px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 58px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-number-col" style="width: 58px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
@@ -423,19 +447,21 @@
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-number-col" style="width: 54px !important;">
                     <col class="logistics-candidate-number-col" style="width: 58px !important;">
+                    <col class="logistics-candidate-number-col" style="width: 54px !important;">
+                    <col class="logistics-candidate-date-col" style="width: 136px !important;">
                 </colgroup>
                 <thead class="sticky top-0 z-10 bg-slate-100 text-slate-700 shadow-sm dark:bg-slate-800 dark:text-slate-200">
                     <tr>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold">行</th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="仕入先" /></th>
-                        <th class="whitespace-nowrap px-1 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="分類CD" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="商品CD" /></th>
                         <th class="logistics-candidate-item-name px-2 py-1.5 text-left font-semibold" style="width: 390px !important; min-width: 390px !important; max-width: 390px !important;"><x-order-registration.column-help-heading label="商品名" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="規格" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-left font-semibold"><x-order-registration.column-help-heading label="棚番" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="発注点" align="right" /></th>
-                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
                         <th class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:border-slate-600 dark:bg-amber-900/40 dark:text-amber-100"><x-order-registration.column-help-heading label="ケース" align="right" /></th>
                         <th class="logistics-candidate-order-qty whitespace-nowrap bg-amber-100 px-1 py-1.5 text-right font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"><x-order-registration.column-help-heading label="バラ" align="right" /></th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="総バラ" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="理論在庫" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="見込在庫" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="納品予定数" align="right" /></th>
@@ -445,29 +471,35 @@
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="2週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="3週" align="right" /></th>
                         <th class="whitespace-nowrap px-2 py-1.5 text-right font-semibold"><x-order-registration.column-help-heading label="前月" align="right" /></th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="備考" align="center" /></th>
+                        <th class="whitespace-nowrap px-2 py-1.5 text-center font-semibold"><x-order-registration.column-help-heading label="予定日" align="center" /></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
                     <template x-for="(row, index) in rows" :key="row.warehouse_id + '-' + row.item_code + '-' + row.contractor_id + '-' + index">
                         <tr
-                            :class="isEosUnavailable(row)
+                            :class="isUnhandledRow(row)
                                 ? 'bg-red-50 dark:bg-red-950/30'
+                                : isEosUnavailable(row)
+                                    ? 'bg-green-50 dark:bg-green-950/30'
                                 : 'bg-white dark:bg-slate-900'"
                             class="hover:bg-amber-50 dark:hover:bg-amber-950/30"
                         >
+                            <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono font-semibold text-slate-500 dark:text-slate-400" x-text="index + 1"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-700 dark:text-slate-200">
-                                <span x-show="channelControlled && row.is_eos_available === false" class="inline-flex rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-200">EOS不可</span>
-                                <span x-show="channelControlled && row.is_eos_available === true" class="inline-flex rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">EOS可</span>
-                                <span class="block" x-text="row.supplier_name || row.contractor_name || '-'"></span>
+                                <span x-show="isUnhandledRow(row)" class="inline-flex rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-200">取扱なし</span>
+                                <span x-show="!isUnhandledRow(row) && row.is_eos_available === false" class="inline-flex rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-bold text-green-700 dark:bg-green-900/40 dark:text-green-200">FAX専用</span>
+                                <span x-show="!isUnhandledRow(row) && row.is_eos_available === true" class="inline-flex rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">EOS可</span>
+                                <span class="block whitespace-normal leading-4" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" x-text="row.supplier_name || row.contractor_name || '-'"></span>
                             </td>
-                            <td class="whitespace-nowrap px-1 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="row.item_category2_code || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="row.item_code"></td>
                             <td
                                 class="logistics-candidate-item-name px-2 py-1.5 font-medium text-slate-900 dark:text-white"
                                 style="width: 390px !important; min-width: 390px !important; max-width: 390px !important;"
                             >
                                 <span
-                                    class="block cursor-help truncate"
+                                    class="block cursor-help whitespace-normal leading-4"
+                                    style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"
                                     x-text="row.item_name"
                                     x-on:mouseenter="showItemNameTooltip($event, row.item_name)"
                                     x-on:mousemove="updateItemNameTooltipPosition($event)"
@@ -477,16 +509,6 @@
                             <td class="whitespace-nowrap px-2 py-1.5 text-slate-600 dark:text-slate-300" x-text="row.item_packaging || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-700 dark:text-slate-200" x-text="row.default_location_code || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.safety_stock)"></td>
-                            <td class="whitespace-nowrap px-1 py-1.5 text-center">
-                                <input
-                                    type="date"
-                                    :value="rowExpectedArrivalDateFor(row)"
-                                    :min="today"
-                                    x-bind:disabled="isRowDisabled(row)"
-                                    x-on:change="setRowExpectedArrivalDate(row, $event.target.value)"
-                                    class="w-[128px] rounded-md border border-slate-300 bg-white px-1 py-0.5 text-xs font-mono text-slate-900 shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
-                                >
-                            </td>
                             <td class="logistics-candidate-order-qty whitespace-nowrap border-l-2 border-slate-300 bg-amber-50 px-1 py-1.5 text-right dark:border-slate-600 dark:bg-amber-950/30">
                                 <input
                                     type="text"
@@ -531,6 +553,7 @@
                                     class="w-12 rounded-md border-2 border-amber-300 bg-white px-1 py-0.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-amber-700 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-amber-500 dark:focus:ring-amber-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
                                 >
                             </td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono font-bold text-sky-700 dark:text-sky-300" x-text="formatNumber(rowTotalPieces(row))"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right">
                                 <button
                                     type="button"
@@ -542,12 +565,24 @@
                             </td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.projected_stock)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.incoming_qty)"></td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200" x-text="row.incoming_expected_arrival_date || '-'"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-center font-mono text-slate-700 dark:text-slate-200" x-text="formatShortDate(row.incoming_expected_arrival_date)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="row.last_order_date || '-'"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week1_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week2_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.sales_week3_qty)"></td>
                             <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-200" x-text="formatNumber(row.previous_month_sales_qty)"></td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-center">
+                                <button type="button" x-on:click.stop="openNoteModal(row.item_contractor_note)" class="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">表示</button>
+                            </td>
+                            <td class="whitespace-nowrap px-1 py-1.5 text-center">
+                                <input
+                                    type="date"
+                                    :value="rowExpectedArrivalDateFor(row)"
+                                    :min="today"
+                                    x-on:change="setRowExpectedArrivalDate(row, $event.target.value)"
+                                    class="w-[128px] rounded-md border border-slate-300 bg-white px-1 py-0.5 text-xs font-mono text-slate-900 shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900 dark:disabled:border-slate-700 dark:disabled:bg-slate-800"
+                                >
+                            </td>
                         </tr>
                     </template>
                 </tbody>

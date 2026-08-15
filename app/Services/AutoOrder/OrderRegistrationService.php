@@ -47,7 +47,6 @@ class OrderRegistrationService
             throw new \InvalidArgumentException('登録する発注明細がありません。');
         }
 
-        $incomingWarehouseId = $this->searchService->incomingWarehouseId($warehouseId);
         $entrySources = collect($lines)
             ->pluck('entry_source')
             ->filter()
@@ -71,7 +70,6 @@ class OrderRegistrationService
 
         $batchCode = DB::connection('sakemaru')->transaction(function () use (
             $warehouseId,
-            $incomingWarehouseId,
             $fallbackChannel,
             $jobOrderChannel,
             $jobEntrySource,
@@ -95,11 +93,13 @@ class OrderRegistrationService
             );
 
             foreach ($lines as $index => $line) {
+                $lineWarehouseId = max(1, (int) ($line['warehouse_id'] ?? $warehouseId));
+                $lineIncomingWarehouseId = $this->searchService->incomingWarehouseId($lineWarehouseId);
                 $lineChannel = $this->resolveLineChannel($line, $fallbackChannel);
                 $candidate = $this->createApprovedCandidate(
                     batchCode: $job->batch_code,
-                    warehouseId: $warehouseId,
-                    incomingWarehouseId: $incomingWarehouseId,
+                    warehouseId: $lineWarehouseId,
+                    incomingWarehouseId: $lineIncomingWarehouseId,
                     channel: $lineChannel,
                     entrySource: OrderEntrySource::tryFrom((string) ($line['entry_source'] ?? '')) ?? OrderEntrySource::SEARCH,
                     expectedArrivalDate: $line['expected_arrival_date'] ?? null,
